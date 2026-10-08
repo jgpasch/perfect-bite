@@ -1,16 +1,49 @@
-import { View, type ViewProps } from 'react-native';
+import { ScrollView, View, type ScrollViewProps, type ViewProps } from 'react-native';
 
-import { ThemeColor } from '@/constants/theme';
+import type { ColorToken } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedViewProps = ViewProps & {
-  lightColor?: string;
-  darkColor?: string;
-  type?: ThemeColor;
+  /** Background color token. Defaults to `background` (paper). */
+  background?: ColorToken;
 };
 
-export function ThemedView({ style, lightColor, darkColor, type, ...otherProps }: ThemedViewProps) {
-  const theme = useTheme();
+export function ThemedView({ style, background = 'background', ...rest }: ThemedViewProps) {
+  const { colors } = useTheme();
+  return <View style={[{ backgroundColor: colors[background] }, style]} {...rest} />;
+}
 
-  return <View style={[{ backgroundColor: theme[type ?? 'background'] }, style]} {...otherProps} />;
+/** Full-screen container on the paper background. Use `scroll` for content that can overflow at large Dynamic Type sizes. */
+export function Screen({
+  scroll,
+  style,
+  contentContainerStyle,
+  keyboardShouldPersistTaps,
+  automaticallyAdjustKeyboardInsets,
+  children,
+  ...rest
+}: ViewProps &
+  Pick<ScrollViewProps, 'keyboardShouldPersistTaps' | 'automaticallyAdjustKeyboardInsets'> & {
+    scroll?: boolean;
+    contentContainerStyle?: ScrollViewProps['contentContainerStyle'];
+  }) {
+  const { colors } = useTheme();
+  if (scroll) {
+    return (
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        style={[{ flex: 1, backgroundColor: colors.background }, style]}
+        contentContainerStyle={contentContainerStyle}
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        automaticallyAdjustKeyboardInsets={automaticallyAdjustKeyboardInsets}
+        {...rest}>
+        {children}
+      </ScrollView>
+    );
+  }
+  return (
+    <View style={[{ flex: 1, backgroundColor: colors.background }, style]} {...rest}>
+      {children}
+    </View>
+  );
 }

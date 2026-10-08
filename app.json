@@ -16,7 +16,14 @@
           "group.com.jgp.perfectbite"
         ]
       },
-      "appleTeamId": "4537GH756L"
+      "appleTeamId": "4537GH756L",
+      "infoPlist": {
+        "INAlternativeAppNames": [
+          {
+            "INAlternativeAppName": "Perfect Bite"
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.jgp.perfectbite",
@@ -42,6 +49,8 @@
           "imageWidth": 76
         }
       ],
+      "expo-sqlite",
+      "@bacons/apple-targets",
       "./plugins/with-scene-lifecycle"
     ],
     "experiments": {

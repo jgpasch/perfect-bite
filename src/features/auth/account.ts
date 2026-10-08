@@ -1,0 +1,81 @@
+// Session state (spec 4.8). One module-level store so the root layout gate and screens all
+// see the same state.
+import type { Session } from '@supabase/supabase-js';
+import { useSyncExternalStore } from 'react';
+
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+export type Account = { userId: string; email?: string };
+
+export type AccountState =
+  | { status: 'loading' }
+  | { status: 'unconfigured' }
+  | { status: 'signedOut' }
+  | { status: 'ready'; account: Account };
+
+let state: AccountState = isSupabaseConfigured ? { status: 'loading' } : { status: 'unconfigured' };
+const listeners = new Set<() => void>();
+
+function setState(next: AccountState) {
+  state = next;
+  listeners.forEach((l) => l());
+}
+
+export function getAccountState(): AccountState {
+  return state;
+}
+
+export function useAccountState(): AccountState {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => state,
+  );
+}
+
+/** The signed-in account, or null. */
+export function getAccount(): Account | null {
+  return state.status === 'ready' ? state.account : null;
+}
+
+function load(session: Session | null) {
+  if (!session) return setState({ status: 'signedOut' });
+  setState({ status: 'ready', account: { userId: session.user.id, email: session.user.email } });
+}
+
+let started = false;
+
+/** Subscribes to Supabase auth once. Safe to call repeatedly. */
+export function startAccount() {
+  if (started || !isSupabaseConfigured) return;
+  started = true;
+  supabase.auth.onAuthStateChange((event, session) => {
+    // INITIAL_SESSION fires on subscribe with the stored session (or null).
+    if (event === 'TOKEN_REFRESHED') return;
+    // Don't await Supabase calls inside the callback (supabase-js deadlock caveat).
+    setTimeout(() => load(session), 0);
+  });
+}
+
+// --- Sign-in ------------------------------------------------------------------------------
+
+/**
+ * Dev-only email sign-in with a 6-digit code (local Supabase delivers it to the mail viewer,
+ * http://127.0.0.1:55324). Google sign-in replaces this in M9 (spec 4.8, Q13).
+ */
+export async function sendEmailCode(email: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  if (error) throw error;
+}
+
+export async function verifyEmailCode(email: string, token: string): Promise<void> {
+  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+  if (error) throw error;
+}
+
+export async function signOut(): Promise<void> {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}

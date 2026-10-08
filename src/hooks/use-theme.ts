@@ -1,14 +1,36 @@
 /**
- * Learn more about light and dark modes:
+ * Theme tokens for the current color scheme. Light/dark follows the system setting.
  * https://docs.expo.dev/guides/color-schemes/
  */
 
-import { Colors } from '@/constants/theme';
+import {
+  Motion,
+  Opacity,
+  Palette,
+  Rounded,
+  Shadows,
+  Sizes,
+  Spacing,
+  Typography,
+  type ColorScheme,
+} from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function useTheme() {
-  const scheme = useColorScheme();
-  const theme = scheme === 'unspecified' ? 'light' : scheme;
+  const raw = useColorScheme();
+  const scheme: ColorScheme = raw === 'dark' ? 'dark' : 'light';
 
-  return Colors[theme];
+  return {
+    scheme,
+    colors: Palette[scheme],
+    typography: Typography,
+    spacing: Spacing,
+    rounded: Rounded,
+    shadows: Shadows,
+    sizes: Sizes,
+    motion: Motion,
+    opacity: Opacity,
+  };
 }
+
+export type Theme = ReturnType<typeof useTheme>;
