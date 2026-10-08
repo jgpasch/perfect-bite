@@ -1,0 +1,661 @@
+# Shopping List App: Product & Technical Spec (v0.2)
+
+Working title: **The Perfect Bite**. A better "Out of Milk": a shopping list that auto-organizes ingredients by aisle category, ties ingredients to recipes, lets a household share everything, and takes adds from Siri.
+
+This document is written to be handed to Claude Code as the build brief. Section 10 is the build order; section 12 lists open questions. Anything marked **[Default]** is a decision made in this spec to keep moving that the product owner can overturn. Anything marked **[SPIKE]** must be proven in M0 before the design depending on it is built.
+
+### Changes from v0.1
+- **Stack**: Expo + TypeScript instead of native Swift/SwiftUI, matching the stash project (`../stash`). Native Swift only for the Siri App Intent. Reuse stash's patterns and code where they fit (section 8.4).
+- **Auth**: Google only. During development, use stash's dev sign-in stub (email + one-time code through local Supabase). Sign in with Apple is dropped.
+- **Siri**: new requirement 12, "Hey Siri, add to The Perfect Bite" (section 4.9).
+- **Notifications**: moved from non-goals to Later, with a design sketch so v1 doesn't block them (section 11).
+- **Ingredients keyed by normalized name** instead of a client-provisional UUID, so offline adds need no id rewriting (sections 5, 6).
+- **Sync**: field-level last-write-wins using client timestamps, replacing row-level LWW by server `updated_at` (section 7).
+- **Households**: a user can belong to several households. The household owns all lists and recipes; users only have access through membership. Joining or leaving never moves data (section 4.7, Q1-Q3, Q6).
+- **Local dev**: same setup as stash, spelled out in section 8.3.
+- **Duplicates**: in-app single adds auto-Combine with an undo toast instead of a blocking prompt (section 4.4, Q10).
+- **Schema fixes**: added `is_grocery_item`, household counting, `updated_at` columns; defined owner transfer; added a quantity display rule.
+
+---
+
+## 1. Goals and non-goals
+
+### Goals (v1)
+1. Fast capture: typing an ingredient and hitting return should be the whole interaction. Saying it to Siri should work too.
+2. Lists organize themselves: items land in the right category section without the user doing anything.
+3. Recipes are first-class: an ingredient on a list can remember which recipe(s) it came from.
+4. Households share everything in real time, and the app works in a store with bad signal.
+
+### Platforms
+- **iOS** is the v1 target (needed for Siri), built with Expo.
+- **Web** via react-native-web is Later. Keep it possible: no iOS-only APIs outside `targets/` and clearly isolated modules.
+- **Android** is not a target, but nothing should rule it out.
+
+### Non-goals (v1)
+- iPad-optimized layouts, Apple Watch, Android.
+- Prices, budgets, store/aisle maps, barcode scanning.
+- Recipe import from URLs, meal planning, pantry tracking.
+- Notifications (Later, section 11.1).
+- Sign in with Apple, email/password accounts.
+
+---
+
+## 2. Requirements traceability
+
+The user's numbered requirements, mapped to spec sections. (There is no requirement 3; see Q8.)
+
+| # | Requirement | Spec section |
+|---|---|---|
+| 1 | Add ingredients to a shopping list | 4.2 |
+| 2 | Associate ingredients with a recipe, starting from the recipe or from selected ingredients | 4.5 |
+| 4 | Automatic categorization into sections | 4.3, 6 |
+| 5 | First time any ingredient is seen (by any user), categorize it with an LLM | 6 |
+| 5.1 | Batch those LLM requests | 6.3 |
+| 6 | Per-user recategorization, affects only that user | 4.3.2, 5 |
+| 7 | Users can add other users to their account and share all data | 4.7, 5 |
+| 7.1 | Data ownership for shared accounts (deferred) | 12 |
+| 8 | Duplicate adds: combine quantity or remove duplicate (auto-combine with undo, per Q10) | 4.4 |
+| 9 | Per-user category order | 4.3.3 |
+| 10 | Multiple lists | 4.1 |
+| 11 | View a list flat or grouped by recipe | 4.6 |
+| 12 | "Hey Siri, add to The Perfect Bite" sends an ingredient to a list | 4.9 |
+| 13 | Notifications (someday) | 11.1 |
+
+---
+
+## 3. Glossary
+
+- **Household**: the "account" from requirement 7, and the **owner of all shared data**. A group of users who share all of its lists and recipes. A user can belong to several households and always belongs to at least one; a solo user is a household of one. Users never own lists or recipes directly.
+- **Personal household**: the household created for a user at sign-up. Nothing special about it except that it exists from day one; it can be renamed, shared, or left like any other.
+- **Ingredient**: a global, canonical catalog entry (e.g. `milk`), shared across *all* users of the app, identified by its **normalized name**. Holds the default category.
+- **List item**: an ingredient on a specific list, with a quantity and checked state.
+- **Contribution**: one reason a list item is on the list (added by hand, by Siri, or from recipe X), with its own quantity. A list item has one or more contributions; its displayed quantity is their sum.
+- **Category**: a store section (Produce, Dairy, ...). A fixed system set, plus optional user-created custom categories.
+- **Override**: a user's personal choice of category for an ingredient, replacing the global default for that user only.
+- **Default list**: the list Siri adds to when the user doesn't name one. Per user.
+
+---
+
+## 4. Product behavior
+
+### 4.1 Lists (req 10)
+- A household can have any number of lists. Each list belongs to exactly one household and has a name, an optional emoji/color, and a sort position.
+- Home screen: all lists the user can see, with unchecked-item counts. If the user belongs to more than one household, lists are grouped into one section per household (household name as the header, in the user's household order); with one household there is no household UI at all. Create (choosing the household when there is more than one), rename, reorder (drag, within a household), archive, and delete (with confirm).
+- List actions: "Clear checked items", "Uncheck all", "Share as text" (plain text via the system share sheet).
+- Each user has a **default list** [Default: the first list, "Groceries"], changeable in Settings and from a list's menu ("Make default for Siri"). If the default list is deleted or archived, the first remaining list becomes the default.
+
+### 4.2 Adding items (req 1)
+- A persistent add field sits at the bottom of the list screen. Typing shows autocomplete from (a) the household's recently used ingredients, then (b) the global ingredient catalog (filtered per 6.5).
+- Return adds the item and keeps the keyboard up for the next one.
+- Light quantity parsing on input: a leading number and optional unit are pulled out. `2 lbs chicken thighs` becomes quantity `2`, unit `lb`, name `chicken thighs`. `milk` has no quantity. Number words (`two avocados`) are parsed too, since Siri dictation produces them. The item row has an edit sheet for name, quantity, unit, note, and category.
+- Supported units [Default]: count (none), `g`, `kg`, `oz`, `lb`, `ml`, `l`, `tsp`, `tbsp`, `cup`, `fl oz`, `pt`, `qt`, `gal`, `can`, `jar`, `bag`, `box`, `bunch`, `clove`, `pinch`, `dozen`. Unknown unit words stay part of the name.
+- Name normalization (produces the ingredient key): lowercase, trim, collapse whitespace, strip punctuation, simple English singularization (`tomatoes` to `tomato`, `berries` to `berry`, with an exception list such as `hummus`, `asparagus`, `molasses`, `grits`). The user's original text is kept as the item's display name. The normalizer lives in `src/shared/` and is used unchanged by the app and the Edge Functions, so client and server always agree on the key.
+- Tap a row to check it off. Checked items move to a collapsed "Checked" section at the bottom of the list (they are not deleted). Swipe to delete; undo toast for 5 seconds.
+
+### 4.3 Categories (req 4, 6, 9)
+
+#### 4.3.1 Automatic categorization
+- Every ingredient has a global default category, set by the LLM the first time anyone in the app adds it (section 6).
+- If the ingredient is already known, the item drops into its section instantly, offline included (the catalog is cached on device).
+- If it is new, it appears immediately in its own "Sorting..." state at the top of the list and moves into its section when categorization returns. If categorization fails, it goes to **Other** and is retried in the background.
+
+#### 4.3.2 Recategorizing (req 6)
+- From the item's edit sheet or a long-press menu, "Move to category..." opens a category picker (with "New category...").
+- This writes a **per-user override** for that ingredient. It affects every list for *that user only*. Other household members, and the global default, are unchanged.
+- Consequence to accept: two household members can see the same shared item in different sections. That is intended.
+- A "Reset to default" option removes the override.
+- Overrides are not fed back into the global catalog in v1 (see open question Q4).
+
+#### 4.3.3 Category order (req 9)
+- Each user has their own category order, used in every list's grouped-by-category view. Default order follows a typical store walk (section 6.2 order).
+- The user reorders sections by drag in a "Reorder sections" mode on any list, or in Settings.
+- Stored per user and synced to all of that user's devices [Default]. Not shared with household members.
+- Custom categories are per user [Default]; new ones go at the end of that user's order.
+
+### 4.4 Duplicate handling (req 8)
+A duplicate is an add whose normalized ingredient matches an **unchecked** item already on the same list.
+
+- **Single add in the app**: no prompt, so the add field never blocks the next item (goal 1). The new quantity is added to the existing item as a new contribution (**Combine**), the existing row briefly highlights, and a toast appears for 5 seconds: "Combined with *milk* (1 gal). **Undo** · **Keep existing**".
+  - **Undo**: removes the add entirely.
+  - **Keep existing**: removes the new quantity. If the add came from a recipe, the recipe link is still recorded (a contribution with no quantity) so the recipe-grouped view stays accurate [Default].
+  - Both actions are also available later from the item's edit sheet, which lists its contributions with a delete control on each.
+- **Adds with no UI always Combine silently**: Siri adds (4.9), adds that arrive by sync from a household member, and offline-conflict resolution (7.3). The toast only shows on the device doing an in-app add.
+- **Quantity math**: if both quantities share a unit, or convertible units within the same dimension (mass with mass, volume with volume, metric and US customary both allowed), sum them.
+  - **Display rule** [Default]: show the sum in the unit of the larger contribution, rounded to a friendly value (nearest 1/4 for cup/tsp/tbsp, 0.1 for lb/kg/l, whole numbers for g/ml/count). If rounding would hide a contribution (e.g. `1 cup + 1 tsp` rounds to `1 cup`), show both instead: `1 cup + 1 tsp`.
+  - If either has no quantity, the item shows contributions joined (e.g. `1 gal + 1`). If units are incompatible (`2 cans` + `400 g`), the row shows both (`2 cans + 400 g`). No error.
+- **If the matching item is checked**: no prompt. The item is unchecked and its contributions are replaced with the new one (you bought it before; you need it again).
+- **Bulk add** (adding a recipe to a list): one sheet lists every conflict with a per-row Combine / Keep existing toggle, plus "Combine all" and "Keep all existing".
+
+### 4.5 Recipes (req 2)
+- Recipes belong to the household. A recipe has a name, optional notes, optional source URL, and a list of recipe ingredients (ingredient, quantity, unit, note).
+- **Start from the recipe**: Recipes tab, "New recipe", name it, add ingredients with the same add field and parser as lists.
+- **Start from ingredients**: on any list, enter Select mode, pick items, then "Make recipe..." (create a new recipe from the selection) or "Add to recipe..." (append to an existing recipe). The selected list items also get that recipe added as a contribution, so they immediately group under it.
+- The Recipes tab groups recipes by household the same way lists are grouped (4.1).
+- **Copy to household...**: a member of several households can copy a recipe into another of their households (a new, independent recipe owned by that household). This is how a recipe gets from one household to another; nothing is ever shared across households.
+- **Add a recipe to a list**: from the recipe screen, "Add to list...". Only lists in the recipe's household are offered (the "Copy to household..." action is shown as the way to reach others). Pick the list, then a checklist of the recipe's ingredients (all selected by default, so the user can uncheck what they already have). Optional servings multiplier (0.5x, 1x, 2x, 3x) scales quantities. Duplicate handling per 4.4 bulk add.
+- Editing a recipe does not retroactively change list items already added from it.
+- Deleting a recipe keeps its list items; their contributions become "no recipe".
+
+### 4.6 List view modes (req 11)
+A segmented control at the top of each list: **By category** | **By recipe**. The last choice per list is remembered on the device.
+
+- **By category** (default): sections in the user's category order (4.3.3), using the user's overrides. Empty sections are hidden. Within a section, items sort by when they were added [Default] (manual drag within a section is a later enhancement).
+- **By recipe**: one section per recipe that has a contribution on this list, ordered by most recently added. A final **Other items** section holds items with only manual or Siri contributions. Categories are ignored in this view.
+  - An item with contributions from several recipes appears under *each* of those recipes, showing that recipe's contribution quantity, with a small "also in: Tacos" hint. Checking it in any section checks the single underlying item everywhere.
+  - Each recipe header has a menu: "Check all", "Remove recipe from list" (removes that recipe's contributions; items left with no contributions are deleted).
+- Checked items behave the same in both modes (collapsed "Checked" section at bottom).
+
+### 4.7 Households and sharing (req 7, 7.1)
+
+**Principle: the household owns the data.** Every list and recipe belongs to one household. Users get access by being members, and lose it by leaving. No action ever moves data between households or hands it to a user; the only way data crosses households is an explicit copy (recipes, 4.5).
+
+**Membership**
+- Sign-up creates the user's **personal household** ("*John's household*", renameable) with a starter list.
+- A user can belong to any number of households (Q6). They must always belong to at least one.
+- Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Rename, Leave, and (owners only) Remove member, Make owner, Delete household.
+- The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user.
+
+**Roles** (Q1)
+- `owner` or `member`. A household can have several owners and always has at least one.
+- Everyone has equal edit rights over the household's lists and recipes (create, edit, check, delete).
+- Owners additionally manage the household: rename it, remove members, make another member an owner, and delete the household.
+- Any member can invite (Q16).
+
+**Invites**
+- "Invite" generates an invite link for that household (Universal Link, single use, expires in 7 days) shared through the share sheet.
+- Opening the link (signed in) shows "Join *John's household*? You'll share its lists and recipes. Your other households aren't affected." Accepting adds the user as a member. Nothing of theirs moves (Q3).
+- Already a member: the link says so and opens the household.
+
+**Leaving and removal** (Q2)
+- Leaving removes access; the data stays with the household. The user keeps no copy.
+- The last owner leaving promotes the member who joined earliest to owner.
+- The last member leaving deletes the household and its data, after a confirm that says so.
+- If the user is leaving their only household, a new empty personal household is created for them, so they always have one.
+- When access is lost (leave or removal), each of the user's devices removes that household's data from local storage on its next sync, and any queued outbox mutations for it are dropped.
+- **Delete household** (owners only): deletes it for every member, after a confirm naming how many members and lists are affected. Members left with no household get a new personal household.
+
+**Per-user settings stay per user**, across all households: category overrides, category order, custom categories, household order, and the Siri default list (which can be in any household).
+
+All changes sync live to all members' devices.
+
+### 4.8 Accounts
+- **Google sign-in only**, through Supabase Auth, the same way as stash (native Google Sign-In SDK, then `signInWithIdToken`).
+- **During development**: use stash's dev sign-in stub (email + 6-digit code; local Supabase delivers the code to Inbucket). Google replaces it once OAuth client IDs exist (Q13). Nothing else in the app may depend on which sign-in method is used.
+- A first-run user gets a personal household (4.7) with a starter list named "Groceries", which is their default list.
+- Account deletion (App Store requirement): deletes the user, their overrides, order, and custom categories, then leaves each of their households per 4.7 (owner promotion; households where they were the last member are deleted with their data). Shared households keep their data.
+- Note: App Store Guideline 4.8 expects a privacy-focused login (e.g. Sign in with Apple) alongside Google for a *public* release. Fine to ignore for personal/TestFlight use; revisit only if this goes to the public App Store.
+
+### 4.9 Siri (req 12)
+
+**Platform constraint** (learned in stash): App Shortcut phrases can only contain `AppEnum`/`AppEntity` parameters, not free-form text. "Hey Siri, add milk to The Perfect Bite" in one breath is not expected to work. The interaction is two turns.
+
+**Interaction**
+1. User: "Hey Siri, **add to The Perfect Bite**."
+2. Siri: "What do you want to add?"
+3. User: "Two avocados."
+4. Siri: "Added two avocados to Groceries." The app does not open.
+
+**Naming a list**: lists are exposed as an `AppEntity`, so a phrase can include one: "Hey Siri, add to **Costco** in The Perfect Bite." Without one, the item goes to the user's default list (4.1).
+
+**Behavior**
+- The spoken text goes through the same parser and normalizer as a typed add (4.2). One utterance is one item in v1 (multi-item splitting is Later, 11.3).
+- Duplicates always Combine, with no prompt (4.4). Siri's reply doesn't mention it.
+- Works offline and while the phone is locked (after first unlock since boot), using stash's App Group queue design.
+- Unknown ingredients show "Sorting..." on every device until categorized, as with any add.
+- If the user isn't signed in, the item waits in the queue and is added after sign-in.
+- Also available, for free, through the Shortcuts app and the Action Button.
+
+**Implementation**
+- A Swift `AppIntent` named `AddToPerfectBiteIntent` in an App Intents extension under `targets/`, added with `@bacons/apple-targets` (as stash's `targets/save-intent`).
+  - `@Parameter(title: "Item", requestValueDialog: "What do you want to add?") var text: String`
+  - `@Parameter(title: "List") var list: ListEntity?`
+  - `openAppWhenRun = false`
+- `ListEntity` values come from a **list snapshot** (`lists.json`: id, name, and household name per list across all the user's households, plus the default list id) that the app writes to the App Group container whenever lists or memberships change. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate.
+- `perform()`:
+  1. Writes an envelope to the App Group queue: `{ id: uuidv7, text, list_id | null, created_at, source: "siri" }`.
+  2. Makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**
+  3. Replies with the dialog. If the upload failed, the reply is the same; the item is uploaded later.
+- `siri-add` Edge Function: parses and normalizes with the shared code, resolves the list, applies auto-Combine, inserts the list item and contribution with ids derived from the envelope id (so a repeat upload is a no-op), and triggers categorization for unknown names.
+- The app drains the queue on launch and foreground (as stash does). Envelopes already applied by `siri-add` are no-ops because of the derived ids.
+- Envelope format: one Zod schema in `src/shared/` and a matching Swift `Codable`, with a contract test (as stash).
+- **App name**: the App Shortcut phrase must include the app's display name, so the bundle display name must be exactly what users say. Stash had to use phrases like "Add to my Stash"; test early whether "add to The Perfect Bite" is recognized reliably, and register a few variants ("Add to Perfect Bite", "Add something to The Perfect Bite"). **[SPIKE]**
+
+---
+
+## 5. Data model
+
+Postgres (Supabase). Row ids are UUIDv7 generated on the client so rows can be created offline. All tables have `created_at` and `updated_at` (server-set). Household-scoped tables also have `deleted_at` for soft delete (needed for sync) and `field_clock jsonb` for conflict resolution (7.3).
+
+**Ingredient key**: ingredients are identified by `normalized_name` (text primary key). The client can always compute it, offline included, so list items reference an ingredient without waiting for the server. No provisional ids, no rewriting.
+
+```sql
+-- Global, shared across all users
+create table categories (
+  id            uuid primary key,
+  slug          text unique,          -- e.g. 'produce'; null for custom
+  name          text not null,
+  owner_user_id uuid references auth.users, -- null = system category
+  default_rank  int                    -- default store-walk order for system categories
+);
+
+create table ingredients (
+  normalized_name     text primary key,
+  display_name        text not null,
+  default_category_id uuid references categories,     -- null while pending
+  status              text not null default 'pending', -- pending | categorized | failed
+  is_grocery_item     boolean,                          -- null until categorized
+  categorized_by      text,                             -- e.g. model id, 'seed', 'admin'
+  attempts            int not null default 0,
+  household_count     int not null default 0,           -- see 6.5
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
+);
+
+-- Which households have used an ingredient. Service role only; used to maintain household_count.
+create table ingredient_households (
+  ingredient_name text references ingredients on delete cascade,
+  household_id    uuid references households on delete cascade,
+  primary key (ingredient_name, household_id)
+);
+
+-- Households (req 7)
+create table households (
+  id         uuid primary key,
+  name       text not null,
+  created_by uuid references auth.users on delete set null -- informational only; roles live in household_members
+);
+
+-- A user can be in many households (Q6). Every household has at least one owner,
+-- and every user at least one membership; both are enforced by the household functions.
+create table household_members (
+  household_id uuid references households on delete cascade,
+  user_id      uuid references auth.users on delete cascade,
+  role         text not null default 'member', -- owner | member
+  joined_at    timestamptz not null default now(), -- used for owner promotion
+  position     double precision not null,          -- this user's household order (per user)
+  primary key (household_id, user_id)
+);
+create index on household_members (user_id);
+
+create table household_invites (
+  id           uuid primary key,
+  household_id uuid references households on delete cascade,
+  token_hash   text not null unique,
+  created_by   uuid references auth.users,
+  expires_at   timestamptz not null,
+  used_by      uuid references auth.users,
+  used_at      timestamptz
+);
+
+-- Household data
+create table lists (
+  id           uuid primary key,
+  household_id uuid not null references households,
+  name         text not null,
+  emoji        text,
+  position     double precision not null,
+  archived_at  timestamptz,
+  deleted_at   timestamptz,
+  field_clock  jsonb not null default '{}'
+);
+
+create table recipes (
+  id           uuid primary key,
+  household_id uuid not null references households,
+  name         text not null,
+  notes        text,
+  source_url   text,
+  deleted_at   timestamptz,
+  field_clock  jsonb not null default '{}'
+);
+
+create table list_items (
+  id              uuid primary key,
+  list_id         uuid not null references lists,
+  household_id    uuid not null references households,  -- denormalized for RLS
+  ingredient_name text not null references ingredients,
+  display_name    text not null,                         -- what the user typed or said
+  note            text,
+  checked_at      timestamptz,
+  checked_by      uuid references auth.users,
+  added_by        uuid references auth.users,
+  deleted_at      timestamptz,
+  field_clock     jsonb not null default '{}'
+);
+-- at most one live unchecked item per ingredient per list
+create unique index one_open_item_per_ingredient
+  on list_items (list_id, ingredient_name)
+  where deleted_at is null and checked_at is null;
+
+create table list_item_contributions (
+  id           uuid primary key,
+  list_item_id uuid not null references list_items,
+  household_id uuid not null references households,
+  source       text not null default 'manual', -- manual | recipe | siri
+  recipe_id    uuid references recipes,        -- set when source = 'recipe'
+  quantity     numeric,                        -- null = unspecified
+  unit         text,
+  added_by     uuid references auth.users,
+  deleted_at   timestamptz,
+  field_clock  jsonb not null default '{}'
+);
+
+create table recipe_ingredients (
+  id              uuid primary key,
+  recipe_id       uuid not null references recipes,
+  household_id    uuid not null references households,
+  ingredient_name text not null references ingredients,
+  display_name    text not null,
+  quantity        numeric,
+  unit            text,
+  note            text,
+  position        double precision not null,
+  deleted_at      timestamptz,
+  field_clock     jsonb not null default '{}'
+);
+
+-- Per-user preferences (req 6, 9). Never shared with the household.
+create table user_category_overrides (
+  user_id         uuid references auth.users on delete cascade,
+  ingredient_name text references ingredients,
+  category_id     uuid references categories,
+  primary key (user_id, ingredient_name)
+);
+
+create table user_category_order (
+  user_id     uuid references auth.users on delete cascade,
+  category_id uuid references categories,
+  position    double precision not null,
+  primary key (user_id, category_id)
+);
+
+-- Display info for showing members ("Alex added...", Households screen). auth.users isn't readable by clients.
+-- Readable by the user and by anyone who shares a household with them; filled from the Google profile.
+create table profiles (
+  user_id      uuid primary key references auth.users on delete cascade,
+  display_name text not null,
+  avatar_url   text
+);
+
+create table user_settings (
+  user_id         uuid primary key references auth.users on delete cascade,
+  default_list_id uuid references lists
+);
+```
+
+Note the `create table` order above is for readability; the real migration must create referenced tables first.
+
+**Unknown ingredients on insert**: clients can't write `ingredients` (RLS). A `before insert` trigger on `list_items` and `recipe_ingredients` (a `security definer` function) inserts a `pending` ingredient row if the name is missing (`on conflict do nothing`) and records the household in `ingredient_households`. So a list item can always be pushed, even before categorization has run.
+
+**Effective category** for a user and ingredient = `user_category_overrides.category_id` if present, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed).
+
+**Row-level security**
+- `ingredients`, system `categories`: readable by any authenticated user; writable only by the service role and the insert trigger above.
+- `ingredient_households`: no client access.
+- Custom `categories`, `user_category_overrides`, `user_category_order`, `user_settings`: read/write only where `user_id`/`owner_user_id = auth.uid()`.
+- Household tables: read/write where `household_id` is one of the caller's households: `household_id in (select my_household_ids())`, where `my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
+- `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
+- `household_invites`: no direct access; `create_invite` and `accept_invite` only.
+- `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
+- Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
+
+---
+
+## 6. Ingredient categorization (req 4, 5, 5.1)
+
+### 6.1 Flow
+1. Client adds an item. It normalizes the name and looks in its local ingredient cache.
+2. **Hit**: use the cached category. Done.
+3. **Miss**: the client creates the list item with `ingredient_name` set (it already has the key), shows "Sorting...", and puts the name in the **categorization queue**.
+4. The queue flushes as one batch (6.3) to the `categorize-ingredients` Edge Function.
+5. The function, per name: if the ingredient exists and is categorized, return it. Otherwise upsert a `pending` row (`on conflict do nothing`) and collect it into one LLM call. Concurrent requests for the same new name are safe: both upsert the same key; whichever finishes the LLM call first writes the result, and the other's write is skipped if the row is already `categorized`.
+6. The response returns `normalized_name -> { category_id, is_grocery_item }` for every name. The client updates its cache and moves the items into their sections. Other devices get the update through Realtime on `ingredients` (7.2).
+7. **Sweep**: a `pg_cron` job every minute calls the function for any `pending` rows older than 30 s, or `failed` rows under the attempt limit. This covers Siri adds, clients that went away mid-flush, and retries.
+
+"First time we see any ingredient, regardless of which user logged it" is enforced by step 5: the LLM is only called for names with no categorized row in the global table.
+
+### 6.2 System categories [Default]
+In default store-walk order:
+Produce, Bakery, Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Canned & Jarred, Pasta & Grains, Baking, Spices & Seasonings, Condiments & Sauces, Snacks, Beverages, Breakfast & Cereal, Household & Cleaning, Personal Care, Baby, Pet, Other.
+
+Seed the `ingredients` table with roughly 500 common grocery items pre-categorized (`categorized_by = 'seed'`, `is_grocery_item = true`, `household_count` high enough to pass the 6.5 filter) so most early adds never hit the LLM. The same seed ships in the app bundle for offline use.
+
+### 6.3 Batching (req 5.1)
+- **Client**: the queue flushes when 1.5 s pass with no new misses, when it reaches 25 names, or when the app backgrounds. A recipe or bulk add sends all its misses in one request. Offline, the queue persists in SQLite and flushes on reconnect.
+- **Server**: one request makes at most one LLM call, covering only the unknown names (max 100 per call; split if larger). Already-known names are answered from the database without any LLM call. The sweep (6.1 step 7) batches the same way.
+- [Later] Cross-user server-side coalescing (a short queue window across requests) is possible but adds latency; not in v1.
+
+### 6.4 LLM call
+- Use the Vercel AI SDK in the Edge Function, with stash's provider registry pattern (provider keys in Supabase secrets; a provider is registered only if its key is present; model chosen by env var).
+- Default model [Default]: `anthropic:claude-haiku-5-5` (cheap, fast; categorization is easy), env `AI_MODEL_CATEGORIZE`. Switching provider is config only.
+- Structured output (`generateObject` with a Zod schema) so the response is guaranteed parseable:
+  - Input: the list of category slugs with names, and the list of normalized ingredient names.
+  - Output: `[{ "name": string, "category": <one of the slugs>, "is_grocery_item": boolean }]`.
+- Prompt guidance: categorize as a typical US supermarket would shelve it; ambiguous items go where most shoppers would look first; non-food household goods go to the household/personal care categories; anything that is not something you buy at a store (e.g. "call mom") gets `is_grocery_item: false` and category `other`.
+- Validation: any missing name or unknown slug is marked `failed` and gets category Other. Failed rows retry (max 3 attempts), then stay Other.
+- Rate limit the function per user (e.g. 60 requests/min, 500 new names/day) to cap cost and abuse.
+- A small golden set (~100 names with expected categories) runs as an eval when the model or prompt changes.
+
+### 6.5 Privacy
+Ingredient names typed or spoken by any user become part of the global catalog and are sent to the LLM. The catalog stores only the normalized name, never who typed it; `ingredient_households` (service role only) records which households used it, solely to maintain `household_count`. Autocomplete from the global catalog only suggests ingredients with `is_grocery_item = true` and `household_count >= N` [Default N=3], so one person's odd entry doesn't leak into everyone's suggestions.
+
+---
+
+## 7. Sync
+
+This is the hardest part of the project. Stash only syncs append-only captures plus a server-owned read cache; this app needs two-way offline editing by several people. Build it on stash's outbox and drain code, extended as below.
+
+### 7.0 Spike first
+**[SPIKE]** Before building M5, spend a day on an off-the-shelf sync engine for Supabase + SQLite (e.g. PowerSync) against acceptance criteria 8 and 13. If it handles field-level conflicts, RLS, and Expo cleanly, use it and skip 7.2-7.3's custom engine. Record the decision in `docs/spikes.md`. The rest of this section is the custom design [Default].
+
+### 7.1 Local-first
+- The UI reads and writes only local SQLite (expo-sqlite + Drizzle, as stash). Live queries drive the UI.
+- Every mutation is a **field-level patch**: `{ table, id, fields: { name: value, ... }, hlc }`, appended to the local **outbox** in the same transaction as the local write.
+- `hlc` is a hybrid logical clock timestamp (wall clock + counter + device id), so ordering reflects when the edit was made, not when it reached the server. The client keeps its clock monotonic and adopts any larger HLC it sees from the server.
+
+### 7.2 Push and pull
+- **Push**: the outbox worker sends batches to the `apply_mutations` Postgres function in order, retrying with stash's backoff schedule. Mutations are idempotent (keyed by row id + field + hlc).
+- **Pull**: Supabase Realtime on the tables of every household the user belongs to, the user's own preference tables, the user's `household_members` rows, and `ingredients` (for categorization results) while in the foreground. On launch, foreground, or reconnect, pull every row with `updated_at > cursor` (soft-deleted rows included).
+- **Cursors are per household**, not global. A household the user just joined has rows older than any existing cursor, so joining starts that household's cursor at zero (a full pull for that household only).
+- **Membership changes** drive the rest: a new membership subscribes and pulls that household; a lost membership (left, removed, household deleted) unsubscribes, deletes that household's rows from SQLite, and drops its pending outbox mutations (4.7). The server rejects mutations for households the user no longer belongs to; the client treats that rejection as "drop", not "retry".
+
+### 7.3 Conflicts
+- **Field-level last-write-wins by HLC**: `apply_mutations` writes a field only if the incoming HLC is newer than `field_clock[field]`, then updates `field_clock`. So A checking an item while B edits its note keeps both changes.
+- **Delete wins** over concurrent edits to the same row (a `deleted_at` set at any HLC is not undone by a field edit; an explicit undo is a new mutation that clears it).
+- **Same ingredient added twice offline**: the unique index rejects the second open item. `apply_mutations` handles this inside the function: it re-points the incoming item's contributions to the existing open item and marks the incoming item as merged (an automatic Combine). The client sees the merge on its next pull and drops its local row. This never fails the batch.
+- Contributions are append-only in practice (each add creates a new row), so they rarely conflict.
+
+### 7.4 Ingredient catalog on device
+The device caches the seed set plus every ingredient it has seen, and fetches unknown names on demand. Category updates arrive via Realtime or pull.
+
+### 7.5 Sync status
+Settings > "Sync status" (as stash): pending outbox count, last successful sync, last error, and a "Sync now" button.
+
+---
+
+## 8. Architecture
+
+### 8.1 Stack [Default]
+| Layer | Choice | Why |
+|---|---|---|
+| App | Expo (same SDK as stash, 57) + Expo Router, TypeScript | Web-developer friendly; same stack as stash |
+| Local store | expo-sqlite + Drizzle | Offline-first; same as stash |
+| Native | Swift App Intents extension via `@bacons/apple-targets` | Only for Siri; proven in stash |
+| Backend | Supabase (Postgres, Auth, Realtime, Edge Functions, pg_cron) | Global catalog, sharing, and the LLM proxy need a server |
+| Auth | Google via Supabase Auth; dev email-code stub until OAuth IDs exist | Same as stash |
+| LLM | Vercel AI SDK in an Edge Function, Anthropic Haiku by default | Key stays server-side; provider is config |
+| Shared code | Zod schemas, normalizer, quantity parser in `src/shared/`, imported by app and Edge Functions | One implementation of the ingredient key |
+
+### 8.2 App structure
+Follows stash's layout (Expo Router routes in `src/app/`, app logic in sibling folders).
+
+```
+src/
+  app/              routes: (tabs)/lists, (tabs)/recipes, (tabs)/settings, list/[id], recipe/[id],
+                    join/[token], sign-in, settings/households, settings/households/[id], settings/sync-status
+  features/
+    lists/          ListsHome, ListDetail, AddItemBar, ItemRow, ItemEditSheet,
+                    DuplicatePromptSheet, BulkDuplicateSheet, ViewModePicker
+    recipes/        RecipesList, RecipeDetail, AddRecipeToListSheet, MakeRecipeFromSelectionSheet
+    categories/     CategoryPicker, ReorderSections
+    households/     HouseholdsScreen, HouseholdDetail, InviteSheet, JoinHousehold, CopyRecipeSheet
+    siri/           app-group-queue (drain), list-snapshot (writes lists.json)
+    auth/
+  domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver,
+                    categorization-queue
+  shared/           used by app AND Edge Functions: zod schemas, ingredient-normalizer,
+                    quantity-parser, siri envelope schema
+  db/               Drizzle schema mirroring section 5, migrations, live queries
+  sync/             outbox, hlc, drain, push (apply_mutations), pull, realtime
+  lib/              supabase client, google sign-in, secure store
+targets/
+  add-intent/       AddToPerfectBiteIntent.swift, ListEntity, App Group queue writer
+supabase/
+  migrations/       schema, RLS, triggers, apply_mutations, household functions, seed categories,
+                    seed ingredients, pg_cron sweep
+  functions/        categorize-ingredients/, siri-add/, delete-account/, _shared/
+  tests/            RLS and apply_mutations tests
+```
+
+Business logic in `domain/` and `shared/` must be pure TypeScript with no React, network, or SQLite dependencies, so it is unit-testable and runs in Deno.
+
+### 8.3 Local development
+Identical to stash. Copy its README sections, `mise.toml`, `.yarnrc.yml`, `.env.example`, `supabase/functions/.env.example`, `supabase/config.toml` (new `project_id`, ports moved to 553xx so stash and this project can run side by side), and `AGENTS.md`, then adapt.
+
+**Prerequisites**: Node, Yarn 4 (pinned in `mise.toml` and `packageManager`), Docker, the Supabase CLI, Xcode with CocoaPods.
+
+**One-time setup**
+```bash
+yarn install
+supabase start            # local Postgres, Auth, Realtime, Studio (http://127.0.0.1:55323)
+supabase db reset         # apply migrations + seed.sql
+cp .env.example .env.local                                   # publishable key from `supabase status`
+cp supabase/functions/.env.example supabase/functions/.env   # ANTHROPIC_API_KEY etc.
+```
+
+**Each session** (separate terminals)
+```bash
+supabase start                                               # no-op if running
+supabase functions serve --env-file supabase/functions/.env  # Edge Functions, hot reload
+yarn expo start                                              # Metro
+```
+As in stash, don't rely on the edge runtime that `supabase start` launches; use `functions serve`. A `503` from `http://127.0.0.1:55321/functions/v1/<name>` means it isn't running.
+
+**Dev sign-in**: email + 6-digit code; local Supabase delivers the code to the local mail viewer (`http://127.0.0.1:55324`). No Google setup needed until M9.
+
+**Development build**: Siri (the intent extension) needs a development build, not Expo Go: `yarn expo run:ios` (simulator) or `yarn expo run:ios --device`. On a physical device, set `EXPO_PUBLIC_SUPABASE_URL` to the Mac's LAN IP. Device signing steps: copy stash's checklist from its `docs/spikes.md` (including the one-time `xcodebuild ... -allowProvisioningUpdates` build).
+
+**Database changes**: `supabase migration new <name>`, write SQL, `supabase db reset`. Tests in `supabase/tests/` (pgTAP) run with `supabase test db`.
+
+**Local categorization**: `categorize-ingredients` runs locally against the real Anthropic API using the key in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock. The pg_cron sweep runs locally too.
+
+**Seed data** (`supabase/seed.sql`), so sharing can be tested on day one:
+- System categories and the ~500 seed ingredients.
+- Dev users `alex@example.com` and `sam@example.com` (sign in with the dev code flow).
+- Each has a personal household; both are members of a shared "Test home" household (Alex owner) with a "Groceries" list, a "Costco" list, and a "Tacos" recipe. Alex's personal household has one list, so the multi-household UI shows up immediately.
+- Run the simulator signed in as one user and a device (or a second simulator) as the other.
+
+**Checks** (before declaring any task done, as in stash's `AGENTS.md`): `yarn expo lint`, `yarn tsc --noEmit`, `yarn jest`, `supabase test db`, `yarn dlx expo-doctor`.
+
+### 8.4 Reuse from stash (copy, don't share)
+The two apps are independent; there are no shared packages. Copy what's useful from `../stash` into this repo and adapt it freely:
+- `src/sync/` outbox, drain, backoff, upload (extend with HLC and field patches).
+- `targets/save-intent/` and `src/features/capture/app-group-queue.ts` (Siri intent and queue drain).
+- `src/features/auth/` dev sign-in stub and account deletion.
+- Edge Function `_shared/` (AI SDK provider registry, auth helpers), Supabase test setup, `AGENTS.md`, lint/tsconfig/jest config.
+- `DESIGN.md` structure (tokens), with this app's own visual design.
+
+---
+
+## 9. Testing and acceptance criteria
+
+Unit tests (Jest) required for: ingredient normalizer, quantity parser (including number words), quantity math and display rule, duplicate detector, category resolver, categorization queue batching triggers, HLC. Edge Function tests with a mocked LLM. SQL tests for RLS (one household can't read another's data; one user can't read another's overrides) and for `apply_mutations` (field-level LWW, delete wins, offline duplicate merge). A Swift/Zod contract test for the Siri envelope.
+
+Acceptance criteria:
+1. **Add**: typing `2 lbs chicken thighs` and return creates one item with quantity 2, unit lb, under Meat & Seafood (seed data), with the keyboard still up.
+2. **Recipe from recipe**: creating "Tacos" with 5 ingredients and adding it to a list with one ingredient unchecked adds 4 items, all showing under Tacos in By recipe view.
+3. **Recipe from selection**: selecting 3 list items and "Make recipe" creates a recipe with those 3 ingredients, and those items now group under it.
+4. **Auto-categorize**: adding an ingredient that exists in the catalog categorizes instantly offline.
+5. **First-seen LLM**: adding a never-seen ingredient shows "Sorting..." then moves to a section; the `ingredients` row exists with `categorized_by` set; a second user adding it later triggers no LLM call (verify via function logs).
+6. **Batching**: adding a 12-ingredient recipe with 8 unknown ingredients makes exactly one function request and one LLM call.
+7. **Override**: user A moves "tahini" to Pantry; user A sees it in Pantry on every list and device; user B in the same household still sees the default.
+8. **Shared household**: after B accepts A's invite to "Test home", B sees its lists in a new section next to B's personal household; an item checked by A appears checked on B's device within a few seconds while both are online.
+9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row showing both quantities, and shows the toast with the keyboard still up; Undo restores the original row; Keep existing yields one row with the original quantity. Adding a recipe with 3 conflicts shows one bulk sheet.
+10. **Category order**: user A drags Dairy above Produce; A's lists show Dairy first on all of A's devices; B's order is unchanged.
+11. **Multiple lists**: create, rename, reorder and delete lists; items are independent per list.
+12. **View modes**: switching to By recipe shows recipe sections plus Other items; an item from two recipes appears under both, and checking it in one checks it in both.
+13. **Offline**: in airplane mode, add/check/delete items and reorder categories; on reconnect everything syncs with no duplicates.
+14. **Concurrent offline edits**: A (offline) checks "eggs" while B (online) edits its note; after A reconnects, the item is checked and has B's note.
+15. **Offline duplicate merge**: A and B both add `milk` to the same list while offline; after both reconnect, there is one row with both contributions.
+16. **Siri**: with the phone locked, "Hey Siri, add to The Perfect Bite" then "two avocados" replies within ~3 s; the item appears on B's device in the default list under Produce without A opening the app (when A is online).
+17. **Siri, named list and offline**: "add to Costco in The Perfect Bite" adds to Costco; in airplane mode the add is kept and appears after reconnect and app launch, exactly once.
+18. **Multiple households**: a user in two households sees both sections on Lists and Recipes; a user in one household sees no household UI.
+19. **Household owns data**: B leaves "Test home"; within one sync, its lists disappear from B's devices and B's queued edits for it are dropped; A still has all of it. B's personal household is untouched.
+20. **Last member**: the last member leaving a household deletes it (after confirm); a user leaving their only household gets a new empty personal household.
+21. **Copy recipe**: copying "Tacos" to another household creates an independent recipe there; editing one doesn't change the other.
+22. **Isolation**: SQL tests prove a user can't read or write any row of a household they aren't in, including right after leaving or removal, and can't perform owner-only actions as a member.
+
+---
+
+## 10. Build order (milestones for Claude Code)
+
+Each milestone should end with a working app and passing tests.
+
+1. **M0 Skeleton + spikes**: Expo app (default template, stash's config copied per 8.4), tabs for Lists / Recipes / Settings, SQLite + Drizzle, Supabase project with migrations folder, CI running lint, typecheck, and tests. Dev sign-in stub. Spikes: Siri phrase recognition for "The Perfect Bite" (4.9), token refresh from the intent extension (4.9), sync engine evaluation (7.0). Record results in `docs/spikes.md`.
+2. **M1 Local lists**: lists and items fully local. Add bar with quantity parser and normalizer, check off, delete with undo, multiple lists.
+3. **M2 Categories local**: seed categories and seed ingredients bundled in the app, By category view, per-user overrides and category order stored locally.
+4. **M3 Duplicates**: duplicate detector, quantity math, contributions model, single and bulk prompts.
+5. **M4 Recipes**: recipe CRUD, add recipe to list, make recipe from selection, By recipe view.
+6. **M5 Backend and sync**: Supabase schema + RLS + triggers, `apply_mutations`, outbox with HLC, push/pull, Realtime, sync status screen. (Or the chosen sync engine, per 7.0.)
+7. **M6 Categorization**: `categorize-ingredients` Edge Function with the AI SDK, client categorization queue, "Sorting..." state, pg_cron sweep, retries, golden-set eval.
+8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
+9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function, default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
+10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (once Q13 is decided), TestFlight.
+
+---
+
+## 11. Later
+
+### 11.1 Notifications (req 13)
+Not in v1. Sketch, so v1 doesn't block it:
+- **Delivery**: Expo Push (`expo-notifications`), which handles APNs. A `push_tokens (user_id, token, platform, updated_at)` table.
+- **Pipeline**: a trigger on `list_items` (inserts, and `checked_at` changes) writes to a `household_events` queue (pgmq, as stash uses Queues). A worker Edge Function, run by pg_cron, groups events per household and recipient over a short window and sends one push per group, never to the person who made the change.
+- **Candidate notifications**: "Alex added 6 items to Groceries"; "Alex is shopping" (first few checks on a list within a few minutes); later, a location reminder near a saved store (local, on device).
+- **Settings**: per-user toggles per notification type, and quiet hours.
+- **v1 prep (already in this spec)**: `added_by` on list items and contributions, `checked_by` on list items. Nothing else needed now.
+
+### 11.2 Web app
+Turn on react-native-web for planning on a laptop (lists, recipes, households). Siri, the App Group queue, and native Google sign-in stay iOS-only; web uses Supabase's Google OAuth redirect. Offline on web is Later still.
+
+### 11.3 Multi-item Siri adds
+"Milk, eggs, and a bag of limes" becomes three items. Splitting on "and" naively breaks items like "mac and cheese", so `siri-add` would ask the LLM to split and parse when the text contains a list separator. Offline, the text stays one item until the server can split it.
+
+### 11.4 Other
+- Copy or move a list to another household.
+- Per-store category orders (Q5).
+- Overrides feeding the global default (Q4).
+- Manual drag ordering within a section.
+- Sign in with Apple, if this ever goes to the public App Store (4.8).
+
+---
+
+## 12. Open questions
+
+| # | Question | Default used in this spec |
+|---|---|---|
+| Q1 | ~~(req 7.1) Who controls shared data?~~ | **Decided**: the household owns it. All members edit equally; owners (one or more) manage membership and can delete the household (4.7). |
+| Q2 | ~~(req 7.1) When someone leaves, do they keep a copy?~~ | **Decided**: no; data stays with the household. Leaving your only household gives you a new empty personal one. |
+| Q3 | ~~(req 7.1) What happens to a joiner's existing data?~~ | **Decided**: nothing; it stays in their own household(s). Joining only adds access. |
+| Q4 | Should many users recategorizing the same ingredient eventually change the global default? | No, overrides are private in v1. Overrides are stored so this could be added later (e.g. if 70% of 20+ users agree). |
+| Q5 | Should category order be per user (all devices) or per device (e.g. different stores)? | Per user, synced. Per-store orders are a natural later feature. |
+| Q6 | ~~Can a user belong to more than one household?~~ | **Decided**: yes, any number (4.7). |
+| Q7 | Should custom categories be shareable with the household? | No, per user. |
+| Q8 | ~~Requirement 3 is missing from the original list.~~ | **Decided**: there was no requirement 3; nothing was dropped. |
+| Q9 | Should checked items auto-clear after some time? | No, manual "Clear checked". |
+| Q10 | ~~Prompt on in-app duplicate adds, or auto-Combine with an undo toast?~~ | **Decided**: auto-Combine with an undo toast for single adds; bulk recipe adds keep their sheet (4.4). |
+| Q11 | Is the Siri default list per user or per household? | Per user. |
+| Q12 | ~~Final app name.~~ | **Decided**: "The Perfect Bite" as the display name; the M0 spike confirms Siri recognizes it and picks the phrase variants. |
+| Q13 | Google Cloud project for OAuth client IDs: reuse stash's or a new one? | New project, same setup as stash; dev stub until then. |
+| Q14 | ~~Copy stash code or share packages?~~ | **Decided**: copy when useful; no shared packages. The apps evolve independently. |
+| Q15 | Repo name and bundle id. | `perfect-bite`, `com.jgp.perfectbite`. The display name stays "The Perfect Bite". |
+| Q16 | Can any member invite people, or only owners? | Any member. |
