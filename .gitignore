@@ -48,3 +48,6 @@ example
 !.yarn/patches
 !.yarn/plugins
 .pnp.*
+
+# ralph run logs
+logs/
