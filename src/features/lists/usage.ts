@@ -1,5 +1,11 @@
 // Household ingredient history for autocomplete (spec 4.2). Callers write it inside the same
 // transaction as the add it counts.
+//
+// What counts as a use: adding an ingredient to a list (addItem, addItemsBulk) counts one, and so
+// does adding one to a recipe (addRecipeIngredient, addParsedRecipeIngredients, which "Make recipe"
+// and "Add to recipe" go through). Adding that recipe to a list counts again through addItemsBulk,
+// since putting it on a list is a real use. Editing a recipe ingredient doesn't count; undoing a
+// list add takes its use back.
 import { and, eq, lte, sql } from 'drizzle-orm';
 
 import { db, ingredientUsage } from '@/db';

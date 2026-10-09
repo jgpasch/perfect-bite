@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItemContributions, recipeIngredients, recipes, type Recipe } from '@/db';
 import { positionBetween } from '@/domain/position';
+import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
 
@@ -106,18 +107,21 @@ export function addRecipeIngredient(recipeId: string, text: string): string | nu
   const recipe = getRecipe(recipeId);
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
   const id = newId();
-  db.insert(recipeIngredients)
-    .values({
-      id,
-      recipeId,
-      householdId: recipe.householdId,
-      ingredientName,
-      displayName: name,
-      quantity,
-      unit,
-      position: nextPosition(recipeId),
-    })
-    .run();
+  db.transaction((tx) => {
+    tx.insert(recipeIngredients)
+      .values({
+        id,
+        recipeId,
+        householdId: recipe.householdId,
+        ingredientName,
+        displayName: name,
+        quantity,
+        unit,
+        position: nextPosition(recipeId),
+      })
+      .run();
+    recordUsage(tx, recipe.householdId, ingredientName, name, new Date());
+  });
   touch(recipeId);
   return id;
 }
@@ -131,10 +135,12 @@ export function addParsedRecipeIngredients(
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
   db.transaction((tx) => {
     let position = nextPosition(recipeId);
+    const now = new Date();
     for (const item of items) {
       tx.insert(recipeIngredients)
         .values({ id: newId(), recipeId, householdId: recipe.householdId, ...item, position })
         .run();
+      recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now);
       position = positionBetween(position, null);
     }
   });
@@ -142,7 +148,7 @@ export function addParsedRecipeIngredients(
 }
 type RecipeIngredientUnit = (typeof recipeIngredients.$inferInsert)['unit'];
 
-/** Replaces an ingredient's name and amount from text, as typed: `3 cups flour`. */
+/** Replaces an ingredient's name and amount from text, as typed: `3 cups flour`. An edit isn't a use, so history isn't counted. */
 export function updateRecipeIngredient(id: string, text: string, note = ''): void {
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);

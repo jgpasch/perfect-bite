@@ -1,10 +1,12 @@
-import { beforeEach, expect, jest, test } from '@jest/globals';
+import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 
+import { db, ingredientUsage } from '@/db';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { addItem, groupItems, listItemsQuery } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
+import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { addItemsToRecipe, makeRecipeFromItems } from '../from-list';
 import { createRecipe, recipeIngredientsQuery } from '../recipes';
 
@@ -55,4 +57,39 @@ test('add to an existing recipe appends; adding again neither repeats nor double
   expect(recipeIngredientsQuery(soup).all()).toHaveLength(1);
   expect(view()[0].contributions.filter((c) => c.recipeId === soup)).toHaveLength(1);
   addItemsToRecipe(soup, [], USER);
+});
+
+describe('ingredient history (spec 4.2)', () => {
+  const counts = () =>
+    Object.fromEntries(
+      db
+        .select({ key: ingredientUsage.ingredientName, n: ingredientUsage.useCount })
+        .from(ingredientUsage)
+        .all()
+        .map((r) => [r.key, r.n]),
+    );
+
+  test('Make recipe counts each item once; adding the recipe to a list counts again', () => {
+    const beef = addItem(listId, '2 lbs ground beef', USER)!;
+    const lime = addItem(listId, 'limes', USER)!;
+    addItem(listId, 'milk', USER);
+    expect(counts()).toEqual({ 'ground beef': 1, lime: 1, milk: 1 });
+
+    const tacos = makeRecipeFromItems('Tacos', [beef.itemId, lime.itemId], USER);
+    expect(counts()).toEqual({ 'ground beef': 2, lime: 2, milk: 1 });
+
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const all = new Set(ingredients.map((i) => i.id));
+    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, all, 1), USER, new Set());
+    expect(counts()).toEqual({ 'ground beef': 3, lime: 3, milk: 1 });
+  });
+
+  test('Add to recipe does not count an ingredient the recipe already has', () => {
+    const soup = createRecipe('Soup');
+    const onion = addItem(listId, '2 onions', USER)!;
+    const carrot = addItem(listId, 'carrots', USER)!;
+    addItemsToRecipe(soup, [onion.itemId], USER);
+    addItemsToRecipe(soup, [onion.itemId, carrot.itemId], USER);
+    expect(counts()).toEqual({ onion: 2, carrot: 2 });
+  });
 });
