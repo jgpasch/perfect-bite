@@ -15,7 +15,7 @@ import {
 import { resetDb } from '@/test/db';
 
 import { addItem, undoAdd } from '../items';
-import { backfillUsage, recordUsage, unrecordUsage } from '../usage';
+import { backfillUsage, hideFromSuggestions, recordUsage, unrecordUsage } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -120,6 +120,50 @@ test('writes roll back with the surrounding transaction', () => {
     }),
   ).toThrow('add failed');
   expect(usage()).toEqual([]);
+});
+
+describe('hideFromSuggestions (spec 4.2)', () => {
+  test('sets hidden_at and keeps the count, name and time', () => {
+    record('h1', 'milk', 'milk', T1);
+    record('h1', 'milk', 'whole milk', T1);
+    hideFromSuggestions('h1', 'milk', T2);
+    expect(usage()).toEqual([
+      { ingredientName: 'milk', displayName: 'whole milk', useCount: 2, lastUsedAt: T1, hiddenAt: T2 },
+    ]);
+  });
+
+  test('only hides that household and key', () => {
+    record('h1', 'milk', 'milk', T1);
+    record('h1', 'egg', 'eggs', T1);
+    record('h2', 'milk', 'milk', T1);
+    hideFromSuggestions('h1', 'milk', T2);
+    expect(usage().find((r) => r.ingredientName === 'egg')!.hiddenAt).toBeNull();
+    expect(usage().find((r) => r.ingredientName === 'milk')!.hiddenAt).toEqual(T2);
+    expect(usage('h2')[0].hiddenAt).toBeNull();
+  });
+
+  test('a missing row is a no-op and creates nothing', () => {
+    expect(() => hideFromSuggestions('h1', 'milk', T2)).not.toThrow();
+    expect(usage()).toEqual([]);
+  });
+
+  test('a new use unhides it', () => {
+    record('h1', 'milk', 'milk', T1);
+    hideFromSuggestions('h1', 'milk', T1);
+    record('h1', 'milk', 'milk', T2);
+    expect(usage()).toEqual([
+      { ingredientName: 'milk', displayName: 'milk', useCount: 2, lastUsedAt: T2, hiddenAt: null },
+    ]);
+  });
+
+  test('defaults hidden_at to now', () => {
+    record('h1', 'milk', 'milk', T1);
+    const before = Date.now();
+    hideFromSuggestions('h1', 'milk');
+    const hiddenAt = usage()[0].hiddenAt!.getTime();
+    expect(hiddenAt).toBeGreaterThanOrEqual(before);
+    expect(hiddenAt).toBeLessThanOrEqual(Date.now());
+  });
 });
 
 describe('backfillUsage', () => {

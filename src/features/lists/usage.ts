@@ -38,6 +38,14 @@ export function unrecordUsage(tx: Tx, householdId: string, ingredientName: strin
     .run();
 }
 
+/**
+ * "Remove from suggestions" (spec 4.2): hides the household's history row from autocomplete. The use
+ * count is kept, and the next use unhides it (`recordUsage`). A missing row is a no-op.
+ */
+export function hideFromSuggestions(householdId: string, ingredientName: string, at = new Date()) {
+  db.update(ingredientUsage).set({ hiddenAt: at }).where(row(householdId, ingredientName)).run();
+}
+
 const BACKFILL_KEY = 'usage.backfilled';
 
 /**

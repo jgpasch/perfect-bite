@@ -8,6 +8,7 @@ import { resetDb } from '@/test/db';
 import { addItem } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
 import { applySuggestion, getSuggestions } from '../suggestions';
+import { hideFromSuggestions } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -132,5 +133,61 @@ describe('getSuggestions (spec 4.2)', () => {
     const [catalogHit] = getSuggestions(householdId, '1 can chickp');
     expect(catalogHit.source).toBe('catalog');
     expect(applySuggestion('1 can chickp', catalogHit)).toBe('1 can chickpeas');
+  });
+});
+
+describe('Remove from suggestions (spec 4.2)', () => {
+  test('a hidden history row is excluded from getSuggestions', () => {
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken breasts', USER);
+    addItem(listId, 'chili flakes', USER);
+    hideFromSuggestions(householdId, 'chicken breast');
+    const out = getSuggestions(householdId, 'chi');
+    expect(out).toHaveLength(2);
+    expect(out).toEqual(
+      expect.arrayContaining([
+        { key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' },
+        { key: 'chili flake', displayName: 'chili flakes', source: 'history' },
+      ]),
+    );
+  });
+
+  test('hiding drops history below 2, so the catalog fills in again', () => {
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken sausage from the butcher', USER);
+    expect(getSuggestions(householdId, 'chi').every((s) => s.source === 'history')).toBe(true);
+    hideFromSuggestions(householdId, 'chicken sausage from the butcher');
+    const out = getSuggestions(householdId, 'chi');
+    expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
+    expect(out.map((s) => s.key)).not.toContain('chicken sausage from the butcher');
+    expect(out.slice(1)).toEqual(catalog('chi').filter((s) => s.key !== 'chicken thigh').slice(0, 4));
+  });
+
+  test('a hidden row comes back as history after a new use', () => {
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken breasts', USER);
+    hideFromSuggestions(householdId, 'chicken thigh');
+    expect(getSuggestions(householdId, 'chi').map((s) => s.key)).not.toContain('chicken thigh');
+
+    addItem(listId, '2 lbs Chicken Thighs', USER);
+    // Back with its 2 uses, so it ranks first again.
+    expect(getSuggestions(householdId, 'chi')).toEqual([
+      { key: 'chicken thigh', displayName: 'Chicken Thighs', source: 'history' },
+      { key: 'chicken breast', displayName: 'chicken breasts', source: 'history' },
+    ]);
+  });
+
+  test('hiding a key with no history row changes nothing', () => {
+    hideFromSuggestions(householdId, 'chicken');
+    expect(getSuggestions(householdId, 'chi')).toEqual(catalog('chi'));
+    expect(db.select().from(ingredientUsage).all()).toEqual([]);
+  });
+
+  test('hiding in another household leaves this one alone', () => {
+    db.insert(households).values({ id: 'h-other', name: 'Other' }).run();
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken breasts', USER);
+    hideFromSuggestions('h-other', 'chicken thigh');
+    expect(getSuggestions(householdId, 'chi').map((s) => s.key).sort()).toEqual(['chicken breast', 'chicken thigh']);
   });
 });

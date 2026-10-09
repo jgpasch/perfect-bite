@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 
-import { applySuggestion, getSuggestions } from './suggestions';
+import { applySuggestion, getSuggestions, type Suggestion } from './suggestions';
+import { hideFromSuggestions } from './usage';
 
 type Props = {
   householdId: string;
@@ -25,7 +26,23 @@ export function AddBar({ householdId, onAdd, placeholder, accessibilityLabel }: 
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
   const [text, setText] = useState('');
-  const suggestions = useMemo(() => getSuggestions(householdId, text), [householdId, text]);
+  // Bumped after "Remove from suggestions" so the chips are read again.
+  const [hiddenCount, setHiddenCount] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hiddenCount only forces a re-read
+  const suggestions = useMemo(() => getSuggestions(householdId, text), [householdId, text, hiddenCount]);
+
+  // Spec 4.2: only household history can be removed; catalog-only chips have no menu.
+  const suggestionMenu = (s: Suggestion) => {
+    if (s.source !== 'history') return;
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: s.displayName, options: ['Remove from suggestions', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
+      (index) => {
+        if (index !== 0) return;
+        hideFromSuggestions(householdId, s.key);
+        setHiddenCount((n) => n + 1);
+      },
+    );
+  };
 
   const add = (value: string) => {
     if (!value.trim()) return;
@@ -54,7 +71,9 @@ export function AddBar({ householdId, onAdd, placeholder, accessibilityLabel }: 
               key={s.key}
               accessibilityRole="button"
               accessibilityLabel={`Add ${s.displayName}`}
+              accessibilityHint={s.source === 'history' ? 'Long press to remove from suggestions' : undefined}
               onPress={() => add(applySuggestion(text, s))}
+              onLongPress={s.source === 'history' ? () => suggestionMenu(s) : undefined}
               style={({ pressed }) => [
                 styles.chip,
                 {
