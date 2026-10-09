@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
-import { db, households, ingredientUsage, lists } from '@/db';
+import { db, households, ingredientUnitUsage, ingredientUsage, lists } from '@/db';
 import { resetDb } from '@/test/db';
 
 import {
@@ -22,7 +22,9 @@ import {
   undeleteItem,
   undoAdd,
   updateItem,
+  usualUnitsQuery,
 } from '../items';
+import { usualUnitsByKey } from '@/domain/usual-unit';
 import { createRecipe } from '@/features/recipes/recipes';
 
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
@@ -39,7 +41,7 @@ beforeEach(() => {
   listId = getDefaultListId(USER)!;
 });
 
-const view = (id = listId) => groupItems(listItemsQuery(id, USER).all());
+const view = (id = listId) => groupItems(listItemsQuery(id, USER).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
 const rows = (items: { displayName: string; amountText: string }[]) =>
   items.map((i) => (i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName));
 
@@ -60,8 +62,9 @@ describe('addItem', () => {
   test('combines an add into the open item for the same ingredient', () => {
     const first = addItem(listId, '1 gal milk', USER)!;
     const second = addItem(listId, 'milk', USER)!;
-    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'milk', totalAmountText: '1 gal + 1' });
-    expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
+    // The first add made gal milk's usual unit, so the add with no amount counts as 1 gal.
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'milk', totalAmountText: '2 gal' });
+    expect(rows(view().unchecked)).toEqual(['2 gal milk']);
   });
 
   test('sums compatible amounts when combining', () => {
@@ -225,6 +228,103 @@ describe('adds with no amount count as one (spec 4.4)', () => {
     expect(contributionsQuery(milk.itemId).all()).toHaveLength(2);
     expect(rows(view().unchecked)).toEqual(['milk']);
     expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '' });
+  });
+});
+
+describe('usual unit in totals (spec 4.2, 4.4)', () => {
+  const householdId = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+  const seedUnit = (ingredientName: string, unitKey: string, useCount: number, household = householdId()) =>
+    db
+      .insert(ingredientUnitUsage)
+      .values({ householdId: household, ingredientName, unitKey, useCount, lastUsedAt: new Date() })
+      .run();
+
+  test('1 gal milk twice, then milk: the row reads 3 gal and the toast says so', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItem(listId, '1 gal milk', USER);
+    const third = addItem(listId, 'milk', USER)!;
+    expect(third).toMatchObject({ kind: 'combine', totalAmountText: '3 gal' });
+    expect(rows(view().unchecked)).toEqual(['3 gal milk']);
+    expect(view().unchecked[0].usualUnit).toBe('gal');
+    expect(getItemEdit(third.itemId)).toMatchObject({ amount: '3 gal', usualUnit: 'gal' });
+  });
+
+  test('with no unit history, an add with no amount is a plain 1', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    addItem(listId, 'milk', USER);
+    db.delete(ingredientUnitUsage).run();
+    expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
+    expect(view().unchecked[0].usualUnit).toBeNull();
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '1 gal + 1', usualUnit: null });
+    expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('1 gal + 2');
+  });
+
+  test('a count as the usual unit keeps the add with no amount unitless', () => {
+    addItem(listId, '1 gal milk', USER);
+    seedUnit('milk', 'count', 3);
+    const r = addItem(listId, 'milk', USER)!;
+    expect(r.totalAmountText).toBe('1 gal + 1');
+    expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
+  });
+
+  test('a usual unit from another household does not apply', () => {
+    db.insert(households).values({ id: 'other', name: 'Other' }).run();
+    seedUnit('milk', 'gal', 5, 'other');
+    const milk = addItem(listId, 'milk', USER)!;
+    expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('2');
+    expect(rows(view().unchecked)).toEqual(['2 milk']);
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '2', usualUnit: null });
+    expect(usualUnitsQuery(listId).all()).toEqual([]);
+  });
+
+  test('usualUnitsQuery reads only the list household’s rows for keys on the list', () => {
+    db.insert(households).values({ id: 'other', name: 'Other' }).run();
+    addItem(listId, '2 lbs chicken thighs', USER);
+    const flour = addItem(listId, 'flour', USER)!;
+    deleteItem(flour.itemId);
+    seedUnit('flour', 'cup', 2); // its item is deleted
+    seedUnit('egg', 'dozen', 2); // not on the list
+    seedUnit('chicken thigh', 'kg', 9, 'other');
+    expect(usualUnitsQuery(listId).all().map((r) => [r.ingredientName, r.unitKey, r.useCount])).toEqual([
+      ['chicken thigh', 'lb', 1],
+    ]);
+  });
+
+  test('the usual unit is converted into, and other units stay apart', () => {
+    addItem(listId, '8 oz chicken thighs', USER);
+    seedUnit('chicken thigh', 'lb', 3);
+    expect(addItem(listId, 'chicken thighs', USER)!.totalAmountText).toBe('1.5 lb');
+    addItem(listId, '400 g tomatoes', USER);
+    seedUnit('tomato', 'can', 4);
+    expect(addItem(listId, 'tomatoes', USER)!.totalAmountText).toBe('400 g + 1 can');
+    expect(rows(view().unchecked)).toEqual(['1.5 lb chicken thighs', '400 g + 1 can tomatoes']);
+  });
+
+  test('a lone add with no amount still reads empty', () => {
+    seedUnit('milk', 'gal', 4);
+    const milk = addItem(listId, 'milk', USER)!;
+    expect(rows(view().unchecked)).toEqual(['milk']);
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '' });
+  });
+
+  test('saving the edit sheet unchanged keeps the contributions', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    addItem(listId, 'milk', USER);
+    const before = contributionsQuery(milk.itemId).all();
+    updateItem(milk.itemId, { name: 'milk', amount: '2 gal', note: '' });
+    expect(contributionsQuery(milk.itemId).all()).toEqual(before);
+    expect(before.map((c) => [c.quantity, c.unit])).toEqual([
+      [1, 'gal'],
+      [null, null],
+    ]);
+  });
+
+  test('the bulk sheet shows the existing total with the usual unit', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItem(listId, 'milk', USER);
+    expect(planBulkAddToList(listId, [{ text: 'milk' }])).toMatchObject([
+      { existingAmountText: '2 gal', incomingAmountText: '' },
+    ]);
   });
 });
 
@@ -485,18 +585,25 @@ describe('check, delete, undo', () => {
 describe('updateItem', () => {
   test('edits name, amount and note', () => {
     const item = addItem(listId, '2 lbs chicken thighs', USER)!;
-    expect(getItemEdit(item.itemId)).toEqual({ name: 'chicken thighs', amount: '2 lb', note: '', ingredientName: 'chicken thigh' });
+    expect(getItemEdit(item.itemId)).toEqual({
+      name: 'chicken thighs',
+      amount: '2 lb',
+      note: '',
+      ingredientName: 'chicken thigh',
+      usualUnit: 'lb',
+    });
     updateItem(item.itemId, { name: 'Chicken breasts', amount: '1.5 lb', note: ' boneless ' });
     expect(view().unchecked[0]).toMatchObject({ displayName: 'Chicken breasts', amountText: '1.5 lb', note: 'boneless' });
   });
 
   test('leaves combined amounts alone unless they change, then replaces them', () => {
-    const item = addItem(listId, '1 gal milk', USER)!;
-    addItem(listId, 'milk', USER);
-    updateItem(item.itemId, { name: 'milk', amount: '1 gal + 1', note: '' });
-    expect(view().unchecked[0].amountText).toBe('1 gal + 1');
-    updateItem(item.itemId, { name: 'milk', amount: '2 gal', note: '' });
-    expect(view().unchecked[0].amounts).toEqual([{ quantity: 2, unit: 'gal' }]);
+    const item = addItem(listId, '2 cans tomatoes', USER)!;
+    addItem(listId, '400 g tomatoes', USER);
+    updateItem(item.itemId, { name: 'tomatoes', amount: '2 can + 400 g', note: '' });
+    expect(view().unchecked[0].amounts).toHaveLength(2);
+    expect(view().unchecked[0].amountText).toBe('2 can + 400 g');
+    updateItem(item.itemId, { name: 'tomatoes', amount: '3 can', note: '' });
+    expect(view().unchecked[0].amounts).toEqual([{ quantity: 3, unit: 'can' }]);
     updateItem(item.itemId, { name: 'milk', amount: '', note: '' });
     expect(view().unchecked[0].amountText).toBe('');
   });

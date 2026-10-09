@@ -44,7 +44,7 @@ export default function ItemEditSheet() {
   if (!edit || !initial) return <Screen />;
 
   // Deleting an amount below changes the total; follow it until the user types their own.
-  const amount = amountTouched || contributions.length === 0 ? edit.amount : itemTotal(contributions);
+  const amount = amountTouched || contributions.length === 0 ? edit.amount : itemTotal(contributions, initial.usualUnit);
 
   const defaultId = current?.defaultCategoryId ?? OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.

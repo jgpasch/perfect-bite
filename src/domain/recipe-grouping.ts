@@ -1,13 +1,21 @@
 // Spec 4.6, By recipe view. Pure: no React, SQLite or network.
 
+import type { Unit } from '@/shared';
+
 import type { Amount } from './quantity-display';
 import { summarizeAmounts } from './quantity-math';
 
 type Contribution = Amount & { source: string; recipeId: string | null; recipeName: string | null; createdAt: Date };
 
-/** Same rule as the row total (`itemTotal`): a recipe link with no quantity isn't an amount. */
-const total = (cs: readonly Contribution[]) =>
-  summarizeAmounts(cs.filter((c) => !(c.source === 'recipe' && c.quantity === null)));
+/**
+ * Same rule as the row total (`itemTotal`): a recipe link with no quantity isn't an amount, and an
+ * add with no amount counts as one of the item's usual unit.
+ */
+const total = (cs: readonly Contribution[], usualUnit: Unit | null) =>
+  summarizeAmounts(
+    cs.filter((c) => !(c.source === 'recipe' && c.quantity === null)),
+    usualUnit,
+  );
 
 export type RecipeEntry<I> = {
   item: I;
@@ -29,20 +37,21 @@ export type RecipeSection<I> = {
  * items: items with no recipe amounts at all. An item from several recipes appears under each,
  * with that recipe's amount. Items keep their order within a section.
  */
-export function groupByRecipe<I extends { contributions: readonly Contribution[] }>(
+export function groupByRecipe<I extends { contributions: readonly Contribution[]; usualUnit?: Unit | null }>(
   items: readonly I[],
 ): RecipeSection<I>[] {
   const sections = new Map<string, { name: string; latest: number; entries: RecipeEntry<I>[] }>();
   const other: RecipeEntry<I>[] = [];
 
   for (const item of items) {
+    const usualUnit = item.usualUnit ?? null;
     const byRecipe = new Map<string, Contribution[]>();
     for (const c of item.contributions) {
       if (c.recipeId === null) continue;
       byRecipe.set(c.recipeId, [...(byRecipe.get(c.recipeId) ?? []), c]);
     }
     if (byRecipe.size === 0) {
-      other.push({ item, amountText: total(item.contributions), alsoIn: [] });
+      other.push({ item, amountText: total(item.contributions, usualUnit), alsoIn: [] });
       continue;
     }
     const names = [...byRecipe.values()].map((cs) => cs[0].recipeName ?? '');
@@ -51,7 +60,7 @@ export function groupByRecipe<I extends { contributions: readonly Contribution[]
       const latest = Math.max(...cs.map((c) => c.createdAt.getTime()));
       const section = sections.get(recipeId) ?? { name, latest, entries: [] };
       section.latest = Math.max(section.latest, latest);
-      section.entries.push({ item, amountText: total(cs), alsoIn: names.filter((n) => n !== name) });
+      section.entries.push({ item, amountText: total(cs, usualUnit), alsoIn: names.filter((n) => n !== name) });
       sections.set(recipeId, section);
     }
   }

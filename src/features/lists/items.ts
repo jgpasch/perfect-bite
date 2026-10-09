@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle-
 
 import {
   db,
+  ingredientUnitUsage,
   ingredientUsage,
   ingredients,
   listItemContributions,
@@ -17,6 +18,7 @@ import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplica
 import type { Amount } from '@/domain/quantity-display';
 import { summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory } from '@/domain/suggestion-rank';
+import { usualUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
@@ -91,10 +93,27 @@ function liveContributions(tx: Tx, itemId: string) {
 /**
  * An item's total as it reads on its row. A recipe link with no quantity (from "Keep
  * existing", or "Make recipe..." on an existing item) records the recipe, not an amount, so it
- * doesn't count: `2 lb` plus a link reads `2 lb`, not `2 lb + 1`.
+ * doesn't count: `2 lb` plus a link reads `2 lb`, not `2 lb + 1`. An add with no amount counts as
+ * one of the ingredient's `usualUnit` (`summarizeAmounts`).
  */
-export function itemTotal(contributions: readonly (Amount & { source: string })[]): string {
-  return summarizeAmounts(contributions.filter((c) => !(c.source === 'recipe' && c.quantity === null)));
+export function itemTotal(
+  contributions: readonly (Amount & { source: string })[],
+  usualUnit: Unit | null = null,
+): string {
+  return summarizeAmounts(
+    contributions.filter((c) => !(c.source === 'recipe' && c.quantity === null)),
+    usualUnit,
+  );
+}
+
+/** The household's usual unit for one ingredient (spec 4.2), or null when none is known. */
+function usualUnitFor(tx: Tx, householdId: string, ingredientName: string): Unit | null {
+  const rows = tx
+    .select()
+    .from(ingredientUnitUsage)
+    .where(and(eq(ingredientUnitUsage.householdId, householdId), eq(ingredientUnitUsage.ingredientName, ingredientName)))
+    .all();
+  return usualUnit(rows) ?? null;
 }
 
 export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
@@ -155,7 +174,10 @@ function applyAdd(
       contributionId,
       kind: 'combine',
       existingName: item.displayName,
-      totalAmountText: itemTotal([...previous, contribution]),
+      totalAmountText: itemTotal(
+        [...previous, contribution],
+        usualUnitFor(tx, list.householdId, item.ingredientName),
+      ),
     };
   }
 
@@ -271,6 +293,7 @@ export type BulkConflict = {
 export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): BulkConflict[] {
   return db.transaction((tx) => {
     const parsed = adds.map(parseBulkAdd);
+    const list = getListForAdd(tx, listId);
     const live = liveItemsForList(tx, listId);
     const { conflicts } = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
@@ -285,7 +308,10 @@ export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): Bul
           index,
           ingredientName: p.ingredientName,
           displayName: getItem(tx, existing.id).displayName,
-          existingAmountText: itemTotal(liveContributions(tx, existing.id)),
+          existingAmountText: itemTotal(
+            liveContributions(tx, existing.id),
+            usualUnitFor(tx, list.householdId, p.ingredientName),
+          ),
           incomingAmountText: summarizeAmounts([p]),
         };
       });
@@ -449,7 +475,10 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
       .orderBy(asc(listItemContributions.createdAt))
       .all();
     // Unchanged (including a combined `1 gal + 1`, which isn't itself a parseable amount).
-    if (edit.amount.trim() === itemTotal(contributions)) return;
+    // Compared with the total the sheet showed, so with the usual unit of the name it opened with.
+    if (edit.amount.trim() === itemTotal(contributions, usualUnitFor(tx, item.householdId, item.ingredientName))) {
+      return;
+    }
     const amount = parseAmount(edit.amount);
     if (!amount) throw new Error(`"${edit.amount.trim()}" isn't an amount, like 2 or 1 lb`);
 
@@ -512,6 +541,31 @@ export function listItemsQuery(listId: string, userId: string | null) {
 /** Tables `listItemsQuery` reads, for `useLiveQueryOn`. */
 export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, userCategoryOverrides, recipes];
 
+/**
+ * The list household's unit history for the ingredients on the list; turn it into a map with
+ * `usualUnitsByKey` for `groupItems`. Kept apart from `listItemsQuery`, where joining it would
+ * repeat every contribution row once per unit.
+ */
+export function usualUnitsQuery(listId: string) {
+  const keysOnList = db
+    .select({ ingredientName: listItems.ingredientName })
+    .from(listItems)
+    .where(and(eq(listItems.listId, listId), liveItem));
+  return db
+    .select({
+      ingredientName: ingredientUnitUsage.ingredientName,
+      unitKey: ingredientUnitUsage.unitKey,
+      useCount: ingredientUnitUsage.useCount,
+      lastUsedAt: ingredientUnitUsage.lastUsedAt,
+    })
+    .from(ingredientUnitUsage)
+    .innerJoin(lists, and(eq(lists.id, listId), eq(lists.householdId, ingredientUnitUsage.householdId)))
+    .where(inArray(ingredientUnitUsage.ingredientName, keysOnList));
+}
+
+/** Tables `usualUnitsQuery` reads, for `useLiveQueryOn`. */
+export const USUAL_UNITS_QUERY_TABLES = [ingredientUnitUsage, listItems, lists];
+
 type ItemRow = Awaited<ReturnType<typeof listItemsQuery>>[number];
 
 export type ItemView = {
@@ -523,7 +577,9 @@ export type ItemView = {
   note: string | null;
   checkedAt: Date | null;
   amounts: Amount[];
-  /** `2 lb`, `1 gal + 1`, or empty. */
+  /** The household's usual unit for the ingredient (null: a count, or nothing known). */
+  usualUnit: Unit | null;
+  /** `2 lb`, `1 gal + 1`, `2 gal` (usually bought by the gallon), or empty. */
   amountText: string;
   /** Each amount with the recipe it came from (null: typed or Siri), for the By recipe view. */
   contributions: ItemContribution[];
@@ -536,8 +592,14 @@ export type ItemContribution = Amount & {
   createdAt: Date;
 };
 
-/** Groups `listItemsQuery` rows into items, unchecked (oldest first) then checked (most recent first). */
-export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; checked: ItemView[] } {
+/**
+ * Groups `listItemsQuery` rows into items, unchecked (oldest first) then checked (most recent
+ * first). `usualUnits` is `usualUnitsByKey` over `usualUnitsQuery`.
+ */
+export function groupItems(
+  rows: readonly ItemRow[],
+  usualUnits: ReadonlyMap<string, Unit | null> = new Map(),
+): { unchecked: ItemView[]; checked: ItemView[] } {
   const byId = new Map<string, ItemView>();
   for (const row of rows) {
     let item = byId.get(row.id);
@@ -550,6 +612,7 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
         note: row.note,
         checkedAt: row.checkedAt,
         amounts: [],
+        usualUnit: usualUnits.get(row.ingredientName) ?? null,
         amountText: '',
         contributions: [],
       };
@@ -569,7 +632,7 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
     }
   }
   const items = [...byId.values()];
-  for (const item of items) item.amountText = itemTotal(item.contributions);
+  for (const item of items) item.amountText = itemTotal(item.contributions, item.usualUnit);
   return {
     unchecked: items.filter((i) => !i.checkedAt),
     checked: items
@@ -578,24 +641,34 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
   };
 }
 
-/** The item edit sheet's starting values (category untouched), plus the item's ingredient key. */
-export function getItemEdit(itemId: string): (ItemEdit & { ingredientName: string }) | null {
-  const rows = listItemsQueryForItem(itemId);
-  if (rows.length === 0) return null;
-  const amounts = rows
-    .filter((r) => r.contributionId)
-    .map((r) => ({ quantity: r.quantity, unit: r.unit, source: r.source! }));
-  return {
-    name: rows[0].displayName,
-    amount: itemTotal(amounts),
-    note: rows[0].note ?? '',
-    ingredientName: rows[0].ingredientName,
-  };
+/**
+ * The item edit sheet's starting values (category untouched), plus the item's ingredient key and
+ * usual unit, which the sheet's live total uses.
+ */
+export function getItemEdit(
+  itemId: string,
+): (ItemEdit & { ingredientName: string; usualUnit: Unit | null }) | null {
+  return db.transaction((tx) => {
+    const rows = listItemsQueryForItem(tx, itemId);
+    if (rows.length === 0) return null;
+    const amounts = rows
+      .filter((r) => r.contributionId)
+      .map((r) => ({ quantity: r.quantity, unit: r.unit, source: r.source! }));
+    const unit = usualUnitFor(tx, rows[0].householdId, rows[0].ingredientName);
+    return {
+      name: rows[0].displayName,
+      amount: itemTotal(amounts, unit),
+      note: rows[0].note ?? '',
+      ingredientName: rows[0].ingredientName,
+      usualUnit: unit,
+    };
+  });
 }
 
-function listItemsQueryForItem(itemId: string) {
-  return db
+function listItemsQueryForItem(tx: Tx, itemId: string) {
+  return tx
     .select({
+      householdId: listItems.householdId,
       displayName: listItems.displayName,
       ingredientName: listItems.ingredientName,
       note: listItems.note,

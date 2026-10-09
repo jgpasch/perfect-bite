@@ -16,6 +16,7 @@ import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { groupByCategory, orderCategories } from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
+import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { categoriesQuery } from '@/features/categories/categories';
 import { AddBar } from '@/features/lists/add-bar';
@@ -33,6 +34,8 @@ import {
   uncheckAll,
   undeleteItem,
   undoAdd,
+  USUAL_UNITS_QUERY_TABLES,
+  usualUnitsQuery,
   type ItemView,
 } from '@/features/lists/items';
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
@@ -60,7 +63,9 @@ export default function ListScreen() {
   const { data: listRows } = useLiveQueryOn(listQuery(id), [lists], [id]);
   const list = listRows[0];
   const { data: itemRows } = useLiveQueryOn(listItemsQuery(id, userId), LIST_ITEMS_QUERY_TABLES, [id, userId]);
-  const { unchecked, checked } = useMemo(() => groupItems(itemRows), [itemRows]);
+  const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
+  const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
+  const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
   const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
   const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
 

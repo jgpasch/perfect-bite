@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { UNITS } from '@/shared';
 
-import { unitFromKey, unitKey, usualUnit, type UnitUsageRow } from '../usual-unit';
+import { unitFromKey, unitKey, usualUnit, usualUnitsByKey, type UnitUsageRow } from '../usual-unit';
 
 const t = (day: number) => new Date(Date.UTC(2026, 9, day));
 const row = (unitKey: string, useCount: number, day = 1): UnitUsageRow => ({
@@ -78,5 +78,42 @@ describe('usualUnit', () => {
     expect(usualUnit(rows)).toBe('tbsp');
     expect(usualUnit([...rows].reverse())).toBe('tbsp');
     expect(rows).toEqual(copy);
+  });
+});
+
+describe('usualUnitsByKey', () => {
+  const keyed = (ingredientName: string, unitKey: string, useCount: number, day = 1) => ({
+    ingredientName,
+    ...row(unitKey, useCount, day),
+  });
+
+  it('picks the usual unit for each ingredient key on its own', () => {
+    const map = usualUnitsByKey([
+      keyed('milk', 'gal', 3),
+      keyed('chicken thigh', 'lb', 1, 1),
+      keyed('milk', 'count', 1),
+      keyed('chicken thigh', 'kg', 1, 5),
+      keyed('egg', 'dozen', 2),
+      keyed('egg', 'count', 2, 3),
+      keyed('avocado', 'count', 4),
+    ]);
+    expect([...map.entries()].sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ['avocado', null],
+      ['chicken thigh', 'kg'],
+      ['egg', null],
+      ['milk', 'gal'],
+    ]);
+  });
+
+  it('leaves out keys with nothing known', () => {
+    const map = usualUnitsByKey([keyed('milk', 'gal', 0), keyed('salt', 'handful', 3), keyed('flour', 'cup', 1)]);
+    expect(map.has('milk')).toBe(false);
+    expect(map.has('salt')).toBe(false);
+    expect(map.get('flour')).toBe('cup');
+    expect(map.size).toBe(1);
+  });
+
+  it('is empty for no rows', () => {
+    expect(usualUnitsByKey([]).size).toBe(0);
   });
 });

@@ -36,6 +36,23 @@ export function usualUnit(rows: readonly UnitUsageRow[]): Unit | null | undefine
   return best && unitFromKey(best.unitKey);
 }
 
+/**
+ * The usual unit of each ingredient key in `rows` (`ingredient_unit_usage` rows for one
+ * household). Keys with nothing known (`usualUnit` is undefined) are left out.
+ */
+export function usualUnitsByKey(
+  rows: readonly (UnitUsageRow & { ingredientName: string })[],
+): Map<string, Unit | null> {
+  const byKey = new Map<string, UnitUsageRow[]>();
+  for (const row of rows) byKey.set(row.ingredientName, [...(byKey.get(row.ingredientName) ?? []), row]);
+  const result = new Map<string, Unit | null>();
+  for (const [key, keyRows] of byKey) {
+    const unit = usualUnit(keyRows);
+    if (unit !== undefined) result.set(key, unit);
+  }
+  return result;
+}
+
 /** Negative when `a` ranks ahead of `b`. */
 function compare(a: UnitUsageRow, b: UnitUsageRow): number {
   if (a.useCount !== b.useCount) return b.useCount - a.useCount;

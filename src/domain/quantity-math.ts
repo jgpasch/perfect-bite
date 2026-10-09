@@ -88,16 +88,17 @@ function formatGroup(amounts: Amount[]): string {
 /**
  * How an item's amounts read on its row (spec 4.4): `2 lb + 8 oz` → `2.5 lb`;
  * `1 cup + 1 tsp` → `1 cup + 1 tsp`; `2 cans + 400 g` → `2 cans + 400 g`. Alongside other
- * amounts, an add with no amount counts as one with no unit: `milk` twice → `2`, `2` and an add
- * with no amount → `3`, `1 gal` and an add with no amount → `1 gal + 1`. A single add with no
- * amount → empty.
+ * amounts, an add with no amount counts as one of the ingredient's `usualUnit` (spec 4.2), or one
+ * with no unit when that's null: `milk` twice → `2`, `2` and an add with no amount → `3`, `1 gal`
+ * and an add with no amount → `1 gal + 1`, or `2 gal` when milk is usually bought by the gallon.
+ * A single add with no amount → empty.
  */
-export function summarizeAmounts(amounts: readonly Amount[]): string {
+export function summarizeAmounts(amounts: readonly Amount[], usualUnit: Unit | null = null): string {
   if (amounts.length === 0) return '';
   if (amounts.length === 1 && amounts[0].quantity === null) return '';
   const groups = new Map<string, Amount[]>();
   for (const a of amounts) {
-    const counted = a.quantity === null ? { quantity: 1, unit: null } : a;
+    const counted = a.quantity === null ? { quantity: 1, unit: usualUnit } : a;
     const key = groupKey(counted);
     groups.set(key, [...(groups.get(key) ?? []), counted]);
   }

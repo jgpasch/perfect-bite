@@ -57,6 +57,18 @@ describe('groupByRecipe', () => {
     expect(other.entries[0].amountText).toBe('');
   });
 
+  it('counts an add with no amount as one of the item’s usual unit', () => {
+    const gal = (recipe: string | null, quantity: number | null, at: number) => ({ ...c(recipe, quantity, at), unit: 'gal' as const });
+    const milk = { name: 'milk', usualUnit: 'gal' as const, contributions: [gal(null, 1, 1), c(null, null, 2)] };
+    expect(groupByRecipe([milk])[0].entries[0].amountText).toBe('2 gal');
+    // A recipe link with no quantity still isn't an amount, usual unit or not.
+    const soup = { name: 'milk', usualUnit: 'gal' as const, contributions: [gal('soup', 1, 1), c('soup', null, 2)] };
+    expect(groupByRecipe([soup])[0].entries[0].amountText).toBe('1 gal');
+    // A lone add with no amount still reads empty, and a null usual unit is a plain count.
+    expect(groupByRecipe([{ name: 'milk', usualUnit: 'gal' as const, contributions: [c(null, null, 1)] }])[0].entries[0].amountText).toBe('');
+    expect(groupByRecipe([{ name: 'milk', usualUnit: null, contributions: [gal(null, 1, 1), c(null, null, 2)] }])[0].entries[0].amountText).toBe('1 gal + 1');
+  });
+
   it('is empty for no items', () => {
     expect(groupByRecipe([])).toEqual([]);
   });
