@@ -115,10 +115,9 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 ### 4.4 Duplicate handling (req 8)
 A duplicate is an add whose normalized ingredient matches an **unchecked** item already on the same list.
 
-- **Single add in the app**: no prompt, so the add field never blocks the next item (goal 1). The new quantity is added to the existing item as a new contribution (**Combine**), the existing row briefly highlights, and a toast appears for 5 seconds: "Combined with *milk* (1 gal). **Undo** · **Keep existing**".
-  - **Undo**: removes the add entirely.
-  - **Keep existing**: removes the new quantity. If the add came from a recipe, the recipe link is still recorded (a contribution with no quantity) so the recipe-grouped view stays accurate [Default].
-  - Both actions are also available later from the item's edit sheet, which lists its contributions with a delete control on each.
+- **Single add in the app**: no prompt, so the add field never blocks the next item (goal 1). The new quantity is added to the existing item as a new contribution (**Combine**), the existing row briefly highlights, and a toast appears for 5 seconds: "Added to *milk* (now 1 gal + 1). **Undo**". The amount is the item's new total and is left off when there is none.
+  - **Undo**: removes the add, leaving the item as it was. (A single in-app add never comes from a recipe, so there is no separate Keep existing here; that choice lives in the bulk sheet below.)
+  - Undo is also available later from the item's edit sheet, which lists its contributions with a delete control on each.
 - **Adds with no UI always Combine silently**: Siri adds (4.9), adds that arrive by sync from a household member, and offline-conflict resolution (7.3). The toast only shows on the device doing an in-app add.
 - **Quantity math**: if both quantities share a unit, or convertible units within the same dimension (mass with mass, volume with volume, metric and US customary both allowed), sum them.
   - **Display rule** [Default]: show the sum in the unit of the larger contribution, rounded to a friendly value (nearest 1/4 for cup/tsp/tbsp, 0.1 for lb/kg/l, whole numbers for g/ml/count). If rounding would hide a contribution (e.g. `1 cup + 1 tsp` rounds to `1 cup`), show both instead: `1 cup + 1 tsp`.
@@ -580,7 +579,7 @@ Acceptance criteria:
 6. **Batching**: adding a 12-ingredient recipe with 8 unknown ingredients makes exactly one function request and one LLM call.
 7. **Override**: user A moves "tahini" to Pantry; user A sees it in Pantry on every list and device; user B in the same household still sees the default.
 8. **Shared household**: after B accepts A's invite to "Test home", B sees its lists in a new section next to B's personal household; an item checked by A appears checked on B's device within a few seconds while both are online.
-9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row showing both quantities, and shows the toast with the keyboard still up; Undo restores the original row; Keep existing yields one row with the original quantity. Adding a recipe with 3 conflicts shows one bulk sheet.
+9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row showing both quantities, and shows the toast with the keyboard still up; the toast reads "Added to milk (now 1 gal + 1)" with a single Undo, which restores the original row. Adding a recipe with 3 conflicts shows one bulk sheet.
 10. **Category order**: user A drags Dairy above Produce; A's lists show Dairy first on all of A's devices; B's order is unchanged.
 11. **Multiple lists**: create, rename, reorder and delete lists; items are independent per list.
 12. **View modes**: switching to By recipe shows recipe sections plus Other items; an item from two recipes appears under both, and checking it in one checks it in both.

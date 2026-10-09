@@ -12,7 +12,6 @@ import {
   DuplicateItemError,
   getItemEdit,
   groupItems,
-  keepExisting,
   listItemsQuery,
   planBulkAddToList,
   setItemChecked,
@@ -58,7 +57,7 @@ describe('addItem', () => {
   test('combines an add into the open item for the same ingredient', () => {
     const first = addItem(listId, '1 gal milk', USER)!;
     const second = addItem(listId, 'milk', USER)!;
-    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'milk', existingAmountText: '1 gal' });
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'milk', totalAmountText: '1 gal + 1' });
     expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
   });
 
@@ -108,10 +107,10 @@ describe('undo and keep existing (spec 4.4)', () => {
     expect(rows(view().checked)).toEqual(['1 gal milk']);
   });
 
-  test('keep existing drops the new amount', () => {
+  test('undo of a combine drops the new amount', () => {
     addItem(listId, '1 gal milk', USER);
     const r = addItem(listId, '2 milk', USER)!;
-    keepExisting(r.contributionId);
+    undoAdd(r);
     expect(rows(view().unchecked)).toEqual(['1 gal milk']);
   });
 

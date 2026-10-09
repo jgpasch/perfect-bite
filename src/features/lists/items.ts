@@ -61,9 +61,9 @@ export type AddItemResult = {
   contributionId: string;
   /** What the add did (spec 4.4): a new item, Combine into an open one, or reopen a checked one. */
   kind: AddDecision['kind'];
-  /** The item's name and its amounts before this add (combine only), for the toast. */
+  /** The item's name and its total amount after this add (combine only), for the toast. */
   existingName?: string;
-  existingAmountText?: string;
+  totalAmountText?: string;
   /** What reopening replaced, so Undo can put it back. */
   reopened?: { checkedAt: Date; checkedBy: string | null; contributionIds: string[] };
 };
@@ -147,7 +147,7 @@ function applyAdd(
       contributionId,
       kind: 'combine',
       existingName: item.displayName,
-      existingAmountText: itemTotal(previous),
+      totalAmountText: itemTotal([...previous, contribution]),
     };
   }
 
@@ -212,20 +212,6 @@ export function undoAdd(result: AddItemResult): void {
       }
     }
   });
-}
-
-/**
- * Toast "Keep existing" (spec 4.4): drops the new amount. An amount from a recipe keeps its
- * recipe link with no quantity, so the By recipe view stays accurate.
- */
-export function keepExisting(contributionId: string): void {
-  const c = db.select().from(listItemContributions).where(eq(listItemContributions.id, contributionId)).get();
-  if (!c) return;
-  if (c.source === 'recipe') {
-    db.update(listItemContributions).set({ quantity: null, unit: null }).where(eq(listItemContributions.id, contributionId)).run();
-  } else {
-    db.update(listItemContributions).set({ deletedAt: new Date() }).where(eq(listItemContributions.id, contributionId)).run();
-  }
 }
 
 /** The edit sheet's per-amount delete control (spec 4.4). */

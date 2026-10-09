@@ -26,7 +26,6 @@ import {
   clearChecked,
   deleteItem,
   groupItems,
-  keepExisting,
   LIST_ITEMS_QUERY_TABLES,
   listItemsQuery,
   removeRecipeFromList,
@@ -154,16 +153,13 @@ export default function ListScreen() {
   const add = (value: string) => {
     const result = addItem(id, value, userId);
     if (result?.kind !== 'combine') return;
-    // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo / Keep existing.
+    // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo.
     setHighlightedId(result.itemId);
-    const amount = result.existingAmountText ? ` (${result.existingAmountText})` : '';
+    const amount = result.totalAmountText ? ` (now ${result.totalAmountText})` : '';
     setToast({
       key: result.contributionId,
-      message: `Combined with ${result.existingName}${amount}`,
-      actions: [
-        { label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) },
-        { label: 'Keep existing', onPress: () => (keepExisting(result.contributionId), setToast(null)) },
-      ],
+      message: `Added to ${result.existingName}${amount}`,
+      actions: [{ label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) }],
     });
   };
 
