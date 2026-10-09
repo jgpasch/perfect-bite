@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Icon, type IconName } from '@/components/icon';
@@ -9,8 +9,9 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { listItemContributions } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { formatAmount } from '@/domain/quantity-display';
+import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
+import { canStepDown, unitLabel, unitMenuChoice, unitMenuOptions, withUnit } from '@/features/lists/amount-stepper';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import {
   contributionsQuery,
@@ -18,6 +19,9 @@ import {
   deleteItem,
   getItemEdit,
   itemTotal,
+  setItemAmount,
+  steppableAmount,
+  stepItemAmount,
   updateItem,
   type ItemEdit,
 } from '@/features/lists/items';
@@ -45,6 +49,8 @@ export default function ItemEditSheet() {
 
   // Deleting an amount below changes the total; follow it until the user types their own.
   const amount = amountTouched || contributions.length === 0 ? edit.amount : itemTotal(contributions, initial.usualUnit);
+  // The − / + and unit picker work on the total as one amount; null (`2 cans + 400 g`) disables them.
+  const steppable = steppableAmount(contributions, initial.usualUnit);
 
   const defaultId = current?.defaultCategoryId ?? OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.
@@ -71,6 +77,26 @@ export default function ItemEditSheet() {
   const set = (field: keyof ItemEdit) => (value: string) => {
     setEdit({ ...edit, [field]: value });
     setError(null);
+  };
+
+  // The stepper and unit picker save right away, like deleting an amount; the field follows.
+  const saveAmount = (write: () => void) => {
+    try {
+      write();
+      setAmountTouched(false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const chooseUnit = () => {
+    if (!steppable) return;
+    ActionSheetIOS.showActionSheetWithOptions({ title: 'Unit', ...unitMenuOptions() }, (index) => {
+      const unit = unitMenuChoice(index);
+      const next = unit === undefined ? null : withUnit(steppable, unit);
+      if (next) saveAmount(() => setItemAmount(itemId, next));
+    });
   };
 
   const save = () => {
@@ -109,6 +135,13 @@ export default function ItemEditSheet() {
           accessibilityLabel="Amount"
           autoCapitalize="none"
           returnKeyType="done"
+        />
+        <AmountStepper
+          amount={steppable}
+          totalText={amount}
+          canDecrease={!!steppable && canStepDown(steppable, initial.usualUnit)}
+          onStep={(direction) => saveAmount(() => stepItemAmount(itemId, direction, initial.usualUnit))}
+          onChooseUnit={chooseUnit}
         />
       </Field>
       {contributions.length > 1 ? (
@@ -183,6 +216,98 @@ export default function ItemEditSheet() {
   );
 }
 
+const DISABLED_HINT = 'Edit the amount as text';
+
+/** − / + and a unit button under the Amount field (spec 4.4). Disabled when `amount` is null. */
+function AmountStepper({
+  amount,
+  totalText,
+  canDecrease,
+  onStep,
+  onChooseUnit,
+}: {
+  amount: Amount | null;
+  totalText: string;
+  canDecrease: boolean;
+  onStep: (direction: 1 | -1) => void;
+  onChooseUnit: () => void;
+}) {
+  const { spacing } = useTheme();
+  const disabledHint = amount ? undefined : DISABLED_HINT;
+  return (
+    <View style={[styles.row, { gap: spacing.sm }]}>
+      <StepperButton
+        icon="minus"
+        accessibilityLabel="Decrease amount"
+        accessibilityHint={disabledHint}
+        disabled={!amount || !canDecrease}
+        onPress={() => onStep(-1)}
+      />
+      <ThemedText variant="body" style={[styles.flex, styles.center]} numberOfLines={1}>
+        {amount ? formatAmount(amount) : totalText}
+      </ThemedText>
+      <StepperButton
+        icon="plus"
+        accessibilityLabel="Increase amount"
+        accessibilityHint={disabledHint}
+        disabled={!amount}
+        onPress={() => onStep(1)}
+      />
+      <StepperButton
+        icon="chevron.up.chevron.down"
+        label={amount ? unitLabel(amount.unit) : undefined}
+        accessibilityLabel={amount ? `Unit, ${unitLabel(amount.unit)}` : 'Unit'}
+        accessibilityHint={disabledHint ?? 'Shows the units'}
+        disabled={!amount}
+        onPress={onChooseUnit}
+      />
+    </View>
+  );
+}
+
+function StepperButton({
+  icon,
+  label,
+  accessibilityLabel,
+  accessibilityHint,
+  disabled,
+  onPress,
+}: {
+  icon: IconName;
+  label?: string;
+  accessibilityLabel: string;
+  accessibilityHint?: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { colors, spacing, rounded, sizes, opacity } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        styles.centered,
+        {
+          minHeight: sizes.rowMin,
+          minWidth: sizes.rowMin,
+          paddingHorizontal: spacing.md,
+          gap: spacing.xs,
+          borderRadius: rounded.md,
+          backgroundColor: colors.surfaceMuted,
+          opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      {label ? <ThemedText variant="body">{label}</ThemedText> : null}
+      <Icon name={icon} color={label ? 'inkSecondary' : 'ink'} size={label ? sizes.iconSmall : sizes.icon} />
+    </Pressable>
+  );
+}
+
 function Option({
   label,
   detail,
@@ -243,5 +368,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  center: { textAlign: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  centered: { justifyContent: 'center' },
   option: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth },
 });
