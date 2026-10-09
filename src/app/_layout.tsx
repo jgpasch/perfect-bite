@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { DatabaseProvider } from '@/db';
+import { AppDataGate } from '@/features/app-data';
 import { startAccount, useAccountState } from '@/features/auth/account';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -32,14 +33,27 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
         <DatabaseProvider>
-          <Stack screenOptions={screenOptions}>
-            <Stack.Protected guard={ready}>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            </Stack.Protected>
-            <Stack.Protected guard={!ready}>
-              <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-            </Stack.Protected>
-          </Stack>
+          <AppDataGate>
+            <Stack screenOptions={screenOptions}>
+              <Stack.Protected guard={ready}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Lists' }} />
+                <Stack.Screen name="list/[id]/index" options={{ title: '' }} />
+                <Stack.Screen
+                  name="list/[id]/item/[itemId]"
+                  options={{
+                    title: 'Edit item',
+                    presentation: 'formSheet',
+                    sheetAllowedDetents: [0.6, 1],
+                    sheetGrabberVisible: true,
+                  }}
+                />
+                <Stack.Screen name="category-order" options={{ title: 'Section order', presentation: 'modal' }} />
+              </Stack.Protected>
+              <Stack.Protected guard={!ready}>
+                <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+              </Stack.Protected>
+            </Stack>
+          </AppDataGate>
         </DatabaseProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

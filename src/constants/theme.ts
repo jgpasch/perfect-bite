@@ -115,6 +115,8 @@ export const Sizes = {
   largeButton: 64,
   rowMin: 48,
   icon: 17,
+  /** list item checkboxes */
+  iconLarge: 22,
   iconSmall: 12,
 } as const;
 

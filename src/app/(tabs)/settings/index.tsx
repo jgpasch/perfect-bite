@@ -18,6 +18,9 @@ export default function SettingsScreen() {
       <SettingsSection title="Account">
         <SettingsRow label="Signed in as" value={email ?? '—'} last />
       </SettingsSection>
+      <SettingsSection title="Lists">
+        <Button label="Section order" variant="plain" onPress={() => router.push('/category-order')} />
+      </SettingsSection>
       {/* TODO(M5): sync status (spec 7.5). TODO(M7): households (spec 4.7). */}
       {__DEV__ ? (
         <SettingsSection title="Developer">

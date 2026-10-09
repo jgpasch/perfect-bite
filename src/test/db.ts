@@ -20,7 +20,19 @@ export const db = drizzle(sqlite, { schema });
 
 migrate(db, { migrationsFolder: path.join(__dirname, '../db/migrations') });
 
-const TABLES = [schema.deviceSettings];
+// Children before parents, for foreign keys.
+const TABLES = [
+  schema.deviceSettings,
+  schema.userSettings,
+  schema.userCategoryOverrides,
+  schema.userCategoryOrder,
+  schema.listItemContributions,
+  schema.listItems,
+  schema.lists,
+  schema.households,
+  schema.ingredients,
+  schema.categories,
+];
 
 /** Empties every table. Call in `beforeEach`. */
 export function resetDb() {

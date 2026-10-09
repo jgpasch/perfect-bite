@@ -1,0 +1,189 @@
+// Categories, the ingredient catalog cache, and per-user overrides and order (spec 4.3).
+// Local reads and writes; M5 syncs the per-user tables, M6 fills the catalog from the server.
+import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
+
+import { categories, db, ingredients, userCategoryOrder, userCategoryOverrides } from '@/db';
+import { orderCategories } from '@/domain/category-resolver';
+import { positionBetween, positionForMove } from '@/domain/position';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { newId } from '@/lib/id';
+import { normalizeIngredientName, SEED_INGREDIENTS, SYSTEM_CATEGORIES } from '@/shared';
+
+// --- Seed ----------------------------------------------------------------------------------
+
+/** Changes whenever the bundled seed does, so an app update re-applies it. */
+const SEED_FINGERPRINT = JSON.stringify([SYSTEM_CATEGORIES, SEED_INGREDIENTS]).length;
+const SEED_KEY = 'catalog.seedFingerprint';
+
+/**
+ * Loads the bundled system categories and seed ingredients (spec 6.2) into the local catalog.
+ * Cheap when already loaded. Seed rows never overwrite an ingredient the server categorized.
+ */
+export function loadCatalogSeed(): void {
+  if (getDeviceSetting(SEED_KEY, 0) === SEED_FINGERPRINT) return;
+  const slugToId = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.slug, c.id]));
+  db.transaction((tx) => {
+    SYSTEM_CATEGORIES.forEach((c, rank) => {
+      tx.insert(categories)
+        .values({ id: c.id, slug: c.slug, name: c.name, ownerUserId: null, defaultRank: rank })
+        .onConflictDoUpdate({ target: categories.id, set: { slug: c.slug, name: c.name, defaultRank: rank } })
+        .run();
+    });
+    for (const [slug, names] of Object.entries(SEED_INGREDIENTS)) {
+      for (const displayName of names) {
+        const row = {
+          normalizedName: normalizeIngredientName(displayName),
+          displayName,
+          defaultCategoryId: slugToId.get(slug)!,
+          status: 'categorized' as const,
+          isGroceryItem: true,
+          categorizedBy: 'seed',
+        };
+        tx.insert(ingredients)
+          .values(row)
+          .onConflictDoUpdate({
+            target: ingredients.normalizedName,
+            set: row,
+            setWhere: or(eq(ingredients.categorizedBy, 'seed'), sql`${ingredients.status} <> 'categorized'`),
+          })
+          .run();
+      }
+    }
+  });
+  setDeviceSetting(SEED_KEY, SEED_FINGERPRINT);
+}
+
+// --- Categories and order ------------------------------------------------------------------
+
+/** System categories plus the user's custom ones, each with the user's position (if any). */
+export function categoriesQuery(userId: string) {
+  return db
+    .select({
+      id: categories.id,
+      name: categories.name,
+      slug: categories.slug,
+      defaultRank: categories.defaultRank,
+      ownerUserId: categories.ownerUserId,
+      position: userCategoryOrder.position,
+    })
+    .from(categories)
+    .leftJoin(
+      userCategoryOrder,
+      and(eq(userCategoryOrder.categoryId, categories.id), eq(userCategoryOrder.userId, userId)),
+    )
+    .where(or(isNull(categories.ownerUserId), eq(categories.ownerUserId, userId)));
+}
+export type CategoryRow = Awaited<ReturnType<typeof categoriesQuery>>[number];
+
+/** The user's categories in their order (spec 4.3.3). */
+export function getOrderedCategories(userId: string): CategoryRow[] {
+  return orderCategories(categoriesQuery(userId).all());
+}
+
+/**
+ * Writes a position for every category the user hasn't placed yet, keeping the current order,
+ * so a move only ever needs one more write. Returns the categories in order.
+ */
+function placeAll(userId: string): CategoryRow[] {
+  const ordered = getOrderedCategories(userId);
+  let last: number | null = null;
+  db.transaction((tx) => {
+    for (const c of ordered) {
+      if (c.position === null) {
+        c.position = positionBetween(last, null);
+        tx.insert(userCategoryOrder).values({ userId, categoryId: c.id, position: c.position }).run();
+      }
+      last = c.position;
+    }
+  });
+  return ordered;
+}
+
+/** Moves the category at `from` to `to` in the user's order. */
+export function moveCategory(userId: string, from: number, to: number): void {
+  if (from === to) return;
+  const ordered = placeAll(userId);
+  if (!ordered[from]) return;
+  const position = positionForMove(
+    ordered.map((c) => c.position!),
+    from,
+    to,
+  );
+  db.update(userCategoryOrder)
+    .set({ position })
+    .where(and(eq(userCategoryOrder.userId, userId), eq(userCategoryOrder.categoryId, ordered[from].id)))
+    .run();
+}
+
+/** "New category...": a custom category for this user, at the end of their order. */
+export function createCategory(userId: string, name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, ' ');
+  if (!trimmed) throw new Error('A category needs a name');
+  const existing = getOrderedCategories(userId).find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  if (existing) return existing.id;
+  const ordered = placeAll(userId);
+  const id = newId();
+  db.transaction((tx) => {
+    tx.insert(categories).values({ id, name: trimmed, ownerUserId: userId }).run();
+    tx.insert(userCategoryOrder)
+      .values({ userId, categoryId: id, position: positionBetween(ordered.at(-1)?.position ?? null, null) })
+      .run();
+  });
+  return id;
+}
+
+// --- Overrides (spec 4.3.2) ----------------------------------------------------------------
+
+/** Moves an ingredient to a category for this user only, on every list. */
+export function setCategoryOverride(userId: string, ingredientName: string, categoryId: string): void {
+  db.insert(userCategoryOverrides)
+    .values({ userId, ingredientName, categoryId })
+    .onConflictDoUpdate({ target: [userCategoryOverrides.userId, userCategoryOverrides.ingredientName], set: { categoryId } })
+    .run();
+}
+
+/** "Reset to default". */
+export function clearCategoryOverride(userId: string, ingredientName: string): void {
+  db.delete(userCategoryOverrides)
+    .where(and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)))
+    .run();
+}
+
+/** An ingredient's category for this user, and whether it is their override. */
+export function getIngredientCategory(
+  userId: string,
+  ingredientName: string,
+): { defaultCategoryId: string | null; overrideCategoryId: string | null } {
+  const row = db
+    .select({ defaultCategoryId: ingredients.defaultCategoryId })
+    .from(ingredients)
+    .where(eq(ingredients.normalizedName, ingredientName))
+    .get();
+  const override = db
+    .select({ categoryId: userCategoryOverrides.categoryId })
+    .from(userCategoryOverrides)
+    .where(and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)))
+    .get();
+  return { defaultCategoryId: row?.defaultCategoryId ?? null, overrideCategoryId: override?.categoryId ?? null };
+}
+
+// --- Catalog search (autocomplete, spec 4.2) -----------------------------------------------
+
+/** Catalog ingredients whose name starts with `prefix`, or has a word that does. */
+export function searchCatalog(prefix: string, limit: number): { key: string; displayName: string }[] {
+  const p = prefix.trim().toLowerCase().replace(/[%_]/g, '');
+  if (!p) return [];
+  return db
+    .select({ key: ingredients.normalizedName, displayName: ingredients.displayName })
+    .from(ingredients)
+    .where(
+      and(
+        eq(ingredients.isGroceryItem, true),
+        or(like(ingredients.displayName, `${p}%`), like(ingredients.displayName, `% ${p}%`)),
+      ),
+    )
+    // Whole-name prefix matches first, then shorter names.
+    .orderBy(sql`${ingredients.displayName} not like ${`${p}%`}`, sql`length(${ingredients.displayName})`, asc(ingredients.displayName))
+    .limit(limit)
+    .all();
+}
