@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
 import { db, households } from '@/db';
 import { getDeviceSetting } from '@/features/settings/device-settings';
@@ -12,7 +12,7 @@ import {
   supabase,
 } from '@/test/fake-supabase';
 
-import { registerHouseholds } from '../households';
+import { fetchHouseholdMembers, householdsQuery, registerHouseholds } from '../households';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -123,4 +123,92 @@ test('a local database error is logged, not thrown', async () => {
   } finally {
     select.mockRestore();
   }
+});
+
+describe('householdsQuery', () => {
+  test('returns local households oldest first', () => {
+    db.insert(households).values({ id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') }).run();
+    db.insert(households).values({ id: 'h0', name: 'Cabin', createdAt: new Date('2026-09-01T00:00:00Z') }).run();
+    expect(householdsQuery().all()).toEqual([
+      { id: 'h0', name: 'Cabin', createdAt: new Date('2026-09-01T00:00:00Z') },
+      { id: 'h1', name: 'Personal', createdAt: new Date('2026-10-01T00:00:00Z') },
+      { id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') },
+    ]);
+  });
+
+  test('breaks a created_at tie by id', () => {
+    db.insert(households).values({ id: 'h0', name: 'Cabin', createdAt: new Date('2026-10-01T00:00:00Z') }).run();
+    expect(householdsQuery().all().map((h) => h.id)).toEqual(['h0', 'h1']);
+  });
+
+  test('returns [] with no local households', () => {
+    resetDb();
+    expect(householdsQuery().all()).toEqual([]);
+  });
+});
+
+describe('fetchHouseholdMembers', () => {
+  const alex = {
+    user_id: 'u1',
+    display_name: 'Alex',
+    avatar_url: 'https://example.com/a.png',
+    role: 'owner',
+    joined_at: '2026-10-01T00:00:00+00:00',
+  };
+  const sam = { user_id: 'u2', display_name: 'Sam', avatar_url: null, role: 'member', joined_at: '2026-10-02T00:00:00+00:00' };
+
+  test('calls get_household_members with the household id', async () => {
+    respondToRpc('get_household_members', { data: [alex] });
+    await fetchHouseholdMembers('h1', 'u1');
+    expect(rpcCalls).toEqual([{ fn: 'get_household_members', args: { p_household_id: 'h1' } }]);
+  });
+
+  test("maps rows in the server's order and marks the caller's row", async () => {
+    respondToRpc('get_household_members', { data: [alex, sam] });
+    await expect(fetchHouseholdMembers('h1', 'u2')).resolves.toEqual([
+      { userId: 'u1', displayName: 'Alex', avatarUrl: 'https://example.com/a.png', role: 'owner', isYou: false },
+      { userId: 'u2', displayName: 'Sam', avatarUrl: null, role: 'member', isYou: true },
+    ]);
+  });
+
+  test("keeps the server's order rather than re-sorting", async () => {
+    const zoe = { ...alex, user_id: 'u3', display_name: 'Zoe' };
+    respondToRpc('get_household_members', { data: [zoe, alex, sam] });
+    const members = await fetchHouseholdMembers('h1', 'u1');
+    expect(members.map((m) => m.displayName)).toEqual(['Zoe', 'Alex', 'Sam']);
+    expect(members.map((m) => m.isYou)).toEqual([false, true, false]);
+  });
+
+  test("no row is marked as you when the caller isn't in the result", async () => {
+    respondToRpc('get_household_members', { data: [alex, sam] });
+    const members = await fetchHouseholdMembers('h1', 'u9');
+    expect(members.map((m) => m.isYou)).toEqual([false, false]);
+  });
+
+  test('an empty result returns []', async () => {
+    respondToRpc('get_household_members', { data: [] });
+    await expect(fetchHouseholdMembers('h1', 'u1')).resolves.toEqual([]);
+  });
+
+  test('null data returns []', async () => {
+    respondToRpc('get_household_members', { data: null });
+    await expect(fetchHouseholdMembers('h1', 'u1')).resolves.toEqual([]);
+  });
+
+  test("an RPC error is thrown as an Error with the server's message", async () => {
+    respondToRpc('get_household_members', { error: { message: 'not a member of household h1', code: '42501' } });
+    const result = fetchHouseholdMembers('h1', 'u1');
+    await expect(result).rejects.toBeInstanceOf(Error);
+    await expect(result).rejects.toThrow('not a member of household h1');
+  });
+
+  test('an error without a message still throws an Error', async () => {
+    respondToRpc('get_household_members', { error: { code: '500' } });
+    await expect(fetchHouseholdMembers('h1', 'u1')).rejects.toThrow("Couldn't load members");
+  });
+
+  test('a rejected call (offline) propagates', async () => {
+    supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
+    await expect(fetchHouseholdMembers('h1', 'u1')).rejects.toThrow('Network request failed');
+  });
 });

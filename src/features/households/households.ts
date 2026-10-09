@@ -7,6 +7,50 @@ import { db, households } from '@/db';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
+/** Local households, oldest first (live query). */
+export function householdsQuery() {
+  return db
+    .select({ id: households.id, name: households.name, createdAt: households.createdAt })
+    .from(households)
+    .orderBy(asc(households.createdAt), asc(households.id));
+}
+
+export type HouseholdMember = {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  role: 'owner' | 'member';
+  isYou: boolean;
+};
+
+type MemberRow = {
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  role: 'owner' | 'member';
+  joined_at: string;
+};
+
+/**
+ * Members of a household from the server (`get_household_members`), in the server's order (owners
+ * first, then by name). Throws an `Error` with the server's message on failure, including when the
+ * caller isn't a member or the household isn't registered yet.
+ */
+export async function fetchHouseholdMembers(householdId: string, currentUserId: string): Promise<HouseholdMember[]> {
+  const { data, error } = await supabase.rpc('get_household_members', { p_household_id: householdId });
+  if (error) {
+    const message = (error as { message?: unknown }).message;
+    throw new Error(typeof message === 'string' && message ? message : "Couldn't load members");
+  }
+  return ((data as MemberRow[] | null) ?? []).map((row) => ({
+    userId: row.user_id,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    isYou: row.user_id === currentUserId,
+  }));
+}
+
 /** Device setting holding the user id a household was registered for. */
 const registeredKey = (householdId: string) => `household.${householdId}.registeredFor`;
 
