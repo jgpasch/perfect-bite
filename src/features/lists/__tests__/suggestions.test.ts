@@ -92,14 +92,17 @@ describe('getSuggestions (spec 4.2)', () => {
     expect(getSuggestions(householdId, '2 lbs zucc')).toEqual(getSuggestions(householdId, 'zucc'));
   });
 
-  test('a suggestion identical to the typed name is skipped and does not count toward history-only', () => {
+  test('a history match identical to the typed name is still shown first', () => {
     addItem(listId, 'chicken', USER);
-    addItem(listId, 'chicken thighs', USER);
     const out = getSuggestions(householdId, 'Chicken');
-    expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
-    expect(out.map((s) => s.displayName)).not.toContain('chicken');
-    expect(out.slice(1).length).toBeGreaterThan(0);
+    expect(out[0]).toEqual({ key: 'chicken', displayName: 'chicken', source: 'history' });
+    expect(out.filter((s) => s.key === 'chicken')).toHaveLength(1);
     expect(out.slice(1).every((s) => s.source === 'catalog')).toBe(true);
+  });
+
+  test('a catalog suggestion identical to the typed name is skipped', () => {
+    expect(catalog('chicken').map((s) => s.displayName)).toContain('chicken');
+    expect(getSuggestions(householdId, 'chicken').map((s) => s.displayName)).not.toContain('chicken');
   });
 
   test('hidden history rows and other households are not history matches', () => {

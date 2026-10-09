@@ -11,7 +11,8 @@ const HISTORY_ONLY_MIN = 2;
 /**
  * Add-bar autocomplete (spec 4.2): household history wins. With 2 or more history matches only history is shown;
  * with fewer, the catalog fills the remaining slots. Matches the name part of the text, so `2 lbs chi` suggests
- * chicken thighs. A suggestion identical to the typed name is skipped and doesn't count as a match.
+ * chicken thighs. A history match identical to the typed name is still shown, so a recently used item stays first;
+ * a catalog suggestion identical to it is skipped.
  * TODO(M6): limit catalog suggestions per spec 6.5 once server rows are cached.
  */
 export function getSuggestions(householdId: string, text: string, limit = 5): Suggestion[] {
@@ -23,7 +24,7 @@ export function getSuggestions(householdId: string, text: string, limit = 5): Su
   const push = (rows: { key: string; displayName: string }[], source: Suggestion['source']) => {
     for (const r of rows) {
       if (out.length === limit) return;
-      if (seen.has(r.key) || r.displayName.toLowerCase() === typed) continue;
+      if (seen.has(r.key) || (source === 'catalog' && r.displayName.toLowerCase() === typed)) continue;
       seen.add(r.key);
       out.push({ key: r.key, displayName: r.displayName, source });
     }
