@@ -7,7 +7,8 @@ export default function SettingsStackLayout() {
   return (
     <Stack screenOptions={screenOptions}>
       <Stack.Screen name="index" options={{ title: 'Settings', headerLargeTitleEnabled: true }} />
-      <Stack.Screen name="siri" options={{ title: 'Siri spike', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="households/[id]" options={{ title: '', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="siri"options={{ title: 'Siri spike', headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>
   );
 }

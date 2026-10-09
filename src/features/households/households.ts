@@ -51,6 +51,19 @@ export async function fetchHouseholdMembers(householdId: string, currentUserId: 
   }));
 }
 
+/** Shown on the household screen for any load failure, including a household not registered yet. */
+export const MEMBERS_ERROR_MESSAGE = "Couldn't load members. Check your connection.";
+
+/** A member row's label: the display name, with "(You)" on the caller's own row. */
+export function memberLabel(member: Pick<HouseholdMember, 'displayName' | 'isYou'>): string {
+  const name = member.displayName.trim() || 'Unnamed';
+  return member.isYou ? `${name} (You)` : name;
+}
+
+export function roleLabel(role: HouseholdMember['role']): string {
+  return role === 'owner' ? 'Owner' : 'Member';
+}
+
 /** Device setting holding the user id a household was registered for. */
 const registeredKey = (householdId: string) => `household.${householdId}.registeredFor`;
 

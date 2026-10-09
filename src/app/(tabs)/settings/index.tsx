@@ -2,9 +2,12 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 
 import { Button } from '@/components/button';
-import { SettingsRow, SettingsSection } from '@/components/settings-group';
+import { SettingsLinkRow, SettingsRow, SettingsSection } from '@/components/settings-group';
 import { Screen } from '@/components/themed-view';
+import { households } from '@/db';
+import { useLiveQueryOn } from '@/db/live-query';
 import { signOut, useAccountState } from '@/features/auth/account';
+import { householdsQuery } from '@/features/households/households';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function SettingsScreen() {
@@ -12,6 +15,7 @@ export default function SettingsScreen() {
   const account = useAccountState();
   const email = account.status === 'ready' ? account.account.email : undefined;
   const version = Constants.expoConfig?.version ?? '—';
+  const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households]);
 
   return (
     <Screen scroll contentContainerStyle={{ padding: spacing.lg, gap: spacing.xl }}>
@@ -21,7 +25,19 @@ export default function SettingsScreen() {
       <SettingsSection title="Lists">
         <Button label="Section order" variant="plain" onPress={() => router.push('/category-order')} />
       </SettingsSection>
-      {/* TODO(M5): sync status (spec 7.5). TODO(M7): households (spec 4.7). */}
+      {householdRows.length > 0 ? (
+        <SettingsSection title="Households">
+          {householdRows.map((h, i) => (
+            <SettingsLinkRow
+              key={h.id}
+              label={h.name}
+              onPress={() => router.push({ pathname: '/settings/households/[id]', params: { id: h.id } })}
+              last={i === householdRows.length - 1}
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
+      {/* TODO(M5): sync status (spec 7.5). */}
       {__DEV__ ? (
         <SettingsSection title="Developer">
           <Button label="Siri spike" variant="plain" onPress={() => router.push('/settings/siri')} />

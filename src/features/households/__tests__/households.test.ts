@@ -12,7 +12,14 @@ import {
   supabase,
 } from '@/test/fake-supabase';
 
-import { fetchHouseholdMembers, householdsQuery, registerHouseholds } from '../households';
+import {
+  fetchHouseholdMembers,
+  householdsQuery,
+  memberLabel,
+  MEMBERS_ERROR_MESSAGE,
+  registerHouseholds,
+  roleLabel,
+} from '../households';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -210,5 +217,41 @@ describe('fetchHouseholdMembers', () => {
   test('a rejected call (offline) propagates', async () => {
     supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
     await expect(fetchHouseholdMembers('h1', 'u1')).rejects.toThrow('Network request failed');
+  });
+});
+
+describe('member row labels', () => {
+  test('memberLabel is the display name, with "(You)" on your own row', () => {
+    expect(memberLabel({ displayName: 'Sam', isYou: false })).toBe('Sam');
+    expect(memberLabel({ displayName: 'Alex', isYou: true })).toBe('Alex (You)');
+  });
+
+  test('memberLabel trims the name and falls back to "Unnamed" for a blank one', () => {
+    expect(memberLabel({ displayName: '  Pat  ', isYou: false })).toBe('Pat');
+    expect(memberLabel({ displayName: '', isYou: false })).toBe('Unnamed');
+    expect(memberLabel({ displayName: '   ', isYou: true })).toBe('Unnamed (You)');
+  });
+
+  test('roleLabel', () => {
+    expect(roleLabel('owner')).toBe('Owner');
+    expect(roleLabel('member')).toBe('Member');
+  });
+
+  test('labels for fetched members, in server order', async () => {
+    respondToRpc('get_household_members', {
+      data: [
+        { user_id: 'u1', display_name: 'Alex', avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' },
+        { user_id: 'u2', display_name: 'Sam', avatar_url: null, role: 'member', joined_at: '2026-10-02T00:00:00Z' },
+      ],
+    });
+    const members = await fetchHouseholdMembers('h1', 'u2');
+    expect(members.map((m) => [memberLabel(m), roleLabel(m.role)])).toEqual([
+      ['Alex', 'Owner'],
+      ['Sam (You)', 'Member'],
+    ]);
+  });
+
+  test('the error message', () => {
+    expect(MEMBERS_ERROR_MESSAGE).toBe("Couldn't load members. Check your connection.");
   });
 });
