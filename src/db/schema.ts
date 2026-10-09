@@ -199,6 +199,7 @@ export const listItemContributions = sqliteTable(
   (t) => [index('list_item_contributions_item_idx').on(t.listItemId)],
 );
 
+// TODO(M5): sync
 /**
  * The household's ingredient history, for autocomplete (spec 4.2). One row per ingredient key.
  * Outlives list items and recipes: deleting an item doesn't forget that the household buys it.

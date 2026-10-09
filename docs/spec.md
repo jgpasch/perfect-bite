@@ -86,6 +86,10 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 
 ### 4.2 Adding items (req 1)
 - A persistent add field sits at the bottom of the list screen. Typing shows autocomplete from (a) the household's recently used ingredients, then (b) the global ingredient catalog (filtered per 6.5).
+- **Household history** (`ingredient_usage`, 5): one row per household and ingredient key with a use count, the last time it was used, and the most recent text typed for it. Adding an ingredient to a list counts one use (Combine included; undoing the add takes it back), and so does adding one to a recipe; adding that recipe to a list counts again. Editing doesn't count. History outlives list items and recipes: deleting an item doesn't forget that the household buys it. Existing data is backfilled once on upgrade.
+- **Ranking**: history matches when the name or key starts with the typed text or has a word that does (`thi` matches `chicken thighs`). Matches are ordered by frecency, `use_count * 0.5^(days since last use / 30)`; at equal score a whole-name prefix match beats a word match, then shorter name, then alphabetical.
+- **History first**: if history has 2 or more matches, only history is shown (up to the suggestion limit), so `chi` suggests the chicken thighs this household buys, not catalog chicken salad. With fewer, catalog items fill the remaining slots, deduped by key. As the user keeps typing, history drops out on its own (`chickp`), so the catalog still finds chickpeas.
+- **Remove from suggestions**: long-pressing a history suggestion offers "Remove from suggestions", which hides that row (`hidden_at`). Using the ingredient again unhides it. Catalog suggestions don't have this action.
 - Return adds the item and keeps the keyboard up for the next one.
 - Light quantity parsing on input: a leading number and optional unit are pulled out. `2 lbs chicken thighs` becomes quantity `2`, unit `lb`, name `chicken thighs`. `milk` has no quantity. Number words (`two avocados`) are parsed too, since Siri dictation produces them. The item row has an edit sheet for name, quantity, unit, note, and category.
 - Supported units [Default]: count (none), `g`, `kg`, `oz`, `lb`, `ml`, `l`, `tsp`, `tbsp`, `cup`, `fl oz`, `pt`, `qt`, `gal`, `can`, `jar`, `bag`, `box`, `bunch`, `clove`, `pinch`, `dozen`. Unknown unit words stay part of the name.
@@ -353,6 +357,20 @@ create table recipe_ingredients (
   field_clock     jsonb not null default '{}'
 );
 
+-- Household ingredient history for autocomplete (4.2). Synced in M5 like other household data,
+-- except use_count, which merges as a counter (each device's increments and decrements add up)
+-- rather than last-writer-wins. display_name, last_used_at and hidden_at are last-writer-wins.
+create table ingredient_usage (
+  household_id    uuid not null references households,
+  ingredient_name text not null,                         -- ingredient key
+  display_name    text not null,                         -- most recent text typed for it
+  use_count       int not null default 0,
+  last_used_at    timestamptz not null,
+  hidden_at       timestamptz,                           -- "Remove from suggestions"; cleared by the next use
+  field_clock     jsonb not null default '{}',
+  primary key (household_id, ingredient_name)
+);
+
 -- Per-user preferences (req 6, 9). Never shared with the household.
 create table user_category_overrides (
   user_id         uuid references auth.users on delete cascade,
@@ -385,6 +403,8 @@ create table user_settings (
 Note the `create table` order above is for readability; the real migration must create referenced tables first.
 
 **Unknown ingredients on insert**: clients can't write `ingredients` (RLS). A `before insert` trigger on `list_items` and `recipe_ingredients` (a `security definer` function) inserts a `pending` ingredient row if the name is missing (`on conflict do nothing`) and records the household in `ingredient_households`. So a list item can always be pushed, even before categorization has run.
+
+**Ingredient history and Siri**: `ingredient_usage` is written by the app in the same local transaction as the add. Siri adds go through the `siri-add` Edge Function (4.9), so they aren't counted until M5 sync, when the server records the use and it syncs down like any other household row.
 
 **Effective category** for a user and ingredient = `user_category_overrides.category_id` if present, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed).
 
