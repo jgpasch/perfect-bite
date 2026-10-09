@@ -2,7 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 
 import { groupByRecipe } from '../recipe-grouping';
 
-const c = (recipe: string | null, quantity: number | null, at: number) => ({
+const c = (recipe: string | null, quantity: number | null, at: number, source = recipe ? 'recipe' : 'manual') => ({
+  source,
   recipeId: recipe,
   recipeName: recipe ? recipe[0].toUpperCase() + recipe.slice(1) : null,
   quantity,
@@ -35,6 +36,25 @@ describe('groupByRecipe', () => {
   it('puts an item with a manual amount and a recipe amount only under the recipe', () => {
     const sections = groupByRecipe([item('lime', c(null, 2, 1), c('tacos', 1, 2))]);
     expect(sections.map((s) => s.name)).toEqual(['Tacos']);
+  });
+
+  it('counts manual adds with no amount as one each under Other items', () => {
+    const [other] = groupByRecipe([item('milk', c(null, null, 1), c(null, null, 2)), item('eggs', c(null, null, 3))]);
+    expect(other.entries.map((e) => [e.item.name, e.amountText])).toEqual([
+      ['milk', '2'],
+      ['eggs', ''],
+    ]);
+  });
+
+  it('does not count a recipe link with no quantity', () => {
+    const [tacos] = groupByRecipe([item('beef', c('tacos', 2, 1), c('tacos', null, 2))]);
+    expect(tacos.entries[0].amountText).toBe('2');
+    // The same recipe added twice for an ingredient with no amount.
+    const [soup] = groupByRecipe([item('salt', c('soup', null, 1), c('soup', null, 2))]);
+    expect(soup.entries[0].amountText).toBe('');
+    // A deleted recipe's link reads as no recipe, and still adds no amount.
+    const [other] = groupByRecipe([item('milk', c(null, null, 1), c(null, null, 2, 'recipe'))]);
+    expect(other.entries[0].amountText).toBe('');
   });
 
   it('is empty for no items', () => {

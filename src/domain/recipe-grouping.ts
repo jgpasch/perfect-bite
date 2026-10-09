@@ -3,7 +3,11 @@
 import type { Amount } from './quantity-display';
 import { summarizeAmounts } from './quantity-math';
 
-type Contribution = Amount & { recipeId: string | null; recipeName: string | null; createdAt: Date };
+type Contribution = Amount & { source: string; recipeId: string | null; recipeName: string | null; createdAt: Date };
+
+/** Same rule as the row total (`itemTotal`): a recipe link with no quantity isn't an amount. */
+const total = (cs: readonly Contribution[]) =>
+  summarizeAmounts(cs.filter((c) => !(c.source === 'recipe' && c.quantity === null)));
 
 export type RecipeEntry<I> = {
   item: I;
@@ -38,7 +42,7 @@ export function groupByRecipe<I extends { contributions: readonly Contribution[]
       byRecipe.set(c.recipeId, [...(byRecipe.get(c.recipeId) ?? []), c]);
     }
     if (byRecipe.size === 0) {
-      other.push({ item, amountText: summarizeAmounts(item.contributions), alsoIn: [] });
+      other.push({ item, amountText: total(item.contributions), alsoIn: [] });
       continue;
     }
     const names = [...byRecipe.values()].map((cs) => cs[0].recipeName ?? '');
@@ -47,7 +51,7 @@ export function groupByRecipe<I extends { contributions: readonly Contribution[]
       const latest = Math.max(...cs.map((c) => c.createdAt.getTime()));
       const section = sections.get(recipeId) ?? { name, latest, entries: [] };
       section.latest = Math.max(section.latest, latest);
-      section.entries.push({ item, amountText: summarizeAmounts(cs), alsoIn: names.filter((n) => n !== name) });
+      section.entries.push({ item, amountText: total(cs), alsoIn: names.filter((n) => n !== name) });
       sections.set(recipeId, section);
     }
   }

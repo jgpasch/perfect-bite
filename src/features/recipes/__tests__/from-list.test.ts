@@ -49,6 +49,19 @@ test('acceptance 3: make a recipe from 3 selected items; they group under it', (
   expect(view().map((i) => i.amountText)).toEqual(['2 lb', '', '1 + 1 gal']);
 });
 
+test('make recipe takes the counted total of adds with no amount', () => {
+  const milk = addItem(listId, 'milk', USER)!;
+  addItem(listId, 'milk', USER);
+  const recipeId = makeRecipeFromItems('Breakfast', [milk.itemId], USER);
+  expect(
+    recipeIngredientsQuery(recipeId)
+      .all()
+      .map((i) => [i.displayName, i.quantity, i.unit]),
+  ).toEqual([['milk', 2, null]]);
+  // The new link adds nothing to the row's total.
+  expect(view().map((i) => i.amountText)).toEqual(['2']);
+});
+
 test('add to an existing recipe appends; adding again neither repeats nor double-links', () => {
   const soup = createRecipe('Soup');
   const onion = addItem(listId, '2 onions', USER)!;

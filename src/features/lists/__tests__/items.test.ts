@@ -166,6 +166,68 @@ describe('bulk add (spec 4.4)', () => {
   });
 });
 
+describe('adds with no amount count as one (spec 4.4)', () => {
+  const keepExistingLink = (text: string) => {
+    const tacos = createRecipe('Tacos');
+    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER, new Set([0]));
+  };
+
+  test('adding milk twice reads 2, and the combine toast says so', () => {
+    const first = addItem(listId, 'milk', USER)!;
+    expect(rows(view().unchecked)).toEqual(['milk']);
+    const second = addItem(listId, 'milk', USER)!;
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', totalAmountText: '2' });
+    expect(rows(view().unchecked)).toEqual(['2 milk']);
+    const third = addItem(listId, 'Milk', USER)!;
+    expect(third).toMatchObject({ kind: 'combine', totalAmountText: '3' });
+  });
+
+  test('an add with no amount joins a unitless count', () => {
+    addItem(listId, '2 avocados', USER);
+    const r = addItem(listId, 'avocados', USER)!;
+    expect(r.totalAmountText).toBe('3');
+    expect(rows(view().unchecked)).toEqual(['3 avocados']);
+  });
+
+  test('the stored quantities stay null', () => {
+    const r = addItem(listId, 'milk', USER)!;
+    addItem(listId, 'milk', USER);
+    expect(contributionsQuery(r.itemId).all().map((c) => [c.quantity, c.unit])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  test('the edit sheet shows the count, and saving it unchanged keeps the contributions', () => {
+    const r = addItem(listId, 'milk', USER)!;
+    addItem(listId, 'milk', USER);
+    expect(getItemEdit(r.itemId)).toMatchObject({ amount: '2' });
+    const before = contributionsQuery(r.itemId).all();
+    updateItem(r.itemId, { name: 'milk', amount: '2', note: '' });
+    expect(contributionsQuery(r.itemId).all()).toEqual(before);
+    expect(before.map((c) => c.quantity)).toEqual([null, null]);
+  });
+
+  test('a Keep existing recipe link does not count as one', () => {
+    const beef = addItem(listId, '2 lbs ground beef', USER)!;
+    keepExistingLink('ground beef');
+    expect(contributionsQuery(beef.itemId).all().map((c) => [c.source, c.quantity])).toEqual([
+      ['manual', 2],
+      ['recipe', null],
+    ]);
+    expect(rows(view().unchecked)).toEqual(['2 lb ground beef']);
+    expect(getItemEdit(beef.itemId)).toMatchObject({ amount: '2 lb' });
+  });
+
+  test('a manual add with no amount plus a link still reads empty', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    keepExistingLink('milk');
+    expect(contributionsQuery(milk.itemId).all()).toHaveLength(2);
+    expect(rows(view().unchecked)).toEqual(['milk']);
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '' });
+  });
+});
+
 describe('ingredient history (spec 4.2)', () => {
   const T1 = new Date('2026-10-01T12:00:00Z');
   const T2 = new Date('2026-10-03T09:15:00Z');

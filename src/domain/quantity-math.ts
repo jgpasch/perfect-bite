@@ -51,7 +51,6 @@ function roundTo(n: number, unit: Unit | null): number {
 
 /** Which amounts can be summed together: same unit, or same dimension. */
 function groupKey(a: Amount): string {
-  if (a.quantity === null) return 'none';
   const base = a.unit ? BASE[a.unit] : undefined;
   return base ? base.dimension : `unit:${a.unit ?? ''}`;
 }
@@ -88,20 +87,19 @@ function formatGroup(amounts: Amount[]): string {
 
 /**
  * How an item's amounts read on its row (spec 4.4): `2 lb + 8 oz` → `2.5 lb`;
- * `1 cup + 1 tsp` → `1 cup + 1 tsp`; `2 cans + 400 g` → `2 cans + 400 g`; `1 gal` and an add
- * with no amount → `1 gal + 1`; a single add with no amount → empty.
+ * `1 cup + 1 tsp` → `1 cup + 1 tsp`; `2 cans + 400 g` → `2 cans + 400 g`. Alongside other
+ * amounts, an add with no amount counts as one with no unit: `milk` twice → `2`, `2` and an add
+ * with no amount → `3`, `1 gal` and an add with no amount → `1 gal + 1`. A single add with no
+ * amount → empty.
  */
 export function summarizeAmounts(amounts: readonly Amount[]): string {
-  if (amounts.length === 0 || amounts.every((a) => a.quantity === null)) return '';
+  if (amounts.length === 0) return '';
+  if (amounts.length === 1 && amounts[0].quantity === null) return '';
   const groups = new Map<string, Amount[]>();
   for (const a of amounts) {
-    const key = groupKey(a);
-    groups.set(key, [...(groups.get(key) ?? []), a]);
+    const counted = a.quantity === null ? { quantity: 1, unit: null } : a;
+    const key = groupKey(counted);
+    groups.set(key, [...(groups.get(key) ?? []), counted]);
   }
-  const parts: string[] = [];
-  for (const [key, group] of groups) {
-    if (key === 'none') parts.push(...group.map(() => '1'));
-    else parts.push(formatGroup(group));
-  }
-  return parts.join(' + ');
+  return [...groups.values()].map(formatGroup).join(' + ');
 }

@@ -7,10 +7,24 @@ import { summarizeAmounts } from '../quantity-math';
 const a = (quantity: number | null, unit: Unit | null = null) => ({ quantity, unit });
 
 describe('summarizeAmounts', () => {
-  it('shows nothing for no amounts or only unspecified ones', () => {
+  it('shows nothing for no amounts or a single unspecified one', () => {
     expect(summarizeAmounts([])).toBe('');
     expect(summarizeAmounts([a(null)])).toBe('');
-    expect(summarizeAmounts([a(null), a(null)])).toBe('');
+  });
+
+  it('counts unspecified adds as one each when there are two or more amounts', () => {
+    expect(summarizeAmounts([a(null), a(null)])).toBe('2');
+    expect(summarizeAmounts([a(null), a(null), a(null)])).toBe('3');
+    expect(summarizeAmounts([a(2), a(null)])).toBe('3');
+    expect(summarizeAmounts([a(null), a(2)])).toBe('3');
+    expect(summarizeAmounts([a(0.5), a(null)])).toBe('1½');
+  });
+
+  it('keeps an unspecified add apart from amounts with a unit', () => {
+    expect(summarizeAmounts([a(2, 'can'), a(null)])).toBe('2 can + 1');
+    expect(summarizeAmounts([a(2, 'lb'), a(8, 'oz'), a(null)])).toBe('2.5 lb + 1');
+    expect(summarizeAmounts([a(1, 'gal'), a(null), a(null)])).toBe('1 gal + 2');
+    expect(summarizeAmounts([a(3), a(1, 'dozen'), a(null)])).toBe('4 + 1 dozen');
   });
 
   it('sums the same unit exactly', () => {
