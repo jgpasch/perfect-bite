@@ -53,6 +53,39 @@ export function loadCatalogSeed(): void {
   setDeviceSetting(SEED_KEY, SEED_FINGERPRINT);
 }
 
+// --- Pending ingredients (spec 4.3.1, 6.3) -------------------------------------------------
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Records an ingredient name the catalog doesn't know yet as `pending`, so it can be sent for
+ * categorization. Leaves an existing row (seed, categorized, pending or failed) alone.
+ */
+export function ensureLocalIngredient(tx: Tx, normalizedName: string, displayName: string): void {
+  tx.insert(ingredients).values({ normalizedName, displayName, status: 'pending' }).onConflictDoNothing().run();
+}
+
+/**
+ * Adds a pending row for every name used by a live list item or recipe ingredient that has no
+ * catalog row (items added before pending rows existed). Idempotent.
+ */
+export function ensureMissingIngredients(): void {
+  db.run(sql`
+    insert into ingredients (normalized_name, display_name, status)
+    select used.ingredient_name, min(used.display_name), 'pending'
+    from (
+      select ingredient_name, display_name from list_items where deleted_at is null
+      union all
+      select ri.ingredient_name, ri.display_name
+      from recipe_ingredients ri join recipes r on r.id = ri.recipe_id
+      where ri.deleted_at is null and r.deleted_at is null
+    ) as used
+    where used.ingredient_name not in (select normalized_name from ingredients)
+    group by used.ingredient_name
+    on conflict do nothing
+  `);
+}
+
 // --- Categories and order ------------------------------------------------------------------
 
 /** System categories plus the user's custom ones, each with the user's position (if any). */

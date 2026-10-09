@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItemContributions, recipeIngredients, recipes, type Recipe } from '@/db';
 import { positionBetween } from '@/domain/position';
+import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
@@ -121,6 +122,7 @@ export function addRecipeIngredient(recipeId: string, text: string): string | nu
       })
       .run();
     recordUsage(tx, recipe.householdId, ingredientName, name, new Date(), { quantity, unit });
+    ensureLocalIngredient(tx, ingredientName, name);
   });
   touch(recipeId);
   return id;
@@ -144,6 +146,7 @@ export function addParsedRecipeIngredients(
         quantity: item.quantity,
         unit: item.unit ?? null,
       });
+      ensureLocalIngredient(tx, item.ingredientName, item.displayName);
       position = positionBetween(position, null);
     }
   });
@@ -156,10 +159,13 @@ export function updateRecipeIngredient(id: string, text: string, note = ''): voi
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) throw new Error('An ingredient needs a name');
-  db.update(recipeIngredients)
-    .set({ ingredientName, displayName: name, quantity, unit, note: note.trim() || null })
-    .where(eq(recipeIngredients.id, id))
-    .run();
+  db.transaction((tx) => {
+    tx.update(recipeIngredients)
+      .set({ ingredientName, displayName: name, quantity, unit, note: note.trim() || null })
+      .where(eq(recipeIngredients.id, id))
+      .run();
+    ensureLocalIngredient(tx, ingredientName, name);
+  });
 }
 
 export function deleteRecipeIngredient(id: string): void {

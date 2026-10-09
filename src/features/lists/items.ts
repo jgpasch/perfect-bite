@@ -19,7 +19,7 @@ import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory } from '@/domain/suggestion-rank';
 import { usualUnit } from '@/domain/usual-unit';
-import { clearCategoryOverride, setCategoryOverride } from '@/features/categories/categories';
+import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseAmount, parseQuantity, type Unit } from '@/shared';
@@ -161,6 +161,7 @@ function applyAdd(
     addedBy: meta.userId,
   };
   recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date(), contribution);
+  ensureLocalIngredient(tx, add.ingredientName, add.displayName);
 
   if (decision.kind === 'new') {
     const itemId = newId();
@@ -475,6 +476,7 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
       .set({ displayName: name, ingredientName, note: edit.note.trim() || null })
       .where(eq(listItems.id, itemId))
       .run();
+    if (ingredientName !== item.ingredientName) ensureLocalIngredient(tx, ingredientName, name);
 
     // Spec 4.3.2: a per-user override for the ingredient, on every list.
     if (userId && edit.categoryId !== undefined) {
