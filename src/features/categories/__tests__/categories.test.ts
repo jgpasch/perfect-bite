@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
 import { db, ingredients } from '@/db';
-import { SORTING_CATEGORY_ID } from '@/domain/category-resolver';
+import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { addItem, addItemsBulk, deleteItem, groupItems, listItemsQuery, updateItem } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { applySuggestion, getSuggestions } from '@/features/lists/suggestions';
@@ -22,6 +22,7 @@ import {
   clearCategoryOverride,
   createCategory,
   ensureMissingIngredients,
+  getIngredientCategory,
   getOrderedCategories,
   loadCatalogSeed,
   moveCategory,
@@ -44,6 +45,7 @@ beforeEach(() => {
   listId = getDefaultListId(A)!;
 });
 
+const key = normalizeIngredientName;
 const categoryOf = (userId: string, name: string) =>
   groupItems(listItemsQuery(listId, userId).all()).unchecked.find((i) => i.displayName === name)!.categoryId;
 
@@ -94,6 +96,42 @@ describe('overrides (spec 4.3.2)', () => {
     expect(categoryOf(A, 'tahini')).toBe(id('pantry'));
     updateItem(item.itemId, { name: 'tahini', amount: '', note: '', categoryId: null }, A);
     expect(categoryOf(A, 'tahini')).toBe(id('condiments'));
+  });
+
+  test('the edit sheet reads the status, so a pending item shows Sorting... and can be moved', () => {
+    const item = addItem(listId, 'dukkah', A)!;
+    const current = getIngredientCategory(A, key('dukkah'));
+    expect(current).toEqual({ defaultCategoryId: null, overrideCategoryId: null, status: 'pending' });
+    const defaultId = effectiveCategoryId(null, current.defaultCategoryId, current.status);
+    expect(defaultId).toBe(SORTING_CATEGORY_ID);
+    expect(categoryNameById(getOrderedCategories(A), defaultId)).toBe('Sorting...');
+
+    updateItem(item.itemId, { name: 'dukkah', amount: '', note: '', categoryId: id('spices') }, A);
+    expect(getIngredientCategory(A, key('dukkah'))).toEqual({
+      defaultCategoryId: null,
+      overrideCategoryId: id('spices'),
+      status: 'pending',
+    });
+    expect(categoryOf(A, 'dukkah')).toBe(id('spices'));
+    // Reset to default goes back to Sorting...
+    updateItem(item.itemId, { name: 'dukkah', amount: '', note: '', categoryId: null }, A);
+    expect(categoryOf(A, 'dukkah')).toBe(SORTING_CATEGORY_ID);
+  });
+
+  test('getIngredientCategory gives a categorized status, a failed status, or null with no row', () => {
+    expect(getIngredientCategory(A, key('milk'))).toEqual({
+      defaultCategoryId: id('dairy-eggs'),
+      overrideCategoryId: null,
+      status: 'categorized',
+    });
+    addItem(listId, 'dukkah', A);
+    db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, key('dukkah'))).run();
+    expect(getIngredientCategory(A, key('dukkah')).status).toBe('failed');
+    expect(getIngredientCategory(A, key('never added'))).toEqual({
+      defaultCategoryId: null,
+      overrideCategoryId: null,
+      status: null,
+    });
   });
 });
 

@@ -3,7 +3,7 @@
 import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
 
 import { categories, db, ingredients, userCategoryOrder, userCategoryOverrides } from '@/db';
-import { orderCategories } from '@/domain/category-resolver';
+import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
@@ -186,9 +186,9 @@ export function clearCategoryOverride(userId: string, ingredientName: string): v
 export function getIngredientCategory(
   userId: string,
   ingredientName: string,
-): { defaultCategoryId: string | null; overrideCategoryId: string | null } {
+): { defaultCategoryId: string | null; overrideCategoryId: string | null; status: IngredientStatus | null } {
   const row = db
-    .select({ defaultCategoryId: ingredients.defaultCategoryId })
+    .select({ defaultCategoryId: ingredients.defaultCategoryId, status: ingredients.status })
     .from(ingredients)
     .where(eq(ingredients.normalizedName, ingredientName))
     .get();
@@ -197,7 +197,11 @@ export function getIngredientCategory(
     .from(userCategoryOverrides)
     .where(and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)))
     .get();
-  return { defaultCategoryId: row?.defaultCategoryId ?? null, overrideCategoryId: override?.categoryId ?? null };
+  return {
+    defaultCategoryId: row?.defaultCategoryId ?? null,
+    overrideCategoryId: override?.categoryId ?? null,
+    status: row?.status ?? null,
+  };
 }
 
 // --- Catalog search (autocomplete, spec 4.2) -----------------------------------------------

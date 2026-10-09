@@ -51,6 +51,17 @@ export type Section<C, I> = { category: C; items: I[] };
 export type SortingCategory = { id: typeof SORTING_CATEGORY_ID; name: string };
 export const SORTING_CATEGORY: SortingCategory = { id: SORTING_CATEGORY_ID, name: 'Sorting...' };
 
+/** What VoiceOver reads for a section header: the "Sorting..." section says what it's for. */
+export function sectionAccessibilityLabel(category: { id: string; name: string }): string {
+  return category.id === SORTING_CATEGORY_ID ? 'Sorting, finding a section for these items' : category.name;
+}
+
+/** A category's name by id: "Sorting..." for the Sorting section, else Other when it isn't found. */
+export function categoryNameById(categories: readonly { id: string; name: string }[], id: string): string {
+  if (id === SORTING_CATEGORY_ID) return SORTING_CATEGORY.name;
+  return categories.find((c) => c.id === id)?.name ?? 'Other';
+}
+
 /**
  * Groups items into sections in category order, hiding empty sections (spec 4.6). Items keep
  * their order within a section. A "Sorting..." section comes first, whatever the user's order

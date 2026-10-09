@@ -14,7 +14,7 @@ import { Screen } from '@/components/themed-view';
 import { UndoToast, type ToastAction } from '@/components/undo-toast';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { groupByCategory, orderCategories } from '@/domain/category-resolver';
+import { groupByCategory, orderCategories, sectionAccessibilityLabel } from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
@@ -48,7 +48,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 type Row =
   | { kind: 'item'; key: string; item: ItemView; amountText?: string; hint?: string }
-  | { kind: 'section'; key: string; name: string; recipeId?: string; itemIds?: string[] }
+  | { kind: 'section'; key: string; name: string; accessibilityLabel?: string; recipeId?: string; itemIds?: string[] }
   | { kind: 'checkedHeader'; key: string; count: number };
 
 type ViewMode = 'category' | 'recipe';
@@ -85,7 +85,12 @@ export default function ListScreen() {
       viewMode === 'category'
         ? // By category: sections in the user's order, empty ones hidden, items by when added.
           sections.flatMap(({ category, items }): Row[] => [
-            { kind: 'section', key: `c-${category.id}`, name: category.name },
+            {
+              kind: 'section',
+              key: `c-${category.id}`,
+              name: category.name,
+              accessibilityLabel: sectionAccessibilityLabel(category),
+            },
             ...items.map((item): Row => ({ kind: 'item', key: item.id, item })),
           ])
         : // By recipe: a section per recipe (an item can be under several), then Other items.
@@ -268,7 +273,7 @@ export default function ListScreen() {
                 disabled={!row.recipeId}
                 onPress={() => recipeMenu(row)}
                 accessibilityRole={row.recipeId ? 'button' : 'header'}
-                accessibilityLabel={row.name}
+                accessibilityLabel={row.accessibilityLabel ?? row.name}
                 accessibilityHint={row.recipeId ? 'Shows recipe actions' : undefined}
                 style={[
                   styles.checkedHeader,

@@ -3,9 +3,12 @@ import { describe, expect, it } from '@jest/globals';
 import { OTHER_CATEGORY_ID } from '@/shared';
 
 import {
+  categoryNameById,
   effectiveCategoryId,
   groupByCategory,
   orderCategories,
+  sectionAccessibilityLabel,
+  SORTING_CATEGORY,
   SORTING_CATEGORY_ID,
 } from '../category-resolver';
 
@@ -103,5 +106,37 @@ describe('groupByCategory', () => {
     const sections = groupByCategory(categories, [{ name: 'milk', categoryId: 'dairy' }]);
     expect(sections.map((s) => s.category.id)).toEqual(['dairy']);
     expect(groupByCategory(categories, [])).toEqual([]);
+  });
+});
+
+describe('sectionAccessibilityLabel', () => {
+  it('explains the Sorting section', () => {
+    expect(sectionAccessibilityLabel(SORTING_CATEGORY)).toBe('Sorting, finding a section for these items');
+  });
+
+  it('reads other sections by name, even one named like Sorting', () => {
+    expect(sectionAccessibilityLabel({ id: 'dairy', name: 'Dairy & Eggs' })).toBe('Dairy & Eggs');
+    expect(sectionAccessibilityLabel({ id: 'custom', name: 'Sorting...' })).toBe('Sorting...');
+  });
+});
+
+describe('categoryNameById', () => {
+  const categories = [
+    { id: 'dairy', name: 'Dairy & Eggs' },
+    { id: OTHER_CATEGORY_ID, name: 'Other' },
+  ];
+
+  it('names Sorting, which is not in the list', () => {
+    expect(categoryNameById(categories, SORTING_CATEGORY_ID)).toBe('Sorting...');
+    expect(categoryNameById([], SORTING_CATEGORY_ID)).toBe('Sorting...');
+  });
+
+  it('finds a category by id', () => {
+    expect(categoryNameById(categories, 'dairy')).toBe('Dairy & Eggs');
+  });
+
+  it('falls back to Other for an unknown id', () => {
+    expect(categoryNameById(categories, 'deleted')).toBe('Other');
+    expect(categoryNameById([], 'dairy')).toBe('Other');
   });
 });

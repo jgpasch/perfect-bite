@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { listItemContributions } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { categoryNameById, effectiveCategoryId } from '@/domain/category-resolver';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { canStepDown, unitLabel, unitMenuChoice, unitMenuOptions, withUnit } from '@/features/lists/amount-stepper';
@@ -52,12 +53,15 @@ export default function ItemEditSheet() {
   // The − / + and unit picker work on the total as one amount; null (`2 cans + 400 g`) disables them.
   const steppable = steppableAmount(contributions, initial.usualUnit);
 
-  const defaultId = current?.defaultCategoryId ?? OTHER_CATEGORY_ID;
+  // A pending ingredient's default is "Sorting..." until categorization returns (spec 4.3.1).
+  const defaultId = current
+    ? effectiveCategoryId(null, current.defaultCategoryId, current.status)
+    : OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.
   const selectedId =
     edit.categoryId === undefined ? (current?.overrideCategoryId ?? defaultId) : (edit.categoryId ?? defaultId);
   const isOverride = selectedId !== defaultId;
-  const categoryName = (id: string) => categoryList.find((c) => c.id === id)?.name ?? 'Other';
+  const categoryName = (id: string) => categoryNameById(categoryList, id);
 
   const chooseCategory = (id: string) => {
     setEdit({ ...edit, categoryId: id === defaultId ? null : id });
