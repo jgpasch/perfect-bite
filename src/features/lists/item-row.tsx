@@ -14,18 +14,22 @@ type Props = {
   item: ItemView;
   /** Briefly true after an add combined into this item (spec 4.4). */
   highlighted?: boolean;
+  /** Overrides the item's total, e.g. one recipe's share in the By recipe view. */
+  amountText?: string;
+  /** A second line, e.g. "also in: Tacos" (spec 4.6). */
+  hint?: string;
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
 };
 
 /** A list item: tap to check off, swipe left to delete, long-press to edit (spec 4.2). */
-export function ItemRow({ item, highlighted, onToggle, onDelete, onEdit }: Props) {
+export function ItemRow({ item, highlighted, amountText = item.amountText, hint, onToggle, onDelete, onEdit }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const checked = item.checkedAt !== null;
 
-  const label = [item.displayName, item.amountText, item.note].filter(Boolean).join(', ');
+  const label = [item.displayName, amountText, item.note, hint].filter(Boolean).join(', ');
 
   return (
     <Animated.View entering={entering} exiting={exiting} layout={layout}>
@@ -77,15 +81,15 @@ export function ItemRow({ item, highlighted, onToggle, onDelete, onEdit }: Props
               style={checked ? styles.checked : undefined}>
               {item.displayName}
             </ThemedText>
-            {item.note ? (
+            {item.note || hint ? (
               <ThemedText variant="footnote" color="inkSecondary">
-                {item.note}
+                {[item.note, hint].filter(Boolean).join(' · ')}
               </ThemedText>
             ) : null}
           </View>
-          {item.amountText ? (
+          {amountText ? (
             <ThemedText variant="callout" color="inkSecondary">
-              {item.amountText}
+              {amountText}
             </ThemedText>
           ) : null}
         </Pressable>

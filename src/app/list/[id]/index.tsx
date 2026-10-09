@@ -1,7 +1,9 @@
+import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
+import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
@@ -10,19 +12,22 @@ import { Screen } from '@/components/themed-view';
 import { UndoToast, type ToastAction } from '@/components/undo-toast';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { orderCategories, groupByCategory } from '@/domain/category-resolver';
+import { groupByCategory, orderCategories } from '@/domain/category-resolver';
+import { groupByRecipe } from '@/domain/recipe-grouping';
 import { getAccount } from '@/features/auth/account';
 import { categoriesQuery } from '@/features/categories/categories';
 import { AddBar } from '@/features/lists/add-bar';
 import { ItemRow } from '@/features/lists/item-row';
 import {
   addItem,
+  checkItems,
   clearChecked,
   deleteItem,
   groupItems,
   keepExisting,
   LIST_ITEMS_QUERY_TABLES,
   listItemsQuery,
+  removeRecipeFromList,
   setItemChecked,
   uncheckAll,
   undeleteItem,
@@ -32,12 +37,16 @@ import {
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
 type Row =
-  | { kind: 'item'; item: ItemView }
-  | { kind: 'section'; id: string; name: string }
-  | { kind: 'checkedHeader'; count: number };
+  | { kind: 'item'; key: string; item: ItemView; amountText?: string; hint?: string }
+  | { kind: 'section'; key: string; name: string; recipeId?: string; itemIds?: string[] }
+  | { kind: 'checkedHeader'; key: string; count: number };
+
+type ViewMode = 'category' | 'recipe';
+const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -53,21 +62,60 @@ export default function ListScreen() {
   const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
 
   const [showChecked, setShowChecked] = useState(false);
+  // Spec 4.6: the last choice per list is remembered on this device.
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => getDeviceSetting(viewModeKey(id), 'category'));
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    setDeviceSetting(viewModeKey(id), mode);
+  };
   const [toast, setToast] = useState<{ key: string; message: string; actions: ToastAction[] } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const rows = useMemo<Row[]>(() => {
-    // Spec 4.6, By category: sections in the user's order, empty ones hidden, items by when added.
-    const out: Row[] = sections.flatMap(({ category, items }): Row[] => [
-      { kind: 'section', id: category.id, name: category.name },
-      ...items.map((item): Row => ({ kind: 'item', item })),
-    ]);
+    const out: Row[] =
+      viewMode === 'category'
+        ? // By category: sections in the user's order, empty ones hidden, items by when added.
+          sections.flatMap(({ category, items }): Row[] => [
+            { kind: 'section', key: `c-${category.id}`, name: category.name },
+            ...items.map((item): Row => ({ kind: 'item', key: item.id, item })),
+          ])
+        : // By recipe: a section per recipe (an item can be under several), then Other items.
+          groupByRecipe(unchecked).flatMap((section): Row[] => [
+            {
+              kind: 'section',
+              key: `r-${section.recipeId ?? 'other'}`,
+              name: section.name,
+              recipeId: section.recipeId ?? undefined,
+              itemIds: section.entries.map((e) => e.item.id),
+            },
+            ...section.entries.map(
+              (e): Row => ({
+                kind: 'item',
+                key: `${section.recipeId ?? 'other'}-${e.item.id}`,
+                item: e.item,
+                amountText: e.amountText,
+                hint: e.alsoIn.length > 0 ? `also in: ${e.alsoIn.join(', ')}` : undefined,
+              }),
+            ),
+          ]);
     if (checked.length > 0) {
-      out.push({ kind: 'checkedHeader', count: checked.length });
-      if (showChecked) out.push(...checked.map((item): Row => ({ kind: 'item', item })));
+      out.push({ kind: 'checkedHeader', key: 'checked', count: checked.length });
+      if (showChecked) out.push(...checked.map((item): Row => ({ kind: 'item', key: item.id, item })));
     }
     return out;
-  }, [sections, checked, showChecked]);
+  }, [viewMode, sections, unchecked, checked, showChecked]);
+
+  const recipeMenu = (row: Extract<Row, { kind: 'section' }>) => {
+    if (!row.recipeId) return;
+    const recipeId = row.recipeId;
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: row.name, options: ['Check all', 'Remove recipe from list', 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
+      (index) => {
+        if (index === 0) checkItems(row.itemIds ?? [], userId);
+        if (index === 1) removeRecipeFromList(id, recipeId);
+      },
+    );
+  };
 
   const add = (value: string) => {
     const result = addItem(id, value, userId);
@@ -155,23 +203,44 @@ export default function ListScreen() {
         <FlatList
           style={styles.flex}
           data={rows}
-          keyExtractor={(row) => (row.kind === 'item' ? row.item.id : row.kind === 'section' ? `section-${row.id}` : 'checked-header')}
+          keyExtractor={(row) => row.key}
+          ListHeaderComponent={
+            <Host matchContents={{ vertical: true }} style={{ marginHorizontal: spacing.lg, marginTop: spacing.sm }}>
+              <Picker
+                selection={viewMode}
+                onSelectionChange={(mode: ViewMode) => setViewMode(mode)}
+                modifiers={[pickerStyle('segmented')]}>
+                <SwiftText modifiers={[tag('category')]}>By category</SwiftText>
+                <SwiftText modifiers={[tag('recipe')]}>By recipe</SwiftText>
+              </Picker>
+            </Host>
+          }
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={rows.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
           renderItem={({ item: row, index }) =>
             row.kind === 'section' ? (
-              <ThemedText
-                variant="footnote"
-                color="inkSecondary"
-                accessibilityRole="header"
-                style={{ paddingHorizontal: spacing.lg, paddingTop: index === 0 ? spacing.sm : spacing.xl, paddingBottom: spacing.xs }}>
-                {row.name}
-              </ThemedText>
+              <Pressable
+                disabled={!row.recipeId}
+                onPress={() => recipeMenu(row)}
+                accessibilityRole={row.recipeId ? 'button' : 'header'}
+                accessibilityLabel={row.name}
+                accessibilityHint={row.recipeId ? 'Shows recipe actions' : undefined}
+                style={[
+                  styles.checkedHeader,
+                  { paddingHorizontal: spacing.lg, paddingTop: index === 0 ? spacing.md : spacing.xl, paddingBottom: spacing.xs, gap: spacing.sm },
+                ]}>
+                <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
+                  {row.name}
+                </ThemedText>
+                {row.recipeId ? <Icon name="ellipsis" color="inkSecondary" size={sizes.icon} /> : null}
+              </Pressable>
             ) : row.kind === 'item' ? (
               <ItemRow
                 item={row.item}
+                amountText={row.amountText}
+                hint={row.hint}
                 highlighted={row.item.id === highlightedId}
                 onToggle={() => setItemChecked(row.item.id, row.item.checkedAt === null, userId)}
                 onDelete={() => remove(row.item)}

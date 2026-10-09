@@ -1,6 +1,8 @@
-import { beforeEach, expect, jest, test } from '@jest/globals';
+import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 
-import { addItem, groupItems, listItemsQuery } from '@/features/lists/items';
+import { groupByRecipe } from '@/domain/recipe-grouping';
+
+import { addItem, checkItems, groupItems, listItemsQuery, removeRecipeFromList } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
@@ -52,4 +54,34 @@ test('a half batch keeps unspecified amounts unspecified', () => {
   const ingredients = recipeIngredientsQuery(tacos).all();
   addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 0.5), USER, new Set());
   expect(rows()).toEqual(['0.5 lb ground beef', '4 tortillas', '½ cup salsa', 'cilantro', '1 limes']);
+});
+
+describe('By recipe actions (spec 4.6)', () => {
+  const addAll = (recipeId: string) => {
+    const ingredients = recipeIngredientsQuery(recipeId).all();
+    addRecipeToList(listId, buildRecipeAdds(recipeId, ingredients, new Set(ingredients.map((i) => i.id)), 1), USER, new Set());
+  };
+
+  test('acceptance 12: an item from two recipes shows under both; checking it checks it everywhere', () => {
+    const soup = createRecipe('Lime soup');
+    addRecipeIngredient(soup, '3 limes');
+    addAll(tacos);
+    addAll(soup);
+    const { unchecked } = groupItems(listItemsQuery(listId, USER).all());
+    const sections = groupByRecipe(unchecked);
+    expect(sections.map((s) => s.name)).toEqual(['Lime soup', 'Tacos']);
+    const limeInSoup = sections[0].entries[0];
+    expect(limeInSoup).toMatchObject({ amountText: '3', alsoIn: ['Tacos'] });
+    checkItems([limeInSoup.item.id], USER);
+    const after = groupByRecipe(groupItems(listItemsQuery(listId, USER).all()).unchecked);
+    expect(after.map((s) => s.name)).toEqual(['Tacos']);
+    expect(after[0].entries.map((e) => e.item.displayName)).not.toContain('limes');
+  });
+
+  test('remove recipe from list drops its amounts and deletes items left empty', () => {
+    addItem(listId, '2 limes', USER);
+    addAll(tacos);
+    removeRecipeFromList(listId, tacos);
+    expect(rows()).toEqual(['2 limes']);
+  });
 });

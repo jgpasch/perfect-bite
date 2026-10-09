@@ -1,7 +1,16 @@
 // List items (spec 4.2, 4.4): local reads and writes. M5 adds the outbox write beside each of these.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, max, ne, or } from 'drizzle-orm';
 
-import { db, ingredients, listItemContributions, listItems, lists, userCategoryOverrides, type ListItem } from '@/db';
+import {
+  db,
+  ingredients,
+  listItemContributions,
+  listItems,
+  lists,
+  recipes,
+  userCategoryOverrides,
+  type ListItem,
+} from '@/db';
 import { effectiveCategoryId } from '@/domain/category-resolver';
 import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
@@ -467,12 +476,16 @@ export function listItemsQuery(listId: string, userId: string | null) {
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
       contributionId: listItemContributions.id,
+      recipeId: listItemContributions.recipeId,
+      recipeName: recipes.name,
+      contributedAt: listItemContributions.createdAt,
     })
     .from(listItems)
     .leftJoin(
       listItemContributions,
       and(eq(listItemContributions.listItemId, listItems.id), liveContribution),
     )
+    .leftJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
     .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
     .leftJoin(
       userCategoryOverrides,
@@ -486,7 +499,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
 }
 
 /** Tables `listItemsQuery` reads, for `useLiveQueryOn`. */
-export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, userCategoryOverrides];
+export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, userCategoryOverrides, recipes];
 
 type ItemRow = Awaited<ReturnType<typeof listItemsQuery>>[number];
 
@@ -501,7 +514,11 @@ export type ItemView = {
   amounts: Amount[];
   /** `2 lb`, `1 gal + 1`, or empty. */
   amountText: string;
+  /** Each amount with the recipe it came from (null: typed or Siri), for the By recipe view. */
+  contributions: ItemContribution[];
 };
+
+export type ItemContribution = Amount & { recipeId: string | null; recipeName: string | null; createdAt: Date };
 
 /** Groups `listItemsQuery` rows into items, unchecked (oldest first) then checked (most recent first). */
 export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; checked: ItemView[] } {
@@ -518,10 +535,21 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
         checkedAt: row.checkedAt,
         amounts: [],
         amountText: '',
+        contributions: [],
       };
       byId.set(row.id, item);
     }
-    if (row.contributionId) item.amounts.push({ quantity: row.quantity, unit: row.unit });
+    if (row.contributionId) {
+      item.amounts.push({ quantity: row.quantity, unit: row.unit });
+      item.contributions.push({
+        quantity: row.quantity,
+        unit: row.unit,
+        // A deleted recipe's amounts read as "no recipe" (spec 4.5).
+        recipeId: row.recipeName === null ? null : row.recipeId,
+        recipeName: row.recipeName,
+        createdAt: row.contributedAt!,
+      });
+    }
   }
   const items = [...byId.values()];
   for (const item of items) item.amountText = summarizeAmounts(item.amounts);
@@ -587,4 +615,39 @@ export function searchRecentItems(householdId: string, prefix: string, limit: nu
     .limit(limit)
     .all()
     .map((r) => ({ key: r.key, displayName: r.displayName ?? r.key }));
+}
+
+/** "Check all" in a recipe section (spec 4.6). */
+export function checkItems(itemIds: readonly string[], userId: string | null): void {
+  if (itemIds.length === 0) return;
+  db.update(listItems)
+    .set({ checkedAt: new Date(), checkedBy: userId })
+    .where(and(inArray(listItems.id, [...itemIds]), isNull(listItems.checkedAt)))
+    .run();
+}
+
+/**
+ * "Remove recipe from list" (spec 4.6): removes that recipe's amounts from the list's items;
+ * items left with no amounts are deleted.
+ */
+export function removeRecipeFromList(listId: string, recipeId: string): void {
+  db.transaction((tx) => {
+    const now = new Date();
+    const affected = tx
+      .select({ itemId: listItemContributions.listItemId, id: listItemContributions.id })
+      .from(listItemContributions)
+      .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
+      .where(and(eq(listItems.listId, listId), liveItem, eq(listItemContributions.recipeId, recipeId), liveContribution))
+      .all();
+    if (affected.length === 0) return;
+    tx.update(listItemContributions)
+      .set({ deletedAt: now })
+      .where(inArray(listItemContributions.id, affected.map((a) => a.id)))
+      .run();
+    for (const itemId of new Set(affected.map((a) => a.itemId))) {
+      if (liveContributions(tx, itemId).length === 0) {
+        tx.update(listItems).set({ deletedAt: now }).where(eq(listItems.id, itemId)).run();
+      }
+    }
+  });
 }
