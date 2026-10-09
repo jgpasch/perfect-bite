@@ -120,7 +120,7 @@ export function addRecipeIngredient(recipeId: string, text: string): string | nu
         position: nextPosition(recipeId),
       })
       .run();
-    recordUsage(tx, recipe.householdId, ingredientName, name, new Date());
+    recordUsage(tx, recipe.householdId, ingredientName, name, new Date(), { quantity, unit });
   });
   touch(recipeId);
   return id;
@@ -140,7 +140,10 @@ export function addParsedRecipeIngredients(
       tx.insert(recipeIngredients)
         .values({ id: newId(), recipeId, householdId: recipe.householdId, ...item, position })
         .run();
-      recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now);
+      recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now, {
+        quantity: item.quantity,
+        unit: item.unit ?? null,
+      });
       position = positionBetween(position, null);
     }
   });

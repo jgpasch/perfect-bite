@@ -107,7 +107,8 @@ function parseAdd(text: string): ParsedAdd | null {
 
 /**
  * Applies one add inside a transaction, following `decision`. Every add counts one use in the
- * household's ingredient history (spec 4.2), whatever the decision; `undoAdd` takes it back.
+ * household's ingredient history (spec 4.2), whatever the decision, plus a use of its unit if it
+ * has a quantity; `undoAdd` takes them back.
  */
 function applyAdd(
   tx: Tx,
@@ -126,7 +127,7 @@ function applyAdd(
     unit: add.unit,
     addedBy: meta.userId,
   };
-  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date());
+  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date(), contribution);
 
   if (decision.kind === 'new') {
     const itemId = newId();
@@ -206,7 +207,12 @@ export function undoAdd(result: AddItemResult): void {
   db.transaction((tx) => {
     const now = new Date();
     const item = getItem(tx, result.itemId);
-    unrecordUsage(tx, item.householdId, item.ingredientName);
+    const undone = tx
+      .select({ quantity: listItemContributions.quantity, unit: listItemContributions.unit })
+      .from(listItemContributions)
+      .where(eq(listItemContributions.id, result.contributionId))
+      .get();
+    unrecordUsage(tx, item.householdId, item.ingredientName, undone);
     tx.update(listItemContributions).set({ deletedAt: now }).where(eq(listItemContributions.id, result.contributionId)).run();
     if (result.kind === 'new') {
       tx.update(listItems).set({ deletedAt: now }).where(eq(listItems.id, result.itemId)).run();

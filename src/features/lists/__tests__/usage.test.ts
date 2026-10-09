@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
 import {
   db,
   deviceSettings,
   households,
+  ingredientUnitUsage,
   ingredientUsage,
   listItemContributions,
   listItems,
@@ -12,9 +13,11 @@ import {
   recipeIngredients,
   recipes,
 } from '@/db';
+import { addRecipeToList, buildRecipeAdds } from '@/features/recipes/add-to-list';
+import { addParsedRecipeIngredients, addRecipeIngredient, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { resetDb } from '@/test/db';
 
-import { addItem, undoAdd } from '../items';
+import { addItem, addItemsBulk, undoAdd } from '../items';
 import { backfillUsage, hideFromSuggestions, recordUsage, unrecordUsage } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -120,6 +123,172 @@ test('writes roll back with the surrounding transaction', () => {
     }),
   ).toThrow('add failed');
   expect(usage()).toEqual([]);
+});
+
+describe('unit usage', () => {
+  const T3 = new Date('2026-10-07T18:00:00Z');
+  const LB = { quantity: 2, unit: 'lb' } as const;
+
+  const units = (householdId = 'h1') =>
+    db
+      .select({
+        ingredientName: ingredientUnitUsage.ingredientName,
+        unitKey: ingredientUnitUsage.unitKey,
+        useCount: ingredientUnitUsage.useCount,
+        lastUsedAt: ingredientUnitUsage.lastUsedAt,
+      })
+      .from(ingredientUnitUsage)
+      .where(eq(ingredientUnitUsage.householdId, householdId))
+      .all()
+      .sort((a, b) => a.ingredientName.localeCompare(b.ingredientName) || a.unitKey.localeCompare(b.unitKey));
+
+  beforeEach(() => {
+    db.insert(lists).values([
+      { id: 'l1', householdId: 'h1', name: 'Groceries', position: 1 },
+      { id: 'l2', householdId: 'h2', name: 'Cabin', position: 1 },
+    ]).run();
+    db.insert(recipes).values({ id: 'r1', householdId: 'h1', name: 'Curry' }).run();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('recordUsage with a quantity counts its unit; a bare number counts as count', () => {
+    db.transaction((tx) => {
+      recordUsage(tx, 'h1', 'chicken thigh', 'chicken thighs', T1, LB);
+      recordUsage(tx, 'h1', 'egg', 'eggs', T2, { quantity: 6, unit: null });
+    });
+    expect(units()).toEqual([
+      { ingredientName: 'chicken thigh', unitKey: 'lb', useCount: 1, lastUsedAt: T1 },
+      { ingredientName: 'egg', unitKey: 'count', useCount: 1, lastUsedAt: T2 },
+    ]);
+  });
+
+  test('recordUsage with no amount, or no quantity, writes no unit row', () => {
+    db.transaction((tx) => {
+      recordUsage(tx, 'h1', 'milk', 'milk', T1);
+      recordUsage(tx, 'h1', 'milk', 'milk', T1, { quantity: null, unit: null });
+      recordUsage(tx, 'h1', 'milk', 'milk', T1, { quantity: null, unit: 'gal' });
+    });
+    expect(units()).toEqual([]);
+    expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'milk', useCount: 3 })]);
+  });
+
+  test('2 lb, then 1 lb, then 3 gives lb ×2 and count ×1, each with its last use', () => {
+    jest.useFakeTimers({ now: T1 });
+    addItem('l1', '2 lbs chicken thighs', null);
+    jest.setSystemTime(T2);
+    addItem('l1', '1 lb chicken thighs', null);
+    jest.setSystemTime(T3);
+    addItem('l1', '3 chicken thighs', null);
+    expect(units()).toEqual([
+      { ingredientName: 'chicken thigh', unitKey: 'count', useCount: 1, lastUsedAt: T3 },
+      { ingredientName: 'chicken thigh', unitKey: 'lb', useCount: 2, lastUsedAt: T2 },
+    ]);
+  });
+
+  test('milk with no amount writes no unit row', () => {
+    addItem('l1', 'milk', null);
+    addItem('l1', 'milk', null);
+    expect(units()).toEqual([]);
+    expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'milk', useCount: 2 })]);
+  });
+
+  test('undo decrements the unit, and deletes its row at 0', () => {
+    jest.useFakeTimers({ now: T1 });
+    addItem('l1', '2 lb chicken thighs', null);
+    const second = addItem('l1', '1 lb chicken thighs', null)!;
+    const count = addItem('l1', '3 chicken thighs', null)!;
+    undoAdd(second);
+    expect(units()).toEqual([
+      { ingredientName: 'chicken thigh', unitKey: 'count', useCount: 1, lastUsedAt: T1 },
+      { ingredientName: 'chicken thigh', unitKey: 'lb', useCount: 1, lastUsedAt: T1 },
+    ]);
+    undoAdd(count);
+    expect(units()).toEqual([{ ingredientName: 'chicken thigh', unitKey: 'lb', useCount: 1, lastUsedAt: T1 }]);
+  });
+
+  test('undoing an add with no amount leaves the unit rows alone', () => {
+    addItem('l1', '1 gal milk', null);
+    undoAdd(addItem('l1', 'milk', null)!);
+    expect(units()).toEqual([expect.objectContaining({ ingredientName: 'milk', unitKey: 'gal', useCount: 1 })]);
+    expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'milk', useCount: 1 })]);
+  });
+
+  test('undoing a new item and a reopen take their units back too', () => {
+    undoAdd(addItem('l1', '2 lb beef', null)!);
+    expect(units()).toEqual([]);
+
+    const first = addItem('l1', '2 lb beef', null)!;
+    db.update(listItems).set({ checkedAt: T1 }).where(eq(listItems.id, first.itemId)).run();
+    const reopen = addItem('l1', '500 g beef', null)!;
+    expect(reopen.kind).toBe('reopen');
+    expect(units().map((u) => [u.unitKey, u.useCount])).toEqual([['g', 1], ['lb', 1]]);
+    undoAdd(reopen);
+    expect(units().map((u) => [u.unitKey, u.useCount])).toEqual([['lb', 1]]);
+  });
+
+  test('unrecord on a missing unit row is a no-op, and a count at 0 is removed', () => {
+    expect(() => db.transaction((tx) => unrecordUsage(tx, 'h1', 'milk', { quantity: 1, unit: 'gal' }))).not.toThrow();
+    db.insert(ingredientUnitUsage)
+      .values({ householdId: 'h1', ingredientName: 'milk', unitKey: 'gal', useCount: 0, lastUsedAt: T1 })
+      .run();
+    db.transaction((tx) => unrecordUsage(tx, 'h1', 'milk', { quantity: 1, unit: 'gal' }));
+    expect(units()).toEqual([]);
+  });
+
+  test('Keep existing records a use but no unit', () => {
+    addItem('l1', '2 lb ground beef', null);
+    addItemsBulk('l1', [{ text: '1 lb ground beef', source: 'recipe', recipeId: 'r1' }], null, new Set([0]));
+    expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'ground beef', useCount: 2 })]);
+    expect(units()).toEqual([expect.objectContaining({ ingredientName: 'ground beef', unitKey: 'lb', useCount: 1 })]);
+  });
+
+  test('a recipe ingredient records its unit, and adding the recipe to a list counts it again', () => {
+    jest.useFakeTimers({ now: T1 });
+    addRecipeIngredient('r1', '400 g chickpeas');
+    expect(units()).toEqual([{ ingredientName: 'chickpea', unitKey: 'g', useCount: 1, lastUsedAt: T1 }]);
+
+    jest.setSystemTime(T2);
+    const ingredients = recipeIngredientsQuery('r1').all();
+    const adds = buildRecipeAdds('r1', ingredients, new Set(ingredients.map((i) => i.id)), 1);
+    addRecipeToList('l1', adds, null, new Set());
+    expect(units()).toEqual([{ ingredientName: 'chickpea', unitKey: 'g', useCount: 2, lastUsedAt: T2 }]);
+  });
+
+  test('a recipe ingredient with no amount records no unit', () => {
+    addRecipeIngredient('r1', 'salt');
+    expect(units()).toEqual([]);
+  });
+
+  test('parsed recipe ingredients record their units, and none for no quantity', () => {
+    jest.useFakeTimers({ now: T2 });
+    addParsedRecipeIngredients('r1', [
+      { ingredientName: 'flour', displayName: 'flour', quantity: 2, unit: 'cup' },
+      { ingredientName: 'egg', displayName: 'eggs', quantity: 3, unit: null },
+      { ingredientName: 'salt', displayName: 'salt', quantity: null, unit: null },
+    ]);
+    expect(units()).toEqual([
+      { ingredientName: 'egg', unitKey: 'count', useCount: 1, lastUsedAt: T2 },
+      { ingredientName: 'flour', unitKey: 'cup', useCount: 1, lastUsedAt: T2 },
+    ]);
+  });
+
+  test("another household's rows are untouched", () => {
+    db.insert(ingredientUnitUsage)
+      .values({ householdId: 'h2', ingredientName: 'milk', unitKey: 'gal', useCount: 4, lastUsedAt: T1 })
+      .run();
+    addItem('l1', '1 gal milk', null);
+    undoAdd(addItem('l1', '2 gal milk', null)!);
+    addRecipeIngredient('r1', '1 cup milk');
+    expect(units('h2')).toEqual([{ ingredientName: 'milk', unitKey: 'gal', useCount: 4, lastUsedAt: T1 }]);
+    expect(units('h1').map((u) => [u.unitKey, u.useCount])).toEqual([['cup', 1], ['gal', 1]]);
+
+    addItem('l2', '2 gal milk', null);
+    expect(units('h2')).toEqual([expect.objectContaining({ unitKey: 'gal', useCount: 5 })]);
+    expect(units('h1').map((u) => [u.unitKey, u.useCount])).toEqual([['cup', 1], ['gal', 1]]);
+  });
 });
 
 describe('hideFromSuggestions (spec 4.2)', () => {

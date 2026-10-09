@@ -6,9 +6,15 @@
 // and "Add to recipe" go through). Adding that recipe to a list counts again through addItemsBulk,
 // since putting it on a list is a real use. Editing a recipe ingredient doesn't count; undoing a
 // list add takes its use back.
+//
+// Units (ingredient_unit_usage, for the usual unit): each of those uses that has a quantity also
+// counts one use of its unit (`unitKey`: the unit, or 'count' for a bare number). A use with no
+// quantity (`milk`, or a "Keep existing" recipe link) counts no unit. Undo takes the unit back too.
 import { and, eq, isNull, lte, ne, sql } from 'drizzle-orm';
 
-import { db, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
+import { db, ingredientUnitUsage, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
+import type { Amount } from '@/domain/quantity-display';
+import { unitKey } from '@/domain/usual-unit';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -16,8 +22,25 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const row = (householdId: string, ingredientName: string) =>
   and(eq(ingredientUsage.householdId, householdId), eq(ingredientUsage.ingredientName, ingredientName));
 
-/** Counts one use of `ingredientName` (the key) by the household. A new use unhides a hidden row. */
-export function recordUsage(tx: Tx, householdId: string, ingredientName: string, displayName: string, at: Date) {
+const unitRow = (householdId: string, ingredientName: string, key: string) =>
+  and(
+    eq(ingredientUnitUsage.householdId, householdId),
+    eq(ingredientUnitUsage.ingredientName, ingredientName),
+    eq(ingredientUnitUsage.unitKey, key),
+  );
+
+/**
+ * Counts one use of `ingredientName` (the key) by the household. A new use unhides a hidden row.
+ * An `amount` with a quantity also counts one use of its unit.
+ */
+export function recordUsage(
+  tx: Tx,
+  householdId: string,
+  ingredientName: string,
+  displayName: string,
+  at: Date,
+  amount?: Amount,
+) {
   tx.insert(ingredientUsage)
     .values({ householdId, ingredientName, displayName, useCount: 1, lastUsedAt: at })
     .onConflictDoUpdate({
@@ -25,10 +48,22 @@ export function recordUsage(tx: Tx, householdId: string, ingredientName: string,
       set: { useCount: sql`${ingredientUsage.useCount} + 1`, displayName, lastUsedAt: at, hiddenAt: null },
     })
     .run();
+  if (amount && amount.quantity !== null) {
+    tx.insert(ingredientUnitUsage)
+      .values({ householdId, ingredientName, unitKey: unitKey(amount.unit), useCount: 1, lastUsedAt: at })
+      .onConflictDoUpdate({
+        target: [ingredientUnitUsage.householdId, ingredientUnitUsage.ingredientName, ingredientUnitUsage.unitKey],
+        set: { useCount: sql`${ingredientUnitUsage.useCount} + 1`, lastUsedAt: at },
+      })
+      .run();
+  }
 }
 
-/** Takes back one use (an undone add). The row goes away when its count reaches 0. */
-export function unrecordUsage(tx: Tx, householdId: string, ingredientName: string) {
+/**
+ * Takes back one use (an undone add), and one use of the `amount`'s unit if it has a quantity.
+ * Each row goes away when its count reaches 0.
+ */
+export function unrecordUsage(tx: Tx, householdId: string, ingredientName: string, amount?: Amount) {
   tx.update(ingredientUsage)
     .set({ useCount: sql`max(${ingredientUsage.useCount} - 1, 0)` })
     .where(row(householdId, ingredientName))
@@ -36,6 +71,16 @@ export function unrecordUsage(tx: Tx, householdId: string, ingredientName: strin
   tx.delete(ingredientUsage)
     .where(and(row(householdId, ingredientName), lte(ingredientUsage.useCount, 0)))
     .run();
+  if (amount && amount.quantity !== null) {
+    const unit = unitRow(householdId, ingredientName, unitKey(amount.unit));
+    tx.update(ingredientUnitUsage)
+      .set({ useCount: sql`max(${ingredientUnitUsage.useCount} - 1, 0)` })
+      .where(unit)
+      .run();
+    tx.delete(ingredientUnitUsage)
+      .where(and(unit, lte(ingredientUnitUsage.useCount, 0)))
+      .run();
+  }
 }
 
 /**
