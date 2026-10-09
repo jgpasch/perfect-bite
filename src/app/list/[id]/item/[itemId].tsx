@@ -10,7 +10,6 @@ import { Screen } from '@/components/themed-view';
 import { listItemContributions } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { formatAmount } from '@/domain/quantity-display';
-import { summarizeAmounts } from '@/domain/quantity-math';
 import { getAccount } from '@/features/auth/account';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import {
@@ -18,6 +17,7 @@ import {
   deleteContribution,
   deleteItem,
   getItemEdit,
+  itemTotal,
   updateItem,
   type ItemEdit,
 } from '@/features/lists/items';
@@ -44,7 +44,7 @@ export default function ItemEditSheet() {
   if (!edit || !initial) return <Screen />;
 
   // Deleting an amount below changes the total; follow it until the user types their own.
-  const amount = amountTouched || contributions.length === 0 ? edit.amount : summarizeAmounts(contributions);
+  const amount = amountTouched || contributions.length === 0 ? edit.amount : itemTotal(contributions);
 
   const defaultId = current?.defaultCategoryId ?? OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.

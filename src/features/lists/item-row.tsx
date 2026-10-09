@@ -18,22 +18,36 @@ type Props = {
   amountText?: string;
   /** A second line, e.g. "also in: Tacos" (spec 4.6). */
   hint?: string;
+  /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
+  selected?: boolean;
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
 };
 
 /** A list item: tap to check off, swipe left to delete, long-press to edit (spec 4.2). */
-export function ItemRow({ item, highlighted, amountText = item.amountText, hint, onToggle, onDelete, onEdit }: Props) {
+export function ItemRow({
+  item,
+  highlighted,
+  amountText = item.amountText,
+  hint,
+  selected,
+  onToggle,
+  onDelete,
+  onEdit,
+}: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
+  const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
+  const on = selecting ? selected : checked;
 
   const label = [item.displayName, amountText, item.note, hint].filter(Boolean).join(', ');
 
   return (
     <Animated.View entering={entering} exiting={exiting} layout={layout}>
       <ReanimatedSwipeable
+        enabled={!selecting}
         friction={2}
         rightThreshold={sizes.rowMin}
         overshootRight={false}
@@ -45,11 +59,11 @@ export function ItemRow({ item, highlighted, amountText = item.amountText, hint,
         )}>
         <Pressable
           onPress={onToggle}
-          onLongPress={onEdit}
+          onLongPress={selecting ? undefined : onEdit}
           accessibilityRole="checkbox"
-          accessibilityState={{ checked }}
+          accessibilityState={{ checked: on }}
           accessibilityLabel={label}
-          accessibilityHint="Double-tap to check off"
+          accessibilityHint={selecting ? 'Double-tap to select' : 'Double-tap to check off'}
           accessibilityActions={[
             { name: 'edit', label: 'Edit' },
             { name: 'delete', label: 'Delete' },
@@ -70,8 +84,8 @@ export function ItemRow({ item, highlighted, amountText = item.amountText, hint,
             },
           ]}>
           <Icon
-            name={checked ? 'checkmark.circle.fill' : 'circle'}
-            color={checked ? 'primary' : 'inkSecondary'}
+            name={on ? 'checkmark.circle.fill' : 'circle'}
+            color={on ? 'primary' : 'inkSecondary'}
             size={sizes.iconLarge}
           />
           <View style={styles.text}>

@@ -85,6 +85,15 @@ function liveContributions(tx: Tx, itemId: string) {
     .all();
 }
 
+/**
+ * An item's total as it reads on its row. A recipe link with no quantity (from "Keep
+ * existing", or "Make recipe..." on an existing item) records the recipe, not an amount, so it
+ * doesn't count: `2 lb` plus a link reads `2 lb`, not `2 lb + 1`.
+ */
+export function itemTotal(contributions: readonly (Amount & { source: string })[]): string {
+  return summarizeAmounts(contributions.filter((c) => !(c.source === 'recipe' && c.quantity === null)));
+}
+
 export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
 
 function parseAdd(text: string): ParsedAdd | null {
@@ -138,7 +147,7 @@ function applyAdd(
       contributionId,
       kind: 'combine',
       existingName: item.displayName,
-      existingAmountText: summarizeAmounts(previous),
+      existingAmountText: itemTotal(previous),
     };
   }
 
@@ -275,7 +284,7 @@ export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): Bul
           index,
           ingredientName: p.ingredientName,
           displayName: getItem(tx, existing.id).displayName,
-          existingAmountText: summarizeAmounts(liveContributions(tx, existing.id)),
+          existingAmountText: itemTotal(liveContributions(tx, existing.id)),
           incomingAmountText: summarizeAmounts([p]),
         };
       });
@@ -439,7 +448,7 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
       .orderBy(asc(listItemContributions.createdAt))
       .all();
     // Unchanged (including a combined `1 gal + 1`, which isn't itself a parseable amount).
-    if (edit.amount.trim() === summarizeAmounts(contributions)) return;
+    if (edit.amount.trim() === itemTotal(contributions)) return;
     const amount = parseAmount(edit.amount);
     if (!amount) throw new Error(`"${edit.amount.trim()}" isn't an amount, like 2 or 1 lb`);
 
@@ -476,6 +485,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
       contributionId: listItemContributions.id,
+      source: listItemContributions.source,
       recipeId: listItemContributions.recipeId,
       recipeName: recipes.name,
       contributedAt: listItemContributions.createdAt,
@@ -518,7 +528,12 @@ export type ItemView = {
   contributions: ItemContribution[];
 };
 
-export type ItemContribution = Amount & { recipeId: string | null; recipeName: string | null; createdAt: Date };
+export type ItemContribution = Amount & {
+  source: 'manual' | 'recipe' | 'siri';
+  recipeId: string | null;
+  recipeName: string | null;
+  createdAt: Date;
+};
 
 /** Groups `listItemsQuery` rows into items, unchecked (oldest first) then checked (most recent first). */
 export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; checked: ItemView[] } {
@@ -544,6 +559,7 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
       item.contributions.push({
         quantity: row.quantity,
         unit: row.unit,
+        source: row.source!,
         // A deleted recipe's amounts read as "no recipe" (spec 4.5).
         recipeId: row.recipeName === null ? null : row.recipeId,
         recipeName: row.recipeName,
@@ -552,7 +568,7 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
     }
   }
   const items = [...byId.values()];
-  for (const item of items) item.amountText = summarizeAmounts(item.amounts);
+  for (const item of items) item.amountText = itemTotal(item.contributions);
   return {
     unchecked: items.filter((i) => !i.checkedAt),
     checked: items
@@ -565,10 +581,12 @@ export function groupItems(rows: readonly ItemRow[]): { unchecked: ItemView[]; c
 export function getItemEdit(itemId: string): (ItemEdit & { ingredientName: string }) | null {
   const rows = listItemsQueryForItem(itemId);
   if (rows.length === 0) return null;
-  const amounts = rows.filter((r) => r.contributionId).map((r) => ({ quantity: r.quantity, unit: r.unit }));
+  const amounts = rows
+    .filter((r) => r.contributionId)
+    .map((r) => ({ quantity: r.quantity, unit: r.unit, source: r.source! }));
   return {
     name: rows[0].displayName,
-    amount: summarizeAmounts(amounts),
+    amount: itemTotal(amounts),
     note: rows[0].note ?? '',
     ingredientName: rows[0].ingredientName,
   };
@@ -582,6 +600,7 @@ function listItemsQueryForItem(itemId: string) {
       note: listItems.note,
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
+      source: listItemContributions.source,
       contributionId: listItemContributions.id,
     })
     .from(listItems)

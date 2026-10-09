@@ -4,7 +4,9 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -37,6 +39,8 @@ import {
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
+import { addItemsToRecipe, makeRecipeFromItems } from '@/features/recipes/from-list';
+import { recipesQuery } from '@/features/recipes/recipes';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -62,6 +66,7 @@ export default function ListScreen() {
   const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
 
   const [showChecked, setShowChecked] = useState(false);
+  const [selection, setSelection] = useState<Set<string> | null>(null);
   // Spec 4.6: the last choice per list is remembered on this device.
   const [viewMode, setViewModeState] = useState<ViewMode>(() => getDeviceSetting(viewModeKey(id), 'category'));
   const setViewMode = (mode: ViewMode) => {
@@ -104,6 +109,35 @@ export default function ListScreen() {
     }
     return out;
   }, [viewMode, sections, unchecked, checked, showChecked]);
+
+  // Select mode (spec 4.5): pick items, then Make recipe... or Add to recipe...
+  const finishSelection = () => {
+    setSelection(null);
+    setViewMode('recipe');
+  };
+  const makeRecipe = () => {
+    if (!selection) return;
+    const ids = [...selection];
+    Alert.prompt('New recipe', `From ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`, (name) => {
+      if (!name?.trim()) return;
+      makeRecipeFromItems(name, ids, userId);
+      finishSelection();
+    });
+  };
+  const addToRecipe = () => {
+    if (!selection) return;
+    const ids = [...selection];
+    const all = recipesQuery().all();
+    if (all.length === 0) return makeRecipe();
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: 'Add to recipe', options: [...all.map((r) => r.name), 'Cancel'], cancelButtonIndex: all.length },
+      (index) => {
+        if (index >= all.length) return;
+        addItemsToRecipe(all[index].id, ids, userId);
+        finishSelection();
+      },
+    );
+  };
 
   const recipeMenu = (row: Extract<Row, { kind: 'section' }>) => {
     if (!row.recipeId) return;
@@ -172,7 +206,15 @@ export default function ListScreen() {
     <Screen>
       <Stack.Screen options={{ title: list.name }} />
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Menu icon="ellipsis.circle" accessibilityLabel="List actions">
+        {selection ? (
+          <Stack.Toolbar.Button variant="done" onPress={() => setSelection(null)}>
+            Done
+          </Stack.Toolbar.Button>
+        ) : null}
+        <Stack.Toolbar.Menu icon="ellipsis.circle" accessibilityLabel="List actions" hidden={!!selection}>
+          <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => setSelection(new Set())}>
+            Select items
+          </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
             Share as text
           </Stack.Toolbar.MenuAction>
@@ -242,7 +284,12 @@ export default function ListScreen() {
                 amountText={row.amountText}
                 hint={row.hint}
                 highlighted={row.item.id === highlightedId}
-                onToggle={() => setItemChecked(row.item.id, row.item.checkedAt === null, userId)}
+                selected={selection ? selection.has(row.item.id) : undefined}
+                onToggle={() =>
+                  selection
+                    ? setSelection(toggleIn(selection, row.item.id))
+                    : setItemChecked(row.item.id, row.item.checkedAt === null, userId)
+                }
                 onDelete={() => remove(row.item)}
                 onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: row.item.id } })}
               />
@@ -277,14 +324,65 @@ export default function ListScreen() {
           </View>
         ) : null}
 
-        <AddBar
-          householdId={list.householdId}
-          onAdd={add}
-          placeholder="Add an item, like 2 lbs chicken thighs"
-          accessibilityLabel="Add an item"
-        />
+        {selection ? (
+          <SelectionBar
+            count={selection.size}
+            onMakeRecipe={makeRecipe}
+            onAddToRecipe={addToRecipe}
+          />
+        ) : (
+          <AddBar
+            householdId={list.householdId}
+            onAdd={add}
+            placeholder="Add an item, like 2 lbs chicken thighs"
+            accessibilityLabel="Add an item"
+          />
+        )}
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+function toggleIn(set: Set<string>, value: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function SelectionBar({
+  count,
+  onMakeRecipe,
+  onAddToRecipe,
+}: {
+  count: number;
+  onMakeRecipe: () => void;
+  onAddToRecipe: () => void;
+}) {
+  const { colors, spacing } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={{
+        gap: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.sm,
+        paddingBottom: Math.max(insets.bottom, spacing.sm),
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+      }}>
+      <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite">
+        {count === 0 ? 'Tap items to select them' : `${count} selected`}
+      </ThemedText>
+      <View style={[styles.checkedHeader, { gap: spacing.sm }]}>
+        <View style={styles.flex}>
+          <Button label="Make recipe…" disabled={count === 0} onPress={onMakeRecipe} />
+        </View>
+        <View style={styles.flex}>
+          <Button label="Add to recipe…" variant="secondary" disabled={count === 0} onPress={onAddToRecipe} />
+        </View>
+      </View>
+    </View>
   );
 }
 
