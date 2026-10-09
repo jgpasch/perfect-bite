@@ -7,24 +7,27 @@ import { Motion } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
+export type ToastAction = { label: string; onPress: () => void };
+
 type Props = {
   message: string;
-  actionLabel?: string;
-  onAction: () => void;
+  /** One or two actions, e.g. Undo, or Undo · Keep existing (spec 4.4). */
+  actions: ToastAction[];
   /** Called when the toast times out (spec 4.2: 5 seconds). */
   onDismiss: () => void;
 };
 
-/** A floating message with one action, e.g. "Deleted milk · Undo". Render it keyed by what it's about. */
-export function UndoToast({ message, actionLabel = 'Undo', onAction, onDismiss }: Props) {
+/** A floating message with actions, e.g. "Deleted milk · Undo". Render it keyed by what it's about. */
+export function UndoToast({ message, actions, onDismiss }: Props) {
   const { colors, spacing, rounded, sizes, shadows, scheme, opacity } = useTheme();
   const { entering, exiting } = useMotion();
 
+  const actionNames = actions.map((a) => a.label).join(', ');
   useEffect(() => {
-    AccessibilityInfo.announceForAccessibility(`${message}. ${actionLabel} available.`);
+    AccessibilityInfo.announceForAccessibility(`${message}. ${actionNames} available.`);
     const timer = setTimeout(onDismiss, Motion.undoTimeoutMs);
     return () => clearTimeout(timer);
-  }, [message, actionLabel, onDismiss]);
+  }, [message, actionNames, onDismiss]);
 
   return (
     <Animated.View
@@ -39,26 +42,29 @@ export function UndoToast({ message, actionLabel = 'Undo', onAction, onDismiss }
           borderRadius: rounded.md,
           paddingLeft: spacing.lg,
           marginHorizontal: spacing.lg,
-          gap: spacing.md,
+          gap: spacing.xs,
         },
       ]}>
       <ThemedText variant="callout" color="background" style={styles.message} numberOfLines={2}>
         {message}
       </ThemedText>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={actionLabel}
-        onPress={onAction}
-        style={({ pressed }) => ({
-          minHeight: sizes.minTapTarget,
-          justifyContent: 'center',
-          paddingHorizontal: spacing.lg,
-          opacity: pressed ? opacity.pressed : 1,
-        })}>
-        <ThemedText variant="headline" color="background">
-          {actionLabel}
-        </ThemedText>
-      </Pressable>
+      {actions.map((action) => (
+        <Pressable
+          key={action.label}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          onPress={action.onPress}
+          style={({ pressed }) => ({
+            minHeight: sizes.minTapTarget,
+            justifyContent: 'center',
+            paddingHorizontal: spacing.md,
+            opacity: pressed ? opacity.pressed : 1,
+          })}>
+          <ThemedText variant="headline" color="background">
+            {action.label}
+          </ThemedText>
+        </Pressable>
+      ))}
     </Animated.View>
   );
 }

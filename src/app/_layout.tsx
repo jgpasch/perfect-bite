@@ -12,6 +12,9 @@ import { useTheme } from '@/hooks/use-theme';
 
 export { ErrorBoundary } from 'expo-router';
 
+// A deep link straight to a list (or Siri, later) still gets the tabs underneath to go back to.
+export const unstable_settings = { initialRouteName: '(tabs)' };
+
 SplashScreen.preventAutoHideAsync();
 startAccount();
 

@@ -9,7 +9,7 @@ import { Icon } from '@/components/icon';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { UndoToast } from '@/components/undo-toast';
+import { UndoToast, type ToastAction } from '@/components/undo-toast';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { orderCategories, groupByCategory } from '@/domain/category-resolver';
@@ -21,11 +21,13 @@ import {
   clearChecked,
   deleteItem,
   groupItems,
+  keepExisting,
   LIST_ITEMS_QUERY_TABLES,
   listItemsQuery,
   setItemChecked,
   uncheckAll,
   undeleteItem,
+  undoAdd,
   type ItemView,
 } from '@/features/lists/items';
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
@@ -55,7 +57,8 @@ export default function ListScreen() {
 
   const [text, setText] = useState('');
   const [showChecked, setShowChecked] = useState(false);
-  const [deleted, setDeleted] = useState<{ id: string; name: string } | null>(null);
+  const [toast, setToast] = useState<{ key: string; message: string; actions: ToastAction[] } | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const keyboardVisible = useKeyboardVisible();
 
   const rows = useMemo<Row[]>(() => {
@@ -75,16 +78,38 @@ export default function ListScreen() {
 
   const add = (value: string) => {
     if (!value.trim()) return;
-    addItem(id, value, userId);
+    const result = addItem(id, value, userId);
     setText('');
+    if (result?.kind !== 'combine') return;
+    // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo / Keep existing.
+    setHighlightedId(result.itemId);
+    const amount = result.existingAmountText ? ` (${result.existingAmountText})` : '';
+    setToast({
+      key: result.contributionId,
+      message: `Combined with ${result.existingName}${amount}`,
+      actions: [
+        { label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) },
+        { label: 'Keep existing', onPress: () => (keepExisting(result.contributionId), setToast(null)) },
+      ],
+    });
   };
 
   const remove = useCallback((item: ItemView) => {
     deleteItem(item.id);
-    setDeleted({ id: item.id, name: item.displayName });
+    setToast({
+      key: `deleted-${item.id}`,
+      message: `Deleted ${item.displayName}`,
+      actions: [{ label: 'Undo', onPress: () => (undeleteItem(item.id), setToast(null)) }],
+    });
   }, []);
 
-  const dismissToast = useCallback(() => setDeleted(null), []);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  useEffect(() => {
+    if (!highlightedId) return;
+    const timer = setTimeout(() => setHighlightedId(null), 1200);
+    return () => clearTimeout(timer);
+  }, [highlightedId]);
 
   const confirmDelete = () => {
     if (!list) return;
@@ -156,6 +181,7 @@ export default function ListScreen() {
             ) : row.kind === 'item' ? (
               <ItemRow
                 item={row.item}
+                highlighted={row.item.id === highlightedId}
                 onToggle={() => setItemChecked(row.item.id, row.item.checkedAt === null, userId)}
                 onDelete={() => remove(row.item)}
                 onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: row.item.id } })}
@@ -185,17 +211,9 @@ export default function ListScreen() {
           }
         />
 
-        {deleted ? (
+        {toast ? (
           <View style={{ paddingBottom: spacing.sm }}>
-            <UndoToast
-              key={deleted.id}
-              message={`Deleted ${deleted.name}`}
-              onAction={() => {
-                undeleteItem(deleted.id);
-                setDeleted(null);
-              }}
-              onDismiss={dismissToast}
-            />
+            <UndoToast key={toast.key} message={toast.message} actions={toast.actions} onDismiss={dismissToast} />
           </View>
         ) : null}
 

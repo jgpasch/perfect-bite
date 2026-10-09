@@ -4,6 +4,7 @@ import Animated from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
+import { withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -11,13 +12,15 @@ import type { ItemView } from './items';
 
 type Props = {
   item: ItemView;
+  /** Briefly true after an add combined into this item (spec 4.4). */
+  highlighted?: boolean;
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
 };
 
 /** A list item: tap to check off, swipe left to delete, long-press to edit (spec 4.2). */
-export function ItemRow({ item, onToggle, onDelete, onEdit }: Props) {
+export function ItemRow({ item, highlighted, onToggle, onDelete, onEdit }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const checked = item.checkedAt !== null;
@@ -58,7 +61,7 @@ export function ItemRow({ item, onToggle, onDelete, onEdit }: Props) {
               paddingHorizontal: spacing.lg,
               paddingVertical: spacing.sm,
               gap: spacing.md,
-              backgroundColor: colors.background,
+              backgroundColor: highlighted ? withAlpha(colors.highlight, opacity.tint * 2) : colors.background,
               opacity: pressed ? opacity.pressed : 1,
             },
           ]}>

@@ -7,9 +7,20 @@ import { Icon, type IconName } from '@/components/icon';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { listItemContributions } from '@/db';
+import { useLiveQueryOn } from '@/db/live-query';
+import { formatAmount } from '@/domain/quantity-display';
+import { summarizeAmounts } from '@/domain/quantity-math';
 import { getAccount } from '@/features/auth/account';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
-import { deleteItem, getItemEdit, updateItem, type ItemEdit } from '@/features/lists/items';
+import {
+  contributionsQuery,
+  deleteContribution,
+  deleteItem,
+  getItemEdit,
+  updateItem,
+  type ItemEdit,
+} from '@/features/lists/items';
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_CATEGORY_ID } from '@/shared';
 
@@ -27,8 +38,13 @@ export default function ItemEditSheet() {
     () => (userId && initial ? getIngredientCategory(userId, initial.ingredientName) : null),
     [userId, initial],
   );
+  const { data: contributions } = useLiveQueryOn(contributionsQuery(itemId), [listItemContributions], [itemId]);
+  const [amountTouched, setAmountTouched] = useState(false);
 
   if (!edit || !initial) return <Screen />;
+
+  // Deleting an amount below changes the total; follow it until the user types their own.
+  const amount = amountTouched || contributions.length === 0 ? edit.amount : summarizeAmounts(contributions);
 
   const defaultId = current?.defaultCategoryId ?? OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.
@@ -61,7 +77,7 @@ export default function ItemEditSheet() {
     try {
       // Choosing the default again only needs a write if there was an override to remove.
       const categoryId = edit.categoryId === null && !current?.overrideCategoryId ? undefined : edit.categoryId;
-      updateItem(itemId, { ...edit, categoryId }, userId);
+      updateItem(itemId, { ...edit, amount, categoryId }, userId);
       router.back();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -84,14 +100,32 @@ export default function ItemEditSheet() {
       </Field>
       <Field label="Amount">
         <TextField
-          value={edit.amount}
-          onChangeText={set('amount')}
+          value={amount}
+          onChangeText={(value) => {
+            setAmountTouched(true);
+            set('amount')(value);
+          }}
           placeholder="e.g. 2 lb"
           accessibilityLabel="Amount"
           autoCapitalize="none"
           returnKeyType="done"
         />
       </Field>
+      {contributions.length > 1 ? (
+        // Spec 4.4: each add is listed with a delete control (Undo / Keep existing, later).
+        <Field label="Added">
+          {contributions.map((c) => (
+            <Option
+              key={c.id}
+              label={formatAmount(c) || 'No amount'}
+              detail={c.source === 'recipe' ? 'From a recipe' : c.source === 'siri' ? 'From Siri' : undefined}
+              icon="minus.circle"
+              accessibilityHint="Removes this amount"
+              onPress={() => deleteContribution(c.id)}
+            />
+          ))}
+        </Field>
+      ) : null}
       <Field label="Note">
         <TextField
           value={edit.note}

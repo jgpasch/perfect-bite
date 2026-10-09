@@ -1,6 +1,6 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, test } from '@jest/globals';
 
-import { formatAmount, formatAmounts, formatNumber } from '../quantity-display';
+import { formatAmount, formatNumber } from '../quantity-display';
 
 describe('formatNumber', () => {
   it.each([
@@ -15,26 +15,10 @@ describe('formatNumber', () => {
   });
 });
 
-describe('formatAmounts', () => {
-  it('shows one amount', () => {
-    expect(formatAmount({ quantity: 2, unit: 'lb' })).toBe('2 lb');
-    expect(formatAmounts([{ quantity: 3, unit: null }])).toBe('3');
-    expect(formatAmounts([{ quantity: null, unit: null }])).toBe('');
-    expect(formatAmounts([])).toBe('');
-  });
-
-  it('joins several adds, counting an add with no amount as 1', () => {
-    expect(
-      formatAmounts([
-        { quantity: 1, unit: 'gal' },
-        { quantity: null, unit: null },
-      ]),
-    ).toBe('1 gal + 1');
-    expect(
-      formatAmounts([
-        { quantity: null, unit: null },
-        { quantity: null, unit: null },
-      ]),
-    ).toBe('');
-  });
+test('formatAmount', () => {
+  expect(formatAmount({ quantity: 2, unit: 'lb' })).toBe('2 lb');
+  expect(formatAmount({ quantity: 3, unit: null })).toBe('3');
+  expect(formatAmount({ quantity: 1.5, unit: 'lb' })).toBe('1.5 lb');
+  expect(formatAmount({ quantity: 1.5, unit: 'cup' })).toBe('1½ cup');
+  expect(formatAmount({ quantity: null, unit: null })).toBe('');
 });

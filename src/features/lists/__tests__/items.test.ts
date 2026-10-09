@@ -4,15 +4,21 @@ import { resetDb } from '@/test/db';
 
 import {
   addItem,
+  addItemsBulk,
   clearChecked,
+  contributionsQuery,
+  deleteContribution,
   deleteItem,
   DuplicateItemError,
   getItemEdit,
   groupItems,
+  keepExisting,
   listItemsQuery,
+  planBulkAddToList,
   setItemChecked,
   uncheckAll,
   undeleteItem,
+  undoAdd,
   updateItem,
 } from '../items';
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
@@ -50,19 +56,108 @@ describe('addItem', () => {
   test('combines an add into the open item for the same ingredient', () => {
     const first = addItem(listId, '1 gal milk', USER)!;
     const second = addItem(listId, 'milk', USER)!;
-    expect(second).toEqual({ itemId: first.itemId, combined: true });
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'milk', existingAmountText: '1 gal' });
     expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
   });
 
-  test('a checked item does not block a new one; lists are independent', () => {
-    const milk = addItem(listId, 'milk', USER)!;
+  test('sums compatible amounts when combining', () => {
+    addItem(listId, '2 lbs chicken thighs', USER);
+    addItem(listId, '8 oz chicken thighs', USER);
+    expect(rows(view().unchecked)).toEqual(['2.5 lb chicken thighs']);
+  });
+
+  test('a checked match is unchecked and its amounts replaced', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
     setItemChecked(milk.itemId, true, USER);
-    expect(addItem(listId, 'milk', USER)!.combined).toBe(false);
+    const again = addItem(listId, '2 milk', USER)!;
+    expect(again).toMatchObject({ itemId: milk.itemId, kind: 'reopen' });
+    expect(rows(view().unchecked)).toEqual(['2 milk']);
+    expect(view().checked).toHaveLength(0);
+  });
+
+  test('lists are independent', () => {
+    addItem(listId, 'milk', USER);
     const other = createList('Costco');
-    expect(addItem(other, 'milk', USER)!.combined).toBe(false);
-    expect(view().unchecked).toHaveLength(1);
-    expect(view().checked).toHaveLength(1);
+    expect(addItem(other, 'milk', USER)!.kind).toBe('new');
     expect(view(other).unchecked).toHaveLength(1);
+  });
+});
+
+describe('undo and keep existing (spec 4.4)', () => {
+  test('undo removes a new item', () => {
+    const r = addItem(listId, 'milk', USER)!;
+    undoAdd(r);
+    expect(view().unchecked).toHaveLength(0);
+  });
+
+  test('undo of a combine restores the original row', () => {
+    addItem(listId, '1 gal milk', USER);
+    const r = addItem(listId, '2 milk', USER)!;
+    undoAdd(r);
+    expect(rows(view().unchecked)).toEqual(['1 gal milk']);
+  });
+
+  test('undo of a reopen puts the checked item and its amounts back', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    const r = addItem(listId, '2 milk', USER)!;
+    undoAdd(r);
+    expect(view().unchecked).toHaveLength(0);
+    expect(rows(view().checked)).toEqual(['1 gal milk']);
+  });
+
+  test('keep existing drops the new amount', () => {
+    addItem(listId, '1 gal milk', USER);
+    const r = addItem(listId, '2 milk', USER)!;
+    keepExisting(r.contributionId);
+    expect(rows(view().unchecked)).toEqual(['1 gal milk']);
+  });
+
+  test('the edit sheet lists amounts and can delete one', () => {
+    const r = addItem(listId, '1 gal milk', USER)!;
+    const second = addItem(listId, '2 milk', USER)!;
+    expect(contributionsQuery(r.itemId).all().map((c) => c.quantity)).toEqual([1, 2]);
+    deleteContribution(second.contributionId);
+    expect(rows(view().unchecked)).toEqual(['1 gal milk']);
+  });
+});
+
+describe('bulk add (spec 4.4)', () => {
+  const adds = [{ text: '2 cups milk' }, { text: '3 eggs' }, { text: '1 tsp salt' }, { text: '1 cup milk' }];
+
+  test('reports conflicts with open items only', () => {
+    addItem(listId, '1 gal milk', USER);
+    const eggs = addItem(listId, 'eggs', USER)!;
+    setItemChecked(eggs.itemId, true, USER);
+    expect(planBulkAddToList(listId, adds)).toEqual([
+      { index: 0, ingredientName: 'milk', displayName: 'milk', existingAmountText: '1 gal', incomingAmountText: '2 cup' },
+    ]);
+  });
+
+  test('combines by default, folding repeats within the batch', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItemsBulk(listId, adds, USER);
+    expect(rows(view().unchecked)).toEqual(['1¼ gal milk', '3 eggs', '1 tsp salt']); // 1 gal + 3 cups
+  });
+
+  test('keep existing skips a manual add, but keeps a recipe link without a quantity', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItemsBulk(listId, adds, USER, new Set([0]));
+    // The batch's second milk still folds into the first add, which was skipped.
+    expect(rows(view().unchecked)).toEqual(['1 gal milk', '3 eggs', '1 tsp salt']);
+
+    const recipeAdds = adds.map((a) => ({ ...a, source: 'recipe' as const, recipeId: 'tacos' }));
+    resetDb();
+    ensureStarterData(USER);
+    listId = getDefaultListId(USER)!;
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    addItemsBulk(listId, recipeAdds, USER, new Set([0]));
+    const amounts = contributionsQuery(milk.itemId).all();
+    expect(amounts.map((c) => [c.source, c.quantity])).toEqual([
+      ['manual', 1],
+      ['recipe', null],
+      ['recipe', 1],
+    ]);
   });
 });
 
@@ -81,7 +176,9 @@ describe('check, delete, undo', () => {
   test('unchecking merges into an open item for the same ingredient', () => {
     const old = addItem(listId, '1 gal milk', USER)!;
     setItemChecked(old.itemId, true, USER);
-    addItem(listId, '2 milk', USER);
+    // Adding milk now would reopen the checked one, so get an open copy by renaming.
+    const other = addItem(listId, '2 oat milk', USER)!;
+    updateItem(other.itemId, { name: 'milk', amount: '2', note: '' });
     setItemChecked(old.itemId, false, USER);
     expect(rows(view().unchecked)).toEqual(['1 gal + 2 milk']) // amounts in the order they were added;
     expect(view().checked).toHaveLength(0);
@@ -108,7 +205,7 @@ describe('check, delete, undo', () => {
     deleteItem(eggs.itemId);
     addItem(listId, '6 eggs', USER);
     undeleteItem(eggs.itemId);
-    expect(rows(view().unchecked)).toEqual(['12 + 6 eggs']);
+    expect(rows(view().unchecked)).toEqual(['18 eggs']);
   });
 
   test('clear checked and uncheck all', () => {
@@ -128,7 +225,8 @@ describe('check, delete, undo', () => {
   test('uncheck all merges two checked copies of the same ingredient', () => {
     const first = addItem(listId, '1 milk', USER)!;
     setItemChecked(first.itemId, true, USER);
-    const second = addItem(listId, '2 milk', USER)!;
+    const second = addItem(listId, '2 oat milk', USER)!;
+    updateItem(second.itemId, { name: 'milk', amount: '2', note: '' });
     setItemChecked(second.itemId, true, USER);
     uncheckAll(listId);
     expect(view().unchecked).toHaveLength(1);
@@ -141,7 +239,7 @@ describe('updateItem', () => {
     const item = addItem(listId, '2 lbs chicken thighs', USER)!;
     expect(getItemEdit(item.itemId)).toEqual({ name: 'chicken thighs', amount: '2 lb', note: '', ingredientName: 'chicken thigh' });
     updateItem(item.itemId, { name: 'Chicken breasts', amount: '1.5 lb', note: ' boneless ' });
-    expect(view().unchecked[0]).toMatchObject({ displayName: 'Chicken breasts', amountText: '1½ lb', note: 'boneless' });
+    expect(view().unchecked[0]).toMatchObject({ displayName: 'Chicken breasts', amountText: '1.5 lb', note: 'boneless' });
   });
 
   test('leaves combined amounts alone unless they change, then replaces them', () => {

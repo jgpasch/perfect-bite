@@ -1,5 +1,4 @@
-// How an item's amount reads on its row. M1 joins contributions as they are; M3 adds the
-// quantity math and display rule (spec 4.4).
+// Formatting a single amount. Summing an item's amounts is quantity-math.ts (spec 4.4).
 
 import type { Unit } from '@/shared';
 
@@ -14,8 +13,12 @@ const FRACTIONS: [number, string][] = [
   [3 / 4, '¾'],
 ];
 
-/** `1.5` → `1½`, `0.25` → `¼`, `2.4` → `2.4`. */
-export function formatNumber(n: number): string {
+/** Units read in decimals (`1.5 lb`); the rest use fractions (`1½ cups`). */
+const DECIMAL_UNITS = new Set<Unit>(['g', 'kg', 'oz', 'lb', 'ml', 'l', 'fl oz']);
+
+/** `1.5` → `1½`, `0.25` → `¼`, `2.4` → `2.4`; with `decimal`, `1.5` → `1.5`. */
+export function formatNumber(n: number, decimal = false): string {
+  if (decimal) return String(Math.round(n * 100) / 100);
   const whole = Math.floor(n);
   const fraction = FRACTIONS.find(([value]) => Math.abs(n - whole - value) < 0.01);
   if (fraction) return `${whole === 0 ? '' : whole}${fraction[1]}`;
@@ -25,16 +28,6 @@ export function formatNumber(n: number): string {
 /** `2 lb`, `3`, `1 dozen`; empty when there is no quantity. */
 export function formatAmount({ quantity, unit }: Amount): string {
   if (quantity === null) return '';
-  return unit ? `${formatNumber(quantity)} ${unit}` : formatNumber(quantity);
-}
-
-/**
- * All of an item's contributions: `2 lb`; `1 gal + 1` (a second add with no amount counts as 1);
- * empty for a single add with no amount.
- */
-export function formatAmounts(amounts: readonly Amount[]): string {
-  if (amounts.length === 0) return '';
-  if (amounts.length === 1) return formatAmount(amounts[0]);
-  if (amounts.every((a) => a.quantity === null)) return '';
-  return amounts.map((a) => formatAmount(a) || '1').join(' + ');
+  if (!unit) return formatNumber(quantity);
+  return `${formatNumber(quantity, DECIMAL_UNITS.has(unit))} ${unit}`;
 }
