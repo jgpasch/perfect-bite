@@ -1,3 +1,4 @@
 # Progress
 
 - Added local `ingredient_usage` table (PK household_id+ingredient_name, FK to households) in `src/db/schema.ts`, generated `0004_ingredient_usage.sql` with drizzle-kit, added the table to `resetDb` in `src/test/db.ts`. Tests in `src/db/__tests__/ingredient-usage.test.ts`: insert and read back with defaults, duplicate PK rejected, same key allowed in two households, FK enforced.
+- Added `src/features/lists/usage.ts` with `recordUsage` (upsert: count+1, new display name and time, clears hidden_at) and `unrecordUsage` (count-1 floored at 0, row deleted at 0); no callers yet. Tests in `src/features/lists/__tests__/usage.test.ts`: first use count 1, second use increments and updates name/time, per-household counts, decrement, delete at 1, missing-row no-op, count 0 never negative, hidden row unhidden by new use, rollback with the surrounding transaction.
