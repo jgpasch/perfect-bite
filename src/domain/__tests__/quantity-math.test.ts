@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import type { Unit } from '@/shared';
 
-import { summarizeAmounts } from '../quantity-math';
+import { combineAmounts, stepAmount, summarizeAmounts } from '../quantity-math';
 
 const a = (quantity: number | null, unit: Unit | null = null) => ({ quantity, unit });
 
@@ -98,5 +98,133 @@ describe('summarizeAmounts with a usual unit', () => {
   it('leaves amounts that all have a quantity alone', () => {
     expect(summarizeAmounts([a(2, 'lb')], 'gal')).toBe('2 lb');
     expect(summarizeAmounts([a(2, 'can'), a(400, 'g')], 'can')).toBe('2 can + 400 g');
+  });
+});
+
+describe('stepAmount', () => {
+  it('steps each unit by its step size', () => {
+    const cases: [Unit | null, number][] = [
+      [null, 1],
+      ['can', 1],
+      ['jar', 1],
+      ['bag', 1],
+      ['box', 1],
+      ['bunch', 1],
+      ['clove', 1],
+      ['pinch', 1],
+      ['dozen', 1],
+      ['oz', 1],
+      ['fl oz', 1],
+      ['pt', 1],
+      ['qt', 1],
+      ['gal', 1],
+      ['lb', 0.5],
+      ['kg', 0.5],
+      ['l', 0.5],
+      ['tsp', 0.5],
+      ['tbsp', 0.5],
+      ['cup', 0.25],
+      ['g', 100],
+      ['ml', 100],
+    ];
+    for (const [unit, size] of cases) {
+      expect(stepAmount(a(size * 4, unit), 1)).toEqual(a(size * 5, unit));
+      expect(stepAmount(a(size * 4, unit), -1)).toEqual(a(size * 3, unit));
+    }
+  });
+
+  it('keeps the unit and ignores the usual unit when there is a quantity', () => {
+    expect(stepAmount(a(2, 'lb'), 1, 'gal')).toEqual(a(2.5, 'lb'));
+    expect(stepAmount(a(2), 1, 'gal')).toEqual(a(3));
+  });
+
+  it('returns null for − at or below one step', () => {
+    expect(stepAmount(a(1), -1)).toBeNull();
+    expect(stepAmount(a(0.5), -1)).toBeNull();
+    expect(stepAmount(a(0.5, 'lb'), -1)).toBeNull();
+    expect(stepAmount(a(0.25, 'cup'), -1)).toBeNull();
+    expect(stepAmount(a(100, 'g'), -1)).toBeNull();
+    expect(stepAmount(a(50, 'g'), -1)).toBeNull();
+    expect(stepAmount(a(1, 'gal'), -1)).toBeNull();
+  });
+
+  it('goes down to exactly one step', () => {
+    expect(stepAmount(a(2), -1)).toEqual(a(1));
+    expect(stepAmount(a(1, 'lb'), -1)).toEqual(a(0.5, 'lb'));
+    expect(stepAmount(a(200, 'g'), -1)).toEqual(a(100, 'g'));
+  });
+
+  it('never goes below one step from an amount off the grid', () => {
+    expect(stepAmount(a(1.4), -1)).toEqual(a(1));
+    expect(stepAmount(a(0.6, 'lb'), -1)).toEqual(a(0.5, 'lb'));
+  });
+
+  it('can step up from below one step', () => {
+    expect(stepAmount(a(0.5), 1)).toEqual(a(2)); // 1.5 rounds half up
+    expect(stepAmount(a(50, 'g'), 1)).toEqual(a(200, 'g'));
+  });
+
+  it('rounds to the step, with no float drift', () => {
+    let cup = a(0.25, 'cup');
+    for (let i = 0; i < 3; i++) cup = stepAmount(cup, 1)!;
+    expect(cup.quantity).toBe(1);
+    expect(cup.unit).toBe('cup');
+    expect(stepAmount(a(0.1 + 0.2, 'cup'), 1)).toEqual(a(0.5, 'cup'));
+    expect(stepAmount(a(2.3, 'lb'), 1)).toEqual(a(3, 'lb'));
+    expect(stepAmount(a(2.3, 'lb'), -1)).toEqual(a(2, 'lb'));
+    expect(stepAmount(a(250, 'g'), 1)).toEqual(a(400, 'g')); // 350 rounds half up
+  });
+
+  it('treats a null quantity as one of the usual unit', () => {
+    expect(stepAmount(a(null), 1, 'gal')).toEqual(a(2, 'gal'));
+    expect(stepAmount(a(null), 1, 'lb')).toEqual(a(1.5, 'lb'));
+    expect(stepAmount(a(null), -1, 'lb')).toEqual(a(0.5, 'lb'));
+    expect(stepAmount(a(null), -1, 'gal')).toBeNull();
+  });
+
+  it('treats a null quantity as a count of one with no usual unit', () => {
+    expect(stepAmount(a(null), 1)).toEqual(a(2));
+    expect(stepAmount(a(null), 1, null)).toEqual(a(2));
+    expect(stepAmount(a(null), -1)).toBeNull();
+  });
+
+  it('does not mutate its input', () => {
+    const amount = a(2, 'lb');
+    stepAmount(amount, 1);
+    expect(amount).toEqual(a(2, 'lb'));
+  });
+});
+
+describe('combineAmounts', () => {
+  it('returns a single amount as is', () => {
+    expect(combineAmounts([a(2, 'lb')])).toEqual(a(2, 'lb'));
+    expect(combineAmounts([a(3)])).toEqual(a(3));
+  });
+
+  it('sums the same unit', () => {
+    expect(combineAmounts([a(1, 'gal'), a(2, 'gal')])).toEqual(a(3, 'gal'));
+    expect(combineAmounts([a(2), a(null)])).toEqual(a(3));
+  });
+
+  it('converts within a dimension', () => {
+    expect(combineAmounts([a(2, 'lb'), a(8, 'oz')])).toEqual(a(2.5, 'lb'));
+  });
+
+  it('returns null when the total is not one amount', () => {
+    expect(combineAmounts([a(2, 'can'), a(400, 'g')])).toBeNull();
+    expect(combineAmounts([a(1, 'cup'), a(1, 'tsp')])).toBeNull(); // rounding would hide the tsp
+    expect(combineAmounts([a(1, 'gal'), a(null)])).toBeNull();
+  });
+
+  it('counts null quantities as the usual unit', () => {
+    expect(combineAmounts([a(1, 'gal'), a(null)], 'gal')).toEqual(a(2, 'gal'));
+    expect(combineAmounts([a(8, 'oz'), a(null)], 'lb')).toEqual(a(1.5, 'lb'));
+    expect(combineAmounts([a(null)], 'gal')).toEqual(a(1, 'gal'));
+    expect(combineAmounts([a(null)])).toEqual(a(1));
+  });
+
+  it('is one of the usual unit, or a count of one, for no amounts', () => {
+    expect(combineAmounts([], 'gal')).toEqual(a(1, 'gal'));
+    expect(combineAmounts([])).toEqual(a(1));
   });
 });

@@ -16,7 +16,7 @@ import {
 import { effectiveCategoryId } from '@/domain/category-resolver';
 import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
-import { summarizeAmounts } from '@/domain/quantity-math';
+import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory } from '@/domain/suggestion-rank';
 import { usualUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, setCategoryOverride } from '@/features/categories/categories';
@@ -100,10 +100,24 @@ export function itemTotal(
   contributions: readonly (Amount & { source: string })[],
   usualUnit: Unit | null = null,
 ): string {
-  return summarizeAmounts(
-    contributions.filter((c) => !(c.source === 'recipe' && c.quantity === null)),
-    usualUnit,
-  );
+  return summarizeAmounts(contributions.filter(countsInTotal), usualUnit);
+}
+
+/** False for a recipe link with no quantity, which records the recipe, not an amount. */
+function countsInTotal(c: Amount & { source: string }): boolean {
+  return !(c.source === 'recipe' && c.quantity === null);
+}
+
+/**
+ * The one amount an item's total is, for the edit sheet's − / + (spec 4.4): `2 lb + 8 oz` →
+ * `2.5 lb`, no amounts → 1 of `usualUnit`. Null when the total isn't a single amount (`2 cans +
+ * 400 g`), which disables the stepper. Recipe links with no quantity don't count, as in `itemTotal`.
+ */
+export function steppableAmount(
+  contributions: readonly (Amount & { source: string })[],
+  usualUnit: Unit | null = null,
+): Amount | null {
+  return combineAmounts(contributions.filter(countsInTotal), usualUnit);
 }
 
 /** The household's usual unit for one ingredient (spec 4.2), or null when none is known. */
@@ -481,20 +495,58 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
     }
     const amount = parseAmount(edit.amount);
     if (!amount) throw new Error(`"${edit.amount.trim()}" isn't an amount, like 2 or 1 lb`);
+    replaceAmounts(tx, item, contributions, amount);
+  });
+}
 
-    if (contributions.length === 1) {
-      tx.update(listItemContributions).set(amount).where(eq(listItemContributions.id, contributions[0].id)).run();
-      return;
-    }
-    if (contributions.length > 1) {
-      tx.update(listItemContributions)
-        .set({ deletedAt: new Date() })
-        .where(inArray(listItemContributions.id, contributions.map((c) => c.id)))
-        .run();
-    }
-    tx.insert(listItemContributions)
-      .values({ id: newId(), listItemId: itemId, householdId: item.householdId, source: 'manual', ...amount })
+/** Replaces `contributions` with the one `amount`: in place if there's one, else a new manual amount. */
+function replaceAmounts(
+  tx: Tx,
+  item: ListItem,
+  contributions: readonly { id: string }[],
+  amount: Amount,
+): void {
+  if (contributions.length === 1) {
+    tx.update(listItemContributions).set(amount).where(eq(listItemContributions.id, contributions[0].id)).run();
+    return;
+  }
+  if (contributions.length > 1) {
+    tx.update(listItemContributions)
+      .set({ deletedAt: new Date() })
+      .where(inArray(listItemContributions.id, contributions.map((c) => c.id)))
       .run();
+  }
+  tx.insert(listItemContributions)
+    .values({ id: newId(), listItemId: item.id, householdId: item.householdId, source: 'manual', ...amount })
+    .run();
+}
+
+/**
+ * Sets an item's amount to `amount` (the edit sheet's stepper and unit picker, spec 4.4). Its
+ * amounts are replaced by that one, as `updateItem` does, but recipe links with no quantity stay,
+ * so the By recipe view keeps them. Throws for a missing item.
+ */
+export function setItemAmount(itemId: string, amount: Amount): void {
+  db.transaction((tx) => {
+    const item = getItem(tx, itemId);
+    replaceAmounts(tx, item, liveContributions(tx, itemId).filter(countsInTotal), amount);
+  });
+}
+
+/**
+ * The edit sheet's − / +: steps the item's total one step (`stepAmount`) and saves it as with
+ * `setItemAmount`. Returns the new amount, or null with nothing changed when it can't step: the
+ * total isn't one amount (`steppableAmount`), or − is already at one step. Throws for a missing item.
+ */
+export function stepItemAmount(itemId: string, direction: 1 | -1, usualUnit: Unit | null): Amount | null {
+  return db.transaction((tx) => {
+    const item = getItem(tx, itemId);
+    const counted = liveContributions(tx, itemId).filter(countsInTotal);
+    const current = combineAmounts(counted, usualUnit);
+    const next = current && stepAmount(current, direction, usualUnit);
+    if (!next) return null;
+    replaceAmounts(tx, item, counted, next);
+    return next;
   });
 }
 

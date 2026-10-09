@@ -17,7 +17,10 @@ import {
   listItemsQuery,
   planBulkAddToList,
   searchRecentItems,
+  setItemAmount,
   setItemChecked,
+  stepItemAmount,
+  steppableAmount,
   uncheckAll,
   undeleteItem,
   undoAdd,
@@ -26,6 +29,7 @@ import {
 } from '../items';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { createRecipe } from '@/features/recipes/recipes';
+import type { Unit } from '@/shared';
 
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
 import { listShareText } from '../share';
@@ -615,6 +619,174 @@ describe('updateItem', () => {
     expect(() => updateItem(eggs.itemId, { name: 'eggs', amount: 'lots', note: '' })).toThrow(/isn't an amount/);
     expect(() => updateItem(eggs.itemId, { name: ' ', amount: '', note: '' })).toThrow();
     expect(rows(view().unchecked)).toEqual(['milk', 'eggs']);
+  });
+});
+
+describe('changing an amount (spec 4.4)', () => {
+  const keepExistingLink = (text: string) => {
+    const tacos = createRecipe('Tacos');
+    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER, new Set([0]));
+  };
+  const amounts = (itemId: string) =>
+    contributionsQuery(itemId)
+      .all()
+      .map((c) => [c.source, c.quantity, c.unit])
+      .sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+  const c = (quantity: number | null, unit: Unit | null = null, source = 'manual') => ({ quantity, unit, source });
+
+  describe('steppableAmount', () => {
+    test('a single amount', () => {
+      expect(steppableAmount([c(2, 'lb')])).toEqual({ quantity: 2, unit: 'lb' });
+      expect(steppableAmount([c(400, 'g', 'recipe')], 'can')).toEqual({ quantity: 400, unit: 'g' });
+    });
+
+    test('a same-unit sum, counting no amount as the usual unit', () => {
+      expect(steppableAmount([c(1, 'gal'), c(2, 'gal')])).toEqual({ quantity: 3, unit: 'gal' });
+      expect(steppableAmount([c(1, 'gal'), c(null)], 'gal')).toEqual({ quantity: 2, unit: 'gal' });
+      expect(steppableAmount([c(null), c(null)])).toEqual({ quantity: 2, unit: null });
+    });
+
+    test('a convertible sum', () => {
+      expect(steppableAmount([c(2, 'lb'), c(8, 'oz')])).toEqual({ quantity: 2.5, unit: 'lb' });
+    });
+
+    test('mixed units are null', () => {
+      expect(steppableAmount([c(2, 'can'), c(400, 'g')])).toBeNull();
+      expect(steppableAmount([c(1, 'cup'), c(1, 'tsp')])).toBeNull();
+      expect(steppableAmount([c(1, 'gal'), c(null)])).toBeNull();
+    });
+
+    test('nothing is one of the usual unit, or a count of one', () => {
+      expect(steppableAmount([], 'gal')).toEqual({ quantity: 1, unit: 'gal' });
+      expect(steppableAmount([])).toEqual({ quantity: 1, unit: null });
+      expect(steppableAmount([c(null)], 'lb')).toEqual({ quantity: 1, unit: 'lb' });
+    });
+
+    test('a recipe link with no quantity does not count', () => {
+      expect(steppableAmount([c(2, 'lb'), c(null, null, 'recipe')])).toEqual({ quantity: 2, unit: 'lb' });
+      expect(steppableAmount([c(null, null, 'recipe')], 'gal')).toEqual({ quantity: 1, unit: 'gal' });
+    });
+  });
+
+  describe('stepItemAmount', () => {
+    test('steps a single amount in place and updates the row', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      expect(stepItemAmount(beef.itemId, 1, 'lb')).toEqual({ quantity: 2.5, unit: 'lb' });
+      expect(contributionsQuery(beef.itemId).all().map((x) => [x.id, x.quantity, x.unit])).toEqual([
+        [beef.contributionId, 2.5, 'lb'],
+      ]);
+      expect(rows(view().unchecked)).toEqual(['2.5 lb ground beef']);
+      expect(stepItemAmount(beef.itemId, -1, 'lb')).toEqual({ quantity: 2, unit: 'lb' });
+      expect(rows(view().unchecked)).toEqual(['2 lb ground beef']);
+    });
+
+    test('replaces several amounts with the one stepped amount', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      addItem(listId, '8 oz ground beef', USER);
+      expect(stepItemAmount(beef.itemId, 1, 'lb')).toEqual({ quantity: 3, unit: 'lb' });
+      expect(amounts(beef.itemId)).toEqual([['manual', 3, 'lb']]);
+      expect(rows(view().unchecked)).toEqual(['3 lb ground beef']);
+    });
+
+    test('an add with no amount steps from one of the usual unit', () => {
+      const milk = addItem(listId, '1 gal milk', USER)!;
+      addItem(listId, 'milk', USER);
+      expect(rows(view().unchecked)).toEqual(['2 gal milk']);
+      expect(stepItemAmount(milk.itemId, 1, 'gal')).toEqual({ quantity: 3, unit: 'gal' });
+      expect(amounts(milk.itemId)).toEqual([['manual', 3, 'gal']]);
+      expect(rows(view().unchecked)).toEqual(['3 gal milk']);
+    });
+
+    test('a lone add with no amount steps from one, with or without a usual unit', () => {
+      const milk = addItem(listId, 'milk', USER)!;
+      expect(stepItemAmount(milk.itemId, 1, null)).toEqual({ quantity: 2, unit: null });
+      expect(rows(view().unchecked)).toEqual(['2 milk']);
+
+      const bread = addItem(listId, 'bread', USER)!;
+      expect(stepItemAmount(bread.itemId, 1, 'box')).toEqual({ quantity: 2, unit: 'box' });
+      expect(amounts(bread.itemId)).toEqual([['manual', 2, 'box']]);
+    });
+
+    test('− at one step changes nothing', () => {
+      const milk = addItem(listId, 'milk', USER)!;
+      const before = contributionsQuery(milk.itemId).all();
+      expect(stepItemAmount(milk.itemId, -1, null)).toBeNull();
+      expect(contributionsQuery(milk.itemId).all()).toEqual(before);
+      expect(rows(view().unchecked)).toEqual(['milk']);
+    });
+
+    test('a total that is not one amount changes nothing', () => {
+      const tomatoes = addItem(listId, '2 cans tomatoes', USER)!;
+      addItem(listId, '400 g tomatoes', USER);
+      const before = contributionsQuery(tomatoes.itemId).all();
+      expect(stepItemAmount(tomatoes.itemId, 1, null)).toBeNull();
+      expect(stepItemAmount(tomatoes.itemId, -1, 'can')).toBeNull();
+      expect(contributionsQuery(tomatoes.itemId).all()).toEqual(before);
+      expect(rows(view().unchecked)).toEqual(['2 can + 400 g tomatoes']);
+    });
+
+    test('keeps recipe links with no quantity', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      addItem(listId, '8 oz ground beef', USER);
+      keepExistingLink('ground beef');
+      expect(stepItemAmount(beef.itemId, -1, 'lb')).toEqual({ quantity: 2, unit: 'lb' });
+      expect(amounts(beef.itemId)).toEqual([
+        ['manual', 2, 'lb'],
+        ['recipe', null, null],
+      ]);
+      const [item] = view().unchecked;
+      expect(item.amountText).toBe('2 lb');
+      expect(item.contributions.map((x) => x.recipeName)).toContain('Tacos');
+    });
+
+    test('throws for a missing item', () => {
+      expect(() => stepItemAmount('nope', 1, null)).toThrow(/No list item nope/);
+    });
+  });
+
+  describe('setItemAmount', () => {
+    test('replaces the amounts with the one amount', () => {
+      const milk = addItem(listId, 'milk', USER)!;
+      addItem(listId, 'milk', USER);
+      setItemAmount(milk.itemId, { quantity: 1, unit: 'gal' });
+      expect(amounts(milk.itemId)).toEqual([['manual', 1, 'gal']]);
+      expect(rows(view().unchecked)).toEqual(['1 gal milk']);
+    });
+
+    test('changes a single amount in place', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      setItemAmount(beef.itemId, { quantity: 500, unit: 'g' });
+      expect(contributionsQuery(beef.itemId).all().map((x) => [x.id, x.quantity, x.unit])).toEqual([
+        [beef.contributionId, 500, 'g'],
+      ]);
+      expect(rows(view().unchecked)).toEqual(['500 g ground beef']);
+    });
+
+    test('keeps recipe links with no quantity, and adds an amount beside a lone link', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      keepExistingLink('ground beef');
+      setItemAmount(beef.itemId, { quantity: 3, unit: 'lb' });
+      expect(amounts(beef.itemId)).toEqual([
+        ['manual', 3, 'lb'],
+        ['recipe', null, null],
+      ]);
+      expect(rows(view().unchecked)).toEqual(['3 lb ground beef']);
+
+      // A recipe ingredient with no quantity: the item has only a link.
+      const tacos = createRecipe('Tacos');
+      addItemsBulk(listId, [{ text: 'salsa', source: 'recipe', recipeId: tacos }], USER);
+      const salsa = view().unchecked.find((i) => i.ingredientName === 'salsa')!;
+      setItemAmount(salsa.id, { quantity: 2, unit: 'jar' });
+      expect(amounts(salsa.id)).toEqual([
+        ['manual', 2, 'jar'],
+        ['recipe', null, null],
+      ]);
+      expect(view().unchecked.find((i) => i.id === salsa.id)!.amountText).toBe('2 jar');
+    });
+
+    test('throws for a missing item', () => {
+      expect(() => setItemAmount('nope', { quantity: 1, unit: null })).toThrow(/No list item nope/);
+    });
   });
 });
 
