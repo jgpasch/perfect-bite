@@ -1,0 +1,55 @@
+import { beforeEach, expect, jest, test } from '@jest/globals';
+
+import { addItem, groupItems, listItemsQuery } from '@/features/lists/items';
+import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { resetDb } from '@/test/db';
+
+import { addRecipeToList, buildRecipeAdds, planRecipeAdd } from '../add-to-list';
+import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
+
+jest.mock('@/db/client', () => require('@/test/db'));
+
+const USER = 'user-1';
+let listId: string;
+let tacos: string;
+
+beforeEach(() => {
+  resetDb();
+  ensureStarterData(USER);
+  listId = getDefaultListId(USER)!;
+  tacos = createRecipe('Tacos');
+  for (const text of ['1 lb ground beef', '8 tortillas', '1 cup salsa', 'cilantro', '2 limes']) {
+    addRecipeIngredient(tacos, text);
+  }
+});
+
+const rows = () =>
+  groupItems(listItemsQuery(listId, USER).all()).unchecked.map((i) =>
+    i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName,
+  );
+
+test('adds the chosen ingredients, scaled by servings', () => {
+  const ingredients = recipeIngredientsQuery(tacos).all();
+  const selected = new Set(ingredients.filter((i) => i.displayName !== 'cilantro').map((i) => i.id));
+  addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, selected, 2), USER, new Set());
+  expect(rows()).toEqual(['2 lb ground beef', '16 tortillas', '2 cup salsa', '4 limes']);
+});
+
+test('acceptance 2: one ingredient already open → 4 new items, and the conflict is reported', () => {
+  addItem(listId, 'limes', USER);
+  const ingredients = recipeIngredientsQuery(tacos).all();
+  const selected = new Set(ingredients.filter((i) => i.displayName !== 'cilantro').map((i) => i.id));
+  const adds = buildRecipeAdds(tacos, ingredients, selected, 1);
+  const conflicts = planRecipeAdd(listId, adds);
+  expect(conflicts.map((c) => [c.index, c.displayName, c.existingAmountText, c.incomingAmountText])).toEqual([
+    [3, 'limes', '', '2'],
+  ]);
+  addRecipeToList(listId, adds, USER, new Set([3]));
+  expect(rows()).toEqual(['limes', '1 lb ground beef', '8 tortillas', '1 cup salsa']);
+});
+
+test('a half batch keeps unspecified amounts unspecified', () => {
+  const ingredients = recipeIngredientsQuery(tacos).all();
+  addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 0.5), USER, new Set());
+  expect(rows()).toEqual(['0.5 lb ground beef', '4 tortillas', '½ cup salsa', 'cilantro', '1 limes']);
+});

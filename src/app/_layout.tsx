@@ -51,6 +51,11 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen name="category-order" options={{ title: 'Section order', presentation: 'modal' }} />
+                <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: 'Recipes' }} />
+                <Stack.Screen
+                  name="recipe/[id]/add-to-list"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!ready}>
                 <Stack.Screen name="sign-in" options={{ headerShown: false }} />

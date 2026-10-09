@@ -1,12 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
-import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { UndoToast, type ToastAction } from '@/components/undo-toast';
@@ -15,6 +13,7 @@ import { useLiveQueryOn } from '@/db/live-query';
 import { orderCategories, groupByCategory } from '@/domain/category-resolver';
 import { getAccount } from '@/features/auth/account';
 import { categoriesQuery } from '@/features/categories/categories';
+import { AddBar } from '@/features/lists/add-bar';
 import { ItemRow } from '@/features/lists/item-row';
 import {
   addItem,
@@ -33,7 +32,6 @@ import {
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
-import { applySuggestion, getSuggestions } from '@/features/lists/suggestions';
 import { useTheme } from '@/hooks/use-theme';
 
 type Row =
@@ -43,9 +41,8 @@ type Row =
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors, spacing, sizes, opacity, rounded } = useTheme();
+  const { spacing, sizes, opacity } = useTheme();
   const headerHeight = useHeaderHeight();
-  const insets = useSafeAreaInsets();
   const userId = getAccount()?.userId ?? null;
 
   const { data: listRows } = useLiveQueryOn(listQuery(id), [lists], [id]);
@@ -55,11 +52,9 @@ export default function ListScreen() {
   const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
   const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
 
-  const [text, setText] = useState('');
   const [showChecked, setShowChecked] = useState(false);
   const [toast, setToast] = useState<{ key: string; message: string; actions: ToastAction[] } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const keyboardVisible = useKeyboardVisible();
 
   const rows = useMemo<Row[]>(() => {
     // Spec 4.6, By category: sections in the user's order, empty ones hidden, items by when added.
@@ -74,12 +69,8 @@ export default function ListScreen() {
     return out;
   }, [sections, checked, showChecked]);
 
-  const suggestions = useMemo(() => (list ? getSuggestions(list.householdId, text) : []), [list, text]);
-
   const add = (value: string) => {
-    if (!value.trim()) return;
     const result = addItem(id, value, userId);
-    setText('');
     if (result?.kind !== 'combine') return;
     // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo / Keep existing.
     setHighlightedId(result.itemId);
@@ -217,72 +208,18 @@ export default function ListScreen() {
           </View>
         ) : null}
 
-        <View
-          style={{
-            paddingHorizontal: spacing.lg,
-            paddingTop: spacing.sm,
-            paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: colors.border,
-            backgroundColor: colors.background,
-          }}>
-          {suggestions.length > 0 ? (
-            <ScrollView
-              horizontal
-              keyboardShouldPersistTaps="always"
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}>
-              {suggestions.map((s) => (
-                <Pressable
-                  key={s.key}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Add ${s.displayName}`}
-                  onPress={() => add(applySuggestion(text, s))}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    {
-                      minHeight: sizes.minTapTarget,
-                      paddingHorizontal: spacing.md,
-                      borderRadius: rounded.full,
-                      backgroundColor: colors.surfaceMuted,
-                      opacity: pressed ? opacity.pressed : 1,
-                    },
-                  ]}>
-                  <ThemedText variant="callout">{s.displayName}</ThemedText>
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
-          <TextField
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={() => add(text)}
-            submitBehavior="submit"
-            returnKeyType="done"
-            placeholder="Add an item, like 2 lbs chicken thighs"
-            accessibilityLabel="Add an item"
-          />
-        </View>
+        <AddBar
+          householdId={list.householdId}
+          onAdd={add}
+          placeholder="Add an item, like 2 lbs chicken thighs"
+          accessibilityLabel="Add an item"
+        />
       </KeyboardAvoidingView>
     </Screen>
   );
 }
 
-function useKeyboardVisible(): boolean {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardWillHide', () => setVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  return visible;
-}
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   checkedHeader: { flexDirection: 'row', alignItems: 'center' },
-  chip: { justifyContent: 'center', borderCurve: 'continuous' },
 });

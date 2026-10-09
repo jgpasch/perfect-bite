@@ -76,7 +76,7 @@ function liveContributions(tx: Tx, itemId: string) {
     .all();
 }
 
-type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
+export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
 
 function parseAdd(text: string): ParsedAdd | null {
   const { quantity, unit, name } = parseQuantity(text);
@@ -233,7 +233,10 @@ export function contributionsQuery(itemId: string) {
 
 // --- Bulk add (spec 4.4, used by "Add recipe to list" in M4) --------------------------------
 
-export type BulkAdd = { text: string; source?: Source; recipeId?: string | null };
+/** One add in a bulk add: typed text, or an ingredient that is already parsed (a recipe's). */
+export type BulkAdd = ({ text: string } | { parsed: ParsedAdd }) & { source?: Source; recipeId?: string | null };
+
+const parseBulkAdd = (a: BulkAdd): ParsedAdd | null => ('parsed' in a ? a.parsed : parseAdd(a.text));
 
 export type BulkConflict = {
   /** Index into the adds. */
@@ -248,7 +251,7 @@ export type BulkConflict = {
 /** What a bulk add would conflict with, for the bulk sheet. Reads only. */
 export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): BulkConflict[] {
   return db.transaction((tx) => {
-    const parsed = adds.map((a) => parseAdd(a.text));
+    const parsed = adds.map(parseBulkAdd);
     const live = liveItemsForList(tx, listId);
     const { conflicts } = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
@@ -283,7 +286,7 @@ export function addItemsBulk(
 ): (AddItemResult | null)[] {
   return db.transaction((tx) => {
     const list = getListForAdd(tx, listId);
-    const parsed = adds.map((a) => parseAdd(a.text));
+    const parsed = adds.map(parseBulkAdd);
     const { decisions } = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
       liveItemsForList(tx, listId),
