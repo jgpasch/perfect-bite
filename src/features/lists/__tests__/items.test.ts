@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 
+import { db, ingredientUsage, lists } from '@/db';
 import { resetDb } from '@/test/db';
 
 import {
@@ -160,6 +162,88 @@ describe('bulk add (spec 4.4)', () => {
       ['recipe', null],
       ['recipe', 1],
     ]);
+  });
+});
+
+describe('ingredient history (spec 4.2)', () => {
+  const T1 = new Date('2026-10-01T12:00:00Z');
+  const T2 = new Date('2026-10-03T09:15:00Z');
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const usage = () =>
+    db
+      .select({
+        householdId: ingredientUsage.householdId,
+        ingredientName: ingredientUsage.ingredientName,
+        displayName: ingredientUsage.displayName,
+        useCount: ingredientUsage.useCount,
+        lastUsedAt: ingredientUsage.lastUsedAt,
+      })
+      .from(ingredientUsage)
+      .orderBy(ingredientUsage.ingredientName)
+      .all();
+  const counts = () => Object.fromEntries(usage().map((u) => [u.ingredientName, u.useCount]));
+  const householdId = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+
+  test('addItem records a use with the typed name and the time, in the list household', () => {
+    jest.useFakeTimers({ now: T1 });
+    addItem(listId, '2 lbs chicken thighs', USER);
+    expect(usage()).toEqual([
+      { householdId: householdId(), ingredientName: 'chicken thigh', displayName: 'chicken thighs', useCount: 1, lastUsedAt: T1 },
+    ]);
+  });
+
+  test('a combine counts again and takes the newest typed name', () => {
+    jest.useFakeTimers({ now: T1 });
+    addItem(listId, '1 gal milk', USER);
+    jest.setSystemTime(T2);
+    const r = addItem(listId, 'Milk', USER)!;
+    expect(r.kind).toBe('combine');
+    expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'milk', displayName: 'Milk', useCount: 2, lastUsedAt: T2 })]);
+  });
+
+  test('a reopen counts again', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    expect(addItem(listId, 'milk', USER)!.kind).toBe('reopen');
+    expect(counts()).toEqual({ milk: 2 });
+  });
+
+  test('text with nothing to add records nothing', () => {
+    addItem(listId, '  ', USER);
+    expect(usage()).toEqual([]);
+  });
+
+  test('undo of a new item removes its only use', () => {
+    const r = addItem(listId, 'mlik', USER)!;
+    undoAdd(r);
+    expect(usage()).toEqual([]);
+  });
+
+  test('undo of a combine or a reopen takes back one use only', () => {
+    addItem(listId, '1 gal milk', USER);
+    undoAdd(addItem(listId, '2 milk', USER)!);
+    expect(counts()).toEqual({ milk: 1 });
+
+    const eggs = addItem(listId, 'eggs', USER)!;
+    setItemChecked(eggs.itemId, true, USER);
+    undoAdd(addItem(listId, 'eggs', USER)!);
+    expect(counts()).toEqual({ egg: 1, milk: 1 });
+  });
+
+  test('addItemsBulk counts each add once, including repeats folded within the batch and combines', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '3 eggs' }, { text: '1 tsp salt' }, { text: '1 cup milk' }], USER);
+    expect(counts()).toEqual({ egg: 1, milk: 3, salt: 1 });
+  });
+
+  test('addItemsBulk records nothing for a kept-existing manual add or empty text', () => {
+    addItem(listId, '1 gal milk', USER);
+    addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '!!' }, { text: 'eggs' }], USER, new Set([0]));
+    expect(counts()).toEqual({ egg: 1, milk: 1 });
   });
 });
 

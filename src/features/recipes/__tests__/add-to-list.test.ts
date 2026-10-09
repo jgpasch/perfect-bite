@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 
+import { db, ingredientUsage } from '@/db';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 
 import { addItem, checkItems, groupItems, listItemsQuery, removeRecipeFromList } from '@/features/lists/items';
@@ -54,6 +55,44 @@ test('a half batch keeps unspecified amounts unspecified', () => {
   const ingredients = recipeIngredientsQuery(tacos).all();
   addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 0.5), USER, new Set());
   expect(rows()).toEqual(['0.5 lb ground beef', '4 tortillas', '½ cup salsa', 'cilantro', '1 limes']);
+});
+
+describe('ingredient history (spec 4.2)', () => {
+  // Deltas, so the counts don't depend on whether creating the recipe counted too.
+  const counts = () =>
+    Object.fromEntries(
+      db
+        .select({ key: ingredientUsage.ingredientName, n: ingredientUsage.useCount })
+        .from(ingredientUsage)
+        .all()
+        .map((r) => [r.key, r.n]),
+    );
+  const delta = (before: Record<string, number>) =>
+    Object.fromEntries(
+      Object.entries(counts())
+        .map(([k, n]) => [k, n - (before[k] ?? 0)])
+        .filter(([, d]) => d !== 0),
+    );
+
+  test('adding a recipe to a list counts each chosen ingredient exactly once', () => {
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const selected = new Set(ingredients.filter((i) => i.displayName !== 'cilantro').map((i) => i.id));
+    const before = counts();
+    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, selected, 2), USER, new Set());
+    expect(delta(before)).toEqual({ 'ground beef': 1, lime: 1, salsa: 1, tortilla: 1 });
+  });
+
+  test('a combined or kept-existing recipe ingredient still counts once', () => {
+    addItem(listId, 'limes', USER);
+    addItem(listId, 'salsa', USER);
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const all = new Set(ingredients.map((i) => i.id));
+    const adds = buildRecipeAdds(tacos, ingredients, all, 1);
+    const salsa = adds.findIndex((a) => 'parsed' in a && a.parsed.ingredientName === 'salsa');
+    const before = counts();
+    addRecipeToList(listId, adds, USER, new Set([salsa]));
+    expect(delta(before)).toEqual({ cilantro: 1, 'ground beef': 1, lime: 1, salsa: 1, tortilla: 1 });
+  });
 });
 
 describe('By recipe actions (spec 4.6)', () => {

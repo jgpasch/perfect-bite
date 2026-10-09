@@ -16,6 +16,7 @@ import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplica
 import type { Amount } from '@/domain/quantity-display';
 import { summarizeAmounts } from '@/domain/quantity-math';
 import { clearCategoryOverride, setCategoryOverride } from '@/features/categories/categories';
+import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseAmount, parseQuantity, type Unit } from '@/shared';
 
@@ -102,7 +103,10 @@ function parseAdd(text: string): ParsedAdd | null {
   return ingredientName ? { ingredientName, displayName: name, quantity, unit } : null;
 }
 
-/** Applies one add inside a transaction, following `decision`. */
+/**
+ * Applies one add inside a transaction, following `decision`. Every add counts one use in the
+ * household's ingredient history (spec 4.2), whatever the decision; `undoAdd` takes it back.
+ */
 function applyAdd(
   tx: Tx,
   list: { id: string; householdId: string },
@@ -120,6 +124,7 @@ function applyAdd(
     unit: add.unit,
     addedBy: meta.userId,
   };
+  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date());
 
   if (decision.kind === 'new') {
     const itemId = newId();
@@ -194,10 +199,12 @@ export function addItem(
   });
 }
 
-/** Toast "Undo" (spec 4.4): removes the add entirely, restoring what it changed. */
+/** Toast "Undo" (spec 4.4): removes the add entirely, restoring what it changed, and its use. */
 export function undoAdd(result: AddItemResult): void {
   db.transaction((tx) => {
     const now = new Date();
+    const item = getItem(tx, result.itemId);
+    unrecordUsage(tx, item.householdId, item.ingredientName);
     tx.update(listItemContributions).set({ deletedAt: now }).where(eq(listItemContributions.id, result.contributionId)).run();
     if (result.kind === 'new') {
       tx.update(listItems).set({ deletedAt: now }).where(eq(listItems.id, result.itemId)).run();
