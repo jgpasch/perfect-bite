@@ -218,6 +218,13 @@ yarn jest
 yarn dlx expo-doctor
 ```
 
+`yarn jest` skips `supabase/`. The Edge Function tests run on Deno, from each function's folder (it has the `deno.json` import map). They use a mock model, so they need no API key:
+
+```bash
+cd supabase/functions/categorize-ingredients
+deno test --allow-env --allow-read --allow-sys    # or: yarn dlx deno test ...
+```
+
 ## Troubleshooting
 
 | Problem | Fix |
