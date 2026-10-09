@@ -225,6 +225,18 @@ cd supabase/functions/categorize-ingredients
 deno test --allow-env --allow-read --allow-sys    # or: yarn dlx deno test ...
 ```
 
+To try the categorize LLM call by hand, run the CLI from the repo root. It runs the function's own `categorize()`, with the same prompt and validation, against an in-memory store where every name starts unknown, so nothing is written to any database. It ignores the rate limits and the daily cap. It reads `supabase/functions/.env`, so set `AI_MODEL_CATEGORIZE` (and the provider key) there, or pass `--model`:
+
+```bash
+yarn ai:categorize "za'atar" "chicken thighs" "call mom"
+cat names.txt | yarn ai:categorize -                  # one name per line
+yarn ai:categorize --model mock milk                  # override AI_MODEL_CATEGORIZE for this run
+yarn ai:categorize --prompt milk                      # print the instructions and prompt first
+yarn ai:categorize --json milk                        # the raw { results } the app would get
+```
+
+It prints a table (name, category slug, `is_grocery_item`, status), then the model, prompt version, input and output tokens, and latency. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
+
 ## Troubleshooting
 
 | Problem | Fix |
