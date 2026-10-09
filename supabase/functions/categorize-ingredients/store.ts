@@ -1,10 +1,16 @@
 import { OTHER_CATEGORY_ID } from '@shared/index.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { CategorizedAnswer, CategorizeStore, IngredientRow } from './handler.ts';
+import type { CategorizedAnswer, CategorizeStore, IngredientRow, LimitResult } from './handler.ts';
 
-/** CategorizeStore over the service-role client. `ingredients` is global: no user filter. */
-export function createCategorizeStore(admin: SupabaseClient): CategorizeStore {
+/**
+ * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The rate
+ * limit is per `userId` (null for the pg_cron sweep) and global up to `dailyNameCap` new names a day.
+ */
+export function createCategorizeStore(
+  admin: SupabaseClient,
+  limits: { userId: string | null; dailyNameCap: number },
+): CategorizeStore {
   const ingredients = () => admin.from('ingredients');
 
   return {
@@ -67,6 +73,16 @@ export function createCategorizeStore(admin: SupabaseClient): CategorizeStore {
     async logAiCall(call) {
       const { error } = await admin.from('ai_calls').insert(call);
       if (error) throw error;
+    },
+
+    async checkLimit(newNames) {
+      const { data, error } = await admin.rpc('check_categorize_limit', {
+        p_user_id: limits.userId,
+        p_new_names: newNames,
+        p_daily_cap: limits.dailyNameCap,
+      });
+      if (error) throw error;
+      return data as LimitResult;
     },
   };
 }

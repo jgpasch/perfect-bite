@@ -43,7 +43,14 @@ export interface CategorizeStore {
   saveFailed(names: readonly string[]): Promise<void>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
+  /**
+   * Counts this request against the rate limits (`public.check_categorize_limit`), given how many
+   * names it would send to the LLM. Called once per request, before anything is written.
+   */
+  checkLimit(newNames: number): Promise<LimitResult>;
 }
+
+export type LimitResult = 'ok' | 'user_limit' | 'global_cap';
 
 export type CategorizeResult = {
   status: IngredientStatus;
@@ -55,6 +62,14 @@ export type CategorizeResponse = { results: Record<string, CategorizeResult> };
 
 export class CategorizeInputError extends Error {
   override name = 'CategorizeInputError';
+}
+
+/** The request was refused by a rate limit; nothing was written and the names stay pending. */
+export class CategorizeLimitError extends Error {
+  override name = 'CategorizeLimitError';
+  constructor(readonly reason: Exclude<LimitResult, 'ok'>) {
+    super(`Rate limited: ${reason}`);
+  }
 }
 
 const CATEGORY_ID_BY_SLUG = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.slug, c.id]));
@@ -96,18 +111,25 @@ export async function categorize(
   const keys = [...inputs.keys()].filter((n) => [...n].length <= MAX_NAME_LENGTH);
 
   const known = new Map((await store.getIngredients(keys)).map((r) => [r.normalized_name, r]));
-  const missing = keys.filter((n) => !known.has(n));
-  if (missing.length > 0) {
-    await store.insertPending(missing.map((n) => ({ normalized_name: n, display_name: inputs.get(n)! })));
-  }
   const toSend = keys.filter((n) => {
     const row = known.get(n);
     return !row || (row.status !== 'categorized' && row.attempts < MAX_ATTEMPTS);
   });
+  const aiEnabled = isAiEnabled('categorize');
+
+  // Every request counts; only names that will reach the LLM count as new. A refused request is
+  // refused whole, before anything is written.
+  const limit = await store.checkLimit(aiEnabled ? toSend.length : 0);
+  if (limit !== 'ok') throw new CategorizeLimitError(limit);
+
+  const missing = keys.filter((n) => !known.has(n));
+  if (missing.length > 0) {
+    await store.insertPending(missing.map((n) => ({ normalized_name: n, display_name: inputs.get(n)! })));
+  }
 
   // Names that should have reached the LLM but didn't (kill switch, provider error): answered pending.
   const deferred = new Set<string>();
-  if (!isAiEnabled('categorize')) {
+  if (!aiEnabled) {
     for (const n of toSend) deferred.add(n);
   } else {
     for (const batch of chunk(toSend, MAX_NAMES_PER_CALL)) {

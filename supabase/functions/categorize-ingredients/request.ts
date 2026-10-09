@@ -1,12 +1,25 @@
 // HTTP layer for categorize-ingredients, kept free of `@supabase/server` so Deno tests can call it.
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
-import { CategorizeInputError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
+import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
 /** Request body cap: 100 names of 64 characters fit with room for JSON and multi-byte text. */
 export const MAX_BODY_BYTES = 16 * 1024;
 
+/** New (LLM-bound) names a day across all users, unless CATEGORIZE_DAILY_NAME_CAP says otherwise. */
+export const DEFAULT_DAILY_NAME_CAP = 20_000;
+
+/** Seconds a client should wait after the global cap is reached. */
+export const GLOBAL_CAP_RETRY_AFTER = 3600;
+
+/** CATEGORIZE_DAILY_NAME_CAP as a non-negative integer; unset or invalid falls back to the default. */
+export function dailyNameCap(value: string | undefined): number {
+  if (!value?.trim() || !/^\d+$/.test(value.trim())) return DEFAULT_DAILY_NAME_CAP;
+  const cap = Number(value.trim());
+  return Number.isSafeInteger(cap) && cap <= 2 ** 31 - 1 ? cap : DEFAULT_DAILY_NAME_CAP;
+}
+
 export type RequestDeps = {
-  /** The verified caller. Not used yet; the per-user rate limit (spec 6.4) keys on it. */
+  /** The verified caller. index.ts binds it into the store's rate limit (spec 6.4). */
   userId: string;
   categorize: (names: string[]) => Promise<CategorizeResponse>;
   /** Reads an env var. Defaults to `Deno.env.get`. */
@@ -56,7 +69,7 @@ function parseNames(bytes: Uint8Array): string[] | string {
   return names;
 }
 
-/** POST { names: string[] } → 200 CategorizeResponse · 400 · 405 · 413 · 500. Never logs headers. */
+/** POST { names: string[] } → 200 CategorizeResponse · 400 · 405 · 413 · 429 · 503 · 500. Never logs headers. */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
   if (req.method !== 'POST') return error(405, 'method_not_allowed', 'Use POST');
 
@@ -80,6 +93,12 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
     return Response.json(await deps.categorize(names));
   } catch (err) {
     if (err instanceof CategorizeInputError) return error(400, 'invalid_request', err.message);
+    if (err instanceof CategorizeLimitError) {
+      if (err.reason === 'user_limit') return error(429, 'rate_limited', 'Too many requests; try again later');
+      const res = error(503, 'daily_cap_reached', 'Categorization is paused for now; try again later');
+      res.headers.set('Retry-After', String(GLOBAL_CAP_RETRY_AFTER));
+      return res;
+    }
     console.error('categorize-ingredients failed:', err instanceof Error ? err.message : String(err));
     return error(500, 'internal_error', 'Categorization failed');
   }

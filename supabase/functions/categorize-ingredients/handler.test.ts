@@ -9,10 +9,12 @@ import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import {
   categorize,
   CategorizeInputError,
+  CategorizeLimitError,
   type CategorizedAnswer,
   type CategorizeResult,
   type CategorizeStore,
   type IngredientRow,
+  type LimitResult,
 } from './handler.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
@@ -76,6 +78,15 @@ class FakeStore implements CategorizeStore {
 
   async logAiCall(call: AiCallRecord) {
     this.aiCalls.push(call);
+  }
+
+  /** The `newNames` of every limit check, and what the next ones answer. */
+  limitChecks: number[] = [];
+  limit: LimitResult = 'ok';
+
+  async checkLimit(newNames: number) {
+    this.limitChecks.push(newNames);
+    return this.limit;
   }
 }
 
@@ -395,4 +406,68 @@ test('a row categorized by a concurrent request is not overwritten', async () =>
 
   assertEquals(store.rows.get('dukkah')!.categorized_by, 'other:model');
   assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true });
+});
+
+// --- Rate limit ---------------------------------------------------------------------------------
+
+test('the limit check counts only names that will reach the LLM, once per request', async () => {
+  const store = new FakeStore();
+  store.seed('milk');
+  store.seed('shiso', { status: 'failed', default_category_id: OTHER_CATEGORY_ID, attempts: 1 });
+  store.seed('yuzu', { status: 'failed', default_category_id: OTHER_CATEGORY_ID, attempts: 3 });
+  store.seed('nduja', { status: 'pending', default_category_id: null, is_grocery_item: null });
+  const { calls, model } = fakeModel(allPantry);
+
+  await categorize(['milk', 'shiso', 'yuzu', 'nduja', 'dukkah', 'Dukkah', 'x'.repeat(65)], store, model);
+
+  // shiso (attempts left), nduja (pending) and dukkah (new); not milk, yuzu, the duplicate or the long name.
+  assertEquals(store.limitChecks, [3]);
+  assertEquals(calls[0].names.toSorted(), ['dukkah', 'nduja', 'shiso']);
+});
+
+test('an all-known request still counts against the limit, with 0 new names', async () => {
+  const store = new FakeStore();
+  store.seed('milk');
+  const { calls, model } = fakeModel(allPantry);
+  const res = await categorize(['milk'], store, model);
+
+  assertEquals(store.limitChecks, [0]);
+  assertEquals(calls.length, 0);
+  assertEquals(res.results.milk.status, 'categorized');
+});
+
+Deno.test('AI_MODEL_CATEGORIZE off: the limit check counts 0 new names', () =>
+  withModelEnv('off', async () => {
+    const store = new FakeStore();
+    await categorize(['dukkah', 'shiso'], store, fakeModel(allPantry).model);
+    assertEquals(store.limitChecks, [0]);
+  }));
+
+for (const reason of ['user_limit', 'global_cap'] as const) {
+  test(`${reason}: the request is refused whole, with no LLM call and nothing written`, async () => {
+    const store = new FakeStore();
+    store.seed('milk');
+    store.seed('shiso', { status: 'failed', default_category_id: OTHER_CATEGORY_ID, attempts: 1 });
+    store.limit = reason;
+    const { calls, model } = fakeModel(allPantry);
+
+    const err = await assertRejects(() => categorize(['dukkah', 'shiso', 'milk'], store, model), CategorizeLimitError);
+
+    assertEquals(err.reason, reason);
+    assertEquals(store.limitChecks, [2]);
+    assertEquals(calls.length, 0);
+    assertEquals(store.aiCalls.length, 0);
+    assertEquals([...store.rows.keys()].toSorted(), ['milk', 'shiso']);
+    assertEquals([store.rows.get('shiso')!.status, store.rows.get('shiso')!.attempts], ['failed', 1]);
+  });
+}
+
+test('an error from the limit check is thrown, and nothing is written', async () => {
+  const store = new FakeStore();
+  store.checkLimit = () => Promise.reject(new Error('db down'));
+  const { calls, model } = fakeModel(allPantry);
+
+  await assertRejects(() => categorize(['dukkah'], store, model), Error, 'db down');
+  assertEquals(calls.length, 0);
+  assertEquals(store.rows.size, 0);
 });
