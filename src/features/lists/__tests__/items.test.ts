@@ -21,6 +21,8 @@ import {
   undoAdd,
   updateItem,
 } from '../items';
+import { createRecipe } from '@/features/recipes/recipes';
+
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
 import { listShareText } from '../share';
 
@@ -146,10 +148,11 @@ describe('bulk add (spec 4.4)', () => {
     // The batch's second milk still folds into the first add, which was skipped.
     expect(rows(view().unchecked)).toEqual(['1 gal milk', '3 eggs', '1 tsp salt']);
 
-    const recipeAdds = adds.map((a) => ({ ...a, source: 'recipe' as const, recipeId: 'tacos' }));
     resetDb();
     ensureStarterData(USER);
     listId = getDefaultListId(USER)!;
+    const tacos = createRecipe('Tacos');
+    const recipeAdds = adds.map((a) => ({ ...a, source: 'recipe' as const, recipeId: tacos }));
     const milk = addItem(listId, '1 gal milk', USER)!;
     addItemsBulk(listId, recipeAdds, USER, new Set([0]));
     const amounts = contributionsQuery(milk.itemId).all();

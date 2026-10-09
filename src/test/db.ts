@@ -28,6 +28,8 @@ const TABLES = [
   schema.userCategoryOrder,
   schema.listItemContributions,
   schema.listItems,
+  schema.recipeIngredients,
+  schema.recipes,
   schema.lists,
   schema.households,
   schema.ingredients,

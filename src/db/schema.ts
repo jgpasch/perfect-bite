@@ -134,6 +134,45 @@ export const listItems = sqliteTable(
   ],
 );
 
+/** Recipes belong to the household (spec 4.5). */
+export const recipes = sqliteTable(
+  'recipes',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    sourceUrl: text('source_url'),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [index('recipes_household_idx').on(t.householdId)],
+);
+
+export const recipeIngredients = sqliteTable(
+  'recipe_ingredients',
+  {
+    id: text('id').primaryKey(),
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    ingredientName: text('ingredient_name').notNull(),
+    displayName: text('display_name').notNull(),
+    quantity: real('quantity'),
+    unit: text('unit').$type<Unit>(),
+    note: text('note'),
+    position: real('position').notNull(),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [index('recipe_ingredients_recipe_idx').on(t.recipeId)],
+);
+
 /** An item's amounts: one row per add (spec 4.4). Quantity lives here, not on the item. */
 export const listItemContributions = sqliteTable(
   'list_item_contributions',
@@ -148,8 +187,8 @@ export const listItemContributions = sqliteTable(
     source: text('source', { enum: ['manual', 'recipe', 'siri'] })
       .notNull()
       .default('manual'),
-    /** Set when source = 'recipe'. TODO(M4): reference recipes. */
-    recipeId: text('recipe_id'),
+    /** Set when source = 'recipe'; null once the recipe is deleted ("no recipe", spec 4.5). */
+    recipeId: text('recipe_id').references(() => recipes.id),
     /** null = unspecified. */
     quantity: real('quantity'),
     unit: text('unit').$type<Unit>(),
@@ -171,3 +210,5 @@ export type Household = typeof households.$inferSelect;
 export type List = typeof lists.$inferSelect;
 export type ListItem = typeof listItems.$inferSelect;
 export type ListItemContribution = typeof listItemContributions.$inferSelect;
+export type Recipe = typeof recipes.$inferSelect;
+export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
