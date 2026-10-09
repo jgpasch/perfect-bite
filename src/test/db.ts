@@ -26,6 +26,7 @@ const TABLES = [
   schema.userSettings,
   schema.userCategoryOverrides,
   schema.userCategoryOrder,
+  schema.ingredientUnitUsage,
   schema.ingredientUsage,
   schema.listItemContributions,
   schema.listItems,

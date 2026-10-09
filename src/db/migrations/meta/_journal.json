@@ -36,6 +36,13 @@
       "when": 1791566929410,
       "tag": "0004_ingredient_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791572490377,
+      "tag": "0005_ingredient_unit_usage",
+      "breakpoints": true
     }
   ]
 }

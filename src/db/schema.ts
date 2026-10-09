@@ -223,6 +223,28 @@ export const ingredientUsage = sqliteTable(
   (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
 );
 
+// TODO(M5): sync
+/**
+ * The units the household buys each ingredient in (spec 4.2, 4.4). One row per ingredient and unit.
+ * Its own table so sync merges `use_count` as a plain counter; `usualUnit` picks from these rows.
+ */
+export const ingredientUnitUsage = sqliteTable(
+  'ingredient_unit_usage',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** Ingredient key (`normalizeIngredientName`). */
+    ingredientName: text('ingredient_name').notNull(),
+    /** A `Unit`, or `'count'` for a quantity with no unit (`unitKey`). */
+    unitKey: text('unit_key').notNull(),
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }).notNull(),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.ingredientName, t.unitKey] })],
+);
+
 /** Per-user settings (spec 5). Synced in M5. */
 export const userSettings = sqliteTable('user_settings', {
   userId: text('user_id').primaryKey(),
@@ -231,6 +253,7 @@ export const userSettings = sqliteTable('user_settings', {
 
 export type Category = typeof categories.$inferSelect;
 export type Household = typeof households.$inferSelect;
+export type IngredientUnitUsage = typeof ingredientUnitUsage.$inferSelect;
 export type IngredientUsage = typeof ingredientUsage.$inferSelect;
 export type List = typeof lists.$inferSelect;
 export type ListItem = typeof listItems.$inferSelect;
