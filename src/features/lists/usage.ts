@@ -6,9 +6,10 @@
 // and "Add to recipe" go through). Adding that recipe to a list counts again through addItemsBulk,
 // since putting it on a list is a real use. Editing a recipe ingredient doesn't count; undoing a
 // list add takes its use back.
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, sql } from 'drizzle-orm';
 
-import { db, ingredientUsage } from '@/db';
+import { db, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -35,4 +36,62 @@ export function unrecordUsage(tx: Tx, householdId: string, ingredientName: strin
   tx.delete(ingredientUsage)
     .where(and(row(householdId, ingredientName), lte(ingredientUsage.useCount, 0)))
     .run();
+}
+
+const BACKFILL_KEY = 'usage.backfilled';
+
+/**
+ * One-time step at app start: builds history from data written before `ingredient_usage`
+ * existed. Each live contribution (even on a since-deleted item, since history outlives the
+ * item) and each live recipe ingredient counts one use; the latest one gives the display name
+ * and time. Rows that already exist are left alone. Guarded by its own device setting.
+ */
+export function backfillUsage(): void {
+  if (getDeviceSetting(BACKFILL_KEY, false)) return;
+  db.transaction((tx) => {
+    const uses = [
+      ...tx
+        .select({
+          householdId: listItems.householdId,
+          ingredientName: listItems.ingredientName,
+          displayName: listItems.displayName,
+          at: listItemContributions.createdAt,
+        })
+        .from(listItemContributions)
+        .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
+        .where(and(isNull(listItemContributions.deletedAt), ne(listItems.ingredientName, '')))
+        .all(),
+      ...tx
+        .select({
+          householdId: recipeIngredients.householdId,
+          ingredientName: recipeIngredients.ingredientName,
+          displayName: recipeIngredients.displayName,
+          at: recipeIngredients.createdAt,
+        })
+        .from(recipeIngredients)
+        .where(and(isNull(recipeIngredients.deletedAt), ne(recipeIngredients.ingredientName, '')))
+        .all(),
+    ];
+    const rows = new Map<string, { householdId: string; ingredientName: string; displayName: string; useCount: number; lastUsedAt: Date }>();
+    for (const use of uses) {
+      const key = JSON.stringify([use.householdId, use.ingredientName]);
+      const found = rows.get(key);
+      if (!found) {
+        rows.set(key, { ...use, useCount: 1, lastUsedAt: use.at });
+      } else {
+        found.useCount += 1;
+        if (use.at >= found.lastUsedAt) {
+          found.lastUsedAt = use.at;
+          found.displayName = use.displayName;
+        }
+      }
+    }
+    for (const { householdId, ingredientName, displayName, useCount, lastUsedAt } of rows.values()) {
+      tx.insert(ingredientUsage)
+        .values({ householdId, ingredientName, displayName, useCount, lastUsedAt })
+        .onConflictDoNothing()
+        .run();
+    }
+  });
+  setDeviceSetting(BACKFILL_KEY, true);
 }
