@@ -10,7 +10,7 @@
 // Units (ingredient_unit_usage, for the usual unit): each of those uses that has a quantity also
 // counts one use of its unit (`unitKey`: the unit, or 'count' for a bare number). A use with no
 // quantity (`milk`, or a "Keep existing" recipe link) counts no unit. Undo takes the unit back too.
-import { and, eq, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 
 import { db, ingredientUnitUsage, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
 import type { Amount } from '@/domain/quantity-display';
@@ -147,4 +147,79 @@ export function backfillUsage(): void {
     }
   });
   setDeviceSetting(BACKFILL_KEY, true);
+}
+
+const UNITS_BACKFILL_KEY = 'usage.unitsBackfilled';
+
+/**
+ * One-time step at app start, after `backfillUsage`: builds unit history from data written before
+ * `ingredient_unit_usage` existed. Counts the same sources as `backfillUsage`, but only those with
+ * a quantity, each as one use of its unit; the latest one gives the time. An ingredient that
+ * already has unit rows in its household is left alone, so units recorded since the upgrade aren't
+ * counted twice. Guarded by its own device setting, since `usage.backfilled` has already run on
+ * existing installs.
+ */
+export function backfillUnitUsage(): void {
+  if (getDeviceSetting(UNITS_BACKFILL_KEY, false)) return;
+  db.transaction((tx) => {
+    const uses = [
+      ...tx
+        .select({
+          householdId: listItems.householdId,
+          ingredientName: listItems.ingredientName,
+          unit: listItemContributions.unit,
+          at: listItemContributions.createdAt,
+        })
+        .from(listItemContributions)
+        .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
+        .where(
+          and(
+            isNull(listItemContributions.deletedAt),
+            ne(listItems.ingredientName, ''),
+            isNotNull(listItemContributions.quantity),
+          ),
+        )
+        .all(),
+      ...tx
+        .select({
+          householdId: recipeIngredients.householdId,
+          ingredientName: recipeIngredients.ingredientName,
+          unit: recipeIngredients.unit,
+          at: recipeIngredients.createdAt,
+        })
+        .from(recipeIngredients)
+        .where(
+          and(
+            isNull(recipeIngredients.deletedAt),
+            ne(recipeIngredients.ingredientName, ''),
+            isNotNull(recipeIngredients.quantity),
+          ),
+        )
+        .all(),
+    ];
+    const recorded = new Set(
+      tx
+        .selectDistinct({ householdId: ingredientUnitUsage.householdId, ingredientName: ingredientUnitUsage.ingredientName })
+        .from(ingredientUnitUsage)
+        .all()
+        .map((r) => JSON.stringify([r.householdId, r.ingredientName])),
+    );
+    const rows = new Map<string, { householdId: string; ingredientName: string; unitKey: string; useCount: number; lastUsedAt: Date }>();
+    for (const use of uses) {
+      if (recorded.has(JSON.stringify([use.householdId, use.ingredientName]))) continue;
+      const key = unitKey(use.unit);
+      const id = JSON.stringify([use.householdId, use.ingredientName, key]);
+      const found = rows.get(id);
+      if (!found) {
+        rows.set(id, { householdId: use.householdId, ingredientName: use.ingredientName, unitKey: key, useCount: 1, lastUsedAt: use.at });
+      } else {
+        found.useCount += 1;
+        if (use.at > found.lastUsedAt) found.lastUsedAt = use.at;
+      }
+    }
+    for (const values of rows.values()) {
+      tx.insert(ingredientUnitUsage).values(values).onConflictDoNothing().run();
+    }
+  });
+  setDeviceSetting(UNITS_BACKFILL_KEY, true);
 }

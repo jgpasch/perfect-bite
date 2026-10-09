@@ -18,7 +18,7 @@ import { addParsedRecipeIngredients, addRecipeIngredient, recipeIngredientsQuery
 import { resetDb } from '@/test/db';
 
 import { addItem, addItemsBulk, undoAdd } from '../items';
-import { backfillUsage, hideFromSuggestions, recordUsage, unrecordUsage } from '../usage';
+import { backfillUnitUsage, backfillUsage, hideFromSuggestions, recordUsage, unrecordUsage } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -430,5 +430,121 @@ describe('backfillUsage', () => {
     resetDb();
     backfillUsage();
     expect(db.select().from(ingredientUsage).all()).toEqual([]);
+  });
+});
+
+describe('backfillUnitUsage', () => {
+  const T3 = new Date('2026-10-07T18:00:00Z');
+
+  const units = (householdId = 'h1') =>
+    db
+      .select({
+        ingredientName: ingredientUnitUsage.ingredientName,
+        unitKey: ingredientUnitUsage.unitKey,
+        useCount: ingredientUnitUsage.useCount,
+        lastUsedAt: ingredientUnitUsage.lastUsedAt,
+      })
+      .from(ingredientUnitUsage)
+      .where(eq(ingredientUnitUsage.householdId, householdId))
+      .all()
+      .sort((a, b) => a.ingredientName.localeCompare(b.ingredientName) || a.unitKey.localeCompare(b.unitKey));
+
+  // Data written before ingredient_unit_usage existed: rows inserted directly, so no units counted.
+  beforeEach(() => {
+    db.insert(lists).values([
+      { id: 'l1', householdId: 'h1', name: 'Groceries', position: 1 },
+      { id: 'l2', householdId: 'h2', name: 'Cabin', position: 1 },
+    ]).run();
+    db.insert(listItems).values([
+      { id: 'i1', listId: 'l1', householdId: 'h1', ingredientName: 'milk', displayName: 'milk', createdAt: T1 },
+      // Deleted later: its contributions are still history.
+      { id: 'i2', listId: 'l1', householdId: 'h1', ingredientName: 'chicken thigh', displayName: 'chicken thighs', createdAt: T1, deletedAt: T3 },
+      { id: 'i3', listId: 'l2', householdId: 'h2', ingredientName: 'milk', displayName: 'milk', createdAt: T3 },
+      { id: 'i4', listId: 'l1', householdId: 'h1', ingredientName: 'eggs', displayName: 'eggs', createdAt: T1 },
+    ]).run();
+    db.insert(listItemContributions).values([
+      { id: 'c1', listItemId: 'i1', householdId: 'h1', quantity: 1, unit: 'gal', createdAt: T2 },
+      { id: 'c2', listItemId: 'i1', householdId: 'h1', quantity: 1, unit: 'gal', createdAt: T1 },
+      // A bare number counts as 'count'.
+      { id: 'c3', listItemId: 'i1', householdId: 'h1', quantity: 2, unit: null, createdAt: T1 },
+      // No quantity: no unit.
+      { id: 'c4', listItemId: 'i1', householdId: 'h1', quantity: null, unit: null, createdAt: T3 },
+      { id: 'c5', listItemId: 'i2', householdId: 'h1', quantity: 2, unit: 'lb', createdAt: T1 },
+      // Deleted contribution (an undone add): not counted.
+      { id: 'c6', listItemId: 'i2', householdId: 'h1', quantity: 8, unit: 'oz', createdAt: T3, deletedAt: T3 },
+      { id: 'c7', listItemId: 'i3', householdId: 'h2', quantity: 1, unit: 'l', createdAt: T3 },
+      // An ingredient seen only without a quantity gets no rows.
+      { id: 'c8', listItemId: 'i4', householdId: 'h1', quantity: null, unit: null, createdAt: T1 },
+    ]).run();
+    db.insert(recipes).values({ id: 'r1', householdId: 'h1', name: 'Curry' }).run();
+    db.insert(recipeIngredients).values([
+      { id: 'ri1', recipeId: 'r1', householdId: 'h1', ingredientName: 'chicken thigh', displayName: 'chicken thighs', quantity: 1.5, unit: 'lb', position: 1, createdAt: T3 },
+      { id: 'ri2', recipeId: 'r1', householdId: 'h1', ingredientName: 'coconut milk', displayName: 'coconut milk', quantity: 1, unit: 'can', position: 2, createdAt: T2 },
+      // Deleted recipe ingredient: not counted.
+      { id: 'ri3', recipeId: 'r1', householdId: 'h1', ingredientName: 'coconut milk', displayName: 'coconut milk', quantity: 400, unit: 'ml', position: 3, createdAt: T3, deletedAt: T3 },
+      // No quantity: not counted.
+      { id: 'ri4', recipeId: 'r1', householdId: 'h1', ingredientName: 'lime', displayName: 'lime', quantity: null, unit: null, position: 4, createdAt: T2 },
+    ]).run();
+  });
+
+  const EXPECTED_H1 = [
+    { ingredientName: 'chicken thigh', unitKey: 'lb', useCount: 2, lastUsedAt: T3 },
+    { ingredientName: 'coconut milk', unitKey: 'can', useCount: 1, lastUsedAt: T2 },
+    { ingredientName: 'milk', unitKey: 'count', useCount: 1, lastUsedAt: T1 },
+    { ingredientName: 'milk', unitKey: 'gal', useCount: 2, lastUsedAt: T2 },
+  ];
+  const EXPECTED_H2 = [{ ingredientName: 'milk', unitKey: 'l', useCount: 1, lastUsedAt: T3 }];
+
+  test('builds unit rows from contributions and recipe ingredients with a quantity, per household', () => {
+    backfillUnitUsage();
+    expect(units('h1')).toEqual(EXPECTED_H1);
+    expect(units('h2')).toEqual(EXPECTED_H2);
+  });
+
+  test('does not touch ingredient_usage', () => {
+    backfillUnitUsage();
+    expect(db.select().from(ingredientUsage).all()).toEqual([]);
+  });
+
+  test('running it twice changes nothing', () => {
+    backfillUnitUsage();
+    backfillUnitUsage();
+    expect(units('h1')).toEqual(EXPECTED_H1);
+    expect(units('h2')).toEqual(EXPECTED_H2);
+  });
+
+  test('runs once per device: units recorded after it are not counted again', () => {
+    backfillUnitUsage();
+    db.transaction((tx) => recordUsage(tx, 'h1', 'milk', 'milk', T3, { quantity: 1, unit: 'gal' }));
+    backfillUnitUsage();
+    expect(units('h1').find((r) => r.ingredientName === 'milk' && r.unitKey === 'gal')).toEqual(
+      { ingredientName: 'milk', unitKey: 'gal', useCount: 3, lastUsedAt: T3 },
+    );
+  });
+
+  test('keeps an ingredient whose units were already recorded as is, even without the device setting', () => {
+    db.transaction((tx) => recordUsage(tx, 'h1', 'milk', 'milk', T3, { quantity: 2, unit: 'l' }));
+    backfillUnitUsage();
+    db.delete(deviceSettings).run();
+    backfillUnitUsage();
+    expect(units('h1')).toEqual([
+      EXPECTED_H1[0],
+      EXPECTED_H1[1],
+      { ingredientName: 'milk', unitKey: 'l', useCount: 1, lastUsedAt: T3 },
+    ]);
+    // The same ingredient in another household is still backfilled.
+    expect(units('h2')).toEqual(EXPECTED_H2);
+  });
+
+  test('is independent of the usage.backfilled setting', () => {
+    backfillUsage();
+    backfillUnitUsage();
+    expect(units('h1')).toEqual(EXPECTED_H1);
+  });
+
+  test('does nothing when there is no data', () => {
+    resetDb();
+    backfillUnitUsage();
+    expect(db.select().from(ingredientUnitUsage).all()).toEqual([]);
   });
 });
