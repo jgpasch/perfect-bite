@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
 import { db, ingredients } from '@/db';
+import { SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { addItem, addItemsBulk, deleteItem, groupItems, listItemsQuery, updateItem } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { applySuggestion, getSuggestions } from '@/features/lists/suggestions';
@@ -54,13 +55,13 @@ describe('seed', () => {
     expect(names(A)).toHaveLength(SYSTEM_CATEGORIES.length);
   });
 
-  test('a known ingredient lands in its section instantly; unknown ones go to Other', () => {
+  test('a known ingredient lands in its section instantly; unknown ones go to Sorting', () => {
     addItem(listId, '2 lbs chicken thighs', A);
     addItem(listId, 'Tomatoes', A);
     addItem(listId, 'flux capacitor', A);
     expect(categoryOf(A, 'chicken thighs')).toBe(id('meat-seafood'));
     expect(categoryOf(A, 'Tomatoes')).toBe(id('produce'));
-    expect(categoryOf(A, 'flux capacitor')).toBe(OTHER_CATEGORY_ID);
+    expect(categoryOf(A, 'flux capacitor')).toBe(SORTING_CATEGORY_ID);
   });
 
   test('does not overwrite an ingredient the server categorized', () => {

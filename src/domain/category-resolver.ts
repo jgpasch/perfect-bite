@@ -2,12 +2,24 @@
 
 import { OTHER_CATEGORY_ID } from '@/shared';
 
+/** The "Sorting..." section's id: not a real category, for ingredients awaiting categorization. */
+export const SORTING_CATEGORY_ID = 'sorting';
+
+export type IngredientStatus = 'pending' | 'categorized' | 'failed';
+
 /**
  * The section an item shows under for one user: their override, else the ingredient's global
- * default, else Other. TODO(M6): unknown and pending ingredients show "Sorting..." instead.
+ * default, else "Sorting..." while it is pending or has no ingredient row (spec 4.3.1), else
+ * Other (categorization failed).
  */
-export function effectiveCategoryId(overrideId: string | null, defaultId: string | null): string {
-  return overrideId ?? defaultId ?? OTHER_CATEGORY_ID;
+export function effectiveCategoryId(
+  overrideId: string | null,
+  defaultId: string | null,
+  status: IngredientStatus | null,
+): string {
+  const chosen = overrideId ?? defaultId;
+  if (chosen) return chosen;
+  return status === 'pending' || status === null ? SORTING_CATEGORY_ID : OTHER_CATEGORY_ID;
 }
 
 export type OrderableCategory = {
@@ -35,21 +47,26 @@ export function orderCategories<T extends OrderableCategory>(categories: readonl
 
 export type Section<C, I> = { category: C; items: I[] };
 
+/** The "Sorting..." section's category, which isn't stored. */
+export type SortingCategory = { id: typeof SORTING_CATEGORY_ID; name: string };
+export const SORTING_CATEGORY: SortingCategory = { id: SORTING_CATEGORY_ID, name: 'Sorting...' };
+
 /**
  * Groups items into sections in category order, hiding empty sections (spec 4.6). Items keep
- * their order within a section. An item whose category is unknown goes to Other.
+ * their order within a section. A "Sorting..." section comes first, whatever the user's order
+ * (spec 4.3.1), when it has items. An item whose category is unknown goes to Other.
  */
 export function groupByCategory<C extends { id: string }, I extends { categoryId: string }>(
   orderedCategories: readonly C[],
   items: readonly I[],
-): Section<C, I>[] {
-  const known = new Set(orderedCategories.map((c) => c.id));
+): Section<C | SortingCategory, I>[] {
+  const known = new Set([SORTING_CATEGORY_ID, ...orderedCategories.map((c) => c.id)]);
   const byCategory = new Map<string, I[]>();
   for (const item of items) {
     const id = known.has(item.categoryId) ? item.categoryId : OTHER_CATEGORY_ID;
     byCategory.set(id, [...(byCategory.get(id) ?? []), item]);
   }
-  return orderedCategories
+  return [SORTING_CATEGORY, ...orderedCategories]
     .filter((c) => byCategory.has(c.id))
     .map((category) => ({ category, items: byCategory.get(category.id)! }));
 }

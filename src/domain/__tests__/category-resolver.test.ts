@@ -2,13 +2,39 @@ import { describe, expect, it } from '@jest/globals';
 
 import { OTHER_CATEGORY_ID } from '@/shared';
 
-import { effectiveCategoryId, groupByCategory, orderCategories } from '../category-resolver';
+import {
+  effectiveCategoryId,
+  groupByCategory,
+  orderCategories,
+  SORTING_CATEGORY_ID,
+} from '../category-resolver';
 
 describe('effectiveCategoryId', () => {
-  it('prefers the override, then the default, then Other', () => {
-    expect(effectiveCategoryId('mine', 'global')).toBe('mine');
-    expect(effectiveCategoryId(null, 'global')).toBe('global');
-    expect(effectiveCategoryId(null, null)).toBe(OTHER_CATEGORY_ID);
+  it('prefers the override, then the default', () => {
+    expect(effectiveCategoryId('mine', 'global', 'categorized')).toBe('mine');
+    expect(effectiveCategoryId(null, 'global', 'categorized')).toBe('global');
+  });
+
+  it('lets the override beat a pending or failed ingredient', () => {
+    expect(effectiveCategoryId('mine', null, 'pending')).toBe('mine');
+    expect(effectiveCategoryId('mine', null, null)).toBe('mine');
+    expect(effectiveCategoryId('mine', null, 'failed')).toBe('mine');
+  });
+
+  it('lets the default beat a missing or pending status', () => {
+    expect(effectiveCategoryId(null, 'global', null)).toBe('global');
+    expect(effectiveCategoryId(null, 'global', 'pending')).toBe('global');
+  });
+
+  it('shows pending and unknown ingredients under Sorting', () => {
+    expect(SORTING_CATEGORY_ID).toBe('sorting');
+    expect(effectiveCategoryId(null, null, 'pending')).toBe(SORTING_CATEGORY_ID);
+    expect(effectiveCategoryId(null, null, null)).toBe(SORTING_CATEGORY_ID);
+  });
+
+  it('sends failed ingredients, and categorized ones with no default, to Other', () => {
+    expect(effectiveCategoryId(null, null, 'failed')).toBe(OTHER_CATEGORY_ID);
+    expect(effectiveCategoryId(null, null, 'categorized')).toBe(OTHER_CATEGORY_ID);
   });
 });
 
@@ -49,5 +75,33 @@ describe('groupByCategory', () => {
   it('sends items in unknown categories to Other', () => {
     const sections = groupByCategory(categories, [{ name: 'x', categoryId: 'deleted-custom' }]);
     expect(sections.map((s) => s.category.id)).toEqual([OTHER_CATEGORY_ID]);
+  });
+
+  it('puts Sorting first, whatever the user order', () => {
+    const items = [
+      { name: 'milk', categoryId: 'dairy' },
+      { name: 'dukkah', categoryId: SORTING_CATEGORY_ID },
+      { name: 'x', categoryId: OTHER_CATEGORY_ID },
+      { name: 'kale', categoryId: 'produce' },
+      { name: 'yuzu kosho', categoryId: SORTING_CATEGORY_ID },
+    ];
+    const reordered = [{ id: OTHER_CATEGORY_ID }, { id: 'dairy' }, { id: 'produce' }];
+    for (const order of [categories, reordered]) {
+      const sections = groupByCategory(order, items);
+      expect(sections[0].category).toEqual({ id: SORTING_CATEGORY_ID, name: 'Sorting...' });
+      expect(sections[0].items.map((i) => i.name)).toEqual(['dukkah', 'yuzu kosho']);
+    }
+    expect(groupByCategory(reordered, items).map((s) => s.category.id)).toEqual([
+      SORTING_CATEGORY_ID,
+      OTHER_CATEGORY_ID,
+      'dairy',
+      'produce',
+    ]);
+  });
+
+  it('hides an empty Sorting section', () => {
+    const sections = groupByCategory(categories, [{ name: 'milk', categoryId: 'dairy' }]);
+    expect(sections.map((s) => s.category.id)).toEqual(['dairy']);
+    expect(groupByCategory(categories, [])).toEqual([]);
   });
 });

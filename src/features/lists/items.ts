@@ -565,6 +565,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
       checkedAt: listItems.checkedAt,
       createdAt: listItems.createdAt,
       defaultCategoryId: ingredients.defaultCategoryId,
+      ingredientStatus: ingredients.status,
       overrideCategoryId: userCategoryOverrides.categoryId,
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
@@ -661,7 +662,7 @@ export function groupItems(
       item = {
         id: row.id,
         ingredientName: row.ingredientName,
-        categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId),
+        categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId, row.ingredientStatus),
         displayName: row.displayName,
         note: row.note,
         checkedAt: row.checkedAt,

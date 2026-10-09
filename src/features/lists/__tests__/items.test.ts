@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
-import { db, households, ingredientUnitUsage, ingredientUsage, lists } from '@/db';
+import { db, households, ingredients, ingredientUnitUsage, ingredientUsage, lists } from '@/db';
 import { resetDb } from '@/test/db';
 
 import {
@@ -27,9 +27,11 @@ import {
   updateItem,
   usualUnitsQuery,
 } from '../items';
+import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { usualUnitsByKey } from '@/domain/usual-unit';
+import { getOrderedCategories, loadCatalogSeed, setCategoryOverride } from '@/features/categories/categories';
 import { createRecipe } from '@/features/recipes/recipes';
-import type { Unit } from '@/shared';
+import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
 import { listShareText } from '../share';
@@ -795,4 +797,44 @@ test('share text lists unchecked items with amounts and notes', () => {
   const milk = addItem(listId, 'milk', USER)!;
   updateItem(milk.itemId, { name: 'milk', amount: '', note: 'oat' });
   expect(listShareText('Groceries', view().unchecked)).toBe('Groceries\n- 2 lb chicken thighs\n- milk (oat)');
+});
+
+describe('Sorting section (spec 4.3.1)', () => {
+  const categoryId = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
+  const sections = () =>
+    groupByCategory(getOrderedCategories(USER), view().unchecked).map((s) => [
+      s.category.name,
+      s.items.map((i) => i.displayName),
+    ]);
+
+  beforeEach(() => loadCatalogSeed());
+
+  test('an unknown item is grouped under Sorting and a seed item under its category', () => {
+    addItem(listId, 'milk', USER);
+    addItem(listId, 'dukkah', USER);
+    const [milk, dukkah] = view().unchecked;
+    expect(milk.categoryId).toBe(categoryId('dairy-eggs'));
+    expect(dukkah.categoryId).toBe(SORTING_CATEGORY_ID);
+    expect(sections()).toEqual([
+      ['Sorting...', ['dukkah']],
+      ['Dairy & Eggs', ['milk']],
+    ]);
+  });
+
+  test('an item with no ingredient row is under Sorting', () => {
+    addItem(listId, 'dukkah', USER);
+    db.delete(ingredients).where(eq(ingredients.normalizedName, 'dukkah')).run();
+    expect(view().unchecked[0].categoryId).toBe(SORTING_CATEGORY_ID);
+  });
+
+  test('a failed ingredient goes to Other, and an override moves an item out of Sorting', () => {
+    addItem(listId, 'dukkah', USER);
+    addItem(listId, 'flux capacitor', USER);
+    db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, 'flux capacitor')).run();
+    setCategoryOverride(USER, 'dukkah', categoryId('spices'));
+    expect(sections()).toEqual([
+      ['Spices & Seasonings', ['dukkah']],
+      ['Other', ['flux capacitor']],
+    ]);
+  });
 });
