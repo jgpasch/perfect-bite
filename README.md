@@ -237,6 +237,15 @@ yarn ai:categorize --json milk                        # the raw { results } the 
 
 It prints a table (name, category slug, `is_grocery_item`, status), then the model, prompt version, input and output tokens, and latency. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
 
+Run the golden-set eval whenever the categorize model or prompt changes (a new `AI_MODEL_CATEGORIZE`, or a new `prompts/categorize.vN.ts`), before deploying the change:
+
+```bash
+yarn ai:eval                                          # the model in supabase/functions/.env
+yarn ai:eval --model anthropic:claude-haiku-5-5       # or try another model
+```
+
+It sends the ~100 hard names in `supabase/functions/categorize-ingredients/eval/golden.json` (ambiguous items, non-food, errands, and a few prompt-injection attempts) through the same `categorize()` and in-memory store as the CLI, in batches of 50 (one LLM call each). It prints the accuracy (category and `is_grocery_item` both right; `also` lists other aisles that count as right), how many injection names came back `other`/not a grocery item, how the rest of each injection batch did, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing. Compare the score with the last one recorded in `progress.md`, and add new misses you care about to `golden.json`.
+
 ## Troubleshooting
 
 | Problem | Fix |
