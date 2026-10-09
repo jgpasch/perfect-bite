@@ -1,4 +1,5 @@
 import type { RecipeIngredient } from '@/db';
+import { collectPendingNames } from '@/features/categories/categories';
 import { addItemsBulk, planBulkAddToList, type BulkAdd, type BulkConflict } from '@/features/lists/items';
 
 /** Servings multipliers offered when adding a recipe to a list (spec 4.5). */
@@ -30,12 +31,15 @@ export function planRecipeAdd(listId: string, adds: readonly BulkAdd[]): BulkCon
   return planBulkAddToList(listId, adds);
 }
 
-/** Adds the recipe's ingredients; `keepExisting` holds the indexes the user chose to keep. */
+/**
+ * Adds the recipe's ingredients; `keepExisting` holds the indexes the user chose to keep. Returns
+ * every name the add recorded as pending, for one `categorizePending` call.
+ */
 export function addRecipeToList(
   listId: string,
   adds: readonly BulkAdd[],
   userId: string | null,
   keepExisting: ReadonlySet<number>,
-): void {
-  addItemsBulk(listId, adds, userId, keepExisting);
+): string[] {
+  return collectPendingNames(addItemsBulk(listId, adds, userId, keepExisting));
 }

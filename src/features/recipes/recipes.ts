@@ -99,16 +99,17 @@ function nextPosition(recipeId: string): number {
 
 /**
  * Adds an ingredient with the same parser as lists (spec 4.5): `2 cups flour`. A recipe can list
- * the same ingredient twice (e.g. butter for the crust and the filling). Returns null for empty text.
+ * the same ingredient twice (e.g. butter for the crust and the filling). Returns null for empty
+ * text; else the new row's id, and the name if this add recorded it as pending (for `categorizePending`).
  */
-export function addRecipeIngredient(recipeId: string, text: string): string | null {
+export function addRecipeIngredient(recipeId: string, text: string): { id: string; pendingNames: string[] } | null {
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) return null;
   const recipe = getRecipe(recipeId);
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
   const id = newId();
-  db.transaction((tx) => {
+  const pendingNames = db.transaction((tx) => {
     tx.insert(recipeIngredients)
       .values({
         id,
@@ -122,19 +123,23 @@ export function addRecipeIngredient(recipeId: string, text: string): string | nu
       })
       .run();
     recordUsage(tx, recipe.householdId, ingredientName, name, new Date(), { quantity, unit });
-    ensureLocalIngredient(tx, ingredientName, name);
+    return ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
   });
   touch(recipeId);
-  return id;
+  return { id, pendingNames };
 }
 
-/** Adds ingredients that are already parsed (from list items, "Make recipe...", spec 4.5). */
+/**
+ * Adds ingredients that are already parsed (from list items, "Make recipe...", spec 4.5). Returns
+ * the names it recorded as pending, for `categorizePending`.
+ */
 export function addParsedRecipeIngredients(
   recipeId: string,
   items: readonly { ingredientName: string; displayName: string; quantity: number | null; unit: RecipeIngredientUnit }[],
-): void {
+): string[] {
   const recipe = getRecipe(recipeId);
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
+  const pendingNames: string[] = [];
   db.transaction((tx) => {
     let position = nextPosition(recipeId);
     const now = new Date();
@@ -146,25 +151,29 @@ export function addParsedRecipeIngredients(
         quantity: item.quantity,
         unit: item.unit ?? null,
       });
-      ensureLocalIngredient(tx, item.ingredientName, item.displayName);
+      if (ensureLocalIngredient(tx, item.ingredientName, item.displayName)) pendingNames.push(item.ingredientName);
       position = positionBetween(position, null);
     }
   });
   touch(recipeId);
+  return pendingNames;
 }
 type RecipeIngredientUnit = (typeof recipeIngredients.$inferInsert)['unit'];
 
-/** Replaces an ingredient's name and amount from text, as typed: `3 cups flour`. An edit isn't a use, so history isn't counted. */
-export function updateRecipeIngredient(id: string, text: string, note = ''): void {
+/**
+ * Replaces an ingredient's name and amount from text, as typed: `3 cups flour`. An edit isn't a
+ * use, so history isn't counted. Returns the name if the edit recorded it as pending.
+ */
+export function updateRecipeIngredient(id: string, text: string, note = ''): string[] {
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) throw new Error('An ingredient needs a name');
-  db.transaction((tx) => {
+  return db.transaction((tx) => {
     tx.update(recipeIngredients)
       .set({ ingredientName, displayName: name, quantity, unit, note: note.trim() || null })
       .where(eq(recipeIngredients.id, id))
       .run();
-    ensureLocalIngredient(tx, ingredientName, name);
+    return ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
   });
 }
 

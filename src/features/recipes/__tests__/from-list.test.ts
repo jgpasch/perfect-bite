@@ -30,7 +30,7 @@ test('acceptance 3: make a recipe from 3 selected items; they group under it', (
   addItem(listId, '1 gal milk', USER); // combined: "1 + 1 gal" isn't one amount
   const milk = view().find((i) => i.displayName === 'milk')!;
 
-  const recipeId = makeRecipeFromItems('Tacos', [beef.itemId, lime.itemId, milk.id], USER);
+  const { recipeId } = makeRecipeFromItems('Tacos', [beef.itemId, lime.itemId, milk.id], USER);
 
   expect(
     recipeIngredientsQuery(recipeId)
@@ -52,7 +52,7 @@ test('acceptance 3: make a recipe from 3 selected items; they group under it', (
 test('make recipe takes the counted total of adds with no amount', () => {
   const milk = addItem(listId, 'milk', USER)!;
   addItem(listId, 'milk', USER);
-  const recipeId = makeRecipeFromItems('Breakfast', [milk.itemId], USER);
+  const { recipeId } = makeRecipeFromItems('Breakfast', [milk.itemId], USER);
   expect(
     recipeIngredientsQuery(recipeId)
       .all()
@@ -88,7 +88,7 @@ describe('ingredient history (spec 4.2)', () => {
     addItem(listId, 'milk', USER);
     expect(counts()).toEqual({ 'ground beef': 1, lime: 1, milk: 1 });
 
-    const tacos = makeRecipeFromItems('Tacos', [beef.itemId, lime.itemId], USER);
+    const tacos = makeRecipeFromItems('Tacos', [beef.itemId, lime.itemId], USER).recipeId;
     expect(counts()).toEqual({ 'ground beef': 2, lime: 2, milk: 1 });
 
     const ingredients = recipeIngredientsQuery(tacos).all();

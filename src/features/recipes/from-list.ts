@@ -11,10 +11,11 @@ import { addParsedRecipeIngredients, createRecipe, recipeIngredientsQuery } from
 /**
  * Appends the selected list items to a recipe as ingredients (with their amount when it reads
  * as one amount, like `2 lb`; skipping ones the recipe already has), and links each item to the recipe with an amount-less
- * contribution so it groups under the recipe right away.
+ * contribution so it groups under the recipe right away. Returns the names it recorded as pending,
+ * for `categorizePending`.
  */
-export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], userId: string | null): void {
-  if (itemIds.length === 0) return;
+export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], userId: string | null): string[] {
+  if (itemIds.length === 0) return [];
   const items = db
     .select()
     .from(listItems)
@@ -30,7 +31,7 @@ export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], u
 
   // An ingredient already in the recipe isn't listed again; the item is still linked below.
   const inRecipe = new Set(recipeIngredientsQuery(recipeId).all().map((i) => i.ingredientName));
-  addParsedRecipeIngredients(
+  const pendingNames = addParsedRecipeIngredients(
     recipeId,
     ordered.filter((item) => !inRecipe.has(item.ingredientName)).map((item) => {
       const amount = parseAmount(itemTotal(contributions.filter((c) => c.listItemId === item.id)));
@@ -61,12 +62,16 @@ export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], u
         .run();
     }
   });
+  return pendingNames;
 }
 
-/** "Make recipe...": a new recipe from the selected items. Returns its id. */
-export function makeRecipeFromItems(name: string, itemIds: readonly string[], userId: string | null): string {
+/** "Make recipe...": a new recipe from the selected items. Returns its id and the names recorded as pending. */
+export function makeRecipeFromItems(
+  name: string,
+  itemIds: readonly string[],
+  userId: string | null,
+): { recipeId: string; pendingNames: string[] } {
   const recipeId = createRecipe(name);
-  addItemsToRecipe(recipeId, itemIds, userId);
-  return recipeId;
+  return { recipeId, pendingNames: addItemsToRecipe(recipeId, itemIds, userId) };
 }
 

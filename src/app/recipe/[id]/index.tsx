@@ -11,6 +11,7 @@ import { UndoToast } from '@/components/undo-toast';
 import { recipeIngredients, recipes, type Recipe, type RecipeIngredient } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { formatAmount } from '@/domain/quantity-display';
+import { categorizePending } from '@/features/categories/categorization';
 import { AddBar } from '@/features/lists/add-bar';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
@@ -47,7 +48,7 @@ export default function RecipeScreen() {
       (text) => {
         if (!text?.trim()) return;
         try {
-          updateRecipeIngredient(ingredient.id, text, ingredient.note ?? '');
+          void categorizePending(updateRecipeIngredient(ingredient.id, text, ingredient.note ?? ''));
         } catch (err) {
           Alert.alert(err instanceof Error ? err.message : String(err));
         }
@@ -123,7 +124,7 @@ export default function RecipeScreen() {
         ) : null}
         <AddBar
           householdId={recipe.householdId}
-          onAdd={(text) => addRecipeIngredient(id, text)}
+          onAdd={(text) => void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? [])}
           placeholder="Add an ingredient, like 2 cups flour"
           accessibilityLabel="Add an ingredient"
         />

@@ -2,6 +2,8 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 
 import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
+import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { categorizePending } from '@/features/categories/categorization';
 import { registerHouseholds } from '@/features/households/households';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
@@ -28,5 +30,11 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (userId) void registerHouseholds(userId);
   }, [userId]);
+  // Categorization catch-up (spec 6.3): after the pending rows above exist, again on sign-in, and on
+  // every foreground and reconnect.
+  useEffect(() => {
+    void categorizePending();
+  }, [userId]);
+  useEffect(() => startCatchUpTriggers(() => void categorizePending()), []);
   return children;
 }

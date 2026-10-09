@@ -14,6 +14,7 @@ import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { canStepDown, unitLabel, unitMenuChoice, unitMenuOptions, withUnit } from '@/features/lists/amount-stepper';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
+import { categorizePending } from '@/features/categories/categorization';
 import {
   contributionsQuery,
   deleteContribution,
@@ -107,7 +108,7 @@ export default function ItemEditSheet() {
     try {
       // Choosing the default again only needs a write if there was an override to remove.
       const categoryId = edit.categoryId === null && !current?.overrideCategoryId ? undefined : edit.categoryId;
-      updateItem(itemId, { ...edit, amount, categoryId }, userId);
+      void categorizePending(updateItem(itemId, { ...edit, amount, categoryId }, userId));
       router.back();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

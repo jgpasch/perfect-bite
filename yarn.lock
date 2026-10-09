@@ -6573,6 +6573,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-network@npm:~57.0.2":
+  version: 57.0.2
+  resolution: "expo-network@npm:57.0.2"
+  peerDependencies:
+    expo: "*"
+    react: "*"
+  checksum: 10c0/9a4cd8644993940f9c32ad18ab0b86f9f59c62a8ace59b75beaffe0c782446da7a755464718f506caf353b2786f3e7c76f3d05fd1068363e68e45d0d5e867033
+  languageName: node
+  linkType: hard
+
 "expo-router@npm:~57.0.25":
   version: 57.0.25
   resolution: "expo-router@npm:57.0.25"
@@ -10135,6 +10145,7 @@ __metadata:
     expo-glass-effect: "npm:~57.0.4"
     expo-image: "npm:~57.0.5"
     expo-linking: "npm:~57.0.12"
+    expo-network: "npm:~57.0.2"
     expo-router: "npm:~57.0.25"
     expo-splash-screen: "npm:~57.0.9"
     expo-sqlite: "npm:~57.0.4"

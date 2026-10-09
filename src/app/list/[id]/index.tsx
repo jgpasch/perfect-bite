@@ -41,6 +41,7 @@ import {
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
+import { categorizePending } from '@/features/categories/categorization';
 import { addItemsToRecipe, makeRecipeFromItems } from '@/features/recipes/from-list';
 import { recipesQuery } from '@/features/recipes/recipes';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
@@ -129,7 +130,7 @@ export default function ListScreen() {
     const ids = [...selection];
     Alert.prompt('New recipe', `From ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`, (name) => {
       if (!name?.trim()) return;
-      makeRecipeFromItems(name, ids, userId);
+      void categorizePending(makeRecipeFromItems(name, ids, userId).pendingNames);
       finishSelection();
     });
   };
@@ -142,7 +143,7 @@ export default function ListScreen() {
       { title: 'Add to recipe', options: [...all.map((r) => r.name), 'Cancel'], cancelButtonIndex: all.length },
       (index) => {
         if (index >= all.length) return;
-        addItemsToRecipe(all[index].id, ids, userId);
+        void categorizePending(addItemsToRecipe(all[index].id, ids, userId));
         finishSelection();
       },
     );
@@ -162,6 +163,7 @@ export default function ListScreen() {
 
   const add = (value: string) => {
     const result = addItem(id, value, userId);
+    if (result) void categorizePending(result.pendingNames);
     if (result?.kind !== 'combine') return;
     // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo.
     setHighlightedId(result.itemId);

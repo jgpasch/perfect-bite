@@ -255,7 +255,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
       { ingredientName: key('urfa biber'), displayName: 'urfa biber', quantity: null, unit: null },
       { ingredientName: key('sumac'), displayName: 'sumac', quantity: null, unit: null },
     ]);
-    const feta = addRecipeIngredient(recipe, 'feta')!;
+    const feta = addRecipeIngredient(recipe, 'feta')!.id;
     updateRecipeIngredient(feta, '100 g labneh');
     expect(pendingNames()).toEqual(
       sorted([
@@ -280,7 +280,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
     addItem(listId, 'old thing', A);
     const recipe = createRecipe('Bibimbap');
     addRecipeIngredient(recipe, 'Doenjang');
-    const removed = addRecipeIngredient(recipe, 'removed paste')!;
+    const removed = addRecipeIngredient(recipe, 'removed paste')!.id;
     const gone = createRecipe('Gone');
     addRecipeIngredient(gone, 'mystery paste');
     // An install from before pending rows: items and recipe ingredients with no catalog row.

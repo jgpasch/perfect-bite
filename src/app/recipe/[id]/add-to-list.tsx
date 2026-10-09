@@ -8,6 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
+import { categorizePending } from '@/features/categories/categorization';
 import type { BulkConflict } from '@/features/lists/items';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { addRecipeToList, buildRecipeAdds, planRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
@@ -44,7 +45,7 @@ export default function AddRecipeToListSheet() {
   if (!recipe || !listId) return <Screen />;
 
   const finish = (keepExisting: Set<number>) => {
-    addRecipeToList(listId, adds, userId, keepExisting);
+    void categorizePending(addRecipeToList(listId, adds, userId, keepExisting));
     router.back();
     router.push({ pathname: '/list/[id]', params: { id: listId } });
   };

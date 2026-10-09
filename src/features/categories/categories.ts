@@ -59,10 +59,19 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Records an ingredient name the catalog doesn't know yet as `pending`, so it can be sent for
- * categorization. Leaves an existing row (seed, categorized, pending or failed) alone.
+ * categorization. Leaves an existing row (seed, categorized, pending or failed) alone. Returns
+ * true when it added a row, so the caller can send that name to `categorizePending`.
  */
-export function ensureLocalIngredient(tx: Tx, normalizedName: string, displayName: string): void {
-  tx.insert(ingredients).values({ normalizedName, displayName, status: 'pending' }).onConflictDoNothing().run();
+export function ensureLocalIngredient(tx: Tx, normalizedName: string, displayName: string): boolean {
+  return (
+    tx.insert(ingredients).values({ normalizedName, displayName, status: 'pending' }).onConflictDoNothing().run()
+      .changes > 0
+  );
+}
+
+/** The new pending names across several add results, once each, in order (one request per bulk add). */
+export function collectPendingNames(results: readonly ({ pendingNames: readonly string[] } | null)[]): string[] {
+  return [...new Set(results.flatMap((r) => r?.pendingNames ?? []))];
 }
 
 /**

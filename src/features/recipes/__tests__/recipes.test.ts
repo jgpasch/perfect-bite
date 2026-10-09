@@ -66,7 +66,7 @@ describe('recipes', () => {
 
   test('edit, delete and undo an ingredient', () => {
     const pie = createRecipe('Pie');
-    const flour = addRecipeIngredient(pie, '2 cups flour')!;
+    const flour = addRecipeIngredient(pie, '2 cups flour')!.id;
     updateRecipeIngredient(flour, '3 cups bread flour', 'sifted');
     expect(recipeIngredientsQuery(pie).all()[0]).toMatchObject({
       displayName: 'bread flour',
@@ -152,7 +152,7 @@ describe('ingredient history (spec 4.2)', () => {
 
   test('editing, deleting or undeleting an ingredient does not count', () => {
     const pie = createRecipe('Pie');
-    const flour = addRecipeIngredient(pie, '2 cups flour')!;
+    const flour = addRecipeIngredient(pie, '2 cups flour')!.id;
     updateRecipeIngredient(flour, '3 cups bread flour');
     deleteRecipeIngredient(flour);
     undeleteRecipeIngredient(flour);

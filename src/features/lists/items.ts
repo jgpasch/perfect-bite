@@ -71,6 +71,8 @@ export type AddItemResult = {
   totalAmountText?: string;
   /** What reopening replaced, so Undo can put it back. */
   reopened?: { checkedAt: Date; checkedBy: string | null; contributionIds: string[] };
+  /** The name, if this add was the first to record it (pending), for `categorizePending`. */
+  pendingNames: string[];
 };
 
 function liveItemsForList(tx: Tx, listId: string) {
@@ -161,7 +163,7 @@ function applyAdd(
     addedBy: meta.userId,
   };
   recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date(), contribution);
-  ensureLocalIngredient(tx, add.ingredientName, add.displayName);
+  const pendingNames = ensureLocalIngredient(tx, add.ingredientName, add.displayName) ? [add.ingredientName] : [];
 
   if (decision.kind === 'new') {
     const itemId = newId();
@@ -176,7 +178,7 @@ function applyAdd(
       })
       .run();
     tx.insert(listItemContributions).values({ ...contribution, listItemId: itemId }).run();
-    return { itemId, contributionId, kind: 'new' };
+    return { itemId, contributionId, kind: 'new', pendingNames };
   }
 
   const item = getItem(tx, decision.itemId);
@@ -193,6 +195,7 @@ function applyAdd(
         [...previous, contribution],
         usualUnitFor(tx, list.householdId, item.ingredientName),
       ),
+      pendingNames,
     };
   }
 
@@ -210,6 +213,7 @@ function applyAdd(
     contributionId,
     kind: 'reopen',
     reopened: { checkedAt: item.checkedAt!, checkedBy: item.checkedBy, contributionIds: previous.map((c) => c.id) },
+    pendingNames,
   };
 }
 
@@ -460,14 +464,15 @@ export type ItemEdit = {
 /**
  * Saves the item edit sheet. The amount is text (`2 lb`); when it changes, the item's amounts
  * are replaced by that one amount. Throws `DuplicateItemError` if a rename would make a second
- * open item for the same ingredient, and a plain Error for an unreadable amount.
+ * open item for the same ingredient, and a plain Error for an unreadable amount. Returns the new
+ * name if the rename recorded it as pending, for `categorizePending`.
  */
-export function updateItem(itemId: string, edit: ItemEdit, userId: string | null = null): void {
+export function updateItem(itemId: string, edit: ItemEdit, userId: string | null = null): string[] {
   const name = edit.name.trim().replace(/\s+/g, ' ');
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) throw new Error('An item needs a name');
 
-  db.transaction((tx) => {
+  return db.transaction((tx) => {
     const item = getItem(tx, itemId);
     if (item.checkedAt === null && findOpenItem(tx, item.listId, ingredientName, item.id)) {
       throw new DuplicateItemError(name);
@@ -476,7 +481,8 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
       .set({ displayName: name, ingredientName, note: edit.note.trim() || null })
       .where(eq(listItems.id, itemId))
       .run();
-    if (ingredientName !== item.ingredientName) ensureLocalIngredient(tx, ingredientName, name);
+    const pendingNames =
+      ingredientName !== item.ingredientName && ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
 
     // Spec 4.3.2: a per-user override for the ingredient, on every list.
     if (userId && edit.categoryId !== undefined) {
@@ -493,11 +499,12 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
     // Unchanged (including a combined `1 gal + 1`, which isn't itself a parseable amount).
     // Compared with the total the sheet showed, so with the usual unit of the name it opened with.
     if (edit.amount.trim() === itemTotal(contributions, usualUnitFor(tx, item.householdId, item.ingredientName))) {
-      return;
+      return pendingNames;
     }
     const amount = parseAmount(edit.amount);
     if (!amount) throw new Error(`"${edit.amount.trim()}" isn't an amount, like 2 or 1 lb`);
     replaceAmounts(tx, item, contributions, amount);
+    return pendingNames;
   });
 }
 
