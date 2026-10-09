@@ -19,7 +19,7 @@ When you develop, everything runs on your Mac:
 | **Phone database** | SQLite inside the app. Lists, items, recipes and categories live here | On the simulator/device |
 | **Supabase** | The backend: Postgres, sign-in, Realtime, Edge Functions | Docker containers on your Mac, ports 553xx |
 
-The app is **local-first**: it reads and writes its own SQLite database, so it works offline. Supabase currently handles sign-in and the `profiles` table only. Syncing lists and recipes to Supabase arrives in milestone M5. Until then you won't see list data in Supabase Studio. That's expected.
+The app is **local-first**: it reads and writes its own SQLite database, so it works offline. Supabase currently handles sign-in, `profiles`, and the `households` and `household_members` tables behind the read-only Households screen. Syncing lists and recipes to Supabase arrives in milestone M5. Until then you won't see list data in Supabase Studio. That's expected.
 
 ### Supabase in a nutshell
 
@@ -113,6 +113,21 @@ sqlite3 "$(xcrun simctl get_app_container booted com.jgp.perfectbite data)/Docum
 ```
 
 Then `.tables`, or `select * from list_items;`.
+
+**Adding a test household member:** invites don't exist until M7, so a household only has you. To see another member on Settings > Households > your household, sign in once as a second user (any other email, so they get a `profiles` row), then sign back in as yourself and run this in Studio's SQL editor or `psql`, with your email and theirs:
+
+```sql
+insert into public.household_members (household_id, user_id, role, position)
+select hm.household_id,
+       sam.id,
+       'member',
+       coalesce((select max(position) from public.household_members where user_id = sam.id), 0) + 1
+from public.household_members hm
+join auth.users me  on me.id = hm.user_id and me.email = 'you@example.com'
+join auth.users sam on sam.email = 'sam@example.com';
+```
+
+This adds them to every household you're in. Leave the screen and come back to see them. Use `'owner'` instead of `'member'` to add a second owner. To remove them again: `delete from public.household_members where user_id = (select id from auth.users where email = 'sam@example.com') and role = 'member';`.
 
 ## Running on your iPhone
 
