@@ -199,6 +199,29 @@ export const listItemContributions = sqliteTable(
   (t) => [index('list_item_contributions_item_idx').on(t.listItemId)],
 );
 
+/**
+ * The household's ingredient history, for autocomplete (spec 4.2). One row per ingredient key.
+ * Outlives list items and recipes: deleting an item doesn't forget that the household buys it.
+ */
+export const ingredientUsage = sqliteTable(
+  'ingredient_usage',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** Ingredient key (`normalizeIngredientName`). */
+    ingredientName: text('ingredient_name').notNull(),
+    /** The most recent text the household typed for it. */
+    displayName: text('display_name').notNull(),
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }).notNull(),
+    /** Set by "Remove from suggestions"; cleared by the next use. */
+    hiddenAt: integer('hidden_at', { mode: 'timestamp_ms' }),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
+);
+
 /** Per-user settings (spec 5). Synced in M5. */
 export const userSettings = sqliteTable('user_settings', {
   userId: text('user_id').primaryKey(),
@@ -207,6 +230,7 @@ export const userSettings = sqliteTable('user_settings', {
 
 export type Category = typeof categories.$inferSelect;
 export type Household = typeof households.$inferSelect;
+export type IngredientUsage = typeof ingredientUsage.$inferSelect;
 export type List = typeof lists.$inferSelect;
 export type ListItem = typeof listItems.$inferSelect;
 export type ListItemContribution = typeof listItemContributions.$inferSelect;
