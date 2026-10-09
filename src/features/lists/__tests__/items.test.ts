@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
-import { db, ingredientUsage, lists } from '@/db';
+import { db, households, ingredientUsage, lists } from '@/db';
 import { resetDb } from '@/test/db';
 
 import {
@@ -16,6 +16,7 @@ import {
   groupItems,
   listItemsQuery,
   planBulkAddToList,
+  searchRecentItems,
   setItemChecked,
   uncheckAll,
   undeleteItem,
@@ -244,6 +245,105 @@ describe('ingredient history (spec 4.2)', () => {
     addItem(listId, '1 gal milk', USER);
     addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '!!' }, { text: 'eggs' }], USER, new Set([0]));
     expect(counts()).toEqual({ egg: 1, milk: 1 });
+  });
+});
+
+describe('searchRecentItems (spec 4.2)', () => {
+  const NOW = new Date('2026-10-09T12:00:00Z');
+  const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
+  const householdId = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+  const seed = (
+    ingredientName: string,
+    displayName: string,
+    useCount: number,
+    lastUsedAt: Date,
+    extra: { hiddenAt?: Date; householdId?: string } = {},
+  ) =>
+    db
+      .insert(ingredientUsage)
+      .values({ householdId: extra.householdId ?? householdId(), ingredientName, displayName, useCount, lastUsedAt, hiddenAt: extra.hiddenAt ?? null })
+      .run();
+  const search = (q: string, limit = 5) => searchRecentItems(householdId(), q, limit, NOW);
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('returns key and latest display name from ingredient history', () => {
+    seed('chicken thigh', 'Chicken Thighs', 2, daysAgo(1));
+    expect(search('chi')).toEqual([{ key: 'chicken thigh', displayName: 'Chicken Thighs' }]);
+  });
+
+  test('an item used 5 times outranks one used once yesterday', () => {
+    seed('chicken breast', 'chicken breast', 1, daysAgo(1));
+    seed('chicken thigh', 'chicken thighs', 5, daysAgo(10));
+    expect(search('chi').map((s) => s.key)).toEqual(['chicken thigh', 'chicken breast']);
+  });
+
+  test('a deleted list item stays in history', () => {
+    jest.useFakeTimers({ now: daysAgo(2) });
+    const r = addItem(listId, '2 lbs chicken thighs', USER)!;
+    deleteItem(r.itemId);
+    jest.useRealTimers();
+    expect(view().unchecked).toEqual([]);
+    expect(search('chi')).toEqual([{ key: 'chicken thigh', displayName: 'chicken thighs' }]);
+  });
+
+  test('an undone add leaves nothing to suggest', () => {
+    undoAdd(addItem(listId, 'chiken', USER)!);
+    expect(search('chi')).toEqual([]);
+  });
+
+  test('matches the start of a word, not the middle of one', () => {
+    seed('chicken thigh', 'chicken thighs', 1, daysAgo(1));
+    seed('pistachio', 'pistachios', 1, daysAgo(1));
+    expect(search('thi').map((s) => s.key)).toEqual(['chicken thigh']);
+    expect(search('chio')).toEqual([]);
+  });
+
+  test('a row whose key matches but display name does not still reaches the ranking', () => {
+    seed('zaatar', "za'atar", 1, daysAgo(1));
+    expect(search('zaa')).toEqual([{ key: 'zaatar', displayName: "za'atar" }]);
+  });
+
+  test('a whole-name prefix beats a word match at equal score', () => {
+    seed('cream cheese', 'cream cheese', 1, daysAgo(3));
+    seed('cheese', 'cheese', 1, daysAgo(3));
+    expect(search('chee').map((s) => s.key)).toEqual(['cheese', 'cream cheese']);
+  });
+
+  test('leaves out hidden rows and other households', () => {
+    db.insert(households).values({ id: 'other', name: 'Other' }).run();
+    seed('chicken thigh', 'chicken thighs', 3, daysAgo(1), { hiddenAt: daysAgo(0) });
+    seed('chickpea', 'chickpeas', 3, daysAgo(1), { householdId: 'other' });
+    seed('chive', 'chives', 1, daysAgo(1));
+    expect(search('chi').map((s) => s.key)).toEqual(['chive']);
+  });
+
+  test('applies the limit after ranking', () => {
+    seed('chive', 'chives', 1, daysAgo(1));
+    seed('chili', 'chili', 2, daysAgo(1));
+    seed('chicken thigh', 'chicken thighs', 9, daysAgo(1));
+    expect(search('chi', 2).map((s) => s.key)).toEqual(['chicken thigh', 'chili']);
+  });
+
+  test('case and surrounding space in the query are ignored', () => {
+    seed('milk', 'Milk', 1, daysAgo(1));
+    expect(search('  MIL ')).toEqual([{ key: 'milk', displayName: 'Milk' }]);
+  });
+
+  test('an empty query or LIKE wildcards alone return nothing', () => {
+    seed('milk', 'milk', 1, daysAgo(1));
+    expect(search('')).toEqual([]);
+    expect(search('  ')).toEqual([]);
+    expect(search('%')).toEqual([]);
+    expect(search('_')).toEqual([]);
+  });
+
+  test('a wildcard in the query is treated as nothing, not as any character', () => {
+    seed('milk', 'milk', 1, daysAgo(1));
+    expect(search('m_lk')).toEqual([]);
+    expect(search('mi%')).toEqual([{ key: 'milk', displayName: 'milk' }]);
   });
 });
 

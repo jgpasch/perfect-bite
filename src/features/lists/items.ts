@@ -1,8 +1,9 @@
 // List items (spec 4.2, 4.4): local reads and writes. M5 adds the outbox write beside each of these.
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, max, ne, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle-orm';
 
 import {
   db,
+  ingredientUsage,
   ingredients,
   listItemContributions,
   listItems,
@@ -15,6 +16,7 @@ import { effectiveCategoryId } from '@/domain/category-resolver';
 import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
 import { summarizeAmounts } from '@/domain/quantity-math';
+import { rankHistory } from '@/domain/suggestion-rank';
 import { clearCategoryOverride, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
@@ -607,26 +609,32 @@ function listItemsQueryForItem(itemId: string) {
 }
 
 /**
- * Autocomplete, first source (spec 4.2): names this household has added before, most recent
- * first, matching `prefix` at the start of the name or of a word.
+ * Autocomplete, first source (spec 4.2): the household's ingredient history, ordered by
+ * `rankHistory` (frecency). SQL only pre-filters on the start of the display name or key, or of
+ * one of their words, so every row `rankHistory` could match reaches it.
  */
-export function searchRecentItems(householdId: string, prefix: string, limit: number) {
+export function searchRecentItems(householdId: string, prefix: string, limit: number, now = new Date()) {
   const p = prefix.trim().toLowerCase().replace(/[%_]/g, '');
   if (!p) return [];
-  return db
-    .select({ key: listItems.ingredientName, displayName: max(listItems.displayName) })
-    .from(listItems)
+  const candidates = db
+    .select()
+    .from(ingredientUsage)
     .where(
       and(
-        eq(listItems.householdId, householdId),
-        or(like(listItems.displayName, `${p}%`), like(listItems.displayName, `% ${p}%`)),
+        eq(ingredientUsage.householdId, householdId),
+        isNull(ingredientUsage.hiddenAt),
+        or(
+          like(ingredientUsage.displayName, `${p}%`),
+          like(ingredientUsage.displayName, `% ${p}%`),
+          like(ingredientUsage.ingredientName, `${p}%`),
+          like(ingredientUsage.ingredientName, `% ${p}%`),
+        ),
       ),
     )
-    .groupBy(listItems.ingredientName)
-    .orderBy(desc(max(listItems.createdAt)))
-    .limit(limit)
-    .all()
-    .map((r) => ({ key: r.key, displayName: r.displayName ?? r.key }));
+    .all();
+  return rankHistory(candidates, p, now)
+    .slice(0, limit)
+    .map((r) => ({ key: r.ingredientName, displayName: r.displayName }));
 }
 
 /** "Check all" in a recipe section (spec 4.6). */
