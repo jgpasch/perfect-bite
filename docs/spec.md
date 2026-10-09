@@ -93,6 +93,8 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 - Return adds the item and keeps the keyboard up for the next one.
 - Light quantity parsing on input: a leading number and optional unit are pulled out. `2 lbs chicken thighs` becomes quantity `2`, unit `lb`, name `chicken thighs`. `milk` has no quantity. Number words (`two avocados`) are parsed too, since Siri dictation produces them. The item row has an edit sheet for name, quantity, unit, note, and category.
 - Supported units [Default]: count (none), `g`, `kg`, `oz`, `lb`, `ml`, `l`, `tsp`, `tbsp`, `cup`, `fl oz`, `pt`, `qt`, `gal`, `can`, `jar`, `bag`, `box`, `bunch`, `clove`, `pinch`, `dozen`. Unknown unit words stay part of the name.
+- **Usual unit** (`ingredient_unit_usage`, 5): household history also counts the units each ingredient is bought in. Every add or recipe ingredient that has a quantity counts one use of its unit (count when it has none); undoing the add takes it back, and an add with no quantity counts no unit. The usual unit is the most-used one; ties go to the most recently used, then alphabetical. An add with no amount counts as one of the usual unit when totals are computed (4.4). Existing data is backfilled once on upgrade.
+- **Changing an amount**: under the Amount field, the edit sheet has a − / + stepper and a unit button. Both save immediately, and the Amount field follows the new total. Step sizes: 1 for count, `can`, `jar`, `bag`, `box`, `bunch`, `clove`, `pinch`, `dozen`, `oz`, `fl oz`, `pt`, `qt`, `gal`; 0.5 for `lb`, `kg`, `l`, `tsp`, `tbsp`; 0.25 for `cup`; 100 for `g`, `ml`. Results are rounded to the step, and − stops at one step (it's disabled there). An item with no amount steps from one of its usual unit, so + on `milk` usually bought by the gallon gives `2 gal`. The unit button opens a menu of the units above plus "Count"; picking one keeps the number and changes only the unit (`2 lb` becomes `2 kg`, not converted). Either change replaces the item's amounts with the single new amount; recipe links with no quantity stay so By recipe view keeps them. When the total isn't a single amount (`2 cans + 400 g`), the stepper and unit button are disabled and the amount is edited as text.
 - Name normalization (produces the ingredient key): lowercase, trim, collapse whitespace, strip punctuation, simple English singularization (`tomatoes` to `tomato`, `berries` to `berry`, with an exception list such as `hummus`, `asparagus`, `molasses`, `grits`). The user's original text is kept as the item's display name. The normalizer lives in `src/shared/` and is used unchanged by the app and the Edge Functions, so client and server always agree on the key.
 - Tap a row to check it off. Checked items move to a collapsed "Checked" section at the bottom of the list (they are not deleted). Swipe to delete; undo toast for 5 seconds.
 
@@ -119,13 +121,14 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 ### 4.4 Duplicate handling (req 8)
 A duplicate is an add whose normalized ingredient matches an **unchecked** item already on the same list.
 
-- **Single add in the app**: no prompt, so the add field never blocks the next item (goal 1). The new quantity is added to the existing item as a new contribution (**Combine**), the existing row briefly highlights, and a toast appears for 5 seconds: "Added to *milk* (now 1 gal + 1). **Undo**". The amount is the item's new total and is left off when there is none.
+- **Single add in the app**: no prompt, so the add field never blocks the next item (goal 1). The new quantity is added to the existing item as a new contribution (**Combine**), the existing row briefly highlights, and a toast appears for 5 seconds: "Added to *milk* (now 2 gal). **Undo**". The amount is the item's new total (4.4 quantity math, so `milk` added to `1 gal milk` reads `2 gal` when milk is usually bought by the gallon, and `1 gal + 1` when no unit is known yet) and is left off when there is none.
   - **Undo**: removes the add, leaving the item as it was. (A single in-app add never comes from a recipe, so there is no separate Keep existing here; that choice lives in the bulk sheet below.)
   - Undo is also available later from the item's edit sheet, which lists its contributions with a delete control on each.
 - **Adds with no UI always Combine silently**: Siri adds (4.9), adds that arrive by sync from a household member, and offline-conflict resolution (7.3). The toast only shows on the device doing an in-app add.
 - **Quantity math**: if both quantities share a unit, or convertible units within the same dimension (mass with mass, volume with volume, metric and US customary both allowed), sum them.
   - **Display rule** [Default]: show the sum in the unit of the larger contribution, rounded to a friendly value (nearest 1/4 for cup/tsp/tbsp, 0.1 for lb/kg/l, whole numbers for g/ml/count). If rounding would hide a contribution (e.g. `1 cup + 1 tsp` rounds to `1 cup`), show both instead: `1 cup + 1 tsp`.
-  - If either has no quantity, the item shows contributions joined (e.g. `1 gal + 1`). If units are incompatible (`2 cans` + `400 g`), the row shows both (`2 cans + 400 g`). No error.
+  - **Adds with no amount count as one** of the ingredient's usual unit (4.2), or a unitless one when no usual unit is known, and sum like any other contribution. So `milk` + `milk` reads `2`, and `1 gal` + `milk` reads `2 gal` when milk is usually bought by the gallon (`1 gal + 1` with no history). Stored quantities stay null; the rule applies only when totals are computed. A lone add with no amount still shows no amount. Recipe links added with Keep existing have no quantity and don't count.
+  - If units are incompatible (`2 cans` + `400 g`), the row shows them joined (`2 cans + 400 g`). No error.
 - **If the matching item is checked**: no prompt. The item is unchecked and its contributions are replaced with the new one (you bought it before; you need it again).
 - **Bulk add** (adding a recipe to a list): one sheet lists every conflict with a per-row Combine / Keep existing toggle, plus "Combine all" and "Keep all existing".
 
@@ -371,6 +374,18 @@ create table ingredient_usage (
   primary key (household_id, ingredient_name)
 );
 
+-- Units each ingredient is bought in, for its usual unit (4.2). Household data synced in M5, kept out
+-- of ingredient_usage so it merges with plain counters: use_count merges as a counter (like
+-- ingredient_usage.use_count) and last_used_at as the max of both sides. No other merge logic.
+create table ingredient_unit_usage (
+  household_id    uuid not null references households,
+  ingredient_name text not null,                         -- ingredient key
+  unit_key        text not null,                         -- a supported unit, or 'count' for a quantity with no unit
+  use_count       int not null default 0,
+  last_used_at    timestamptz not null,
+  primary key (household_id, ingredient_name, unit_key)
+);
+
 -- Per-user preferences (req 6, 9). Never shared with the household.
 create table user_category_overrides (
   user_id         uuid references auth.users on delete cascade,
@@ -404,7 +419,7 @@ Note the `create table` order above is for readability; the real migration must 
 
 **Unknown ingredients on insert**: clients can't write `ingredients` (RLS). A `before insert` trigger on `list_items` and `recipe_ingredients` (a `security definer` function) inserts a `pending` ingredient row if the name is missing (`on conflict do nothing`) and records the household in `ingredient_households`. So a list item can always be pushed, even before categorization has run.
 
-**Ingredient history and Siri**: `ingredient_usage` is written by the app in the same local transaction as the add. Siri adds go through the `siri-add` Edge Function (4.9), so they aren't counted until M5 sync, when the server records the use and it syncs down like any other household row.
+**Ingredient history and Siri**: `ingredient_usage` and `ingredient_unit_usage` are written by the app in the same local transaction as the add. Siri adds go through the `siri-add` Edge Function (4.9), so they aren't counted until M5 sync, when the server records the use and it syncs down like any other household row.
 
 **Effective category** for a user and ingredient = `user_category_overrides.category_id` if present, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed).
 
@@ -599,7 +614,7 @@ Acceptance criteria:
 6. **Batching**: adding a 12-ingredient recipe with 8 unknown ingredients makes exactly one function request and one LLM call.
 7. **Override**: user A moves "tahini" to Pantry; user A sees it in Pantry on every list and device; user B in the same household still sees the default.
 8. **Shared household**: after B accepts A's invite to "Test home", B sees its lists in a new section next to B's personal household; an item checked by A appears checked on B's device within a few seconds while both are online.
-9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row showing both quantities, and shows the toast with the keyboard still up; the toast reads "Added to milk (now 1 gal + 1)" with a single Undo, which restores the original row. Adding a recipe with 3 conflicts shows one bulk sheet.
+9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row whose total counts the new add as one, and shows the toast with the keyboard still up; with no unit history for milk the toast reads "Added to milk (now 1 gal + 1)", and when milk is usually bought by the gallon it reads "Added to milk (now 2 gal)", with a single Undo, which restores the original row. Adding a recipe with 3 conflicts shows one bulk sheet.
 10. **Category order**: user A drags Dairy above Produce; A's lists show Dairy first on all of A's devices; B's order is unchanged.
 11. **Multiple lists**: create, rename, reorder and delete lists; items are independent per list.
 12. **View modes**: switching to By recipe shows recipe sections plus Other items; an item from two recipes appears under both, and checking it in one checks it in both.
