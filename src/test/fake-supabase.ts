@@ -6,6 +6,8 @@
 //
 // Table queries: `supabase.from('lists').select('*').gte(...)` records a `RecordedQuery` and
 // resolves with whatever `respondTo` / `onQuery` returns (default `{ data: null, error: null }`).
+// RPCs: `supabase.rpc('fn', args)` records a `RecordedRpc` and resolves the same way, scripted with
+// `respondToRpc` / `onRpc`.
 // Edge Functions, Storage and Auth are `jest.fn()`s: override them with `mockResolvedValue` etc.
 import { jest } from '@jest/globals';
 import type { Session } from '@supabase/supabase-js';
@@ -84,7 +86,42 @@ function queryBuilder(table: string) {
   return builder;
 }
 
-type AuthListener = (event: string, session: Session | null) => void;
+/** One `supabase.rpc(fn, args)` call. */
+export type RecordedRpc = { fn: string; args: Record<string, unknown> | undefined };
+
+type RpcHandler = (call: RecordedRpc) => QueryResult | undefined;
+
+/** Every RPC call since the last reset, in order. */
+export const rpcCalls: RecordedRpc[] = [];
+
+const queuedRpc = new Map<string, QueryResult[]>();
+let rpcHandler: RpcHandler | undefined;
+
+/** Queues a result for the next call to `fn` (FIFO). Takes precedence over `onRpc`. */
+export function respondToRpc(fn: string, ...results: QueryResult[]) {
+  queuedRpc.set(fn, [...(queuedRpc.get(fn) ?? []), ...results]);
+}
+
+/** Computes results for RPC calls that have nothing queued. */
+export function onRpc(next: RpcHandler) {
+  rpcHandler = next;
+}
+
+/** Calls to one function. */
+export function rpcCallsFor(fn: string): RecordedRpc[] {
+  return rpcCalls.filter((c) => c.fn === fn);
+}
+
+function rpc(fn: string, args?: Record<string, unknown>): Promise<QueryResult> {
+  const call: RecordedRpc = { fn, args };
+  rpcCalls.push(call);
+  return Promise.resolve().then(() => {
+    const fromQueue = queuedRpc.get(fn)?.shift();
+    return { data: null, error: null, ...(fromQueue ?? rpcHandler?.(call) ?? {}) };
+  });
+}
+
+type AuthListener =(event: string, session: Session | null) => void;
 const authListeners: AuthListener[] = [];
 
 /** Calls every `onAuthStateChange` listener, as supabase-js would. */
@@ -111,6 +148,7 @@ const storageUpload = jest.fn<AsyncFn>();
 
 export const supabase = {
   from: jest.fn((table: string) => queryBuilder(table)),
+  rpc: jest.fn(rpc),
   functions: {
     invoke: jest.fn<AsyncFn>(),
   },
@@ -138,15 +176,25 @@ export function storageUploads() {
   return storageUpload.mock.calls;
 }
 
-export const isSupabaseConfigured = true;
+export let isSupabaseConfigured = true;
+
+/** Simulates missing EXPO_PUBLIC_SUPABASE_* env vars. `resetSupabase` sets it back to true. */
+export function setSupabaseConfigured(configured: boolean) {
+  isSupabaseConfigured = configured;
+}
 
 /** Clears recorded calls, queued results and listeners; restores default responses. Call in `beforeEach`. */
 export function resetSupabase() {
   queries.length = 0;
   queued.clear();
   handler = undefined;
+  rpcCalls.length = 0;
+  queuedRpc.clear();
+  rpcHandler = undefined;
+  isSupabaseConfigured = true;
   authListeners.length = 0;
   supabase.from.mockClear();
+  supabase.rpc.mockReset().mockImplementation(rpc);
   supabase.storage.from.mockClear();
   storageUpload.mockReset().mockImplementation(ok);
   supabase.functions.invoke.mockReset().mockImplementation(ok);
