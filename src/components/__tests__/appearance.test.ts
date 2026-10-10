@@ -19,7 +19,7 @@ import {
   siriMarkColors,
   toastAnnouncement,
 } from '@/components/appearance';
-import { AisleColors, Opacity, Palette, Sizes, type ColorScheme } from '@/constants/theme';
+import { AisleColors, Opacity, Palette, Sizes, Spacing, type ColorScheme } from '@/constants/theme';
 import { contrastRatio, mix } from '@/domain/contrast';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 
@@ -367,6 +367,16 @@ describe('sizes', () => {
     expect((Sizes.minTapTarget - Sizes.barButton) / 2).toBe(2);
     expect(Sizes.cta).toBeGreaterThanOrEqual(Sizes.minTapTarget);
     expect(Sizes.softButton).toBeGreaterThanOrEqual(Sizes.minTapTarget);
+  });
+
+  it('grows the 24 pt check to 44 pt with hit slop that stays inside the item row', () => {
+    const slop = (Sizes.minTapTarget - Sizes.check) / 2;
+    expect(slop).toBe(10);
+    // The row has lg padding before the check and an md gap after it, so the slop never reaches the
+    // row's edge or the name beside it, and a 50 pt row has room for it above and below.
+    expect(slop).toBeLessThanOrEqual(Spacing.lg);
+    expect(slop).toBeLessThan(Spacing.md);
+    expect(Sizes.check + 2 * slop).toBeLessThanOrEqual(Sizes.cardRowMin);
   });
 
   it('centres the 40 pt buttons inside the 52 pt bar', () => {

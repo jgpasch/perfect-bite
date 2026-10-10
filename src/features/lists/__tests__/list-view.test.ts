@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   addedToast,
   alsoInHint,
+  checkOffLabel,
   groupListsByHousehold,
   itemRowLabel,
   pairs,
@@ -10,6 +11,7 @@ import {
   tileAccessibilityLabel,
   tileCount,
   toGetLabel,
+  toggleActionLabel,
 } from '../list-view';
 
 const list = (id: string, householdId: string, householdName: string) => ({ id, householdId, householdName });
@@ -124,6 +126,26 @@ describe('itemRowLabel', () => {
   it('keeps the Sorting section’s label on a sorting row', () => {
     expect(itemRowLabel({ name: 'gochujang' }, true)).toBe('gochujang, Sorting, finding a section for these items');
     expect(SORTING_LABEL).toBe('Sorting…');
+  });
+});
+
+describe('checkOffLabel', () => {
+  it('names the item', () => {
+    expect(checkOffLabel('Limes')).toBe('Check off Limes');
+  });
+
+  it('keeps the name as shown, case and spaces included', () => {
+    expect(checkOffLabel('chicken thighs')).toBe('Check off chicken thighs');
+  });
+});
+
+describe('toggleActionLabel', () => {
+  it('offers to check off an open item', () => {
+    expect(toggleActionLabel(false)).toBe('Check off');
+  });
+
+  it('offers to uncheck a checked item', () => {
+    expect(toggleActionLabel(true)).toBe('Uncheck');
   });
 });
 

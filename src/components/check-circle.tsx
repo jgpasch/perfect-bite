@@ -9,7 +9,7 @@ type Props = {
   /** "Sorting…": the item is waiting for an aisle. Shows a dashed amber ring. */
   pending?: boolean;
   /**
-   * Makes the check its own 44 pt checkbox. Leave it out when the whole row is the tap target: the
+   * Makes the check its own checkbox, with a 44 pt hit area. Leave it out when the whole row is the tap target: the
    * row then carries `accessibilityRole="checkbox"` and the checked state, and the check is decorative.
    */
   onPress?: () => void;
@@ -53,10 +53,9 @@ export function CheckCircle({ checked, pending, onPress, accessibilityLabel }: P
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [
-        styles.hit,
-        { minWidth: sizes.minTapTarget, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
-      ]}>
+      // Grown to 44 pt with hit slop, so the circle and the row's layout stay as drawn.
+      hitSlop={(sizes.minTapTarget - sizes.check) / 2}
+      style={({ pressed }) => ({ opacity: pressed ? opacity.pressed : 1 })}>
       {circle}
     </Pressable>
   );
@@ -64,5 +63,4 @@ export function CheckCircle({ checked, pending, onPress, accessibilityLabel }: P
 
 const styles = StyleSheet.create({
   circle: { alignItems: 'center', justifyContent: 'center' },
-  hit: { alignItems: 'center', justifyContent: 'center' },
 });

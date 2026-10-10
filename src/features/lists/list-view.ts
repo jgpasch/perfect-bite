@@ -75,6 +75,16 @@ export function itemRowLabel(
     .join(', ');
 }
 
+/** What VoiceOver reads for an item's round check: "Check off Limes" (its checked state is read separately). */
+export function checkOffLabel(name: string): string {
+  return `Check off ${name}`;
+}
+
+/** The custom action on an item row that toggles its check: "Check off", or "Uncheck" once it's checked. */
+export function toggleActionLabel(checked: boolean): string {
+  return checked ? 'Uncheck' : 'Check off';
+}
+
 /** The toast after an add merged into an item: "Added to milk, now 1 gal + 1"; the name is set in bold. */
 export function addedToast(name: string, totalAmountText: string | null | undefined): { message: string; emphasis: string } {
   return { message: totalAmountText ? `Added to ${name}, now ${totalAmountText}` : `Added to ${name}`, emphasis: name };
