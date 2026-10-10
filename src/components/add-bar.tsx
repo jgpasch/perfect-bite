@@ -14,13 +14,23 @@ type Props = {
   accessibilityLabel: string;
   /** Shown above the input, e.g. autocomplete suggestions. */
   accessory?: ReactNode;
+  /** Called when the input gains or loses focus. */
+  onFocusChange?: (focused: boolean) => void;
 };
 
 /**
  * The bottom add bar: a white pill input with a round + button, pinned above the keyboard.
  * Put it last in a KeyboardAvoidingView.
  */
-export function AddBar({ value, onChangeText, onSubmit, placeholder, accessibilityLabel, accessory }: Props) {
+export function AddBar({
+  value,
+  onChangeText,
+  onSubmit,
+  placeholder,
+  accessibilityLabel,
+  accessory,
+  onFocusChange,
+}: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, typography, opacity } = useTheme();
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
@@ -56,8 +66,8 @@ export function AddBar({ value, onChangeText, onSubmit, placeholder, accessibili
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onFocus={() => (setFocused(true), onFocusChange?.(true))}
+          onBlur={() => (setFocused(false), onFocusChange?.(false))}
           submitBehavior="submit"
           returnKeyType="done"
           placeholder={placeholder}

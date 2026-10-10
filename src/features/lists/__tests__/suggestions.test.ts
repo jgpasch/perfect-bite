@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
 import { db, households, ingredientUsage, lists } from '@/db';
 import { loadCatalogSeed, searchCatalog } from '@/features/categories/categories';
+import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
+import { parseQuantity } from '@/shared';
 import { resetDb } from '@/test/db';
 
-import { addItem } from '../items';
-import { ensureStarterData, getDefaultListId } from '../lists';
-import { applySuggestion, getSuggestions, suggestionCaption } from '../suggestions';
+import { addItem, deleteItem, setItemChecked, undoAdd } from '../items';
+import { createList, ensureStarterData, getDefaultListId } from '../lists';
+import { applySuggestion, getRecentItems, getSuggestions, suggestionCaption } from '../suggestions';
 import { hideFromSuggestions } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -211,5 +213,133 @@ describe('suggestionCaption (board 03)', () => {
 
   test('says SUGGESTIONS for none', () => {
     expect(suggestionCaption([])).toBe('SUGGESTIONS');
+  });
+});
+
+describe('getRecentItems (spec 4.2, RECENTLY USED)', () => {
+  const NOW = new Date('2026-10-10T12:00:00Z');
+  const DAY = 24 * 60 * 60 * 1000;
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  /** A history row that isn't on any list. */
+  const history = (displayName: string, useCount: number, daysAgo: number, hid = householdId) =>
+    db
+      .insert(ingredientUsage)
+      .values({
+        householdId: hid,
+        ingredientName: displayName,
+        displayName,
+        useCount,
+        lastUsedAt: new Date(NOW.getTime() - daysAgo * DAY),
+      })
+      .run();
+
+  /** Adds `text` and checks it off, so it's in history but not unchecked on the list. */
+  const addChecked = (text: string, list = listId) => setItemChecked(addItem(list, text, USER)!.itemId, true, USER);
+
+  const recent = (limit?: number) => getRecentItems(householdId, listId, limit, NOW);
+  const keys = (limit?: number) => recent(limit).map((r) => r.key);
+
+  test('orders by frecency, ties by shorter name then alphabetical', () => {
+    history('apples', 4, 60); // 4 * 0.25 = 1
+    history('bread', 3, 0); // 3
+    history('cheese', 2, 0); // 2
+    history('dill', 1, 30); // 0.5
+    history('kale', 1, 0); // 1, ties with apples and eggs
+    history('eggs', 1, 0);
+    expect(keys()).toEqual(['bread', 'cheese', 'eggs', 'kale', 'apples', 'dill']);
+  });
+
+  test('a recent use outranks a higher count that has decayed', () => {
+    history('flour', 10, 150); // 10 / 32 ≈ 0.31
+    history('basil', 1, 0); // 1
+    expect(keys()).toEqual(['basil', 'flour']);
+  });
+
+  test('leaves out ingredients already unchecked on this list, matched by key', () => {
+    addItem(listId, '2 lbs chicken thighs', USER);
+    addItem(listId, 'milk', USER);
+    history('bread', 1, 0);
+    expect(keys()).toEqual(['bread']);
+  });
+
+  test('includes checked items, deleted items, and items unchecked only on another list', () => {
+    addChecked('milk');
+    deleteItem(addItem(listId, 'eggs', USER)!.itemId);
+    addItem(createList('Costco', householdId), 'rice', USER);
+    expect(keys().sort()).toEqual(['egg', 'milk', 'rice']);
+  });
+
+  test('a checked item shows until its text is added back, then leaves the panel', () => {
+    const { itemId } = addItem(listId, 'milk', USER)!;
+    expect(keys()).toEqual([]);
+    setItemChecked(itemId, true, USER);
+    expect(keys()).toEqual(['milk']);
+    // Tapping the row adds its text, which reopens the checked item.
+    const result = addItem(listId, recent()[0].text, USER)!;
+    expect(result.itemId).toBe(itemId);
+    expect(keys()).toEqual([]);
+  });
+
+  test('leaves out hidden rows until the ingredient is used again', () => {
+    history('bread', 1, 0);
+    addChecked('milk');
+    hideFromSuggestions(householdId, 'milk');
+    expect(keys()).toEqual(['bread']);
+    addChecked('milk');
+    expect(keys()).toContain('milk');
+  });
+
+  test("only shows this household's history, and an undone add takes its row back", () => {
+    db.insert(households).values({ id: 'h-other', name: 'Other' }).run();
+    history('caviar', 9, 0, 'h-other');
+    undoAdd(addItem(listId, 'tofu', USER)!);
+    expect(keys()).toEqual([]);
+  });
+
+  test('caps at 30 by default, honours a smaller limit, and gives nothing for 0', () => {
+    for (let i = 0; i < 35; i++) history(`item ${String(i).padStart(2, '0')}`, 35 - i, 0);
+    expect(keys()).toHaveLength(30);
+    expect(keys()[0]).toBe('item 00');
+    expect(keys()[29]).toBe('item 29');
+    expect(keys(3)).toEqual(['item 00', 'item 01', 'item 02']);
+    expect(keys(0)).toEqual([]);
+  });
+
+  test('an empty history gives nothing', () => {
+    expect(getRecentItems(householdId, listId)).toEqual([]);
+  });
+
+  test('the text is the last amount and name, and parses back to the same amount', () => {
+    addChecked('2 lbs chicken thighs');
+    addChecked('1 1/2 cups milk');
+    addChecked('3 avocados');
+    addChecked('bread');
+    const byKey = new Map(recent().map((r) => [r.key, r]));
+    expect(byKey.get('chicken thigh')).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', text: '2 lb chicken thighs' });
+    expect(byKey.get('milk')!.text).toBe('1½ cup milk');
+    expect(byKey.get('avocado')!.text).toBe('3 avocados');
+    expect(byKey.get('bread')!.text).toBe('bread');
+    expect(parseQuantity(byKey.get('chicken thigh')!.text)).toEqual({ quantity: 2, unit: 'lb', name: 'chicken thighs' });
+    expect(parseQuantity(byKey.get('milk')!.text)).toEqual({ quantity: 1.5, unit: 'cup', name: 'milk' });
+  });
+
+  test('the text follows the latest use, from a list or a recipe', () => {
+    jest.useFakeTimers({ now: new Date(NOW.getTime() - 3 * DAY) });
+    addChecked('2 lbs chicken thighs');
+    jest.setSystemTime(new Date(NOW.getTime() - 2 * DAY));
+    addChecked('chicken thighs');
+    expect(recent()[0].text).toBe('chicken thighs');
+
+    jest.setSystemTime(new Date(NOW.getTime() - DAY));
+    addRecipeIngredient(createRecipe('Curry'), '500 g chicken thighs');
+    expect(recent()[0].text).toBe('500 g chicken thighs');
+
+    jest.setSystemTime(NOW);
+    addChecked('3 lbs chicken thighs');
+    expect(recent()[0].text).toBe('3 lb chicken thighs');
   });
 });

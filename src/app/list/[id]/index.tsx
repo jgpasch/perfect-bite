@@ -434,6 +434,7 @@ export default function ListScreen() {
         ) : (
           <ItemAddBar
             householdId={list.householdId}
+            listId={id}
             onAdd={add}
             placeholder="Add an item, like 2 lbs chicken thighs"
             accessibilityLabel="Add an item"

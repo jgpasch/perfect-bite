@@ -1,3 +1,8 @@
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+
+import { db, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
+import { formatAmount, type Amount } from '@/domain/quantity-display';
+import { frecency } from '@/domain/suggestion-rank';
 import { searchCatalog } from '@/features/categories/categories';
 import { parseQuantity } from '@/shared';
 
@@ -45,4 +50,96 @@ export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key'
   const trimmed = text.trim();
   const prefix = name && trimmed.endsWith(name) ? trimmed.slice(0, trimmed.length - name.length) : '';
   return `${prefix}${suggestion.displayName}`;
+}
+
+/** A "RECENTLY USED" row. `text` is what tapping it adds: the last amount used plus the name (`2 lb chicken thighs`). */
+export type RecentItem = { key: string; displayName: string; text: string };
+
+/**
+ * The add bar's "RECENTLY USED" panel (spec 4.2), shown while it's focused and empty: the household's history by
+ * frecency (ties as in autocomplete: shorter name, then alphabetical), leaving out hidden rows and ingredients already
+ * unchecked on `listId`. Checked items stay, so they can be added back.
+ */
+export function getRecentItems(householdId: string, listId: string, limit = 30, now = new Date()): RecentItem[] {
+  const onList = new Set(
+    db
+      .select({ key: listItems.ingredientName })
+      .from(listItems)
+      .where(and(eq(listItems.listId, listId), isNull(listItems.deletedAt), isNull(listItems.checkedAt)))
+      .all()
+      .map((r) => r.key),
+  );
+  const rows = db
+    .select()
+    .from(ingredientUsage)
+    .where(and(eq(ingredientUsage.householdId, householdId), isNull(ingredientUsage.hiddenAt)))
+    .all()
+    .filter((r) => !onList.has(r.ingredientName))
+    .map((row) => ({ row, score: frecency(row, now) }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.row.displayName.length - b.row.displayName.length ||
+        (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
+    )
+    .slice(0, Math.max(0, limit))
+    .map((m) => m.row);
+  const amounts = lastAmounts(
+    householdId,
+    rows.map((r) => r.ingredientName),
+  );
+  return rows.map((r) => {
+    const amount = amounts.get(r.ingredientName);
+    const prefix = amount ? formatAmount(amount) : '';
+    return { key: r.ingredientName, displayName: r.displayName, text: prefix ? `${prefix} ${r.displayName}` : r.displayName };
+  });
+}
+
+/**
+ * The amount of each ingredient's latest use in the household: its newest live list amount (even on a since-deleted
+ * item, since history outlives items) or recipe ingredient, whichever came last.
+ */
+function lastAmounts(householdId: string, keys: string[]): Map<string, Amount> {
+  if (keys.length === 0) return new Map();
+  const uses = [
+    ...db
+      .select({
+        key: listItems.ingredientName,
+        quantity: listItemContributions.quantity,
+        unit: listItemContributions.unit,
+        at: listItemContributions.createdAt,
+      })
+      .from(listItemContributions)
+      .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
+      .where(
+        and(
+          eq(listItems.householdId, householdId),
+          inArray(listItems.ingredientName, keys),
+          isNull(listItemContributions.deletedAt),
+        ),
+      )
+      .all(),
+    ...db
+      .select({
+        key: recipeIngredients.ingredientName,
+        quantity: recipeIngredients.quantity,
+        unit: recipeIngredients.unit,
+        at: recipeIngredients.createdAt,
+      })
+      .from(recipeIngredients)
+      .where(
+        and(
+          eq(recipeIngredients.householdId, householdId),
+          inArray(recipeIngredients.ingredientName, keys),
+          isNull(recipeIngredients.deletedAt),
+        ),
+      )
+      .all(),
+  ];
+  const latest = new Map<string, { amount: Amount; at: Date }>();
+  for (const { key, quantity, unit, at } of uses) {
+    const found = latest.get(key);
+    if (!found || at >= found.at) latest.set(key, { amount: { quantity, unit }, at });
+  }
+  return new Map([...latest].map(([key, { amount }]) => [key, amount]));
 }
