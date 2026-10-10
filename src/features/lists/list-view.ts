@@ -71,6 +71,51 @@ export function toGetLabel(uncheckedCount: number): string | null {
   return uncheckedCount > 0 ? `${uncheckedCount} to get` : null;
 }
 
+export type ListViewMode = 'newest' | 'category' | 'recipe';
+
+/** The list screen's segments (spec 4.6), in order; each is a tab, so the hint says what it shows. */
+export const LIST_VIEW_MODES: readonly { value: ListViewMode; label: string; hint?: string }[] = [
+  { value: 'newest', label: 'Newest', hint: 'Items you added most recently first' },
+  { value: 'category', label: 'By aisle' },
+  { value: 'recipe', label: 'By recipe' },
+];
+
+/** A list with no saved choice on this device opens in Newest. */
+export const DEFAULT_LIST_VIEW_MODE: ListViewMode = 'newest';
+
+/** Where the device setting for a list's view mode lives. Saved choices from before Newest still read. */
+export const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
+
+type NewestItem = {
+  id: string;
+  createdAt: Date;
+  checkedAt: Date | null;
+  contributions: readonly { id: string; createdAt: Date }[];
+};
+
+/**
+ * The Newest view (spec 4.6): unchecked items, latest first by the earliest of each item's current
+ * amounts. A Combine adds a later amount, so the item keeps its place; re-adding a checked item
+ * replaces its amounts, so it moves to the top. A recipe add shares one timestamp and its amounts'
+ * ids (UUIDv7) count up in ingredient order, so ties go by that id, then the item's id. An item with
+ * no amounts goes by its own `createdAt` and id.
+ */
+export function orderByNewest<T extends NewestItem>(items: readonly T[]): T[] {
+  const keyed = items
+    .filter((item) => item.checkedAt === null)
+    .map((item) => {
+      let first: { id: string; createdAt: Date } | undefined;
+      for (const c of item.contributions) {
+        const t = c.createdAt.getTime();
+        if (!first || t < first.createdAt.getTime() || (t === first.createdAt.getTime() && c.id < first.id)) first = c;
+      }
+      return { item, at: (first ?? item).createdAt.getTime(), tie: (first ?? item).id };
+    });
+  const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  keyed.sort((a, b) => b.at - a.at || byId(a.tie, b.tie) || byId(a.item.id, b.item.id));
+  return keyed.map((k) => k.item);
+}
+
 /** The second line on an item that is in other recipes too (By recipe). */
 export function alsoInHint(alsoIn: readonly string[]): string | undefined {
   return alsoIn.length > 0 ? `Also in ${alsoIn.join(', ')}` : undefined;
@@ -80,14 +125,14 @@ export function alsoInHint(alsoIn: readonly string[]): string | undefined {
 export const SORTING_LABEL = 'Sorting…';
 
 /**
- * What VoiceOver reads for an item row: name, amount, note and hint, and for an item still waiting
- * for an aisle, the Sorting section's label.
+ * What VoiceOver reads for an item row: name, amount, note and hint, then its aisle (Newest shows it
+ * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
  */
 export function itemRowLabel(
-  parts: { name: string; amountText?: string; note?: string | null; hint?: string },
+  parts: { name: string; amountText?: string; note?: string | null; hint?: string; aisle?: string },
   sorting = false,
 ): string {
-  return [parts.name, parts.amountText, parts.note, parts.hint, sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : null]
+  return [parts.name, parts.amountText, parts.note, parts.hint, sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle]
     .filter(Boolean)
     .join(', ');
 }

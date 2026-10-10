@@ -8,12 +8,14 @@ import { useTheme } from '@/hooks/use-theme';
 export type Segment<T extends string> = {
   value: T;
   label: string;
+  /** What VoiceOver reads after the label, e.g. what the segment shows. */
+  hint?: string;
   /** How the segment is filled when selected; defaults to a `surface` chip. */
   tone?: SegmentTone;
 };
 
 type Props<T extends string> = {
-  segments: Segment<T>[];
+  segments: readonly Segment<T>[];
   value: T;
   onChange: (value: T) => void;
   /** The track's colour; defaults to `surfaceMuted`. Inside a card, use `background`. */
@@ -56,6 +58,7 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             accessibilityLabel={segment.label}
+            accessibilityHint={segment.hint}
             onPress={() => {
               if (!selected) onChange(segment.value);
             }}

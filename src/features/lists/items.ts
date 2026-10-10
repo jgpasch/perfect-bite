@@ -151,11 +151,13 @@ function applyAdd(
   list: { id: string; householdId: string },
   add: ParsedAdd,
   decision: AddDecision,
-  meta: { userId: string | null; source: Source; recipeId?: string | null },
+  meta: { userId: string | null; source: Source; recipeId?: string | null; at?: Date },
 ): AddItemResult {
+  const at = meta.at ?? new Date();
   const contributionId = newId();
   const contribution = {
     id: contributionId,
+    createdAt: at,
     householdId: list.householdId,
     source: meta.source,
     recipeId: meta.recipeId ?? null,
@@ -163,7 +165,7 @@ function applyAdd(
     unit: add.unit,
     addedBy: meta.userId,
   };
-  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, new Date(), contribution);
+  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, at, contribution);
   const pendingNames = ensureLocalIngredient(tx, add.ingredientName, add.displayName) ? [add.ingredientName] : [];
 
   if (decision.kind === 'new') {
@@ -176,6 +178,7 @@ function applyAdd(
         ingredientName: add.ingredientName,
         displayName: add.displayName,
         addedBy: meta.userId,
+        createdAt: at,
       })
       .run();
     tx.insert(listItemContributions).values({ ...contribution, listItemId: itemId }).run();
@@ -358,7 +361,8 @@ export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): Bul
 /**
  * Adds many items in one transaction. Conflicts Combine unless their index is in
  * `keepExisting` (the bulk sheet's per-row toggle). Returns one result per add (null if the add
- * was empty or kept nothing).
+ * was empty or kept nothing). The adds share one timestamp, so Newest (spec 4.6) keeps them
+ * together in the order given.
  */
 export function addItemsBulk(
   listId: string,
@@ -374,9 +378,10 @@ export function addItemsBulk(
       liveItemsForList(tx, listId),
     );
     const results: (AddItemResult | null)[] = [];
+    const at = new Date();
     parsed.forEach((add, i) => {
       if (!add) return results.push(null);
-      const meta = { userId, source: adds[i].source ?? 'manual', recipeId: adds[i].recipeId };
+      const meta = { userId, source: adds[i].source ?? 'manual', recipeId: adds[i].recipeId, at };
       const decision = decisions[i];
       if (decision.kind === 'sameAsEarlier') {
         const first = results[decision.index];
@@ -656,6 +661,8 @@ export type ItemView = {
   displayName: string;
   note: string | null;
   checkedAt: Date | null;
+  /** When the item row was made; Newest (spec 4.6) goes by its amounts and falls back to this. */
+  createdAt: Date;
   amounts: Amount[];
   /** The household's usual unit for the ingredient (null: a count, or nothing known). */
   usualUnit: Unit | null;
@@ -666,6 +673,7 @@ export type ItemView = {
 };
 
 export type ItemContribution = Amount & {
+  id: string;
   source: 'manual' | 'recipe' | 'siri';
   recipeId: string | null;
   recipeName: string | null;
@@ -691,6 +699,7 @@ export function groupItems(
         displayName: row.displayName,
         note: row.note,
         checkedAt: row.checkedAt,
+        createdAt: row.createdAt,
         amounts: [],
         usualUnit: usualUnits.get(row.ingredientName) ?? null,
         amountText: '',
@@ -701,6 +710,7 @@ export function groupItems(
     if (row.contributionId) {
       item.amounts.push({ quantity: row.quantity, unit: row.unit });
       item.contributions.push({
+        id: row.contributionId,
         quantity: row.quantity,
         unit: row.unit,
         source: row.source!,

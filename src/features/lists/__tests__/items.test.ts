@@ -34,6 +34,7 @@ import { getOrderedCategories, loadCatalogSeed, setCategoryOverride } from '@/fe
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
+import { orderByNewest } from '../list-view';
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
 import { listShareText } from '../share';
 
@@ -926,5 +927,79 @@ describe('item sheet "Added" rows and household (board 04)', () => {
     deleteItem(milk.itemId);
     expect(getItemHouseholdName(milk.itemId)).toBeNull();
     expect(getItemHouseholdName('no-such-item')).toBeNull();
+  });
+});
+
+describe('Newest view (spec 4.6)', () => {
+  const T0 = new Date('2026-10-10T09:00:00Z');
+  const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
+  const newest = () => orderByNewest(view().unchecked).map((i) => i.displayName);
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('groupItems carries the item and amount times and amount ids', () => {
+    jest.useFakeTimers({ now: at(0) });
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    jest.setSystemTime(at(5));
+    const more = addItem(listId, 'milk', USER)!;
+    const [item] = view().unchecked;
+    expect(item.createdAt).toEqual(at(0));
+    expect(item.contributions.map((c) => [c.id, c.createdAt])).toEqual([
+      [milk.contributionId, at(0)],
+      [more.contributionId, at(5)],
+    ]);
+  });
+
+  test('latest add first; a Combine keeps its place; a checked re-add goes to the top', () => {
+    jest.useFakeTimers({ now: at(0) });
+    const milk = addItem(listId, 'milk', USER)!;
+    jest.setSystemTime(at(1));
+    addItem(listId, 'eggs', USER);
+    jest.setSystemTime(at(2));
+    addItem(listId, 'bread', USER);
+    expect(newest()).toEqual(['bread', 'eggs', 'milk']);
+
+    jest.setSystemTime(at(3));
+    addItem(listId, '2 eggs', USER);
+    expect(newest()).toEqual(['bread', 'eggs', 'milk']);
+
+    setItemChecked(milk.itemId, true, USER);
+    expect(newest()).toEqual(['bread', 'eggs']);
+    jest.setSystemTime(at(4));
+    addItem(listId, 'milk', USER);
+    expect(newest()).toEqual(['milk', 'bread', 'eggs']);
+  });
+
+  test('a recipe add shares one timestamp and keeps its ingredient order as a block', () => {
+    jest.useFakeTimers({ now: at(0) });
+    addItem(listId, 'milk', USER);
+    const tacos = createRecipe('Tacos');
+    jest.setSystemTime(at(1));
+    addItemsBulk(
+      listId,
+      ['tortillas', 'onion', 'lime', 'cilantro'].map((text) => ({ text, source: 'recipe' as const, recipeId: tacos })),
+      USER,
+    );
+    const stamps = new Set(view().unchecked.filter((i) => i.displayName !== 'milk').map((i) => i.createdAt.getTime()));
+    expect(stamps).toEqual(new Set([at(1).getTime()]));
+    jest.setSystemTime(at(2));
+    addItem(listId, 'bread', USER);
+    expect(newest()).toEqual(['bread', 'tortillas', 'onion', 'lime', 'cilantro', 'milk']);
+  });
+
+  test('a checked item re-added by a recipe keeps its ingredient place in the block', () => {
+    jest.useFakeTimers({ now: at(0) });
+    const lime = addItem(listId, 'lime', USER)!;
+    setItemChecked(lime.itemId, true, USER);
+    const tacos = createRecipe('Tacos');
+    jest.setSystemTime(at(1));
+    addItemsBulk(
+      listId,
+      ['tortillas', 'lime', 'cilantro'].map((text) => ({ text, source: 'recipe' as const, recipeId: tacos })),
+      USER,
+    );
+    expect(newest()).toEqual(['tortillas', 'lime', 'cilantro']);
   });
 });

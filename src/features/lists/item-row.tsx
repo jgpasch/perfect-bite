@@ -26,6 +26,8 @@ type Props = {
   amountText?: string;
   /** A second line, e.g. "Also in Weeknight dal" (spec 4.6). */
   hint?: string;
+  /** Newest (spec 4.6): the item's aisle, shown as its dot beside the name and read by VoiceOver. */
+  aisle?: { name: string; dot: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
   selected?: boolean;
   onToggle: () => void;
@@ -45,18 +47,20 @@ export function ItemRow({
   sorting = false,
   amountText = item.amountText,
   hint,
+  aisle,
   selected,
   onToggle,
   onDelete,
   onEdit,
 }: Props) {
-  const { colors, spacing, sizes, opacity } = useTheme();
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
   const secondLine = [item.note, hint].filter(Boolean).join(' · ');
-  const label = itemRowLabel({ name: item.displayName, amountText, note: item.note, hint }, sorting && !checked);
+  const label = itemRowLabel({ name: item.displayName, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked);
+  const showDot = aisle !== undefined && !(sorting && !checked);
 
   const rowStyle = [
     styles.row,
@@ -74,9 +78,14 @@ export function ItemRow({
   const content = (
     <>
       <View style={styles.text}>
-        <ThemedText variant="body" color={itemNameColor(checked)} style={checked ? styles.checked : undefined}>
-          {item.displayName}
-        </ThemedText>
+        <View style={[styles.name, { gap: spacing.sm }]}>
+          {showDot ? (
+            <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: aisle.dot }} />
+          ) : null}
+          <ThemedText variant="body" color={itemNameColor(checked)} style={[styles.flex, checked ? styles.checked : undefined]}>
+            {item.displayName}
+          </ThemedText>
+        </View>
         {secondLine ? (
           <ThemedText variant="footnote" color="inkSecondary">
             {secondLine}
@@ -165,6 +174,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
+  name: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
   checked: { textDecorationLine: 'line-through' },
   action: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' },
 });

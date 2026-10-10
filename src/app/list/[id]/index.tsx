@@ -1,6 +1,6 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,7 +47,16 @@ import {
   usualUnitsQuery,
   type ItemView,
 } from '@/features/lists/items';
-import { addedToast, alsoInHint, toGetLabel } from '@/features/lists/list-view';
+import {
+  addedToast,
+  alsoInHint,
+  DEFAULT_LIST_VIEW_MODE,
+  LIST_VIEW_MODES,
+  orderByNewest,
+  toGetLabel,
+  viewModeKey,
+  type ListViewMode,
+} from '@/features/lists/list-view';
 import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
@@ -61,16 +70,10 @@ type Entry = { key: string; item: ItemView; amountText?: string; hint?: string }
 
 /** One card each (the Checked header sits above its card). */
 type Block =
+  | { kind: 'newest'; key: string; entries: Entry[] }
   | { kind: 'aisle'; key: string; title: string; accessibilityLabel: string; slug: string | null; sorting: boolean; entries: Entry[] }
   | { kind: 'recipe'; key: string; title: string; recipeId: string | null; itemIds: string[]; entries: Entry[] }
   | { kind: 'checked'; key: string; count: number; entries: Entry[] };
-
-type ViewMode = 'category' | 'recipe';
-const VIEW_MODES: { value: ViewMode; label: string }[] = [
-  { value: 'category', label: 'By aisle' },
-  { value: 'recipe', label: 'By recipe' },
-];
-const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -93,8 +96,8 @@ export default function ListScreen() {
   const [showChecked, setShowChecked] = useState(false);
   const [selection, setSelection] = useState<Set<string> | null>(null);
   // Spec 4.6: the last choice per list is remembered on this device.
-  const [viewMode, setViewModeState] = useState<ViewMode>(() => getDeviceSetting(viewModeKey(id), 'category'));
-  const setViewMode = (mode: ViewMode) => {
+  const [viewMode, setViewModeState] = useState<ListViewMode>(() => getDeviceSetting(viewModeKey(id), DEFAULT_LIST_VIEW_MODE));
+  const setViewMode = (mode: ListViewMode) => {
     setViewModeState(mode);
     setDeviceSetting(viewModeKey(id), mode);
   };
@@ -108,10 +111,17 @@ export default function ListScreen() {
   } | null>(null);
   const highlightedId = toast?.itemId ?? null;
   const slugById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.slug])), [categoryRows]);
+  const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
+  const listRef = useRef<FlatList<Block>>(null);
 
   const blocks = useMemo<Block[]>(() => {
     const out: Block[] =
-      viewMode === 'category'
+      viewMode === 'newest'
+        ? // Newest: one card, no header, latest add at the top; each row shows its aisle's dot.
+          unchecked.length > 0
+          ? [{ kind: 'newest', key: 'newest', entries: orderByNewest(unchecked).map((item) => ({ key: item.id, item })) }]
+          : []
+        : viewMode === 'category'
         ? // By aisle: a card per aisle in the user's order, empty ones hidden, items by when added.
           sections.map(({ category, items }): Block => ({
             kind: 'aisle',
@@ -193,6 +203,8 @@ export default function ListScreen() {
   const add = (value: string) => {
     const result = addItem(id, value, userId);
     if (result) void categorizePending(result.pendingNames);
+    // In Newest a new or re-added item lands at the top, so bring the top into view.
+    if (viewMode === 'newest' && result && result.kind !== 'combine') listRef.current?.scrollToOffset({ offset: 0, animated: true });
     if (result?.kind !== 'combine') return;
     // Spec 4.4: Combine without a prompt, tint the row, and offer Undo.
     setToast({
@@ -215,7 +227,13 @@ export default function ListScreen() {
 
   const dismissToast = useCallback(() => setToast(null), []);
 
-  const renderEntry = (entry: Entry, index: number, background: string, sorting = false) => (
+  const renderEntry = (
+    entry: Entry,
+    index: number,
+    background: string,
+    sorting = false,
+    aisle?: { name: string; dot: string },
+  ) => (
     <ItemRow
       key={entry.key}
       item={entry.item}
@@ -225,6 +243,7 @@ export default function ListScreen() {
       sorting={sorting}
       amountText={entry.amountText}
       hint={entry.hint}
+      aisle={aisle}
       selected={selection ? selection.has(entry.item.id) : undefined}
       onToggle={() =>
         selection
@@ -237,6 +256,17 @@ export default function ListScreen() {
   );
 
   const renderBlock = (block: Block) => {
+    if (block.kind === 'newest') {
+      return (
+        <Card>
+          {block.entries.map((e, i) => {
+            const categoryId = e.item.categoryId;
+            const aisle = { name: nameById.get(categoryId) ?? '', dot: aisles[aisleColor(slugById.get(categoryId))].dot };
+            return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, aisle);
+          })}
+        </Card>
+      );
+    }
     if (block.kind === 'aisle') {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
@@ -350,6 +380,7 @@ export default function ListScreen() {
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
         <FlatList
+          ref={listRef}
           style={styles.flex}
           data={blocks}
           keyExtractor={(block) => block.key}
@@ -369,7 +400,7 @@ export default function ListScreen() {
                   </ThemedText>
                 ) : null}
               </View>
-              <SegmentedControl segments={VIEW_MODES} value={viewMode} onChange={setViewMode} />
+              <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} />
             </View>
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}

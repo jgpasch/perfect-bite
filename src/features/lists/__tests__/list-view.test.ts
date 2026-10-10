@@ -4,15 +4,19 @@ import {
   addedToast,
   alsoInHint,
   checkOffLabel,
+  DEFAULT_LIST_VIEW_MODE,
   groupListsByHousehold,
   itemRowLabel,
   launchListId,
+  LIST_VIEW_MODES,
+  orderByNewest,
   pairs,
   SORTING_LABEL,
   tileAccessibilityLabel,
   tileCount,
   toGetLabel,
   toggleActionLabel,
+  viewModeKey,
 } from '../list-view';
 
 const list = (id: string, householdId: string, householdName: string) => ({ id, householdId, householdName });
@@ -127,6 +131,108 @@ describe('itemRowLabel', () => {
   it('keeps the Sorting section’s label on a sorting row', () => {
     expect(itemRowLabel({ name: 'gochujang' }, true)).toBe('gochujang, Sorting, finding a section for these items');
     expect(SORTING_LABEL).toBe('Sorting…');
+  });
+
+  it('reads the aisle last (Newest shows it as a dot)', () => {
+    expect(itemRowLabel({ name: 'Limes', amountText: '3', aisle: 'Produce' })).toBe('Limes, 3, Produce');
+  });
+
+  it('reads Sorting instead of the aisle while the item waits for one', () => {
+    expect(itemRowLabel({ name: 'yuzu kosho', aisle: '' }, true)).toBe('yuzu kosho, Sorting, finding a section for these items');
+  });
+
+  it('leaves out an empty aisle name', () => {
+    expect(itemRowLabel({ name: 'Milk', aisle: '' })).toBe('Milk');
+  });
+});
+
+describe('list view modes', () => {
+  it('orders the segments Newest | By aisle | By recipe', () => {
+    expect(LIST_VIEW_MODES.map((m) => [m.value, m.label])).toEqual([
+      ['newest', 'Newest'],
+      ['category', 'By aisle'],
+      ['recipe', 'By recipe'],
+    ]);
+  });
+
+  it('gives Newest a hint saying what it shows', () => {
+    expect(LIST_VIEW_MODES[0].hint).toBe('Items you added most recently first');
+  });
+
+  it('opens a list with no saved choice in Newest', () => {
+    expect(DEFAULT_LIST_VIEW_MODE).toBe('newest');
+  });
+
+  it('keeps the key saved choices were stored under', () => {
+    expect(viewModeKey('abc')).toBe('list.abc.viewMode');
+  });
+});
+
+describe('orderByNewest', () => {
+  const t = (minutes: number) => new Date(Date.UTC(2026, 9, 10, 9, minutes));
+  const item = (
+    id: string,
+    contributions: [string, number][],
+    { createdAt = 0, checked = false }: { createdAt?: number; checked?: boolean } = {},
+  ) => ({
+    id,
+    createdAt: t(createdAt),
+    checkedAt: checked ? t(59) : null,
+    contributions: contributions.map(([cid, m]) => ({ id: cid, createdAt: t(m) })),
+  });
+  const ids = (items: { id: string }[]) => items.map((i) => i.id);
+
+  it('puts the item with the latest earliest amount first', () => {
+    expect(ids(orderByNewest([item('milk', [['c1', 1]]), item('eggs', [['c2', 3]]), item('bread', [['c3', 2]])]))).toEqual([
+      'eggs',
+      'bread',
+      'milk',
+    ]);
+  });
+
+  it('keeps a combined item where its first amount put it', () => {
+    const milk = item('milk', [['c1', 1], ['c4', 10]]);
+    expect(ids(orderByNewest([milk, item('eggs', [['c2', 3]])]))).toEqual(['eggs', 'milk']);
+  });
+
+  it('uses the earliest amount even if amounts come out of order', () => {
+    const milk = item('milk', [['c4', 10], ['c1', 1]]);
+    expect(ids(orderByNewest([milk, item('eggs', [['c2', 3]])]))).toEqual(['eggs', 'milk']);
+  });
+
+  it('moves a re-added item (its amounts replaced) to the top, whatever its own age', () => {
+    const milk = item('milk', [['c9', 20]], { createdAt: 0 });
+    expect(ids(orderByNewest([milk, item('eggs', [['c2', 3]], { createdAt: 3 })]))).toEqual(['milk', 'eggs']);
+  });
+
+  it('keeps a recipe batch (one timestamp) in ingredient order, i.e. by amount id', () => {
+    const batch = [item('i9', [['c1', 5]]), item('i1', [['c2', 5]]), item('i5', [['c3', 5]])];
+    const older = item('i0', [['c0', 1]]);
+    expect(ids(orderByNewest([older, batch[2], batch[0], batch[1]]))).toEqual(['i9', 'i1', 'i5', 'i0']);
+  });
+
+  it('falls back to the item’s own createdAt when it has no amounts', () => {
+    expect(ids(orderByNewest([item('milk', [['c1', 1]]), item('bare', [], { createdAt: 2 }), item('eggs', [['c2', 3]])]))).toEqual([
+      'eggs',
+      'bare',
+      'milk',
+    ]);
+  });
+
+  it('breaks other ties by id', () => {
+    expect(ids(orderByNewest([item('b', [], { createdAt: 4 }), item('a', [], { createdAt: 4 })]))).toEqual(['a', 'b']);
+    expect(ids(orderByNewest([item('b', [['x', 4]]), item('a', [['x', 4]])]))).toEqual(['a', 'b']);
+  });
+
+  it('leaves out checked items', () => {
+    expect(ids(orderByNewest([item('milk', [['c1', 1]], { checked: true }), item('eggs', [['c2', 3]])]))).toEqual(['eggs']);
+  });
+
+  it('returns nothing for no items, and does not reorder its input', () => {
+    expect(orderByNewest([])).toEqual([]);
+    const input = [item('a', [['c1', 1]]), item('b', [['c2', 2]])];
+    orderByNewest(input);
+    expect(ids(input)).toEqual(['a', 'b']);
   });
 });
 
