@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { contrastRatio, relativeLuminance } from '@/domain/contrast';
+import { contrastRatio, mix, relativeLuminance } from '@/domain/contrast';
 
 describe('relativeLuminance', () => {
   it('is 0 for black and 1 for white', () => {
@@ -37,5 +37,28 @@ describe('contrastRatio', () => {
     // #777777 on white is the classic just-under-AA grey.
     expect(contrastRatio('#777777', '#FFFFFF')).toBeCloseTo(4.48, 2);
     expect(contrastRatio('#767676', '#FFFFFF')).toBeCloseTo(4.54, 2);
+  });
+});
+
+describe('mix', () => {
+  it('returns the top colour at full alpha and the bottom at none', () => {
+    expect(mix('#FFFFFF', '#2E6B45', 1)).toBe('#FFFFFF');
+    expect(mix('#FFFFFF', '#2E6B45', 0)).toBe('#2E6B45');
+  });
+
+  it('blends each channel and rounds', () => {
+    expect(mix('#FFFFFF', '#000000', 0.5)).toBe('#808080');
+    // 0.12 × 255 + 0.88 × (46, 107, 69) = (71.08, 124.76, 91.32)
+    expect(mix('#FFFFFF', '#2E6B45', 0.12)).toBe('#477D5B');
+  });
+
+  it('clamps alpha and accepts lower case', () => {
+    expect(mix('#ffffff', '#000000', 2)).toBe('#FFFFFF');
+    expect(mix('#ffffff', '#000000', -1)).toBe('#000000');
+  });
+
+  it('throws on a colour that isn’t #RRGGBB', () => {
+    expect(() => mix('#FFF', '#000000', 0.5)).toThrow('Expected #RRGGBB');
+    expect(() => mix('#FFFFFF', 'black', 0.5)).toThrow('Expected #RRGGBB');
   });
 });

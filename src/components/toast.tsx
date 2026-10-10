@@ -5,6 +5,7 @@ import Animated from 'react-native-reanimated';
 import { toastAnnouncement } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
 import { Motion } from '@/constants/theme';
+import { matchParts } from '@/domain/text-match';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -12,6 +13,8 @@ export type ToastAction = { label: string; onPress: () => void };
 
 type Props = {
   message: string;
+  /** Part of the message to set in bold, e.g. the item's name. */
+  emphasis?: string;
   /** One or two actions, e.g. Undo, or Undo · Keep existing (spec 4.4). */
   actions: ToastAction[];
   /** Called when the toast times out (spec 4.2: 5 seconds). */
@@ -19,9 +22,10 @@ type Props = {
 };
 
 /** A dark pill with white action pills, e.g. "Deleted milk · Undo". Render it keyed by what it's about. */
-export function Toast({ message, actions, onDismiss }: Props) {
+export function Toast({ message, emphasis, actions, onDismiss }: Props) {
   const { colors, spacing, rounded, sizes, shadows, scheme, opacity } = useTheme();
   const { entering, exiting } = useMotion();
+  const parts = emphasis ? matchParts(message, emphasis) : null;
 
   const announcement = toastAnnouncement(
     message,
@@ -53,7 +57,17 @@ export function Toast({ message, actions, onDismiss }: Props) {
         },
       ]}>
       <ThemedText variant="amount" color="onToast" style={styles.message} numberOfLines={2}>
-        {message}
+        {parts ? (
+          <>
+            {parts.before}
+            <ThemedText variant="amount" color="onToast" style={styles.actionLabel}>
+              {parts.match}
+            </ThemedText>
+            {parts.after}
+          </>
+        ) : (
+          message
+        )}
       </ThemedText>
       {actions.map((action) => (
         <Pressable

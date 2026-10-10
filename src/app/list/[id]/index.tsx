@@ -1,19 +1,28 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, PrimaryButton } from '@/components/button';
+import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
+import { IconTile } from '@/components/icon-tile';
+import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Toast, type ToastAction } from '@/components/toast';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { groupByCategory, orderCategories, sectionAccessibilityLabel } from '@/domain/category-resolver';
+import { aisleColor, recipeHue } from '@/domain/aisle-color';
+import {
+  groupByCategory,
+  orderCategories,
+  sectionAccessibilityLabel,
+  SORTING_CATEGORY_ID,
+} from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
@@ -37,6 +46,7 @@ import {
   usualUnitsQuery,
   type ItemView,
 } from '@/features/lists/items';
+import { addedToast, alsoInHint, toGetLabel } from '@/features/lists/list-view';
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
@@ -46,21 +56,24 @@ import { recipesQuery } from '@/features/recipes/recipes';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
-type Row =
-  | { kind: 'item'; key: string; item: ItemView; amountText?: string; hint?: string }
-  | { kind: 'section'; key: string; name: string; accessibilityLabel?: string; recipeId?: string; itemIds?: string[] }
-  | { kind: 'checkedHeader'; key: string; count: number };
+type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
+
+/** One card each (the Checked header sits above its card). */
+type Block =
+  | { kind: 'aisle'; key: string; title: string; accessibilityLabel: string; slug: string | null; sorting: boolean; entries: Entry[] }
+  | { kind: 'recipe'; key: string; title: string; recipeId: string | null; itemIds: string[]; entries: Entry[] }
+  | { kind: 'checked'; key: string; count: number; entries: Entry[] };
 
 type ViewMode = 'category' | 'recipe';
 const VIEW_MODES: { value: ViewMode; label: string }[] = [
-  { value: 'category', label: 'By category' },
+  { value: 'category', label: 'By aisle' },
   { value: 'recipe', label: 'By recipe' },
 ];
 const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { spacing, sizes, opacity } = useTheme();
+  const { colors, aisles, spacing, sizes, opacity } = useTheme();
   const headerHeight = useHeaderHeight();
   const userId = getAccount()?.userId ?? null;
 
@@ -81,47 +94,56 @@ export default function ListScreen() {
     setViewModeState(mode);
     setDeviceSetting(viewModeKey(id), mode);
   };
-  const [toast, setToast] = useState<{ key: string; message: string; actions: ToastAction[] } | null>(null);
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  // The toast for an add that merged into an item tints that item's row while it shows (spec 4.4).
+  const [toast, setToast] = useState<{
+    key: string;
+    message: string;
+    emphasis?: string;
+    actions: ToastAction[];
+    itemId?: string;
+  } | null>(null);
+  const highlightedId = toast?.itemId ?? null;
+  const slugById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.slug])), [categoryRows]);
 
-  const rows = useMemo<Row[]>(() => {
-    const out: Row[] =
+  const blocks = useMemo<Block[]>(() => {
+    const out: Block[] =
       viewMode === 'category'
-        ? // By category: sections in the user's order, empty ones hidden, items by when added.
-          sections.flatMap(({ category, items }): Row[] => [
-            {
-              kind: 'section',
-              key: `c-${category.id}`,
-              name: category.name,
-              accessibilityLabel: sectionAccessibilityLabel(category),
-            },
-            ...items.map((item): Row => ({ kind: 'item', key: item.id, item })),
-          ])
-        : // By recipe: a section per recipe (an item can be under several), then Other items.
-          groupByRecipe(unchecked).flatMap((section): Row[] => [
-            {
-              kind: 'section',
+        ? // By aisle: a card per aisle in the user's order, empty ones hidden, items by when added.
+          sections.map(({ category, items }): Block => ({
+            kind: 'aisle',
+            key: `c-${category.id}`,
+            title: category.name,
+            accessibilityLabel: sectionAccessibilityLabel(category),
+            slug: slugById.get(category.id) ?? null,
+            sorting: category.id === SORTING_CATEGORY_ID,
+            entries: items.map((item) => ({ key: item.id, item })),
+          }))
+        : // By recipe: a card per recipe (an item can be under several), then Other items.
+          groupByRecipe(unchecked).map(
+            (section): Block => ({
+              kind: 'recipe',
               key: `r-${section.recipeId ?? 'other'}`,
-              name: section.name,
-              recipeId: section.recipeId ?? undefined,
+              title: section.name,
+              recipeId: section.recipeId,
               itemIds: section.entries.map((e) => e.item.id),
-            },
-            ...section.entries.map(
-              (e): Row => ({
-                kind: 'item',
+              entries: section.entries.map((e) => ({
                 key: `${section.recipeId ?? 'other'}-${e.item.id}`,
                 item: e.item,
                 amountText: e.amountText,
-                hint: e.alsoIn.length > 0 ? `also in: ${e.alsoIn.join(', ')}` : undefined,
-              }),
-            ),
-          ]);
+                hint: alsoInHint(e.alsoIn),
+              })),
+            }),
+          );
     if (checked.length > 0) {
-      out.push({ kind: 'checkedHeader', key: 'checked', count: checked.length });
-      if (showChecked) out.push(...checked.map((item): Row => ({ kind: 'item', key: item.id, item })));
+      out.push({
+        kind: 'checked',
+        key: 'checked',
+        count: checked.length,
+        entries: showChecked ? checked.map((item) => ({ key: item.id, item })) : [],
+      });
     }
     return out;
-  }, [viewMode, sections, unchecked, checked, showChecked]);
+  }, [viewMode, sections, unchecked, checked, showChecked, slugById]);
 
   // Select mode (spec 4.5): pick items, then Make recipe... or Add to recipe...
   const finishSelection = () => {
@@ -152,13 +174,13 @@ export default function ListScreen() {
     );
   };
 
-  const recipeMenu = (row: Extract<Row, { kind: 'section' }>) => {
-    if (!row.recipeId) return;
-    const recipeId = row.recipeId;
+  const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {
+    if (!block.recipeId) return;
+    const recipeId = block.recipeId;
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: row.name, options: ['Check all', 'Remove recipe from list', 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
+      { title: block.title, options: ['Check all', 'Remove recipe from list', 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
       (index) => {
-        if (index === 0) checkItems(row.itemIds ?? [], userId);
+        if (index === 0) checkItems(block.itemIds, userId);
         if (index === 1) removeRecipeFromList(id, recipeId);
       },
     );
@@ -168,12 +190,11 @@ export default function ListScreen() {
     const result = addItem(id, value, userId);
     if (result) void categorizePending(result.pendingNames);
     if (result?.kind !== 'combine') return;
-    // Spec 4.4: Combine without a prompt, highlight the row, and offer Undo.
-    setHighlightedId(result.itemId);
-    const amount = result.totalAmountText ? ` (now ${result.totalAmountText})` : '';
+    // Spec 4.4: Combine without a prompt, tint the row, and offer Undo.
     setToast({
       key: result.contributionId,
-      message: `Added to ${result.existingName}${amount}`,
+      ...addedToast(result.existingName ?? value.trim(), result.totalAmountText),
+      itemId: result.itemId,
       actions: [{ label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) }],
     });
   };
@@ -183,17 +204,89 @@ export default function ListScreen() {
     setToast({
       key: `deleted-${item.id}`,
       message: `Deleted ${item.displayName}`,
+      emphasis: item.displayName,
       actions: [{ label: 'Undo', onPress: () => (undeleteItem(item.id), setToast(null)) }],
     });
   }, []);
 
   const dismissToast = useCallback(() => setToast(null), []);
 
-  useEffect(() => {
-    if (!highlightedId) return;
-    const timer = setTimeout(() => setHighlightedId(null), 1200);
-    return () => clearTimeout(timer);
-  }, [highlightedId]);
+  const renderEntry = (entry: Entry, index: number, background: string, sorting = false) => (
+    <ItemRow
+      key={entry.key}
+      item={entry.item}
+      background={background}
+      tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
+      first={index === 0}
+      sorting={sorting}
+      amountText={entry.amountText}
+      hint={entry.hint}
+      selected={selection ? selection.has(entry.item.id) : undefined}
+      onToggle={() =>
+        selection
+          ? setSelection(toggleIn(selection, entry.item.id))
+          : setItemChecked(entry.item.id, entry.item.checkedAt === null, userId)
+      }
+      onDelete={() => remove(entry.item)}
+      onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
+    />
+  );
+
+  const renderBlock = (block: Block) => {
+    if (block.kind === 'aisle') {
+      if (block.sorting) {
+        // No header: the dashed checks and each row's "Sorting…" label say what this card is.
+        return <Card background="pendingSoft">{block.entries.map((e, i) => renderEntry(e, i, colors.pendingSoft, true))}</Card>;
+      }
+      return (
+        <Card>
+          <SectionHeader
+            title={block.title}
+            accessibilityLabel={block.accessibilityLabel}
+            dotColor={aisles[aisleColor(block.slug)].dot}
+            count={block.entries.length}
+          />
+          {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+        </Card>
+      );
+    }
+    if (block.kind === 'recipe') {
+      return (
+        <Card>
+          <SectionHeader
+            title={block.title}
+            leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
+            trailing={block.recipeId ? <RecipeActionsButton name={block.title} onPress={() => recipeMenu(block)} /> : undefined}
+          />
+          {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+        </Card>
+      );
+    }
+    return (
+      <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showChecked }}
+          accessibilityLabel={`Checked, ${block.count} ${block.count === 1 ? 'item' : 'items'}`}
+          onPress={() => setShowChecked((v) => !v)}
+          style={({ pressed }) => [
+            styles.row,
+            {
+              minHeight: sizes.minTapTarget,
+              paddingHorizontal: spacing.lg + spacing.xs,
+              gap: spacing.sm,
+              opacity: pressed ? opacity.pressed : 1,
+            },
+          ]}>
+          <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.flex}>
+            Checked ({block.count})
+          </ThemedText>
+          <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
+        </Pressable>
+        {block.entries.length > 0 ? <Card>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card> : null}
+      </View>
+    );
+  };
 
   const confirmDelete = () => {
     if (!list) return;
@@ -215,7 +308,6 @@ export default function ListScreen() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: list.name }} />
       <Stack.Toolbar placement="right">
         {selection ? (
           <Stack.Toolbar.Button variant="done" onPress={() => setSelection(null)}>
@@ -255,81 +347,44 @@ export default function ListScreen() {
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
         <FlatList
           style={styles.flex}
-          data={rows}
-          keyExtractor={(row) => row.key}
+          data={blocks}
+          keyExtractor={(block) => block.key}
           ListHeaderComponent={
-            <View style={{ marginTop: spacing.sm }}>
-              <SegmentedControl
-                segments={VIEW_MODES}
-                value={viewMode}
-                onChange={setViewMode}
-              />
+            <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+              <View
+                style={[
+                  styles.title,
+                  { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.sm, columnGap: spacing.sm + spacing.xxs },
+                ]}>
+                <ThemedText variant="screenTitle" accessibilityRole="header">
+                  {list.name}
+                </ThemedText>
+                {toGetLabel(unchecked.length) ? (
+                  <ThemedText variant="amount" color="inkSecondary">
+                    {toGetLabel(unchecked.length)}
+                  </ThemedText>
+                ) : null}
+              </View>
+              <SegmentedControl segments={VIEW_MODES} value={viewMode} onChange={setViewMode} />
             </View>
           }
+          ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          contentContainerStyle={rows.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
+          contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
-          renderItem={({ item: row, index }) =>
-            row.kind === 'section' ? (
-              <Pressable
-                disabled={!row.recipeId}
-                onPress={() => recipeMenu(row)}
-                accessibilityRole={row.recipeId ? 'button' : 'header'}
-                accessibilityLabel={row.accessibilityLabel ?? row.name}
-                accessibilityHint={row.recipeId ? 'Shows recipe actions' : undefined}
-                style={[
-                  styles.checkedHeader,
-                  { paddingHorizontal: spacing.lg, paddingTop: index === 0 ? spacing.md : spacing.xl, paddingBottom: spacing.xs, gap: spacing.sm },
-                ]}>
-                <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
-                  {row.name}
-                </ThemedText>
-                {row.recipeId ? <Icon name="ellipsis" color="inkSecondary" size={sizes.icon} /> : null}
-              </Pressable>
-            ) : row.kind === 'item' ? (
-              <ItemRow
-                item={row.item}
-                amountText={row.amountText}
-                hint={row.hint}
-                highlighted={row.item.id === highlightedId}
-                selected={selection ? selection.has(row.item.id) : undefined}
-                onToggle={() =>
-                  selection
-                    ? setSelection(toggleIn(selection, row.item.id))
-                    : setItemChecked(row.item.id, row.item.checkedAt === null, userId)
-                }
-                onDelete={() => remove(row.item)}
-                onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: row.item.id } })}
-              />
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: showChecked }}
-                accessibilityLabel={`Checked, ${row.count} ${row.count === 1 ? 'item' : 'items'}`}
-                onPress={() => setShowChecked((v) => !v)}
-                style={({ pressed }) => [
-                  styles.checkedHeader,
-                  {
-                    minHeight: sizes.minTapTarget,
-                    paddingHorizontal: spacing.lg,
-                    marginTop: spacing.md,
-                    gap: spacing.sm,
-                    opacity: pressed ? opacity.pressed : 1,
-                  },
-                ]}>
-                <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
-                  Checked ({row.count})
-                </ThemedText>
-                <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
-              </Pressable>
-            )
-          }
+          renderItem={({ item: block }) => renderBlock(block)}
         />
 
         {toast ? (
           <View style={{ paddingBottom: spacing.sm }}>
-            <Toast key={toast.key} message={toast.message} actions={toast.actions} onDismiss={dismissToast} />
+            <Toast
+              key={toast.key}
+              message={toast.message}
+              emphasis={toast.emphasis}
+              actions={toast.actions}
+              onDismiss={dismissToast}
+            />
           </View>
         ) : null}
 
@@ -383,7 +438,7 @@ function SelectionBar({
       <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite">
         {count === 0 ? 'Tap items to select them' : `${count} selected`}
       </ThemedText>
-      <View style={[styles.checkedHeader, { gap: spacing.sm }]}>
+      <View style={[styles.row, { gap: spacing.sm }]}>
         <View style={styles.flex}>
           <PrimaryButton label="Make recipe…" disabled={count === 0} onPress={onMakeRecipe} />
         </View>
@@ -395,7 +450,33 @@ function SelectionBar({
   );
 }
 
+/** A recipe card's actions button (board 03): a 36 pt round button with a 44 pt hit area. */
+function RecipeActionsButton({ name, onPress }: { name: string; onPress: () => void }) {
+  const { colors, sizes, rounded, opacity } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name} actions`}
+      onPress={onPress}
+      hitSlop={(sizes.minTapTarget - sizes.iconWell) / 2}
+      style={({ pressed }) => [
+        styles.round,
+        {
+          width: sizes.iconWell,
+          height: sizes.iconWell,
+          borderRadius: rounded.full,
+          backgroundColor: colors.background,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <Icon name="ellipsis" color="ink" />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  checkedHeader: { flexDirection: 'row', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  title: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' },
+  round: { alignItems: 'center', justifyContent: 'center' },
 });

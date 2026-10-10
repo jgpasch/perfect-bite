@@ -31,6 +31,7 @@ Sizes are at the default Dynamic Type setting.
 | `screenTitle` | display | 36 / 800 | Pushed screens: a list's or recipe's name, a household, "Aisle order". |
 | `sheetTitle` | display | 30 / 800 | Sheet titles: the item's name in the item sheet. |
 | `title` | display | 28 / 800 | Smaller titles, e.g. inside a card. |
+| `tileCount` | display | 34 / 800 | The item-to-get count on a list tile. |
 | `sectionTitle` | display | 17 / 700 | Card section headers: aisle or recipe name. |
 | `headline` | Figtree | 17 / 700 | Buttons, CTAs, emphasised rows. |
 | `body` | Figtree | 17 / 500 | Item names, row labels, inputs. |
@@ -83,16 +84,17 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - `spacing`: 4 pt base (`xxs` 2 … `xxxl` 48). Cards and tiles sit `lg` (16) in from the screen edge; titles sit 20 in (`lg` + `xs`).
 - `rounded`: `card` 22, `tile` 22, `sheet` 28 (top corners), `row` 16 (aisle-order rows), `md` 12 (segmented track, icon wells), `full` for pills, round checks, round buttons and CTAs.
 - `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall (`sizes.cardRowMin`).
-- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2. Radii `badge` 10 and `segment` 11.
+- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `tile` 132 (list tiles, a minimum), `iconWell` 36 (recipe icon tiles and round actions buttons in card headers). Radii `badge` 10 and `segment` 11.
 
 ## Components (`src/components/`)
 
-`Card`, `CheckCircle`, `SectionHeader`, `Pill`, `SegmentedControl`, `PrimaryButton` / `SoftDangerButton` (`button.tsx`; `Button` is left for secondary and plain actions), `Badge`, `AddBar` and `Toast`. Which tokens each uses in each state lives in `appearance.ts`, which is tested for contrast in both schemes. Controls under 44 pt (pills, the + and Undo buttons, segments) get `hitSlop` up to 44.
+`Card`, `CheckCircle`, `SectionHeader`, `IconTile` (a rounded well in an aisle hue's `soft` with the glyph in its `dot`; recipes pick the hue with `recipeHue(id)`), `Pill`, `SegmentedControl`, `PrimaryButton` / `SoftDangerButton` (`button.tsx`; `Button` is left for secondary and plain actions), `Badge`, `AddBar` and `Toast`. Which tokens each uses in each state lives in `appearance.ts`, which is tested for contrast in both schemes. Controls under 44 pt (pills, the + and Undo buttons, segments) get `hitSlop` up to 44.
 
 ## Component patterns
 
 - **Card**: `surface`, radius `card`, 16 pt side margin, `overflow: hidden`. Rows inside are separated by a 1 pt `border` hairline (none above the first row). Cards stack with a 10–12 pt gap.
-- **Row with round check**: check, then the name (`body`, flexible), then the amount (`amount`, `inkSecondary`). 12 pt gap, 16 pt side padding, min height 50. A second line (`footnote`, `inkSecondary`) goes under the name.
+- **Row with round check**: check, then the name (`body`, flexible), then the amount (`amount`, `inkSecondary`). 12 pt gap, 16 pt side padding, min height 50. A second line (`footnote`, `inkSecondary`) goes under the name. Checked rows: filled check, name struck through in `inkTertiary` (3.7:1, below the 4.5:1 text rule; kept because the boards and task ask for it). The row an add just merged into takes its aisle's `soft` tint while the toast shows.
+- **Autocomplete panel**: a `surface` card above the add bar; a `caption` "YOU USUALLY BUY" (or "SUGGESTIONS" when only the catalog matched), then 50 pt rows: aisle dot, the name with the typed part in `headline`, and the short aisle name (`shortAisleName`) on the right in `footnote`.
 - **Round check**: 24 pt circle, 2 pt `controlBorder` ring when off; filled `primary` with an `onPrimary` tick when on. "Sorting…" items show a dashed `aisles.amber.dot` ring and a `pending` "Sorting…" label (`caption`) on a `pendingSoft` card. The whole row is the tap target.
 - **Section header**: aisle `dot` (10 pt circle), the name in `sectionTitle`, then the count in `inkSecondary` (13 / 600) on the right. Padding 14 top, 6 bottom, 16 sides. Recipe sections use a 36 pt rounded icon well in place of the dot.
 - **Pill**: 40 pt tall (38 in the boards), radius `full`, 14 pt side padding. Off: `surface` with `ink` text (600). On: filled (ink, or the aisle `dot` for the aisle picker) with white text (700). "+ New" pills are dashed `controlBorder` outlines.

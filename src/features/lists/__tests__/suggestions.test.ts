@@ -7,7 +7,7 @@ import { resetDb } from '@/test/db';
 
 import { addItem } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
-import { applySuggestion, getSuggestions } from '../suggestions';
+import { applySuggestion, getSuggestions, suggestionCaption } from '../suggestions';
 import { hideFromSuggestions } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -192,5 +192,24 @@ describe('Remove from suggestions (spec 4.2)', () => {
     addItem(listId, 'chicken breasts', USER);
     hideFromSuggestions('h-other', 'chicken thigh');
     expect(getSuggestions(householdId, 'chi').map((s) => s.key).sort()).toEqual(['chicken breast', 'chicken thigh']);
+  });
+});
+
+describe('suggestionCaption (board 03)', () => {
+  test('says YOU USUALLY BUY when household history leads', () => {
+    addItem(listId, 'chicken thighs', USER);
+    const suggestions = getSuggestions(householdId, 'chi');
+    expect(suggestions[0].source).toBe('history');
+    expect(suggestionCaption(suggestions)).toBe('YOU USUALLY BUY');
+  });
+
+  test('says SUGGESTIONS for catalog-only suggestions', () => {
+    const suggestions = getSuggestions(householdId, 'chi');
+    expect(suggestions.every((s) => s.source === 'catalog')).toBe(true);
+    expect(suggestionCaption(suggestions)).toBe('SUGGESTIONS');
+  });
+
+  test('says SUGGESTIONS for none', () => {
+    expect(suggestionCaption([])).toBe('SUGGESTIONS');
   });
 });

@@ -120,7 +120,7 @@ describe('AisleColors', () => {
 
 describe('Typography', () => {
   it('uses the display face for titles and Figtree for the rest', () => {
-    const display = ['largeTitle', 'screenTitle', 'sheetTitle', 'title', 'sectionTitle'];
+    const display = ['largeTitle', 'screenTitle', 'sheetTitle', 'title', 'tileCount', 'sectionTitle'];
     for (const [name, style] of Object.entries(Typography)) {
       expect(style.fontFamily).toBe(display.includes(name) ? 'Bricolage Grotesque' : 'Figtree');
     }
@@ -131,6 +131,7 @@ describe('Typography', () => {
     expect(Typography.screenTitle).toMatchObject({ fontSize: 36, fontWeight: '800', letterSpacing: -0.9 });
     expect(Typography.sheetTitle).toMatchObject({ fontSize: 30, fontWeight: '800', letterSpacing: -0.75 });
     expect(Typography.title).toMatchObject({ fontSize: 28, fontWeight: '800', letterSpacing: -0.7 });
+    expect(Typography.tileCount).toMatchObject({ fontSize: 34, fontWeight: '800', letterSpacing: -0.85 });
     expect(Typography.sectionTitle).toMatchObject({ fontSize: 17, fontWeight: '700' });
     expect(Typography.body).toMatchObject({ fontSize: 17, fontWeight: '500' });
     expect(Typography.amount).toMatchObject({ fontSize: 15, fontWeight: '600' });

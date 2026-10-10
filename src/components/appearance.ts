@@ -3,7 +3,7 @@
  * contrast in both schemes; the components only turn these into styles.
  */
 
-import type { AisleColors, ColorToken, ThemeColors } from '@/constants/theme';
+import { withAlpha, type AisleColors, type ColorToken, type ThemeColors } from '@/constants/theme';
 
 type Aisles = (typeof AisleColors)[keyof typeof AisleColors];
 
@@ -52,6 +52,23 @@ export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles
   return tone === 'owner'
     ? { fill: aisles.amber.soft, text: colors.pending }
     : { fill: colors.primarySoft, text: colors.onPrimarySoft };
+}
+
+/** A list tile: the Siri default list is filled `primary`; the rest are `surface` cards. */
+export function listTileColors(isDefault: boolean): { fill: ColorToken; text: ColorToken; secondary: ColorToken } {
+  return isDefault
+    ? { fill: 'primary', text: 'onPrimary', secondary: 'onPrimary' }
+    : { fill: 'surface', text: 'ink', secondary: 'inkSecondary' };
+}
+
+/** The small "Siri" mark on the default list's tile: `onPrimary` on a faint `onPrimary` wash over the tile. */
+export function siriMarkColors(colors: ThemeColors, tint: number): { fill: string; text: string } {
+  return { fill: withAlpha(colors.onPrimary, tint), text: colors.onPrimary };
+}
+
+/** An item's name: `ink`, or `inkTertiary` once it's checked off (with a line through it). */
+export function itemNameColor(checked: boolean): ColorToken {
+  return checked ? 'inkTertiary' : 'ink';
 }
 
 /** What VoiceOver reads for a section header: its name, then how many items it has ("Produce, 3 items"). */

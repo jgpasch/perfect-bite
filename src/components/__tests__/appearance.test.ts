@@ -4,13 +4,16 @@ import {
   badgeColors,
   checkAppearance,
   checkState,
+  itemNameColor,
+  listTileColors,
   pillColors,
   sectionHeaderLabel,
   segmentColors,
+  siriMarkColors,
   toastAnnouncement,
 } from '@/components/appearance';
-import { AisleColors, Palette, Sizes, type ColorScheme } from '@/constants/theme';
-import { contrastRatio } from '@/domain/contrast';
+import { AisleColors, Opacity, Palette, Sizes, type ColorScheme } from '@/constants/theme';
+import { contrastRatio, mix } from '@/domain/contrast';
 
 // The web font variables; Jest can't parse CSS.
 jest.mock('@/global.css', () => ({}));
@@ -180,7 +183,63 @@ describe('the other primitives’ text pairs', () => {
   });
 });
 
+describe('listTileColors', () => {
+  it('fills the Siri default list primary', () => {
+    expect(listTileColors(true)).toEqual({ fill: 'primary', text: 'onPrimary', secondary: 'onPrimary' });
+  });
+
+  it('makes other lists surface cards', () => {
+    expect(listTileColors(false)).toEqual({ fill: 'surface', text: 'ink', secondary: 'inkSecondary' });
+  });
+
+  it.each(SCHEMES)('keeps the tile text at 4.5:1 or better in %s mode', (scheme) => {
+    for (const isDefault of [true, false]) {
+      const { fill, text, secondary } = listTileColors(isDefault);
+      expect(contrastRatio(Palette[scheme][text], Palette[scheme][fill])).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(Palette[scheme][secondary], Palette[scheme][fill])).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it.each(SCHEMES)('sets the tiles apart from the ground in %s mode', (scheme) => {
+    // The Siri tile is a solid block; the white tiles read as cards on the pale ground.
+    expect(contrastRatio(Palette[scheme].primary, Palette[scheme].background)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('siriMarkColors', () => {
+  it('is onPrimary on a faint onPrimary wash', () => {
+    // 0.12 × 255 = 30.6 → 31 → 1f.
+    expect(siriMarkColors(Palette.light, 0.12)).toEqual({ fill: '#FFFFFF1f', text: '#FFFFFF' });
+    expect(siriMarkColors(Palette.dark, 0.12)).toEqual({ fill: '#0E1F141f', text: '#0E1F14' });
+  });
+
+  it.each(SCHEMES)('keeps "Siri" at 4.5:1 or better over the Siri tile in %s mode', (scheme) => {
+    const c = Palette[scheme];
+    const { text } = siriMarkColors(c, Opacity.tint);
+    const shown = mix(c.onPrimary, c.primary, Opacity.tint);
+    expect(contrastRatio(text, shown)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('itemNameColor', () => {
+  it('is ink until the item is checked off, then inkTertiary', () => {
+    expect(itemNameColor(false)).toBe('ink');
+    expect(itemNameColor(true)).toBe('inkTertiary');
+  });
+
+  it.each(SCHEMES)('keeps checked items visible on a card in %s mode', (scheme) => {
+    // Checked rows are de-emphasised on purpose (and struck through); they stay at 3:1 or better.
+    expect(contrastRatio(Palette[scheme][itemNameColor(true)], Palette[scheme].surface)).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('sizes', () => {
+  it('has the lists home and card header sizes', () => {
+    expect(Sizes).toMatchObject({ tile: 132, iconWell: 36 });
+    // The recipe actions button reaches 44 pt with hit slop.
+    expect((Sizes.minTapTarget - Sizes.iconWell) / 2).toBe(4);
+  });
+
   it('has the board sizes', () => {
     expect(Sizes).toMatchObject({
       check: 24,

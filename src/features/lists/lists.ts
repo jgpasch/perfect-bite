@@ -32,18 +32,24 @@ function currentHouseholdId(): string {
   return row.id;
 }
 
-/** Live lists (archived ones too, with `archivedAt` set) in the user's order, each with its unchecked item count. */
+/**
+ * Live lists (archived ones too, with `archivedAt` set) in the user's order, each with its household
+ * and its unchecked item count.
+ */
 export function listsWithCountsQuery() {
   return db
     .select({
       id: lists.id,
       name: lists.name,
+      householdId: lists.householdId,
+      householdName: households.name,
       emoji: lists.emoji,
       position: lists.position,
       archivedAt: lists.archivedAt,
       uncheckedCount: sql<number>`count(${listItems.id})`,
     })
     .from(lists)
+    .innerJoin(households, eq(households.id, lists.householdId))
     .leftJoin(
       listItems,
       and(eq(listItems.listId, lists.id), isNull(listItems.deletedAt), isNull(listItems.checkedAt)),

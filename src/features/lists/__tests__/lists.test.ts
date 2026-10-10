@@ -1,8 +1,9 @@
 import { beforeEach, expect, jest, test } from '@jest/globals';
 
-import { db, lists } from '@/db';
+import { db, households, lists } from '@/db';
 import { resetDb } from '@/test/db';
 
+import { groupListsByHousehold } from '../list-view';
 import {
   createList,
   deleteList,
@@ -53,6 +54,23 @@ test('counts unchecked items per list', () => {
   expect(listsWithCountsQuery().all().map((l) => [l.name, l.uncheckedCount])).toEqual([
     ['Groceries', 1],
     ['Costco', 1],
+  ]);
+});
+
+test('each list carries its household, for the household groups on the lists home', () => {
+  db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+  db.insert(lists).values({ id: 'weekend', householdId: 'lake', name: 'Weekend up north', position: 0.5 }).run();
+  createList('Costco');
+  const rows = listsWithCountsQuery().all();
+  const personal = rows.find((l) => l.name === 'Groceries')!.householdId;
+  expect(rows.map((l) => [l.name, l.householdName])).toEqual([
+    ['Weekend up north', 'Lake house'],
+    ['Groceries', 'Personal'],
+    ['Costco', 'Personal'],
+  ]);
+  expect(groupListsByHousehold(rows).map((g) => [g.householdId, g.name, g.lists.map((l) => l.name)])).toEqual([
+    ['lake', 'Lake house', ['Weekend up north']],
+    [personal, 'Personal', ['Groceries', 'Costco']],
   ]);
 });
 

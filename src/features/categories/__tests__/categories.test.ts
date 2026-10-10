@@ -24,6 +24,7 @@ import {
   ensureMissingIngredients,
   getIngredientCategory,
   getOrderedCategories,
+  ingredientAisles,
   loadCatalogSeed,
   moveCategory,
   searchCatalog,
@@ -173,6 +174,40 @@ describe('autocomplete', () => {
       '2 lbs chicken thighs',
     );
     expect(getSuggestions(list.householdId, 'c')).toEqual([]);
+  });
+});
+
+describe('ingredientAisles (autocomplete panel)', () => {
+  test('gives each ingredient its default aisle', () => {
+    const aisles = ingredientAisles(A, [key('chicken thighs'), key('chickpeas'), key('milk')]);
+    expect(Object.fromEntries(aisles)).toEqual({
+      [key('chicken thighs')]: { slug: 'meat-seafood', name: 'Meat & Seafood' },
+      [key('chickpeas')]: { slug: 'canned-jarred', name: 'Canned & Jarred' },
+      [key('milk')]: { slug: 'dairy-eggs', name: 'Dairy & Eggs' },
+    });
+  });
+
+  test("uses this user's override, and only theirs", () => {
+    setCategoryOverride(A, key('milk'), id('beverages'));
+    expect(ingredientAisles(A, [key('milk')]).get(key('milk'))).toEqual({ slug: 'beverages', name: 'Beverages' });
+    expect(ingredientAisles(B, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
+    expect(ingredientAisles(null, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
+  });
+
+  test('gives a custom aisle no slug', () => {
+    const custom = createCategory(A, 'Asian market');
+    setCategoryOverride(A, key('milk'), custom);
+    expect(ingredientAisles(A, [key('milk')]).get(key('milk'))).toEqual({ slug: null, name: 'Asian market' });
+  });
+
+  test('leaves out pending and unknown ingredients', () => {
+    addItem(listId, 'gochujang paste from h mart', A); // pending: not in the seed
+    const aisles = ingredientAisles(A, [key('gochujang paste from h mart'), 'not an ingredient']);
+    expect(aisles.size).toBe(0);
+  });
+
+  test('is empty for no names', () => {
+    expect(ingredientAisles(A, []).size).toBe(0);
   });
 });
 

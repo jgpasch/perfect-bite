@@ -13,6 +13,21 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/** `over` at `alpha` (0–1) composited on opaque `under`, as `#RRGGBB`: the colour a translucent fill shows. */
+export function mix(over: string, under: string, alpha: number): string {
+  const rgb = (hex: string) => {
+    relativeLuminance(hex); // validates the format
+    return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  };
+  const a = Math.max(0, Math.min(1, alpha));
+  const top = rgb(over);
+  const bottom = rgb(under);
+  return `#${top
+    .map((c, i) => Math.round(c * a + bottom[i] * (1 - a)).toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()}`;
+}
+
 /** Contrast ratio from 1 (same colour) to 21 (black on white). Order doesn't matter. */
 export function contrastRatio(a: string, b: string): number {
   const la = relativeLuminance(a);

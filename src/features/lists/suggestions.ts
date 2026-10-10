@@ -34,6 +34,11 @@ export function getSuggestions(householdId: string, text: string, limit = 5): Su
   return out;
 }
 
+/** The autocomplete panel's caption: "YOU USUALLY BUY" when household history leads, else "SUGGESTIONS". */
+export function suggestionCaption(suggestions: readonly Pick<Suggestion, 'source'>[]): string {
+  return suggestions[0]?.source === 'history' ? 'YOU USUALLY BUY' : 'SUGGESTIONS';
+}
+
 /** The add text with its name replaced by a suggestion, keeping a typed amount: `2 lbs chi` → `2 lbs chicken thighs`. */
 export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key' | 'displayName'>): string {
   const { name } = parseQuantity(text);

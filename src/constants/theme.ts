@@ -114,6 +114,8 @@ export const Typography = {
   /** Sheet titles: the item's name. */
   sheetTitle: { fontFamily: Fonts.display, fontSize: 30, fontWeight: '800', lineHeight: 34, letterSpacing: tight(30) },
   title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
+  /** The item-to-get count on a list tile. */
+  tileCount: { fontFamily: Fonts.display, fontSize: 34, fontWeight: '800', lineHeight: 36, letterSpacing: tight(34) },
   /** Card section headers: aisle or recipe name. */
   sectionTitle: { fontFamily: Fonts.display, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   /** Buttons and emphasised rows. */
@@ -194,6 +196,10 @@ export const Sizes = {
   barButton: 40,
   /** focus ring around the add bar */
   focusRing: 2,
+  /** list tiles on the lists home (a minimum, so Dynamic Type can grow them) */
+  tile: 132,
+  /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */
+  iconWell: 36,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */

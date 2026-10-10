@@ -213,6 +213,28 @@ export function getIngredientCategory(
   };
 }
 
+/**
+ * The aisle each ingredient shows under for this user (their override, else the default), for the
+ * autocomplete panel's dot and short name. Ingredients still sorting, or unknown, are left out.
+ */
+export function ingredientAisles(
+  userId: string | null,
+  ingredientNames: readonly string[],
+): Map<string, { slug: string | null; name: string }> {
+  const out = new Map<string, { slug: string | null; name: string }>();
+  if (ingredientNames.length === 0) return out;
+  const byId = new Map(
+    db.select({ id: categories.id, slug: categories.slug, name: categories.name }).from(categories).all().map((c) => [c.id, c]),
+  );
+  for (const name of ingredientNames) {
+    // Signed out there are no overrides; '' matches none.
+    const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(userId ?? '', name);
+    const category = byId.get(overrideCategoryId ?? defaultCategoryId ?? '');
+    if (category) out.set(name, { slug: category.slug, name: category.name });
+  }
+  return out;
+}
+
 // --- Catalog search (autocomplete, spec 4.2) -----------------------------------------------
 
 /** Catalog ingredients whose name starts with `prefix`, or has a word that does. */
