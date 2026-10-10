@@ -12,7 +12,8 @@
 import { jest } from '@jest/globals';
 import type { Session } from '@supabase/supabase-js';
 
-export type QueryResult = { data?: unknown; error?: unknown; count?: number | null };
+/** `status` is the HTTP status, as supabase-js reports it (0 when the request never got an answer). */
+export type QueryResult = { data?: unknown; error?: unknown; count?: number | null; status?: number };
 
 /** One table query: the table and each chained call, e.g. `['eq', 'user_id', 'u1']`. */
 export type RecordedQuery = { table: string; ops: [string, ...unknown[]][] };

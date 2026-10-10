@@ -50,6 +50,13 @@
       "when": 1791673535833,
       "tag": "0006_sync_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791674195222,
+      "tag": "0007_outbox_rejections",
+      "breakpoints": true
     }
   ]
 }

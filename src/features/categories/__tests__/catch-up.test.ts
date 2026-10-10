@@ -130,6 +130,21 @@ describe('startCatchUpTriggers', () => {
     expect(onCatchUp).toHaveBeenCalledTimes(1);
   });
 
+  test('onNetwork hears every connectivity report, before the reconnect catch-up', () => {
+    stop();
+    const log: string[] = [];
+    startCatchUpTriggers(
+      () => log.push('catch-up'),
+      (online) => log.push(online ? 'online' : 'offline'),
+    );
+    mockNetwork.listener!(net(true, true));
+    mockNetwork.listener!(net(false, false));
+    mockNetwork.listener!(net(true, undefined));
+    mockApp.listener!('background');
+    mockApp.listener!('active');
+    expect(log).toEqual(['online', 'offline', 'online', 'catch-up', 'catch-up']);
+  });
+
   test('the cleanup removes both listeners', () => {
     stop();
     expect(mockApp.remove).toHaveBeenCalledTimes(1);

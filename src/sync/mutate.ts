@@ -26,6 +26,7 @@ import {
 
 import { nextHlc, type Exec } from './clock';
 import type { Mutation, WireValue } from './mutation';
+import { notifyOutboxWrite } from './outbox-signal';
 
 type Spec = {
   /** Key columns (property names). */
@@ -104,6 +105,7 @@ function enqueue(tx: Exec, table: SQLiteTable, spec: Spec, row: Row, mutation: O
       mutation: { table: getTableName(table), ...rowRef(table, spec, row), ...mutation },
     })
     .run();
+  notifyOutboxWrite();
 }
 
 function keyWhere(table: SQLiteTable, spec: Spec, row: Row): SQL {

@@ -280,6 +280,10 @@ export const outbox = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    /** Set when the server rejected the mutation for good (`src/sync/push.ts`); the push skips it from then on. */
+    rejectedAt: integer('rejected_at', { mode: 'timestamp_ms' }),
+    /** Why it was rejected: the SQLSTATE (or HTTP status) and message. */
+    error: text('error', { mode: 'json' }).$type<{ code: string; message: string }>(),
   },
   (t) => [index('outbox_household_idx').on(t.householdId)],
 );

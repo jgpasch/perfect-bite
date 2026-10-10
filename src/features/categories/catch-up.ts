@@ -18,8 +18,11 @@ export function cameToForeground(was: AppStateStatus, now: AppStateStatus): bool
   return was !== 'active' && now === 'active';
 }
 
-/** Calls `onCatchUp` on every return to the foreground and every reconnect. Returns a cleanup. */
-export function startCatchUpTriggers(onCatchUp: () => void): () => void {
+/**
+ * Calls `onCatchUp` on every return to the foreground and every reconnect, and `onNetwork` with
+ * every connectivity change the OS reports (before `onCatchUp`). Returns a cleanup.
+ */
+export function startCatchUpTriggers(onCatchUp: () => void, onNetwork?: (online: boolean) => void): () => void {
   let appState = AppState.currentState;
   const app = AppState.addEventListener('change', (next) => {
     if (cameToForeground(appState, next)) onCatchUp();
@@ -28,6 +31,7 @@ export function startCatchUpTriggers(onCatchUp: () => void): () => void {
   let online: boolean | null = null;
   const network = addNetworkStateListener((state) => {
     const now = isOnline(state);
+    onNetwork?.(now);
     if (cameOnline(online, now)) onCatchUp();
     online = now;
   });

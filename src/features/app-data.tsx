@@ -7,6 +7,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { registerHouseholds } from '@/features/households/households';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
+import { pushNow, startPush } from '@/sync/push';
 
 /**
  * Local data every screen expects: the bundled catalog (spec 6.2), pending rows for names it
@@ -36,5 +37,10 @@ export function AppDataGate({ children }: { children: ReactNode }) {
     void categorizePending();
   }, [userId]);
   useEffect(() => startCatchUpTriggers(() => void categorizePending()), []);
+  // Push (spec 7.2): after writes, on foreground and reconnect, and on sign-in.
+  useEffect(() => startPush(), []);
+  useEffect(() => {
+    if (userId) void pushNow({ force: true });
+  }, [userId]);
   return children;
 }
