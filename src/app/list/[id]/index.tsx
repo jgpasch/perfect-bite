@@ -1,4 +1,4 @@
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
@@ -48,7 +48,7 @@ import {
   type ItemView,
 } from '@/features/lists/items';
 import { addedToast, alsoInHint, toGetLabel } from '@/features/lists/list-view';
-import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
+import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
 import { categorizePending } from '@/features/categories/categorization';
@@ -86,6 +86,9 @@ export default function ListScreen() {
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
   const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
   const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
+
+  // Spec 4.1: the next cold launch opens the list that last gained focus.
+  useFocusEffect(useCallback(() => setLastOpenedList(id), [id]));
 
   const [showChecked, setShowChecked] = useState(false);
   const [selection, setSelection] = useState<Set<string> | null>(null);

@@ -9,12 +9,16 @@ import {
   deleteList,
   ensureStarterData,
   getDefaultListId,
+  getLaunchListId,
+  LAST_OPENED_LIST_KEY,
   listsWithCountsQuery,
   moveList,
   renameList,
   setDefaultList,
+  setLastOpenedList,
   setListArchived,
 } from '../lists';
+import { getDeviceSetting } from '@/features/settings/device-settings';
 import { addItem, setItemChecked } from '../items';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -121,4 +125,26 @@ test('the default list falls back to the first remaining list', () => {
   deleteList(costco);
   expect(getDefaultListId(USER)).toBeNull();
   expect(db.select().from(lists).all()).toHaveLength(3); // soft deletes
+});
+
+test('a launch opens the last opened list, then the default, then the first', () => {
+  const groceries = getDefaultListId(USER)!;
+  const costco = createList('Costco');
+  const hardware = createList('Hardware');
+  expect(getLaunchListId(USER)).toBe(groceries); // nothing opened yet
+
+  setLastOpenedList(costco);
+  expect(getDeviceSetting(LAST_OPENED_LIST_KEY, null)).toBe(costco);
+  expect(getLaunchListId(USER)).toBe(costco);
+
+  setDefaultList(USER, hardware);
+  deleteList(costco);
+  expect(getLaunchListId(USER)).toBe(hardware);
+
+  setLastOpenedList(groceries);
+  setListArchived(groceries, true); // archived lists don't open at launch
+  expect(getLaunchListId(USER)).toBe(hardware);
+
+  deleteList(hardware);
+  expect(getLaunchListId(USER)).toBeNull(); // only an archived list is left: the Lists home
 });

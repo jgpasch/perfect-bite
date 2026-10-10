@@ -47,6 +47,23 @@ export function tileAccessibilityLabel(
   return parts.join(', ');
 }
 
+// --- Launch --------------------------------------------------------------------------------
+
+/**
+ * The list a cold launch opens (spec 4.1): the last one opened, else the default list, else the
+ * first list. Only ids still in `lists` (the open lists, in order) count; null means the Lists home.
+ */
+export function launchListId(
+  lastOpenedId: string | null,
+  defaultId: string | null,
+  lists: readonly { id: string }[],
+): string | null {
+  const open = (id: string | null) => id !== null && lists.some((l) => l.id === id);
+  if (open(lastOpenedId)) return lastOpenedId;
+  if (open(defaultId)) return defaultId;
+  return lists[0]?.id ?? null;
+}
+
 // --- List screen ---------------------------------------------------------------------------
 
 /** "12 to get" beside the list's title; nothing when the list has nothing to get. */

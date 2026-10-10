@@ -3,7 +3,10 @@ import { and, asc, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItems, lists, userSettings, type List } from '@/db';
 import { positionBetween, positionForMove } from '@/domain/position';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
+
+import { launchListId } from './list-view';
 
 const live = isNull(lists.deletedAt);
 
@@ -145,4 +148,24 @@ export function getDefaultListId(userId: string): string | null {
     .orderBy(asc(lists.position))
     .get();
   return first?.id ?? null;
+}
+
+// --- Launch (spec 4.1) ---------------------------------------------------------------------
+
+/** Device setting: the list screen that last gained focus. */
+export const LAST_OPENED_LIST_KEY = 'lastOpenedListId';
+
+export function setLastOpenedList(listId: string): void {
+  setDeviceSetting(LAST_OPENED_LIST_KEY, listId);
+}
+
+/** The list a cold launch opens, or null for the Lists home. Archived lists don't count. */
+export function getLaunchListId(userId: string): string | null {
+  const open = db
+    .select({ id: lists.id })
+    .from(lists)
+    .where(and(live, isNull(lists.archivedAt)))
+    .orderBy(asc(lists.position))
+    .all();
+  return launchListId(getDeviceSetting<string | null>(LAST_OPENED_LIST_KEY, null), getDefaultListId(userId), open);
 }

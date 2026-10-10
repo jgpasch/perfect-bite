@@ -6,6 +6,7 @@ import {
   checkOffLabel,
   groupListsByHousehold,
   itemRowLabel,
+  launchListId,
   pairs,
   SORTING_LABEL,
   tileAccessibilityLabel,
@@ -158,5 +159,31 @@ describe('addedToast', () => {
     expect(addedToast('milk', '')).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', null)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', undefined)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
+  });
+});
+
+describe('launchListId', () => {
+  const lists = [{ id: 'groceries' }, { id: 'costco' }, { id: 'hardware' }];
+
+  it('opens the last opened list when it is still open', () => {
+    expect(launchListId('costco', 'groceries', lists)).toBe('costco');
+  });
+
+  it('falls back to the default list when the last one is gone', () => {
+    expect(launchListId('deleted', 'hardware', lists)).toBe('hardware');
+  });
+
+  it('falls back to the default list when nothing was opened yet', () => {
+    expect(launchListId(null, 'hardware', lists)).toBe('hardware');
+  });
+
+  it('falls back to the first list when the default is gone too', () => {
+    expect(launchListId('deleted', 'also-deleted', lists)).toBe('groceries');
+    expect(launchListId(null, null, lists)).toBe('groceries');
+  });
+
+  it('lands on the Lists home when there are no lists', () => {
+    expect(launchListId('costco', 'groceries', [])).toBeNull();
+    expect(launchListId(null, null, [])).toBeNull();
   });
 });
