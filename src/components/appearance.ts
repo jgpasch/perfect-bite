@@ -66,9 +66,9 @@ export function siriMarkColors(colors: ThemeColors, tint: number): { fill: strin
   return { fill: withAlpha(colors.onPrimary, tint), text: colors.onPrimary };
 }
 
-/** An item's name: `ink`, or `inkTertiary` once it's checked off (with a line through it). */
+/** An item's name: `ink`, or `inkSecondary` once it's checked off (with a line through it). */
 export function itemNameColor(checked: boolean): ColorToken {
-  return checked ? 'inkTertiary' : 'ink';
+  return checked ? 'inkSecondary' : 'ink';
 }
 
 /** What VoiceOver reads for a section header: its name, then how many items it has ("Produce, 3 items"). */

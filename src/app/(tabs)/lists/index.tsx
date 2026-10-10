@@ -40,7 +40,8 @@ export default function ListsScreen() {
   const [reordering, setReordering] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
 
-  const create = () => promptListName(null, '', (id) => router.push({ pathname: '/list/[id]', params: { id } }));
+  const create = (householdId?: string) =>
+    promptListName(null, '', (id) => router.push({ pathname: '/list/[id]', params: { id } }), householdId);
 
   return (
     <Screen>
@@ -50,7 +51,7 @@ export default function ListsScreen() {
             {reordering ? 'Done' : 'Edit'}
           </Stack.Toolbar.Button>
         ) : null}
-        <Stack.Toolbar.Button icon="plus" accessibilityLabel="New list" onPress={create} hidden={reordering} />
+        <Stack.Toolbar.Button icon="plus" accessibilityLabel="New list" onPress={() => create()} hidden={reordering} />
       </Stack.Toolbar>
 
       {reordering ? (
@@ -69,7 +70,7 @@ export default function ListsScreen() {
           </List>
         </Host>
       ) : active.length === 0 && archived.length === 0 ? (
-        <EmptyState message="No lists yet." action={<PrimaryButton label="New list" onPress={create} />} />
+        <EmptyState message="No lists yet." action={<PrimaryButton label="New list" onPress={() => create()} />} />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           {groups.map((group, i) => (
@@ -78,7 +79,7 @@ export default function ListsScreen() {
               <TileGrid
                 cells={[
                   ...group.lists.map((l) => <ListTile key={l.id} list={l} isDefault={l.id === defaultListId} />),
-                  <NewListTile key="new" onPress={create} />,
+                  <NewListTile key="new" onPress={() => create(group.householdId)} />,
                 ]}
               />
             </View>

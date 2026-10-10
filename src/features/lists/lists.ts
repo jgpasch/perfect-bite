@@ -68,7 +68,8 @@ export function getList(id: string): List | undefined {
   return listQuery(id).get();
 }
 
-export function createList(name: string): string {
+/** Adds a list at the end, in `householdId` (default: the first household). */
+export function createList(name: string, householdId?: string): string {
   const trimmed = name.trim();
   if (!trimmed) throw new Error('A list needs a name');
   const id = newId();
@@ -76,7 +77,7 @@ export function createList(name: string): string {
   db.insert(lists)
     .values({
       id,
-      householdId: currentHouseholdId(),
+      householdId: householdId ?? currentHouseholdId(),
       name: trimmed,
       position: positionBetween(last?.position ?? null, null),
     })

@@ -222,14 +222,13 @@ describe('siriMarkColors', () => {
 });
 
 describe('itemNameColor', () => {
-  it('is ink until the item is checked off, then inkTertiary', () => {
+  it('is ink until the item is checked off, then inkSecondary', () => {
     expect(itemNameColor(false)).toBe('ink');
-    expect(itemNameColor(true)).toBe('inkTertiary');
+    expect(itemNameColor(true)).toBe('inkSecondary');
   });
 
-  it.each(SCHEMES)('keeps checked items visible on a card in %s mode', (scheme) => {
-    // Checked rows are de-emphasised on purpose (and struck through); they stay at 3:1 or better.
-    expect(contrastRatio(Palette[scheme][itemNameColor(true)], Palette[scheme].surface)).toBeGreaterThanOrEqual(3);
+  it.each(SCHEMES)('keeps checked items readable as text on a card in %s mode', (scheme) => {
+    expect(contrastRatio(Palette[scheme][itemNameColor(true)], Palette[scheme].surface)).toBeGreaterThanOrEqual(4.5);
   });
 });
 

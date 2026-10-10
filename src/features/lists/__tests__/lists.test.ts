@@ -74,6 +74,17 @@ test('each list carries its household, for the household groups on the lists hom
   ]);
 });
 
+test('creates a list in the household it was asked for', () => {
+  db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+  createList('Weekend up north', 'lake');
+  createList('Costco');
+  expect(listsWithCountsQuery().all().map((l) => [l.name, l.householdName])).toEqual([
+    ['Groceries', 'Personal'],
+    ['Weekend up north', 'Lake house'],
+    ['Costco', 'Personal'],
+  ]);
+});
+
 test('reorders by moving one list', () => {
   createList('B');
   createList('C');

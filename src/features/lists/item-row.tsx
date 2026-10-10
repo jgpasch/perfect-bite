@@ -107,7 +107,7 @@ export function ItemRow({
             ) : null}
           </View>
           {amountText ? (
-            <ThemedText variant="amount" color={checked ? 'inkTertiary' : 'inkSecondary'}>
+            <ThemedText variant="amount" color="inkSecondary">
               {amountText}
             </ThemedText>
           ) : null}
