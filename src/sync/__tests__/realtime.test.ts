@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, listItems, userCategoryOverrides } from '@/db';
+import { categories, db, households, listItems, lists, userCategoryOverrides } from '@/db';
 import {
   emitChange,
   onQuery,
@@ -334,6 +334,23 @@ describe('membership changes', () => {
       'catalog',
       `household:${H1}`,
     ]);
+  });
+
+  test("losing one removes its data from this device and keeps the others'", async () => {
+    server.households = [household(H1), household(H2)];
+    server.lists = [list(), { ...list(), id: 'cabin-list', household_id: H2 }];
+    await pullNow();
+    expect(db.select({ id: households.id }).from(households).all()).toHaveLength(2);
+    server.households = [household(H1)];
+    server.lists = [list()];
+    memberships = [H1];
+
+    emitChange({ table: 'household_members', eventType: 'DELETE', old: { household_id: H2, user_id: 'u1' } });
+    await settle();
+
+    expect(db.select({ id: households.id }).from(households).all()).toEqual([{ id: H1 }]);
+    expect(db.select({ id: lists.id }).from(lists).all()).toEqual([{ id: L }]);
+    expect(db.select({ id: listItems.id }).from(listItems).all()).toHaveLength(1);
   });
 
   test("another member's removal is ignored", async () => {

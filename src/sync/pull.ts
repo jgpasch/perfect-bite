@@ -18,6 +18,10 @@
 //   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
 //   will do when the local one is pushed (7.3).
 // - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
+// - A full pull also notices lost memberships (4.7): a household the server listed for the user
+//   last time and doesn't now is purged from this device with its queued mutations (`purge.ts`),
+//   once the households still listed are in. Households the server has never listed (e.g. one
+//   created here and not pushed yet) are left alone.
 import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
@@ -48,6 +52,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { observeHlc, type Exec } from './clock';
 import { compareHlc } from './hlc';
 import type { Mutation } from './mutation';
+import { purgeHousehold } from './purge';
 
 /** Rows per page. Below PostgREST's default `max-rows` (1000), so a full page means there may be more. */
 export const PULL_PAGE_SIZE = 500;
@@ -110,16 +115,19 @@ export type PullState = {
   userId: string | null;
   /** By `Job.cursor`: the server `updated_at` of the newest row applied. */
   cursors: Record<string, string>;
+  /** The user's households as the last full pull read them; null before the first. */
+  memberships: string[] | null;
   lastSuccessAt: string | null;
   lastError: string | null;
 };
 
 const STATE_KEY = 'sync.pull';
-const INITIAL_STATE: PullState = { userId: null, cursors: {}, lastSuccessAt: null, lastError: null };
+const INITIAL_STATE: PullState = { userId: null, cursors: {}, memberships: null, lastSuccessAt: null, lastError: null };
 
 function readState(exec: Exec = db): PullState {
   const row = exec.select().from(deviceSettings).where(eq(deviceSettings.key, STATE_KEY)).get();
-  return (row?.value as PullState | undefined) ?? INITIAL_STATE;
+  // Spread over the defaults: state saved before `memberships` existed doesn't have it.
+  return { ...INITIAL_STATE, ...(row?.value as Partial<PullState> | undefined) };
 }
 
 function writeState(exec: Exec, patch: Partial<PullState>): void {
@@ -511,12 +519,34 @@ export function onMemberships(userId: string, listener: MembershipListener): () 
   };
 }
 
+/**
+ * Purges the households the last full pull listed and this one doesn't (left, removed or deleted,
+ * 4.7), and remembers `current` for next time. Everyone always has a household, so an empty list
+ * is taken as a bad answer: nothing is purged and the last list is kept.
+ */
+function purgeLostHouseholds(current: string[]): void {
+  if (current.length === 0) return;
+  db.transaction((tx) => {
+    const state = readState(tx);
+    const lost = (state.memberships ?? []).filter((id) => !current.includes(id));
+    const cursors = { ...state.cursors };
+    for (const householdId of lost) {
+      const summary = purgeHousehold(tx, householdId);
+      console.info(`[pull] no longer a member of ${householdId}; removed it from this device`, summary);
+      // Joining again pulls it in full.
+      const prefix = householdCursorKey(householdId, '');
+      for (const key of Object.keys(cursors)) if (key.startsWith(prefix)) delete cursors[key];
+    }
+    writeState(tx, { cursors, memberships: current });
+  });
+}
+
 async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullSummary> {
   const account = getAccount();
   if (!isSupabaseConfigured || !account) return { skipped: 'no-session' };
   if (online === false) return { skipped: 'offline' };
   if (readState().userId !== account.userId) {
-    db.transaction((tx) => writeState(tx, { userId: account.userId, cursors: {} }));
+    db.transaction((tx) => writeState(tx, { userId: account.userId, cursors: {}, memberships: null }));
   }
   const all = scope === 'all';
 
@@ -535,6 +565,7 @@ async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullS
     for (const householdId of memberships) {
       for (const job of householdJobs(householdId)) pulled += await pullTable(job);
     }
+    if (all) purgeLostHouseholds(memberships);
     if (all || scope.user) {
       for (const job of userJobs(account.userId)) pulled += await pullTable(job);
     }

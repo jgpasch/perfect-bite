@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { avatarColors } from '@/components/appearance';
@@ -15,7 +15,6 @@ import { recipeHue } from '@/domain/aisle-color';
 import { signOut, useAccountState } from '@/features/auth/account';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
-import { pushLocalData } from '@/features/settings/dev-push';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Settings (board 10): the account card, Shopping and Households cards, then Sign out and the version. */
@@ -32,24 +31,7 @@ export default function SettingsScreen() {
     const id = userId && listRows.length > 0 ? getDefaultListId(userId) : null;
     return listRows.find((l) => l.id === id)?.name;
   }, [userId, listRows]);
-  const [push, setPush] = useState<{ status: 'idle' | 'pushing' | 'done' | 'failed'; message?: string }>({
-    status: 'idle',
-  });
   const avatar = avatarColors('amber', colors, aisles);
-
-  const pushToSupabase = () => {
-    if (account.status !== 'ready') return;
-    setPush({ status: 'pushing' });
-    pushLocalData(account.account.userId)
-      .then((summary) => {
-        const total = summary.reduce((n, s) => n + s.rows, 0);
-        setPush({ status: 'done', message: `Pushed ${total} rows across ${summary.length} tables.` });
-      })
-      .catch((err: unknown) => {
-        console.warn('[settings] push failed', err);
-        setPush({ status: 'failed', message: err instanceof Error ? err.message : String(err) });
-      });
-  };
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -108,26 +90,6 @@ export default function SettingsScreen() {
                 last={i === householdRows.length - 1}
               />
             ))}
-          </SettingsSection>
-        ) : null}
-
-        {__DEV__ ? (
-          <SettingsSection title="Developer">
-            <SettingsRow
-              label={push.status === 'pushing' ? 'Pushing…' : 'Push local data to Supabase'}
-              labelColor="primary"
-              chevron={false}
-              onPress={push.status === 'pushing' || account.status !== 'ready' ? undefined : pushToSupabase}
-              last={!push.message}
-            />
-            {push.message ? (
-              <ThemedText
-                variant="footnote"
-                color={push.status === 'failed' ? 'danger' : 'inkSecondary'}
-                style={{ padding: spacing.lg }}>
-                {push.message}
-              </ThemedText>
-            ) : null}
           </SettingsSection>
         ) : null}
 

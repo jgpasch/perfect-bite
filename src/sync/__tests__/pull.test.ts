@@ -841,6 +841,173 @@ describe('failures', () => {
   });
 });
 
+describe('lost memberships (4.7)', () => {
+  const CABIN_LIST = 'cabin-list';
+
+  /** H1 and H2 pulled once, with an item in each and an unpushed rename of H2's list. */
+  async function seedTwoHouseholds() {
+    memberships = [H1, H2];
+    seedPulledList();
+    put('list_items', remoteItem('i1', ts(2)));
+    put('households', remoteHousehold(H2, ts(3), 'Cabin'));
+    put('lists', remoteList(CABIN_LIST, ts(3), { household_id: H2 }));
+    put('list_items', remoteItem('cabin-item', ts(4), { list_id: CABIN_LIST, household_id: H2 }));
+    await pullNow();
+    updateRows(db, lists, eq(lists.id, CABIN_LIST), { name: 'Cabin, renamed' });
+    updateRows(db, lists, eq(lists.id, L), { name: 'Home, renamed' });
+  }
+
+  /** H2 is gone from the server, as after leaving, removal or deletion. */
+  const loseCabin = () => {
+    memberships = [H1];
+    for (const table of Object.keys(server)) server[table] = server[table].filter((r) => r.household_id !== H2 && r.id !== H2);
+  };
+
+  const localHouseholds = () =>
+    db
+      .select({ id: households.id })
+      .from(households)
+      .orderBy(asc(households.id))
+      .all()
+      .map((h) => h.id);
+
+  test('a household the server no longer lists is purged with its queued mutations and cursors', async () => {
+    await seedTwoHouseholds();
+    expect(getPullState().memberships).toEqual([H1, H2]);
+    expect(outboxRows().map((r) => r.householdId)).toEqual([H2, H1]);
+    const h1Cursors = Object.fromEntries(
+      Object.entries(getPullState().cursors).filter(([key]) => key.startsWith(`household:${H1}:`)),
+    );
+    loseCabin();
+
+    await expect(pullNow()).resolves.toMatchObject({ households: [H1], error: null });
+
+    expect(localHouseholds()).toEqual([H1]);
+    expect(db.select({ id: lists.id, name: lists.name }).from(lists).all()).toEqual([{ id: L, name: 'Home, renamed' }]);
+    expect(db.select({ id: listItems.id }).from(listItems).all()).toEqual([{ id: 'i1' }]);
+    // H1's unpushed rename stays queued; H2's is dropped.
+    expect(outboxRows().map((r) => [r.householdId, r.mutation.fields])).toEqual([[H1, { name: 'Home, renamed' }]]);
+    expect(getPullState().cursors).toEqual({ ...h1Cursors, ...pick(getPullState().cursors, 'user:', 'catalog:') });
+    expect(Object.keys(getPullState().cursors).some((key) => key.startsWith(`household:${H2}:`))).toBe(false);
+    expect(getPullState().memberships).toEqual([H1]);
+  });
+
+  test('joining it again pulls it in full', async () => {
+    await seedTwoHouseholds();
+    const before = structuredClone(server);
+    loseCabin();
+    await pullNow();
+    expect(localHouseholds()).toEqual([H1]);
+    server = before;
+    memberships = [H1, H2];
+    queries.length = 0;
+
+    await pullNow();
+
+    const h2Lists = queriesFor('lists').find((q) => q.ops[1][2] === H2)!;
+    expect(h2Lists.ops.some(([op]) => op === 'gt')).toBe(false);
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(db.select({ id: lists.id }).from(lists).orderBy(asc(lists.id)).all()).toEqual([{ id: CABIN_LIST }, { id: L }]);
+    expect(itemRow('cabin-item')).toMatchObject({ listId: CABIN_LIST, householdId: H2 });
+    expect(getPullState().memberships).toEqual([H1, H2]);
+  });
+
+  test("a household the server has never listed (created here, not pushed yet) isn't purged", async () => {
+    seedPulledList();
+    await pullNow();
+    db.transaction((tx) => {
+      insertRow(tx, households, { id: 'local-only', name: 'New' });
+      insertRow(tx, lists, { id: 'local-list', householdId: 'local-only', name: 'New list', position: 2 });
+    });
+    const queued = outboxRows();
+
+    await pullNow();
+    await pullNow();
+
+    expect(localHouseholds()).toEqual([H1, 'local-only']);
+    expect(outboxRows()).toEqual(queued);
+    expect(getPullState().memberships).toEqual([H1]);
+  });
+
+  test('an empty membership list purges nothing and keeps the last list', async () => {
+    await seedTwoHouseholds();
+    const queued = outboxRows();
+    memberships = [];
+
+    await expect(pullNow()).resolves.toMatchObject({ households: [], error: null });
+
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(outboxRows()).toEqual(queued);
+    expect(getPullState().memberships).toEqual([H1, H2]);
+  });
+
+  test("a run that fails before the households are in doesn't purge; the next one does", async () => {
+    await seedTwoHouseholds();
+    loseCabin();
+    failTable = 'lists';
+
+    await expect(pullNow()).resolves.toMatchObject({ error: 'lists: Network request failed' });
+
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(getPullState().memberships).toEqual([H1, H2]);
+
+    failTable = null;
+    await pullNow();
+
+    expect(localHouseholds()).toEqual([H1]);
+    expect(outboxRows().filter((r) => r.householdId === H2)).toEqual([]);
+  });
+
+  test("a scoped pull doesn't read memberships, so it never purges", async () => {
+    await seedTwoHouseholds();
+    loseCabin();
+
+    await pullNow({ scope: { households: [H1], user: true } });
+
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(getPullState().memberships).toEqual([H1, H2]);
+  });
+
+  test('state saved before memberships were kept only records them; nothing is purged', async () => {
+    await seedTwoHouseholds();
+    const { memberships: _dropped, ...older } = getPullState();
+    db.update(deviceSettings).set({ value: older }).where(eq(deviceSettings.key, 'sync.pull')).run();
+    expect(getPullState().memberships).toBeNull();
+    loseCabin();
+
+    await pullNow();
+
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(getPullState().memberships).toEqual([H1]);
+  });
+
+  test("another user starts with no memberships, so the last user's households aren't purged", async () => {
+    await seedTwoHouseholds();
+    mockAuth.account = { userId: 'u2' };
+    loseCabin();
+
+    await pullNow();
+
+    expect(localHouseholds()).toEqual([H1, H2]);
+    expect(getPullState()).toMatchObject({ userId: 'u2', memberships: [H1] });
+  });
+
+  test('a default list in the lost household is cleared', async () => {
+    await seedTwoHouseholds();
+    db.insert(userSettings).values({ userId: 'u1', defaultListId: CABIN_LIST }).run();
+    loseCabin();
+
+    await pullNow();
+
+    expect(db.select().from(userSettings).get()).toMatchObject({ userId: 'u1', defaultListId: null });
+  });
+});
+
+/** The cursors whose keys start with any of `prefixes`. */
+function pick(cursors: Record<string, string>, ...prefixes: string[]) {
+  return Object.fromEntries(Object.entries(cursors).filter(([key]) => prefixes.some((p) => key.startsWith(p))));
+}
+
 describe('scoped pulls (for Realtime)', () => {
   const HOUSEHOLD_TABLES = [
     'households',

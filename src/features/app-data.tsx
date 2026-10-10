@@ -4,7 +4,6 @@ import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending } from '@/features/categories/categorization';
-import { registerHouseholds } from '@/features/households/households';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { pullNow, startPull } from '@/sync/pull';
@@ -14,8 +13,8 @@ import { startRealtime } from '@/sync/realtime';
 /**
  * Local data every screen expects: the bundled catalog (spec 6.2), pending rows for names it
  * doesn't know (spec 6.3), the one-time ingredient
- * history and unit backfills (spec 4.2) and, once signed in, the user's starter household and list (then
- * registered on the server, in the background). Render
+ * history and unit backfills (spec 4.2) and, once signed in, the user's starter household and list
+ * (written through the outbox, so the push creates them on the server). Render
  * inside DatabaseProvider. Runs during render (every step is idempotent and fast) so no screen
  * ever sees the data missing.
  */
@@ -28,10 +27,6 @@ export function AppDataGate({ children }: { children: ReactNode }) {
     backfillUsage();
     backfillUnitUsage();
     if (userId) ensureStarterData(userId);
-  }, [userId]);
-  // Async and online, so it runs after render. TODO(M5): sync replaces this.
-  useEffect(() => {
-    if (userId) void registerHouseholds(userId);
   }, [userId]);
   // Categorization catch-up (spec 6.3): after the pending rows above exist, again on sign-in, and on
   // every foreground and reconnect.
