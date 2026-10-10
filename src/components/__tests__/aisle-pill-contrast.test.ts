@@ -1,5 +1,3 @@
-// TODO: rename to src/components/__tests__/aisle-pill-contrast.test.ts (the session that wrote it
-// couldn't move or delete files without approval).
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { pillLook } from '@/components/appearance';
