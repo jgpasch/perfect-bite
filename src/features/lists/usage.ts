@@ -10,12 +10,13 @@
 // Units (ingredient_unit_usage, for the usual unit): each of those uses that has a quantity also
 // counts one use of its unit (`unitKey`: the unit, or 'count' for a bare number). A use with no
 // quantity (`milk`, or a "Keep existing" recipe link) counts no unit. Undo takes the unit back too.
-import { and, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 
 import { db, ingredientUnitUsage, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
 import type { Amount } from '@/domain/quantity-display';
 import { unitKey } from '@/domain/usual-unit';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -41,42 +42,37 @@ export function recordUsage(
   at: Date,
   amount?: Amount,
 ) {
-  tx.insert(ingredientUsage)
-    .values({ householdId, ingredientName, displayName, useCount: 1, lastUsedAt: at })
-    .onConflictDoUpdate({
-      target: [ingredientUsage.householdId, ingredientUsage.ingredientName],
-      set: { useCount: sql`${ingredientUsage.useCount} + 1`, displayName, lastUsedAt: at, hiddenAt: null },
-    })
-    .run();
+  upsertRow(
+    tx,
+    ingredientUsage,
+    { householdId, ingredientName, displayName, lastUsedAt: at },
+    { displayName, lastUsedAt: at, hiddenAt: null },
+    { useCount: 1 },
+  );
   if (amount && amount.quantity !== null) {
-    tx.insert(ingredientUnitUsage)
-      .values({ householdId, ingredientName, unitKey: unitKey(amount.unit), useCount: 1, lastUsedAt: at })
-      .onConflictDoUpdate({
-        target: [ingredientUnitUsage.householdId, ingredientUnitUsage.ingredientName, ingredientUnitUsage.unitKey],
-        set: { useCount: sql`${ingredientUnitUsage.useCount} + 1`, lastUsedAt: at },
-      })
-      .run();
+    upsertRow(
+      tx,
+      ingredientUnitUsage,
+      { householdId, ingredientName, unitKey: unitKey(amount.unit), lastUsedAt: at },
+      { lastUsedAt: at },
+      { useCount: 1 },
+    );
   }
 }
 
 /**
  * Takes back one use (an undone add), and one use of the `amount`'s unit if it has a quantity.
- * Each row goes away when its count reaches 0.
+ * Each row goes away locally when its count reaches 0; the server keeps it at 0 (the decrement is
+ * a counter delta, spec 7.1), and a row at 0 reads as absent.
  */
 export function unrecordUsage(tx: Tx, householdId: string, ingredientName: string, amount?: Amount) {
-  tx.update(ingredientUsage)
-    .set({ useCount: sql`max(${ingredientUsage.useCount} - 1, 0)` })
-    .where(row(householdId, ingredientName))
-    .run();
+  updateRows(tx, ingredientUsage, row(householdId, ingredientName), {}, { useCount: -1 });
   tx.delete(ingredientUsage)
     .where(and(row(householdId, ingredientName), lte(ingredientUsage.useCount, 0)))
     .run();
   if (amount && amount.quantity !== null) {
     const unit = unitRow(householdId, ingredientName, unitKey(amount.unit));
-    tx.update(ingredientUnitUsage)
-      .set({ useCount: sql`max(${ingredientUnitUsage.useCount} - 1, 0)` })
-      .where(unit)
-      .run();
+    updateRows(tx, ingredientUnitUsage, unit, {}, { useCount: -1 });
     tx.delete(ingredientUnitUsage)
       .where(and(unit, lte(ingredientUnitUsage.useCount, 0)))
       .run();
@@ -88,7 +84,7 @@ export function unrecordUsage(tx: Tx, householdId: string, ingredientName: strin
  * count is kept, and the next use unhides it (`recordUsage`). A missing row is a no-op.
  */
 export function hideFromSuggestions(householdId: string, ingredientName: string, at = new Date()) {
-  db.update(ingredientUsage).set({ hiddenAt: at }).where(row(householdId, ingredientName)).run();
+  updateRows(db, ingredientUsage, row(householdId, ingredientName), { hiddenAt: at });
 }
 
 const BACKFILL_KEY = 'usage.backfilled';
@@ -140,10 +136,8 @@ export function backfillUsage(): void {
       }
     }
     for (const { householdId, ingredientName, displayName, useCount, lastUsedAt } of rows.values()) {
-      tx.insert(ingredientUsage)
-        .values({ householdId, ingredientName, displayName, useCount, lastUsedAt })
-        .onConflictDoNothing()
-        .run();
+      if (tx.select({ n: ingredientUsage.useCount }).from(ingredientUsage).where(row(householdId, ingredientName)).get()) continue;
+      insertRow(tx, ingredientUsage, { householdId, ingredientName, displayName, lastUsedAt }, { useCount });
     }
   });
   setDeviceSetting(BACKFILL_KEY, true);
@@ -217,8 +211,9 @@ export function backfillUnitUsage(): void {
         if (use.at > found.lastUsedAt) found.lastUsedAt = use.at;
       }
     }
-    for (const values of rows.values()) {
-      tx.insert(ingredientUnitUsage).values(values).onConflictDoNothing().run();
+    for (const { useCount, ...values } of rows.values()) {
+      // `recorded` already skips ingredients with unit rows, so each of these is new.
+      insertRow(tx, ingredientUnitUsage, values, { useCount });
     }
   });
   setDeviceSetting(UNITS_BACKFILL_KEY, true);

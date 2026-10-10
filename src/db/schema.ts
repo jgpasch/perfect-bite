@@ -2,6 +2,12 @@ import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import type { Unit } from '../shared/quantity-parser';
+import type { Mutation } from '../sync/mutation';
+
+/** Each synced field's HLC from its last write (spec 7.3), kept by `src/sync/mutate.ts`. */
+export type FieldClock = Record<string, string>;
+const fieldClock = () =>
+  text('field_clock', { mode: 'json' }).$type<FieldClock>().notNull().default(sql`'{}'`);
 
 /**
  * Per-device key/value settings that never sync, e.g. each list's last view mode (spec 4.6).
@@ -24,6 +30,8 @@ export const categories = sqliteTable('categories', {
   ownerUserId: text('owner_user_id'),
   /** Default store-walk order for system categories. */
   defaultRank: integer('default_rank'),
+  /** Custom categories only; system ones come from the seed and the server. */
+  fieldClock: fieldClock(),
 });
 
 export const ingredients = sqliteTable('ingredients', {
@@ -48,6 +56,7 @@ export const userCategoryOverrides = sqliteTable(
     categoryId: text('category_id')
       .notNull()
       .references(() => categories.id),
+    fieldClock: fieldClock(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.ingredientName] })],
 );
@@ -60,14 +69,16 @@ export const userCategoryOrder = sqliteTable(
       .notNull()
       .references(() => categories.id),
     position: real('position').notNull(),
+    fieldClock: fieldClock(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.categoryId] })],
 );
 
 // --- Household data (spec 5) ---------------------------------------------------------------
 // Mirrors the Postgres tables so M5 sync can push rows as they are. Ids are client-generated
-// UUIDv7. Deletes are soft (`deleted_at`) so they can be undone now and synced later.
-// TODO(M5): field_clock, and server-set timestamps on pull.
+// UUIDv7. Deletes are soft (`deleted_at`) so they can be undone and synced. Every write goes
+// through `src/sync/mutate.ts`, which keeps `field_clock` and appends to the outbox.
+// TODO(M5): server-set timestamps on pull.
 
 const timestamps = {
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -77,6 +88,7 @@ const timestamps = {
     .notNull()
     .$defaultFn(() => new Date())
     .$onUpdateFn(() => new Date()),
+  fieldClock: fieldClock(),
 };
 
 const deletedAt = integer('deleted_at', { mode: 'timestamp_ms' });
@@ -199,10 +211,10 @@ export const listItemContributions = sqliteTable(
   (t) => [index('list_item_contributions_item_idx').on(t.listItemId)],
 );
 
-// TODO(M5): sync
 /**
  * The household's ingredient history, for autocomplete (spec 4.2). One row per ingredient key.
  * Outlives list items and recipes: deleting an item doesn't forget that the household buys it.
+ * `use_count` syncs as a counter (spec 7.1).
  */
 export const ingredientUsage = sqliteTable(
   'ingredient_usage',
@@ -223,7 +235,6 @@ export const ingredientUsage = sqliteTable(
   (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
 );
 
-// TODO(M5): sync
 /**
  * The units the household buys each ingredient in (spec 4.2, 4.4). One row per ingredient and unit.
  * Its own table so sync merges `use_count` as a plain counter; `usualUnit` picks from these rows.
@@ -249,13 +260,36 @@ export const ingredientUnitUsage = sqliteTable(
 export const userSettings = sqliteTable('user_settings', {
   userId: text('user_id').primaryKey(),
   defaultListId: text('default_list_id').references(() => lists.id),
+  fieldClock: fieldClock(),
 });
+
+// --- Sync (spec 7.1) -----------------------------------------------------------------------
+
+/**
+ * Mutations waiting to be pushed, oldest first. Each is appended in the same transaction as the
+ * local write it describes (`src/sync/mutate.ts`); the push drains them in `id` order.
+ */
+export const outbox = sqliteTable(
+  'outbox',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The household the row belongs to; null for per-user tables. Lets a lost membership drop its mutations (spec 7.2). */
+    householdId: text('household_id'),
+    /** The wire mutation (`Mutation` in `src/sync/mutation.ts`). */
+    mutation: text('mutation', { mode: 'json' }).$type<Mutation>().notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('outbox_household_idx').on(t.householdId)],
+);
 
 export type Category = typeof categories.$inferSelect;
 export type Household = typeof households.$inferSelect;
 export type IngredientUnitUsage = typeof ingredientUnitUsage.$inferSelect;
 export type IngredientUsage = typeof ingredientUsage.$inferSelect;
 export type List = typeof lists.$inferSelect;
+export type OutboxRow = typeof outbox.$inferSelect;
 export type ListItem = typeof listItems.$inferSelect;
 export type ListItemContribution = typeof listItemContributions.$inferSelect;
 export type Recipe = typeof recipes.$inferSelect;

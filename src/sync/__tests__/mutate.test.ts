@@ -1,0 +1,219 @@
+import { beforeEach, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
+
+import {
+  categories,
+  db,
+  deviceSettings,
+  households,
+  ingredientUnitUsage,
+  ingredientUsage,
+  ingredients,
+  lists,
+  userCategoryOverrides,
+  userSettings,
+} from '@/db';
+import { resetDb } from '@/test/db';
+import { outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
+
+import { getDeviceId, nextHlc, observeHlc } from '../clock';
+import { compareHlc, parseHlc } from '../hlc';
+import { deleteRows, insertRow, updateRows, upsertRow } from '../mutate';
+
+jest.mock('@/db/client', () => require('@/test/db'));
+
+const H = 'household-1';
+const AT = new Date('2026-10-01T12:00:00.000Z');
+
+beforeEach(() => {
+  resetDb();
+});
+
+const addHousehold = () => insertRow(db, households, { id: H, name: 'Home', createdAt: AT });
+
+test('insertRow writes the row, its clock and one mutation with every column', () => {
+  addHousehold();
+  const row = insertRow(db, lists, { id: 'l1', householdId: H, name: 'Groceries', position: 1, createdAt: AT });
+
+  expect(row).toMatchObject({ id: 'l1', name: 'Groceries', emoji: null });
+  const [householdMutation, listMutation] = outboxMutations();
+  expect(householdMutation).toMatchObject({ table: 'households', id: H, fields: { name: 'Home', created_at: AT.toISOString() } });
+  expect(listMutation.table).toBe('lists');
+  expect(listMutation.id).toBe('l1');
+  expect(listMutation.fields).toEqual({
+    household_id: H,
+    name: 'Groceries',
+    emoji: null,
+    position: 1,
+    archived_at: null,
+    deleted_at: null,
+    created_at: AT.toISOString(),
+  });
+  expect(listMutation.counters).toBeUndefined();
+
+  const stored = db.select().from(lists).where(eq(lists.id, 'l1')).get()!;
+  expect(stored.fieldClock).toEqual(Object.fromEntries(Object.keys(listMutation.fields).map((f) => [f, listMutation.hlc])));
+  // The outbox remembers the household, so a lost membership can drop its mutations.
+  expect(outboxRows().map((r) => r.householdId)).toEqual([H, H]);
+});
+
+test('updateRows enqueues exactly the patched fields, one mutation per row', () => {
+  addHousehold();
+  insertRow(db, lists, { id: 'l1', householdId: H, name: 'A', position: 1 });
+  insertRow(db, lists, { id: 'l2', householdId: H, name: 'B', position: 2 });
+  const before = outboxMutations();
+
+  const rows = updateRows(db, lists, eq(lists.householdId, H), { emoji: '🥕' });
+
+  expect(rows.map((r) => r.id).sort()).toEqual(['l1', 'l2']);
+  const added = outboxPatches().slice(before.length);
+  expect(added).toEqual(
+    expect.arrayContaining([
+      { table: 'lists', id: 'l1', fields: { emoji: '🥕' } },
+      { table: 'lists', id: 'l2', fields: { emoji: '🥕' } },
+    ]),
+  );
+  expect(added).toHaveLength(2);
+
+  // field_clock: emoji moves to the new HLC; the other fields keep the insert's.
+  const update = outboxMutations().at(-1)!;
+  const insert = before.find((m) => m.id === update.id)!;
+  const clock = db.select().from(lists).where(eq(lists.id, update.id!)).get()!.fieldClock;
+  expect(clock.emoji).toBe(update.hlc);
+  expect(clock.name).toBe(insert.hlc);
+  expect(compareHlc(update.hlc, insert.hlc)).toBeGreaterThan(0);
+});
+
+test('updateRows matching nothing writes nothing', () => {
+  addHousehold();
+  const count = outboxRows().length;
+  expect(updateRows(db, lists, eq(lists.id, 'missing'), { name: 'X' })).toEqual([]);
+  expect(outboxRows()).toHaveLength(count);
+});
+
+test('updateRows refuses keys, counters and server-owned fields', () => {
+  addHousehold();
+  expect(() => updateRows(db, lists, eq(lists.id, 'l1'), { id: 'other' })).toThrow("lists.id can't be patched");
+  expect(() => updateRows(db, households, eq(households.id, H), { fieldClock: {} } as never)).toThrow(
+    "households.fieldClock can't be patched",
+  );
+  expect(() =>
+    updateRows(db, ingredientUsage, undefined, { useCount: 3 } as never),
+  ).toThrow("ingredient_usage.useCount can't be patched");
+  expect(() => updateRows(db, lists, undefined, {}, { useCount: 1 })).toThrow("lists.useCount isn't a counter");
+});
+
+test('a non-synced table is refused', () => {
+  expect(() => insertRow(db, ingredients as never, { normalizedName: 'x', displayName: 'x' } as never)).toThrow(
+    "ingredients isn't a synced table",
+  );
+});
+
+test('usage rows use composite keys and send use_count as a counter', () => {
+  addHousehold();
+  const values = { householdId: H, ingredientName: 'milk', displayName: 'milk', lastUsedAt: AT };
+  upsertRow(db, ingredientUsage, values, { displayName: 'Milk', lastUsedAt: AT }, { useCount: 1 });
+  upsertRow(db, ingredientUsage, values, { displayName: 'Milk', lastUsedAt: AT }, { useCount: 1 });
+
+  const [, insert, update] = outboxPatches();
+  expect(insert).toEqual({
+    table: 'ingredient_usage',
+    key: { household_id: H, ingredient_name: 'milk' },
+    fields: { display_name: 'milk', last_used_at: AT.toISOString(), hidden_at: null, created_at: expect.any(String) },
+    counters: { use_count: 1 },
+  });
+  expect(update).toEqual({
+    table: 'ingredient_usage',
+    key: { household_id: H, ingredient_name: 'milk' },
+    fields: { display_name: 'Milk', last_used_at: AT.toISOString() },
+    counters: { use_count: 1 },
+  });
+  expect(db.select().from(ingredientUsage).get()).toMatchObject({ useCount: 2, displayName: 'Milk' });
+});
+
+test('a counter-only update sends no fields and leaves field_clock alone', () => {
+  addHousehold();
+  insertRow(db, ingredientUnitUsage, { householdId: H, ingredientName: 'milk', unitKey: 'gal', lastUsedAt: AT }, { useCount: 1 });
+  const clock = db.select().from(ingredientUnitUsage).get()!.fieldClock;
+
+  updateRows(db, ingredientUnitUsage, eq(ingredientUnitUsage.ingredientName, 'milk'), {}, { useCount: -1 });
+  updateRows(db, ingredientUnitUsage, eq(ingredientUnitUsage.ingredientName, 'milk'), {}, { useCount: -1 });
+
+  const patches = outboxPatches();
+  expect(patches.at(-1)).toEqual({
+    table: 'ingredient_unit_usage',
+    key: { household_id: H, ingredient_name: 'milk', unit_key: 'gal' },
+    fields: {},
+    counters: { use_count: -1 },
+  });
+  // The local count stops at 0; the server adds the deltas up.
+  expect(db.select().from(ingredientUnitUsage).get()).toMatchObject({ useCount: 0, fieldClock: clock });
+});
+
+test('per-user rows have no household and hard-delete with a delete mutation', () => {
+  db.insert(categories).values({ id: 'produce', slug: 'produce', name: 'Produce' }).run();
+  upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
+  insertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'milk', categoryId: 'produce' });
+
+  expect(deleteRows(db, userCategoryOverrides, eq(userCategoryOverrides.userId, 'u1'))).toBe(1);
+
+  expect(outboxPatches()).toEqual([
+    { table: 'user_settings', key: { user_id: 'u1' }, fields: { default_list_id: null } },
+    { table: 'user_category_overrides', key: { user_id: 'u1', ingredient_name: 'milk' }, fields: { category_id: 'produce' } },
+    { table: 'user_category_overrides', key: { user_id: 'u1', ingredient_name: 'milk' }, fields: {}, delete: true },
+  ]);
+  expect(outboxRows().map((r) => r.householdId)).toEqual([null, null, null]);
+  expect(db.select().from(userCategoryOverrides).all()).toEqual([]);
+});
+
+test('a failed insert leaves neither the row nor a mutation', () => {
+  // No household: the list's foreign key fails.
+  expect(() => insertRow(db, lists, { id: 'l1', householdId: 'missing', name: 'A', position: 1 })).toThrow();
+  expect(db.select().from(lists).all()).toEqual([]);
+  expect(outboxRows()).toEqual([]);
+});
+
+test('a failure later in the caller’s transaction rolls back the row, its clock and its mutation', () => {
+  addHousehold();
+  const before = outboxRows().length;
+  const clockBefore = db.select().from(deviceSettings).where(eq(deviceSettings.key, 'sync.clock')).get();
+  expect(() =>
+    db.transaction((tx) => {
+      updateRows(tx, households, eq(households.id, H), { name: 'Renamed' });
+      throw new Error('boom');
+    }),
+  ).toThrow('boom');
+  expect(db.select().from(households).get()!.name).toBe('Home');
+  expect(outboxRows()).toHaveLength(before);
+  expect(db.select().from(deviceSettings).where(eq(deviceSettings.key, 'sync.clock')).get()).toEqual(clockBefore);
+});
+
+test('HLCs from this device are increasing and carry its device id', () => {
+  addHousehold();
+  for (let i = 0; i < 5; i++) updateRows(db, households, eq(households.id, H), { name: `Home ${i}` });
+  const hlcs = outboxMutations().map((m) => m.hlc);
+  const device = getDeviceId();
+  for (let i = 1; i < hlcs.length; i++) expect(compareHlc(hlcs[i], hlcs[i - 1])).toBeGreaterThan(0);
+  for (const hlc of hlcs) expect(parseHlc(hlc)!.device).toBe(device);
+});
+
+test('the clock adopts a larger remote HLC and ignores older or malformed ones', () => {
+  const device = getDeviceId();
+  observeHlc('9999999999998-0007-other');
+  expect(nextHlc()).toBe(`9999999999998-0008-${device}`);
+  observeHlc('1000000000000-0000-other');
+  observeHlc('not an hlc');
+  expect(nextHlc()).toBe(`9999999999998-0009-${device}`);
+});
+
+test('the device id is stable', () => {
+  const device = getDeviceId();
+  nextHlc();
+  expect(getDeviceId()).toBe(device);
+  expect(nextHlc().endsWith(`-${device}`)).toBe(true);
+});
+
+test('deleteRows only enqueues rows it removed', () => {
+  expect(deleteRows(db, userCategoryOverrides, eq(userCategoryOverrides.userId, 'nobody'))).toBe(0);
+  expect(outboxRows()).toEqual([]);
+});

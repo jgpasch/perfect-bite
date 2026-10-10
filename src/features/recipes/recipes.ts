@@ -1,4 +1,4 @@
-// Recipes (spec 4.5): local reads and writes. M5 adds the outbox write beside each of these.
+// Recipes (spec 4.5): local reads, and writes through the sync helpers (outbox, spec 7.1).
 import { and, asc, desc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItemContributions, listItems, lists, recipeIngredients, recipes, type Recipe } from '@/db';
@@ -7,6 +7,7 @@ import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
+import { insertRow, updateRows } from '@/sync/mutate';
 
 import { orderByLastUse } from './recipe-view';
 
@@ -104,17 +105,18 @@ function cleanName(name: string): string {
 /** A new recipe in `householdId` (by default the first household; M7 asks which). */
 export function createRecipe(name: string, householdId: string = currentHouseholdId()): string {
   const id = newId();
-  db.insert(recipes).values({ id, householdId, name: cleanName(name) }).run();
+  insertRow(db, recipes, { id, householdId, name: cleanName(name) });
   return id;
 }
 
 export type RecipeEdit = { name: string; notes: string; sourceUrl: string };
 
 export function updateRecipe(id: string, edit: RecipeEdit): void {
-  db.update(recipes)
-    .set({ name: cleanName(edit.name), notes: edit.notes.trim() || null, sourceUrl: edit.sourceUrl.trim() || null })
-    .where(eq(recipes.id, id))
-    .run();
+  updateRows(db, recipes, eq(recipes.id, id), {
+    name: cleanName(edit.name),
+    notes: edit.notes.trim() || null,
+    sourceUrl: edit.sourceUrl.trim() || null,
+  });
 }
 
 /**
@@ -123,12 +125,15 @@ export function updateRecipe(id: string, edit: RecipeEdit): void {
  */
 export function deleteRecipe(id: string): void {
   db.transaction((tx) => {
-    tx.update(recipes).set({ deletedAt: new Date() }).where(eq(recipes.id, id)).run();
-    tx.update(listItemContributions).set({ recipeId: null }).where(eq(listItemContributions.recipeId, id)).run();
+    updateRows(tx, recipes, eq(recipes.id, id), { deletedAt: new Date() });
+    updateRows(tx, listItemContributions, eq(listItemContributions.recipeId, id), { recipeId: null });
   });
 }
 
-/** Marks the recipe as just changed, so it sorts first. */
+/**
+ * Marks the recipe as just changed, so it sorts first. Local only, not a mutation: `updated_at`
+ * is server-set (spec 7.1).
+ */
 function touch(recipeId: string) {
   db.update(recipes).set({ updatedAt: new Date() }).where(eq(recipes.id, recipeId)).run();
 }
@@ -155,18 +160,16 @@ export function addRecipeIngredient(recipeId: string, text: string): { id: strin
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
   const id = newId();
   const pendingNames = db.transaction((tx) => {
-    tx.insert(recipeIngredients)
-      .values({
-        id,
-        recipeId,
-        householdId: recipe.householdId,
-        ingredientName,
-        displayName: name,
-        quantity,
-        unit,
-        position: nextPosition(recipeId),
-      })
-      .run();
+    insertRow(tx, recipeIngredients, {
+      id,
+      recipeId,
+      householdId: recipe.householdId,
+      ingredientName,
+      displayName: name,
+      quantity,
+      unit,
+      position: nextPosition(recipeId),
+    });
     recordUsage(tx, recipe.householdId, ingredientName, name, new Date(), { quantity, unit });
     return ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
   });
@@ -189,9 +192,7 @@ export function addParsedRecipeIngredients(
     let position = nextPosition(recipeId);
     const now = new Date();
     for (const item of items) {
-      tx.insert(recipeIngredients)
-        .values({ id: newId(), recipeId, householdId: recipe.householdId, ...item, position })
-        .run();
+      insertRow(tx, recipeIngredients, { id: newId(), recipeId, householdId: recipe.householdId, ...item, position });
       recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now, {
         quantity: item.quantity,
         unit: item.unit ?? null,
@@ -214,18 +215,21 @@ export function updateRecipeIngredient(id: string, text: string, note = ''): str
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) throw new Error('An ingredient needs a name');
   return db.transaction((tx) => {
-    tx.update(recipeIngredients)
-      .set({ ingredientName, displayName: name, quantity, unit, note: note.trim() || null })
-      .where(eq(recipeIngredients.id, id))
-      .run();
+    updateRows(tx, recipeIngredients, eq(recipeIngredients.id, id), {
+      ingredientName,
+      displayName: name,
+      quantity,
+      unit,
+      note: note.trim() || null,
+    });
     return ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
   });
 }
 
 export function deleteRecipeIngredient(id: string): void {
-  db.update(recipeIngredients).set({ deletedAt: new Date() }).where(eq(recipeIngredients.id, id)).run();
+  updateRows(db, recipeIngredients, eq(recipeIngredients.id, id), { deletedAt: new Date() });
 }
 
 export function undeleteRecipeIngredient(id: string): void {
-  db.update(recipeIngredients).set({ deletedAt: null }).where(eq(recipeIngredients.id, id)).run();
+  updateRows(db, recipeIngredients, eq(recipeIngredients.id, id), { deletedAt: null });
 }

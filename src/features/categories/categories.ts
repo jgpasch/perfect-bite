@@ -1,5 +1,6 @@
 // Categories, the ingredient catalog cache, and per-user overrides and order (spec 4.3).
-// Local reads and writes; M5 syncs the per-user tables, M6 fills the catalog from the server.
+// Local reads and writes. Per-user tables (custom categories, order, overrides) write through the
+// sync helpers (outbox, spec 7.1); the catalog is local here and M6 fills it from the server.
 import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
 
 import { categories, db, ingredients, userCategoryOrder, userCategoryOverrides } from '@/db';
@@ -7,6 +8,8 @@ import { orderCategories, type IngredientStatus } from '@/domain/category-resolv
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
+import type { Exec } from '@/sync/clock';
+import { deleteRows, insertRow, updateRows, upsertRow } from '@/sync/mutate';
 import { normalizeIngredientName, SEED_INGREDIENTS, SYSTEM_CATEGORIES } from '@/shared';
 
 // --- Seed ----------------------------------------------------------------------------------
@@ -133,7 +136,7 @@ function placeAll(userId: string): CategoryRow[] {
     for (const c of ordered) {
       if (c.position === null) {
         c.position = positionBetween(last, null);
-        tx.insert(userCategoryOrder).values({ userId, categoryId: c.id, position: c.position }).run();
+        insertRow(tx, userCategoryOrder, { userId, categoryId: c.id, position: c.position });
       }
       last = c.position;
     }
@@ -151,10 +154,12 @@ export function moveCategory(userId: string, from: number, to: number): void {
     from,
     to,
   );
-  db.update(userCategoryOrder)
-    .set({ position })
-    .where(and(eq(userCategoryOrder.userId, userId), eq(userCategoryOrder.categoryId, ordered[from].id)))
-    .run();
+  updateRows(
+    db,
+    userCategoryOrder,
+    and(eq(userCategoryOrder.userId, userId), eq(userCategoryOrder.categoryId, ordered[from].id)),
+    { position },
+  );
 }
 
 /** "New category...": a custom category for this user, at the end of their order. */
@@ -166,29 +171,30 @@ export function createCategory(userId: string, name: string): string {
   const ordered = placeAll(userId);
   const id = newId();
   db.transaction((tx) => {
-    tx.insert(categories).values({ id, name: trimmed, ownerUserId: userId }).run();
-    tx.insert(userCategoryOrder)
-      .values({ userId, categoryId: id, position: positionBetween(ordered.at(-1)?.position ?? null, null) })
-      .run();
+    insertRow(tx, categories, { id, name: trimmed, ownerUserId: userId });
+    insertRow(tx, userCategoryOrder, {
+      userId,
+      categoryId: id,
+      position: positionBetween(ordered.at(-1)?.position ?? null, null),
+    });
   });
   return id;
 }
 
 // --- Overrides (spec 4.3.2) ----------------------------------------------------------------
 
-/** Moves an ingredient to a category for this user only, on every list. */
-export function setCategoryOverride(userId: string, ingredientName: string, categoryId: string): void {
-  db.insert(userCategoryOverrides)
-    .values({ userId, ingredientName, categoryId })
-    .onConflictDoUpdate({ target: [userCategoryOverrides.userId, userCategoryOverrides.ingredientName], set: { categoryId } })
-    .run();
+/** Moves an ingredient to a category for this user only, on every list. `tx`: the caller's transaction. */
+export function setCategoryOverride(userId: string, ingredientName: string, categoryId: string, tx: Exec = db): void {
+  upsertRow(tx, userCategoryOverrides, { userId, ingredientName, categoryId }, { categoryId });
 }
 
 /** "Reset to default". */
-export function clearCategoryOverride(userId: string, ingredientName: string): void {
-  db.delete(userCategoryOverrides)
-    .where(and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)))
-    .run();
+export function clearCategoryOverride(userId: string, ingredientName: string, tx: Exec = db): void {
+  deleteRows(
+    tx,
+    userCategoryOverrides,
+    and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)),
+  );
 }
 
 /** An ingredient's category for this user, and whether it is their override. */

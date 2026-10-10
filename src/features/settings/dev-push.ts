@@ -35,13 +35,13 @@ type Step = {
 export type PushSummary = { table: string; rows: number }[];
 
 /**
- * A local row as Postgres columns: snake_case names, dates as ISO strings. `updated_at` is left
- * out because the server sets it.
+ * A local row as Postgres columns: snake_case names, dates as ISO strings. `updated_at` and
+ * `field_clock` are left out because the server keeps them.
  */
 export function toServerRow(table: AnySQLiteTable, row: Row): Row {
   const out: Row = {};
   for (const [key, column] of Object.entries(getTableColumns(table))) {
-    if (column.name === 'updated_at' || !(key in row)) continue;
+    if (column.name === 'updated_at' || column.name === 'field_clock' || !(key in row)) continue;
     const value = row[key];
     out[column.name] = value instanceof Date ? value.toISOString() : value;
   }

@@ -22,6 +22,7 @@ migrate(db, { migrationsFolder: path.join(__dirname, '../db/migrations') });
 
 // Children before parents, for foreign keys.
 const TABLES = [
+  schema.outbox,
   schema.deviceSettings,
   schema.userSettings,
   schema.userCategoryOverrides,

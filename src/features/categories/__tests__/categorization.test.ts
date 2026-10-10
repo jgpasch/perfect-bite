@@ -96,7 +96,7 @@ describe('results', () => {
     await categorizePending(["za'atar"]);
     expect(row("za'atar")!.defaultCategoryId).toBe(SPICES);
     expect(db.select().from(userCategoryOverrides).all()).toEqual([
-      { userId: 'u1', ingredientName: "za'atar", categoryId: id('produce') },
+      { userId: 'u1', ingredientName: "za'atar", categoryId: id('produce'), fieldClock: {} },
     ]);
   });
 

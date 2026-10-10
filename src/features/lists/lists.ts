@@ -1,10 +1,11 @@
-// Lists (spec 4.1): local reads and writes. M5 adds the outbox write beside each of these.
+// Lists (spec 4.1): local reads, and writes through the sync helpers (outbox, spec 7.1).
 import { and, asc, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItems, lists, userSettings, type List } from '@/db';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
+import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 
 import { launchListId } from './list-view';
 
@@ -19,12 +20,9 @@ export function ensureStarterData(userId: string): void {
     if (tx.select({ id: households.id }).from(households).limit(1).get()) return;
     const householdId = newId();
     const listId = newId();
-    tx.insert(households).values({ id: householdId, name: 'Personal' }).run();
-    tx.insert(lists).values({ id: listId, householdId, name: 'Groceries', position: 1 }).run();
-    tx.insert(userSettings)
-      .values({ userId, defaultListId: listId })
-      .onConflictDoUpdate({ target: userSettings.userId, set: { defaultListId: listId } })
-      .run();
+    insertRow(tx, households, { id: householdId, name: 'Personal' });
+    insertRow(tx, lists, { id: listId, householdId, name: 'Groceries', position: 1 });
+    upsertRow(tx, userSettings, { userId, defaultListId: listId }, { defaultListId: listId });
   });
 }
 
@@ -77,33 +75,28 @@ export function createList(name: string, householdId?: string): string {
   if (!trimmed) throw new Error('A list needs a name');
   const id = newId();
   const last = db.select({ position: max(lists.position) }).from(lists).where(live).get();
-  db.insert(lists)
-    .values({
-      id,
-      householdId: householdId ?? currentHouseholdId(),
-      name: trimmed,
-      position: positionBetween(last?.position ?? null, null),
-    })
-    .run();
+  insertRow(db, lists, {
+    id,
+    householdId: householdId ?? currentHouseholdId(),
+    name: trimmed,
+    position: positionBetween(last?.position ?? null, null),
+  });
   return id;
 }
 
 export function renameList(id: string, name: string): void {
   const trimmed = name.trim();
   if (!trimmed) return;
-  db.update(lists).set({ name: trimmed }).where(eq(lists.id, id)).run();
+  updateRows(db, lists, eq(lists.id, id), { name: trimmed });
 }
 
 export function setListArchived(id: string, archived: boolean): void {
-  db.update(lists)
-    .set({ archivedAt: archived ? new Date() : null })
-    .where(eq(lists.id, id))
-    .run();
+  updateRows(db, lists, eq(lists.id, id), { archivedAt: archived ? new Date() : null });
 }
 
 /** Soft-deletes the list. Its items go with it (they are only reachable through the list). */
 export function deleteList(id: string): void {
-  db.update(lists).set({ deletedAt: new Date() }).where(eq(lists.id, id)).run();
+  updateRows(db, lists, eq(lists.id, id), { deletedAt: new Date() });
 }
 
 /**
@@ -117,16 +110,13 @@ export function moveList(visible: readonly Pick<List, 'id' | 'position'>[], from
     from,
     to,
   );
-  db.update(lists).set({ position }).where(eq(lists.id, visible[from].id)).run();
+  updateRows(db, lists, eq(lists.id, visible[from].id), { position });
 }
 
 // --- Default list (Siri, spec 4.1) ---------------------------------------------------------
 
 export function setDefaultList(userId: string, listId: string): void {
-  db.insert(userSettings)
-    .values({ userId, defaultListId: listId })
-    .onConflictDoUpdate({ target: userSettings.userId, set: { defaultListId: listId } })
-    .run();
+  upsertRow(db, userSettings, { userId, defaultListId: listId }, { defaultListId: listId });
 }
 
 /**

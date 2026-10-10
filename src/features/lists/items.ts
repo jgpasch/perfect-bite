@@ -1,4 +1,4 @@
-// List items (spec 4.2, 4.4): local reads and writes. M5 adds the outbox write beside each of these.
+// List items (spec 4.2, 4.4): local reads, and writes through the sync helpers (outbox, spec 7.1).
 import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle-orm';
 
 import {
@@ -23,6 +23,7 @@ import { usualUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
+import { insertRow, updateRows } from '@/sync/mutate';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -170,18 +171,16 @@ function applyAdd(
 
   if (decision.kind === 'new') {
     const itemId = newId();
-    tx.insert(listItems)
-      .values({
-        id: itemId,
-        listId: list.id,
-        householdId: list.householdId,
-        ingredientName: add.ingredientName,
-        displayName: add.displayName,
-        addedBy: meta.userId,
-        createdAt: at,
-      })
-      .run();
-    tx.insert(listItemContributions).values({ ...contribution, listItemId: itemId }).run();
+    insertRow(tx, listItems, {
+      id: itemId,
+      listId: list.id,
+      householdId: list.householdId,
+      ingredientName: add.ingredientName,
+      displayName: add.displayName,
+      addedBy: meta.userId,
+      createdAt: at,
+    });
+    insertRow(tx, listItemContributions, { ...contribution, listItemId: itemId });
     return { itemId, contributionId, kind: 'new', pendingNames };
   }
 
@@ -189,7 +188,7 @@ function applyAdd(
   const previous = liveContributions(tx, item.id);
 
   if (decision.kind === 'combine') {
-    tx.insert(listItemContributions).values({ ...contribution, listItemId: item.id }).run();
+    insertRow(tx, listItemContributions, { ...contribution, listItemId: item.id });
     return {
       itemId: item.id,
       contributionId,
@@ -205,13 +204,12 @@ function applyAdd(
 
   // Reopen: you bought it before and need it again, so the old amounts no longer apply.
   if (previous.length > 0) {
-    tx.update(listItemContributions)
-      .set({ deletedAt: new Date() })
-      .where(inArray(listItemContributions.id, previous.map((c) => c.id)))
-      .run();
+    updateRows(tx, listItemContributions, inArray(listItemContributions.id, previous.map((c) => c.id)), {
+      deletedAt: new Date(),
+    });
   }
-  tx.update(listItems).set({ checkedAt: null, checkedBy: null }).where(eq(listItems.id, item.id)).run();
-  tx.insert(listItemContributions).values({ ...contribution, listItemId: item.id }).run();
+  updateRows(tx, listItems, eq(listItems.id, item.id), { checkedAt: null, checkedBy: null });
+  insertRow(tx, listItemContributions, { ...contribution, listItemId: item.id });
   return {
     itemId: item.id,
     contributionId,
@@ -258,17 +256,14 @@ export function undoAdd(result: AddItemResult): void {
       .where(eq(listItemContributions.id, result.contributionId))
       .get();
     unrecordUsage(tx, item.householdId, item.ingredientName, undone);
-    tx.update(listItemContributions).set({ deletedAt: now }).where(eq(listItemContributions.id, result.contributionId)).run();
+    updateRows(tx, listItemContributions, eq(listItemContributions.id, result.contributionId), { deletedAt: now });
     if (result.kind === 'new') {
-      tx.update(listItems).set({ deletedAt: now }).where(eq(listItems.id, result.itemId)).run();
+      updateRows(tx, listItems, eq(listItems.id, result.itemId), { deletedAt: now });
     } else if (result.kind === 'reopen' && result.reopened) {
       const { checkedAt, checkedBy, contributionIds } = result.reopened;
-      tx.update(listItems).set({ checkedAt, checkedBy }).where(eq(listItems.id, result.itemId)).run();
+      updateRows(tx, listItems, eq(listItems.id, result.itemId), { checkedAt, checkedBy });
       if (contributionIds.length > 0) {
-        tx.update(listItemContributions)
-          .set({ deletedAt: null })
-          .where(inArray(listItemContributions.id, contributionIds))
-          .run();
+        updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { deletedAt: null });
       }
     }
   });
@@ -276,7 +271,7 @@ export function undoAdd(result: AddItemResult): void {
 
 /** The edit sheet's per-amount delete control (spec 4.4). */
 export function deleteContribution(contributionId: string): void {
-  db.update(listItemContributions).set({ deletedAt: new Date() }).where(eq(listItemContributions.id, contributionId)).run();
+  updateRows(db, listItemContributions, eq(listItemContributions.id, contributionId), { deletedAt: new Date() });
 }
 
 /** An item's live amounts, oldest first, for the edit sheet. */
@@ -408,29 +403,25 @@ function restoreItem(tx: Tx, item: ListItem, checked: boolean): void {
   if (!checked) {
     const open = findOpenItem(tx, item.listId, item.ingredientName, item.id);
     if (open) {
-      tx.update(listItemContributions)
-        .set({ listItemId: open.id })
-        .where(and(eq(listItemContributions.listItemId, item.id), liveContribution))
-        .run();
-      tx.update(listItems).set({ deletedAt: item.deletedAt ?? new Date() }).where(eq(listItems.id, item.id)).run();
+      updateRows(tx, listItemContributions, and(eq(listItemContributions.listItemId, item.id), liveContribution), {
+        listItemId: open.id,
+      });
+      updateRows(tx, listItems, eq(listItems.id, item.id), { deletedAt: item.deletedAt ?? new Date() });
       return;
     }
   }
-  tx.update(listItems)
-    .set({
-      deletedAt: null,
-      checkedAt: checked ? (item.checkedAt ?? new Date()) : null,
-      checkedBy: checked ? item.checkedBy : null,
-    })
-    .where(eq(listItems.id, item.id))
-    .run();
+  updateRows(tx, listItems, eq(listItems.id, item.id), {
+    deletedAt: null,
+    checkedAt: checked ? (item.checkedAt ?? new Date()) : null,
+    checkedBy: checked ? item.checkedBy : null,
+  });
 }
 
 export function setItemChecked(itemId: string, checked: boolean, userId: string | null): void {
   db.transaction((tx) => {
     const item = getItem(tx, itemId);
     if (checked) {
-      tx.update(listItems).set({ checkedAt: new Date(), checkedBy: userId }).where(eq(listItems.id, itemId)).run();
+      updateRows(tx, listItems, eq(listItems.id, itemId), { checkedAt: new Date(), checkedBy: userId });
     } else {
       restoreItem(tx, item, false);
     }
@@ -438,7 +429,7 @@ export function setItemChecked(itemId: string, checked: boolean, userId: string 
 }
 
 export function deleteItem(itemId: string): void {
-  db.update(listItems).set({ deletedAt: new Date() }).where(eq(listItems.id, itemId)).run();
+  updateRows(db, listItems, eq(listItems.id, itemId), { deletedAt: new Date() });
 }
 
 /** Undoes `deleteItem`, putting the item back checked or unchecked as it was. */
@@ -452,12 +443,8 @@ export function undeleteItem(itemId: string): void {
 
 /** "Clear checked items": deletes every checked item on the list. Returns how many. */
 export function clearChecked(listId: string): number {
-  const now = new Date();
-  return db
-    .update(listItems)
-    .set({ deletedAt: now })
-    .where(and(eq(listItems.listId, listId), liveItem, isNotNull(listItems.checkedAt)))
-    .run().changes;
+  const where = and(eq(listItems.listId, listId), liveItem, isNotNull(listItems.checkedAt));
+  return updateRows(db, listItems, where, { deletedAt: new Date() }).length;
 }
 
 /** "Uncheck all". */
@@ -500,17 +487,18 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
     if (item.checkedAt === null && findOpenItem(tx, item.listId, ingredientName, item.id)) {
       throw new DuplicateItemError(name);
     }
-    tx.update(listItems)
-      .set({ displayName: name, ingredientName, note: edit.note.trim() || null })
-      .where(eq(listItems.id, itemId))
-      .run();
+    updateRows(tx, listItems, eq(listItems.id, itemId), {
+      displayName: name,
+      ingredientName,
+      note: edit.note.trim() || null,
+    });
     const pendingNames =
       ingredientName !== item.ingredientName && ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
 
     // Spec 4.3.2: a per-user override for the ingredient, on every list.
     if (userId && edit.categoryId !== undefined) {
-      if (edit.categoryId === null) clearCategoryOverride(userId, ingredientName);
-      else setCategoryOverride(userId, ingredientName, edit.categoryId);
+      if (edit.categoryId === null) clearCategoryOverride(userId, ingredientName, tx);
+      else setCategoryOverride(userId, ingredientName, edit.categoryId, tx);
     }
 
     const contributions = tx
@@ -539,18 +527,25 @@ function replaceAmounts(
   amount: Amount,
 ): void {
   if (contributions.length === 1) {
-    tx.update(listItemContributions).set(amount).where(eq(listItemContributions.id, contributions[0].id)).run();
+    updateRows(tx, listItemContributions, eq(listItemContributions.id, contributions[0].id), {
+      quantity: amount.quantity,
+      unit: amount.unit,
+    });
     return;
   }
   if (contributions.length > 1) {
-    tx.update(listItemContributions)
-      .set({ deletedAt: new Date() })
-      .where(inArray(listItemContributions.id, contributions.map((c) => c.id)))
-      .run();
+    updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributions.map((c) => c.id)), {
+      deletedAt: new Date(),
+    });
   }
-  tx.insert(listItemContributions)
-    .values({ id: newId(), listItemId: item.id, householdId: item.householdId, source: 'manual', ...amount })
-    .run();
+  insertRow(tx, listItemContributions, {
+    id: newId(),
+    listItemId: item.id,
+    householdId: item.householdId,
+    source: 'manual',
+    quantity: amount.quantity,
+    unit: amount.unit,
+  });
 }
 
 /**
@@ -842,10 +837,10 @@ export function searchRecentItems(householdId: string, prefix: string, limit: nu
 /** "Check all" in a recipe section (spec 4.6). */
 export function checkItems(itemIds: readonly string[], userId: string | null): void {
   if (itemIds.length === 0) return;
-  db.update(listItems)
-    .set({ checkedAt: new Date(), checkedBy: userId })
-    .where(and(inArray(listItems.id, [...itemIds]), isNull(listItems.checkedAt)))
-    .run();
+  updateRows(db, listItems, and(inArray(listItems.id, [...itemIds]), isNull(listItems.checkedAt)), {
+    checkedAt: new Date(),
+    checkedBy: userId,
+  });
 }
 
 /**
@@ -862,13 +857,12 @@ export function removeRecipeFromList(listId: string, recipeId: string): void {
       .where(and(eq(listItems.listId, listId), liveItem, eq(listItemContributions.recipeId, recipeId), liveContribution))
       .all();
     if (affected.length === 0) return;
-    tx.update(listItemContributions)
-      .set({ deletedAt: now })
-      .where(inArray(listItemContributions.id, affected.map((a) => a.id)))
-      .run();
+    updateRows(tx, listItemContributions, inArray(listItemContributions.id, affected.map((a) => a.id)), {
+      deletedAt: now,
+    });
     for (const itemId of new Set(affected.map((a) => a.itemId))) {
       if (liveContributions(tx, itemId).length === 0) {
-        tx.update(listItems).set({ deletedAt: now }).where(eq(listItems.id, itemId)).run();
+        updateRows(tx, listItems, eq(listItems.id, itemId), { deletedAt: now });
       }
     }
   });

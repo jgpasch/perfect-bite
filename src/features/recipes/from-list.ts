@@ -5,6 +5,7 @@ import { db, listItemContributions, listItems } from '@/db';
 import { itemTotal } from '@/features/lists/items';
 import { newId } from '@/lib/id';
 import { parseAmount } from '@/shared';
+import { insertRow } from '@/sync/mutate';
 
 import { addParsedRecipeIngredients, createRecipe, recipeIngredientsQuery } from './recipes';
 
@@ -48,18 +49,16 @@ export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], u
     for (const item of ordered) {
       const linked = contributions.some((c) => c.listItemId === item.id && c.recipeId === recipeId);
       if (linked) continue;
-      tx.insert(listItemContributions)
-        .values({
-          id: newId(),
-          listItemId: item.id,
-          householdId: item.householdId,
-          source: 'recipe',
-          recipeId,
-          quantity: null,
-          unit: null,
-          addedBy: userId,
-        })
-        .run();
+      insertRow(tx, listItemContributions, {
+        id: newId(),
+        listItemId: item.id,
+        householdId: item.householdId,
+        source: 'recipe',
+        recipeId,
+        quantity: null,
+        unit: null,
+        addedBy: userId,
+      });
     }
   });
   return pendingNames;

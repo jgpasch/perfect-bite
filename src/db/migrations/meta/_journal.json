@@ -43,6 +43,13 @@
       "when": 1791572490377,
       "tag": "0005_ingredient_unit_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791673535833,
+      "tag": "0006_sync_outbox",
+      "breakpoints": true
     }
   ]
 }
