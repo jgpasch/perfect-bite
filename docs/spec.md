@@ -581,7 +581,7 @@ As in stash, don't rely on the edge runtime that `supabase start` launches; use 
 
 **Database changes**: `supabase migration new <name>`, write SQL, `supabase db reset`. Tests in `supabase/tests/` (pgTAP) run with `supabase test db`.
 
-**Local categorization**: `categorize-ingredients` runs locally against the real Anthropic API using the key in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock. The pg_cron sweep runs locally too.
+**Local categorization**: `categorize-ingredients` runs locally against Gemini 3.8 Flash (`google:gemini-3.8-flash`) using `GOOGLE_GENERATIVE_AI_API_KEY` in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock. The pg_cron sweep runs locally too.
 
 **Seed data** (`supabase/seed.sql`), so sharing can be tested on day one:
 - System categories and the ~500 seed ingredients.
