@@ -1,7 +1,7 @@
 // Recipes (spec 4.5): local reads and writes. M5 adds the outbox write beside each of these.
-import { and, asc, desc, eq, isNull, max, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm';
 
-import { db, households, listItemContributions, recipeIngredients, recipes, type Recipe } from '@/db';
+import { db, households, listItemContributions, listItems, lists, recipeIngredients, recipes, type Recipe } from '@/db';
 import { positionBetween } from '@/domain/position';
 import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
@@ -18,22 +18,48 @@ function currentHouseholdId(): string {
   return row.id;
 }
 
-/** Live recipes, most recently updated first, each with its ingredient count. */
+/** Live recipes, most recently updated first, each with its household and ingredient count. */
 export function recipesQuery() {
   return db
     .select({
       id: recipes.id,
       name: recipes.name,
+      householdId: recipes.householdId,
+      householdName: households.name,
       updatedAt: recipes.updatedAt,
       ingredientCount: sql<number>`count(${recipeIngredients.id})`,
     })
     .from(recipes)
+    .innerJoin(households, eq(households.id, recipes.householdId))
     .leftJoin(recipeIngredients, and(eq(recipeIngredients.recipeId, recipes.id), liveIngredient))
     .where(liveRecipe)
     .groupBy(recipes.id)
     .orderBy(desc(recipes.updatedAt), asc(recipes.name));
 }
 export type RecipeSummary = Awaited<ReturnType<typeof recipesQuery>>[number];
+
+/**
+ * Each recipe amount on an open (unchecked) item of a live, unarchived list, with the list's name
+ * and when it was added, for the "On Groceries" badge (pick one per recipe with `onListByRecipe`).
+ */
+export function recipesOnListsQuery() {
+  return db
+    .select({
+      recipeId: sql<string>`${listItemContributions.recipeId}`,
+      listName: lists.name,
+      addedAt: listItemContributions.createdAt,
+    })
+    .from(listItemContributions)
+    .innerJoin(
+      listItems,
+      and(eq(listItems.id, listItemContributions.listItemId), isNull(listItems.deletedAt), isNull(listItems.checkedAt)),
+    )
+    .innerJoin(lists, and(eq(lists.id, listItems.listId), isNull(lists.deletedAt), isNull(lists.archivedAt)))
+    .where(and(isNotNull(listItemContributions.recipeId), isNull(listItemContributions.deletedAt)));
+}
+
+/** Tables the recipes tab reads (`recipesQuery`, `recipesOnListsQuery`), for `useLiveQueryOn`. */
+export const RECIPES_TAB_TABLES = [recipes, recipeIngredients, households, listItemContributions, listItems, lists];
 
 export function recipeQuery(id: string) {
   return db.select().from(recipes).where(and(eq(recipes.id, id), liveRecipe));

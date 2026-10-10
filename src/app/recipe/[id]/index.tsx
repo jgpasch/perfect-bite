@@ -1,16 +1,21 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, KeyboardAvoidingView, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { EmptyState } from '@/components/empty-state';
-import { TextField } from '@/components/text-field';
+import { PrimaryButton } from '@/components/button';
+import { Card } from '@/components/card';
+import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast } from '@/components/toast';
-import { recipeIngredients, recipes, type Recipe, type RecipeIngredient } from '@/db';
+import { ingredients as ingredientsTable, recipeIngredients, recipes, userCategoryOverrides, type Recipe, type RecipeIngredient } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { aisleColor, recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { formatAmount } from '@/domain/quantity-display';
+import { getAccount } from '@/features/auth/account';
+import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
@@ -27,18 +32,29 @@ import {
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 
-/** A recipe (spec 4.5): ingredients added with the same field and parser as lists. */
+/** A recipe (spec 4.5, board 06): ingredients added with the same field and parser as lists. */
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { spacing } = useTheme();
+  const { spacing, aisles } = useTheme();
   const headerHeight = useHeaderHeight();
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
   const recipe = recipeRows[0];
-  const { data: ingredients } = useLiveQueryOn(recipeIngredientsQuery(id), [recipeIngredients], [id]);
+  // ingredients and overrides: re-read when an ingredient gets its aisle, so its dot follows.
+  const { data: ingredients } = useLiveQueryOn(
+    recipeIngredientsQuery(id),
+    [recipeIngredients, ingredientsTable, userCategoryOverrides],
+    [id],
+  );
+  const aisleOf = useMemo(
+    () => ingredientAisles(getAccount()?.userId ?? null, [...new Set(ingredients.map((i) => i.ingredientName))]),
+    [ingredients],
+  );
   const [deleted, setDeleted] = useState<RecipeIngredient | null>(null);
   const dismissToast = useCallback(() => setDeleted(null), []);
 
   if (!recipe) return <Screen />;
+
+  const hue = recipeHue(recipe.id);
 
   const edit = (ingredient: RecipeIngredient) => {
     const amount = formatAmount(ingredient);
@@ -73,15 +89,10 @@ export default function RecipeScreen() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: recipe.name }} />
+      {/* The native header takes the band's tint, so back and actions sit on it (board 06). */}
+      <Stack.Screen options={{ headerStyle: { backgroundColor: aisles[hue].soft } }} />
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Menu icon="ellipsis.circle" accessibilityLabel="Recipe actions">
-          <Stack.Toolbar.MenuAction
-            icon="cart.badge.plus"
-            disabled={ingredients.length === 0}
-            onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id } })}>
-            Add to list…
-          </Stack.Toolbar.MenuAction>
+        <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Recipe actions">
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
             Rename
           </Stack.Toolbar.MenuAction>
@@ -92,26 +103,45 @@ export default function RecipeScreen() {
       </Stack.Toolbar>
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
-        <FlatList
+        <ScrollView
           style={styles.flex}
-          data={ingredients}
-          keyExtractor={(i) => i.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          contentContainerStyle={{ paddingBottom: spacing.lg }}
-          ListHeaderComponent={<RecipeDetails recipe={recipe} />}
-          ListEmptyComponent={<EmptyState message="No ingredients yet. Add them below." />}
-          renderItem={({ item }) => (
-            <RecipeIngredientRow
-              ingredient={item}
-              onEdit={() => edit(item)}
-              onDelete={() => {
-                deleteRecipeIngredient(item.id);
-                setDeleted(item);
-              }}
+          contentContainerStyle={{ paddingBottom: spacing.lg }}>
+          <RecipeBand recipe={recipe} hue={hue} />
+          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }}>
+            <PrimaryButton
+              label="Add to a list"
+              icon="cart"
+              disabled={ingredients.length === 0}
+              onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id } })}
             />
-          )}
-        />
+          </View>
+          <Card>
+            <SectionHeader title="Ingredients" count={ingredients.length} />
+            {ingredients.length === 0 ? (
+              <ThemedText
+                variant="callout"
+                color="inkSecondary"
+                style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+                No ingredients yet. Add them below.
+              </ThemedText>
+            ) : (
+              ingredients.map((item) => (
+                <RecipeIngredientRow
+                  key={item.id}
+                  ingredient={item}
+                  dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
+                  onEdit={() => edit(item)}
+                  onDelete={() => {
+                    deleteRecipeIngredient(item.id);
+                    setDeleted(item);
+                  }}
+                />
+              ))
+            )}
+          </Card>
+        </ScrollView>
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>
             <Toast
@@ -125,7 +155,7 @@ export default function RecipeScreen() {
         <ItemAddBar
           householdId={recipe.householdId}
           onAdd={(text) => void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? [])}
-          placeholder="Add an ingredient, like 2 cups flour"
+          placeholder="Add 2 cups flour…"
           accessibilityLabel="Add an ingredient"
         />
       </KeyboardAvoidingView>
@@ -133,31 +163,62 @@ export default function RecipeScreen() {
   );
 }
 
-/** Notes and source link, saved when the field loses focus. */
-function RecipeDetails({ recipe }: { recipe: Recipe }) {
-  const { spacing } = useTheme();
+/**
+ * The header band in the recipe's soft tint: its name, source link and notes. The link and notes
+ * are edited in place and saved when the field loses focus.
+ */
+function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
+  const { colors, aisles, spacing, typography, sizes } = useTheme();
   const [notes, setNotes] = useState(recipe.notes ?? '');
   const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
   const save = () => updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl });
+  const tint = aisles[hue];
 
   return (
-    <View style={{ padding: spacing.lg, gap: spacing.md }}>
-      <TextField value={notes} onChangeText={setNotes} onEndEditing={save} placeholder="Notes" accessibilityLabel="Notes" multiline />
-      <TextField
-        value={sourceUrl}
-        onChangeText={setSourceUrl}
-        onEndEditing={save}
-        placeholder="Link to the recipe"
-        accessibilityLabel="Link to the recipe"
-        keyboardType="url"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <ThemedText variant="footnote" color="inkSecondary" accessibilityRole="header" style={{ paddingTop: spacing.md }}>
-        Ingredients
+    <View
+      style={{
+        backgroundColor: tint.soft,
+        paddingHorizontal: spacing.lg + spacing.xs,
+        paddingTop: spacing.md + spacing.xxs,
+        paddingBottom: spacing.lg + spacing.xs,
+        gap: spacing.sm,
+      }}>
+      <ThemedText variant="screenTitle" accessibilityRole="header">
+        {recipe.name}
       </ThemedText>
+      <View style={[styles.row, { gap: spacing.xs + spacing.xxs, minHeight: sizes.minTapTarget }]}>
+        <SymbolView name="link" size={sizes.icon} tintColor={tint.strong} weight="bold" accessible={false} />
+
+        <TextInput
+          value={sourceUrl}
+          onChangeText={setSourceUrl}
+          onEndEditing={save}
+          placeholder="Add a link to the recipe"
+          placeholderTextColor={colors.inkSecondary}
+          selectionColor={tint.strong}
+          accessibilityLabel="Link to the recipe"
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[typography.amount, styles.flex, { color: tint.strong }]}
+        />
+      </View>
+      <TextInput
+        value={notes}
+        onChangeText={setNotes}
+        onEndEditing={save}
+        placeholder="Add notes"
+        placeholderTextColor={colors.inkSecondary}
+        selectionColor={tint.strong}
+        accessibilityLabel="Notes"
+        multiline
+        style={[typography.callout, { color: colors.ink, minHeight: sizes.minTapTarget }]}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({ flex: { flex: 1 } });
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+});

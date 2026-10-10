@@ -199,6 +199,47 @@ describe('segmentColors', () => {
     // An unselected segment sits on the surfaceMuted track.
     expect(contrastRatio(colors[off.text], colors.surfaceMuted)).toBeGreaterThanOrEqual(4.5);
   });
+
+  it('fills a selected primary segment (Combine) with primary and onPrimary text', () => {
+    expect(segmentColors(true, 'primary')).toEqual({ fill: 'primary', text: 'onPrimary' });
+  });
+
+  it('fills a selected ink segment (Keep) with the ink fill and light text', () => {
+    expect(segmentColors(true, 'ink')).toEqual({ fill: 'toast', text: 'onToast' });
+  });
+
+  it('treats chip as the default tone', () => {
+    expect(segmentColors(true, 'chip')).toEqual(segmentColors(true));
+  });
+
+  it('ignores the tone when not selected', () => {
+    expect(segmentColors(false, 'primary')).toEqual({ fill: null, text: 'inkSecondary' });
+    expect(segmentColors(false, 'ink')).toEqual({ fill: null, text: 'inkSecondary' });
+  });
+
+  it.each(SCHEMES)('keeps the Combine / Keep labels at 4.5:1 or better on a card in %s mode', (scheme) => {
+    const colors = Palette[scheme];
+    for (const tone of ['primary', 'ink'] as const) {
+      const on = segmentColors(true, tone);
+      expect(contrastRatio(colors[on.text], colors[on.fill!])).toBeGreaterThanOrEqual(4.5);
+    }
+    // Inside a card the track is the screen ground.
+    expect(contrastRatio(colors[segmentColors(false).text], colors.background)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('recipe header band (board 06)', () => {
+  const HUES = ['green', 'blue', 'rose', 'amber'] as const;
+
+  it.each(SCHEMES)('keeps the title, link and placeholders at 4.5:1 or better on every recipe tint in %s mode', (scheme) => {
+    const colors = Palette[scheme];
+    for (const hue of HUES) {
+      const tint = AisleColors[scheme][hue];
+      expect(contrastRatio(colors.ink, tint.soft)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(tint.strong, tint.soft)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.inkSecondary, tint.soft)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 });
 
 describe('badgeColors', () => {

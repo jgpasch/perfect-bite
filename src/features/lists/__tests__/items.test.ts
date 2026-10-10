@@ -144,8 +144,58 @@ describe('bulk add (spec 4.4)', () => {
     const eggs = addItem(listId, 'eggs', USER)!;
     setItemChecked(eggs.itemId, true, USER);
     expect(planBulkAddToList(listId, adds)).toEqual([
-      { index: 0, ingredientName: 'milk', displayName: 'milk', existingAmountText: '1 gal', incomingAmountText: '2 cup' },
+      {
+        index: 0,
+        ingredientName: 'milk',
+        displayName: 'milk',
+        existingAmountText: '1 gal',
+        incomingAmountText: '2 cup',
+        // The batch's later "1 cup milk" folds in too: 1 gal + 3 cups.
+        combinedAmountText: '1¼ gal',
+        keptAmountText: '1 gal',
+      },
     ]);
+  });
+
+  test('the combined total matches what Combine writes, and the kept total what Keep writes', () => {
+    addItem(listId, '2 lb chicken thighs', USER);
+    addItem(listId, '4 limes', USER);
+    const batch = [{ text: '4 lb chicken thighs' }, { text: '2 limes' }];
+    const plan = planBulkAddToList(listId, batch);
+    expect(plan.map((c) => [c.displayName, c.combinedAmountText, c.keptAmountText])).toEqual([
+      ['chicken thighs', '6 lb', '2 lb'],
+      ['limes', '6', '4'],
+    ]);
+    addItemsBulk(listId, batch, USER, new Set([1]));
+    expect(rows(view().unchecked)).toEqual(['6 lb chicken thighs', '4 limes']);
+  });
+
+  test('a recipe kept as existing still adds its later repeats, so the kept total grows', () => {
+    const pie = createRecipe('Pie');
+    addItem(listId, '1 cup butter', USER);
+    const batch = [
+      { text: '1/2 cup butter', source: 'recipe' as const, recipeId: pie },
+      { text: '4 tbsp butter', source: 'recipe' as const, recipeId: pie },
+    ];
+    const [conflict] = planBulkAddToList(listId, batch);
+    expect(conflict.existingAmountText).toBe('1 cup');
+    expect(conflict.combinedAmountText).toBe('1¾ cup');
+    expect(conflict.keptAmountText).toBe('1¼ cup');
+    addItemsBulk(listId, batch, USER, new Set([0]));
+    expect(rows(view().unchecked)).toEqual(['1¼ cup butter']);
+  });
+
+  test('a typed add kept as existing drops its repeats too, so the kept total stays', () => {
+    addItem(listId, '1 cup butter', USER);
+    const [conflict] = planBulkAddToList(listId, [{ text: '1/2 cup butter' }, { text: '4 tbsp butter' }]);
+    expect(conflict.keptAmountText).toBe('1 cup');
+  });
+
+  test('an incoming add with no amount counts as one; a recipe link with none adds nothing', () => {
+    addItem(listId, '2 eggs', USER);
+    expect(planBulkAddToList(listId, [{ text: 'eggs' }])[0].combinedAmountText).toBe('3');
+    const tacos = createRecipe('Tacos');
+    expect(planBulkAddToList(listId, [{ text: 'eggs', source: 'recipe', recipeId: tacos }])[0].combinedAmountText).toBe('2');
   });
 
   test('combines by default, folding repeats within the batch', () => {

@@ -90,9 +90,18 @@ export function aisleSymbol(slug: string | null | undefined): IconName {
   return AISLE_SYMBOLS[slug as CategorySlug];
 }
 
-/** A segment: the selected one is a `surface` chip with `ink` text; the rest sit on the track. */
-export function segmentColors(selected: boolean): { fill: ColorToken | null; text: ColorToken } {
-  return selected ? { fill: 'surface', text: 'ink' } : { fill: null, text: 'inkSecondary' };
+/**
+ * How a selected segment is filled: a `surface` chip (the list's view switch), or `primary` /
+ * the ink fill with light text (the recipe sheet's Combine / Keep choice).
+ */
+export type SegmentTone = 'chip' | 'primary' | 'ink';
+
+/** A segment: the selected one is filled by its tone; the rest sit on the track in `inkSecondary`. */
+export function segmentColors(selected: boolean, tone: SegmentTone = 'chip'): { fill: ColorToken | null; text: ColorToken } {
+  if (!selected) return { fill: null, text: 'inkSecondary' };
+  if (tone === 'primary') return { fill: 'primary', text: 'onPrimary' };
+  if (tone === 'ink') return { fill: 'toast', text: 'onToast' };
+  return { fill: 'surface', text: 'ink' };
 }
 
 export type BadgeTone = 'positive' | 'owner';

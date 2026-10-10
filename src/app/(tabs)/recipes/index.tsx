@@ -1,35 +1,64 @@
 import { Link, router, Stack } from 'expo-router';
+import { useMemo } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
-import { Icon } from '@/components/icon';
+import { IconTile } from '@/components/icon-tile';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { recipeIngredients, recipes } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { recipeHue } from '@/domain/aisle-color';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
-import { deleteRecipe, recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
+import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
+import {
+  deleteRecipe,
+  RECIPES_TAB_TABLES,
+  recipesOnListsQuery,
+  recipesQuery,
+  type RecipeSummary,
+} from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 
-/** Recipes tab (spec 4.5). With one household there is no household UI (M7 adds sections). */
+/** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
 export default function RecipesScreen() {
   const { spacing } = useTheme();
-  const { data } = useLiveQueryOn(recipesQuery(), [recipes, recipeIngredients]);
+  const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
+  const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
+  const groups = useMemo(() => groupRecipesByHousehold(data), [data]);
+  const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
 
   return (
     <Screen>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button icon="plus" accessibilityLabel="New recipe" onPress={create} />
+        <Stack.Toolbar.Button icon="plus" variant="prominent" accessibilityLabel="New recipe" onPress={create} />
       </Stack.Toolbar>
       {data.length === 0 ? (
         <EmptyState message="No recipes yet." action={<PrimaryButton label="New recipe" onPress={create} />} />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
-          {data.map((r, i) => (
-            <RecipeRow key={r.id} recipe={r} last={i === data.length - 1} />
+          {groups.map((group, i) => (
+            <View key={group.householdId}>
+              <ThemedText
+                variant="sectionLabel"
+                color="inkSecondary"
+                accessibilityRole="header"
+                style={{
+                  paddingHorizontal: spacing.lg + spacing.xs,
+                  paddingTop: i === 0 ? spacing.xs : spacing.lg + spacing.xxs,
+                  paddingBottom: spacing.sm,
+                }}>
+                {group.name}
+              </ThemedText>
+              <View style={{ gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg }}>
+                {group.recipes.map((r) => (
+                  <RecipeCard key={r.id} recipe={r} onList={onList.get(r.id) ?? null} />
+                ))}
+              </View>
+            </View>
           ))}
         </ScrollView>
       )}
@@ -37,10 +66,8 @@ export default function RecipesScreen() {
   );
 }
 
-function RecipeRow({ recipe, last }: { recipe: RecipeSummary; last: boolean }) {
-  const { colors, spacing, sizes } = useTheme();
-  const count = recipe.ingredientCount;
-  const countText = `${count} ${count === 1 ? 'ingredient' : 'ingredients'}`;
+function RecipeCard({ recipe, onList }: { recipe: RecipeSummary; onList: string | null }) {
+  const { colors, spacing, sizes, rounded } = useTheme();
 
   const confirmDelete = () =>
     Alert.alert(`Delete “${recipe.name}”?`, 'Items already on your lists stay there.', [
@@ -51,29 +78,33 @@ function RecipeRow({ recipe, last }: { recipe: RecipeSummary; last: boolean }) {
   return (
     <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
       <Link.Trigger>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${recipe.name}, ${countText}`}>
+        <Pressable accessibilityRole="button" accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList)}>
           {/* Layout lives on a View: Link's trigger replaces the Pressable's style. */}
           <View
             style={[
-              styles.row,
+              styles.card,
               {
-                minHeight: sizes.rowMin,
-                paddingHorizontal: spacing.lg,
-                paddingVertical: spacing.md,
-                gap: spacing.md,
-                borderBottomColor: colors.border,
-                borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+                padding: spacing.md + spacing.xxs,
+                gap: spacing.md + spacing.xxs,
+                borderRadius: rounded.card,
+                backgroundColor: colors.surface,
               },
             ]}>
+            <IconTile hue={recipeHue(recipe.id)} name="fork.knife" size={sizes.recipeTile} />
             <View style={styles.flex}>
-              <ThemedText variant="body" numberOfLines={1}>
+              <ThemedText variant="headline" numberOfLines={2}>
                 {recipe.name}
               </ThemedText>
               <ThemedText variant="footnote" color="inkSecondary">
-                {countText}
+                {ingredientCountLabel(recipe.ingredientCount)}
               </ThemedText>
             </View>
-            <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} />
+            {onList ? (
+              // Badge pins itself to the top; the wrapper centres it in the row.
+              <View>
+                <Badge label={`On ${onList}`} />
+              </View>
+            ) : null}
           </View>
         </Pressable>
       </Link.Trigger>
@@ -87,5 +118,5 @@ function RecipeRow({ recipe, last }: { recipe: RecipeSummary; last: boolean }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
 });

@@ -9,11 +9,17 @@ import { formatAmount } from '@/domain/quantity-display';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
-type Props = { ingredient: RecipeIngredient; onEdit: () => void; onDelete: () => void };
+type Props = {
+  ingredient: RecipeIngredient;
+  /** The ingredient's aisle `dot` colour. */
+  dotColor: string;
+  onEdit: () => void;
+  onDelete: () => void;
+};
 
-/** A recipe ingredient: tap to edit, swipe left to delete. */
-export function RecipeIngredientRow({ ingredient, onEdit, onDelete }: Props) {
-  const { colors, spacing, sizes, opacity } = useTheme();
+/** A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, swipe left to delete. */
+export function RecipeIngredientRow({ ingredient, dotColor, onEdit, onDelete }: Props) {
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const amount = formatAmount(ingredient);
   const label = [amount, ingredient.displayName, ingredient.note].filter(Boolean).join(' ');
@@ -40,14 +46,18 @@ export function RecipeIngredientRow({ ingredient, onEdit, onDelete }: Props) {
           style={({ pressed }) => [
             styles.row,
             {
-              minHeight: sizes.rowMin,
+              minHeight: sizes.cardRowMin,
               paddingHorizontal: spacing.lg,
               paddingVertical: spacing.sm,
               gap: spacing.md,
-              backgroundColor: colors.background,
+              // Every row has the hairline, the first one too, under the card's header (board 06).
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: colors.border,
+              backgroundColor: colors.surface,
               opacity: pressed ? opacity.pressed : 1,
             },
           ]}>
+          <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
           <View style={styles.text}>
             <ThemedText variant="body">{ingredient.displayName}</ThemedText>
             {ingredient.note ? (
@@ -57,7 +67,7 @@ export function RecipeIngredientRow({ ingredient, onEdit, onDelete }: Props) {
             ) : null}
           </View>
           {amount ? (
-            <ThemedText variant="callout" color="inkSecondary">
+            <ThemedText variant="amount" color="inkSecondary">
               {amount}
             </ThemedText>
           ) : null}

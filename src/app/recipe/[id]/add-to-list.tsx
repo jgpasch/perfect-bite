@@ -1,10 +1,13 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, PrimaryButton } from '@/components/button';
-import { Icon, type IconName } from '@/components/icon';
+import { PrimaryButton } from '@/components/button';
+import { Card } from '@/components/card';
+import { CheckCircle } from '@/components/check-circle';
 import { Pill } from '@/components/pill';
+import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
@@ -13,16 +16,17 @@ import { categorizePending } from '@/features/categories/categorization';
 import type { BulkConflict } from '@/features/lists/items';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { addRecipeToList, buildRecipeAdds, planRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
+import { addCtaLabel, conflictResult, conflictTitle, keepLabel, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
- * "Add to list..." (spec 4.5): pick a list, untick what you already have, choose servings. Any
- * ingredient already open on the list is asked about on one bulk sheet (spec 4.4).
+ * "Add to a list" (spec 4.5, board 07): pick a list, untick what you already have, choose
+ * servings. Any ingredient already open on the list is asked about on one bulk step (spec 4.4, board 08).
  */
 export default function AddRecipeToListSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
   // A sheet is short-lived: read once rather than live.
@@ -66,168 +70,189 @@ export default function AddRecipeToListSheet() {
   };
 
   if (conflicts) {
-    // The bulk duplicate sheet (spec 4.4): per-row Combine / Keep existing, plus "all" shortcuts.
+    // The bulk duplicate step (spec 4.4): per-row Combine / Keep existing, plus "all" shortcuts.
     return (
-      <Screen scroll contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
-        <Stack.Screen options={{ title: 'Already on the list' }} />
-        <ThemedText variant="callout" color="inkSecondary">
-          {conflicts.length === 1 ? 'This is' : 'These are'} already on {listName}. Combine the amounts, or keep what’s there?
-        </ThemedText>
-        <View style={[styles.row, { gap: spacing.sm }]}>
-          <View style={styles.flex}>
-            <Button label="Combine all" variant="secondary" onPress={() => setKeep(new Set())} />
-          </View>
-          <View style={styles.flex}>
-            <Button label="Keep all existing" variant="secondary" onPress={() => setKeep(new Set(conflicts.map((c) => c.index)))} />
-          </View>
+      <SheetLayout cta={<PrimaryButton label={`Add to ${listName}`} onPress={() => finish(keep)} />}>
+        <View style={{ paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.xs + spacing.xxs }}>
+          <ThemedText variant="title" accessibilityRole="header">
+            {conflictTitle(conflicts.length, listName)}
+          </ThemedText>
+          <ThemedText variant="callout" color="inkSecondary">
+            Combine the amounts, or keep what’s there?
+          </ThemedText>
         </View>
-        <Group>
-          {conflicts.map((c) => {
+        <Card>
+          {conflicts.map((c, i) => {
             const keeping = keep.has(c.index);
+            const result = conflictResult(c, keeping);
             return (
-              <Option
+              <View
                 key={c.index}
-                label={c.displayName}
-                detail={
-                  keeping
-                    ? `Keep ${c.existingAmountText || 'as is'}`
-                    : `Combine: ${[c.existingAmountText || '1', c.incomingAmountText || '1'].join(' + ')}`
-                }
-                icon={keeping ? 'pin' : 'plus.circle'}
-                accessibilityHint="Switches between Combine and Keep existing"
-                onPress={() => setKeep(toggle(keep, c.index))}
-              />
+                style={{
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md + spacing.xxs,
+                  gap: spacing.sm + spacing.xxs,
+                  borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                  borderTopColor: colors.border,
+                }}>
+                <View style={[styles.row, { gap: spacing.sm }]}>
+                  <ThemedText variant="headline" style={styles.flex}>
+                    {c.displayName}
+                  </ThemedText>
+                  {result ? (
+                    <ThemedText variant="amount" color="inkSecondary">
+                      {result}
+                    </ThemedText>
+                  ) : null}
+                </View>
+                <SegmentedControl
+                  flush
+                  track="background"
+                  accessibilityLabel={c.displayName}
+                  segments={[
+                    { value: 'combine', label: 'Combine', tone: 'primary' },
+                    { value: 'keep', label: keepLabel(c), tone: 'ink' },
+                  ]}
+                  value={keeping ? 'keep' : 'combine'}
+                  onChange={() => setKeep(toggle(keep, c.index))}
+                />
+              </View>
             );
           })}
-        </Group>
-        <PrimaryButton label={`Add to ${listName}`} onPress={() => finish(keep)} />
-      </Screen>
+        </Card>
+        <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+          <View style={styles.flex}>
+            <Pill label="Combine all" onPress={() => setKeep(new Set())} />
+          </View>
+          <View style={styles.flex}>
+            <Pill label="Keep all existing" onPress={() => setKeep(new Set(conflicts.map((c) => c.index)))} />
+          </View>
+        </View>
+      </SheetLayout>
     );
   }
 
   return (
-    <Screen scroll contentContainerStyle={{ padding: spacing.lg, gap: spacing.xl }}>
-      <Stack.Screen options={{ title: `Add ${recipe.name}` }} />
+    <SheetLayout cta={<PrimaryButton label={addCtaLabel(adds.length, listName)} disabled={adds.length === 0} onPress={add} />}>
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
       </Stack.Toolbar>
 
-      {lists.length > 1 ? (
-        <Section title="List">
-          <Group>
-            {lists.map((l) => (
-              <Option
-                key={l.id}
-                label={l.name}
-                icon={l.id === listId ? 'checkmark' : undefined}
-                selected={l.id === listId}
-                onPress={() => setListId(l.id)}
-              />
-            ))}
-          </Group>
-        </Section>
-      ) : null}
+      <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+        Add {recipe.name}
+      </ThemedText>
 
-      <Section title="Servings">
-        <View style={[styles.row, { gap: spacing.sm }]}>
-          {SERVINGS.map((s) => (
-            <View key={s} style={styles.flex}>
-              <Pill label={`${s === 0.5 ? '½' : s}×`} selected={s === servings} onPress={() => setServings(s)} />
-            </View>
-          ))}
+      <Label>To</Label>
+      <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+        {lists.map((l) => (
+          <Pill key={l.id} label={l.name} selected={l.id === listId} onPress={() => setListId(l.id)} />
+        ))}
+      </View>
+
+      <Label>Servings</Label>
+      <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+        {SERVINGS.map((s) => (
+          <View key={s} style={styles.flex}>
+            <Pill label={servingsLabel(s)} selected={s === servings} onPress={() => setServings(s)} />
+          </View>
+        ))}
+      </View>
+
+      <Card>
+        <View
+          style={[
+            styles.row,
+            { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
+          ]}>
+          <ThemedText variant="amount" accessibilityRole="header" style={[styles.flex, styles.bold]}>
+            Untick what you have
+          </ThemedText>
+          <ThemedText variant="footnote" color="inkSecondary" style={styles.semibold}>
+            {selected.size} of {ingredients.length}
+          </ThemedText>
         </View>
-      </Section>
+        {ingredients.map((i) => {
+          const on = selected.has(i.id);
+          const amount = formatAmount({ quantity: i.quantity === null ? null : i.quantity * servings, unit: i.unit });
+          return (
+            <IngredientChoice
+              key={i.id}
+              label={i.displayName}
+              amount={amount}
+              on={on}
+              onPress={() => setSelected(toggle(selected, i.id))}
+            />
+          );
+        })}
+      </Card>
+    </SheetLayout>
+  );
+}
 
-      <Section title="Ingredients">
-        <Group>
-          {ingredients.map((i) => {
-            const on = selected.has(i.id);
-            const amount = formatAmount({ quantity: i.quantity === null ? null : i.quantity * servings, unit: i.unit });
-            return (
-              <Option
-                key={i.id}
-                label={i.displayName}
-                detail={amount || undefined}
-                icon={on ? 'checkmark.circle.fill' : 'circle'}
-                selected={on}
-                role="checkbox"
-                onPress={() => setSelected(toggle(selected, i.id))}
-              />
-            );
-          })}
-        </Group>
-      </Section>
-
-      <PrimaryButton
-        label={adds.length === 0 ? 'Nothing selected' : `Add ${adds.length} to ${listName}`}
-        disabled={adds.length === 0}
-        onPress={add}
-      />
+/** The sheet's scrolling content with its CTA pinned to the bottom. */
+function SheetLayout({ cta, children }: { cta: ReactNode; children: ReactNode }) {
+  const { colors, spacing } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <Screen>
+      <ScrollView
+        style={styles.flex}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+        {children}
+      </ScrollView>
+      <View
+        style={{
+          paddingHorizontal: spacing.lg,
+          paddingTop: spacing.md,
+          paddingBottom: Math.max(insets.bottom, spacing.lg),
+          backgroundColor: colors.background,
+        }}>
+        {cta}
+      </View>
     </Screen>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Label({ children }: { children: string }) {
   const { spacing } = useTheme();
   return (
-    <View style={{ gap: spacing.sm }}>
-      <ThemedText variant="footnote" color="inkSecondary" accessibilityRole="header" style={{ paddingHorizontal: spacing.xs }}>
-        {title}
-      </ThemedText>
+    <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
       {children}
-    </View>
+    </ThemedText>
   );
 }
 
-function Group({ children }: { children: ReactNode }) {
-  const { colors, rounded } = useTheme();
-  return <View style={[styles.group, { backgroundColor: colors.surface, borderRadius: rounded.md }]}>{children}</View>;
-}
-
-function Option({
-  label,
-  detail,
-  icon,
-  selected,
-  role = 'button',
-  accessibilityHint,
-  onPress,
-}: {
-  label: string;
-  detail?: string;
-  icon?: IconName;
-  selected?: boolean;
-  role?: 'button' | 'checkbox';
-  accessibilityHint?: string;
-  onPress: () => void;
-}) {
+/** A row in "Untick what you have": a round check, the name, and the scaled amount. Off rows are muted. */
+function IngredientChoice({ label, amount, on, onPress }: { label: string; amount: string; on: boolean; onPress: () => void }) {
   const { colors, spacing, sizes, opacity } = useTheme();
+  // Off rows use `inkSecondary`, not `inkTertiary`: tertiary is too light for text (DESIGN.md).
+  const ink = on ? 'ink' : 'inkSecondary';
   return (
     <Pressable
-      accessibilityRole={role}
-      accessibilityState={role === 'checkbox' ? { checked: !!selected } : { selected }}
-      accessibilityLabel={detail ? `${label}, ${detail}` : label}
-      accessibilityHint={accessibilityHint}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={amount ? `${label}, ${amount}` : label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        styles.option,
         {
-          minHeight: sizes.minTapTarget,
-          paddingHorizontal: spacing.md,
+          minHeight: sizes.cardRowMin,
+          paddingHorizontal: spacing.lg,
           paddingVertical: spacing.sm,
-          gap: spacing.sm,
-          borderBottomColor: colors.border,
+          gap: spacing.md,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>
-      {icon ? <Icon name={icon} color={selected ? 'primary' : 'inkSecondary'} size={sizes.iconLarge} /> : null}
-      <ThemedText variant="body" style={styles.flex}>
+      <CheckCircle checked={on} />
+      <ThemedText variant="body" color={ink} style={styles.flex}>
         {label}
       </ThemedText>
-      {detail ? (
-        <ThemedText variant="callout" color="inkSecondary">
-          {detail}
+      {amount ? (
+        <ThemedText variant="amount" color="inkSecondary">
+          {amount}
         </ThemedText>
       ) : null}
     </Pressable>
@@ -237,6 +262,7 @@ function Option({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  group: { overflow: 'hidden', borderCurve: 'continuous' },
-  option: { borderBottomWidth: StyleSheet.hairlineWidth },
+  wrap: { flexWrap: 'wrap' },
+  bold: { fontWeight: '700' },
+  semibold: { fontWeight: '600' },
 });

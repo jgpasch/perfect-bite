@@ -311,6 +311,12 @@ export type BulkConflict = {
   /** The open item's current amounts, and the incoming one. */
   existingAmountText: string;
   incomingAmountText: string;
+  /**
+   * The item's total after Combine, and after Keep existing, as its row would read. Both count
+   * the batch's later adds of the same ingredient, which fold into this one as `addItemsBulk` does.
+   */
+  combinedAmountText: string;
+  keptAmountText: string;
 };
 
 /** What a bulk add would conflict with, for the bulk sheet. Reads only. */
@@ -319,24 +325,31 @@ export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): Bul
     const parsed = adds.map(parseBulkAdd);
     const list = getListForAdd(tx, listId);
     const live = liveItemsForList(tx, listId);
-    const { conflicts } = planBulkAdd(
+    const { decisions, conflicts } = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
       live,
     );
+    const amountOf = (i: number) => ({ source: adds[i].source ?? 'manual', quantity: parsed[i]!.quantity, unit: parsed[i]!.unit });
     return conflicts
       .filter((i) => parsed[i] !== null)
       .map((index) => {
         const p = parsed[index]!;
         const existing = live.find((l) => l.ingredientName === p.ingredientName && l.checkedAt === null)!;
+        const contributions = liveContributions(tx, existing.id);
+        const usual = usualUnitFor(tx, list.householdId, p.ingredientName);
+        const repeats = decisions.flatMap((d, i) =>
+          d.kind === 'sameAsEarlier' && d.index === index && parsed[i] !== null ? [amountOf(i)] : [],
+        );
+        // Keep existing drops a typed add and its repeats; a recipe keeps a link (no amount), so its repeats still add.
+        const keepsRepeats = (adds[index].source ?? 'manual') === 'recipe';
         return {
           index,
           ingredientName: p.ingredientName,
           displayName: getItem(tx, existing.id).displayName,
-          existingAmountText: itemTotal(
-            liveContributions(tx, existing.id),
-            usualUnitFor(tx, list.householdId, p.ingredientName),
-          ),
+          existingAmountText: itemTotal(contributions, usual),
           incomingAmountText: summarizeAmounts([p]),
+          combinedAmountText: itemTotal([...contributions, amountOf(index), ...repeats], usual),
+          keptAmountText: itemTotal(keepsRepeats ? [...contributions, ...repeats] : contributions, usual),
         };
       });
   });
