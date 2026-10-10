@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ActionSheetIOS, Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+import { ActionSheetIOS, Pressable, ScrollView, StyleSheet } from 'react-native';
 
-import { TextField } from '@/components/text-field';
+import { AddBar } from '@/components/add-bar';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -18,13 +17,11 @@ type Props = {
 };
 
 /**
- * The persistent add field at the bottom of a list or recipe, with autocomplete chips above it.
+ * The persistent add bar at the bottom of a list or recipe, with autocomplete chips above it.
  * Put it last in a KeyboardAvoidingView.
  */
-export function AddBar({ householdId, onAdd, placeholder, accessibilityLabel }: Props) {
+export function ItemAddBar({ householdId, onAdd, placeholder, accessibilityLabel }: Props) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  const insets = useSafeAreaInsets();
-  const keyboardVisible = useKeyboardVisible();
   const [text, setText] = useState('');
   // Bumped after "Remove from suggestions" so the chips are read again.
   const [hiddenCount, setHiddenCount] = useState(0);
@@ -51,68 +48,45 @@ export function AddBar({ householdId, onAdd, placeholder, accessibilityLabel }: 
   };
 
   return (
-    <View
-      style={{
-        paddingHorizontal: spacing.lg,
-        paddingTop: spacing.sm,
-        paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: colors.border,
-        backgroundColor: colors.background,
-      }}>
-      {suggestions.length > 0 ? (
-        <ScrollView
-          horizontal
-          keyboardShouldPersistTaps="always"
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}>
-          {suggestions.map((s) => (
-            <Pressable
-              key={s.key}
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${s.displayName}`}
-              accessibilityHint={s.source === 'history' ? 'Long press to remove from suggestions' : undefined}
-              onPress={() => add(applySuggestion(text, s))}
-              onLongPress={s.source === 'history' ? () => suggestionMenu(s) : undefined}
-              style={({ pressed }) => [
-                styles.chip,
-                {
-                  minHeight: sizes.minTapTarget,
-                  paddingHorizontal: spacing.md,
-                  borderRadius: rounded.full,
-                  backgroundColor: colors.surfaceMuted,
-                  opacity: pressed ? opacity.pressed : 1,
-                },
-              ]}>
-              <ThemedText variant="callout">{s.displayName}</ThemedText>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-      <TextField
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={() => add(text)}
-        submitBehavior="submit"
-        returnKeyType="done"
-        placeholder={placeholder}
-        accessibilityLabel={accessibilityLabel}
-      />
-    </View>
+    <AddBar
+      value={text}
+      onChangeText={setText}
+      onSubmit={() => add(text)}
+      placeholder={placeholder}
+      accessibilityLabel={accessibilityLabel}
+      accessory={
+        suggestions.length > 0 ? (
+          <ScrollView
+            horizontal
+            keyboardShouldPersistTaps="always"
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.sm }}>
+            {suggestions.map((s) => (
+              <Pressable
+                key={s.key}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${s.displayName}`}
+                accessibilityHint={s.source === 'history' ? 'Long press to remove from suggestions' : undefined}
+                onPress={() => add(applySuggestion(text, s))}
+                onLongPress={s.source === 'history' ? () => suggestionMenu(s) : undefined}
+                style={({ pressed }) => [
+                  styles.chip,
+                  {
+                    minHeight: sizes.minTapTarget,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: rounded.full,
+                    backgroundColor: colors.surface,
+                    opacity: pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <ThemedText variant="callout">{s.displayName}</ThemedText>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null
+      }
+    />
   );
-}
-
-function useKeyboardVisible(): boolean {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardWillHide', () => setVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  return visible;
 }
 
 const styles = StyleSheet.create({

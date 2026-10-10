@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -106,10 +106,10 @@ export default function SignInScreen() {
       ) : null}
 
       {step === 'email' ? (
-        <Button label={busy ? 'Sending…' : 'Send code'} onPress={onSendCode} disabled={busy || !email.includes('@')} />
+        <PrimaryButton label={busy ? 'Sending…' : 'Send code'} onPress={onSendCode} disabled={busy || !email.includes('@')} />
       ) : (
         <View style={{ gap: spacing.sm }}>
-          <Button label={busy ? 'Signing in…' : 'Sign in'} onPress={onVerify} disabled={busy || code.trim().length < 6} />
+          <PrimaryButton label={busy ? 'Signing in…' : 'Sign in'} onPress={onVerify} disabled={busy || code.trim().length < 6} />
           <Button label="Use a different email" variant="plain" onPress={() => setStep('email')} disabled={busy} />
         </View>
       )}

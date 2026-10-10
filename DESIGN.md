@@ -82,7 +82,12 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 
 - `spacing`: 4 pt base (`xxs` 2 … `xxxl` 48). Cards and tiles sit `lg` (16) in from the screen edge; titles sit 20 in (`lg` + `xs`).
 - `rounded`: `card` 22, `tile` 22, `sheet` 28 (top corners), `row` 16 (aisle-order rows), `md` 12 (segmented track, icon wells), `full` for pills, round checks, round buttons and CTAs.
-- `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall.
+- `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall (`sizes.cardRowMin`).
+- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2. Radii `badge` 10 and `segment` 11.
+
+## Components (`src/components/`)
+
+`Card`, `CheckCircle`, `SectionHeader`, `Pill`, `SegmentedControl`, `PrimaryButton` / `SoftDangerButton` (`button.tsx`; `Button` is left for secondary and plain actions), `Badge`, `AddBar` and `Toast`. Which tokens each uses in each state lives in `appearance.ts`, which is tested for contrast in both schemes. Controls under 44 pt (pills, the + and Undo buttons, segments) get `hitSlop` up to 44.
 
 ## Component patterns
 

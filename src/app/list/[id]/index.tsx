@@ -1,17 +1,16 @@
-import { Host, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
-import { pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { UndoToast, type ToastAction } from '@/components/undo-toast';
+import { SegmentedControl } from '@/components/segmented-control';
+import { Toast, type ToastAction } from '@/components/toast';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { groupByCategory, orderCategories, sectionAccessibilityLabel } from '@/domain/category-resolver';
@@ -19,7 +18,7 @@ import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { categoriesQuery } from '@/features/categories/categories';
-import { AddBar } from '@/features/lists/add-bar';
+import { ItemAddBar } from '@/features/lists/add-bar';
 import { ItemRow } from '@/features/lists/item-row';
 import {
   addItem,
@@ -53,6 +52,10 @@ type Row =
   | { kind: 'checkedHeader'; key: string; count: number };
 
 type ViewMode = 'category' | 'recipe';
+const VIEW_MODES: { value: ViewMode; label: string }[] = [
+  { value: 'category', label: 'By category' },
+  { value: 'recipe', label: 'By recipe' },
+];
 const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
 export default function ListScreen() {
@@ -255,15 +258,13 @@ export default function ListScreen() {
           data={rows}
           keyExtractor={(row) => row.key}
           ListHeaderComponent={
-            <Host matchContents={{ vertical: true }} style={{ marginHorizontal: spacing.lg, marginTop: spacing.sm }}>
-              <Picker
-                selection={viewMode}
-                onSelectionChange={(mode: ViewMode) => setViewMode(mode)}
-                modifiers={[pickerStyle('segmented')]}>
-                <SwiftText modifiers={[tag('category')]}>By category</SwiftText>
-                <SwiftText modifiers={[tag('recipe')]}>By recipe</SwiftText>
-              </Picker>
-            </Host>
+            <View style={{ marginTop: spacing.sm }}>
+              <SegmentedControl
+                segments={VIEW_MODES}
+                value={viewMode}
+                onChange={setViewMode}
+              />
+            </View>
           }
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
@@ -328,7 +329,7 @@ export default function ListScreen() {
 
         {toast ? (
           <View style={{ paddingBottom: spacing.sm }}>
-            <UndoToast key={toast.key} message={toast.message} actions={toast.actions} onDismiss={dismissToast} />
+            <Toast key={toast.key} message={toast.message} actions={toast.actions} onDismiss={dismissToast} />
           </View>
         ) : null}
 
@@ -339,7 +340,7 @@ export default function ListScreen() {
             onAddToRecipe={addToRecipe}
           />
         ) : (
-          <AddBar
+          <ItemAddBar
             householdId={list.householdId}
             onAdd={add}
             placeholder="Add an item, like 2 lbs chicken thighs"
@@ -384,7 +385,7 @@ function SelectionBar({
       </ThemedText>
       <View style={[styles.checkedHeader, { gap: spacing.sm }]}>
         <View style={styles.flex}>
-          <Button label="Make recipe…" disabled={count === 0} onPress={onMakeRecipe} />
+          <PrimaryButton label="Make recipe…" disabled={count === 0} onPress={onMakeRecipe} />
         </View>
         <View style={styles.flex}>
           <Button label="Add to recipe…" variant="secondary" disabled={count === 0} onPress={onAddToRecipe} />

@@ -1,7 +1,7 @@
 import { Link, router, Stack } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
+import { PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -25,7 +25,7 @@ export default function RecipesScreen() {
         <Stack.Toolbar.Button icon="plus" accessibilityLabel="New recipe" onPress={create} />
       </Stack.Toolbar>
       {data.length === 0 ? (
-        <EmptyState message="No recipes yet." action={<Button label="New recipe" onPress={create} />} />
+        <EmptyState message="No recipes yet." action={<PrimaryButton label="New recipe" onPress={create} />} />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           {data.map((r, i) => (

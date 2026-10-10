@@ -2,8 +2,9 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { Icon, type IconName } from '@/components/icon';
+import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
@@ -99,7 +100,7 @@ export default function AddRecipeToListSheet() {
             );
           })}
         </Group>
-        <Button label={`Add to ${listName}`} onPress={() => finish(keep)} />
+        <PrimaryButton label={`Add to ${listName}`} onPress={() => finish(keep)} />
       </Screen>
     );
   }
@@ -131,12 +132,7 @@ export default function AddRecipeToListSheet() {
         <View style={[styles.row, { gap: spacing.sm }]}>
           {SERVINGS.map((s) => (
             <View key={s} style={styles.flex}>
-              <Button
-                label={`${s === 0.5 ? '½' : s}×`}
-                variant={s === servings ? 'primary' : 'secondary'}
-                accessibilityState={{ selected: s === servings }}
-                onPress={() => setServings(s)}
-              />
+              <Pill label={`${s === 0.5 ? '½' : s}×`} selected={s === servings} onPress={() => setServings(s)} />
             </View>
           ))}
         </View>
@@ -162,7 +158,7 @@ export default function AddRecipeToListSheet() {
         </Group>
       </Section>
 
-      <Button
+      <PrimaryButton
         label={adds.length === 0 ? 'Nothing selected' : `Add ${adds.length} to ${listName}`}
         disabled={adds.length === 0}
         onPress={add}

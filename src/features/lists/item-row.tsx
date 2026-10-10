@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
 
+import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useMotion } from '@/hooks/use-motion';
@@ -82,11 +83,7 @@ export function ItemRow({
               opacity: pressed ? opacity.pressed : 1,
             },
           ]}>
-          <Icon
-            name={on ? 'checkmark.circle.fill' : 'circle'}
-            color={on ? 'primary' : 'inkSecondary'}
-            size={sizes.iconLarge}
-          />
+          <CheckCircle checked={on} />
           <View style={styles.text}>
             <ThemedText
               variant="body"

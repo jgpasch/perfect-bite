@@ -7,12 +7,12 @@ import { EmptyState } from '@/components/empty-state';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { UndoToast } from '@/components/undo-toast';
+import { Toast } from '@/components/toast';
 import { recipeIngredients, recipes, type Recipe, type RecipeIngredient } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { formatAmount } from '@/domain/quantity-display';
 import { categorizePending } from '@/features/categories/categorization';
-import { AddBar } from '@/features/lists/add-bar';
+import { ItemAddBar } from '@/features/lists/add-bar';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import {
@@ -114,7 +114,7 @@ export default function RecipeScreen() {
         />
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>
-            <UndoToast
+            <Toast
               key={deleted.id}
               message={`Removed ${deleted.displayName}`}
               actions={[{ label: 'Undo', onPress: () => (undeleteRecipeIngredient(deleted.id), setDeleted(null)) }]}
@@ -122,7 +122,7 @@ export default function RecipeScreen() {
             />
           </View>
         ) : null}
-        <AddBar
+        <ItemAddBar
           householdId={recipe.householdId}
           onAdd={(text) => void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? [])}
           placeholder="Add an ingredient, like 2 cups flour"

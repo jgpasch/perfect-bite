@@ -4,7 +4,7 @@ import { Link, router, Stack } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
+import { PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -61,7 +61,7 @@ export default function ListsScreen() {
           </List>
         </Host>
       ) : active.length === 0 && archived.length === 0 ? (
-        <EmptyState message="No lists yet." action={<Button label="New list" onPress={create} />} />
+        <EmptyState message="No lists yet." action={<PrimaryButton label="New list" onPress={create} />} />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           {active.map((l, i) => (

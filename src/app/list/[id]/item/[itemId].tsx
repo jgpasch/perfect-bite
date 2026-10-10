@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
+import { SoftDangerButton } from '@/components/button';
 import { Icon, type IconName } from '@/components/icon';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -209,9 +209,8 @@ export default function ItemEditSheet() {
         </ThemedText>
       ) : null}
 
-      <Button
+      <SoftDangerButton
         label="Delete item"
-        variant="secondary"
         onPress={() => {
           deleteItem(itemId);
           router.back();

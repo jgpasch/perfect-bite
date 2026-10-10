@@ -148,12 +148,12 @@ export const Rounded = {
   sm: 8,
   /** inputs, segmented control track */
   md: 12,
-  /** grouped rows (pre-Pantry screens) */
-  lg: 20,
-  /** large buttons (pre-Pantry screens) */
-  xl: 28,
   /** rows in the aisle-order list */
   row: 16,
+  /** badges */
+  badge: 10,
+  /** the selected segment inside a segmented control's `md` track */
+  segment: 11,
   /** cards */
   card: 22,
   /** list tiles */
@@ -167,12 +167,33 @@ export const Rounded = {
 /** Fixed component sizes (tap targets, large buttons, list rows). */
 export const Sizes = {
   minTapTarget: 44,
-  largeButton: 64,
   rowMin: 48,
   icon: 17,
   /** list item checkboxes */
   iconLarge: 22,
   iconSmall: 12,
+  /** Pantry rows inside a card */
+  cardRowMin: 50,
+  /** round check */
+  check: 24,
+  checkBorder: 2,
+  /** aisle dot in section headers and suggestions */
+  dot: 10,
+  /** pills (aisle chips, choices) */
+  pill: 40,
+  /** segmented control: segment height and the track's inset */
+  segment: 34,
+  segmentInset: 3,
+  /** primary CTA */
+  cta: 54,
+  /** soft destructive button */
+  softButton: 48,
+  /** add bar input and the toast */
+  bar: 52,
+  /** the round + inside the add bar, and the toast's Undo pill */
+  barButton: 40,
+  /** focus ring around the add bar */
+  focusRing: 2,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */
@@ -202,4 +223,6 @@ export function withAlpha(hex: string, alpha: number): string {
 /** Soft shadow for floating controls (light mode only). Color comes from `ink`. */
 export const Shadows = {
   floating: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 6, shadowOpacity: Opacity.shadow },
+  /** The add bar's input. */
+  soft: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 14, shadowOpacity: 0.08 },
 } as const;
