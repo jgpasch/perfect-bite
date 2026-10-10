@@ -14,7 +14,7 @@ import {
   userCategoryOverrides,
   type ListItem,
 } from '@/db';
-import { effectiveCategoryId } from '@/domain/category-resolver';
+import { effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
@@ -23,7 +23,7 @@ import { usualUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
-import { normalizeIngredientName, parseAmount, parseQuantity, type Unit } from '@/shared';
+import { normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -729,6 +729,28 @@ export function groupItems(
       .filter((i) => i.checkedAt)
       .sort((a, b) => b.checkedAt!.getTime() - a.checkedAt!.getTime()),
   };
+}
+
+/**
+ * Items in the user's aisle order, the same order By aisle uses (spec 4.3.3): Sorting… first, then
+ * by the aisle's place in `orderedCategories` (`orderCategories` output; an unknown aisle counts as
+ * Other), then by when the item was added. By recipe (spec 4.6) groups these with `groupByRecipe`,
+ * which keeps this order inside each card.
+ */
+export function orderByAisle<I extends { id: string; categoryId: string; createdAt: Date }>(
+  items: readonly I[],
+  orderedCategories: readonly { id: string }[],
+): I[] {
+  const rankById = new Map(orderedCategories.map((c, i) => [c.id, i]));
+  const otherRank = rankById.get(OTHER_CATEGORY_ID) ?? orderedCategories.length;
+  const rank = (categoryId: string) =>
+    categoryId === SORTING_CATEGORY_ID ? -1 : (rankById.get(categoryId) ?? otherRank);
+  return [...items].sort(
+    (a, b) =>
+      rank(a.categoryId) - rank(b.categoryId) ||
+      a.createdAt.getTime() - b.createdAt.getTime() ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
 }
 
 /**

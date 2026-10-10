@@ -16,6 +16,7 @@ import {
   getItemHouseholdName,
   groupItems,
   listItemsQuery,
+  orderByAisle,
   planBulkAddToList,
   searchRecentItems,
   setItemAmount,
@@ -29,8 +30,9 @@ import {
   usualUnitsQuery,
 } from '../items';
 import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
+import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
-import { getOrderedCategories, loadCatalogSeed, setCategoryOverride } from '@/features/categories/categories';
+import { getOrderedCategories, loadCatalogSeed, moveCategory, setCategoryOverride } from '@/features/categories/categories';
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
@@ -1001,5 +1003,123 @@ describe('Newest view (spec 4.6)', () => {
       USER,
     );
     expect(newest()).toEqual(['tortillas', 'lime', 'cilantro']);
+  });
+});
+
+describe('orderByAisle (spec 4.6, By recipe)', () => {
+  const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
+  const T0 = new Date('2026-10-10T09:00:00Z');
+  const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
+  const item = (id: string, slug: string, minutes: number) => ({
+    id,
+    categoryId: slug === 'sorting' ? SORTING_CATEGORY_ID : slug === 'unknown' ? 'no-such-category' : cat(slug),
+    createdAt: at(minutes),
+  });
+  const ids = (items: readonly { id: string }[]) => items.map((i) => i.id);
+
+  describe('pure', () => {
+    const order = SYSTEM_CATEGORIES.map((c) => ({ id: c.id }));
+
+    test('follows the given aisle order, then when added, then id', () => {
+      const items = [
+        item('cumin', 'spices', 0),
+        item('milk', 'dairy-eggs', 1),
+        item('onion', 'produce', 2),
+        item('lime', 'produce', 1),
+        item('b-eggs', 'dairy-eggs', 1),
+      ];
+      expect(ids(orderByAisle(items, order))).toEqual(['lime', 'onion', 'b-eggs', 'milk', 'cumin']);
+    });
+
+    test('Sorting… comes first whatever the order, oldest first', () => {
+      const items = [item('onion', 'produce', 0), item('yuzu', 'sorting', 2), item('dukkah', 'sorting', 1)];
+      expect(ids(orderByAisle(items, order))).toEqual(['dukkah', 'yuzu', 'onion']);
+    });
+
+    test('a custom order is followed as given', () => {
+      const custom = [{ id: cat('spices') }, { id: cat('dairy-eggs') }, { id: cat('produce') }];
+      const items = [item('onion', 'produce', 0), item('milk', 'dairy-eggs', 1), item('cumin', 'spices', 2)];
+      expect(ids(orderByAisle(items, custom))).toEqual(['cumin', 'milk', 'onion']);
+    });
+
+    test('an unknown aisle sorts as Other, or last when Other is not in the order', () => {
+      const items = [item('mystery', 'unknown', 0), item('dog food', 'pet', 1), item('foil', 'other', 2)];
+      // Pet comes before Other in the store walk; the unknown one shares Other's place, oldest first.
+      expect(ids(orderByAisle(items, order))).toEqual(['dog food', 'mystery', 'foil']);
+      const noOther = [{ id: cat('pet') }];
+      expect(ids(orderByAisle(items, noOther))).toEqual(['dog food', 'mystery', 'foil']);
+      expect(ids(orderByAisle([item('mystery', 'unknown', 0), item('onion', 'produce', 1)], noOther))).toEqual([
+        'mystery',
+        'onion',
+      ]);
+    });
+
+    test('empty input, and the input is not changed', () => {
+      expect(orderByAisle([], order)).toEqual([]);
+      const items = [item('milk', 'dairy-eggs', 0), item('onion', 'produce', 1)];
+      orderByAisle(items, order);
+      expect(ids(items)).toEqual(['milk', 'onion']);
+    });
+  });
+
+  describe('By recipe on a list', () => {
+    beforeEach(() => loadCatalogSeed());
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const byRecipe = () =>
+      groupByRecipe(orderByAisle(view().unchecked, getOrderedCategories(USER))).map((s) => [
+        s.name,
+        s.entries.map((e) => e.item.displayName),
+      ]);
+    const addRecipe = (recipeId: string, names: string[]) =>
+      addItemsBulk(listId, names.map((text) => ({ text, source: 'recipe' as const, recipeId })), USER);
+
+    test('items in each recipe card and Other items follow the aisle order, Sorting… first', () => {
+      jest.useFakeTimers({ now: at(0) });
+      addItem(listId, 'milk', USER);
+      jest.setSystemTime(at(1));
+      addItem(listId, 'bread', USER);
+      const tacos = createRecipe('Tacos');
+      jest.setSystemTime(at(2));
+      addRecipe(tacos, ['cumin', 'cheddar', 'ground beef', 'dukkah', 'tortillas', 'cilantro']);
+      expect(byRecipe()).toEqual([
+        ['Tacos', ['dukkah', 'cilantro', 'tortillas', 'ground beef', 'cheddar', 'cumin']],
+        ['Other items', ['bread', 'milk']],
+      ]);
+    });
+
+    test('recipe cards keep their order, most recently added first', () => {
+      jest.useFakeTimers({ now: at(0) });
+      const tacos = createRecipe('Tacos');
+      addRecipe(tacos, ['cumin', 'cilantro']);
+      const toast = createRecipe('Cheese toast');
+      jest.setSystemTime(at(1));
+      addRecipe(toast, ['cheddar', 'bread']);
+      expect(byRecipe()).toEqual([
+        ['Cheese toast', ['bread', 'cheddar']],
+        ['Tacos', ['cilantro', 'cumin']],
+      ]);
+    });
+
+    test("the user's custom order and overrides apply; ties go by when added", () => {
+      jest.useFakeTimers({ now: at(0) });
+      addItem(listId, 'cumin', USER);
+      jest.setSystemTime(at(1));
+      addItem(listId, 'cilantro', USER);
+      jest.setSystemTime(at(2));
+      addItem(listId, 'milk', USER);
+      expect(byRecipe()).toEqual([['Other items', ['cilantro', 'milk', 'cumin']]]);
+
+      // Dairy & Eggs to the top of this user's order.
+      const dairy = getOrderedCategories(USER).findIndex((c) => c.id === cat('dairy-eggs'));
+      moveCategory(USER, dairy, 0);
+      expect(byRecipe()).toEqual([['Other items', ['milk', 'cilantro', 'cumin']]]);
+
+      // Cumin moved to Produce for this user: it joins cilantro, and was added first.
+      setCategoryOverride(USER, 'cumin', cat('produce'));
+      expect(byRecipe()).toEqual([['Other items', ['milk', 'cumin', 'cilantro']]]);
+    });
   });
 });

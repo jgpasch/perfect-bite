@@ -38,6 +38,7 @@ import {
   groupItems,
   LIST_ITEMS_QUERY_TABLES,
   listItemsQuery,
+  orderByAisle,
   removeRecipeFromList,
   setItemChecked,
   uncheckAll,
@@ -88,7 +89,8 @@ export default function ListScreen() {
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
   const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
-  const sections = useMemo(() => groupByCategory(orderCategories(categoryRows), unchecked), [categoryRows, unchecked]);
+  const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
+  const sections = useMemo(() => groupByCategory(orderedCategories, unchecked), [orderedCategories, unchecked]);
 
   // Spec 4.1: the next cold launch opens the list that last gained focus.
   useFocusEffect(useCallback(() => setLastOpenedList(id), [id]));
@@ -132,8 +134,9 @@ export default function ListScreen() {
             sorting: category.id === SORTING_CATEGORY_ID,
             entries: items.map((item) => ({ key: item.id, item })),
           }))
-        : // By recipe: a card per recipe (an item can be under several), then Other items.
-          groupByRecipe(unchecked).map(
+        : // By recipe: a card per recipe (an item can be under several), then Other items; in each,
+          // Sorting… first, then the user's aisle order, then by when added.
+          groupByRecipe(orderByAisle(unchecked, orderedCategories)).map(
             (section): Block => ({
               kind: 'recipe',
               key: `r-${section.recipeId ?? 'other'}`,
@@ -157,7 +160,7 @@ export default function ListScreen() {
       });
     }
     return out;
-  }, [viewMode, sections, unchecked, checked, showChecked, slugById]);
+  }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById]);
 
   // Select mode (spec 4.5): pick items, then Make recipe... or Add to recipe...
   const finishSelection = () => {
@@ -255,17 +258,16 @@ export default function ListScreen() {
     />
   );
 
+  // Newest and By recipe mix aisles in one card, so each row shows its aisle's dot (or Sorting…).
+  const renderEntryWithAisle = (e: Entry, i: number) => {
+    const categoryId = e.item.categoryId;
+    const aisle = { name: nameById.get(categoryId) ?? '', dot: aisles[aisleColor(slugById.get(categoryId))].dot };
+    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, aisle);
+  };
+
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return (
-        <Card>
-          {block.entries.map((e, i) => {
-            const categoryId = e.item.categoryId;
-            const aisle = { name: nameById.get(categoryId) ?? '', dot: aisles[aisleColor(slugById.get(categoryId))].dot };
-            return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, aisle);
-          })}
-        </Card>
-      );
+      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
@@ -292,7 +294,7 @@ export default function ListScreen() {
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
             trailing={block.recipeId ? <RecipeActionsButton name={block.title} onPress={() => recipeMenu(block)} /> : undefined}
           />
-          {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+          {block.entries.map(renderEntryWithAisle)}
         </Card>
       );
     }
