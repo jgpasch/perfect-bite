@@ -4,7 +4,9 @@
   },
   "permissions": {
     "allow": [
-      "Bash(supabase:*)"
+      "Bash(supabase:*)",
+      "Bash(xcrun simctl:*)",
+      "Bash(yarn expo run:ios:*)"
     ]
   }
 }
