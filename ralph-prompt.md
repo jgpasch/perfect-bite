@@ -16,6 +16,15 @@ You are working through tasks in tasks.md, one per session.
 8. Only if all of these pass, change that task's `- [ ]` to `- [x]` in tasks.md.
 9. Append a one-line summary of what you did (including which tests you added) to progress.md.
 
+Manual checks don't block. You can't tap, scroll or look at the simulator or a device,
+and you shouldn't install tools to try. If a task asks for a manual check (simulator
+taps, VoiceOver, Dynamic Type, a real device, a second simulator), do everything else,
+then append the check to manual-checks.md as `- [ ] <task name>: <what to check>`, and
+check off the task in tasks.md as usual if the automated checks pass. If the whole task
+is hands-on with no code to write (e.g. "End-to-end on a device"), copy it into
+manual-checks.md, change its `- [ ]` in tasks.md to `- [m]`, note it in progress.md, and
+stop. Either way, the next session moves on to the next task.
+
 If the task is ambiguous, contradicts the code, or you can't get the checks passing,
 don't guess and don't check it off: leave it `- [ ]`, write what's blocking you in
 progress.md, and stop.
