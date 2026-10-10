@@ -4,7 +4,6 @@ import Animated from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -79,7 +78,7 @@ export function ItemRow({
               paddingHorizontal: spacing.lg,
               paddingVertical: spacing.sm,
               gap: spacing.md,
-              backgroundColor: highlighted ? withAlpha(colors.highlight, opacity.tint * 2) : colors.background,
+              backgroundColor: highlighted ? colors.pendingSoft : colors.background,
               opacity: pressed ? opacity.pressed : 1,
             },
           ]}>

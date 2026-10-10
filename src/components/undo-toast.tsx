@@ -36,16 +36,16 @@ export function UndoToast({ message, actions, onDismiss }: Props) {
       accessibilityLiveRegion="polite"
       style={[
         styles.toast,
-        scheme === 'light' ? { ...shadows.floating, shadowColor: colors.ink } : null,
+        scheme === 'light' ? { ...shadows.floating, shadowColor: colors.toast } : null,
         {
-          backgroundColor: colors.ink,
+          backgroundColor: colors.toast,
           borderRadius: rounded.md,
           paddingLeft: spacing.lg,
           marginHorizontal: spacing.lg,
           gap: spacing.xs,
         },
       ]}>
-      <ThemedText variant="callout" color="background" style={styles.message} numberOfLines={2}>
+      <ThemedText variant="callout" color="onToast" style={styles.message} numberOfLines={2}>
         {message}
       </ThemedText>
       {actions.map((action) => (
@@ -60,7 +60,7 @@ export function UndoToast({ message, actions, onDismiss }: Props) {
             paddingHorizontal: spacing.md,
             opacity: pressed ? opacity.pressed : 1,
           })}>
-          <ThemedText variant="headline" color="background">
+          <ThemedText variant="headline" color="onToast">
             {action.label}
           </ThemedText>
         </Pressable>

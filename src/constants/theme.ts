@@ -1,5 +1,5 @@
 /**
- * Design tokens. Structure copied from stash; colours are provisional until DESIGN.md exists.
+ * Design tokens for direction B, "Pantry". DESIGN.md documents every token and when to use it.
  * Components read these through `useTheme()` and never hard-code hex values or font sizes.
  */
 
@@ -7,61 +7,73 @@ import '@/global.css';
 
 import { Platform, type TextStyle } from 'react-native';
 
+import type { AisleHue } from '@/domain/aisle-color';
+
+/**
+ * Bricolage Grotesque (display, 500–800) and Figtree (body, 400–700) are embedded at build time by
+ * the `expo-font` config plugin in app.json, under these family names. `fontWeight` picks the file.
+ */
 export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` (SF Pro) */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` (New York) */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
+  web: {
+    display: 'var(--font-display)',
+    body: 'var(--font-body)',
   },
   default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
+    display: 'Bricolage Grotesque',
+    body: 'Figtree',
   },
 });
 
 export const Palette = {
   light: {
-    background: '#FBF7F0',
+    /** Screen ground: pale green. */
+    background: '#EEF3EC',
+    /** Cards, tiles, inputs, unselected pills. */
     surface: '#FFFFFF',
-    surfaceMuted: '#F2ECE2',
-    border: '#E4DCCF',
-    ink: '#1F1B16',
-    inkSecondary: '#6B6258',
-    primary: '#2F6B3F',
+    /** Segmented control track, tile placeholders. */
+    surfaceMuted: '#DCE4DA',
+    /** Hairlines between rows inside a card. */
+    border: '#EEF1EC',
+    /** Unchecked round checks, dashed "new" outlines, sheet grabber. */
+    controlBorder: '#B9C4BC',
+    ink: '#1D2A22',
+    inkSecondary: '#55635A',
+    /** Icons and decorative glyphs only; too light for text. */
+    inkTertiary: '#7C877F',
+    primary: '#2E6B45',
     onPrimary: '#FFFFFF',
-    highlight: '#E9A23B',
-    success: '#2F7D4F',
-    warning: '#9A5B00',
-    danger: '#B42318',
-    info: '#2B6CB0',
+    primarySoft: '#DDEFE2',
+    onPrimarySoft: '#1F5233',
+    danger: '#A33D53',
+    dangerSoft: '#F7E1E6',
+    /** "Sorting…": items waiting for an aisle. */
+    pending: '#8A5C0C',
+    pendingSoft: '#FFF7E6',
+    /** Behind a sheet. */
+    scrim: '#C9D3C7',
+    toast: '#1D2A22',
+    onToast: '#FFFFFF',
   },
   dark: {
-    background: '#14110E',
-    surface: '#1E1A16',
-    surfaceMuted: '#2A251F',
-    border: '#3A332B',
-    ink: '#F4EEE6',
-    inkSecondary: '#A89D90',
-    primary: '#8BCB9A',
-    onPrimary: '#14110E',
-    highlight: '#F2B451',
-    success: '#6BC48F',
-    warning: '#F2B451',
-    danger: '#F97066',
-    info: '#7FB2EA',
+    background: '#111915',
+    surface: '#1B241F',
+    surfaceMuted: '#28332C',
+    border: '#26302A',
+    controlBorder: '#56635A',
+    ink: '#E7EEE8',
+    inkSecondary: '#A6B3AA',
+    inkTertiary: '#7E8B82',
+    primary: '#7CC395',
+    onPrimary: '#0E1F14',
+    primarySoft: '#1E3A28',
+    onPrimarySoft: '#B7E4C5',
+    danger: '#F08B9F',
+    dangerSoft: '#3B1E26',
+    pending: '#E8B65A',
+    pendingSoft: '#33290F',
+    scrim: '#050806',
+    toast: '#E7EEE8',
+    onToast: '#111915',
   },
 } as const;
 
@@ -69,17 +81,52 @@ export type ColorScheme = keyof typeof Palette;
 export type ColorToken = keyof typeof Palette.light;
 export type ThemeColors = Record<ColorToken, string>;
 
-type TypeStyle = Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>>;
+/** Aisle colours (see `aisleColor` in src/domain): `dot` for section dots and selected chips, `soft` for tints. */
+export const AisleColors = {
+  light: {
+    green: { dot: '#2E6B45', soft: '#DDEFE2' },
+    blue: { dot: '#3E7BB8', soft: '#DFEAF6' },
+    rose: { dot: '#C2556B', soft: '#F7E1E6' },
+    amber: { dot: '#C98A1E', soft: '#F6EBD4' },
+    grey: { dot: '#7C877F', soft: '#EEF3EC' },
+  },
+  dark: {
+    green: { dot: '#6FBF8A', soft: '#1E3A28' },
+    blue: { dot: '#7AAEE0', soft: '#1B2D3F' },
+    rose: { dot: '#E58A9C', soft: '#3B1E26' },
+    amber: { dot: '#E3AE4E', soft: '#33290F' },
+    grey: { dot: '#8E9A91', soft: '#26302A' },
+  },
+} as const satisfies Record<ColorScheme, Record<AisleHue, { dot: string; soft: string }>>;
 
-/** iOS Dynamic Type defaults (Large). Text scales with the user's setting; never disable it. */
+type TypeStyle = Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
+  Pick<TextStyle, 'letterSpacing'>;
+
+/** Display titles track tight (-0.025em). */
+const tight = (size: number) => Math.round(size * -0.025 * 100) / 100;
+
+/** Sizes are at the default Dynamic Type setting (Large). Text scales with the user's setting; never disable it. */
 export const Typography = {
-  largeTitle: { fontFamily: Fonts.sans, fontSize: 34, fontWeight: '700', lineHeight: 41 },
-  title: { fontFamily: Fonts.sans, fontSize: 22, fontWeight: '700', lineHeight: 28 },
-  headline: { fontFamily: Fonts.sans, fontSize: 17, fontWeight: '600', lineHeight: 22 },
-  body: { fontFamily: Fonts.sans, fontSize: 17, fontWeight: '400', lineHeight: 22 },
-  callout: { fontFamily: Fonts.sans, fontSize: 16, fontWeight: '400', lineHeight: 21 },
-  footnote: { fontFamily: Fonts.sans, fontSize: 13, fontWeight: '400', lineHeight: 18 },
-  caption: { fontFamily: Fonts.sans, fontSize: 12, fontWeight: '500', lineHeight: 16 },
+  /** Tab roots: "Your lists", "Settings". */
+  largeTitle: { fontFamily: Fonts.display, fontSize: 40, fontWeight: '800', lineHeight: 44, letterSpacing: tight(40) },
+  /** Pushed screens: a list's name, "Aisle order". */
+  screenTitle: { fontFamily: Fonts.display, fontSize: 36, fontWeight: '800', lineHeight: 40, letterSpacing: tight(36) },
+  /** Sheet titles: the item's name. */
+  sheetTitle: { fontFamily: Fonts.display, fontSize: 30, fontWeight: '800', lineHeight: 34, letterSpacing: tight(30) },
+  title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
+  /** Card section headers: aisle or recipe name. */
+  sectionTitle: { fontFamily: Fonts.display, fontSize: 17, fontWeight: '700', lineHeight: 22 },
+  /** Buttons and emphasised rows. */
+  headline: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '700', lineHeight: 22 },
+  body: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
+  callout: { fontFamily: Fonts.body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
+  /** Quantities and values at the end of a row. */
+  amount: { fontFamily: Fonts.body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  /** Labels above a card ("Members", "Added") and household names above tiles. */
+  sectionLabel: { fontFamily: Fonts.body, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  footnote: { fontFamily: Fonts.body, fontSize: 13, fontWeight: '400', lineHeight: 18 },
+  /** Badges and small all-caps labels. */
+  caption: { fontFamily: Fonts.body, fontSize: 12, fontWeight: '700', lineHeight: 16 },
 } as const satisfies Record<string, TypeStyle>;
 
 export type TypographyVariant = keyof typeof Typography;
@@ -99,13 +146,21 @@ export const Spacing = {
 export const Rounded = {
   /** chips, small buttons */
   sm: 8,
-  /** inputs, list rows in groups */
+  /** inputs, segmented control track */
   md: 12,
-  /** cards */
+  /** grouped rows (pre-Pantry screens) */
   lg: 20,
-  /** sheets, large buttons */
+  /** large buttons (pre-Pantry screens) */
   xl: 28,
-  /** pills, avatar, round icon buttons */
+  /** rows in the aisle-order list */
+  row: 16,
+  /** cards */
+  card: 22,
+  /** list tiles */
+  tile: 22,
+  /** sheets */
+  sheet: 28,
+  /** pills, round checks, round icon buttons, primary CTAs */
   full: 999,
 } as const;
 
@@ -120,7 +175,7 @@ export const Sizes = {
   iconSmall: 12,
 } as const;
 
-/** Motion: 200–300ms springs, no bounce loops (provisional). */
+/** Motion: 200–300ms springs, no bounce loops. */
 export const Motion = {
   duration: 250,
   spring: { damping: 20, stiffness: 220, mass: 1 },
@@ -144,7 +199,7 @@ export function withAlpha(hex: string, alpha: number): string {
   return `${hex}${a}`;
 }
 
-/** Soft shadow for floating controls (light mode only). Color comes from `primary`. */
+/** Soft shadow for floating controls (light mode only). Color comes from `ink`. */
 export const Shadows = {
   floating: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 6, shadowOpacity: Opacity.shadow },
 } as const;

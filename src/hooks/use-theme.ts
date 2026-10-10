@@ -4,6 +4,7 @@
  */
 
 import {
+  AisleColors,
   Motion,
   Opacity,
   Palette,
@@ -23,6 +24,8 @@ export function useTheme() {
   return {
     scheme,
     colors: Palette[scheme],
+    /** Aisle colours by hue; pick the hue with `aisleColor(slug)`. */
+    aisles: AisleColors[scheme],
     typography: Typography,
     spacing: Spacing,
     rounded: Rounded,

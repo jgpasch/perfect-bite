@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
+    "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+    "@expo-google-fonts/figtree": "^0.4.1",
     "@expo/ui": "~57.0.22",
     "@supabase/supabase-js": "^2.117.3",
     "drizzle-orm": "^0.45.3",

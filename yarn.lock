@@ -1677,6 +1677,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@expo-google-fonts/bricolage-grotesque@npm:^0.4.1":
+  version: 0.4.1
+  resolution: "@expo-google-fonts/bricolage-grotesque@npm:0.4.1"
+  checksum: 10c0/186eaf7b4a7cc8dae0fe52ead291ae98f37620bc5361a2f62f222fe2cd2cae67eec9bf9d9f272112fbf992bcb3dbfa99b2c2332e7a8fb6e5dfbd883ec627b557
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/figtree@npm:^0.4.1":
+  version: 0.4.1
+  resolution: "@expo-google-fonts/figtree@npm:0.4.1"
+  checksum: 10c0/69678fafe3b0ab82380e038cc68bd39dfa6f6b5f3272e8093d503522b85123357377151747f1abf8192f1a84d15b17ec241293e85606d3f47df4dfcbdabc46d8
+  languageName: node
+  linkType: hard
+
 "@expo-google-fonts/material-symbols@npm:^0.4.1":
   version: 0.4.49
   resolution: "@expo-google-fonts/material-symbols@npm:0.4.49"
@@ -10124,6 +10138,8 @@ __metadata:
   resolution: "perfect-bite@workspace:."
   dependencies:
     "@bacons/apple-targets": "npm:^5.0.0"
+    "@expo-google-fonts/bricolage-grotesque": "npm:^0.4.1"
+    "@expo-google-fonts/figtree": "npm:^0.4.1"
     "@expo/ui": "npm:~57.0.22"
     "@react-native/jest-preset": "npm:0.86.3"
     "@supabase/supabase-js": "npm:^2.117.3"
