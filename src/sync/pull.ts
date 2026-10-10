@@ -298,6 +298,33 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
   }
 }
 
+/** Per-user tables the server hard-deletes from, by server name: pull can't see those deletes. */
+const HARD_DELETE_SPECS: Record<string, PullSpec> = {
+  user_category_order: USER_SPECS[1],
+  user_category_overrides: USER_SPECS[2],
+};
+
+/**
+ * Applies a Realtime delete of one of the user's hard-deleted rows (spec 7.2). `old` is the row's
+ * key, as Realtime sends it. A row with an unpushed local change stays: that change goes up and
+ * brings it back. Returns whether a local row was deleted.
+ */
+export function applyRemoteDelete(table: string, old: Record<string, unknown>, userId: string): boolean {
+  const spec = HARD_DELETE_SPECS[table];
+  if (!spec || old.user_id !== userId) return false;
+  const columns = columnsOf(spec.table);
+  const names = spec.key.map((k) => columns[k].name);
+  if (names.some((name) => typeof old[name] !== 'string')) return false;
+  return db.transaction((tx) => {
+    const ref = refKey(table, undefined, Object.fromEntries(names.map((name) => [name, old[name]])));
+    if (pendingIndex(tx).has(ref)) return false;
+    const where = and(...spec.key.map((k) => eq(columns[k], old[columns[k].name] as string)))!;
+    if (!tx.select().from(spec.table).where(where).get()) return false;
+    tx.delete(spec.table).where(where).run();
+    return true;
+  });
+}
+
 /**
  * Applies a catalog row to the local copy of an ingredient this device already has (7.4). Never
  * adds names: the device keeps the seed plus what it has seen. A server answer that isn't final
@@ -451,29 +478,69 @@ export type PullSummary =
       error: string | null;
     };
 
-async function runPull(now: () => Date): Promise<PullSummary> {
+/**
+ * Part of a pull, for Realtime (spec 7.2): some households, the user's preference tables and/or
+ * the catalog. Doesn't read memberships. Without a scope, a pull reads memberships and does it all.
+ */
+export type PullScope = { households?: string[]; user?: boolean; catalog?: boolean };
+
+/** Everything both ask for; `'all'` (a full pull) covers the rest. */
+export function mergeScopes(a: PullScope | 'all' | null, b: PullScope | 'all'): PullScope | 'all' {
+  if (a === null) return b;
+  if (a === 'all' || b === 'all') return 'all';
+  return {
+    households: [...new Set([...(a.households ?? []), ...(b.households ?? [])])],
+    user: !!(a.user || b.user),
+    catalog: !!(a.catalog || b.catalog),
+  };
+}
+
+type MembershipListener = (households: string[]) => void;
+const membershipListeners = new Set<MembershipListener>();
+let lastMemberships: { userId: string; households: string[] } | null = null;
+
+/**
+ * Calls `listener` with the user's households each time a full pull reads them, and right away
+ * with the last ones read for `userId`, if any. Returns an unsubscribe.
+ */
+export function onMemberships(userId: string, listener: MembershipListener): () => void {
+  membershipListeners.add(listener);
+  if (lastMemberships?.userId === userId) listener(lastMemberships.households);
+  return () => {
+    membershipListeners.delete(listener);
+  };
+}
+
+async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullSummary> {
   const account = getAccount();
   if (!isSupabaseConfigured || !account) return { skipped: 'no-session' };
   if (online === false) return { skipped: 'offline' };
   if (readState().userId !== account.userId) {
     db.transaction((tx) => writeState(tx, { userId: account.userId, cursors: {} }));
   }
+  const all = scope === 'all';
 
   let pulled = 0;
-  let memberships: string[] = [];
+  let memberships: string[] = all ? [] : (scope.households ?? []);
   try {
-    const members = await call(
-      supabase.from('household_members').select('household_id').eq('user_id', account.userId),
-      'household_members',
-    );
-    memberships = [...new Set(members.map((m) => (m as { household_id: string }).household_id))];
+    if (all) {
+      const members = await call(
+        supabase.from('household_members').select('household_id').eq('user_id', account.userId),
+        'household_members',
+      );
+      memberships = [...new Set(members.map((m) => (m as { household_id: string }).household_id))];
+      lastMemberships = { userId: account.userId, households: memberships };
+      for (const listener of [...membershipListeners]) listener(memberships);
+    }
     for (const householdId of memberships) {
       for (const job of householdJobs(householdId)) pulled += await pullTable(job);
     }
-    for (const job of userJobs(account.userId)) pulled += await pullTable(job);
+    if (all || scope.user) {
+      for (const job of userJobs(account.userId)) pulled += await pullTable(job);
+    }
     // Names pulled in are cached as pending until the catalog (or categorization) knows them.
-    ensureMissingIngredients();
-    pulled += await pullTable(CATALOG_JOB);
+    if (all || memberships.length || scope.user) ensureMissingIngredients();
+    if (all || scope.catalog) pulled += await pullTable(CATALOG_JOB);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[pull] failed: ${message}`);
@@ -485,25 +552,29 @@ async function runPull(now: () => Date): Promise<PullSummary> {
 }
 
 let inFlight: Promise<PullSummary> | null = null;
-let rerun = false;
+/** What calls during the current run asked for; it runs once more with that. */
+let queued: PullScope | 'all' | null = null;
 
 /**
- * Pulls every household the user belongs to, their preferences and the catalog. Concurrent calls
- * coalesce: a call during a run schedules exactly one more (so changes made meanwhile come too)
- * and shares its promise. Never throws.
+ * Pulls every household the user belongs to, their preferences and the catalog, or only `scope`.
+ * Concurrent calls coalesce: a call during a run schedules exactly one more (so changes made
+ * meanwhile come too), covering everything those calls asked for, and shares its promise. Never
+ * throws.
  */
-export function pullNow(options: { now?: () => Date } = {}): Promise<PullSummary> {
+export function pullNow(options: { now?: () => Date; scope?: PullScope } = {}): Promise<PullSummary> {
   const now = options.now ?? (() => new Date());
+  const scope = options.scope ?? 'all';
   if (inFlight) {
-    rerun = true;
+    queued = mergeScopes(queued, scope);
     return inFlight;
   }
   inFlight = (async () => {
     try {
-      let result = await runPull(now);
-      while (rerun) {
-        rerun = false;
-        result = await runPull(now);
+      let result = await runPull(now, scope);
+      while (queued) {
+        const next = queued;
+        queued = null;
+        result = await runPull(now, next);
       }
       return result;
     } catch (err) {
@@ -512,7 +583,7 @@ export function pullNow(options: { now?: () => Date } = {}): Promise<PullSummary
       return { pulled: 0, households: [], error: err instanceof Error ? err.message : String(err) };
     } finally {
       inFlight = null;
-      rerun = false;
+      queued = null;
     }
   })();
   return inFlight;

@@ -8,6 +8,8 @@
 // resolves with whatever `respondTo` / `onQuery` returns (default `{ data: null, error: null }`).
 // RPCs: `supabase.rpc('fn', args)` records a `RecordedRpc` and resolves the same way, scripted with
 // `respondToRpc` / `onRpc`.
+// Realtime: `supabase.channel(name).on(...).subscribe(cb)` records a `FakeChannel`; deliver changes
+// with `emitChange` and statuses with `setChannelStatus`. `removeChannel` marks it removed.
 // Edge Functions, Storage and Auth are `jest.fn()`s: override them with `mockResolvedValue` etc.
 import { jest } from '@jest/globals';
 import type { Session } from '@supabase/supabase-js';
@@ -141,6 +143,82 @@ export function makeSession(userId: string, email = 'test@example.com'): Session
   } as Session;
 }
 
+/** One `.on('postgres_changes', filter, callback)` on a fake channel. */
+export type ChannelBinding = {
+  event: string;
+  schema: string;
+  table: string;
+  filter?: string;
+  callback: (payload: Record<string, unknown>) => void;
+};
+
+/** A `supabase.channel(name)`: what it listens to and whether it's been removed. */
+export type FakeChannel = {
+  name: string;
+  bindings: ChannelBinding[];
+  removed: boolean;
+  /** The `subscribe` callback; call it (or use `setChannelStatus`) to report a status. */
+  onStatus: ((status: string, err?: Error) => void) | null;
+  on: (type: string, filter: Omit<ChannelBinding, 'callback'>, callback: ChannelBinding['callback']) => FakeChannel;
+  subscribe: (callback?: (status: string, err?: Error) => void) => FakeChannel;
+};
+
+/** Every channel created since the last reset, removed ones included. */
+export const realtimeChannels: FakeChannel[] = [];
+
+function channel(name: string): FakeChannel {
+  const ch: FakeChannel = {
+    name,
+    bindings: [],
+    removed: false,
+    onStatus: null,
+    on: (_type, filter, callback) => {
+      ch.bindings.push({ ...filter, callback });
+      return ch;
+    },
+    subscribe: (callback) => {
+      ch.onStatus = callback ?? null;
+      return ch;
+    },
+  };
+  realtimeChannels.push(ch);
+  return ch;
+}
+
+/** Channels not removed yet. */
+export function openChannels(): FakeChannel[] {
+  return realtimeChannels.filter((c) => !c.removed);
+}
+
+/** Reports `status` (e.g. 'SUBSCRIBED') to every open channel, or to `only`. */
+export function setChannelStatus(status: string, only?: FakeChannel) {
+  for (const ch of only ? [only] : openChannels()) ch.onStatus?.(status);
+}
+
+/**
+ * Delivers a change to every open channel listening to `table`, as Realtime would: inserts and
+ * updates only reach bindings whose `column=eq.value` filter matches the new row; deletes can't be
+ * filtered, so they reach every binding on the table.
+ */
+export function emitChange(change: {
+  table: string;
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new?: Record<string, unknown>;
+  old?: Record<string, unknown>;
+}) {
+  const payload = { schema: 'public', commit_timestamp: '', errors: null, new: {}, old: {}, ...change };
+  for (const ch of openChannels()) {
+    for (const b of ch.bindings) {
+      if (b.table !== change.table) continue;
+      if (b.filter && change.eventType !== 'DELETE') {
+        const [column, value] = b.filter.split('=eq.');
+        if (String(change.new?.[column]) !== value) continue;
+      }
+      b.callback(payload);
+    }
+  }
+}
+
 const ok = () => Promise.resolve({ data: null, error: null });
 type Result = { data: unknown; error: unknown };
 type AsyncFn = (...args: any[]) => Promise<Result>;
@@ -150,6 +228,11 @@ const storageUpload = jest.fn<AsyncFn>();
 export const supabase = {
   from: jest.fn((table: string) => queryBuilder(table)),
   rpc: jest.fn(rpc),
+  channel: jest.fn(channel),
+  removeChannel: jest.fn((ch: FakeChannel) => {
+    ch.removed = true;
+    return Promise.resolve('ok');
+  }),
   functions: {
     invoke: jest.fn<AsyncFn>(),
   },
@@ -196,6 +279,9 @@ export function resetSupabase() {
   authListeners.length = 0;
   supabase.from.mockClear();
   supabase.rpc.mockReset().mockImplementation(rpc);
+  realtimeChannels.length = 0;
+  supabase.channel.mockClear();
+  supabase.removeChannel.mockClear();
   supabase.storage.from.mockClear();
   storageUpload.mockReset().mockImplementation(ok);
   supabase.functions.invoke.mockReset().mockImplementation(ok);

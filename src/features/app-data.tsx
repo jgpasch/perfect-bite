@@ -9,6 +9,7 @@ import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { pullNow, startPull } from '@/sync/pull';
 import { pushNow, startPush } from '@/sync/push';
+import { startRealtime } from '@/sync/realtime';
 
 /**
  * Local data every screen expects: the bundled catalog (spec 6.2), pending rows for names it
@@ -48,5 +49,7 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (userId) void pullNow();
   }, [userId]);
+  // Realtime (spec 7.2): live changes while signed in and in the foreground.
+  useEffect(() => (userId ? startRealtime(userId) : undefined), [userId]);
   return children;
 }

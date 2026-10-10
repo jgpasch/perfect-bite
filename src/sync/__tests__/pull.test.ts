@@ -12,6 +12,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  userCategoryOrder,
   userCategoryOverrides,
   userSettings,
 } from '@/db';
@@ -22,8 +23,11 @@ import { clearOutbox, outboxRows } from '@/test/outbox';
 import { getDeviceId, nextHlc } from '../clock';
 import { deleteRows, insertRow, updateRows, upsertRow } from '../mutate';
 import {
+  applyRemoteDelete,
   getPullState,
   householdCursorKey,
+  mergeScopes,
+  onMemberships,
   PULL_OVERLAP_MS,
   PULL_PAGE_SIZE,
   pullNow,
@@ -834,5 +838,199 @@ describe('failures', () => {
 
     expect(queriesFor('household_members')).toHaveLength(2);
     expect(db.select().from(lists).all()).toHaveLength(2);
+  });
+});
+
+describe('scoped pulls (for Realtime)', () => {
+  const HOUSEHOLD_TABLES = [
+    'households',
+    'lists',
+    'recipes',
+    'list_items',
+    'recipe_ingredients',
+    'list_item_contributions',
+    'ingredient_usage',
+    'ingredient_unit_usage',
+  ];
+
+  test('mergeScopes unions households and flags; a full pull covers everything', () => {
+    expect(mergeScopes(null, { households: [H1] })).toEqual({ households: [H1] });
+    expect(mergeScopes({ households: [H1] }, { households: [H2, H1], catalog: true })).toEqual({
+      households: [H1, H2],
+      user: false,
+      catalog: true,
+    });
+    expect(mergeScopes({ user: true }, { catalog: true })).toEqual({ households: [], user: true, catalog: true });
+    expect(mergeScopes({ households: [H1] }, 'all')).toBe('all');
+    expect(mergeScopes('all', { catalog: true })).toBe('all');
+    expect(mergeScopes(null, 'all')).toBe('all');
+  });
+
+  test("one household's tables only: no membership lookup, no other household, no preferences or catalog", async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H2, ts(1)));
+    put('lists', remoteList('list-h2', ts(2), { household_id: H2 }));
+
+    await expect(pullNow({ scope: { households: [H2] } })).resolves.toEqual({ pulled: 2, households: [H2], error: null });
+
+    expect(queries.map((q) => q.table)).toEqual(HOUSEHOLD_TABLES);
+    expect(queries.every((q) => q.ops.some(([op, , value]) => op === 'eq' && value === H2))).toBe(true);
+    expect(db.select({ id: lists.id }).from(lists).all()).toEqual([{ id: 'list-h2' }]);
+    expect(Object.keys(getPullState().cursors).sort()).toEqual([
+      householdCursorKey(H2, 'households'),
+      householdCursorKey(H2, 'lists'),
+    ]);
+  });
+
+  test("the user's tables only", async () => {
+    await pullNow({ scope: { user: true } });
+    expect(queries.map((q) => q.table)).toEqual(['categories', 'user_category_order', 'user_category_overrides', 'user_settings']);
+  });
+
+  test('the catalog only', async () => {
+    db.insert(ingredients).values({ normalizedName: 'kefir', displayName: 'kefir', status: 'pending' }).run();
+    put('ingredients', {
+      normalized_name: 'kefir',
+      default_category_id: null,
+      status: 'categorized',
+      is_grocery_item: true,
+      categorized_by: 'model',
+      updated_at: ts(5),
+    });
+
+    await expect(pullNow({ scope: { catalog: true } })).resolves.toEqual({ pulled: 1, households: [], error: null });
+
+    expect(queries.map((q) => q.table)).toEqual(['ingredients']);
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'kefir')).get()).toMatchObject({
+      status: 'categorized',
+      categorizedBy: 'model',
+    });
+  });
+
+  test('an empty scope asks the server for nothing but still counts as a sync', async () => {
+    await expect(pullNow({ scope: {}, now: () => new Date(ts(9)) })).resolves.toEqual({ pulled: 0, households: [], error: null });
+    expect(queries).toEqual([]);
+    expect(getPullState().lastSuccessAt).toBe(new Date(ts(9)).toISOString());
+  });
+
+  test('scoped calls during a run share one more run that covers all of them', async () => {
+    memberships = [H1, H2];
+    const first = pullNow({ scope: { households: [H1] } });
+    const second = pullNow({ scope: { households: [H2] } });
+    const third = pullNow({ scope: { catalog: true } });
+
+    await Promise.all([first, second, third]);
+
+    expect(queries.map((q) => q.table)).toEqual([...HOUSEHOLD_TABLES, ...HOUSEHOLD_TABLES, 'ingredients']);
+    expect(tableQueries('lists').map((ops) => ops[1])).toEqual([
+      ['eq', 'household_id', H1],
+      ['eq', 'household_id', H2],
+    ]);
+  });
+
+  test('a full pull asked for during a scoped run makes the next run full', async () => {
+    const first = pullNow({ scope: { catalog: true } });
+    const second = pullNow();
+
+    await Promise.all([first, second]);
+
+    expect(queries[0].table).toBe('ingredients');
+    expect(queriesFor('household_members')).toHaveLength(1);
+    expect(queriesFor('ingredients')).toHaveLength(2);
+  });
+});
+
+describe('onMemberships', () => {
+  test('hears the households each full pull reads, and replays the last for the same user', async () => {
+    // A user no earlier test has pulled for, so there's nothing to replay yet.
+    mockAuth.account = { userId: 'u5' };
+    const heard: string[][] = [];
+    const stop = onMemberships('u5', (h) => heard.push(h));
+    expect(heard).toEqual([]);
+
+    memberships = [H1, H2];
+    await pullNow();
+    memberships = [H2];
+    await pullNow();
+    // Scoped pulls don't read memberships.
+    await pullNow({ scope: { households: [H1] } });
+    expect(heard).toEqual([[H1, H2], [H2]]);
+
+    const late: string[][] = [];
+    const stopLate = onMemberships('u5', (h) => late.push(h));
+    expect(late).toEqual([[H2]]);
+    const other: string[][] = [];
+    const stopOther = onMemberships('u6', (h) => other.push(h));
+    expect(other).toEqual([]);
+
+    stop();
+    stopLate();
+    stopOther();
+    memberships = [H1];
+    await pullNow();
+    expect(heard).toHaveLength(2);
+    expect(late).toHaveLength(1);
+  });
+
+  test('a failed membership lookup reports nothing', async () => {
+    const heard: string[][] = [];
+    const stop = onMemberships('u3', (h) => heard.push(h));
+    mockAuth.account = { userId: 'u3' };
+    failTable = 'household_members';
+
+    await expect(pullNow()).resolves.toMatchObject({ error: 'household_members: Network request failed' });
+
+    expect(heard).toEqual([]);
+    stop();
+  });
+});
+
+describe('applyRemoteDelete (per-user rows deleted on another device)', () => {
+  const C = 'cat-snacks';
+
+  function seedOverride() {
+    db.insert(categories).values({ id: C, name: 'Snacks', ownerUserId: 'u1' }).run();
+    db.insert(userCategoryOverrides).values({ userId: 'u1', ingredientName: 'chips', categoryId: C }).run();
+  }
+  const overrides = () => db.select().from(userCategoryOverrides).all();
+
+  test("deletes the user's row named by the event's key, without writing to the outbox", () => {
+    seedOverride();
+
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(true);
+
+    expect(overrides()).toEqual([]);
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('keeps a row with an unpushed local change', () => {
+    seedOverride();
+    upsertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'chips', categoryId: C }, { categoryId: C });
+
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(false);
+    expect(overrides()).toHaveLength(1);
+
+    clearOutbox();
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(true);
+    expect(overrides()).toEqual([]);
+  });
+
+  test("ignores another user's row, a missing row, an incomplete key and other tables", () => {
+    seedOverride();
+
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u2', ingredient_name: 'chips' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'salsa' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_settings', { user_id: 'u1' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('lists', { id: L, user_id: 'u1' }, 'u1')).toBe(false);
+    expect(overrides()).toHaveLength(1);
+  });
+
+  test('deletes a category order row', () => {
+    seedOverride();
+    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: C, position: 1 }).run();
+
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
+    expect(db.select().from(userCategoryOrder).all()).toEqual([]);
   });
 });
