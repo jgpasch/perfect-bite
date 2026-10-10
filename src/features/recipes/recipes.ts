@@ -8,6 +8,8 @@ import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
 
+import { orderByLastUse } from './recipe-view';
+
 const liveRecipe = isNull(recipes.deletedAt);
 const liveIngredient = isNull(recipeIngredients.deletedAt);
 
@@ -61,6 +63,22 @@ export function recipesOnListsQuery() {
 /** Tables the recipes tab reads (`recipesQuery`, `recipesOnListsQuery`), for `useLiveQueryOn`. */
 export const RECIPES_TAB_TABLES = [recipes, recipeIngredients, households, listItemContributions, listItems, lists];
 
+/**
+ * The "Add to recipe" sheet's recipes (spec 4.5): the household's live recipes with their
+ * ingredient count, most recently used first (`orderByLastUse`).
+ */
+export function recipesForPicker(householdId: string): RecipeSummary[] {
+  const all = recipesQuery()
+    .all()
+    .filter((r) => r.householdId === householdId);
+  const uses = db
+    .select({ recipeId: sql<string>`${listItemContributions.recipeId}`, at: listItemContributions.createdAt })
+    .from(listItemContributions)
+    .where(and(isNotNull(listItemContributions.recipeId), eq(listItemContributions.householdId, householdId)))
+    .all();
+  return orderByLastUse(all, uses);
+}
+
 export function recipeQuery(id: string) {
   return db.select().from(recipes).where(and(eq(recipes.id, id), liveRecipe));
 }
@@ -83,9 +101,10 @@ function cleanName(name: string): string {
   return trimmed;
 }
 
-export function createRecipe(name: string): string {
+/** A new recipe in `householdId` (by default the first household; M7 asks which). */
+export function createRecipe(name: string, householdId: string = currentHouseholdId()): string {
   const id = newId();
-  db.insert(recipes).values({ id, householdId: currentHouseholdId(), name: cleanName(name) }).run();
+  db.insert(recipes).values({ id, householdId, name: cleanName(name) }).run();
   return id;
 }
 

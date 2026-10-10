@@ -2,15 +2,69 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   addCtaLabel,
+  addedToRecipeToast,
+  addToRecipeTitle,
   conflictResult,
   conflictTitle,
   groupRecipesByHousehold,
   ingredientCountLabel,
   keepLabel,
   onListByRecipe,
+  orderByLastUse,
   recipeCardLabel,
   servingsLabel,
 } from '../recipe-view';
+
+describe('orderByLastUse', () => {
+  const r = (id: string, name: string, updatedAt: string) => ({ id, name, updatedAt: new Date(updatedAt) });
+  const use = (recipeId: string, at: string) => ({ recipeId, at: new Date(at) });
+
+  test('orders by last change when no recipe has been added to a list', () => {
+    const out = orderByLastUse([r('a', 'Tacos', '2026-10-01'), r('b', 'Chili', '2026-10-03'), r('c', 'Dal', '2026-10-02')], []);
+    expect(out.map((x) => x.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  test('a later add to a list counts as a use, and the latest add wins', () => {
+    const out = orderByLastUse(
+      [r('a', 'Tacos', '2026-10-01'), r('b', 'Chili', '2026-10-03'), r('c', 'Dal', '2026-10-02')],
+      [use('a', '2026-09-01'), use('a', '2026-10-05'), use('c', '2026-10-04')],
+    );
+    expect(out.map((x) => x.id)).toEqual(['a', 'c', 'b']);
+  });
+
+  test('an add older than the last change does not move a recipe back', () => {
+    const out = orderByLastUse(
+      [r('a', 'Tacos', '2026-10-05'), r('b', 'Chili', '2026-10-03')],
+      [use('a', '2026-09-01'), use('b', '2026-10-04')],
+    );
+    expect(out.map((x) => x.id)).toEqual(['a', 'b']);
+  });
+
+  test('ties go by name, then id; uses of other recipes are ignored', () => {
+    const out = orderByLastUse(
+      [r('z', 'Tacos', '2026-10-01'), r('y', 'Chili', '2026-10-01'), r('x', 'Tacos', '2026-10-01')],
+      [use('gone', '2026-12-01')],
+    );
+    expect(out.map((x) => x.id)).toEqual(['y', 'x', 'z']);
+  });
+
+  test('empty input, and the input is not mutated', () => {
+    expect(orderByLastUse([], [])).toEqual([]);
+    const input = [r('a', 'Tacos', '2026-10-01'), r('b', 'Chili', '2026-10-02')];
+    expect(orderByLastUse(input, []).map((x) => x.id)).toEqual(['b', 'a']);
+    expect(input.map((x) => x.id)).toEqual(['a', 'b']);
+  });
+});
+
+test('addToRecipeTitle', () => {
+  expect(addToRecipeTitle(1)).toBe('Add 1 item to…');
+  expect(addToRecipeTitle(3)).toBe('Add 3 items to…');
+});
+
+test('addedToRecipeToast', () => {
+  expect(addedToRecipeToast(3, 'Tacos')).toEqual({ message: 'Added 3 items to Tacos', emphasis: 'Tacos' });
+  expect(addedToRecipeToast(1, 'Weeknight dal')).toEqual({ message: 'Added 1 item to Weeknight dal', emphasis: 'Weeknight dal' });
+});
 
 describe('groupRecipesByHousehold', () => {
   const r = (id: string, householdId: string, householdName: string) => ({ id, householdId, householdName });

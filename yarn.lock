@@ -6506,6 +6506,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-haptics@npm:~57.0.3":
+  version: 57.0.3
+  resolution: "expo-haptics@npm:57.0.3"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/d538332720a7fa08f73c08f2803d53f82e6359fe41d5e518392cd16148eed682852df9ec062aeafbb88eaa893d8f0bf2295f6f3dfb0b665e7a81637f043caa0b
+  languageName: node
+  linkType: hard
+
 "expo-image@npm:~57.0.5":
   version: 57.0.5
   resolution: "expo-image@npm:57.0.5"
@@ -10159,6 +10168,7 @@ __metadata:
     expo-file-system: "npm:~57.0.7"
     expo-font: "npm:~57.0.4"
     expo-glass-effect: "npm:~57.0.4"
+    expo-haptics: "npm:~57.0.3"
     expo-image: "npm:~57.0.5"
     expo-linking: "npm:~57.0.12"
     expo-network: "npm:~57.0.2"

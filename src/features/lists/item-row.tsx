@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
@@ -33,11 +34,14 @@ type Props = {
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  /** Long-press (or the "Select" action) when not selecting: enter Select mode with this item (spec 4.5). */
+  onSelect?: () => void;
 };
 
 /**
  * A list item in a card (spec 4.2): tap the check to check it off, tap the rest of the row to open its
- * details, swipe left to delete. While selecting, a tap anywhere on the row selects it.
+ * details, long-press to start selecting with it, swipe left to delete. While selecting, a tap
+ * anywhere on the row selects it.
  */
 export function ItemRow({
   item,
@@ -52,6 +56,7 @@ export function ItemRow({
   onToggle,
   onDelete,
   onEdit,
+  onSelect,
 }: Props) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
@@ -137,6 +142,14 @@ export function ItemRow({
             <CheckCircle checked={checked} pending={sorting} onPress={onToggle} accessibilityLabel={checkOffLabel(item.displayName)} />
             <Pressable
               onPress={onEdit}
+              onLongPress={
+                onSelect
+                  ? () => {
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onSelect();
+                    }
+                  : undefined
+              }
               accessibilityRole="button"
               accessibilityLabel={label}
               accessibilityHint="Opens details"
@@ -144,11 +157,13 @@ export function ItemRow({
                 { name: 'edit', label: 'Edit' },
                 { name: 'delete', label: 'Delete' },
                 { name: 'toggle', label: toggleActionLabel(checked) },
+                ...(onSelect ? [{ name: 'select', label: 'Select' }] : []),
               ]}
               onAccessibilityAction={({ nativeEvent }) => {
                 if (nativeEvent.actionName === 'edit') onEdit();
                 if (nativeEvent.actionName === 'delete') onDelete();
                 if (nativeEvent.actionName === 'toggle') onToggle();
+                if (nativeEvent.actionName === 'select') onSelect?.();
               }}
               style={({ pressed }) => [
                 styles.body,

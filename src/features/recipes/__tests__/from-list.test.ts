@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 
-import { db, ingredientUsage } from '@/db';
+import { eq } from 'drizzle-orm';
+
+import { db, households, ingredientUsage, listItemContributions, lists, recipes } from '@/db';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { addItem, groupItems, listItemsQuery } from '@/features/lists/items';
-import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { ensureStarterData, getDefaultListId, listQuery } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
 import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { addItemsToRecipe, makeRecipeFromItems } from '../from-list';
-import { createRecipe, recipeIngredientsQuery } from '../recipes';
+import {
+  addRecipeIngredient,
+  createRecipe,
+  deleteRecipe,
+  getRecipe,
+  recipeIngredientsQuery,
+  recipesForPicker,
+} from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -104,5 +113,70 @@ describe('ingredient history (spec 4.2)', () => {
     addItemsToRecipe(soup, [onion.itemId], USER);
     addItemsToRecipe(soup, [onion.itemId, carrot.itemId], USER);
     expect(counts()).toEqual({ onion: 2, carrot: 2 });
+  });
+});
+
+describe('Add to recipe sheet (spec 4.5)', () => {
+  const householdId = () => listQuery(listId).get()!.householdId;
+  const setUpdated = (recipeId: string, at: string) =>
+    db.update(recipes).set({ updatedAt: new Date(at) }).where(eq(recipes.id, recipeId)).run();
+  const setAdded = (recipeId: string, at: string) =>
+    db.update(listItemContributions).set({ createdAt: new Date(at) }).where(eq(listItemContributions.recipeId, recipeId)).run();
+
+  test('a new recipe goes in the list’s household, not the first one', () => {
+    db.insert(households).values({ id: 'lake', name: 'Lake house', createdAt: new Date('2000-01-01') }).run();
+    db.insert(lists).values({ id: 'lake-list', householdId: 'lake', name: 'Cabin', position: 1 }).run();
+    const flour = addItem('lake-list', 'flour', USER)!;
+
+    const { recipeId } = makeRecipeFromItems('Bread', [flour.itemId], USER, 'lake');
+    expect(getRecipe(recipeId)!.householdId).toBe('lake');
+    // Without a household it still goes in the first one, as before.
+    expect(getRecipe(createRecipe('Soup'))!.householdId).toBe('lake');
+  });
+
+  test('offers only the list’s household’s live recipes, with ingredient counts, most recently used first', () => {
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    db.insert(recipes).values({ id: 'other', householdId: 'lake', name: 'Lake chili' }).run();
+    const tacos = createRecipe('Tacos', householdId());
+    const dal = createRecipe('Dal', householdId());
+    const soup = createRecipe('Soup', householdId());
+    const gone = createRecipe('Gone', householdId());
+    deleteRecipe(gone);
+    addRecipeIngredient(tacos, '1 lb beef');
+    addRecipeIngredient(tacos, 'limes');
+    addRecipeIngredient(dal, 'lentils');
+    setUpdated(tacos, '2026-10-01');
+    setUpdated(dal, '2026-10-03');
+    setUpdated(soup, '2026-10-02');
+
+    const picked = () => recipesForPicker(householdId()).map((r) => [r.name, r.ingredientCount]);
+    expect(picked()).toEqual([
+      ['Dal', 1],
+      ['Soup', 0],
+      ['Tacos', 2],
+    ]);
+
+    // Adding Tacos to a list is a use, and moves it to the top.
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 1), USER, new Set());
+    setAdded(tacos, '2026-10-05');
+    expect(picked().map(([name]) => name)).toEqual(['Tacos', 'Dal', 'Soup']);
+
+    expect(recipesForPicker('lake').map((r) => r.name)).toEqual(['Lake chili']);
+    expect(recipesForPicker('nowhere')).toEqual([]);
+  });
+
+  test('adding items to a recipe makes it the most recently used', () => {
+    const tacos = createRecipe('Tacos', householdId());
+    const dal = createRecipe('Dal', householdId());
+    setUpdated(tacos, '2026-10-01');
+    setUpdated(dal, '2026-10-02');
+    expect(recipesForPicker(householdId()).map((r) => r.name)).toEqual(['Dal', 'Tacos']);
+
+    addItemsToRecipe(tacos, [addItem(listId, 'limes', USER)!.itemId], USER);
+    expect(recipesForPicker(householdId()).map((r) => [r.name, r.ingredientCount])).toEqual([
+      ['Tacos', 1],
+      ['Dal', 0],
+    ]);
   });
 });

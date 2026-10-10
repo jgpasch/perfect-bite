@@ -1,4 +1,4 @@
-// "Start from ingredients" (spec 4.5): Select mode on a list, then Make recipe... or Add to recipe...
+// "Start from ingredients" (spec 4.5): Select mode on a list, then Add to recipe (a new recipe or an existing one).
 import { and, inArray, isNull } from 'drizzle-orm';
 
 import { db, listItemContributions, listItems } from '@/db';
@@ -65,13 +65,17 @@ export function addItemsToRecipe(recipeId: string, itemIds: readonly string[], u
   return pendingNames;
 }
 
-/** "Make recipe...": a new recipe from the selected items. Returns its id and the names recorded as pending. */
+/**
+ * "New recipe" in the Add to recipe sheet: a new recipe (in `householdId`, the list's household)
+ * from the selected items. Returns its id and the names recorded as pending.
+ */
 export function makeRecipeFromItems(
   name: string,
   itemIds: readonly string[],
   userId: string | null,
+  householdId?: string,
 ): { recipeId: string; pendingNames: string[] } {
-  const recipeId = createRecipe(name);
+  const recipeId = createRecipe(name, householdId);
   return { recipeId, pendingNames: addItemsToRecipe(recipeId, itemIds, userId) };
 }
 

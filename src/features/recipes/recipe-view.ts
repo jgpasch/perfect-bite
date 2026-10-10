@@ -68,6 +68,33 @@ export function conflictResult(conflict: ConflictAmounts, keeping: boolean): str
   return conflict.existingAmountText ? `stays ${conflict.existingAmountText}` : '';
 }
 
+/**
+ * Recipes most recently used first (the "Add to recipe" sheet, spec 4.5). A recipe's last use is
+ * the later of its last change (`updatedAt`) and the last time it was added to a list (`uses`, one
+ * per recipe contribution). Ties go by name, then id.
+ */
+export function orderByLastUse<R extends { id: string; name: string; updatedAt: Date }>(
+  recipes: readonly R[],
+  uses: readonly { recipeId: string; at: Date }[],
+): R[] {
+  const lastAdd = new Map<string, number>();
+  for (const use of uses) lastAdd.set(use.recipeId, Math.max(lastAdd.get(use.recipeId) ?? -Infinity, use.at.getTime()));
+  const lastUse = (r: R) => Math.max(r.updatedAt.getTime(), lastAdd.get(r.id) ?? -Infinity);
+  return [...recipes].sort(
+    (a, b) => lastUse(b) - lastUse(a) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
+/** The "Add to recipe" sheet's title: "Add 1 item to…", "Add 3 items to…". */
+export function addToRecipeTitle(count: number): string {
+  return `Add ${count} ${count === 1 ? 'item' : 'items'} to…`;
+}
+
+/** The toast after adding items to a recipe: "Added 3 items to Tacos", the recipe's name in bold. */
+export function addedToRecipeToast(count: number, recipeName: string): { message: string; emphasis: string } {
+  return { message: `Added ${count} ${count === 1 ? 'item' : 'items'} to ${recipeName}`, emphasis: recipeName };
+}
+
 /** The Keep segment's label: "Keep 4", or "Keep" when the item has no amount. */
 export function keepLabel(conflict: Pick<BulkConflict, 'existingAmountText'>): string {
   return conflict.existingAmountText ? `Keep ${conflict.existingAmountText}` : 'Keep';

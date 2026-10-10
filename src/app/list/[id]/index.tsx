@@ -5,7 +5,7 @@ import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prominentButtonTint } from '@/components/appearance';
-import { Button, PrimaryButton } from '@/components/button';
+import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
@@ -61,9 +61,9 @@ import {
 import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
+import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { categorizePending } from '@/features/categories/categorization';
-import { addItemsToRecipe, makeRecipeFromItems } from '@/features/recipes/from-list';
-import { recipesQuery } from '@/features/recipes/recipes';
+import { addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -162,34 +162,31 @@ export default function ListScreen() {
     return out;
   }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById]);
 
-  // Select mode (spec 4.5): pick items, then Make recipe... or Add to recipe...
-  const finishSelection = () => {
-    setSelection(null);
-    setViewMode('recipe');
-  };
-  const makeRecipe = () => {
-    if (!selection) return;
-    const ids = [...selection];
-    Alert.prompt('New recipe', `From ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`, (name) => {
-      if (!name?.trim()) return;
-      void categorizePending(makeRecipeFromItems(name, ids, userId).pendingNames);
-      finishSelection();
-    });
-  };
+  // Select mode (spec 4.5): pick items, then Add to recipe opens the sheet. When it closes having
+  // added them, leave Select mode, switch to By recipe and say where they went.
   const addToRecipe = () => {
-    if (!selection) return;
-    const ids = [...selection];
-    const all = recipesQuery().all();
-    if (all.length === 0) return makeRecipe();
-    ActionSheetIOS.showActionSheetWithOptions(
-      { title: 'Add to recipe', options: [...all.map((r) => r.name), 'Cancel'], cancelButtonIndex: all.length },
-      (index) => {
-        if (index >= all.length) return;
-        void categorizePending(addItemsToRecipe(all[index].id, ids, userId));
-        finishSelection();
-      },
-    );
+    if (!selection || selection.size === 0) return;
+    router.push({ pathname: '/list/[id]/add-to-recipe', params: { id, items: [...selection].join(',') } });
   };
+  useFocusEffect(
+    useCallback(() => {
+      const result = takeRecipeAddResult(id);
+      if (!result) return;
+      setSelection(null);
+      setViewModeState('recipe');
+      setDeviceSetting(viewModeKey(id), 'recipe');
+      setToast({
+        key: `recipe-${result.recipeId}-${Date.now()}`,
+        ...addedToRecipeToast(result.count, result.recipeName),
+        actions: [
+          {
+            label: 'View recipe',
+            onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+          },
+        ],
+      });
+    }, [id]),
+  );
 
   const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {
     if (!block.recipeId) return;
@@ -255,6 +252,7 @@ export default function ListScreen() {
       }
       onDelete={() => remove(entry.item)}
       onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
+      onSelect={selection ? undefined : () => setSelection(new Set([entry.item.id]))}
     />
   );
 
@@ -426,11 +424,7 @@ export default function ListScreen() {
         ) : null}
 
         {selection ? (
-          <SelectionBar
-            count={selection.size}
-            onMakeRecipe={makeRecipe}
-            onAddToRecipe={addToRecipe}
-          />
+          <SelectionBar count={selection.size} onAddToRecipe={addToRecipe} />
         ) : (
           <ItemAddBar
             householdId={list.householdId}
@@ -452,15 +446,7 @@ function toggleIn(set: Set<string>, value: string): Set<string> {
   return next;
 }
 
-function SelectionBar({
-  count,
-  onMakeRecipe,
-  onAddToRecipe,
-}: {
-  count: number;
-  onMakeRecipe: () => void;
-  onAddToRecipe: () => void;
-}) {
+function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: () => void }) {
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -476,14 +462,7 @@ function SelectionBar({
       <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite">
         {count === 0 ? 'Tap items to select them' : `${count} selected`}
       </ThemedText>
-      <View style={[styles.row, { gap: spacing.sm }]}>
-        <View style={styles.flex}>
-          <PrimaryButton label="Make recipe…" disabled={count === 0} onPress={onMakeRecipe} />
-        </View>
-        <View style={styles.flex}>
-          <Button label="Add to recipe…" variant="secondary" disabled={count === 0} onPress={onAddToRecipe} />
-        </View>
-      </View>
+      <PrimaryButton label="Add to recipe" disabled={count === 0} onPress={onAddToRecipe} />
     </View>
   );
 }
