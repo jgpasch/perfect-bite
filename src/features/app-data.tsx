@@ -7,6 +7,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { registerHouseholds } from '@/features/households/households';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
+import { pullNow, startPull } from '@/sync/pull';
 import { pushNow, startPush } from '@/sync/push';
 
 /**
@@ -41,6 +42,11 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => startPush(), []);
   useEffect(() => {
     if (userId) void pushNow({ force: true });
+  }, [userId]);
+  // Pull (spec 7.2): on launch, foreground, reconnect and sign-in.
+  useEffect(() => startPull(), []);
+  useEffect(() => {
+    if (userId) void pullNow();
   }, [userId]);
   return children;
 }

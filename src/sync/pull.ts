@@ -1,0 +1,542 @@
+// Pull: brings rows other devices changed down into SQLite (spec 7.2). Runs on launch, sign-in,
+// foreground and reconnect.
+//
+// - Cursors are per household (spec 7.2), and within a household per table: each is the server
+//   `updated_at` of the newest row applied, kept as the server's text so no precision is lost. A
+//   household the user just joined has no cursors, so it is pulled in full; the others aren't
+//   affected. The user's own preference tables and the ingredient catalog have their own cursors.
+// - Each table is read oldest change first, in pages. Rows that share the page's last
+//   `updated_at` (one `apply_mutations` batch shares one) are fetched together, so a page never
+//   ends in the middle of them. The first page reaches `PULL_OVERLAP_MS` behind the cursor, in case
+//   a transaction that started earlier committed after the last pull; applying a row twice is a
+//   no-op.
+// - Rows are applied with the push's LWW rule (7.3): a remote field wins unless the local
+//   `field_clock` has a newer HLC for it, i.e. a local edit the server hasn't seen. Fields the
+//   server keeps no clock for (per-user tables, households) win unless an unpushed outbox mutation
+//   sets them. Counters are the server's total plus this device's unpushed deltas.
+// - A remote open item that clashes with a different local open item for the same ingredient on
+//   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
+//   will do when the local one is pushed (7.3).
+// - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
+import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, type SQL } from 'drizzle-orm';
+import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
+
+import {
+  categories,
+  db,
+  deviceSettings,
+  households,
+  ingredients,
+  ingredientUnitUsage,
+  ingredientUsage,
+  listItemContributions,
+  listItems,
+  lists,
+  outbox,
+  recipeIngredients,
+  recipes,
+  userCategoryOrder,
+  userCategoryOverrides,
+  userSettings,
+  type FieldClock,
+} from '@/db';
+import { getAccount } from '@/features/auth/account';
+import { ensureMissingIngredients } from '@/features/categories/categories';
+import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+import { observeHlc, type Exec } from './clock';
+import { compareHlc } from './hlc';
+import type { Mutation } from './mutation';
+
+/** Rows per page. Below PostgREST's default `max-rows` (1000), so a full page means there may be more. */
+export const PULL_PAGE_SIZE = 500;
+/** How far behind its cursor each table's first page reaches. */
+export const PULL_OVERLAP_MS = 5000;
+
+type Row = Record<string, unknown>;
+/** A row as PostgREST returns it: snake_case columns, timestamps as ISO text. */
+export type ServerRow = Row & { updated_at: string };
+
+type PullSpec = {
+  table: SQLiteTable;
+  /** Key columns (property names). */
+  key: readonly string[];
+  /** Columns that merge as counters: the server's total plus local unpushed deltas. */
+  counters?: readonly string[];
+  /** Columns that merge as the later of both sides. */
+  latest?: readonly string[];
+};
+
+/** Parents before children, for foreign keys. */
+const HOUSEHOLD_SPECS: PullSpec[] = [
+  { table: households, key: ['id'] },
+  { table: lists, key: ['id'] },
+  { table: recipes, key: ['id'] },
+  { table: listItems, key: ['id'] },
+  { table: recipeIngredients, key: ['id'] },
+  { table: listItemContributions, key: ['id'] },
+  { table: ingredientUsage, key: ['householdId', 'ingredientName'], counters: ['useCount'] },
+  {
+    table: ingredientUnitUsage,
+    key: ['householdId', 'ingredientName', 'unitKey'],
+    counters: ['useCount'],
+    latest: ['lastUsedAt'],
+  },
+];
+
+/** Categories come first: overrides and order point at them (and custom ones are the user's). */
+const USER_SPECS: PullSpec[] = [
+  { table: categories, key: ['id'] },
+  { table: userCategoryOrder, key: ['userId', 'categoryId'] },
+  { table: userCategoryOverrides, key: ['userId', 'ingredientName'] },
+  { table: userSettings, key: ['userId'] },
+];
+
+/** One table to pull: what to read, which rows, and how to apply them. */
+type Job = {
+  /** Cursor key, e.g. `household:<id>:lists`, `user:categories`, `catalog:ingredients`. */
+  cursor: string;
+  table: string;
+  /** Equality filters, as [column, value]. */
+  filters: [string, string][];
+  apply: (tx: Exec, row: ServerRow, pending: PendingIndex) => void;
+};
+
+// --- State ---------------------------------------------------------------------------------
+
+export type PullState = {
+  /** The user the cursors belong to; another user starts over. */
+  userId: string | null;
+  /** By `Job.cursor`: the server `updated_at` of the newest row applied. */
+  cursors: Record<string, string>;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+};
+
+const STATE_KEY = 'sync.pull';
+const INITIAL_STATE: PullState = { userId: null, cursors: {}, lastSuccessAt: null, lastError: null };
+
+function readState(exec: Exec = db): PullState {
+  const row = exec.select().from(deviceSettings).where(eq(deviceSettings.key, STATE_KEY)).get();
+  return (row?.value as PullState | undefined) ?? INITIAL_STATE;
+}
+
+function writeState(exec: Exec, patch: Partial<PullState>): void {
+  const value = { ...readState(exec), ...patch };
+  exec
+    .insert(deviceSettings)
+    .values({ key: STATE_KEY, value })
+    .onConflictDoUpdate({ target: deviceSettings.key, set: { value } })
+    .run();
+}
+
+export function getPullState(): PullState {
+  return readState();
+}
+
+export const householdCursorKey = (householdId: string, table: string) => `household:${householdId}:${table}`;
+
+// --- Pending local edits -------------------------------------------------------------------
+
+type Pending = { fields: Set<string>; counters: Record<string, number>; deleted: boolean };
+type PendingIndex = Map<string, Pending>;
+
+function refKey(table: string, id: unknown, key: Record<string, unknown> | undefined): string {
+  if (typeof id === 'string') return `${table}:${id}`;
+  const entries = Object.entries(key ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `${table}:${JSON.stringify(entries)}`;
+}
+
+/** What the outbox still has to send, by row. */
+function pendingIndex(exec: Exec): PendingIndex {
+  const index: PendingIndex = new Map();
+  const rows = exec.select({ mutation: outbox.mutation }).from(outbox).where(isNull(outbox.rejectedAt)).all();
+  for (const { mutation: m } of rows as { mutation: Mutation }[]) {
+    const ref = refKey(m.table, m.id, m.key);
+    const entry = index.get(ref) ?? { fields: new Set<string>(), counters: {}, deleted: false };
+    for (const field of Object.keys(m.fields)) entry.fields.add(field);
+    for (const [name, delta] of Object.entries(m.counters ?? {})) entry.counters[name] = (entry.counters[name] ?? 0) + delta;
+    if (m.delete) entry.deleted = true;
+    index.set(ref, entry);
+  }
+  return index;
+}
+
+// --- Applying rows -------------------------------------------------------------------------
+
+function columnsOf(table: SQLiteTable): Record<string, SQLiteColumn> {
+  return getTableColumns(table) as Record<string, SQLiteColumn>;
+}
+
+/** A server value as the local column holds it. */
+function fromWire(column: SQLiteColumn, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (column.dataType === 'date') return new Date(value as string);
+  if (column.dataType === 'number' && typeof value === 'string') return Number(value);
+  return value;
+}
+
+const comparable = (value: unknown) => (value instanceof Date ? value.getTime() : (value ?? null));
+
+/** The LWW rule (7.3) for one field of a row both sides have. */
+export function remoteFieldWins(remoteHlc: string | undefined, localHlc: string | undefined, pendingLocally: boolean): boolean {
+  if (remoteHlc) return !localHlc || compareHlc(remoteHlc, localHlc) >= 0;
+  return !pendingLocally;
+}
+
+const LOCAL_ONLY = new Set(['fieldClock', 'createdAt', 'updatedAt']);
+
+/**
+ * Merges every other local open item for `item`'s ingredient on its list into it (a silent
+ * Combine, 4.4). Returns the merged ids; their contributions move once `item` is written.
+ */
+function closeClashingItems(tx: Exec, item: Row): string[] {
+  if (item.deletedAt != null || item.checkedAt != null) return [];
+  const others = tx
+    .select({ id: listItems.id })
+    .from(listItems)
+    .where(
+      and(
+        eq(listItems.listId, item.listId as string),
+        eq(listItems.ingredientName, item.ingredientName as string),
+        isNull(listItems.deletedAt),
+        isNull(listItems.checkedAt),
+        ne(listItems.id, item.id as string),
+      ),
+    )
+    .all()
+    .map((r) => r.id);
+  if (others.length) tx.update(listItems).set({ deletedAt: new Date() }).where(inArray(listItems.id, others)).run();
+  return others;
+}
+
+/** Applies one server row of a household or per-user table. Throws if SQLite refuses it. */
+function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: PendingIndex): void {
+  const { table } = spec;
+  const tableName = getTableName(table);
+  const columns = columnsOf(table);
+  const keyValues: Row = {};
+  for (const k of spec.key) keyValues[k] = fromWire(columns[k], remote[columns[k].name]);
+  const where: SQL = and(...spec.key.map((k) => eq(columns[k], keyValues[k])))!;
+
+  const ref =
+    spec.key.length === 1 && spec.key[0] === 'id'
+      ? refKey(tableName, remote.id, undefined)
+      : refKey(tableName, undefined, Object.fromEntries(spec.key.map((k) => [columns[k].name, remote[columns[k].name]])));
+  const mine = pending.get(ref);
+  // Removed here and not yet pushed: the delete goes up and the server row with it.
+  if (mine?.deleted) return;
+
+  const local = tx.select().from(table).where(where).get() as Row | undefined;
+  const remoteClock = (remote.field_clock ?? {}) as FieldClock;
+  const localClock = (local?.fieldClock ?? {}) as FieldClock;
+  const clock: FieldClock = { ...localClock };
+  const set: Row = {};
+  for (const [prop, column] of Object.entries(columns)) {
+    if (spec.key.includes(prop) || spec.counters?.includes(prop) || LOCAL_ONLY.has(prop)) continue;
+    if (!(column.name in remote)) continue;
+    let value = fromWire(column, remote[column.name]);
+    if (local) {
+      if (spec.latest?.includes(prop)) {
+        if ((comparable(local[prop]) as number) > (comparable(value) as number)) value = local[prop];
+      } else if (!remoteFieldWins(remoteClock[column.name], localClock[column.name], mine?.fields.has(column.name) ?? false)) {
+        continue;
+      }
+    }
+    set[prop] = value;
+    if (remoteClock[column.name]) clock[column.name] = remoteClock[column.name];
+  }
+  for (const prop of spec.counters ?? []) {
+    const name = columns[prop].name;
+    set[prop] = Number(remote[name] ?? 0) + (mine?.counters[name] ?? 0);
+  }
+  // The default list may be in a household this device doesn't have; keep the local one then.
+  if (table === userSettings && typeof set.defaultListId === 'string') {
+    if (!tx.select({ id: lists.id }).from(lists).where(eq(lists.id, set.defaultListId)).get()) {
+      delete set.defaultListId;
+      delete clock.default_list_id;
+    }
+  }
+
+  // A usage row at 0 or below reads as absent (7.1).
+  if (spec.counters?.some((prop) => (set[prop] as number) <= 0)) {
+    if (local) tx.delete(table).where(where).run();
+    return;
+  }
+
+  const remoteUpdatedAt = new Date(remote.updated_at);
+  const merged = table === listItems ? closeClashingItems(tx, { ...local, ...keyValues, ...set }) : [];
+  if (local) {
+    const changed: Row = {};
+    for (const [prop, value] of Object.entries(set)) {
+      if (comparable(local[prop]) !== comparable(value)) changed[prop] = value;
+    }
+    const clockChanged = JSON.stringify(clock) !== JSON.stringify(localClock);
+    if (Object.keys(changed).length === 0 && !clockChanged) return;
+    if ('updatedAt' in columns) {
+      const localUpdatedAt = local.updatedAt as Date;
+      changed.updatedAt = localUpdatedAt > remoteUpdatedAt ? localUpdatedAt : remoteUpdatedAt;
+    }
+    tx.update(table)
+      .set({ ...changed, fieldClock: clock } as never)
+      .where(where)
+      .run();
+  } else {
+    const values: Row = { ...keyValues, ...set, fieldClock: remoteClock };
+    if ('createdAt' in columns && remote.created_at) values.createdAt = new Date(remote.created_at as string);
+    if ('updatedAt' in columns) values.updatedAt = remoteUpdatedAt;
+    tx.insert(table)
+      .values(values as never)
+      .run();
+  }
+  if (merged.length) {
+    tx.update(listItemContributions)
+      .set({ listItemId: keyValues.id as string })
+      .where(inArray(listItemContributions.listItemId, merged))
+      .run();
+  }
+}
+
+/**
+ * Applies a catalog row to the local copy of an ingredient this device already has (7.4). Never
+ * adds names: the device keeps the seed plus what it has seen. A server answer that isn't final
+ * doesn't replace a categorized one.
+ */
+function applyIngredient(tx: Exec, remote: ServerRow): void {
+  const name = remote.normalized_name as string;
+  const local = tx.select().from(ingredients).where(eq(ingredients.normalizedName, name)).get();
+  if (!local) return;
+  if (remote.status !== 'categorized' && local.status === 'categorized') return;
+  const next = {
+    defaultCategoryId: (remote.default_category_id as string | null) ?? null,
+    status: remote.status as typeof local.status,
+    isGroceryItem: (remote.is_grocery_item as boolean | null) ?? null,
+    categorizedBy: (remote.categorized_by as string | null) ?? null,
+  };
+  const same = (Object.keys(next) as (keyof typeof next)[]).every((k) => next[k] === local[k]);
+  if (!same) tx.update(ingredients).set(next).where(eq(ingredients.normalizedName, name)).run();
+}
+
+// --- Fetching ------------------------------------------------------------------------------
+
+type Response = { data?: unknown; error?: { message?: string } | null; status?: number };
+
+async function call(request: PromiseLike<Response>, what: string): Promise<unknown[]> {
+  let res: Response;
+  try {
+    res = await request;
+  } catch (err) {
+    throw new Error(`${what}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (res.error) throw new Error(`${what}: ${res.error.message || `HTTP ${res.status ?? 0}`}`);
+  if (!Array.isArray(res.data)) throw new Error(`${what}: unexpected response`);
+  return res.data;
+}
+
+/** Rows changed after `after` (a page, oldest first), or every row changed exactly `at`. */
+function fetchRows(job: Job, range: { after: string | null } | { at: string }): Promise<ServerRow[]> {
+  let query = supabase.from(job.table).select('*');
+  for (const [column, value] of job.filters) query = query.eq(column, value);
+  if ('at' in range) return call(query.eq('updated_at', range.at), job.table) as Promise<ServerRow[]>;
+  if (range.after) query = query.gt('updated_at', range.after);
+  return call(query.order('updated_at', { ascending: true }).limit(PULL_PAGE_SIZE), job.table) as Promise<ServerRow[]>;
+}
+
+/** Server timestamps share one format, so their text sorts like their time. */
+const later = (a: string | undefined, b: string) => (a !== undefined && a > b ? a : b);
+
+/**
+ * Applies `rows` (oldest first) and moves the cursor past them, in one transaction. A row SQLite
+ * refuses (e.g. its parent changed after its table was pulled) stops the table there: the cursor
+ * stays before it so the next pull tries again (`complete` false).
+ */
+function commit(job: Job, rows: ServerRow[]): { applied: number; complete: boolean } {
+  return db.transaction((tx) => {
+    const pending = pendingIndex(tx);
+    let cursor = readState(tx).cursors[job.cursor];
+    let latestHlc: string | null = null;
+    let applied = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        tx.transaction((sp) => job.apply(sp, row, pending));
+      } catch (err) {
+        console.warn(`[pull] couldn't apply a ${job.table} row; will retry`, err);
+        // Rows at earlier times are all in; rows at this row's time may not be.
+        const done = rows.slice(0, i).filter((r) => r.updated_at < row.updated_at);
+        if (done.length) cursor = later(cursor, done[done.length - 1].updated_at);
+        if (cursor !== undefined) writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: cursor } });
+        if (latestHlc) observeHlc(latestHlc, tx);
+        return { applied, complete: false };
+      }
+      applied++;
+      for (const hlc of Object.values((row.field_clock ?? {}) as FieldClock)) {
+        if (typeof hlc === 'string' && (latestHlc === null || hlc > latestHlc)) latestHlc = hlc;
+      }
+    }
+    if (rows.length) cursor = later(cursor, rows[rows.length - 1].updated_at);
+    if (cursor !== undefined) writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: cursor } });
+    // Later local writes must beat what we just saw (7.1).
+    if (latestHlc) observeHlc(latestHlc, tx);
+    return { applied, complete: true };
+  });
+}
+
+/** Pulls one table from its cursor to now. Returns how many rows were applied. */
+async function pullTable(job: Job): Promise<number> {
+  const cursor = readState().cursors[job.cursor];
+  let after: string | null = cursor ? new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString() : null;
+  let total = 0;
+  for (;;) {
+    const page = await fetchRows(job, { after });
+    if (page.length === 0) return total;
+    const full = page.length === PULL_PAGE_SIZE;
+    let rows = page;
+    if (full) {
+      // Finish the last timestamp so the next page can start strictly after it.
+      const last = page[page.length - 1].updated_at;
+      rows = [...page.filter((r) => r.updated_at !== last), ...(await fetchRows(job, { at: last }))];
+    }
+    const result = commit(job, rows);
+    total += result.applied;
+    if (!result.complete || !full) return total;
+    after = rows[rows.length - 1].updated_at;
+  }
+}
+
+function householdJobs(householdId: string): Job[] {
+  return HOUSEHOLD_SPECS.map((spec) => {
+    const table = getTableName(spec.table);
+    return {
+      cursor: householdCursorKey(householdId, table),
+      table,
+      filters: [[spec.table === households ? 'id' : 'household_id', householdId]],
+      apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
+    };
+  });
+}
+
+function userJobs(userId: string): Job[] {
+  return USER_SPECS.map((spec) => {
+    const table = getTableName(spec.table);
+    return {
+      cursor: `user:${table}`,
+      table,
+      // RLS shows system categories and the user's own; the rest are filtered to the user.
+      filters: spec.table === categories ? [] : [['user_id', userId]],
+      apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
+    };
+  });
+}
+
+const CATALOG_JOB: Job = {
+  cursor: 'catalog:ingredients',
+  table: 'ingredients',
+  filters: [],
+  apply: (tx, row) => applyIngredient(tx, row),
+};
+
+// --- Running -------------------------------------------------------------------------------
+
+export type PullSummary =
+  | { skipped: 'no-session' | 'offline' }
+  | {
+      skipped?: undefined;
+      /** Server rows applied (including ones that changed nothing locally). */
+      pulled: number;
+      /** The households pulled, in the server's order. */
+      households: string[];
+      /** Set when the run stopped early; cursors already saved stay. */
+      error: string | null;
+    };
+
+async function runPull(now: () => Date): Promise<PullSummary> {
+  const account = getAccount();
+  if (!isSupabaseConfigured || !account) return { skipped: 'no-session' };
+  if (online === false) return { skipped: 'offline' };
+  if (readState().userId !== account.userId) {
+    db.transaction((tx) => writeState(tx, { userId: account.userId, cursors: {} }));
+  }
+
+  let pulled = 0;
+  let memberships: string[] = [];
+  try {
+    const members = await call(
+      supabase.from('household_members').select('household_id').eq('user_id', account.userId),
+      'household_members',
+    );
+    memberships = [...new Set(members.map((m) => (m as { household_id: string }).household_id))];
+    for (const householdId of memberships) {
+      for (const job of householdJobs(householdId)) pulled += await pullTable(job);
+    }
+    for (const job of userJobs(account.userId)) pulled += await pullTable(job);
+    // Names pulled in are cached as pending until the catalog (or categorization) knows them.
+    ensureMissingIngredients();
+    pulled += await pullTable(CATALOG_JOB);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[pull] failed: ${message}`);
+    db.transaction((tx) => writeState(tx, { lastError: message }));
+    return { pulled, households: memberships, error: message };
+  }
+  db.transaction((tx) => writeState(tx, { lastError: null, lastSuccessAt: now().toISOString() }));
+  return { pulled, households: memberships, error: null };
+}
+
+let inFlight: Promise<PullSummary> | null = null;
+let rerun = false;
+
+/**
+ * Pulls every household the user belongs to, their preferences and the catalog. Concurrent calls
+ * coalesce: a call during a run schedules exactly one more (so changes made meanwhile come too)
+ * and shares its promise. Never throws.
+ */
+export function pullNow(options: { now?: () => Date } = {}): Promise<PullSummary> {
+  const now = options.now ?? (() => new Date());
+  if (inFlight) {
+    rerun = true;
+    return inFlight;
+  }
+  inFlight = (async () => {
+    try {
+      let result = await runPull(now);
+      while (rerun) {
+        rerun = false;
+        result = await runPull(now);
+      }
+      return result;
+    } catch (err) {
+      // runPull handles network failures; this is a local bug (e.g. the database).
+      console.error('[pull] crashed', err);
+      return { pulled: 0, households: [], error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      inFlight = null;
+      rerun = false;
+    }
+  })();
+  return inFlight;
+}
+
+// --- Triggers ------------------------------------------------------------------------------
+
+/** Last known connectivity; null until the OS reports it. */
+let online: boolean | null = null;
+
+/**
+ * Starts pulling: now, on foreground and on reconnect. While the OS says there's no connection,
+ * pulls are skipped. Returns a cleanup.
+ */
+export function startPull(): () => void {
+  const stopTriggers = startCatchUpTriggers(
+    () => void pullNow(),
+    (now) => {
+      online = now;
+    },
+  );
+  void pullNow();
+  return () => {
+    stopTriggers();
+    online = null;
+  };
+}

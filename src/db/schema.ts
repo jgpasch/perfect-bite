@@ -77,8 +77,8 @@ export const userCategoryOrder = sqliteTable(
 // --- Household data (spec 5) ---------------------------------------------------------------
 // Mirrors the Postgres tables so M5 sync can push rows as they are. Ids are client-generated
 // UUIDv7. Deletes are soft (`deleted_at`) so they can be undone and synced. Every write goes
-// through `src/sync/mutate.ts`, which keeps `field_clock` and appends to the outbox.
-// TODO(M5): server-set timestamps on pull.
+// through `src/sync/mutate.ts`, which keeps `field_clock` and appends to the outbox. Pulled rows
+// take the server's `created_at` and the later `updated_at` (`src/sync/pull.ts`).
 
 const timestamps = {
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
