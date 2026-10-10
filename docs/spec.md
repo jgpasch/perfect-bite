@@ -330,6 +330,7 @@ create table list_items (
   checked_by      uuid references auth.users,
   added_by        uuid references auth.users,
   deleted_at      timestamptz,
+  merged_into     uuid references list_items,            -- set by apply_mutations when merged (7.3)
   field_clock     jsonb not null default '{}'
 );
 -- at most one live unchecked item per ingredient per list
@@ -387,6 +388,7 @@ create table ingredient_unit_usage (
   unit_key        text not null,                         -- a supported unit, or 'count' for a quantity with no unit
   use_count       int not null default 0,
   last_used_at    timestamptz not null,
+  field_clock     jsonb not null default '{}',           -- unused (no LWW fields); kept for uniformity
   primary key (household_id, ingredient_name, unit_key)
 );
 
@@ -490,9 +492,12 @@ This is the hardest part of the project. Stash only syncs append-only captures p
 - The UI reads and writes only local SQLite (expo-sqlite + Drizzle, as stash). Live queries drive the UI.
 - Every mutation is a **field-level patch**: `{ table, id, fields: { name: value, ... }, hlc }`, appended to the local **outbox** in the same transaction as the local write.
 - `hlc` is a hybrid logical clock timestamp (wall clock + counter + device id), so ordering reflects when the edit was made, not when it reached the server. The client keeps its clock monotonic and adopts any larger HLC it sees from the server.
+  - Wire format: `'<wall clock ms, 13 digits>-<counter, 4 hex digits>-<device id>'` (device id: letters, digits, `_` or `-`, up to 64), e.g. `1760000000000-0000-3f9a…`. Fixed widths make plain text comparison order it by time, then counter, then device.
+- The usage tables have composite keys, so their mutations name the row with `key` (`{ household_id, ingredient_name[, unit_key] }`) instead of `id`, and send `use_count` changes as `counters: { use_count: <delta> }`, which add up across devices instead of last-writer-wins. `ingredient_unit_usage.last_used_at` merges as the later of both sides.
+- `fields` may not include the row key, `updated_at`, `field_clock` or `merged_into` (server-owned). `household_id` and `created_at` take effect on insert only; a row can't move to another household.
 
 ### 7.2 Push and pull
-- **Push**: the outbox worker sends batches to the `apply_mutations` Postgres function in order, retrying with stash's backoff schedule. Mutations are idempotent (keyed by row id + field + hlc).
+- **Push**: the outbox worker sends batches to the `apply_mutations` Postgres function in order, retrying with stash's backoff schedule. Mutations are idempotent (keyed by row id + field + hlc; counters by row + hlc). Each mutation is applied on its own and gets one result, in order: `applied`, `unchanged` (nothing newer, e.g. a re-send), `merged` (with `merged_into`, 7.3), or `rejected` with a SQLSTATE `code` and `message` (`42501` not a member, `22023` malformed, or a constraint error). A rejected mutation never blocks the rest of the batch. Clients have no direct insert/update/delete on household tables.
 - **Pull**: Supabase Realtime on the tables of every household the user belongs to, the user's own preference tables, the user's `household_members` rows, and `ingredients` (for categorization results) while in the foreground. On launch, foreground, or reconnect, pull every row with `updated_at > cursor` (soft-deleted rows included).
 - **Cursors are per household**, not global. A household the user just joined has rows older than any existing cursor, so joining starts that household's cursor at zero (a full pull for that household only).
 - **Membership changes** drive the rest: a new membership subscribes and pulls that household; a lost membership (left, removed, household deleted) unsubscribes, deletes that household's rows from SQLite, and drops its pending outbox mutations (4.7). The server rejects mutations for households the user no longer belongs to; the client treats that rejection as "drop", not "retry".
@@ -500,7 +505,7 @@ This is the hardest part of the project. Stash only syncs append-only captures p
 ### 7.3 Conflicts
 - **Field-level last-write-wins by HLC**: `apply_mutations` writes a field only if the incoming HLC is newer than `field_clock[field]`, then updates `field_clock`. So A checking an item while B edits its note keeps both changes.
 - **Delete wins** over concurrent edits to the same row (a `deleted_at` set at any HLC is not undone by a field edit; an explicit undo is a new mutation that clears it).
-- **Same ingredient added twice offline**: the unique index rejects the second open item. `apply_mutations` handles this inside the function: it re-points the incoming item's contributions to the existing open item and marks the incoming item as merged (an automatic Combine). The client sees the merge on its next pull and drops its local row. This never fails the batch.
+- **Same ingredient added twice offline**: the unique index rejects the second open item. `apply_mutations` handles this inside the function: it re-points the incoming item's contributions to the existing open item and marks the incoming item as merged (an automatic Combine): soft-deleted, with `list_items.merged_into` set to the open item. Contributions that arrive later for a merged item follow `merged_into`, and an edit that would reopen a merged item merges it again. The client sees the merge on its next pull and drops its local row. This never fails the batch.
 - Contributions are append-only in practice (each add creates a new row), so they rarely conflict.
 
 ### 7.4 Ingredient catalog on device
