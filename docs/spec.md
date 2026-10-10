@@ -461,7 +461,7 @@ Seed the `ingredients` table with roughly 500 common grocery items pre-categoriz
 
 ### 6.4 LLM call
 - Use the Vercel AI SDK in the Edge Function, with stash's provider registry pattern (provider keys in Supabase secrets; a provider is registered only if its key is present; model chosen by env var).
-- Default model [Default]: `anthropic:claude-haiku-5-5` (cheap, fast; categorization is easy), env `AI_MODEL_CATEGORIZE`. Switching provider is config only.
+- Default model [Default]: `google:gemini-3.8-flash` (cheap, fast; categorization is easy), env `AI_MODEL_CATEGORIZE`. Switching provider is config only.
 - Structured output (`generateObject` with a Zod schema) so the response is guaranteed parseable:
   - Input: the list of category slugs with names, and the list of normalized ingredient names.
   - Output: `[{ "name": string, "category": <one of the slugs>, "is_grocery_item": boolean }]`.

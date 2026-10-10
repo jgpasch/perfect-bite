@@ -3,6 +3,7 @@
     "ai": "npm:ai@7.0.128",
     "ai/test": "npm:ai@7.0.128/test",
     "@ai-sdk/anthropic": "npm:@ai-sdk/anthropic@4.0.72",
+    "@ai-sdk/google": "npm:@ai-sdk/google@4.0.88",
     "@supabase/server": "npm:@supabase/server@1.9.1",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
     "zod": "npm:zod@4.6.5",

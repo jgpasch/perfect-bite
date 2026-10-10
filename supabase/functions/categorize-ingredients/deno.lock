@@ -4,6 +4,7 @@
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@ai-sdk/anthropic@4.0.72": "4.0.72_zod@4.6.5",
+    "npm:@ai-sdk/google@4.0.88": "4.0.88_zod@4.6.5",
     "npm:@supabase/server@1.9.1": "1.9.1_@supabase+supabase-js@2.117.2",
     "npm:@supabase/supabase-js@2.117.2": "2.117.2",
     "npm:ai@7.0.128": "7.0.128_zod@4.6.5",
@@ -35,6 +36,14 @@
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
         "@vercel/oidc",
+        "zod"
+      ]
+    },
+    "@ai-sdk/google@4.0.88_zod@4.6.5": {
+      "integrity": "sha512-5wfpAcnXrR2o1kUZURXhl6ErOGDmdayCi+GsfsB3vJHeITpm1t9aVqrw9/wUhpUmZTvvC5/+vDRtdo5QU9XYJA==",
+      "dependencies": [
+        "@ai-sdk/provider",
+        "@ai-sdk/provider-utils",
         "zod"
       ]
     },
@@ -161,6 +170,7 @@
     "dependencies": [
       "jsr:@std/assert@1",
       "npm:@ai-sdk/anthropic@4.0.72",
+      "npm:@ai-sdk/google@4.0.88",
       "npm:@supabase/server@1.9.1",
       "npm:@supabase/supabase-js@2.117.2",
       "npm:ai@7.0.128",

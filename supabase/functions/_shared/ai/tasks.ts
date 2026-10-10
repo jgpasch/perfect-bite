@@ -1,5 +1,5 @@
 // Every AI task and its model, in one place (spec §6.4). Switch a model with
-// `supabase secrets set AI_MODEL_CATEGORIZE=anthropic:claude-haiku-5-5`; no code change.
+// `supabase secrets set AI_MODEL_CATEGORIZE=google:gemini-3.8-flash`; no code change.
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@shared/index.ts';
 import { z } from 'zod';
 
