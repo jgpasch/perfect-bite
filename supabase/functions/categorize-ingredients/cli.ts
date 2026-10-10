@@ -2,11 +2,12 @@
 // by hand, with the same runAiTask, prompt and validation, against an in-memory store where every
 // name starts unknown. Nothing is written to any database, and the rate limits don't apply.
 // Names also come from stdin, one per line: `cat names.txt | yarn ai:categorize -`.
+// Every LLM call is printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@shared/index.ts';
 
 import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { AI_OFF } from '../_shared/ai/tasks.ts';
+import { traceAiCalls } from '../_shared/ai/trace.ts';
 import {
   categorize,
   CategorizeInputError,
@@ -22,9 +23,14 @@ export const USAGE = `Usage: yarn ai:categorize [options] <name>... (or - to rea
 
 Options:
   --model <provider:model|mock|off>  Use this model instead of AI_MODEL_CATEGORIZE
-  --prompt                           Print the instructions and prompt before calling
+  --raw                              Also print the raw HTTP request and response bodies
+  --quiet                            Only the table and totals, not each call's prompt and response
+  --dry-run                          Print the instructions and prompt, and make no call
   --json                             Print the raw { results } response the app would get
-  -h, --help                         Show this help`;
+  -h, --help                         Show this help
+
+Each LLM call is printed as it finishes: instructions, prompt, response, finish reason, input,
+cached, output and reasoning tokens, and latency.`;
 
 export type CliArgs = {
   /** Names given as arguments, in order. */
@@ -32,7 +38,9 @@ export type CliArgs = {
   /** `-` was given: names also come from stdin. */
   stdin: boolean;
   model: string | null;
-  showPrompt: boolean;
+  raw: boolean;
+  quiet: boolean;
+  dryRun: boolean;
   json: boolean;
   help: boolean;
 };
@@ -43,7 +51,16 @@ export class CliUsageError extends Error {
 
 /** Pure: argv (without the script) → options. Throws CliUsageError on a bad flag. */
 export function parseArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { names: [], stdin: false, model: null, showPrompt: false, json: false, help: false };
+  const args: CliArgs = {
+    names: [],
+    stdin: false,
+    model: null,
+    raw: false,
+    quiet: false,
+    dryRun: false,
+    json: false,
+    help: false,
+  };
   let flagsDone = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -53,8 +70,12 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       args.stdin = true;
     } else if (arg === '--') {
       flagsDone = true;
-    } else if (arg === '--prompt') {
-      args.showPrompt = true;
+    } else if (arg === '--raw') {
+      args.raw = true;
+    } else if (arg === '--quiet') {
+      args.quiet = true;
+    } else if (arg === '--dry-run') {
+      args.dryRun = true;
     } else if (arg === '--json') {
       args.json = true;
     } else if (arg === '-h' || arg === '--help') {
@@ -175,8 +196,9 @@ export function formatStats(calls: readonly AiCallRecord[]): string {
     `model:          ${[...new Set(calls.map((c) => c.model))].join(' -> ')}`,
     `prompt version: ${calls[0].prompt_version}`,
     `calls:          ${calls.length}${failed.length ? ` (${failed.map((c) => `${c.model}: ${c.status}`).join(', ')})` : ''}`,
-    `input tokens:   ${sum((c) => c.input_tokens)}`,
-    `output tokens:  ${sum((c) => c.output_tokens)}`,
+    `input tokens:   ${sum((c) => c.input_tokens)} (cached ${sum((c) => c.cached_input_tokens)})`,
+    `output tokens:  ${sum((c) => c.output_tokens)} (reasoning ${sum((c) => c.reasoning_tokens)})`,
+    `total tokens:   ${sum((c) => (c.input_tokens === null && c.output_tokens === null ? null : (c.input_tokens ?? 0) + (c.output_tokens ?? 0)))}`,
     `latency:        ${calls.reduce((n, c) => n + c.duration_ms, 0)} ms`,
   ].join('\n');
 }
@@ -215,16 +237,19 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   // With --json, stdout is only the response; everything else goes to stderr.
   const info = args.json ? io.err : io.out;
 
-  if (args.showPrompt && model !== AI_OFF) {
+  if (args.dryRun) {
     // Every name starts unknown, so all of them that fit the length limit reach the LLM.
     const toSend = resultKeys(names).filter((n) => [...n].length <= MAX_NAME_LENGTH);
     for (let i = 0; i < toSend.length; i += MAX_NAMES_PER_CALL) {
       const { instructions, prompt } = buildCategorizePrompt(toSend.slice(i, i + MAX_NAMES_PER_CALL));
-      info(`--- instructions (${CATEGORIZE_PROMPT_VERSION}) ---\n${instructions}\n--- prompt ---\n${prompt}\n---`);
+      io.out(`--- instructions (${CATEGORIZE_PROMPT_VERSION}) ---\n${instructions}\n--- prompt ---\n${prompt}\n---`);
     }
+    io.out(`Dry run: no call made (would use ${model}).`);
+    return 0;
   }
 
   const store = new MemoryStore();
+  const stopTrace = args.quiet ? () => {} : traceAiCalls(info, { raw: args.raw });
   const saved = Deno.env.get('AI_MODEL_CATEGORIZE');
   Deno.env.set('AI_MODEL_CATEGORIZE', model);
   let response: CategorizeResponse;
@@ -238,6 +263,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     io.err(`Categorization failed: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
     return 2;
   } finally {
+    stopTrace();
     if (saved === undefined) Deno.env.delete('AI_MODEL_CATEGORIZE');
     else Deno.env.set('AI_MODEL_CATEGORIZE', saved);
   }

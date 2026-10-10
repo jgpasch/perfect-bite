@@ -3,6 +3,7 @@
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@shared/index.ts';
 import { z } from 'zod';
 
+import { mockCategorizeModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
@@ -42,6 +43,8 @@ export const aiTasks = {
     temperature: 0,
     timeoutMs: 20_000,
     maxOutputTokens,
+    /** What `AI_MODEL_CATEGORIZE=mock` (or `--model mock`) runs. */
+    mock: mockCategorizeModel,
   },
 } as const;
 

@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockCategorize, namesFromPrompt } from '../_shared/ai/mock-model.ts';
 import { resolveModel } from '../_shared/ai/registry.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, setAiTraceListener, type AiCallRecord, type AiTrace } from '../_shared/ai/run-ai-task.ts';
 import { aiTasks, isAiEnabled, maxOutputTokens } from '../_shared/ai/tasks.ts';
 
 const ENV_KEYS = ['AI_MODEL_CATEGORIZE', 'AI_MODEL_CATEGORIZE_FALLBACK', 'ANTHROPIC_API_KEY'];
@@ -194,6 +194,77 @@ Deno.test('runAiTask: no model configured and none injected is a clear error', a
       'No model configured for AI task "categorize"',
     );
   });
+});
+
+/** Runs `fn` with a trace listener installed, returning every trace it saw. */
+async function traced(fn: () => Promise<unknown>): Promise<AiTrace[]> {
+  const traces: AiTrace[] = [];
+  setAiTraceListener((t) => traces.push(t));
+  try {
+    await fn().catch(() => {});
+  } finally {
+    setAiTraceListener(null);
+  }
+  return traces;
+}
+
+Deno.test('trace listener: gets the full call, settings and raw bodies on success', async () => {
+  const model = new MockLanguageModelV4({
+    doGenerate: async () => ({
+      content: [{ type: 'text', text: JSON.stringify(mockCategorize(['milk'])) }],
+      finishReason: { unified: 'stop', raw: undefined },
+      usage: {
+        inputTokens: { total: 100, noCache: 60, cacheRead: 40, cacheWrite: undefined },
+        outputTokens: { total: 20, text: 15, reasoning: 5 },
+      },
+      warnings: [],
+      request: { body: { sent: true } },
+      response: { body: { received: true } },
+    }),
+  });
+  const traces = await traced(() =>
+    runAiTask('categorize', { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 2 }, { model: { instance: model, modelId: 'mock:model' } }),
+  );
+  assertEquals(traces.length, 1);
+  const [t] = traces;
+  assertEquals([t.status, t.model, t.instructions, t.prompt], ['ok', 'mock:model', 'rules', PROMPT(['milk'])]);
+  assertEquals([t.temperature, t.max_output_tokens, t.timeout_ms], [0, 280, 20_000]);
+  assertEquals([t.input_tokens, t.cached_input_tokens, t.output_tokens, t.reasoning_tokens], [100, 40, 20, 5]);
+  assertEquals([t.request_body, t.response_body], [{ sent: true }, { received: true }]);
+  assertEquals(t.finish_reason, 'stop');
+});
+
+Deno.test('trace listener: an API failure is traced with its request body and error', async () => {
+  const traces = await traced(() =>
+    runAiTask(
+      'categorize',
+      { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+      { model: { instance: recordingModel([], overloaded()), modelId: 'mock:model' } },
+    ),
+  );
+  assertEquals(traces.map((t) => t.status), ['api_error']);
+  assertEquals(traces[0].request_body, {});
+  assertEquals(traces[0].error?.includes('overloaded'), true);
+});
+
+Deno.test('trace listener: a throwing listener never breaks the call', async () => {
+  setAiTraceListener(() => {
+    throw new Error('boom');
+  });
+  try {
+    const res = await runAiTask(
+      'categorize',
+      { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+      { model: { instance: recordingModel([]), modelId: 'mock:model' } },
+    );
+    assertEquals(res.output.results.length, 1);
+  } finally {
+    setAiTraceListener(null);
+  }
+});
+
+Deno.test('registry: mock needs the task to provide one', () => {
+  assertThrows(() => resolveModel('mock'), Error, 'This AI task has no mock model');
 });
 
 Deno.test('registry: Anthropic is not registered without ANTHROPIC_API_KEY', async () => {

@@ -4,9 +4,8 @@ import type { CategorySlug } from '@shared/index.ts';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
+import { MOCK_MODEL_ID } from './registry.ts';
 import type { CategorizeOutput } from './tasks.ts';
-
-export const MOCK_MODEL_ID = 'mock';
 
 /** First match wins, so more specific rules come first. Anything unmatched is pantry. */
 const KEYWORD_RULES: [CategorySlug, string[]][] = [

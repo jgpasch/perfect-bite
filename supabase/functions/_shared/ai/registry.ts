@@ -4,7 +4,8 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createProviderRegistry, type LanguageModel } from 'ai';
 
-import { MOCK_MODEL_ID, mockCategorizeModel } from './mock-model.ts';
+/** `AI_MODEL_*=mock`: each task's deterministic fake (spec §8.3). */
+export const MOCK_MODEL_ID = 'mock';
 
 let registry: ReturnType<typeof build> | undefined;
 
@@ -18,12 +19,15 @@ function build() {
 }
 
 /**
- * Resolves a `provider:model` string, e.g. `google:gemini-3.8-flash`. `mock` is the
- * deterministic fake (spec §8.3), which never touches the network. `off` isn't a model: callers
- * check `isAiEnabled` first.
+ * Resolves a `provider:model` string, e.g. `google:gemini-3.8-flash`. `mock` is the task's
+ * deterministic fake, passed as `mock`, which never touches the network. `off` isn't a model:
+ * callers check `isAiEnabled` first.
  */
-export function resolveModel(spec: string): LanguageModel {
-  if (spec === MOCK_MODEL_ID) return mockCategorizeModel();
+export function resolveModel(spec: string, mock?: () => LanguageModel): LanguageModel {
+  if (spec === MOCK_MODEL_ID) {
+    if (!mock) throw new Error('This AI task has no mock model');
+    return mock();
+  }
   registry ??= build();
   return registry.languageModel(spec as Parameters<typeof registry.languageModel>[0]);
 }

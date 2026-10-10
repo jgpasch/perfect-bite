@@ -231,11 +231,13 @@ To try the categorize LLM call by hand, run the CLI from the repo root. It runs 
 yarn ai:categorize "za'atar" "chicken thighs" "call mom"
 cat names.txt | yarn ai:categorize -                  # one name per line
 yarn ai:categorize --model mock milk                  # override AI_MODEL_CATEGORIZE for this run
-yarn ai:categorize --prompt milk                      # print the instructions and prompt first
+yarn ai:categorize --raw milk                         # also the raw HTTP request/response bodies
+yarn ai:categorize --quiet milk                       # just the table and totals
+yarn ai:categorize --dry-run milk                     # print the instructions and prompt; no call, no cost
 yarn ai:categorize --json milk                        # the raw { results } the app would get
 ```
 
-It prints a table (name, category slug, `is_grocery_item`, status), then the model, prompt version, input and output tokens, and latency. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
+Every LLM call is printed in full as it finishes: model, prompt version, temperature, max output tokens, timeout, the instructions (system prompt), the prompt (user message), the model's response, any provider warnings or error, the finish reason, input tokens (and how many were cached), output tokens (and how many were reasoning), total tokens, and latency. A fallback attempt prints as a second call. `--raw` adds the exact JSON body sent to the provider (generation config and response schema included) and the provider's raw reply. Then it prints a table (name, category slug, `is_grocery_item`, status) and totals across calls. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
 
 Run the golden-set eval whenever the categorize model or prompt changes (a new `AI_MODEL_CATEGORIZE`, or a new `prompts/categorize.vN.ts`), before deploying the change:
 
@@ -245,6 +247,10 @@ yarn ai:eval --model anthropic:claude-haiku-5-5       # or try another model
 ```
 
 It sends the ~100 hard names in `supabase/functions/categorize-ingredients/eval/golden.json` (ambiguous items, non-food, errands, and a few prompt-injection attempts) through the same `categorize()` and in-memory store as the CLI, in batches of 50 (one LLM call each). It prints the accuracy (category and `is_grocery_item` both right; `also` lists other aisles that count as right), how many injection names came back `other`/not a grocery item, how the rest of each injection batch did, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing. Compare the score with the last one recorded in `progress.md`, and add new misses you care about to `golden.json`.
+
+### Adding an LLM task
+
+See [docs/llm-calls.md](docs/llm-calls.md) for how the LLM calls fit together, every script flag, and the steps to add a new task.
 
 ## Troubleshooting
 

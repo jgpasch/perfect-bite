@@ -44,6 +44,41 @@ export type AiCallRecord = {
   fallback_of: string | null;
 };
 
+/**
+ * One attempt with everything a person debugging it wants to see: the stored record plus the call
+ * settings and, when the provider sent them, the raw HTTP bodies. Only the trace listener gets
+ * this; it is never stored.
+ */
+export type AiTrace = AiCallRecord & {
+  temperature: number;
+  max_output_tokens: number;
+  timeout_ms: number;
+  /** The JSON body sent to the provider API. */
+  request_body: unknown;
+  /** The provider's raw response body. */
+  response_body: unknown;
+  /** Provider warnings, e.g. a setting the model ignored. */
+  warnings: unknown[];
+};
+
+let traceListener: ((trace: AiTrace) => void) | null = null;
+
+/**
+ * Dev scripts (`yarn ai:*`) see every attempt in full through this. Pass null to stop. Production
+ * code never sets it; with no listener, raw bodies aren't kept.
+ */
+export function setAiTraceListener(listener: ((trace: AiTrace) => void) | null): void {
+  traceListener = listener;
+}
+
+function emitTrace(trace: AiTrace) {
+  try {
+    traceListener?.(trace);
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', event: 'ai_trace_failed', id: trace.id, error: String(err).slice(0, 200) }));
+  }
+}
+
 type InjectedModel = { instance: LanguageModel; modelId: string };
 
 export type RunAiTaskInput = {
@@ -76,6 +111,13 @@ function usageColumns(usage: LanguageModelUsage | undefined) {
     cached_input_tokens: usage?.inputTokenDetails?.cacheReadTokens ?? null,
     reasoning_tokens: usage?.outputTokenDetails?.reasoningTokens ?? null,
   };
+}
+
+/** The HTTP-level error inside `err`, if any, for its request and response bodies. */
+function apiCallError(err: unknown): APICallError | null {
+  if (APICallError.isInstance(err)) return err;
+  if (RetryError.isInstance(err) && APICallError.isInstance(err.lastError)) return err.lastError;
+  return null;
 }
 
 /** Provider/API failures (overload, 5xx, network) are worth trying on another model; bad output isn't. */
@@ -119,22 +161,29 @@ export async function runAiTask<N extends AiTaskName>(
       prompt: input.prompt,
       fallback_of: fallbackOf,
     };
+    const settings = {
+      temperature: task.temperature,
+      max_output_tokens: task.maxOutputTokens(input.itemCount),
+      timeout_ms: task.timeoutMs,
+    };
     let result;
     try {
       result = await generateText({
-        model: model.instance ?? resolveModel(model.modelId),
+        model: model.instance ?? resolveModel(model.modelId, task.mock),
         output: Output.object({ schema: task.output }),
         instructions: input.instructions,
         prompt: input.prompt,
-        temperature: task.temperature,
-        maxOutputTokens: task.maxOutputTokens(input.itemCount),
-        abortSignal: AbortSignal.timeout(task.timeoutMs),
+        temperature: settings.temperature,
+        maxOutputTokens: settings.max_output_tokens,
+        abortSignal: AbortSignal.timeout(settings.timeout_ms),
         // At most one retry within an attempt. Schema-invalid output is not retried.
         maxRetries: 1,
+        include: { requestBody: traceListener !== null, responseBody: traceListener !== null },
       });
     } catch (err) {
       const invalid = NoObjectGeneratedError.isInstance(err) ? err : null;
-      await record({
+      const apiError = apiCallError(err);
+      const failed: AiCallRecord = {
         ...base,
         status: callStatus(err),
         output: null,
@@ -143,6 +192,14 @@ export async function runAiTask<N extends AiTaskName>(
         ...usageColumns(invalid?.usage),
         duration_ms: Date.now() - started,
         error: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 2000),
+      };
+      await record(failed);
+      emitTrace({
+        ...failed,
+        ...settings,
+        request_body: apiError?.requestBodyValues ?? null,
+        response_body: apiError?.responseBody ?? invalid?.response?.body ?? null,
+        warnings: [],
       });
       throw err;
     }
@@ -158,7 +215,7 @@ export async function runAiTask<N extends AiTaskName>(
         output_tokens: result.usage.outputTokens,
       }),
     );
-    await record({
+    const ok: AiCallRecord = {
       ...base,
       status: 'ok',
       output: result.output,
@@ -167,6 +224,14 @@ export async function runAiTask<N extends AiTaskName>(
       ...usageColumns(result.usage),
       duration_ms: Date.now() - started,
       error: null,
+    };
+    await record(ok);
+    emitTrace({
+      ...ok,
+      ...settings,
+      request_body: result.request.body ?? null,
+      response_body: result.response.body ?? null,
+      warnings: result.warnings ?? [],
     });
     return { result, modelId: model.modelId, callId: id };
   };
