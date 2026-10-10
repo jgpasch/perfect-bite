@@ -51,7 +51,8 @@ export default function RootLayout() {
                     sheetGrabberVisible: true,
                   }}
                 />
-                <Stack.Screen name="category-order" options={{ title: 'Section order', presentation: 'modal' }} />
+                {/* Board 12: "Aisle order" is the large title in the screen, under the Done button. */}
+                <Stack.Screen name="category-order" options={{ title: '', presentation: 'modal' }} />
                 <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: 'Recipes' }} />
                 <Stack.Screen
                   name="recipe/[id]/add-to-list"

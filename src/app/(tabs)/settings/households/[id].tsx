@@ -1,17 +1,22 @@
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { avatarColors, householdBandColors } from '@/components/appearance';
+import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { households } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { recipeHue } from '@/domain/aisle-color';
 import { useAccountState } from '@/features/auth/account';
 import {
+  avatarInitial,
   fetchHouseholdMembers,
-  householdsQuery,
+  HOUSEHOLD_COUNT_TABLES,
+  householdCountsLabel,
+  householdsWithCountsQuery,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
   roleLabel,
@@ -22,17 +27,20 @@ import { useTheme } from '@/hooks/use-theme';
 type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; members: HouseholdMember[] };
 
 /**
- * A household and its members (spec 4.7), read-only. Members come from the server, so this needs a
- * connection and a registered household; anything else shows the error with Retry.
- * TODO(M7): invites, rename, leave and roles.
+ * A household and its members (spec 4.7, board 11), read-only: an amber band with the name, its
+ * list and recipe counts and the members' avatars, then the Members card. Members come from the
+ * server, so this needs a connection and a registered household; anything else shows the error
+ * with Retry.
+ * TODO(M7): invites, rename, leave, delete and per-member actions.
  */
 export default function HouseholdScreen() {
-  const { colors, spacing } = useTheme();
+  const { colors, aisles, spacing } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : null;
-  const { data } = useLiveQueryOn(householdsQuery(), [households]);
+  const { data } = useLiveQueryOn(householdsWithCountsQuery(), HOUSEHOLD_COUNT_TABLES);
   const household = data.find((h) => h.id === id);
+  const band = householdBandColors(colors, aisles);
 
   const [state, setState] = useState<MembersState>({ status: 'loading' });
   const request = useRef(0);
@@ -65,11 +73,30 @@ export default function HouseholdScreen() {
   );
 
   return (
-    <Screen scroll contentContainerStyle={{ padding: spacing.lg, gap: spacing.xl }}>
-      <Stack.Screen options={{ title: household?.name ?? '' }} />
-      <SettingsSection title="Household">
-        <SettingsRow label="Name" value={household?.name ?? '—'} last />
-      </SettingsSection>
+    <Screen scroll contentContainerStyle={{ paddingBottom: spacing.xl }}>
+      <View
+        style={{
+          backgroundColor: band.fill,
+          paddingHorizontal: spacing.lg + spacing.xs,
+          paddingTop: spacing.md + spacing.xxs,
+          paddingBottom: spacing.xl - spacing.xxs,
+          gap: spacing.lg + spacing.xxs,
+        }}>
+        <View style={{ gap: spacing.xs }}>
+          <ThemedText variant="screenTitle" accessibilityRole="header" style={{ color: band.text }}>
+            {household?.name ?? ''}
+          </ThemedText>
+          {household ? (
+            <ThemedText variant="amount" style={{ color: band.secondary }}>
+              {householdCountsLabel(household.listCount, household.recipeCount)}
+            </ThemedText>
+          ) : null}
+        </View>
+        {state.status === 'ready' && state.members.length > 0 ? (
+          <Avatars members={state.members} ring={band.fill} />
+        ) : null}
+      </View>
+
       <SettingsSection title="Members">
         {state.status === 'loading' ? (
           <View style={{ padding: spacing.lg }}>
@@ -87,7 +114,8 @@ export default function HouseholdScreen() {
             <SettingsRow
               key={m.userId}
               label={memberLabel(m)}
-              value={roleLabel(m.role)}
+              value={m.role === 'owner' ? undefined : roleLabel(m.role)}
+              trailing={m.role === 'owner' ? <Badge label={roleLabel(m.role)} tone="owner" /> : undefined}
               last={i === state.members.length - 1}
             />
           ))
@@ -96,3 +124,40 @@ export default function HouseholdScreen() {
     </Screen>
   );
 }
+
+/** The members' initials in overlapping round avatars, each ringed in the band's colour. Decorative. */
+function Avatars({ members, ring }: { members: HouseholdMember[]; ring: string }) {
+  const { colors, aisles, sizes, spacing, rounded } = useTheme();
+  return (
+    <View accessible={false} importantForAccessibility="no-hide-descendants" style={styles.row}>
+      {members.map((m, i) => {
+        const look = avatarColors(recipeHue(m.userId), colors, aisles);
+        return (
+          <View
+            key={m.userId}
+            style={[
+              styles.avatar,
+              {
+                width: sizes.avatar,
+                height: sizes.avatar,
+                borderRadius: rounded.full,
+                borderWidth: sizes.avatarRing,
+                borderColor: ring,
+                backgroundColor: look.fill,
+                marginLeft: i === 0 ? 0 : -(spacing.sm + spacing.xxs),
+              },
+            ]}>
+            <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: look.text }}>
+              {avatarInitial(m.displayName)}
+            </ThemedText>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  row: { flexDirection: 'row' },
+  avatar: { alignItems: 'center', justifyContent: 'center' },
+});

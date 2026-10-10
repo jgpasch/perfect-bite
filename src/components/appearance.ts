@@ -125,6 +125,57 @@ export function siriMarkColors(colors: ThemeColors, tint: number): { fill: strin
   return { fill: withAlpha(colors.onPrimary, tint), text: colors.onPrimary };
 }
 
+/**
+ * The sign-in screen (board 09): `onPrimary` text on a `primary` ground, and a `surface` button with
+ * `ink` text. The six decorative shapes take aisle tints and the theme's own greens.
+ */
+export function signInColors(colors: ThemeColors, aisles: Aisles) {
+  return {
+    ground: colors.primary,
+    text: colors.onPrimary,
+    button: colors.surface,
+    buttonText: colors.ink,
+    shapes: [aisles.blue.dot, aisles.amber.dot, aisles.rose.dot, colors.background, colors.onPrimarySoft, aisles.blue.soft],
+  };
+}
+
+/** A round avatar: the hue's `strong` shade with an `onPrimary` initial. */
+export function avatarColors(hue: AisleHue, colors: ThemeColors, aisles: Aisles): { fill: string; text: string } {
+  return { fill: aisles[hue].strong, text: colors.onPrimary };
+}
+
+/** The household screen's header band (board 11): the amber soft tint, `ink` name and a `pending` counts line. */
+export function householdBandColors(colors: ThemeColors, aisles: Aisles): { fill: string; text: string; secondary: string } {
+  return { fill: aisles.amber.soft, text: colors.ink, secondary: colors.pending };
+}
+
+/**
+ * A row on the Aisle order screen (board 12): `surface` with the aisle's dot and an `inkTertiary`
+ * grip. The row being dragged gets an outline in its aisle's `dot` colour and an `ink` grip.
+ */
+export function aisleRowLook(
+  dragging: boolean,
+  hue: AisleHue,
+  colors: ThemeColors,
+  aisles: Aisles,
+): { fill: string; dot: string; outline: string | null; grip: ColorToken } {
+  return {
+    fill: colors.surface,
+    dot: aisles[hue].dot,
+    outline: dragging ? aisles[hue].dot : null,
+    grip: dragging ? 'ink' : 'inkTertiary',
+  };
+}
+
+/**
+ * The tint of a filled native header button (`done` / `prominent` toolbar variants). iOS always draws
+ * their label or glyph white, which is too light on the dark scheme's light `primary`, so dark mode
+ * fills them `primarySoft` instead.
+ */
+export function prominentButtonTint(scheme: 'light' | 'dark', colors: ThemeColors): string {
+  return scheme === 'dark' ? colors.primarySoft : colors.primary;
+}
+
 /** An item's name: `ink`, or `inkSecondary` once it's checked off (with a line through it). */
 export function itemNameColor(checked: boolean): ColorToken {
   return checked ? 'inkSecondary' : 'ink';

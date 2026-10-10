@@ -132,7 +132,7 @@ describe('AisleColors', () => {
 
 describe('Typography', () => {
   it('uses the display face for titles and Figtree for the rest', () => {
-    const display = ['largeTitle', 'screenTitle', 'sheetTitle', 'title', 'tileCount', 'sectionTitle'];
+    const display = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title', 'tileCount', 'initial', 'sectionTitle'];
     for (const [name, style] of Object.entries(Typography)) {
       expect(style.fontFamily).toBe(display.includes(name) ? 'Bricolage Grotesque' : 'Figtree');
     }
@@ -149,6 +149,9 @@ describe('Typography', () => {
     expect(Typography.amount).toMatchObject({ fontSize: 15, fontWeight: '600' });
     expect(Typography.sectionLabel).toMatchObject({ fontSize: 13, fontWeight: '700' });
     expect(Typography.caption).toMatchObject({ fontSize: 12, fontWeight: '700' });
+    expect(Typography.hero).toMatchObject({ fontSize: 48, fontWeight: '800', letterSpacing: -1.2 });
+    expect(Typography.lead).toMatchObject({ fontSize: 18, fontWeight: '400' });
+    expect(Typography.initial).toMatchObject({ fontSize: 20, fontWeight: '800' });
   });
 
   it('only uses embedded weights (display 500–800, body 400–700)', () => {

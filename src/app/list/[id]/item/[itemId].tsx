@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
 
-import { aisleSymbol } from '@/components/appearance';
+import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
 import { SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
@@ -40,7 +40,7 @@ import { OTHER_CATEGORY_ID } from '@/shared';
 /** Item edit sheet (spec 4.2, 4.3.2, board 04): name, amount, note, aisle, and the amounts added. */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
-  const { spacing, sizes } = useTheme();
+  const { spacing, sizes, scheme, colors } = useTheme();
   const userId = getAccount()?.userId ?? null;
   const [initial] = useState(() => getItemEdit(itemId));
   const [householdName] = useState(() => getItemHouseholdName(itemId));
@@ -138,7 +138,7 @@ export default function ItemEditSheet() {
         <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button variant="done" onPress={save}>
+        <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={save}>
           Save
         </Stack.Toolbar.Button>
       </Stack.Toolbar>

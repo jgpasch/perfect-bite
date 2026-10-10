@@ -27,12 +27,15 @@ Sizes are at the default Dynamic Type setting.
 
 | Token | Face | Size / weight | Use |
 | --- | --- | --- | --- |
+| `hero` | display | 48 / 800 | "The Perfect Bite" on the sign-in screen. |
 | `largeTitle` | display | 40 / 800 | Tab roots: "Your lists", "Recipes", "Settings". |
 | `screenTitle` | display | 36 / 800 | Pushed screens: a list's or recipe's name, a household, "Aisle order". |
 | `sheetTitle` | display | 30 / 800 | Sheet titles: the item's name in the item sheet. |
 | `title` | display | 28 / 800 | Smaller titles, e.g. inside a card. |
 | `tileCount` | display | 34 / 800 | The item-to-get count on a list tile. |
+| `initial` | display | 20 / 800 | The letter in a round avatar. |
 | `sectionTitle` | display | 17 / 700 | Card section headers: aisle or recipe name. |
+| `lead` | Figtree | 18 / 400 | The sign-in tagline. |
 | `headline` | Figtree | 17 / 700 | Buttons, CTAs, emphasised rows. |
 | `body` | Figtree | 17 / 500 | Item names, row labels, inputs. |
 | `callout` | Figtree | 16 / 500 | Tile names, secondary buttons. |
@@ -84,11 +87,12 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - `spacing`: 4 pt base (`xxs` 2 … `xxxl` 48). Cards and tiles sit `lg` (16) in from the screen edge; titles sit 20 in (`lg` + `xs`).
 - `rounded`: `card` 22, `tile` 22, `sheet` 28 (top corners), `row` 16 (aisle-order rows), `md` 12 (segmented track, icon wells), `full` for pills, round checks, round buttons and CTAs.
 - `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall (`sizes.cardRowMin`).
-- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `tile` 132 (list tiles, a minimum), `iconWell` 36 (recipe icon tiles and round actions buttons in card headers), `sheetIcon` 52 (the item sheet's icon tile), `recipeTile` 56 (a recipe's icon tile on its card in the Recipes tab), `removeButton` 32 (round − on "Added" rows), `fieldLabel` 76 (the label column of Name / Amount / Note rows, a minimum). Radii `badge` 10 and `segment` 11.
+- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `tile` 132 (list tiles, a minimum), `iconWell` 36 (recipe icon tiles and round actions buttons in card headers), `sheetIcon` 52 (the item sheet's icon tile), `recipeTile` 56 (a recipe's icon tile on its card in the Recipes tab), `removeButton` 32 (round − on "Added" rows), `fieldLabel` 76 (the label column of Name / Amount / Note rows, a minimum), `settingsIcon` 32 (the icon tile at the start of a settings row), `accountAvatar` 52, `avatar` 48 with a 3 pt `avatarRing` (household members), `signInShape` 92, `aisleRow` 52 (a minimum) and `grip` 20 (Aisle order rows). Radii `badge` 10 and `segment` 11.
+- `shadows.lifted`: the row being dragged on the Aisle order screen (14 pt down, 30 pt blur, 22%, `ink`).
 
 ## Components (`src/components/`)
 
-`Card`, `CheckCircle`, `SectionHeader`, `IconTile` (a rounded well in an aisle hue's `soft` with the glyph in its `dot`; recipes pick the hue with `recipeHue(id)`), `Pill`, `SegmentedControl`, `PrimaryButton` / `SoftDangerButton` (`button.tsx`; `Button` is left for secondary and plain actions), `Badge`, `AddBar` and `Toast`. Which tokens each uses in each state lives in `appearance.ts`, which is tested for contrast in both schemes. Controls under 44 pt (pills, the + and Undo buttons, segments) get `hitSlop` up to 44.
+`Card`, `CheckCircle`, `SectionHeader`, `IconTile` (a rounded well in an aisle hue's `soft` with the glyph in its `dot`; recipes pick the hue with `recipeHue(id)`), `Pill`, `SegmentedControl`, `PrimaryButton` / `SoftDangerButton` / `SurfaceButton` (`button.tsx`; `Button` is left for secondary and plain actions, with an optional text `color`), `SettingsSection` / `SettingsRow` (`settings-group.tsx`), `Badge`, `AddBar` and `Toast`. Which tokens each uses in each state lives in `appearance.ts`, which is tested for contrast in both schemes. Controls under 44 pt (pills, the + and Undo buttons, segments) get `hitSlop` up to 44.
 
 ## Component patterns
 
@@ -109,4 +113,9 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - **Toast**: a 52 pt `toast` pill floating 16 pt from the edges above the add bar, `onToast` 15 pt message, and a 40 pt `surface` Undo pill (`ink`, 700) on the right. Times out after `motion.undoTimeoutMs`.
 - **Sheet**: `background` sheet with `sheet` top corners on a `scrim` backdrop. Header row: Cancel (plain `ink` text), a 36 × 5 `controlBorder` grabber, and a 40 pt `primary` Save pill. Then the title (`sheetTitle`) with a 52 pt `aisles[hue].soft` icon well (glyph from `aisleSymbol(slug)`), then cards of fields with `sectionLabel` labels above them. Native sheets keep the native header: the toolbar's Cancel and `done` Save, the system grabber, and an empty header title.
 - **List tile**: two-column grid, 12 pt gap, 132 pt tall, `surface`, radius `tile`, 16 pt padding. A count in display 34 / 800 above the name (`callout`, 600). The default (Groceries) tile is `primary` with `onPrimary` text.
+- **Sign-in** (board 09): the whole screen is `primary` with `onPrimary` text (`hero` name, `lead` tagline). A 3 × 2 grid of 92 pt shapes (radius `card`, or half the shape for the round ones) in aisle colours and the theme's greens, decorative. At the bottom the input, a 54 pt `surface` pill button (`SurfaceButton`, `ink` text), plain links in `onPrimary`, and a `footnote` note. Colours come from `signInColors`.
+- **Settings card** (board 10): `sectionLabel` labels in `inkSecondary` (16 top, 8 bottom, 32 in) over `Card`s of `SettingsRow`s: an optional 32 pt `IconTile`, the label (`body`), a value (`amount`, `inkSecondary`) and a chevron when the row opens something. The account card has a 52 pt round avatar (`avatarColors`: the hue's `strong` with an `onPrimary` initial in `initial`). Sign out is a plain `danger` button beside the version (`footnote`).
+- **Household band** (board 11): the native header and the band below it on `aisles.amber.soft`; the name in `screenTitle`, "N lists · N recipes" in `amount` `pending`, then 48 pt member avatars overlapping by 10 pt, each ringed 3 pt in the band colour. Colours come from `householdBandColors`. The Owner badge is `Badge tone="owner"`.
+- **Aisle order rows** (board 12): 52 pt `surface` rows, radius `row`, 8 pt apart, with the aisle `dot`, the name (`body` 600) and a `line.3.horizontal` grip in `inkTertiary`. Touch and hold to drag: the row lifts (`shadows.lifted`, 1.03 scale, a 2 pt outline in its aisle `dot`, `headline` name, `ink` grip) over a 2 pt dashed `controlBorder` slot where it will land. Colours come from `aisleRowLook`. VoiceOver gets Move up / Move down actions.
+- **Filled native header buttons** (`done` / `prominent` toolbar variants: Done, Save, the Recipes +): iOS draws their label white, so tint them with `prominentButtonTint` (`primary`, or `primarySoft` in dark mode, where `primary` is too light for white).
 - **Nav row buttons** (inside native headers where the boards show them): 44 pt round `surface` buttons with `ink` glyphs; the primary action is `primary`.

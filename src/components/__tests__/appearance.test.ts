@@ -1,14 +1,19 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import {
+  aisleRowLook,
   aisleSymbol,
+  avatarColors,
   badgeColors,
+  householdBandColors,
+  signInColors,
   checkAppearance,
   checkState,
   itemNameColor,
   listTileColors,
   pillColors,
   pillLook,
+  prominentButtonTint,
   sectionHeaderLabel,
   segmentColors,
   siriMarkColors,
@@ -406,5 +411,114 @@ describe('toastAnnouncement', () => {
 
   it('announces only the message without actions', () => {
     expect(toastAnnouncement('Saved', [])).toBe('Saved');
+  });
+});
+
+describe('signInColors', () => {
+  it('uses the board 09 colours in light mode', () => {
+    expect(signInColors(Palette.light, AisleColors.light)).toEqual({
+      ground: '#2E6B45',
+      text: '#FFFFFF',
+      button: '#FFFFFF',
+      buttonText: '#1D2A22',
+      shapes: ['#3E7BB8', '#C98A1E', '#C2556B', '#EEF3EC', '#1F5233', '#DFEAF6'],
+    });
+  });
+
+  it.each(SCHEMES)('keeps the text and the button readable in %s mode', (scheme) => {
+    const look = signInColors(Palette[scheme], AisleColors[scheme]);
+    expect(contrastRatio(look.text, look.ground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(look.buttonText, look.button)).toBeGreaterThanOrEqual(4.5);
+    // The button and the "Use a different email" link sit on the ground.
+    expect(contrastRatio(look.button, look.ground)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(Palette[scheme].onPrimary, look.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(SCHEMES)('has six shapes in %s mode', (scheme) => {
+    expect(signInColors(Palette[scheme], AisleColors[scheme]).shapes).toHaveLength(6);
+  });
+});
+
+describe('avatarColors', () => {
+  it("is the hue's strong shade with an onPrimary initial", () => {
+    expect(avatarColors('amber', Palette.light, AisleColors.light)).toEqual({ fill: '#8A5C0C', text: '#FFFFFF' });
+    expect(avatarColors('blue', Palette.dark, AisleColors.dark)).toEqual({ fill: '#7AAEE0', text: '#0E1F14' });
+  });
+
+  it.each(SCHEMES)('keeps the initial readable on every hue in %s mode', (scheme) => {
+    for (const hue of Object.keys(AisleColors[scheme]) as (keyof (typeof AisleColors)['light'])[]) {
+      const look = avatarColors(hue, Palette[scheme], AisleColors[scheme]);
+      expect(contrastRatio(look.text, look.fill)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe('householdBandColors', () => {
+  it('is the amber band from board 11 in light mode', () => {
+    expect(householdBandColors(Palette.light, AisleColors.light)).toEqual({
+      fill: '#F6EBD4',
+      text: '#1D2A22',
+      secondary: '#8A5C0C',
+    });
+  });
+
+  it.each(SCHEMES)('keeps the name and the counts readable in %s mode', (scheme) => {
+    const look = householdBandColors(Palette[scheme], AisleColors[scheme]);
+    expect(contrastRatio(look.text, look.fill)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(look.secondary, look.fill)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('aisleRowLook', () => {
+  it('is a plain white row with its aisle dot and a tertiary grip at rest', () => {
+    expect(aisleRowLook(false, 'rose', Palette.light, AisleColors.light)).toEqual({
+      fill: '#FFFFFF',
+      dot: '#C2556B',
+      outline: null,
+      grip: 'inkTertiary',
+    });
+  });
+
+  it('outlines the dragged row in its aisle colour with an ink grip', () => {
+    expect(aisleRowLook(true, 'rose', Palette.light, AisleColors.light)).toEqual({
+      fill: '#FFFFFF',
+      dot: '#C2556B',
+      outline: '#C2556B',
+      grip: 'ink',
+    });
+    expect(aisleRowLook(true, 'grey', Palette.dark, AisleColors.dark).outline).toBe('#8E9A91');
+  });
+
+  it.each(SCHEMES)('keeps the name readable and the dragged outline visible in %s mode', (scheme) => {
+    const colors = Palette[scheme];
+    for (const hue of Object.keys(AisleColors[scheme]) as (keyof (typeof AisleColors)['light'])[]) {
+      const look = aisleRowLook(true, hue, colors, AisleColors[scheme]);
+      expect(contrastRatio(colors.ink, look.fill)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(look.outline!, look.fill)).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+});
+
+describe('prominentButtonTint', () => {
+  it('is primary in light mode and primarySoft in dark mode', () => {
+    expect(prominentButtonTint('light', Palette.light)).toBe('#2E6B45');
+    expect(prominentButtonTint('dark', Palette.dark)).toBe('#1E3A28');
+  });
+
+  it.each(SCHEMES)("keeps iOS's white label readable on it in %s mode", (scheme) => {
+    expect(contrastRatio('#FFFFFF', prominentButtonTint(scheme, Palette[scheme]))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('would fail with primary in dark mode, which is why dark swaps it', () => {
+    expect(contrastRatio('#FFFFFF', Palette.dark.primary)).toBeLessThan(4.5);
+  });
+});
+
+describe('settings screen text', () => {
+  it.each(SCHEMES)('keeps Sign out, the version and section labels readable on the background in %s mode', (scheme) => {
+    const colors = Palette[scheme];
+    expect(contrastRatio(colors.danger, colors.background)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(colors.inkSecondary, colors.background)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(colors.inkSecondary, colors.surface)).toBeGreaterThanOrEqual(4.5);
   });
 });

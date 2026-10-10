@@ -50,17 +50,18 @@ export default function SiriSpikeScreen() {
     TEST_LISTS.lists.find((l) => l.id === (id ?? TEST_LISTS.defaultListId))?.name ?? id ?? '—';
 
   return (
-    <Screen scroll contentContainerStyle={{ padding: spacing.lg, gap: spacing.xl }}>
-      <ThemedText variant="footnote" color="inkSecondary">
+    // Cards bring their own 16 pt side margin; everything else gets it here.
+    <Screen scroll contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.lg }}>
+      <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg }}>
         App Group: {getAppGroupContainer() ? 'available' : 'missing (needs a development build)'}
       </ThemedText>
       {error ? (
-        <ThemedText variant="footnote" color="danger">
+        <ThemedText variant="footnote" color="danger" style={{ paddingHorizontal: spacing.lg }}>
           {error}
         </ThemedText>
       ) : null}
 
-      <View style={{ gap: spacing.sm }}>
+      <View style={{ gap: spacing.sm, paddingHorizontal: spacing.lg }}>
         <Button
           label="Write test lists (Groceries, Costco)"
           variant="secondary"

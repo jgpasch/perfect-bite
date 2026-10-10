@@ -2,6 +2,7 @@ import { Link, router, Stack } from 'expo-router';
 import { useMemo } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
@@ -23,7 +24,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 /** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
 export default function RecipesScreen() {
-  const { spacing } = useTheme();
+  const { spacing, scheme, colors } = useTheme();
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const groups = useMemo(() => groupRecipesByHousehold(data), [data]);
@@ -34,7 +35,13 @@ export default function RecipesScreen() {
   return (
     <Screen>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button icon="plus" variant="prominent" accessibilityLabel="New recipe" onPress={create} />
+        <Stack.Toolbar.Button
+          icon="plus"
+          variant="prominent"
+          tintColor={prominentButtonTint(scheme, colors)}
+          accessibilityLabel="New recipe"
+          onPress={create}
+        />
       </Stack.Toolbar>
       {data.length === 0 ? (
         <EmptyState message="No recipes yet." action={<PrimaryButton label="New recipe" onPress={create} />} />

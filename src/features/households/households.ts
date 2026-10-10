@@ -1,9 +1,9 @@
 // Households on the server (spec 4.7, 5). The household is created locally (ensureStarterData), so
 // the app registers it with Supabase for the read-only Households screen.
 // TODO(M5): sync replaces this; sign-up or the first push creates the household server-side.
-import { asc } from 'drizzle-orm';
+import { asc, sql } from 'drizzle-orm';
 
-import { db, households } from '@/db';
+import { db, households, lists, recipes } from '@/db';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -13,6 +13,42 @@ export function householdsQuery() {
     .select({ id: households.id, name: households.name, createdAt: households.createdAt })
     .from(households)
     .orderBy(asc(households.createdAt), asc(households.id));
+}
+
+/** Tables `householdsWithCountsQuery` reads, for `useLiveQueryOn`. */
+export const HOUSEHOLD_COUNT_TABLES = [households, lists, recipes];
+
+/**
+ * Local households, oldest first, each with how many live lists (archived ones left out, as on the
+ * lists home) and live recipes it has (live query).
+ */
+export function householdsWithCountsQuery() {
+  return db
+    .select({
+      id: households.id,
+      name: households.name,
+      // Spelled out: Drizzle leaves columns unqualified in a one-table select, which would make
+      // `id` here mean the subquery's own table.
+      listCount: sql<number>`(select count(*) from "lists" l where l."household_id" = "households"."id" and l."deleted_at" is null and l."archived_at" is null)`,
+      recipeCount: sql<number>`(select count(*) from "recipes" r where r."household_id" = "households"."id" and r."deleted_at" is null)`,
+    })
+    .from(households)
+    .orderBy(asc(households.createdAt), asc(households.id));
+}
+
+/** The line under a household's name: "3 lists · 1 recipe". */
+export function householdCountsLabel(listCount: number, recipeCount: number): string {
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  return `${plural(listCount, 'list')} · ${plural(recipeCount, 'recipe')}`;
+}
+
+/**
+ * The letter in a round avatar: the first letter or digit of a name or email, upper-cased; "?" when
+ * there isn't one.
+ */
+export function avatarInitial(text: string | null | undefined): string {
+  const match = (text ?? '').match(/[\p{L}\p{N}]/u);
+  return match ? match[0].toLocaleUpperCase() : '?';
 }
 
 export type HouseholdMember = {

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { prominentButtonTint } from '@/components/appearance';
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
@@ -73,7 +74,7 @@ const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors, aisles, spacing, sizes, opacity } = useTheme();
+  const { colors, aisles, spacing, sizes, opacity, scheme } = useTheme();
   const headerHeight = useHeaderHeight();
   const userId = getAccount()?.userId ?? null;
 
@@ -310,7 +311,7 @@ export default function ListScreen() {
     <Screen>
       <Stack.Toolbar placement="right">
         {selection ? (
-          <Stack.Toolbar.Button variant="done" onPress={() => setSelection(null)}>
+          <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => setSelection(null)}>
             Done
           </Stack.Toolbar.Button>
         ) : null}

@@ -111,6 +111,8 @@ const tight = (size: number) => Math.round(size * -0.025 * 100) / 100;
 
 /** Sizes are at the default Dynamic Type setting (Large). Text scales with the user's setting; never disable it. */
 export const Typography = {
+  /** The app's name on the sign-in screen. */
+  hero: { fontFamily: Fonts.display, fontSize: 48, fontWeight: '800', lineHeight: 50, letterSpacing: tight(48) },
   /** Tab roots: "Your lists", "Settings". */
   largeTitle: { fontFamily: Fonts.display, fontSize: 40, fontWeight: '800', lineHeight: 44, letterSpacing: tight(40) },
   /** Pushed screens: a list's name, "Aisle order". */
@@ -120,10 +122,14 @@ export const Typography = {
   title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
   /** The item-to-get count on a list tile. */
   tileCount: { fontFamily: Fonts.display, fontSize: 34, fontWeight: '800', lineHeight: 36, letterSpacing: tight(34) },
+  /** The letter in a round avatar (account card, household members). */
+  initial: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   /** Card section headers: aisle or recipe name. */
   sectionTitle: { fontFamily: Fonts.display, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   /** Buttons and emphasised rows. */
   headline: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '700', lineHeight: 22 },
+  /** The sign-in tagline. */
+  lead: { fontFamily: Fonts.body, fontSize: 18, fontWeight: '400', lineHeight: 25 },
   body: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
   callout: { fontFamily: Fonts.body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
   /** Quantities and values at the end of a row. */
@@ -212,6 +218,18 @@ export const Sizes = {
   removeButton: 32,
   /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */
   fieldLabel: 76,
+  /** the tinted icon tile at the start of a settings row */
+  settingsIcon: 32,
+  /** the account card's avatar */
+  accountAvatar: 52,
+  /** household member avatars (overlapping) and the ring that separates them */
+  avatar: 48,
+  avatarRing: 3,
+  /** the coloured shapes on the sign-in screen */
+  signInShape: 92,
+  /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
+  aisleRow: 52,
+  grip: 20,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */
@@ -243,4 +261,6 @@ export const Shadows = {
   floating: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 6, shadowOpacity: Opacity.shadow },
   /** The add bar's input. */
   soft: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 14, shadowOpacity: 0.08 },
+  /** A row being dragged on the Aisle order screen. */
+  lifted: { shadowOffset: { width: 0, height: 14 }, shadowRadius: 30, shadowOpacity: 0.22 },
 } as const;

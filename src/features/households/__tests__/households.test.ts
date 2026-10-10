@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
-import { db, households } from '@/db';
+import { db, households, lists, recipes } from '@/db';
 import { getDeviceSetting } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 import {
@@ -13,8 +13,11 @@ import {
 } from '@/test/fake-supabase';
 
 import {
+  avatarInitial,
   fetchHouseholdMembers,
+  householdCountsLabel,
   householdsQuery,
+  householdsWithCountsQuery,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
   registerHouseholds,
@@ -151,6 +154,72 @@ describe('householdsQuery', () => {
   test('returns [] with no local households', () => {
     resetDb();
     expect(householdsQuery().all()).toEqual([]);
+  });
+});
+
+describe('householdsWithCountsQuery', () => {
+  const list = (id: string, householdId: string, extra: { archivedAt?: Date; deletedAt?: Date } = {}) =>
+    db.insert(lists).values({ id, householdId, name: id, position: 1, ...extra }).run();
+  const recipe = (id: string, householdId: string, extra: { deletedAt?: Date } = {}) =>
+    db.insert(recipes).values({ id, householdId, name: id, ...extra }).run();
+
+  test('counts live, unarchived lists and live recipes per household, oldest household first', () => {
+    db.insert(households).values({ id: 'h2', name: 'Lake house', createdAt: new Date('2026-10-05T00:00:00Z') }).run();
+    list('groceries', 'h1');
+    list('costco', 'h1');
+    list('old', 'h1', { archivedAt: new Date('2026-10-02T00:00:00Z') });
+    list('gone', 'h1', { deletedAt: new Date('2026-10-02T00:00:00Z') });
+    list('cabin', 'h2');
+    recipe('dal', 'h1');
+    recipe('deleted', 'h1', { deletedAt: new Date('2026-10-02T00:00:00Z') });
+    recipe('chili', 'h2');
+    recipe('smores', 'h2');
+
+    expect(householdsWithCountsQuery().all()).toEqual([
+      { id: 'h1', name: 'Personal', listCount: 2, recipeCount: 1 },
+      { id: 'h2', name: 'Lake house', listCount: 1, recipeCount: 2 },
+    ]);
+  });
+
+  test('gives 0 for a household with no lists or recipes', () => {
+    expect(householdsWithCountsQuery().all()).toEqual([{ id: 'h1', name: 'Personal', listCount: 0, recipeCount: 0 }]);
+  });
+
+  test('returns [] with no local households', () => {
+    resetDb();
+    expect(householdsWithCountsQuery().all()).toEqual([]);
+  });
+});
+
+describe('householdCountsLabel', () => {
+  test('pluralises each count on its own', () => {
+    expect(householdCountsLabel(3, 4)).toBe('3 lists · 4 recipes');
+    expect(householdCountsLabel(1, 1)).toBe('1 list · 1 recipe');
+    expect(householdCountsLabel(1, 0)).toBe('1 list · 0 recipes');
+    expect(householdCountsLabel(0, 2)).toBe('0 lists · 2 recipes');
+  });
+});
+
+describe('avatarInitial', () => {
+  test('is the first letter, upper-cased', () => {
+    expect(avatarInitial('john')).toBe('J');
+    expect(avatarInitial('Sam')).toBe('S');
+    expect(avatarInitial('jgpasch@gmail.com')).toBe('J');
+  });
+
+  test('skips leading spaces and symbols, and takes digits and non-Latin letters', () => {
+    expect(avatarInitial('  _pat')).toBe('P');
+    expect(avatarInitial('"émile"')).toBe('É');
+    expect(avatarInitial('9lives@example.com')).toBe('9');
+    expect(avatarInitial('Øystein')).toBe('Ø');
+  });
+
+  test('is "?" with nothing to show', () => {
+    expect(avatarInitial('')).toBe('?');
+    expect(avatarInitial('   ')).toBe('?');
+    expect(avatarInitial('@.')).toBe('?');
+    expect(avatarInitial(null)).toBe('?');
+    expect(avatarInitial(undefined)).toBe('?');
   });
 });
 
