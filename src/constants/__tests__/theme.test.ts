@@ -90,12 +90,17 @@ describe('Palette', () => {
 describe('AisleColors', () => {
   it('has the Pantry light values', () => {
     expect(AisleColors.light).toEqual({
-      green: { dot: '#2E6B45', soft: '#DDEFE2' },
-      blue: { dot: '#3E7BB8', soft: '#DFEAF6' },
-      rose: { dot: '#C2556B', soft: '#F7E1E6' },
-      amber: { dot: '#C98A1E', soft: '#F6EBD4' },
-      grey: { dot: '#7C877F', soft: '#EEF3EC' },
+      green: { dot: '#2E6B45', soft: '#DDEFE2', strong: '#2E6B45' },
+      blue: { dot: '#3E7BB8', soft: '#DFEAF6', strong: '#2F6396' },
+      rose: { dot: '#C2556B', soft: '#F7E1E6', strong: '#A33D53' },
+      amber: { dot: '#C98A1E', soft: '#F6EBD4', strong: '#8A5C0C' },
+      grey: { dot: '#7C877F', soft: '#EEF3EC', strong: '#55635A' },
     });
+  });
+
+  it('has light dots too pale for white text, which is why `strong` exists', () => {
+    expect(contrastRatio(Palette.light.onPrimary, AisleColors.light.blue.dot)).toBeLessThan(4.5);
+    expect(contrastRatio(Palette.light.onPrimary, AisleColors.light.amber.dot)).toBeLessThan(4.5);
   });
 
   it('has every hue in dark mode too', () => {
@@ -109,6 +114,13 @@ describe('AisleColors', () => {
         const { ink, inkSecondary } = Palette[scheme];
         expect(contrastRatio(ink, AisleColors[scheme][hue].soft)).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(inkSecondary, AisleColors[scheme][hue].soft)).toBeGreaterThanOrEqual(4.5);
+      },
+    );
+
+    it.each(Object.keys(AisleColors.light) as (keyof typeof AisleColors.light)[])(
+      'keeps onPrimary readable on the %s strong fill',
+      (hue) => {
+        expect(contrastRatio(Palette[scheme].onPrimary, AisleColors[scheme][hue].strong)).toBeGreaterThanOrEqual(4.5);
       },
     );
 

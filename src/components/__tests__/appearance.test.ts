@@ -1,12 +1,14 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import {
+  aisleSymbol,
   badgeColors,
   checkAppearance,
   checkState,
   itemNameColor,
   listTileColors,
   pillColors,
+  pillLook,
   sectionHeaderLabel,
   segmentColors,
   siriMarkColors,
@@ -14,6 +16,7 @@ import {
 } from '@/components/appearance';
 import { AisleColors, Opacity, Palette, Sizes, type ColorScheme } from '@/constants/theme';
 import { contrastRatio, mix } from '@/domain/contrast';
+import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 
 // The web font variables; Jest can't parse CSS.
 jest.mock('@/global.css', () => ({}));
@@ -89,6 +92,64 @@ describe('checkAppearance', () => {
     // Non-text UI parts: WCAG 1.4.11 asks for 3:1, but the off ring is a deliberate soft outline.
     expect(contrastRatio(off, colors.surface)).toBeGreaterThan(1.5);
     expect(contrastRatio(pending, colors.pendingSoft)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('pillLook', () => {
+  const colors = Palette.light;
+  const aisles = AisleColors.light;
+
+  it('matches pillColors without a hue', () => {
+    expect(pillLook({}, colors, aisles)).toEqual({ fill: '#FFFFFF', text: '#1D2A22', border: null });
+    expect(pillLook({ selected: true }, colors, aisles)).toEqual({ fill: '#1D2A22', text: '#FFFFFF', border: null });
+  });
+
+  it('fills a selected aisle pill with its strong shade and onPrimary text', () => {
+    expect(pillLook({ selected: true, hue: 'blue' }, colors, aisles)).toEqual({
+      fill: '#2F6396',
+      text: '#FFFFFF',
+      border: null,
+    });
+    expect(pillLook({ selected: true, hue: 'amber' }, Palette.dark, AisleColors.dark)).toEqual({
+      fill: AisleColors.dark.amber.dot,
+      text: Palette.dark.onPrimary,
+      border: null,
+    });
+  });
+
+  it('leaves an unselected aisle pill white', () => {
+    expect(pillLook({ selected: false, hue: 'rose' }, colors, aisles)).toEqual({
+      fill: '#FFFFFF',
+      text: '#1D2A22',
+      border: null,
+    });
+  });
+
+  it('draws a dashed pill as a controlBorder outline with secondary text, even if selected', () => {
+    const dashed = { fill: 'transparent', text: '#55635A', border: '#B9C4BC' };
+    expect(pillLook({ dashed: true }, colors, aisles)).toEqual(dashed);
+    expect(pillLook({ dashed: true, selected: true, hue: 'green' }, colors, aisles)).toEqual(dashed);
+  });
+});
+
+describe('aisleSymbol', () => {
+  it.each(SYSTEM_CATEGORIES.map((c) => c.slug))('has a glyph for %s', (slug) => {
+    expect(aisleSymbol(slug)).toEqual(expect.any(String));
+  });
+
+  it('maps known aisles to their glyphs', () => {
+    expect(aisleSymbol('produce')).toBe('carrot');
+    expect(aisleSymbol('dairy-eggs')).toBe('waterbottle');
+    expect(aisleSymbol('frozen')).toBe('snowflake');
+    expect(aisleSymbol('other')).toBe('bag');
+  });
+
+  it('falls back to a bag for custom, missing and prototype-named slugs', () => {
+    expect(aisleSymbol('my-corner-shop')).toBe('bag');
+    expect(aisleSymbol(null)).toBe('bag');
+    expect(aisleSymbol(undefined)).toBe('bag');
+    expect(aisleSymbol('')).toBe('bag');
+    expect(aisleSymbol('toString')).toBe('bag');
   });
 });
 

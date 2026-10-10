@@ -1,15 +1,21 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
 
+import { aisleSymbol } from '@/components/appearance';
 import { SoftDangerButton } from '@/components/button';
+import { Card } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
+import { IconTile } from '@/components/icon-tile';
+import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { listItemContributions } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { categoryNameById, effectiveCategoryId } from '@/domain/category-resolver';
+import { addedLine } from '@/domain/added-by';
+import { aisleColor } from '@/domain/aisle-color';
+import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { canStepDown, unitLabel, unitMenuChoice, unitMenuOptions, withUnit } from '@/features/lists/amount-stepper';
@@ -20,6 +26,7 @@ import {
   deleteContribution,
   deleteItem,
   getItemEdit,
+  getItemHouseholdName,
   itemTotal,
   setItemAmount,
   steppableAmount,
@@ -30,16 +37,16 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_CATEGORY_ID } from '@/shared';
 
-/** Item edit sheet (spec 4.2, 4.3.2): name, amount, note, category. M3 lists contributions. */
+/** Item edit sheet (spec 4.2, 4.3.2, board 04): name, amount, note, aisle, and the amounts added. */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
-  const { spacing } = useTheme();
+  const { spacing, sizes } = useTheme();
   const userId = getAccount()?.userId ?? null;
   const [initial] = useState(() => getItemEdit(itemId));
+  const [householdName] = useState(() => getItemHouseholdName(itemId));
   const [edit, setEdit] = useState<ItemEdit | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [categoryList, setCategoryList] = useState(() => (userId ? getOrderedCategories(userId) : []));
-  const [pickingCategory, setPickingCategory] = useState(false);
   const current = useMemo(
     () => (userId && initial ? getIngredientCategory(userId, initial.ingredientName) : null),
     [userId, initial],
@@ -63,15 +70,19 @@ export default function ItemEditSheet() {
     edit.categoryId === undefined ? (current?.overrideCategoryId ?? defaultId) : (edit.categoryId ?? defaultId);
   const isOverride = selectedId !== defaultId;
   const categoryName = (id: string) => categoryNameById(categoryList, id);
+  const slugOf = (id: string) => categoryList.find((c) => c.id === id)?.slug ?? null;
+  // Sorting… isn't one of the user's aisles, so it gets its own pill while it's the default.
+  const sortingDefault = defaultId === SORTING_CATEGORY_ID;
+  const sorting = selectedId === SORTING_CATEGORY_ID;
+  const hue = sorting ? 'amber' : aisleColor(slugOf(selectedId));
 
   const chooseCategory = (id: string) => {
     setEdit({ ...edit, categoryId: id === defaultId ? null : id });
-    setPickingCategory(false);
   };
 
   const newCategory = () => {
     if (!userId) return;
-    Alert.prompt('New category', undefined, (name) => {
+    Alert.prompt('New aisle', undefined, (name) => {
       if (!name?.trim()) return;
       const id = createCategory(userId, name);
       setCategoryList(getOrderedCategories(userId));
@@ -115,8 +126,14 @@ export default function ItemEditSheet() {
     }
   };
 
+  const now = new Date();
+  const labelInset = { paddingHorizontal: spacing.xxl };
+
   return (
-    <Screen scroll keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
+    <Screen
+      scroll
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md }}>
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
       </Stack.Toolbar>
@@ -126,96 +143,132 @@ export default function ItemEditSheet() {
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
 
-      <Field label="Name">
-        <TextField value={edit.name} onChangeText={set('name')} accessibilityLabel="Name" returnKeyType="done" />
-      </Field>
-      <Field label="Amount">
-        <TextField
-          value={amount}
-          onChangeText={(value) => {
-            setAmountTouched(true);
-            set('amount')(value);
-          }}
-          placeholder="e.g. 2 lb"
-          accessibilityLabel="Amount"
-          autoCapitalize="none"
-          returnKeyType="done"
-        />
-        <AmountStepper
-          amount={steppable}
-          totalText={amount}
-          canDecrease={!!steppable && canStepDown(steppable, initial.usualUnit)}
-          onStep={(direction) => saveAmount(() => stepItemAmount(itemId, direction, initial.usualUnit))}
-          onChooseUnit={chooseUnit}
-        />
-      </Field>
+      <View style={[styles.row, { paddingHorizontal: spacing.lg + spacing.xs, paddingVertical: spacing.xs, gap: spacing.md }]}>
+        <IconTile hue={hue} name={sorting ? 'hourglass' : aisleSymbol(slugOf(selectedId))} size={sizes.sheetIcon} />
+        <View style={styles.flex}>
+          <ThemedText variant="sheetTitle" accessibilityRole="header" numberOfLines={2}>
+            {edit.name.trim() || initial.name}
+          </ThemedText>
+          {amount ? (
+            <ThemedText variant="amount" color="inkSecondary">
+              {amount}
+            </ThemedText>
+          ) : null}
+        </View>
+      </View>
+
+      <Card>
+        <FieldRow label="Name" first>
+          <InlineField value={edit.name} onChangeText={set('name')} accessibilityLabel="Name" returnKeyType="done" />
+        </FieldRow>
+        <FieldRow label="Amount">
+          <InlineField
+            value={amount}
+            onChangeText={(value) => {
+              setAmountTouched(true);
+              set('amount')(value);
+            }}
+            placeholder="e.g. 2 lb"
+            accessibilityLabel="Amount"
+            autoCapitalize="none"
+            returnKeyType="done"
+          />
+          <AmountStepper
+            amount={steppable}
+            totalText={amount}
+            canDecrease={!!steppable && canStepDown(steppable, initial.usualUnit)}
+            onStep={(direction) => saveAmount(() => stepItemAmount(itemId, direction, initial.usualUnit))}
+            onChooseUnit={chooseUnit}
+          />
+        </FieldRow>
+        <FieldRow label="Note">
+          <InlineField
+            value={edit.note}
+            onChangeText={set('note')}
+            placeholder="e.g. the big bag"
+            accessibilityLabel="Note"
+            multiline
+          />
+        </FieldRow>
+      </Card>
+
       {contributions.length > 1 ? (
         // Spec 4.4: each add is listed with a delete control (Undo / Keep existing, later).
-        <Field label="Added">
-          {contributions.map((c) => (
-            <Option
-              key={c.id}
-              label={formatAmount(c) || 'No amount'}
-              detail={c.source === 'recipe' ? 'From a recipe' : c.source === 'siri' ? 'From Siri' : undefined}
-              icon="minus.circle"
-              accessibilityHint="Removes this amount"
-              onPress={() => deleteContribution(c.id)}
-            />
-          ))}
-        </Field>
+        <>
+          <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
+            Added
+          </ThemedText>
+          <Card>
+            {contributions.map((c, i) => {
+              const text = formatAmount(c) || 'No amount';
+              return (
+                <CardRow key={c.id} first={i === 0}>
+                  <ThemedText variant="headline">{text}</ThemedText>
+                  <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
+                    {addedLine(c, userId, now)}
+                  </ThemedText>
+                  <RemoveButton
+                    accessibilityLabel={`Remove ${text}`}
+                    accessibilityHint="Removes this amount"
+                    onPress={() => deleteContribution(c.id)}
+                  />
+                </CardRow>
+              );
+            })}
+          </Card>
+        </>
       ) : null}
-      <Field label="Note">
-        <TextField
-          value={edit.note}
-          onChangeText={set('note')}
-          placeholder="e.g. the big bag"
-          accessibilityLabel="Note"
-          multiline
-        />
-      </Field>
 
       {userId ? (
-        <Field label="Category">
-          <Option
-            label={categoryName(selectedId)}
-            detail={isOverride ? 'Just for you' : undefined}
-            icon={pickingCategory ? 'chevron.down' : 'chevron.right'}
-            accessibilityHint="Shows the categories"
-            onPress={() => setPickingCategory((v) => !v)}
-          />
-          {pickingCategory ? (
-            <View>
-              {categoryList.map((c) => (
-                <Option
-                  key={c.id}
-                  label={c.name}
-                  icon={c.id === selectedId ? 'checkmark' : undefined}
-                  selected={c.id === selectedId}
-                  onPress={() => chooseCategory(c.id)}
-                />
-              ))}
-              <Option label="New category…" icon="plus" onPress={newCategory} />
-              {isOverride ? (
-                <Option label={`Reset to default (${categoryName(defaultId)})`} icon="arrow.uturn.backward" onPress={() => chooseCategory(defaultId)} />
-              ) : null}
-            </View>
+        <>
+          <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
+            Aisle
+          </ThemedText>
+          <View style={[styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+            {sortingDefault ? (
+              <Pill
+                label={categoryName(SORTING_CATEGORY_ID)}
+                selected={sorting}
+                hue="amber"
+                onPress={() => chooseCategory(defaultId)}
+              />
+            ) : null}
+            {categoryList.map((c) => (
+              <Pill
+                key={c.id}
+                label={c.name}
+                selected={c.id === selectedId}
+                hue={aisleColor(c.slug)}
+                onPress={() => chooseCategory(c.id)}
+              />
+            ))}
+            <Pill label="+ New" accessibilityLabel="New aisle" dashed onPress={newCategory} />
+          </View>
+          {isOverride ? (
+            <ThemedText variant="footnote" color="inkSecondary" style={labelInset}>
+              {householdName
+                ? `Just for you. Others in ${householdName} still see ${categoryName(defaultId)}.`
+                : `Just for you. Others still see ${categoryName(defaultId)}.`}
+            </ThemedText>
           ) : null}
-        </Field>
+        </>
       ) : null}
 
       {error ? (
-        <ThemedText variant="footnote" color="danger" accessibilityRole="alert">
+        <ThemedText variant="footnote" color="danger" accessibilityRole="alert" style={{ paddingHorizontal: spacing.lg }}>
           {error}
         </ThemedText>
       ) : null}
 
-      <SoftDangerButton
-        label="Delete item"
-        onPress={() => {
-          deleteItem(itemId);
-          router.back();
-        }}
-      />
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+        <SoftDangerButton
+          label="Delete item"
+          onPress={() => {
+            deleteItem(itemId);
+            router.back();
+          }}
+        />
+      </View>
     </Screen>
   );
 }
@@ -239,7 +292,7 @@ function AmountStepper({
   const { spacing } = useTheme();
   const disabledHint = amount ? undefined : DISABLED_HINT;
   return (
-    <View style={[styles.row, { gap: spacing.sm }]}>
+    <View style={[styles.row, { gap: spacing.sm, paddingBottom: spacing.sm }]}>
       <StepperButton
         icon="minus"
         accessibilityLabel="Decrease amount"
@@ -247,7 +300,7 @@ function AmountStepper({
         disabled={!amount || !canDecrease}
         onPress={() => onStep(-1)}
       />
-      <ThemedText variant="body" style={[styles.flex, styles.center]} numberOfLines={1}>
+      <ThemedText variant="amount" style={[styles.flex, styles.center]} numberOfLines={1}>
         {amount ? formatAmount(amount) : totalText}
       </ThemedText>
       <StepperButton
@@ -269,6 +322,7 @@ function AmountStepper({
   );
 }
 
+/** A round 44 pt `surfaceMuted` button for the stepper; with a `label` it grows into a pill. */
 function StepperButton({
   icon,
   label,
@@ -297,83 +351,102 @@ function StepperButton({
         styles.row,
         styles.centered,
         {
-          minHeight: sizes.rowMin,
-          minWidth: sizes.rowMin,
-          paddingHorizontal: spacing.md,
+          minHeight: sizes.minTapTarget,
+          minWidth: sizes.minTapTarget,
+          paddingHorizontal: label ? spacing.md : 0,
           gap: spacing.xs,
-          borderRadius: rounded.md,
+          borderRadius: rounded.full,
           backgroundColor: colors.surfaceMuted,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}>
-      {label ? <ThemedText variant="body">{label}</ThemedText> : null}
-      <Icon name={icon} color={label ? 'inkSecondary' : 'ink'} size={label ? sizes.iconSmall : sizes.icon} />
+      {label ? <ThemedText variant="amount">{label}</ThemedText> : null}
+      <Icon name={icon} color={label ? 'inkSecondary' : 'ink'} size={label ? sizes.iconSmall : sizes.icon} weight="semibold" />
     </Pressable>
   );
 }
 
-function Option({
-  label,
-  detail,
-  icon,
-  selected,
+/** The soft red round − on an "Added" row: 32 pt, with a 44 pt hit area. */
+function RemoveButton({
+  accessibilityLabel,
   accessibilityHint,
   onPress,
 }: {
-  label: string;
-  detail?: string;
-  icon?: IconName;
-  selected?: boolean;
-  accessibilityHint?: string;
+  accessibilityLabel: string;
+  accessibilityHint: string;
   onPress: () => void;
 }) {
-  const { colors, spacing, sizes, opacity } = useTheme();
+  const { colors, rounded, sizes, opacity } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ selected }}
-      accessibilityLabel={detail ? `${label}, ${detail}` : label}
+      accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
+      hitSlop={(sizes.minTapTarget - sizes.removeButton) / 2}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.option,
+        styles.centered,
         {
-          minHeight: sizes.minTapTarget,
-          paddingHorizontal: spacing.md,
-          gap: spacing.sm,
-          borderBottomColor: colors.border,
+          width: sizes.removeButton,
+          height: sizes.removeButton,
+          borderRadius: rounded.full,
+          backgroundColor: colors.dangerSoft,
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>
-      <ThemedText variant="body" style={styles.flex}>
-        {label}
-      </ThemedText>
-      {detail ? (
-        <ThemedText variant="footnote" color="inkSecondary">
-          {detail}
-        </ThemedText>
-      ) : null}
-      {icon ? <Icon name={icon} color={selected ? 'primary' : 'inkSecondary'} size={sizes.iconSmall} /> : null}
+      <Icon name="minus" color="danger" weight="bold" />
     </Pressable>
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  const { spacing } = useTheme();
+/** A row inside a card: 16 pt sides, at least 50 pt tall, a hairline above all but the first. */
+function CardRow({ first, children }: { first?: boolean; children: ReactNode }) {
+  const { colors, spacing, sizes } = useTheme();
   return (
-    <View style={{ gap: spacing.xs }}>
-      <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.xs }}>
-        {label}
-      </ThemedText>
+    <View
+      style={[
+        styles.row,
+        {
+          minHeight: sizes.cardRowMin,
+          paddingHorizontal: spacing.lg,
+          gap: spacing.md,
+          borderTopWidth: first ? 0 : 1,
+          borderTopColor: colors.border,
+        },
+      ]}>
       {children}
     </View>
   );
+}
+
+/** A labelled field inside the card: the label in a 76 pt column, the input (and any extras) beside it. */
+function FieldRow({ label, first, children }: { label: string; first?: boolean; children: ReactNode }) {
+  const { sizes, spacing } = useTheme();
+  return (
+    <CardRow first={first}>
+      {/* Top-aligned with the input's first line, so it stays put beside a multiline note or the stepper. */}
+      <ThemedText
+        variant="amount"
+        color="inkSecondary"
+        style={[styles.label, { minWidth: sizes.fieldLabel, paddingTop: spacing.md }]}>
+        {label}
+      </ThemedText>
+      <View style={styles.flex}>{children}</View>
+    </CardRow>
+  );
+}
+
+/** A borderless input for a `FieldRow`: the card is its surface. */
+function InlineField(props: ComponentProps<typeof TextField>) {
+  return <TextField {...props} style={styles.inline} />;
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center' },
-  centered: { justifyContent: 'center' },
-  option: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  label: { alignSelf: 'flex-start' },
+  inline: { borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
 });

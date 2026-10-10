@@ -3,7 +3,10 @@
  * contrast in both schemes; the components only turn these into styles.
  */
 
+import type { IconName } from '@/components/icon';
 import { withAlpha, type AisleColors, type ColorToken, type ThemeColors } from '@/constants/theme';
+import type { AisleHue } from '@/domain/aisle-color';
+import type { CategorySlug } from '@/shared/seed/categories';
 
 type Aisles = (typeof AisleColors)[keyof typeof AisleColors];
 
@@ -38,6 +41,53 @@ export function checkState(checked: boolean, pending = false): CheckState {
 /** A pill: `surface` with `ink` text when off, an ink fill when on. `toast` is the ink fill with `onToast` text. */
 export function pillColors(selected: boolean): { fill: ColorToken; text: ColorToken } {
   return selected ? { fill: 'toast', text: 'onToast' } : { fill: 'surface', text: 'ink' };
+}
+
+export type PillLook = { fill: string; text: string; border: string | null };
+
+/**
+ * A pill's colours. Off: `surface` with `ink`. On: the ink fill, or with a `hue` (the item sheet's
+ * aisle picker) that aisle's `strong` fill, both with light text. Dashed ("+ New"): no fill, a
+ * `controlBorder` outline and `inkSecondary` text.
+ */
+export function pillLook(
+  { selected = false, hue, dashed = false }: { selected?: boolean; hue?: AisleHue; dashed?: boolean },
+  colors: ThemeColors,
+  aisles: Aisles,
+): PillLook {
+  if (dashed) return { fill: 'transparent', text: colors.inkSecondary, border: colors.controlBorder };
+  if (selected && hue) return { fill: aisles[hue].strong, text: colors.onPrimary, border: null };
+  const look = pillColors(selected);
+  return { fill: colors[look.fill], text: colors[look.text], border: null };
+}
+
+/** The glyph in an item's icon tile, by aisle slug. Unknown slugs (custom aisles), `other` and Sorting… get a bag. */
+const AISLE_SYMBOLS: Record<CategorySlug, IconName> = {
+  produce: 'carrot',
+  bakery: 'basket',
+  deli: 'fork.knife',
+  'meat-seafood': 'fish',
+  'dairy-eggs': 'waterbottle',
+  frozen: 'snowflake',
+  pantry: 'cabinet',
+  'canned-jarred': 'cylinder',
+  'pasta-grains': 'takeoutbag.and.cup.and.straw',
+  baking: 'birthday.cake',
+  spices: 'flame',
+  condiments: 'drop',
+  snacks: 'popcorn',
+  beverages: 'cup.and.saucer',
+  breakfast: 'sun.horizon',
+  household: 'house',
+  'personal-care': 'hands.sparkles',
+  baby: 'stroller',
+  pet: 'pawprint',
+  other: 'bag',
+};
+
+export function aisleSymbol(slug: string | null | undefined): IconName {
+  if (slug == null || !Object.hasOwn(AISLE_SYMBOLS, slug)) return 'bag';
+  return AISLE_SYMBOLS[slug as CategorySlug];
 }
 
 /** A segment: the selected one is a `surface` chip with `ink` text; the rest sit on the track. */

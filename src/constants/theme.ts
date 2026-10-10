@@ -81,23 +81,27 @@ export type ColorScheme = keyof typeof Palette;
 export type ColorToken = keyof typeof Palette.light;
 export type ThemeColors = Record<ColorToken, string>;
 
-/** Aisle colours (see `aisleColor` in src/domain): `dot` for section dots and selected chips, `soft` for tints. */
+/**
+ * Aisle colours (see `aisleColor` in src/domain): `dot` for section dots, `soft` for tints, and
+ * `strong` for fills that carry `onPrimary` text (the selected aisle pill), since most light dots
+ * are too pale for white text.
+ */
 export const AisleColors = {
   light: {
-    green: { dot: '#2E6B45', soft: '#DDEFE2' },
-    blue: { dot: '#3E7BB8', soft: '#DFEAF6' },
-    rose: { dot: '#C2556B', soft: '#F7E1E6' },
-    amber: { dot: '#C98A1E', soft: '#F6EBD4' },
-    grey: { dot: '#7C877F', soft: '#EEF3EC' },
+    green: { dot: '#2E6B45', soft: '#DDEFE2', strong: '#2E6B45' },
+    blue: { dot: '#3E7BB8', soft: '#DFEAF6', strong: '#2F6396' },
+    rose: { dot: '#C2556B', soft: '#F7E1E6', strong: '#A33D53' },
+    amber: { dot: '#C98A1E', soft: '#F6EBD4', strong: '#8A5C0C' },
+    grey: { dot: '#7C877F', soft: '#EEF3EC', strong: '#55635A' },
   },
   dark: {
-    green: { dot: '#6FBF8A', soft: '#1E3A28' },
-    blue: { dot: '#7AAEE0', soft: '#1B2D3F' },
-    rose: { dot: '#E58A9C', soft: '#3B1E26' },
-    amber: { dot: '#E3AE4E', soft: '#33290F' },
-    grey: { dot: '#8E9A91', soft: '#26302A' },
+    green: { dot: '#6FBF8A', soft: '#1E3A28', strong: '#6FBF8A' },
+    blue: { dot: '#7AAEE0', soft: '#1B2D3F', strong: '#7AAEE0' },
+    rose: { dot: '#E58A9C', soft: '#3B1E26', strong: '#E58A9C' },
+    amber: { dot: '#E3AE4E', soft: '#33290F', strong: '#E3AE4E' },
+    grey: { dot: '#8E9A91', soft: '#26302A', strong: '#8E9A91' },
   },
-} as const satisfies Record<ColorScheme, Record<AisleHue, { dot: string; soft: string }>>;
+} as const satisfies Record<ColorScheme, Record<AisleHue, { dot: string; soft: string; strong: string }>>;
 
 type TypeStyle = Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
   Pick<TextStyle, 'letterSpacing'>;
@@ -200,6 +204,12 @@ export const Sizes = {
   tile: 132,
   /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */
   iconWell: 36,
+  /** the item's icon tile beside its name at the top of the item sheet */
+  sheetIcon: 52,
+  /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */
+  removeButton: 32,
+  /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */
+  fieldLabel: 76,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */

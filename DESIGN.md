@@ -63,11 +63,11 @@ Sizes are at the default Dynamic Type setting.
 
 Dark mode keeps the same hues on a dark green-grey ground (`#111915`, cards `#1B241F`) with lighter accents (`primary` `#7CC395` with dark `onPrimary`). The values are in `theme.ts`; the test checks that both schemes have the same tokens and pass contrast.
 
-Checked text pairs (≥ 4.5:1, both schemes): `ink` and `inkSecondary` on `background`, `surface` and `surfaceMuted`; `onPrimary` on `primary`; `primary` on `surface` and `background`; `onPrimarySoft` on `primarySoft`; `danger` on `surface`, `background` and `dangerSoft`; `pending` on `pendingSoft`; `ink` on `pendingSoft`; `onToast` on `toast`; `ink` and `inkSecondary` on every aisle `soft`. `inkTertiary` is checked at 3:1 (non-text).
+Checked text pairs (≥ 4.5:1, both schemes): `ink` and `inkSecondary` on `background`, `surface` and `surfaceMuted`; `onPrimary` on `primary`; `primary` on `surface` and `background`; `onPrimarySoft` on `primarySoft`; `danger` on `surface`, `background` and `dangerSoft`; `pending` on `pendingSoft`; `ink` on `pendingSoft`; `onToast` on `toast`; `ink` and `inkSecondary` on every aisle `soft`; `onPrimary` on every aisle `strong`. `inkTertiary` is checked at 3:1 (non-text).
 
 ## Aisle colours (`aisles.*`)
 
-Each hue has a `dot` (section dots, the aisle-order dots, the selected aisle chip, list tile accents) and a `soft` tint (icon wells, a just-added row flash in that aisle, household header bands).
+Each hue has a `dot` (section dots, the aisle-order dots, list tile accents), a `soft` tint (icon wells, a just-added row flash in that aisle, household header bands) and a `strong` shade for fills that carry `onPrimary` text (the selected aisle pill). In light mode most dots are under 4.5:1 with white text (blue 4.4, rose 4.4, grey 3.7, amber 2.9), so `strong` is a deeper shade there (green `#2E6B45`, blue `#2F6396`, rose `#A33D53`, amber `#8A5C0C`, grey `#55635A`); in dark mode it equals the dot, with dark `onPrimary` text.
 
 | Hue | Light dot / soft | Aisles |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - `spacing`: 4 pt base (`xxs` 2 … `xxxl` 48). Cards and tiles sit `lg` (16) in from the screen edge; titles sit 20 in (`lg` + `xs`).
 - `rounded`: `card` 22, `tile` 22, `sheet` 28 (top corners), `row` 16 (aisle-order rows), `md` 12 (segmented track, icon wells), `full` for pills, round checks, round buttons and CTAs.
 - `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall (`sizes.cardRowMin`).
-- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `tile` 132 (list tiles, a minimum), `iconWell` 36 (recipe icon tiles and round actions buttons in card headers). Radii `badge` 10 and `segment` 11.
+- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `tile` 132 (list tiles, a minimum), `iconWell` 36 (recipe icon tiles and round actions buttons in card headers), `sheetIcon` 52 (the item sheet's icon tile), `removeButton` 32 (round − on "Added" rows), `fieldLabel` 76 (the label column of Name / Amount / Note rows, a minimum). Radii `badge` 10 and `segment` 11.
 
 ## Components (`src/components/`)
 
@@ -97,13 +97,13 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - **Autocomplete panel**: a `surface` card above the add bar; a `caption` "YOU USUALLY BUY" (or "SUGGESTIONS" when only the catalog matched), then 50 pt rows: aisle dot, the name with the typed part in `headline`, and the short aisle name (`shortAisleName`) on the right in `footnote`.
 - **Round check**: 24 pt circle, 2 pt `controlBorder` ring when off; filled `primary` with an `onPrimary` tick when on. "Sorting…" items show a dashed `aisles.amber.dot` ring and a `pending` "Sorting…" label (`caption`) on a `pendingSoft` card. The whole row is the tap target.
 - **Section header**: aisle `dot` (10 pt circle), the name in `sectionTitle`, then the count in `inkSecondary` (13 / 600) on the right. Padding 14 top, 6 bottom, 16 sides. Recipe sections use a 36 pt rounded icon well in place of the dot.
-- **Pill**: 40 pt tall (38 in the boards), radius `full`, 14 pt side padding. Off: `surface` with `ink` text (600). On: filled (ink, or the aisle `dot` for the aisle picker) with white text (700). "+ New" pills are dashed `controlBorder` outlines.
+- **Pill**: 40 pt tall (38 in the boards), radius `full`, 14 pt side padding. Off: `surface` with `ink` text (600). On: filled (ink, or the aisle's `strong` shade for the aisle picker: `Pill hue=…`) with light text (700). "+ New" pills (`Pill dashed`) are 2 pt dashed `controlBorder` outlines with `inkSecondary` text. Colours come from `pillLook` in `appearance.ts`.
 - **Segmented control**: `surfaceMuted` track, radius `md`, 3 pt inset; segments 34 pt tall with radius 11; the selected one is `surface` with `ink` 15 / 700, others transparent 15 / 600. Each segment is `accessibilityRole="tab"` with its selected state; keep a 44 pt hit area.
 - **Primary CTA**: 54 pt tall, `primary`, radius `full`, `onPrimary` `headline` text, optional leading icon with an 8 pt gap. Full width inside 16 pt margins.
 - **Soft destructive button**: `dangerSoft` fill, `danger` text (16 / 700), 48 pt tall, radius `full`. Small round remove buttons (32 pt glyph, 44 pt hit area) use the same pair.
 - **Badge**: `caption` on a radius-10 tint, 4 × 8 padding. Positive: `onPrimarySoft` on `primarySoft` ("On Groceries", "Synced"). Owner: `pending` on `aisles.amber.soft`.
 - **Bottom add bar**: on `background`, 12 pt top / 16 pt side padding, pinned above the keyboard. A 52 pt `surface` pill input (radius `full`, `body` text) with a 40 pt round `primary` + button inside on the right. A 2 pt `primary` ring while focused; a light shadow in light mode.
 - **Toast**: a 52 pt `toast` pill floating 16 pt from the edges above the add bar, `onToast` 15 pt message, and a 40 pt `surface` Undo pill (`ink`, 700) on the right. Times out after `motion.undoTimeoutMs`.
-- **Sheet**: `background` sheet with `sheet` top corners on a `scrim` backdrop. Header row: Cancel (plain `ink` text), a 36 × 5 `controlBorder` grabber, and a 40 pt `primary` Save pill. Then the title (`sheetTitle`) with a 52 pt `aisles[hue].soft` icon well, then cards of fields with `sectionLabel` labels above them.
+- **Sheet**: `background` sheet with `sheet` top corners on a `scrim` backdrop. Header row: Cancel (plain `ink` text), a 36 × 5 `controlBorder` grabber, and a 40 pt `primary` Save pill. Then the title (`sheetTitle`) with a 52 pt `aisles[hue].soft` icon well (glyph from `aisleSymbol(slug)`), then cards of fields with `sectionLabel` labels above them. Native sheets keep the native header: the toolbar's Cancel and `done` Save, the system grabber, and an empty header title.
 - **List tile**: two-column grid, 12 pt gap, 132 pt tall, `surface`, radius `tile`, 16 pt padding. A count in display 34 / 800 above the name (`callout`, 600). The default (Groceries) tile is `primary` with `onPrimary` text.
 - **Nav row buttons** (inside native headers where the boards show them): 44 pt round `surface` buttons with `ink` glyphs; the primary action is `primary`.

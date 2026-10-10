@@ -1,18 +1,23 @@
 import { Pressable, StyleSheet, type PressableProps } from 'react-native';
 
-import { pillColors } from '@/components/appearance';
+import { pillLook } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
+import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = Omit<PressableProps, 'children' | 'style'> & {
   label: string;
   selected?: boolean;
+  /** Fill the selected pill in this aisle's colour instead of ink (the item sheet's aisle picker). */
+  hue?: AisleHue;
+  /** A dashed "+ New" outline. */
+  dashed?: boolean;
 };
 
-/** A 40 pt choice pill: `surface` when off, an ink fill with white text when on. */
-export function Pill({ label, selected = false, disabled, accessibilityState, ...rest }: Props) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  const look = pillColors(selected);
+/** A 40 pt choice pill: `surface` when off, an ink (or aisle) fill with light text when on. */
+export function Pill({ label, selected = false, hue, dashed = false, disabled, accessibilityState, ...rest }: Props) {
+  const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
+  const look = pillLook({ selected, hue, dashed }, colors, aisles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -26,12 +31,13 @@ export function Pill({ label, selected = false, disabled, accessibilityState, ..
           minHeight: sizes.pill,
           paddingHorizontal: spacing.md + spacing.xxs,
           borderRadius: rounded.full,
-          backgroundColor: colors[look.fill],
+          backgroundColor: look.fill,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
+        look.border ? { borderWidth: sizes.checkBorder, borderStyle: 'dashed', borderColor: look.border } : null,
       ]}
       {...rest}>
-      <ThemedText variant="amount" color={look.text} style={selected ? styles.selected : undefined}>
+      <ThemedText variant="amount" style={[{ color: look.text }, selected ? styles.selected : undefined]}>
         {label}
       </ThemedText>
     </Pressable>

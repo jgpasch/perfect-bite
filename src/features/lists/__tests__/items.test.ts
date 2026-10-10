@@ -13,6 +13,7 @@ import {
   deleteItem,
   DuplicateItemError,
   getItemEdit,
+  getItemHouseholdName,
   groupItems,
   listItemsQuery,
   planBulkAddToList,
@@ -30,7 +31,7 @@ import {
 import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getOrderedCategories, loadCatalogSeed, setCategoryOverride } from '@/features/categories/categories';
-import { createRecipe } from '@/features/recipes/recipes';
+import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
@@ -836,5 +837,44 @@ describe('Sorting section (spec 4.3.1)', () => {
       ['Spices & Seasonings', ['dukkah']],
       ['Other', ['flux capacitor']],
     ]);
+  });
+});
+
+describe('item sheet "Added" rows and household (board 04)', () => {
+  const addFromRecipe = (recipeId: string) =>
+    addItemsBulk(listId, [{ text: '1 cup milk', source: 'recipe', recipeId }], USER, new Set());
+
+  test('contributionsQuery says who added each amount and from which recipe', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    addFromRecipe(createRecipe('Lasagne'));
+    expect(contributionsQuery(milk.itemId).all().map((c) => [c.source, c.addedBy, c.recipeName])).toEqual([
+      ['manual', USER, null],
+      ['recipe', USER, 'Lasagne'],
+    ]);
+  });
+
+  test('a deleted recipe no longer names its amount', () => {
+    const milk = addItem(listId, '1 gal milk', USER)!;
+    const lasagne = createRecipe('Lasagne');
+    addFromRecipe(lasagne);
+    deleteRecipe(lasagne);
+    expect(contributionsQuery(milk.itemId).all().map((c) => [c.source, c.recipeId, c.recipeName])).toEqual([
+      ['manual', null, null],
+      ['recipe', null, null],
+    ]);
+  });
+
+  test('getItemHouseholdName reads the name of the household the item belongs to', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const householdId = db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+    db.update(households).set({ name: 'Our place' }).where(eq(households.id, householdId)).run();
+    expect(getItemHouseholdName(milk.itemId)).toBe('Our place');
+  });
+
+  test('getItemHouseholdName is null for a deleted or unknown item', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    deleteItem(milk.itemId);
+    expect(getItemHouseholdName(milk.itemId)).toBeNull();
+    expect(getItemHouseholdName('no-such-item')).toBeNull();
   });
 });

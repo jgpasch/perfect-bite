@@ -44,7 +44,8 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="list/[id]/item/[itemId]"
                   options={{
-                    title: 'Edit item',
+                    // Board 04: Cancel, grabber, Save; the item's name is the sheet's title below.
+                    title: '',
                     presentation: 'formSheet',
                     sheetAllowedDetents: [0.6, 1],
                     sheetGrabberVisible: true,

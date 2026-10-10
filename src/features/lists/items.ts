@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle-
 
 import {
   db,
+  households,
   ingredientUnitUsage,
   ingredientUsage,
   ingredients,
@@ -284,9 +285,13 @@ export function contributionsQuery(itemId: string) {
       recipeId: listItemContributions.recipeId,
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
+      addedBy: listItemContributions.addedBy,
+      /** For the sheet's "Added" rows; null if the recipe is gone. */
+      recipeName: recipes.name,
       createdAt: listItemContributions.createdAt,
     })
     .from(listItemContributions)
+    .leftJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
     .where(and(eq(listItemContributions.listItemId, itemId), liveContribution))
     .orderBy(asc(listItemContributions.createdAt));
 }
@@ -725,6 +730,17 @@ export function getItemEdit(
       usualUnit: unit,
     };
   });
+}
+
+/** The name of the household an item's list belongs to, for the item sheet; null if the item is gone. */
+export function getItemHouseholdName(itemId: string): string | null {
+  const row = db
+    .select({ name: households.name })
+    .from(listItems)
+    .innerJoin(households, eq(households.id, listItems.householdId))
+    .where(and(eq(listItems.id, itemId), liveItem))
+    .get();
+  return row?.name ?? null;
 }
 
 function listItemsQueryForItem(tx: Tx, itemId: string) {
