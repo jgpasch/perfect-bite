@@ -252,3 +252,11 @@ export function toastAnnouncement(message: string, actionLabels: string[]): stri
   if (actionLabels.length === 0) return message;
   return `${message}. ${actionLabels.join(', ')} available.`;
 }
+
+/**
+ * The add bar's round button: always the + ("Add"), disabled and dimmed while the field is empty or
+ * blank. It never turns into a hide-keyboard button; return on an empty field does that.
+ */
+export function addBarButton(value: string): { label: 'Add'; disabled: boolean } {
+  return { label: 'Add', disabled: !value.trim() };
+}

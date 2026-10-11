@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { addBarButton } from '@/components/appearance';
 import { Icon } from '@/components/icon';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { useTheme } from '@/hooks/use-theme';
@@ -39,9 +40,8 @@ export function AddBar({
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
   const [focused, setFocused] = useState(false);
-  const empty = !value.trim();
-  // While typing into an empty field the disabled + would be dead weight, so it hides the keyboard instead.
-  const dismiss = focused && empty;
+  const button = addBarButton(value);
+  const empty = button.disabled;
   const inset = (sizes.bar - sizes.barButton) / 2;
 
   return (
@@ -86,10 +86,10 @@ export function AddBar({
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={dismiss ? 'Hide keyboard' : 'Add'}
-          accessibilityState={{ disabled: empty && !dismiss }}
-          disabled={empty && !dismiss}
-          onPress={dismiss ? Keyboard.dismiss : onSubmit}
+          accessibilityLabel={button.label}
+          accessibilityState={{ disabled: empty }}
+          disabled={empty}
+          onPress={onSubmit}
           hitSlop={(sizes.minTapTarget - sizes.barButton) / 2}
           style={({ pressed }) => [
             styles.add,
@@ -97,15 +97,11 @@ export function AddBar({
               width: sizes.barButton,
               height: sizes.barButton,
               borderRadius: rounded.full,
-              backgroundColor: dismiss ? colors.surfaceMuted : colors.primary,
-              opacity: empty && !dismiss ? opacity.disabled : pressed ? opacity.pressed : 1,
+              backgroundColor: colors.primary,
+              opacity: empty ? opacity.disabled : pressed ? opacity.pressed : 1,
             },
           ]}>
-          {dismiss ? (
-            <Icon name="keyboard.chevron.compact.down" color="ink" weight="semibold" />
-          ) : (
-            <Icon name="plus" color="onPrimary" weight="bold" />
-          )}
+          <Icon name="plus" color="onPrimary" weight="bold" />
         </Pressable>
       </View>
     </View>

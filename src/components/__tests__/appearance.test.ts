@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import {
+  addBarButton,
   aisleRowLook,
   aisleSymbol,
   avatarColors,
@@ -442,6 +443,23 @@ describe('toastAnnouncement', () => {
 
   it('announces only the message without actions', () => {
     expect(toastAnnouncement('Saved', [])).toBe('Saved');
+  });
+});
+
+describe('addBarButton', () => {
+  it('is a disabled Add on an empty field, never a hide-keyboard button', () => {
+    expect(addBarButton('')).toEqual({ label: 'Add', disabled: true });
+  });
+
+  it('stays disabled on a blank field', () => {
+    expect(addBarButton('   ')).toEqual({ label: 'Add', disabled: true });
+    expect(addBarButton('\n\t')).toEqual({ label: 'Add', disabled: true });
+  });
+
+  it('is an enabled Add once the field has text', () => {
+    expect(addBarButton('milk')).toEqual({ label: 'Add', disabled: false });
+    expect(addBarButton(' 2 eggs ')).toEqual({ label: 'Add', disabled: false });
+    expect(addBarButton('x')).toEqual({ label: 'Add', disabled: false });
   });
 });
 
