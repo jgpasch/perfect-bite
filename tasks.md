@@ -120,7 +120,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
 
 ### Spec
 
-- [ ] Spec for recipe import. In `docs/spec.md`: move "Recipe import from URLs" out of §1 Non-goals and add it to the requirements table as req 14. Add §4.10 "Recipe import (req 14)", covering:
+- [x] Spec for recipe import. In `docs/spec.md`: move "Recipe import from URLs" out of §1 Non-goals and add it to the requirements table as req 14. Add §4.10 "Recipe import (req 14)", covering:
   - the share-sheet flow and the in-app "Add recipe from link…" flow;
   - which list it goes to (picker defaulting to the last-opened list, then the Siri default);
   - reusing an existing recipe in that household with the same canonical `source_url` instead of creating a duplicate;

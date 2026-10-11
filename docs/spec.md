@@ -34,7 +34,7 @@ This document is written to be handed to Claude Code as the build brief. Section
 ### Non-goals (v1)
 - iPad-optimized layouts, Apple Watch, Android.
 - Prices, budgets, store/aisle maps, barcode scanning.
-- Recipe import from URLs, meal planning, pantry tracking.
+- Meal planning, pantry tracking. (Recipe import from URLs was a non-goal; it is now requirement 14, section 4.10.)
 - Notifications (Later, section 11.1).
 - Sign in with Apple, email/password accounts.
 
@@ -60,6 +60,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 | 11 | View a list flat or grouped by recipe | 4.6 |
 | 12 | "Hey Siri, add to The Perfect Bite" sends an ingredient to a list | 4.9 |
 | 13 | Notifications (someday) | 11.1 |
+| 14 | Import a recipe from a link (share sheet or in-app) onto a list | 4.10, 6.6 |
 
 ---
 
@@ -139,7 +140,7 @@ A duplicate is an add whose normalized ingredient matches an **unchecked** item 
 - **Bulk add** (adding a recipe to a list): no clash step. Each chosen ingredient behaves exactly like a single add: an open match Combines (as a recipe contribution, so the item also groups under the recipe), a checked match is unchecked with its amounts replaced, and the same ingredient twice in the recipe folds into one item. The list then shows one toast for 5 seconds: "Added *Tacos* · 8 items" (the number of ingredients added) with **Undo**, which removes every contribution that add made in one step: new items go, Combined items return to their earlier amounts, and reopened items are checked again with their old amounts. Uses counted by the add (4.2) are taken back too. No row highlights; the items appear wherever the current view puts them (4.6).
 
 ### 4.5 Recipes (req 2)
-- Recipes belong to the household. A recipe has a name, optional notes, optional source URL, and a list of recipe ingredients (ingredient, quantity, unit, note).
+- Recipes belong to the household. A recipe has a name, optional notes, optional source URL (set by recipe import, 4.10), and a list of recipe ingredients (ingredient, quantity, unit, note).
 - **Start from the recipe**: Recipes tab, "New recipe", name it, add ingredients with the same add field and parser as lists.
 - **Start from ingredients**: on any list, long-press an item (light haptic; VoiceOver: the row's "Select" action) to enter Select mode with it already selected, or choose "Select items" from the list's menu; tap the others, then **Add to recipe**. That opens a sheet titled "Add N items to…": a **New recipe** row at the top with an inline name field (Return creates the recipe, in the list's household, from the selection), then the household's recipes, each with its tinted icon tile and ingredient count, most recently used first (the later of the recipe's last change and the last time it was added to a list). Only recipes in the list's household are offered. Picking one appends the items to it (skipping ingredients it already has). Either way the selected list items also get that recipe added as a contribution, so they immediately group under it; the sheet closes, Select mode ends, the list switches to By recipe and a toast says "Added 3 items to Tacos" with **View recipe**. Swiping the sheet away or Cancel keeps the selection.
 - The Recipes tab groups recipes by household the same way lists are grouped (4.1).
@@ -225,7 +226,8 @@ All changes sync live to all members' devices.
   - `@Parameter(title: "Item", requestValueDialog: "What do you want to add?") var text: String`
   - `@Parameter(title: "List") var list: ListEntity?`
   - `openAppWhenRun = false`
-- `ListEntity` values come from a **list snapshot** (`lists.json`: id, name, and household name per list across all the user's households, plus the default list id) that the app writes to the App Group container on launch and whenever lists, memberships or the default list change, and deletes on sign-out. Archived lists are left out. Settings > Siri adds to picks the default list. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate.
+- `ListEntity` values come from a **list snapshot** (`siri/lists.json`: id, name, and household name per list across all the user's households, plus the default list id and `lastOpenedListId`, the list screen last opened on this device or null) that the app writes to the App Group container on launch and whenever lists, memberships or the default list change, and deletes on sign-out. Archived lists are left out. Settings > Siri adds to picks the default list. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate. The app also rewrites the snapshot whenever a list screen opens, so `lastOpenedListId` stays current; the share extension (4.10) reads the same file for its list picker.
+- The App Group container holds, besides `siri/lists.json` and the Siri queue (`siri/pending/`), the **share queue** `share/pending/<uuidv7>.json` (4.10). A share envelope is `{ id: uuidv7, url, listId | null, page?: { title?, jsonLd?: string[], text? }, createdAt, appVersion, source: "share" }`, with the same caps as the import request's `page` (6.6). Like the Siri envelope it has one Zod schema in `src/shared/` (`schemas/share.ts`), a matching Swift `Codable` in `targets/_shared/`, and a contract test; files are written atomically (`.tmp`, then rename).
 - `perform()`:
   1. Writes an envelope to the App Group queue: `{ id: uuidv7, text, list_id | null, created_at, source: "siri" }`.
   2. Makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**
@@ -234,6 +236,35 @@ All changes sync live to all members' devices.
 - The app drains the queue on launch, foreground and sign-in (as stash does; signed out, adds wait), one drain at a time, oldest first. Each envelope is parsed like a typed add and goes to its list, or the default list if that list is gone or archived, as a Siri contribution that Combines silently (4.4), dated when it was spoken. The item and contribution ids are UUIDv5s of the envelope id (`siriAddIds`), so an envelope applied twice (a crash before its file is deleted, or already applied by `siri-add`) is a no-op. Applied files are deleted; unreadable ones, and text with nothing to add, are logged and deleted. New names go to categorization in one batch, and a list screen that's showing gets one toast, "Siri added 2 items".
 - Envelope format: one Zod schema in `src/shared/` and a matching Swift `Codable`, with a contract test (as stash).
 - **App name**: the App Shortcut phrase must include the app's display name, so the bundle display name must be exactly what users say. Stash had to use phrases like "Add to my Stash"; test early whether "add to The Perfect Bite" is recognized reliably, and register a few variants ("Add to Perfect Bite", "Add something to The Perfect Bite"). **[SPIKE]**
+
+### 4.10 Recipe import (req 14)
+
+On a recipe page, the user picks a list and taps **Add**. The recipe is saved to the household (its name, source URL and every ingredient), and all its ingredients go onto that list, grouped under the recipe in By recipe view (4.6). The user never types an ingredient. Extraction happens on the server (6.6).
+
+**From the share sheet**
+1. In Safari (or any app that shares a link): Share → **The Perfect Bite**. The extension accepts one web URL, one web page, or text containing a URL (apps like Instagram and Messages share a URL inside text; the first `http(s)` URL is used). It doesn't take images.
+2. The sheet shows the page title (or the host when there's none) with the host on a second line, a list picker grouped by household, **Add to <list>** and Cancel. With no list snapshot yet it says "Open The Perfect Bite once to set up" instead.
+3. **Add** writes a share envelope to the App Group queue (4.9) and shows "Added. It'll be on your list when you open The Perfect Bite." for about a second, then closes. The extension makes no network call (auth from extensions is the unsolved Siri token problem, `docs/spikes.md` §2) and runs no React Native. In Safari, the extension also captures the page's title, its `application/ld+json` blocks and its readable text, so pages behind a sign-in or paywall import from what the user sees; other apps only give the URL.
+4. The app **drains the share queue** on launch, foreground and reconnect, next to the Siri queue: one drain at a time, oldest first, each envelope imported as below with the envelope id as the import id, so an envelope imported twice (a crash before its file is deleted) creates one recipe. An imported file is deleted; an unreadable one is logged and deleted.
+
+**From inside the app**
+- **Add recipe from link…** in a list's menu imports into that list. **Import from link** on the Recipes tab asks for the list first, with the same default as the share sheet.
+- A small sheet has a URL field and a **Paste** button. The clipboard is read only when Paste is tapped, so iOS shows no paste prompt when the sheet opens. While it works the sheet shows "Reading recipe…", then closes on success.
+
+**Which list.** The picker defaults to the list last opened on this device (`lastOpenedListId`, 4.1), then the user's default list (4.1), then the first list; archived and deleted lists don't count. If a queued share's list is gone or archived by the time it drains, it goes to the default list.
+
+**Which recipe.** A recipe's `source_url` is stored in canonical form: lowercase host, no `www.`, no fragment, no tracking parameters (`utm_*`, `fbclid`, `gclid`, `ref`, `mc_*`), no trailing slash. If the list's household already has a recipe with the same canonical `source_url`, the import reuses it: no duplicate recipe is created, and the existing recipe is left as it is. Otherwise a new recipe is created in that household with the page's recipe name, the source URL, notes "Serves N" when the page says, and its ingredients in page order (name, quantity, unit, note, as 4.5).
+
+**What goes on the list.** Every ingredient, at 1×, with no checklist step, as the recipe's contributions, exactly like 4.4 bulk add with Combine-silently duplicate handling: an open match Combines, a checked match is unchecked with its amounts replaced, and the same ingredient twice folds into one item. Household usage counts as a recipe add (4.2). Categories for new names come back with the import, so nothing shows "Sorting…" unless categorizing them failed (then 6.3's catch-up retries them as usual).
+
+**The toast.** On the list screen: "Added *Chicken tikka masala* · 12 items" for 5 seconds with **Undo** and **View recipe**. Undo removes every contribution the import added to the list (as bulk-add Undo does) and deletes the recipe if this import created it; a reused recipe stays. View recipe opens the recipe. When one drain imports several shares, a single toast says "Added 3 recipes".
+
+**Not a recipe, or the import fails**
+- In the app, failures show inline in the sheet in plain words, and the sheet stays open: "That page doesn't look like a recipe" (anything that isn't a single recipe: an article, a page listing many recipes), "Couldn't reach that site" (the page couldn't be fetched or isn't HTML), "Try again in a minute" (rate limit or the service unavailable), "That doesn't look like a link" (an invalid URL) [Default], and "You're offline" [Default]. Nothing is written.
+- For a share: "not a recipe" is recorded as a **failed import** at once and the file deleted. Offline, signed-out, rate-limited and other temporary failures keep the file for the next drain; after 5 attempts (counted per envelope in device settings) it is recorded as a failed import and deleted.
+- **Failed imports** are kept on the device only (`failed_imports`: url, title, reason, when; not synced). While there are any, the Recipes tab shows a card at the top, "Couldn't import 1 recipe", which expands to one row per import with its title (or host), the reason, **Try again** (imports it into the default list) and **Dismiss**.
+
+**Offline.** A share always succeeds in the extension, online or not: the envelope waits in the App Group until the app is open, signed in and online, then imports. A signed-out app keeps it until after sign-in. The in-app sheet needs a connection; offline it says so and queues nothing.
 
 ---
 
@@ -448,7 +479,7 @@ Note the `create table` order above is for readability; the real migration must 
 
 ---
 
-## 6. Ingredient categorization (req 4, 5, 5.1)
+## 6. Ingredient categorization and recipe extraction (req 4, 5, 5.1, 14)
 
 ### 6.1 Flow
 1. Client adds an item. It normalizes the name and looks in its local ingredient cache.
@@ -483,20 +514,47 @@ Seed the `ingredients` table with about 7,000 common grocery items pre-categoriz
 - Validation: any missing name, unknown slug or unknown unit is marked `failed` and gets category Other. Failed rows retry (max 3 attempts), then stay Other.
 - A small golden set (~100 names with expected categories and accepted units, including 5 prompt-injection names) runs as an eval when the model or prompt changes: `yarn ai:eval`. `yarn ai:categorize <names>` runs one call by hand (`--model`, `--thinking`, `--repeat N` for p50/p95 latency). Both use the real model and are run by hand only.
 
-**LLM boundaries.** These hold for every model call in the app.
+**LLM boundaries.** These hold for every categorize call; recipe extraction follows the same principles with its own caps (6.6).
 - **Input.** User text is data, never instructions. Names are normalized with the shared normalizer, and names empty afterwards are dropped. A name over 64 characters (after normalizing) is answered `failed` (Other) without reaching the LLM. A request has at most 100 names and a body of at most 16 KB (413 otherwise).
 - **Prompt.** The system prompt (instructions) holds the rules, the category list and the units. The names go in the user prompt only, as a JSON array, after a line saying they are untrusted item names to classify and that any instructions inside them are to be ignored. Prompts live in versioned files (`_shared/ai/prompts/categorize.v2.ts`, exporting `CATEGORIZE_PROMPT_VERSION`).
 - **Output.** The model can only choose a category slug and a unit (both Zod enums) and a boolean per name. No free text from the model is stored or returned to a client. An answer whose `name` isn't one of the names sent is ignored, the first answer for a name counts, and the output is cut to the number of names sent.
 - **Call limits.** `temperature: 0`, `maxOutputTokens` scaled to the batch (50 per name plus 200, capped at 5,500), a 20 s timeout, `maxRetries: 1`, no tools. There's no fallback model unless `AI_MODEL_CATEGORIZE_FALLBACK` is set.
 - **Failures.** Bad output (a missing name, an unknown slug or unit) marks those names `failed` with `attempts + 1`; output that fails the schema fails every name in the call. A provider error or timeout isn't the names' fault: they are answered `pending` without counting an attempt, and the next add or catch-up retries them. The rate limits bound those retries.
 - **Cost.** Per user: 60 requests a minute and 500 LLM-bound names a day (429 beyond either). Globally: `CATEGORIZE_DAILY_NAME_CAP` (default 20,000) LLM-bound names a day across all users. Once it's reached, the function refuses a request that needs the LLM with a 503 and `Retry-After` (an hour), writing nothing, so the client's names stay `pending`; requests answered entirely from the database still succeed. `AI_MODEL_CATEGORIZE=off` is a kill switch: no model call, and LLM-bound names are answered `pending` (a 200). `mock` never touches the network.
-- **Privacy (6.5).** `ai_calls` logs each call's prompt, output, tokens and timing but no user id; only the service role can read it, and rows expire after 30 days. Logs never include the JWT or headers. Categorize is the only AI task; nothing else in the app calls a model.
+- **Privacy (6.5).** `ai_calls` logs each call's prompt, output, tokens and timing but no user id; only the service role can read it, and rows expire after 30 days. Logs never include the JWT or headers. Categorize and recipe extraction (6.6) are the only AI tasks; nothing else in the app calls a model.
 - **Secrets and tests.** Provider keys live only in `supabase/functions/.env` (gitignored) and Supabase secrets, never in the app bundle or `EXPO_PUBLIC_*`. `deno test` and `yarn jest` always use the mock or `MockLanguageModelV4`. Real-model runs (`yarn ai:categorize`, `yarn ai:eval`, `yarn ai:check-seed`) are manual only.
 
 **Changed in implementation.** The rate-limit counters live in Postgres: `private.categorize_usage` (per user and UTC day: requests in the current fixed one-minute window, and LLM-bound names today) and `private.categorize_daily_total` (the global count per day). `public.check_categorize_limit` (service role only) checks and updates them once per request, before anything is written, locking the rows so concurrent requests can't both slip under a limit; a refused request uses no budget. pg_cron only prunes old usage and `ai_calls` rows; nothing calls the function on a schedule.
 
 ### 6.5 Privacy
 Ingredient names typed or spoken by any user become part of the global catalog and are sent to the LLM. The catalog stores only the normalized name, never who typed it; `ingredient_households` (service role only) records which households used it, solely to maintain `household_count`. Autocomplete from the global catalog only suggests ingredients with `is_grocery_item = true` and `household_count >= N` [Default N=3], so one person's odd entry doesn't leak into everyone's suggestions.
+
+### 6.6 Recipe extraction
+The `import-recipe` Edge Function turns a link into a recipe for 4.10. It takes a JWT-authenticated `POST` of `RecipeImportRequest`: `url`, plus an optional `page: { title?, jsonLd?: string[] (each ≤ 200 KB, ≤ 10), text?: string ≤ 50 KB }` when Safari already captured the page. The request, the LLM output and the response share Zod schemas in `src/shared/schemas/recipe-import.ts`, used by the app and the function, along with `canonicalRecipeUrl` (4.10's canonical form).
+
+**Flow**
+1. Validate the request and canonicalize the URL (`400 invalid_url` for a bad or non-`http(s)` URL).
+2. Check the per-user rate limits and the global cap (below), before anything is written.
+3. On a cache hit in `recipe_imports` (canonical URL + prompt version, under 30 days old), skip to step 6.
+4. Use the request's `page` if present; otherwise fetch the page on the server (`fetchPage`, `_shared/fetch-page.ts`, with the fetching rules below), which returns the final URL, title, JSON-LD blocks and readable text (the page without `script`, `style`, `nav`, `header`, `footer`, `aside` and comments, whitespace collapsed, preferring the article or recipe-card element when there is one).
+5. **JSON-LD first**: most recipe sites embed a schema.org `Recipe`. `findRecipe` (`src/shared/recipe-jsonld.ts`, pure) reads its name, ingredient lines and servings from a top-level object, an array or `@graph`, with `@type` as a string or an array, `recipeIngredient` (or legacy `ingredients`), and `recipeYield` as a number, string or array; it decodes HTML entities and strips tags, and one malformed block doesn't spoil the others. **Page text is the fallback** when no block holds a recipe. Either way, one `extract-recipe` LLM call turns it into a name, servings and structured ingredients.
+6. Send the ingredient names to the shared `categorize()` (6.1, 6.4) in the same request: known names come from the database, unknown ones make at most one more LLM call, under categorize's own boundaries and limits. So the client gets categories back and nothing shows "Sorting…".
+7. Respond with `RecipeImportResponse`: `{ name, sourceUrl (canonical), servings, ingredients: [{ ingredientName (normalized key), displayName, quantity, unit, note, categoryId | null, status }] }`.
+
+Errors: `invalid_url` (400), `fetch_failed` (the page couldn't be fetched, timed out, was too big or isn't HTML), `not_a_recipe` (422), `rate_limited` (429), `unavailable` (503 with `Retry-After`: the global cap, the `off` kill switch, or a provider error or timeout).
+
+**LLM boundaries** for `extract-recipe`. Same principles as categorize (6.4).
+- **Input.** Page content is untrusted data, never instructions. It goes in the user prompt after a line saying so. The instructions hold only the rules, the unit list and the output contract. Caps: at most 80 ingredient lines of 300 characters each; page text at most 30,000 characters after stripping. Anything longer is truncated, never rejected.
+- **Prompt.** Versioned (`_shared/ai/prompts/extract-recipe.v1.ts`, exporting `EXTRACT_RECIPE_PROMPT_VERSION`). It asks for `is_recipe: false` for anything that isn't a single recipe; one entry per ingredient line, dropping sub-recipe headings ("For the sauce:"); the shopping name, not the prep, in `name` ("2 cloves garlic, minced" → `garlic`, 2 `clove`, note `minced`); "1 (15 oz) can chickpeas" → 1 `can`, note `15 oz`; the higher number of a range; no quantity for "to taste" and "for serving", which go in `note`; only supported units, otherwise `null`.
+- **Output.** A Zod schema (`ExtractedRecipe`): `{ is_recipe: boolean, name: string ≤ 120, servings: number | null, ingredients: [{ name ≤ 64, quantity: number | null, unit: <supported unit enum> | null, note ≤ 120 }] ≤ 80 }`. Names are normalized with the shared normalizer, and any that are empty afterwards (or over 64 characters) are dropped. A unit the app doesn't support (4.2) comes back as `null`, with the original wording kept in `note`. Nothing else from the model is stored or shown.
+- **Call limits.** `temperature: 0`, no tools, `maxRetries: 1`, a timeout sized to the measured model, `maxOutputTokens` scaled to the line count. Model `AI_MODEL_RECIPE` [Default: `google:gemini-3.8-flash`, with categorize's thinking setting unless extraction quality needs more], optional `AI_MODEL_RECIPE_FALLBACK`.
+- **Cost.** Per user: 10 imports a minute and 50 a day (429 beyond either), counted in Postgres as categorize's limits are. Globally: `RECIPE_IMPORT_DAILY_CAP` (default 2,000) imports a day. `AI_MODEL_RECIPE=off` is a kill switch (503). `mock` never touches the network; it runs the shared quantity parser over the lines.
+- **Fetching.** `http`/`https` only. DNS is resolved and private, loopback, link-local and metadata addresses (IPv4 and IPv6) are refused, re-checked on every redirect (at most 5). A 10 s timeout, a 3 MB body cap, `text/html` only.
+- **Privacy.** `ai_calls` stores the prompt and output but no user id (6.5). `recipe_imports` stores the URL, the extraction and timestamps, with no user id.
+
+**Cache.** `recipe_imports` (`url_key` text, `prompt_version`, `result jsonb`, `is_recipe`, `created_at`; primary key (`url_key`, `prompt_version`); RLS on with no policies, so service role only). Successful server-fetched extractions are cached by canonical URL and prompt version for 30 days, so a popular recipe costs one call; a `not_a_recipe` answer is cached too, so a repeat costs nothing. Results built from client-supplied page content are never cached, so one user can't poison the cache for others, and provider errors and timeouts are never cached. A daily pg_cron job deletes rows older than 30 days.
+
+**Tools.** `yarn ai:recipe <url | --file page.html>` runs the handler against an in-memory store and prints the name, servings and an ingredient table. `yarn ai:eval:recipe` runs about 20 saved pages (JSON-LD and text-only from different sites, non-recipe pages, and pages with injection text in an ingredient line) and prints per-page precision and recall on ingredient keys, unit and quantity accuracy, and every miss. Both use the real model and are run by hand only; `deno test` runs the eval harness with the mock.
 
 ---
 
@@ -570,23 +628,27 @@ src/
   features/
     lists/          ListsHome, ListDetail, AddItemBar, ItemRow, ItemEditSheet,
                     DuplicatePromptSheet, BulkDuplicateSheet, ViewModePicker
-    recipes/        RecipesList, RecipeDetail, AddRecipeToListSheet, MakeRecipeFromSelectionSheet
+    recipes/        RecipesList, RecipeDetail, AddRecipeToListSheet, MakeRecipeFromSelectionSheet,
+                    import (importRecipe, the share-queue drain, failed imports; 4.10)
     categories/     CategoryPicker, ReorderSections
     households/     HouseholdsScreen, HouseholdDetail, InviteSheet, JoinHousehold, CopyRecipeSheet
     siri/           app-group-queue (drain), list-snapshot (writes lists.json)
     auth/
   domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver
   shared/           used by app AND Edge Functions: zod schemas, ingredient-normalizer,
-                    quantity-parser, siri envelope schema
+                    quantity-parser, siri and share envelope schemas, recipe-import schemas,
+                    recipe-jsonld
   db/               Drizzle schema mirroring section 5, migrations, live queries
   sync/             outbox, hlc, drain, push (apply_mutations), pull, realtime
   lib/              supabase client, google sign-in, secure store
 targets/
   add-intent/       AddToPerfectBiteIntent.swift, ListEntity, App Group queue writer
+  share-recipe/     share extension (4.10): SwiftUI sheet, Preprocess.js, share queue writer
 supabase/
   migrations/       schema, RLS, triggers, apply_mutations, household functions, seed categories,
-                    seed ingredients, categorize rate limits, ai_calls
-  functions/        categorize-ingredients/, siri-add/, delete-account/, _shared/
+                    seed ingredients, categorize and recipe-import rate limits, ai_calls, recipe_imports
+  functions/        categorize-ingredients/, siri-add/, import-recipe/, delete-account/,
+                    _shared/ (incl. fetch-page)
   tests/            RLS and apply_mutations tests
 ```
 
@@ -688,6 +750,12 @@ Each milestone should end with a working app and passing tests.
    - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Rename, leave, remove and roles are still M7. *Also landed early (with M5)*: invites: `household_invites` with `create_invite` / `preview_invite` / `accept_invite`, an "Invite someone" button on the household screen and the join screen (`src/app/invite/[token].tsx`), using the app scheme until Universal Links have a domain.
 9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function (categorizes unknown names inline by calling the shared `categorize()`), default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
 10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (once Q13 is decided), TestFlight.
+11. **M10 Recipe import** (4.10, 6.6), after M6's categorizer works, since extraction is a bigger LLM call:
+    - *Spec*: this section, 4.10 and 6.6.
+    - *Server*: shared schemas and `canonicalRecipeUrl`; the JSON-LD recipe reader with real-site fixtures; safe page fetch and readable text; the `extract-recipe` AI task and prompt, with a recipe mock; the `import-recipe` Edge Function with rate limits, global cap and the `recipe_imports` cache; `yarn ai:recipe` and the recipe eval (`yarn ai:eval:recipe`).
+    - *App, before the extension*: the client import (`importRecipe`: recipe reuse by URL, bulk add with Combine, undo, typed errors); the "Add recipe from link…" / "Import from link" sheet and toast.
+    - *Share extension*: share envelope and `lastOpenedListId` snapshot schemas with the Swift contract test; the `targets/share-recipe/` extension; draining the share queue in the app; failed imports on the Recipes tab.
+    - *End-to-end pass on a device*: Safari with and without JSON-LD, Chrome, a URL in text, a paywalled page, a non-recipe page, offline, signed out, and the same recipe twice.
 
 ---
 
