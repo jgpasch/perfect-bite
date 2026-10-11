@@ -2,6 +2,13 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   addedToast,
+  aisleSectionKey,
+  collapsedSectionsKey,
+  collapsedShowing,
+  expandSection,
+  readCollapsedSections,
+  recipeSectionKey,
+  toggleCollapsedSection,
   movedToast,
   alsoInHint,
   checkOffLabel,
@@ -169,6 +176,73 @@ describe('list view modes', () => {
 
   it('keeps the key saved choices were stored under', () => {
     expect(viewModeKey('abc')).toBe('list.abc.viewMode');
+  });
+});
+
+describe('collapsed sections', () => {
+  it('keeps a setting per list and per view mode', () => {
+    expect(collapsedSectionsKey('abc', 'category')).toBe('list.abc.collapsed.category');
+    expect(collapsedSectionsKey('abc', 'recipe')).toBe('list.abc.collapsed.recipe');
+    expect(collapsedSectionsKey('xyz', 'category')).toBe('list.xyz.collapsed.category');
+    expect(new Set([
+      collapsedSectionsKey('abc', 'category'),
+      collapsedSectionsKey('abc', 'recipe'),
+      collapsedSectionsKey('xyz', 'category'),
+      viewModeKey('abc'),
+    ]).size).toBe(4);
+  });
+
+  it('keys sections by category and by recipe, with Other items as r-other', () => {
+    expect(aisleSectionKey('produce-1')).toBe('c-produce-1');
+    expect(recipeSectionKey('rec-7')).toBe('r-rec-7');
+    expect(recipeSectionKey(null)).toBe('r-other');
+  });
+
+  it('reads a saved list of keys, dropping duplicates', () => {
+    expect(readCollapsedSections(['c-a', 'c-b', 'c-a'])).toEqual(['c-a', 'c-b']);
+  });
+
+  it('reads nothing saved, or anything malformed, as no folded sections', () => {
+    expect(readCollapsedSections(null)).toEqual([]);
+    expect(readCollapsedSections(undefined)).toEqual([]);
+    expect(readCollapsedSections('c-a')).toEqual([]);
+    expect(readCollapsedSections({ 'c-a': true })).toEqual([]);
+    expect(readCollapsedSections(['c-a', 3, null, { k: 1 }, 'r-other'])).toEqual(['c-a', 'r-other']);
+  });
+
+  it('toggles a section folded, then open again', () => {
+    const folded = toggleCollapsedSection(['c-a'], 'c-b');
+    expect(folded).toEqual(['c-a', 'c-b']);
+    expect(toggleCollapsedSection(folded, 'c-b')).toEqual(['c-a']);
+    expect(toggleCollapsedSection(['c-a'], 'c-a')).toEqual([]);
+    expect(toggleCollapsedSection([], 'r-other')).toEqual(['r-other']);
+  });
+
+  it('does not change the saved keys it is given', () => {
+    const saved = ['c-a'];
+    toggleCollapsedSection(saved, 'c-b');
+    toggleCollapsedSection(saved, 'c-a');
+    expandSection(saved, 'c-a');
+    expect(saved).toEqual(['c-a']);
+  });
+
+  it('opens a folded section, and leaves the keys as they were when it was open', () => {
+    expect(expandSection(['c-a', 'c-b'], 'c-a')).toEqual(['c-b']);
+    const saved = ['c-a'];
+    expect(expandSection(saved, 'c-b')).toBe(saved);
+  });
+
+  it('ignores stale keys for sections that are not showing', () => {
+    const showing = collapsedShowing(['c-a', 'c-gone', 'r-deleted-recipe'], ['c-a', 'c-b']);
+    expect([...showing]).toEqual(['c-a']);
+    expect(collapsedShowing(['c-gone'], []).size).toBe(0);
+    expect(collapsedShowing([], ['c-a']).size).toBe(0);
+  });
+
+  it('keeps stale keys when toggling, so a section that comes back is still folded', () => {
+    const saved = toggleCollapsedSection(['c-gone'], 'c-a');
+    expect(saved).toEqual(['c-gone', 'c-a']);
+    expect([...collapsedShowing(saved, ['c-a', 'c-gone'])]).toEqual(['c-gone', 'c-a']);
   });
 });
 

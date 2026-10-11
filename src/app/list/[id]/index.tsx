@@ -63,18 +63,26 @@ import {
 } from '@/features/lists/items';
 import {
   addedToast,
+  aisleSectionKey,
   alsoInHint,
+  collapsedSectionsKey,
+  collapsedShowing,
   compactHeaderSubtitle,
   DEFAULT_LIST_VIEW_MODE,
   duplicateQuery,
+  expandSection,
   isAlreadyOnList,
   LIST_VIEW_MODES,
   movedToast,
   orderByNewest,
+  readCollapsedSections,
+  recipeSectionKey,
   siriAddedToast,
   toGetLabel,
+  toggleCollapsedSection,
   viewModeKey,
   type ListViewMode,
+  type SectionedViewMode,
 } from '@/features/lists/list-view';
 import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
@@ -99,8 +107,17 @@ type Entry = { key: string; item: ItemView; amountText?: string; hint?: string }
 /** One card each (the Checked header sits above its card). */
 type Block =
   | { kind: 'newest'; key: string; entries: Entry[] }
-  | { kind: 'aisle'; key: string; title: string; accessibilityLabel: string; slug: string | null; sorting: boolean; entries: Entry[] }
-  | { kind: 'recipe'; key: string; title: string; recipeId: string | null; itemIds: string[]; entries: Entry[] }
+  | {
+      kind: 'aisle';
+      key: string;
+      title: string;
+      accessibilityLabel: string;
+      slug: string | null;
+      sorting: boolean;
+      collapsed: boolean;
+      entries: Entry[];
+    }
+  | { kind: 'recipe'; key: string; title: string; recipeId: string | null; itemIds: string[]; collapsed: boolean; entries: Entry[] }
   | { kind: 'checked'; key: string; count: number; entries: Entry[] };
 
 export default function ListScreen() {
@@ -130,6 +147,38 @@ export default function ListScreen() {
     setViewModeState(mode);
     setDeviceSetting(viewModeKey(id), mode);
   };
+  // Spec 4.6: sections folded away in By aisle and By recipe, remembered per list and mode on this device.
+  // The device setting is the source of truth; this state mirrors it so the list re-renders.
+  const readCollapsed = useCallback(
+    (mode: SectionedViewMode) => readCollapsedSections(getDeviceSetting<unknown>(collapsedSectionsKey(id, mode), null)),
+    [id],
+  );
+  const [collapsedSaved, setCollapsedSaved] = useState(() => ({ category: readCollapsed('category'), recipe: readCollapsed('recipe') }));
+  const saveCollapsed = useCallback(
+    (mode: SectionedViewMode, keys: readonly string[]) => {
+      setDeviceSetting(collapsedSectionsKey(id, mode), keys);
+      setCollapsedSaved((prev) => ({ ...prev, [mode]: [...keys] }));
+    },
+    [id],
+  );
+  const { reduceMotion } = useMotion();
+  // The section just opened fades its rows in; nothing else does, so a first render doesn't flash.
+  const [justOpened, setJustOpened] = useState<string | null>(null);
+  const toggleSection = (mode: SectionedViewMode, key: string) => {
+    const saved = readCollapsed(mode);
+    setJustOpened(saved.includes(key) ? key : null);
+    saveCollapsed(mode, toggleCollapsedSection(saved, key));
+  };
+  const openSection = useCallback(
+    (mode: SectionedViewMode, key: string) => {
+      const saved = readCollapsed(mode);
+      const next = expandSection(saved, key);
+      if (next === saved) return;
+      setJustOpened(key);
+      saveCollapsed(mode, next);
+    },
+    [readCollapsed, saveCollapsed],
+  );
   // The toast for an add that merged into an item tints that item's row while it shows (spec 4.4).
   const [toast, setToast] = useState<{
     key: string;
@@ -168,11 +217,13 @@ export default function ListScreen() {
         ? // By aisle: a card per aisle in the user's order, empty ones hidden, items by when added.
           sections.map(({ category, items }): Block => ({
             kind: 'aisle',
-            key: `c-${category.id}`,
+            key: aisleSectionKey(category.id),
             title: category.name,
             accessibilityLabel: sectionAccessibilityLabel(category),
             slug: slugById.get(category.id) ?? null,
             sorting: category.id === SORTING_CATEGORY_ID,
+            // The Sorting… card has no header, so it never folds.
+            collapsed: category.id !== SORTING_CATEGORY_ID && collapsedSaved.category.includes(aisleSectionKey(category.id)),
             entries: items.map((item) => ({ key: item.id, item })),
           }))
         : // By recipe: a card per recipe (an item can be under several), then Other items; in each,
@@ -180,9 +231,10 @@ export default function ListScreen() {
           groupByRecipe(orderByAisle(unchecked, orderedCategories)).map(
             (section): Block => ({
               kind: 'recipe',
-              key: `r-${section.recipeId ?? 'other'}`,
+              key: recipeSectionKey(section.recipeId),
               title: section.name,
               recipeId: section.recipeId,
+              collapsed: collapsedSaved.recipe.includes(recipeSectionKey(section.recipeId)),
               itemIds: section.entries.map((e) => e.item.id),
               entries: section.entries.map((e) => ({
                 key: `${section.recipeId ?? 'other'}-${e.item.id}`,
@@ -201,7 +253,30 @@ export default function ListScreen() {
       });
     }
     return out;
-  }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById]);
+  }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById, collapsedSaved]);
+
+  // The sections Collapse all and Expand all work on: every header in this view (Sorting… has none).
+  const sectionMode: SectionedViewMode | null = viewMode === 'newest' ? null : viewMode;
+  const foldableKeys = blocks.flatMap((b) => ((b.kind === 'aisle' && !b.sorting) || b.kind === 'recipe' ? [b.key] : []));
+  const foldedCount = sectionMode ? collapsedShowing(collapsedSaved[sectionMode], foldableKeys).size : 0;
+
+  // An add or Combine that lands in a folded section opens it, so its highlight shows. By recipe can show
+  // an item in several sections; one open one is enough.
+  const blocksRef = useRef(blocks);
+  useEffect(() => {
+    blocksRef.current = blocks;
+  }, [blocks]);
+  const openSectionOf = useCallback(
+    (itemId: string) => {
+      const holding = blocksRef.current.filter(
+        (b): b is Extract<Block, { kind: 'aisle' | 'recipe' }> =>
+          (b.kind === 'aisle' || b.kind === 'recipe') && b.entries.some((e) => e.item.id === itemId),
+      );
+      if (holding.length === 0 || holding.some((b) => !b.collapsed)) return;
+      openSection(holding[0].kind === 'aisle' ? 'category' : 'recipe', holding[0].key);
+    },
+    [openSection],
+  );
 
   // By aisle and By recipe put a new item in its section, so scroll that section into view once it's there.
   const revealRef = useRef<string | null>(null);
@@ -211,8 +286,9 @@ export default function ListScreen() {
     const index = blocks.findIndex((block) => block.entries.some((e) => e.item.id === itemId));
     if (index === -1) return;
     revealRef.current = null;
+    openSectionOf(itemId);
     listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
-  }, [blocks]);
+  }, [blocks, openSectionOf]);
 
   // Select mode (spec 4.5): pick items, then Add to recipe opens the sheet. When it closes having
   // added them, leave Select mode, switch to By recipe and say where they went.
@@ -225,6 +301,7 @@ export default function ListScreen() {
       // An item moved here from its sheet (spec 4.4): a Combine tints the row it joined, as an add does.
       const moved = takeMoveResult(id);
       if (moved) {
+        if (moved.kind === 'combine') openSectionOf(moved.targetItemId);
         setToast({
           key: `moved-${moved.itemId}-${Date.now()}`,
           ...movedToast(moved),
@@ -272,7 +349,7 @@ export default function ListScreen() {
           },
         ],
       });
-    }, [id]),
+    }, [id, openSectionOf]),
   );
   // Adds Siri queued while the app was closed (spec 4.9): one toast, on whichever list is showing.
   useFocusEffect(
@@ -431,8 +508,14 @@ export default function ListScreen() {
             accessibilityLabel={block.accessibilityLabel}
             dotColor={aisles[aisleColor(block.slug)].dot}
             count={block.entries.length}
+            collapsed={block.collapsed}
+            onToggle={() => toggleSection('category', block.key)}
           />
-          {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+          {block.collapsed ? null : (
+            <SectionRows fade={block.key === justOpened && !reduceMotion}>
+              {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+            </SectionRows>
+          )}
         </Card>
       );
     }
@@ -443,8 +526,15 @@ export default function ListScreen() {
             title={block.title}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
             trailing={block.recipeId ? <RecipeActionsButton name={block.title} onPress={() => recipeMenu(block)} /> : undefined}
+            // The count shows while folded, so you can see what's hidden; VoiceOver always reads it.
+            count={block.entries.length}
+            hideCount={!block.collapsed}
+            collapsed={block.collapsed}
+            onToggle={() => toggleSection('recipe', block.key)}
           />
-          {block.entries.map(renderEntryWithAisle)}
+          {block.collapsed ? null : (
+            <SectionRows fade={block.key === justOpened && !reduceMotion}>{block.entries.map(renderEntryWithAisle)}</SectionRows>
+          )}
         </Card>
       );
     }
@@ -523,6 +613,22 @@ export default function ListScreen() {
           <Stack.Toolbar.MenuAction icon="xmark.circle" disabled={checked.length === 0} onPress={() => clearChecked(id)}>
             Clear checked items
           </Stack.Toolbar.MenuAction>
+          {sectionMode ? (
+            <Stack.Toolbar.MenuAction
+              icon="rectangle.compress.vertical"
+              disabled={foldableKeys.length === 0 || foldedCount === foldableKeys.length}
+              onPress={() => (setJustOpened(null), saveCollapsed(sectionMode, foldableKeys))}>
+              Collapse all
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+          {sectionMode ? (
+            <Stack.Toolbar.MenuAction
+              icon="rectangle.expand.vertical"
+              disabled={foldedCount === 0}
+              onPress={() => (setJustOpened(null), saveCollapsed(sectionMode, []))}>
+              Expand all
+            </Stack.Toolbar.MenuAction>
+          ) : null}
           <Stack.Toolbar.MenuAction icon="arrow.up.arrow.down" onPress={() => router.push('/category-order')}>
             Reorder sections
           </Stack.Toolbar.MenuAction>
@@ -668,6 +774,11 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
       <View onLayout={(e) => (height.value = e.nativeEvent.layout.height)}>{children}</View>
     </Animated.View>
   );
+}
+
+/** A section's rows; they fade in when it's just been opened (not under Reduce Motion). */
+function SectionRows({ fade, children }: { fade: boolean; children: ReactNode }) {
+  return <Animated.View entering={fade ? FadeIn.duration(Motion.duration) : undefined}>{children}</Animated.View>;
 }
 
 function toggleIn(set: Set<string>, value: string): Set<string> {

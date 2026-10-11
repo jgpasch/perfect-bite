@@ -111,6 +111,44 @@ export function isAlreadyOnList(item: { ingredientName: string; checkedAt: Date 
 /** Where the device setting for a list's view mode lives. Saved choices from before Newest still read. */
 export const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
+/** The view modes with sections that fold away (spec 4.6); Newest has none. */
+export type SectionedViewMode = Exclude<ListViewMode, 'newest'>;
+
+/** Where the device setting for a list's collapsed sections in one view mode lives. */
+export const collapsedSectionsKey = (listId: string, mode: SectionedViewMode) => `list.${listId}.collapsed.${mode}`;
+
+/** A By aisle section's key, as saved: `c-<categoryId>`. */
+export const aisleSectionKey = (categoryId: string) => `c-${categoryId}`;
+
+/** A By recipe section's key, as saved: `r-<recipeId>`, or `r-other` for Other items. */
+export const recipeSectionKey = (recipeId: string | null) => `r-${recipeId ?? 'other'}`;
+
+/** The saved collapsed section keys, read defensively: anything that isn't a list of strings counts as none. */
+export function readCollapsedSections(saved: unknown): string[] {
+  if (!Array.isArray(saved)) return [];
+  return [...new Set(saved.filter((key): key is string => typeof key === 'string'))];
+}
+
+/** Folds the section away, or opens it if it was folded. */
+export function toggleCollapsedSection(saved: readonly string[], key: string): string[] {
+  return saved.includes(key) ? saved.filter((k) => k !== key) : [...saved, key];
+}
+
+/** Opens the section; the saved keys come back unchanged if it wasn't folded. */
+export function expandSection(saved: readonly string[], key: string): readonly string[] {
+  return saved.includes(key) ? saved.filter((k) => k !== key) : saved;
+}
+
+/**
+ * The sections showing now that are folded. Saved keys for sections that aren't showing (a recipe
+ * removed from the list, an aisle with nothing left to get) are ignored but kept, so the section is
+ * still folded if it comes back.
+ */
+export function collapsedShowing(saved: readonly string[], sectionKeys: readonly string[]): Set<string> {
+  const showing = new Set(sectionKeys);
+  return new Set(saved.filter((key) => showing.has(key)));
+}
+
 type NewestItem = {
   id: string;
   createdAt: Date;
