@@ -53,6 +53,14 @@ export function writeListSnapshot(snapshot: ListSnapshot): void {
   file.write(JSON.stringify(valid));
 }
 
+/** Deletes `lists.json` (sign-out), so Siri offers no lists. Does nothing without the App Group. */
+export function clearListSnapshot(): void {
+  const root = getAppGroupContainer();
+  if (!root) return;
+  const file = new File(root, LISTS_FILE);
+  if (file.exists) file.delete();
+}
+
 export function readNativeLog(): string {
   const root = getAppGroupContainer();
   if (!root) return '';

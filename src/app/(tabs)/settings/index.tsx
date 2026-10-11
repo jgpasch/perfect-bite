@@ -74,8 +74,7 @@ export default function SettingsScreen() {
             label="Siri adds to"
             value={siriList ?? '—'}
             icon={{ name: 'mic', hue: 'green' }}
-            // The Siri screen is still the dev-only M0 spike; M8 replaces it.
-            onPress={__DEV__ ? () => router.push('/settings/siri') : undefined}
+            onPress={() => router.push('/settings/siri')}
           />
           <SettingsRow
             label="Aisle order"
@@ -102,6 +101,17 @@ export default function SettingsScreen() {
                 last={i === householdRows.length - 1}
               />
             ))}
+          </SettingsSection>
+        ) : null}
+
+        {__DEV__ ? (
+          <SettingsSection title="Developer">
+            <SettingsRow
+              label="Siri queue and log"
+              icon={{ name: 'hammer', hue: 'grey' }}
+              onPress={() => router.push('/settings/developer')}
+              last
+            />
           </SettingsSection>
         ) : null}
 

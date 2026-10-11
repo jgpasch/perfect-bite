@@ -225,7 +225,7 @@ All changes sync live to all members' devices.
   - `@Parameter(title: "Item", requestValueDialog: "What do you want to add?") var text: String`
   - `@Parameter(title: "List") var list: ListEntity?`
   - `openAppWhenRun = false`
-- `ListEntity` values come from a **list snapshot** (`lists.json`: id, name, and household name per list across all the user's households, plus the default list id) that the app writes to the App Group container whenever lists or memberships change. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate.
+- `ListEntity` values come from a **list snapshot** (`lists.json`: id, name, and household name per list across all the user's households, plus the default list id) that the app writes to the App Group container on launch and whenever lists, memberships or the default list change, and deletes on sign-out. Archived lists are left out. Settings > Siri adds to picks the default list. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate.
 - `perform()`:
   1. Writes an envelope to the App Group queue: `{ id: uuidv7, text, list_id | null, created_at, source: "siri" }`.
   2. Makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**

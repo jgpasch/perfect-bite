@@ -1,110 +1,51 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useMemo } from 'react';
 
-import { Button } from '@/components/button';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import {
-  getAppGroupContainer,
-  readNativeLog,
-  readPendingSiriAdds,
-  writeListSnapshot,
-  type PendingSiriAdd,
-} from '@/features/siri/app-group';
+import { households, lists, userSettings } from '@/db';
+import { useLiveQueryOn } from '@/db/live-query';
+import { useAccountState } from '@/features/auth/account';
+import { getDefaultListId, listsWithCountsQuery, setDefaultList } from '@/features/lists/lists';
+import { buildListSnapshot, siriListChoices } from '@/features/siri/list-snapshot';
 import { useTheme } from '@/hooks/use-theme';
 
-// Fixed ids so Siri's list picker stays stable across rewrites.
-const TEST_LISTS = {
-  defaultListId: '019a4c10-0000-7000-8000-00000000a001',
-  lists: [
-    { id: '019a4c10-0000-7000-8000-00000000a001', name: 'Groceries', householdName: 'Test home' },
-    { id: '019a4c10-0000-7000-8000-00000000c057', name: 'Costco', householdName: 'Test home' },
-  ],
-};
-
-/**
- * Dev-only screen for the M0 Siri spike (docs/spikes.md): writes test lists for the intent's
- * list picker and shows what the intent queued. Replaced by the real drain in M8.
- */
-export default function SiriSpikeScreen() {
+/** Settings > Siri adds to (spec 4.1, 4.9): pick the default list, the one Siri adds to unless you name another. */
+export default function SiriDefaultListScreen() {
   const { spacing } = useTheme();
-  const [adds, setAdds] = useState<PendingSiriAdd[]>([]);
-  const [log, setLog] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(() => {
-    try {
-      setAdds(readPendingSiriAdds().reverse());
-      setLog(readNativeLog().trim().split('\n').slice(-20).join('\n'));
-      setError(null);
-    } catch (err) {
-      setError(String(err));
-    }
-  }, []);
-
-  useFocusEffect(refresh);
-
-  const listName = (id?: string) =>
-    TEST_LISTS.lists.find((l) => l.id === (id ?? TEST_LISTS.defaultListId))?.name ?? id ?? '—';
+  const account = useAccountState();
+  const userId = account.status === 'ready' ? account.account.userId : undefined;
+  // userSettings: so the tick follows a new default.
+  const { data: rows } = useLiveQueryOn(listsWithCountsQuery(), [lists, households, userSettings]);
+  const choices = useMemo(
+    () => siriListChoices(buildListSnapshot(rows, userId && rows.length > 0 ? getDefaultListId(userId) : null)),
+    [userId, rows],
+  );
 
   return (
-    // Cards bring their own 16 pt side margin; everything else gets it here.
-    <Screen scroll contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.lg }}>
-      <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg }}>
-        App Group: {getAppGroupContainer() ? 'available' : 'missing (needs a development build)'}
-      </ThemedText>
-      {error ? (
-        <ThemedText variant="footnote" color="danger" style={{ paddingHorizontal: spacing.lg }}>
-          {error}
-        </ThemedText>
-      ) : null}
-
-      <View style={{ gap: spacing.sm, paddingHorizontal: spacing.lg }}>
-        <Button
-          label="Write test lists (Groceries, Costco)"
-          variant="secondary"
-          onPress={() => {
-            try {
-              writeListSnapshot(TEST_LISTS);
-              refresh();
-            } catch (err) {
-              setError(String(err));
-            }
-          }}
-        />
-        <Button label="Refresh" variant="plain" onPress={refresh} />
-      </View>
-
-      <SettingsSection title={`Queued adds (${adds.length})`}>
-        {adds.length === 0 ? (
-          <SettingsRow label="Nothing queued" value="" last />
+    <Screen scroll contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
+      <SettingsSection title="Siri adds to">
+        {choices.length === 0 ? (
+          <SettingsRow label="No lists" last />
         ) : (
-          adds.map((a, i) =>
-            a.ok ? (
-              <SettingsRow
-                key={a.envelope.id}
-                label={a.envelope.text}
-                value={`${listName(a.envelope.listId)} · ${new Date(a.envelope.createdAt).toLocaleTimeString()}`}
-                last={i === adds.length - 1}
-              />
-            ) : (
-              <SettingsRow key={a.fileName} label={`Invalid: ${a.fileName}`} value={a.error} last={i === adds.length - 1} />
-            ),
-          )
+          choices.map((c, i) => (
+            <SettingsRow
+              key={c.id}
+              label={c.name}
+              value={c.householdName}
+              selected={c.selected}
+              onPress={userId ? () => setDefaultList(userId, c.id) : undefined}
+              last={i === choices.length - 1}
+            />
+          ))
         )}
       </SettingsSection>
-
-      <SettingsSection title="Native log (last 20 lines)">
-        <ThemedText variant="caption" color="inkSecondary" style={[styles.log, { padding: spacing.md }]} selectable>
-          {log || '—'}
-        </ThemedText>
-      </SettingsSection>
+      <ThemedText
+        variant="footnote"
+        color="inkSecondary"
+        style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
+        Try: Hey Siri, add milk to The Perfect Bite
+      </ThemedText>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  log: { fontFamily: 'ui-monospace' },
-});

@@ -39,12 +39,25 @@ type RowProps = {
   /** Makes the row a button with a chevron (unless `chevron` is false). */
   onPress?: () => void;
   chevron?: boolean;
+  /** A choice in a picker: ticked when true (no chevron). */
+  selected?: boolean;
   /** The last row in its card has no hairline under it. */
   last?: boolean;
 };
 
 /** A row in a settings card: optional icon tile, the label, then a value, trailing content and a chevron. */
-export function SettingsRow({ label, value, icon, trailing, labelColor = 'ink', onPress, chevron = true, last }: RowProps) {
+export function SettingsRow({
+  label,
+  value,
+  icon,
+  trailing,
+  labelColor = 'ink',
+  onPress,
+  chevron = true,
+  selected,
+  last,
+}: RowProps) {
+  const choice = selected !== undefined;
   const { colors, spacing, sizes, opacity } = useTheme();
   const content = (
     <>
@@ -58,7 +71,8 @@ export function SettingsRow({ label, value, icon, trailing, labelColor = 'ink', 
         </ThemedText>
       ) : null}
       {trailing}
-      {onPress && chevron ? <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} weight="semibold" /> : null}
+      {selected ? <Icon name="checkmark" color="primary" size={sizes.iconSmall} weight="semibold" /> : null}
+      {onPress && chevron && !choice ?<Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} weight="semibold" /> : null}
     </>
   );
   const rowStyle = [
@@ -84,6 +98,7 @@ export function SettingsRow({ label, value, icon, trailing, labelColor = 'ink', 
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}
+      accessibilityState={choice ? { selected } : undefined}
       onPress={onPress}
       style={({ pressed }) => [rowStyle, { opacity: pressed ? opacity.pressed : 1 }]}>
       {content}

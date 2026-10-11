@@ -6,6 +6,7 @@ import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending } from '@/features/categories/categorization';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
+import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
 import { pullNow, startPull } from '@/sync/pull';
 import { pushNow, startPush } from '@/sync/push';
 import { startRealtime } from '@/sync/realtime';
@@ -46,5 +47,12 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   }, [userId]);
   // Realtime (spec 7.2): live changes while signed in and in the foreground.
   useEffect(() => (userId ? startRealtime(userId) : undefined), [userId]);
+  // Siri's list snapshot (spec 4.9): on launch and when lists, memberships or the default list
+  // change; deleted on sign-out so Siri offers no lists.
+  const signedOut = account.status === 'signedOut';
+  useEffect(() => {
+    if (userId) return startListSnapshot(userId);
+    if (signedOut) clearSiriListSnapshot();
+  }, [userId, signedOut]);
   return children;
 }
