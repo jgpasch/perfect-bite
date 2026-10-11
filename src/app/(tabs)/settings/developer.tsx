@@ -19,6 +19,7 @@ import { useTheme } from '@/hooks/use-theme';
 // Fixed ids so Siri's list picker stays stable across rewrites.
 const TEST_LISTS = {
   defaultListId: '019a4c10-0000-7000-8000-00000000a001',
+  lastOpenedListId: null,
   lists: [
     { id: '019a4c10-0000-7000-8000-00000000a001', name: 'Groceries', householdName: 'Test home' },
     { id: '019a4c10-0000-7000-8000-00000000c057', name: 'Costco', householdName: 'Test home' },

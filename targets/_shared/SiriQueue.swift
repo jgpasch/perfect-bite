@@ -24,6 +24,8 @@ enum SiriQueue {
       let householdName: String
     }
     var defaultListId: String?
+    /// The list screen last opened in the app, or null. The share sheet's default list.
+    var lastOpenedListId: String?
     var lists: [List]
   }
 
@@ -71,7 +73,7 @@ enum SiriQueue {
       let url = try? container().appendingPathComponent("siri/lists.json"),
       let data = try? Data(contentsOf: url),
       let snapshot = try? JSONDecoder().decode(ListSnapshot.self, from: data)
-    else { return ListSnapshot(defaultListId: nil, lists: []) }
+    else { return ListSnapshot(defaultListId: nil, lastOpenedListId: nil, lists: []) }
     return snapshot
   }
 

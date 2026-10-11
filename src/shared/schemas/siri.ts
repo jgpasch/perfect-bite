@@ -17,9 +17,14 @@ export const SiriEnvelopeSchema = z.object({
 });
 export type SiriEnvelope = z.infer<typeof SiriEnvelopeSchema>;
 
-/** `lists.json`: the lists Siri can offer, written by the app whenever lists change. */
+/**
+ * `lists.json`: the lists Siri and the share extension can offer, written by the app whenever lists
+ * change and whenever a list screen opens.
+ */
 export const ListSnapshotSchema = z.object({
   defaultListId: z.uuid().optional(),
+  /** The list screen last opened on this device (spec 4.1), if it's offered; the share sheet's default. */
+  lastOpenedListId: z.uuid().nullable(),
   lists: z.array(
     z.object({
       id: z.uuid(),

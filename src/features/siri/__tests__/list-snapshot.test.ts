@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
 import { db, households } from '@/db';
-import { createList, deleteList, ensureStarterData, getDefaultListId, setDefaultList, setListArchived } from '@/features/lists/lists';
+import {
+  createList,
+  deleteList,
+  ensureStarterData,
+  getDefaultListId,
+  LAST_OPENED_LIST_KEY,
+  setDefaultList,
+  setLastOpenedList,
+  setListArchived,
+} from '@/features/lists/lists';
+import { getDeviceSetting } from '@/features/settings/device-settings';
 import { ListSnapshotSchema } from '@/shared';
 import { resetDb } from '@/test/db';
 
@@ -10,6 +20,7 @@ import {
   buildListSnapshot,
   clearSiriListSnapshot,
   currentListSnapshot,
+  recordListOpened,
   siriListChoices,
   SNAPSHOT_TABLES,
   startListSnapshot,
@@ -57,6 +68,7 @@ describe('buildListSnapshot', () => {
   test('offers every live list across households, in order, with its household and the default', () => {
     expect(buildListSnapshot(FIXTURE, ID.cabinGroceries)).toEqual({
       defaultListId: ID.cabinGroceries,
+      lastOpenedListId: null,
       lists: [
         { id: ID.groceries, name: 'Groceries', householdName: HOME },
         { id: ID.cabinGroceries, name: 'Groceries', householdName: CABIN },
@@ -81,8 +93,22 @@ describe('buildListSnapshot', () => {
   });
 
   test('no lists', () => {
-    expect(buildListSnapshot([], null)).toEqual({ lists: [] });
-    expect(buildListSnapshot([], ID.groceries)).toEqual({ lists: [] });
+    expect(buildListSnapshot([], null)).toEqual({ lastOpenedListId: null, lists: [] });
+    expect(buildListSnapshot([], ID.groceries, ID.groceries)).toEqual({ lastOpenedListId: null, lists: [] });
+  });
+
+  test('keeps the last opened list when it is offered', () => {
+    const snapshot = buildListSnapshot(FIXTURE, ID.groceries, ID.costco);
+    expect(snapshot.lastOpenedListId).toBe(ID.costco);
+    expect(snapshot.defaultListId).toBe(ID.groceries);
+    expect(ListSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+  });
+
+  test('the last opened list is null when not given, archived, or not a list', () => {
+    expect(buildListSnapshot(FIXTURE, ID.groceries).lastOpenedListId).toBeNull();
+    expect(buildListSnapshot(FIXTURE, ID.groceries, null).lastOpenedListId).toBeNull();
+    expect(buildListSnapshot(FIXTURE, ID.groceries, ID.party).lastOpenedListId).toBeNull();
+    expect(buildListSnapshot(FIXTURE, ID.groceries, 'not-a-list').lastOpenedListId).toBeNull();
   });
 
   test('does not change its input', () => {
@@ -111,7 +137,7 @@ describe('siriListChoices', () => {
 
   test('nothing ticked without a default, and no rows without lists', () => {
     expect(siriListChoices(buildListSnapshot(FIXTURE, null)).some((c) => c.selected)).toBe(false);
-    expect(siriListChoices({ lists: [] })).toEqual([]);
+    expect(siriListChoices({ lastOpenedListId: null, lists: [] })).toEqual([]);
   });
 });
 
@@ -131,6 +157,7 @@ describe('currentListSnapshot', () => {
     const cabin = createList('Cabin food', 'cabin');
     expect(currentListSnapshot(USER)).toEqual({
       defaultListId: groceries,
+      lastOpenedListId: null,
       lists: [
         { id: groceries, name: 'Groceries', householdName: 'Personal' },
         { id: costco, name: 'Costco', householdName: 'Personal' },
@@ -150,8 +177,20 @@ describe('currentListSnapshot', () => {
     // The default falls back to the first remaining list, as getDefaultListId does.
     expect(currentListSnapshot(USER)).toEqual({
       defaultListId: groceries,
+      lastOpenedListId: null,
       lists: [{ id: groceries, name: 'Groceries', householdName: 'Personal' }],
     });
+  });
+
+  test('carries the last opened list from device settings while it is live', () => {
+    const costco = createList('Costco');
+    setLastOpenedList(costco);
+    expect(currentListSnapshot(USER).lastOpenedListId).toBe(costco);
+    setListArchived(costco, true);
+    expect(currentListSnapshot(USER).lastOpenedListId).toBeNull();
+    setListArchived(costco, false);
+    deleteList(costco);
+    expect(currentListSnapshot(USER).lastOpenedListId).toBeNull();
   });
 });
 
@@ -217,6 +256,42 @@ describe('writing the snapshot', () => {
     expect(() => clearSiriListSnapshot()).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  test('opening a list remembers it and rewrites the snapshot with it', () => {
+    const costco = createList('Costco');
+    syncListSnapshot(USER);
+    expect(mocked.writeListSnapshot).toHaveBeenCalledTimes(1);
+    expect(mocked.writeListSnapshot.mock.lastCall?.[0].lastOpenedListId).toBeNull();
+
+    recordListOpened(costco, USER);
+    expect(getDeviceSetting(LAST_OPENED_LIST_KEY, null)).toBe(costco);
+    expect(mocked.writeListSnapshot).toHaveBeenCalledTimes(2);
+    expect(mocked.writeListSnapshot.mock.lastCall?.[0].lastOpenedListId).toBe(costco);
+
+    // The same list again: nothing changed, nothing written.
+    recordListOpened(costco, USER);
+    expect(mocked.writeListSnapshot).toHaveBeenCalledTimes(2);
+
+    const groceries = getDefaultListId(USER)!;
+    recordListOpened(groceries, USER);
+    expect(mocked.writeListSnapshot).toHaveBeenCalledTimes(3);
+    expect(mocked.writeListSnapshot.mock.lastCall?.[0].lastOpenedListId).toBe(groceries);
+  });
+
+  test('opening a list signed out only remembers it', () => {
+    const costco = createList('Costco');
+    recordListOpened(costco, null);
+    expect(getDeviceSetting(LAST_OPENED_LIST_KEY, null)).toBe(costco);
+    expect(mocked.writeListSnapshot).not.toHaveBeenCalled();
+  });
+
+  test('opening a list without the App Group only remembers it', () => {
+    mocked.getAppGroupContainer.mockReturnValue(undefined);
+    const costco = createList('Costco');
+    recordListOpened(costco, USER);
+    expect(getDeviceSetting(LAST_OPENED_LIST_KEY, null)).toBe(costco);
+    expect(mocked.writeListSnapshot).not.toHaveBeenCalled();
   });
 
   test('watches lists, households (memberships) and user settings (default list)', () => {

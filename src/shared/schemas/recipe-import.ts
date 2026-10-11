@@ -53,24 +53,26 @@ function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-const HttpUrlSchema = z.string().refine((u) => canonicalRecipeUrl(u) !== null, 'Not an http(s) URL');
+export const HttpUrlSchema = z.string().refine((u) => canonicalRecipeUrl(u) !== null, 'Not an http(s) URL');
+
+/** A page captured on the device (Safari's share sheet or the device fallback), within the caps. */
+export const RecipeImportPageSchema = z.object({
+  title: z.string().optional(),
+  jsonLd: z
+    .array(z.string().refine((b) => utf8Bytes(b) <= MAX_JSON_LD_BLOCK_BYTES, 'JSON-LD block too large'))
+    .max(MAX_JSON_LD_BLOCKS)
+    .optional(),
+  text: z
+    .string()
+    .refine((t) => utf8Bytes(t) <= MAX_PAGE_TEXT_BYTES, 'Page text too large')
+    .optional(),
+});
+export type RecipeImportPage = z.infer<typeof RecipeImportPageSchema>;
 
 /** `POST /import-recipe`. `page` is what Safari already captured, so the server needn't fetch. */
 export const RecipeImportRequestSchema = z.object({
   url: HttpUrlSchema,
-  page: z
-    .object({
-      title: z.string().optional(),
-      jsonLd: z
-        .array(z.string().refine((b) => utf8Bytes(b) <= MAX_JSON_LD_BLOCK_BYTES, 'JSON-LD block too large'))
-        .max(MAX_JSON_LD_BLOCKS)
-        .optional(),
-      text: z
-        .string()
-        .refine((t) => utf8Bytes(t) <= MAX_PAGE_TEXT_BYTES, 'Page text too large')
-        .optional(),
-    })
-    .optional(),
+  page: RecipeImportPageSchema.optional(),
 });
 export type RecipeImportRequest = z.infer<typeof RecipeImportRequestSchema>;
 

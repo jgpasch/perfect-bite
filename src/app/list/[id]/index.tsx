@@ -76,7 +76,7 @@ import {
   viewModeKey,
   type ListViewMode,
 } from '@/features/lists/list-view';
-import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
+import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { takeMoveResult } from '@/features/lists/move-result';
 import { listShareText } from '@/features/lists/share';
@@ -88,6 +88,7 @@ import { importedToast } from '@/features/recipes/import-sheet';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
+import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { parseQuantity } from '@/shared';
@@ -117,8 +118,8 @@ export default function ListScreen() {
   const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
   const sections = useMemo(() => groupByCategory(orderedCategories, unchecked), [orderedCategories, unchecked]);
 
-  // Spec 4.1: the next cold launch opens the list that last gained focus.
-  useFocusEffect(useCallback(() => setLastOpenedList(id), [id]));
+  // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
+  useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
 
   const [showChecked, setShowChecked] = useState(false);
   const [selection, setSelection] = useState<Set<string> | null>(null);

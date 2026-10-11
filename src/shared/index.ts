@@ -3,6 +3,7 @@ export * from './ingredient-normalizer.ts';
 export * from './quantity-parser.ts';
 export * from './recipe-jsonld.ts';
 export * from './schemas/recipe-import.ts';
+export * from './schemas/share.ts';
 export * from './schemas/siri.ts';
 export * from './seed/categories.ts';
 export * from './seed/ingredients.ts';
