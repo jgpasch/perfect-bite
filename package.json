@@ -63,6 +63,8 @@
     "ai:categorize": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/cli.ts",
     "ai:eval": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/eval.ts",
     "ai:check-seed": "deno run --allow-env --allow-net --allow-read --allow-write=supabase/functions/categorize-ingredients/eval/results --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/check-seed.ts",
+    "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",
+    "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
     "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts"
   },
   "private": true,

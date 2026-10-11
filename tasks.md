@@ -186,7 +186,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - a 401 without a JWT.
 
   Run `supabase db reset` and `supabase test db`.
-- [ ] CLI and eval for recipes. Add `yarn ai:recipe <url | --file page.html>`. It runs the same handler code against an in-memory store and prints the name, servings and an ingredient table (name, quantity, unit, note, category). Add `import-recipe/eval/`: about 20 saved pages as HTML fixtures (no network at eval time):
+- [x] CLI and eval for recipes. Add `yarn ai:recipe <url | --file page.html>`. It runs the same handler code against an in-memory store and prints the name, servings and an ingredient table (name, quantity, unit, note, category). Add `import-recipe/eval/`: about 20 saved pages as HTML fixtures (no network at eval time):
   - 12 with JSON-LD and 4 without, from different sites;
   - 2 non-recipe pages (a news article, a recipe index page listing many recipes);
   - 2 with injection text in an ingredient line.

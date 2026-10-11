@@ -45,6 +45,11 @@ yarn ai:categorize --dry-run milk    # print the prompt only; no call, no cost
 yarn ai:categorize --quiet milk      # just the results table and totals
 yarn ai:categorize --json milk       # the exact { results } the app would get (trace on stderr)
 yarn ai:categorize --model mock milk # fake model, no key needed
+
+yarn ai:recipe <url>                 # fetch a recipe page, extract it and categorize the names
+yarn ai:recipe --file page.html      # a saved page instead, sent as the client's page (no fetch)
+yarn ai:recipe --model mock --categorize-model mock --file page.html  # fake models
+yarn ai:recipe --quiet|--raw|--json <url>                             # as for ai:categorize
 ```
 
 ### What each call prints
@@ -69,16 +74,17 @@ latency:        4,284 ms
 
 Warnings from the provider and errors get their own sections. If the main model fails and a fallback is set, the fallback prints as call #2. `--raw` adds two more sections: the exact JSON body sent to the provider (generation config and the JSON schema the model was held to) and the provider's raw reply.
 
-After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error.
+After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error. `ai:recipe` prints the recipe's name, servings, source and ingredient table, then totals per task; it exits 1 when the import fails (not a recipe, fetch failed, AI off or failing).
 
 ### Evaluating a prompt or model change
 
 ```bash
 yarn ai:eval                                      # golden set against the configured model
 yarn ai:eval --model anthropic:claude-haiku-5-5   # or another model
+yarn ai:eval:recipe                               # the 20 saved recipe pages against AI_MODEL_RECIPE
 ```
 
-It runs about 100 hard cases from `categorize-ingredients/eval/golden.json` and prints accuracy and every miss. It uses the real model, so it costs tokens. Run it before shipping a new prompt version or model.
+`ai:eval` runs about 100 hard cases from `categorize-ingredients/eval/golden.json` and prints accuracy and every miss. `ai:eval:recipe` runs the pages in `import-recipe/eval/fixtures/` against `import-recipe/eval/expected.json` and prints per-page precision and recall on ingredient keys, unit and quantity accuracy, and every miss. It uses the real model, so it costs tokens. Run it before shipping a new prompt version or model.
 
 ## Adding a new LLM task
 

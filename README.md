@@ -265,6 +265,29 @@ yarn ai:eval --model anthropic:claude-haiku-5-5       # or try another model
 
 It sends the ~100 hard names in `supabase/functions/categorize-ingredients/eval/golden.json` (ambiguous items, non-food, errands, and a few prompt-injection attempts) through the same `categorize()` and in-memory store as the CLI, in batches of 50 (one LLM call each). It prints the accuracy (category and `is_grocery_item` both right; `also` lists other aisles that count as right), the default-unit score (scored on its own, against each name's accepted `units`, with unit misses listed separately), how many injection names came back `other`/not a grocery item, how the rest of each injection batch did, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing. Compare the score with the last one recorded in `progress.md`, and add new misses you care about to `golden.json`.
 
+To try a recipe import by hand, run the recipe CLI from the repo root. It runs the function's own `importRecipe()`, with the same fetch (SSRF checks included), JSON-LD reading, prompt, validation and categorize, against in-memory stores, so nothing is written to any database and the rate limits don't apply. It reads `AI_MODEL_RECIPE` and `AI_MODEL_CATEGORIZE` from `supabase/functions/.env`:
+
+```bash
+yarn ai:recipe https://www.recipetineats.com/oven-baked-barbecue-pork-ribs/
+yarn ai:recipe --file page.html                       # a saved page: sent as the client's page, nothing fetched
+yarn ai:recipe --file page.html https://example.com/r # ...with the URL it came from
+yarn ai:recipe --model mock --categorize-model mock --file page.html  # override the models for this run
+yarn ai:recipe --quiet <url>                          # just the recipe and totals
+yarn ai:recipe --raw <url>                            # also the raw HTTP request/response bodies
+yarn ai:recipe --json <url>                           # the raw response the app would get
+```
+
+It prints every LLM call like `ai:categorize`, then the name, servings, source URL and an ingredient table (name, quantity, unit, note, category, or the status when it isn't categorized yet), and token and latency totals for each task. It exits 1 when the import fails (not a recipe, fetch failed, AI off or failing) and 2 on bad usage.
+
+Run the recipe eval whenever the recipe model or prompt changes (a new `AI_MODEL_RECIPE`, or a new `prompts/extract-recipe.vN.ts`):
+
+```bash
+yarn ai:eval:recipe                                   # the model in supabase/functions/.env
+yarn ai:eval:recipe --model anthropic:claude-haiku-5-5
+```
+
+It runs the 20 saved pages in `supabase/functions/import-recipe/eval/fixtures/` (12 with JSON-LD, 4 without, 2 non-recipes, 2 with injection text; sources in its `SOURCES.md`) through the same `importRecipe()`, as client-sent pages, so nothing is fetched and categorize isn't called. Each page is scored against `eval/expected.json`: `is_recipe`, the name, precision and recall on normalized ingredient keys (`also` lists other names that count; `optional` ingredients don't count against recall or precision), and unit and quantity accuracy on the matched ingredients (`alternatives` lists other amounts that count). It prints a row per page, the totals, whether the injection pages were unaffected, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing.
+
 ### Adding an LLM task
 
 See [docs/llm-calls.md](docs/llm-calls.md) for how the LLM calls fit together, every script flag, and the steps to add a new task.
