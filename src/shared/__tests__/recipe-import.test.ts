@@ -1,0 +1,248 @@
+import { describe, expect, it } from '@jest/globals';
+
+import * as shared from '@/shared';
+import {
+  canonicalRecipeUrl,
+  ExtractedRecipeSchema,
+  MAX_JSON_LD_BLOCK_BYTES,
+  MAX_PAGE_TEXT_BYTES,
+  RECIPE_IMPORT_ERROR_CODES,
+  RecipeImportErrorCodeSchema,
+  RecipeImportErrorSchema,
+  RecipeImportRequestSchema,
+  RecipeImportResponseSchema,
+} from '../schemas/recipe-import';
+
+describe('canonicalRecipeUrl', () => {
+  it('lowercases the host and drops www.', () => {
+    expect(canonicalRecipeUrl('https://WWW.Example.COM/Recipes/Pad-Thai')).toBe(
+      'https://example.com/Recipes/Pad-Thai',
+    );
+  });
+
+  it('keeps a www inside the host', () => {
+    expect(canonicalRecipeUrl('https://cooking.www.example.com/a')).toBe('https://cooking.www.example.com/a');
+  });
+
+  it('drops the fragment', () => {
+    expect(canonicalRecipeUrl('https://example.com/pad-thai#recipe-card')).toBe('https://example.com/pad-thai');
+  });
+
+  it('drops utm_* parameters', () => {
+    expect(
+      canonicalRecipeUrl('https://example.com/a?utm_source=pin&utm_medium=social&UTM_Campaign=x'),
+    ).toBe('https://example.com/a');
+  });
+
+  it('drops fbclid, gclid, ref and mc_* parameters', () => {
+    expect(canonicalRecipeUrl('https://example.com/a?fbclid=1&gclid=2&ref=home&mc_cid=3&mc_eid=4')).toBe(
+      'https://example.com/a',
+    );
+  });
+
+  it('keeps other parameters in order', () => {
+    expect(canonicalRecipeUrl('https://example.com/recipe?id=42&utm_source=x&print=1&referrer=y')).toBe(
+      'https://example.com/recipe?id=42&print=1&referrer=y',
+    );
+  });
+
+  it('drops a trailing slash, before or without a query', () => {
+    expect(canonicalRecipeUrl('https://example.com/pad-thai/')).toBe('https://example.com/pad-thai');
+    expect(canonicalRecipeUrl('https://example.com/pad-thai//?id=1')).toBe('https://example.com/pad-thai?id=1');
+    expect(canonicalRecipeUrl('https://example.com/')).toBe('https://example.com');
+    expect(canonicalRecipeUrl('https://example.com')).toBe('https://example.com');
+  });
+
+  it('keeps http and a non-default port, drops a default port', () => {
+    expect(canonicalRecipeUrl('http://example.com:8080/a')).toBe('http://example.com:8080/a');
+    expect(canonicalRecipeUrl('https://example.com:443/a')).toBe('https://example.com/a');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(canonicalRecipeUrl('  https://example.com/a \n')).toBe('https://example.com/a');
+  });
+
+  it('gives variants of the same page the same key', () => {
+    const variants = [
+      'https://www.seriouseats.com/pad-thai-recipe/',
+      'https://seriouseats.com/pad-thai-recipe',
+      'https://SeriousEats.com/pad-thai-recipe#comments',
+      'https://www.seriouseats.com/pad-thai-recipe?utm_source=newsletter&fbclid=abc',
+      'https://www.seriouseats.com/pad-thai-recipe/?ref=homepage#step-3',
+    ];
+    expect(new Set(variants.map(canonicalRecipeUrl))).toEqual(new Set(['https://seriouseats.com/pad-thai-recipe']));
+  });
+
+  it('keeps different pages apart', () => {
+    expect(canonicalRecipeUrl('https://example.com/a?id=1')).not.toBe(canonicalRecipeUrl('https://example.com/a?id=2'));
+    expect(canonicalRecipeUrl('https://example.com/A')).not.toBe(canonicalRecipeUrl('https://example.com/a'));
+  });
+
+  it('rejects non-http schemes', () => {
+    for (const url of [
+      'ftp://example.com/a',
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'data:text/html,<p>hi</p>',
+      'mailto:a@example.com',
+    ]) {
+      expect(canonicalRecipeUrl(url)).toBeNull();
+    }
+  });
+
+  it('rejects strings that are not URLs', () => {
+    expect(canonicalRecipeUrl('')).toBeNull();
+    expect(canonicalRecipeUrl('example.com/pad-thai')).toBeNull();
+    expect(canonicalRecipeUrl('not a url')).toBeNull();
+  });
+});
+
+describe('RecipeImportRequestSchema', () => {
+  const url = 'https://example.com/pad-thai';
+
+  it('accepts a bare URL', () => {
+    expect(RecipeImportRequestSchema.parse({ url })).toEqual({ url });
+  });
+
+  it('accepts a captured page', () => {
+    const req = { url, page: { title: 'Pad Thai', jsonLd: ['{"@type":"Recipe"}'], text: 'Pad Thai…' } };
+    expect(RecipeImportRequestSchema.parse(req)).toEqual(req);
+  });
+
+  it('rejects a missing, non-http or malformed URL', () => {
+    expect(RecipeImportRequestSchema.safeParse({}).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url: 'ftp://example.com/a' }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url: 'pad thai' }).success).toBe(false);
+  });
+
+  it('caps JSON-LD at 10 blocks', () => {
+    const blocks = (n: number) => Array.from({ length: n }, () => '{}');
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: blocks(10) } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: blocks(11) } }).success).toBe(false);
+  });
+
+  it('caps each JSON-LD block at 200 KB', () => {
+    expect(MAX_JSON_LD_BLOCK_BYTES).toBe(204_800);
+    const ok = 'a'.repeat(MAX_JSON_LD_BLOCK_BYTES);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: ['{}', ok] } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: ['{}', `${ok}a`] } }).success).toBe(false);
+  });
+
+  it('caps page text at 50 KB', () => {
+    expect(MAX_PAGE_TEXT_BYTES).toBe(51_200);
+    const ok = 'a'.repeat(MAX_PAGE_TEXT_BYTES);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: ok } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: `${ok}a` } }).success).toBe(false);
+  });
+
+  it('counts the caps in UTF-8 bytes, not characters', () => {
+    // "é" is 2 bytes: half the cap in characters is exactly the cap in bytes.
+    const half = 'é'.repeat(MAX_PAGE_TEXT_BYTES / 2);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: half } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: `${half}é` } }).success).toBe(false);
+  });
+});
+
+describe('ExtractedRecipeSchema', () => {
+  const ingredient = { name: 'garlic', quantity: 2, unit: 'clove', note: 'minced' };
+  const recipe = { is_recipe: true, name: 'Pad Thai', servings: 4, ingredients: [ingredient] };
+
+  it('accepts a recipe', () => {
+    expect(ExtractedRecipeSchema.parse(recipe)).toEqual(recipe);
+  });
+
+  it('accepts a non-recipe answer and null quantity, unit and servings', () => {
+    const answer = {
+      is_recipe: false,
+      name: '',
+      servings: null,
+      ingredients: [{ name: 'salt', quantity: null, unit: null, note: 'to taste' }],
+    };
+    expect(ExtractedRecipeSchema.parse(answer)).toEqual(answer);
+  });
+
+  it('accepts every supported unit and rejects anything else', () => {
+    for (const unit of shared.UNITS) {
+      expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: [{ ...ingredient, unit }] }).success).toBe(true);
+    }
+    for (const unit of ['count', 'stick', 'Cup', '']) {
+      expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: [{ ...ingredient, unit }] }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('caps the name at 120 characters', () => {
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, name: 'a'.repeat(120) }).success).toBe(true);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, name: 'a'.repeat(121) }).success).toBe(false);
+  });
+
+  it('caps ingredients at 80', () => {
+    const list = (n: number) => Array.from({ length: n }, () => ingredient);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: list(80) }).success).toBe(true);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: list(81) }).success).toBe(false);
+  });
+
+  it('caps an ingredient name at 64 and a note at 120 characters', () => {
+    const parse = (i: object) => ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: [{ ...ingredient, ...i }] });
+    expect(parse({ name: 'a'.repeat(64) }).success).toBe(true);
+    expect(parse({ name: 'a'.repeat(65) }).success).toBe(false);
+    expect(parse({ note: 'a'.repeat(120) }).success).toBe(true);
+    expect(parse({ note: 'a'.repeat(121) }).success).toBe(false);
+  });
+
+  it('rejects missing fields', () => {
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, is_recipe: undefined }).success).toBe(false);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: [{ name: 'garlic' }] }).success).toBe(false);
+  });
+});
+
+describe('RecipeImportResponseSchema', () => {
+  const ingredient = {
+    ingredientName: 'garlic',
+    displayName: 'Garlic',
+    quantity: 2,
+    unit: 'clove',
+    note: 'minced',
+    categoryId: '019a4c10-0000-7000-8000-00000000ca01',
+    status: 'categorized',
+  };
+  const response = { name: 'Pad Thai', sourceUrl: 'https://example.com/pad-thai', servings: 4, ingredients: [ingredient] };
+
+  it('accepts a response, including a pending ingredient with no category', () => {
+    expect(RecipeImportResponseSchema.parse(response)).toEqual(response);
+    const pending = { ...ingredient, ingredientName: 'tamarind paste', categoryId: null, status: 'pending' };
+    expect(RecipeImportResponseSchema.parse({ ...response, ingredients: [pending] }).ingredients[0]).toEqual(pending);
+  });
+
+  it('rejects an unknown status, an unsupported unit and an empty key', () => {
+    const parse = (i: object) => RecipeImportResponseSchema.safeParse({ ...response, ingredients: [{ ...ingredient, ...i }] });
+    expect(parse({ status: 'sorting' }).success).toBe(false);
+    expect(parse({ unit: 'stick' }).success).toBe(false);
+    expect(parse({ ingredientName: '' }).success).toBe(false);
+  });
+});
+
+describe('error codes', () => {
+  it('are exactly the five from spec 6.6', () => {
+    expect(RECIPE_IMPORT_ERROR_CODES).toEqual(['invalid_url', 'fetch_failed', 'not_a_recipe', 'rate_limited', 'unavailable']);
+  });
+
+  it('parse in an error body and reject anything else', () => {
+    expect(RecipeImportErrorSchema.parse({ error: 'not_a_recipe', message: 'No recipe here' })).toEqual({
+      error: 'not_a_recipe',
+      message: 'No recipe here',
+    });
+    expect(RecipeImportErrorCodeSchema.safeParse('timeout').success).toBe(false);
+  });
+});
+
+describe('@/shared', () => {
+  it('exports the recipe import schemas', () => {
+    expect(shared.canonicalRecipeUrl).toBe(canonicalRecipeUrl);
+    expect(shared.RecipeImportRequestSchema).toBe(RecipeImportRequestSchema);
+    expect(shared.ExtractedRecipeSchema).toBe(ExtractedRecipeSchema);
+    expect(shared.RecipeImportResponseSchema).toBe(RecipeImportResponseSchema);
+    expect(shared.RECIPE_IMPORT_ERROR_CODES).toBe(RECIPE_IMPORT_ERROR_CODES);
+  });
+});

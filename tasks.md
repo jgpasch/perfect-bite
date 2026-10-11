@@ -132,7 +132,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
 
 ### Server: extraction
 
-- [ ] Shared schemas. In `src/shared/schemas/recipe-import.ts`, add Zod schemas used by both the app and the Edge Function:
+- [x] Shared schemas. In `src/shared/schemas/recipe-import.ts`, add Zod schemas used by both the app and the Edge Function:
   - `RecipeImportRequest`: `url`, plus optional `page: { title?, jsonLd?: string[] (each ≤ 200 KB, ≤ 10), text?: string ≤ 50 KB }`;
   - `ExtractedRecipe`: the LLM output above;
   - `RecipeImportResponse`: `{ name, sourceUrl (canonical), servings, ingredients: [{ ingredientName (normalized key), displayName, quantity, unit, note, categoryId | null, status }] }`;
