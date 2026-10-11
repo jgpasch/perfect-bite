@@ -7,11 +7,12 @@ import { itemNameColor } from '@/components/appearance';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
+import { matchParts } from '@/domain/text-match';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 import type { ItemView } from './items';
-import { checkOffLabel, itemRowLabel, SORTING_LABEL, toggleActionLabel } from './list-view';
+import { ALREADY_ON_LIST_LABEL, checkOffLabel, itemRowLabel, SORTING_LABEL, toggleActionLabel } from './list-view';
 
 type Props = {
   item: ItemView;
@@ -19,6 +20,11 @@ type Props = {
   background: string;
   /** Set while the toast for an add that merged into this item shows (spec 4.4): its aisle's soft tint. */
   tint?: string;
+  /**
+   * Add mode: the item matches what's being typed (`isAlreadyOnList`). A `primarySoft` tint, the typed part of
+   * the name in `onPrimarySoft`, and "already on list" in place of the amount.
+   */
+  alreadyOnList?: { typed: string };
   /** The first row in its card has no hairline above it. */
   first?: boolean;
   /** "Sorting…": waiting for an aisle. A dashed amber check and a "Sorting…" label. */
@@ -47,6 +53,7 @@ export function ItemRow({
   item,
   background,
   tint,
+  alreadyOnList,
   first,
   sorting = false,
   amountText = item.amountText,
@@ -64,8 +71,14 @@ export function ItemRow({
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
   const secondLine = [item.note, hint].filter(Boolean).join(' · ');
-  const label = itemRowLabel({ name: item.displayName, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked);
+  const label = [
+    itemRowLabel({ name: item.displayName, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
+    alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
   const showDot = aisle !== undefined && !(sorting && !checked);
+  const match = alreadyOnList ? matchParts(item.displayName, alreadyOnList.typed) : null;
 
   const rowStyle = [
     styles.row,
@@ -73,7 +86,7 @@ export function ItemRow({
       minHeight: sizes.cardRowMin,
       paddingLeft: spacing.lg,
       gap: spacing.md,
-      backgroundColor: tint ?? background,
+      backgroundColor: alreadyOnList ? colors.primarySoft : tint ?? background,
       borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
     },
@@ -88,7 +101,17 @@ export function ItemRow({
             <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: aisle.dot }} />
           ) : null}
           <ThemedText variant="body" color={itemNameColor(checked)} style={[styles.flex, checked ? styles.checked : undefined]}>
-            {item.displayName}
+            {match ? (
+              <>
+                {match.before}
+                <ThemedText variant="headline" color="onPrimarySoft">
+                  {match.match}
+                </ThemedText>
+                {match.after}
+              </>
+            ) : (
+              item.displayName
+            )}
           </ThemedText>
         </View>
         {secondLine ? (
@@ -97,7 +120,11 @@ export function ItemRow({
           </ThemedText>
         ) : null}
       </View>
-      {amountText ? (
+      {alreadyOnList ? (
+        <ThemedText variant="amount" color="onPrimarySoft">
+          {ALREADY_ON_LIST_LABEL}
+        </ThemedText>
+      ) : amountText ? (
         <ThemedText variant="amount" color="inkSecondary">
           {amountText}
         </ThemedText>

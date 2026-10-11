@@ -17,6 +17,7 @@ import {
   getRecipeSuggestions,
   getSuggestions,
   suggestionCaption,
+  suggestionChips,
 } from '../suggestions';
 import { hideFromSuggestions } from '../usage';
 
@@ -451,5 +452,37 @@ describe('recipes in the add bar (spec 4.2)', () => {
     addToList(tacos);
     expect(getRecentRecipes('lake')).toEqual([]);
     expect(getRecentRecipes(householdId).map((r) => r.id)).toEqual([tacos]);
+  });
+});
+
+describe('suggestionChips (spec 4.2, add mode chip row)', () => {
+  const sources = {
+    recipes: [{ id: 'r1', name: 'Chili night', ingredientCount: 8 }],
+    suggestions: [
+      { key: 'chicken thigh', displayName: 'Chicken thighs', source: 'history' as const },
+      { key: 'chickpea', displayName: 'Chickpeas', source: 'catalog' as const },
+    ],
+    recentRecipes: [{ id: 'r2', name: 'Tacos', ingredientCount: 5 }],
+    recent: [{ key: 'lime', displayName: 'Limes', text: '4 Limes' }],
+  };
+
+  test('while typing: matching recipes, then history, then catalog, keeping the typed amount', () => {
+    expect(suggestionChips('2 lbs chi', sources)).toEqual([
+      { kind: 'recipe', key: 'recipe-r1', recipe: sources.recipes[0] },
+      { kind: 'item', key: 'chicken thigh', label: 'Chicken thighs', text: '2 lbs Chicken thighs', removable: true },
+      { kind: 'item', key: 'chickpea', label: 'Chickpeas', text: '2 lbs Chickpeas', removable: false },
+    ]);
+  });
+
+  test('with the field empty: recent recipes, then recently used items', () => {
+    expect(suggestionChips('  ', sources)).toEqual([
+      { kind: 'recipe', key: 'recipe-r2', recipe: sources.recentRecipes[0] },
+      { kind: 'item', key: 'lime', label: '4 Limes', text: '4 Limes', removable: true },
+    ]);
+  });
+
+  test('nothing to offer: no chips, so the row collapses', () => {
+    expect(suggestionChips('zz', { ...sources, recipes: [], suggestions: [] })).toEqual([]);
+    expect(suggestionChips('', { ...sources, recentRecipes: [], recent: [] })).toEqual([]);
   });
 });

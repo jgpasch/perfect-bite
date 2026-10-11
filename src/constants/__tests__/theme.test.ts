@@ -13,6 +13,8 @@ const TEXT_PAIRS: [ColorToken, ColorToken][] = [
   ['ink', 'background'],
   ['ink', 'surface'],
   ['ink', 'surfaceMuted'],
+  // An item row that matches the add text (add mode).
+  ['ink', 'primarySoft'],
   ['inkSecondary', 'background'],
   ['inkSecondary', 'surface'],
   ['inkSecondary', 'surfaceMuted'],

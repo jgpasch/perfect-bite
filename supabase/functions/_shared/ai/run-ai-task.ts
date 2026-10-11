@@ -170,7 +170,8 @@ export async function runAiTask<N extends AiTaskName>(
     try {
       result = await generateText({
         model: model.instance ?? resolveModel(model.modelId, task.mock),
-        output: Output.object({ schema: task.output }),
+        // Widened: TS can't pick one schema from the union of every task's. Still validated against it.
+        output: Output.object({ schema: task.output as z.ZodType<unknown> }),
         instructions: input.instructions,
         prompt: input.prompt,
         temperature: settings.temperature,

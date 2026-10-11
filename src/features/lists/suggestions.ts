@@ -178,3 +178,43 @@ export function getRecentRecipes(householdId: string, limit = RECENT_RECIPE_LIMI
     toRecipeSuggestion,
   );
 }
+
+/** A chip in the list add bar's suggestion row. `text` is what tapping an item chip adds. */
+export type SuggestionChip =
+  | { kind: 'recipe'; key: string; recipe: RecipeSuggestion }
+  | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
+
+/**
+ * The chip row above a list's add bar (spec 4.2). While typing: matching recipes, then autocomplete (household
+ * history, then the catalog), each adding the typed amount with its name. With the field empty: recently added
+ * recipes, then recently used items. Empty when there's nothing to offer, so the row collapses.
+ */
+export function suggestionChips(
+  text: string,
+  sources: {
+    recipes: readonly RecipeSuggestion[];
+    suggestions: readonly Suggestion[];
+    recentRecipes: readonly RecipeSuggestion[];
+    recent: readonly RecentItem[];
+  },
+): SuggestionChip[] {
+  const recipe = (r: RecipeSuggestion): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r });
+  if (text.trim()) {
+    return [
+      ...sources.recipes.map(recipe),
+      ...sources.suggestions.map(
+        (s): SuggestionChip => ({
+          kind: 'item',
+          key: s.key,
+          label: s.displayName,
+          text: applySuggestion(text, s),
+          removable: s.source === 'history',
+        }),
+      ),
+    ];
+  }
+  return [
+    ...sources.recentRecipes.map(recipe),
+    ...sources.recent.map((r): SuggestionChip => ({ kind: 'item', key: r.key, label: r.text, text: r.text, removable: true })),
+  ];
+}

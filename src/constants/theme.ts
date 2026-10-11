@@ -206,6 +206,8 @@ export const Sizes = {
   barButton: 40,
   /** focus ring around the add bar */
   focusRing: 2,
+  /** a recipe chip's outline in the add bar's suggestion row */
+  chipBorder: 1,
   /** list tiles on the lists home (a minimum, so Dynamic Type can grow them) */
   tile: 132,
   /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */

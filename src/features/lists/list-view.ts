@@ -2,6 +2,7 @@
 // without rendering.
 
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
+import { normalizeIngredientName, parseQuantity } from '@/shared';
 
 // --- Lists home ----------------------------------------------------------------------------
 
@@ -82,6 +83,30 @@ export const LIST_VIEW_MODES: readonly { value: ListViewMode; label: string; hin
 
 /** A list with no saved choice on this device opens in Newest. */
 export const DEFAULT_LIST_VIEW_MODE: ListViewMode = 'newest';
+
+/** The compact add-mode header's second line: the count and the view mode, `8 to get · Newest`. */
+export function compactHeaderSubtitle(uncheckedCount: number, mode: ListViewMode): string {
+  const label = LIST_VIEW_MODES.find((m) => m.value === mode)?.label ?? '';
+  return [toGetLabel(uncheckedCount), label].filter(Boolean).join(' · ');
+}
+
+/**
+ * While typing in the add bar, the ingredient key that unchecked items are checked against for the "already on
+ * list" highlight: the typed name without its amount, normalized like an add (`2 lbs Chi` → `chi`). Null under
+ * 2 characters, as autocomplete.
+ */
+export function duplicateQuery(text: string): string | null {
+  const key = normalizeIngredientName(parseQuantity(text).name);
+  return key.length >= 2 ? key : null;
+}
+
+/** Shown in place of the amount on an item that matches the add text. */
+export const ALREADY_ON_LIST_LABEL = 'already on list';
+
+/** An unchecked item whose key starts with or contains the typed key is already on the list. */
+export function isAlreadyOnList(item: { ingredientName: string; checkedAt: Date | null }, query: string | null): boolean {
+  return query !== null && item.checkedAt === null && item.ingredientName.includes(query);
+}
 
 /** Where the device setting for a list's view mode lives. Saved choices from before Newest still read. */
 export const viewModeKey = (listId: string) => `list.${listId}.viewMode`;

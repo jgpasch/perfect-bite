@@ -148,7 +148,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - the timeout enforced;
   - JSON-LD and title extracted from a fixture page;
   - the text cap.
-- [ ] `extract-recipe` AI task. In `_shared/ai/tasks.ts`, add `extractRecipe`: `AI_MODEL_RECIPE` (default `google:gemini-3.8-flash` in `.env.example`, with the thinking setting chosen for categorize unless extraction quality needs more) and `AI_MODEL_RECIPE_FALLBACK`, `ExtractedRecipeSchema`, and the call limits above. Add `prompts/extract-recipe.v1.ts` with `EXTRACT_RECIPE_PROMPT_VERSION` and `buildExtractRecipePrompt({ title, ingredientLines } | { title, text })`. The instructions cover:
+- [x] `extract-recipe` AI task. In `_shared/ai/tasks.ts`, add `extractRecipe`: `AI_MODEL_RECIPE` (default `google:gemini-3.8-flash` in `.env.example`, with the thinking setting chosen for categorize unless extraction quality needs more) and `AI_MODEL_RECIPE_FALLBACK`, `ExtractedRecipeSchema`, and the call limits above. Add `prompts/extract-recipe.v1.ts` with `EXTRACT_RECIPE_PROMPT_VERSION` and `buildExtractRecipePrompt({ title, ingredientLines } | { title, text })`. The instructions cover:
   - set `is_recipe: false` for anything that isn't a single recipe;
   - one entry per ingredient line, with sub-recipe headings ("For the sauce:") dropped;
   - the shopping name, not the prep, goes in `name` ("2 cloves garlic, minced" → name `garlic`, quantity 2, unit `clove`, note `minced`);

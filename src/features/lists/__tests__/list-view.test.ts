@@ -5,6 +5,9 @@ import {
   movedToast,
   alsoInHint,
   checkOffLabel,
+  compactHeaderSubtitle,
+  duplicateQuery,
+  isAlreadyOnList,
   DEFAULT_LIST_VIEW_MODE,
   groupListsByHousehold,
   itemRowLabel,
@@ -316,5 +319,29 @@ describe('launchListId', () => {
   it('lands on the Lists home when there are no lists', () => {
     expect(launchListId('costco', 'groceries', [])).toBeNull();
     expect(launchListId(null, null, [])).toBeNull();
+  });
+});
+
+describe('add mode', () => {
+  it('sums up the list under the compact title', () => {
+    expect(compactHeaderSubtitle(8, 'newest')).toBe('8 to get · Newest');
+    expect(compactHeaderSubtitle(1, 'category')).toBe('1 to get · By aisle');
+    expect(compactHeaderSubtitle(0, 'recipe')).toBe('By recipe');
+  });
+
+  it('checks the typed name, without its amount, against items', () => {
+    expect(duplicateQuery('chi')).toBe('chi');
+    expect(duplicateQuery('2 lbs Chicken Thighs')).toBe('chicken thigh');
+    expect(duplicateQuery('c')).toBeNull();
+    expect(duplicateQuery('  ')).toBeNull();
+  });
+
+  it('highlights unchecked items whose name starts with or contains the typed text', () => {
+    const broth = { ingredientName: 'chicken broth', checkedAt: null };
+    expect(isAlreadyOnList(broth, duplicateQuery('chi'))).toBe(true);
+    expect(isAlreadyOnList(broth, duplicateQuery('broth'))).toBe(true);
+    expect(isAlreadyOnList(broth, duplicateQuery('tuna'))).toBe(false);
+    expect(isAlreadyOnList(broth, null)).toBe(false);
+    expect(isAlreadyOnList({ ...broth, checkedAt: new Date() }, duplicateQuery('chi'))).toBe(false);
   });
 });
