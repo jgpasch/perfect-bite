@@ -191,7 +191,13 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - 2 non-recipe pages (a news article, a recipe index page listing many recipes);
   - 2 with injection text in an ingredient line.
 
-  Each has expected `is_recipe`, name, and the set of normalized ingredient keys with quantity and unit. `yarn ai:eval:recipe` prints per-page precision and recall on keys, unit and quantity accuracy, and every miss. Document both commands in README.md next to `ai:categorize`, and record the first real-model run in progress.md. It isn't part of CI or `deno test`, apart from a Deno test that runs the eval harness with the mock model.
+  Each has expected `is_recipe`, name, and the set of normalized ingredient keys with quantity and unit. `yarn ai:eval:recipe` prints per-page precision and recall on keys, unit and quantity accuracy, and every miss. Document both commands in README.md next to `ai:categorize`. The 20 fixture pages are already saved in `import-recipe/eval/fixtures/` (see its `SOURCES.md`); don't fetch or replace them, just write the expected values for each. The first real-model run needs network and the API key, so it's a manual check (already in manual-checks.md), not part of this task. It isn't part of CI or `deno test`, apart from a Deno test that runs the eval harness with the mock model.
+- [ ] Stop at the size cap instead of refusing. Most of a big recipe page is comments after the recipe: smittenkitchen.com/2008/09/moms-apple-cake/ is 3.5 MB, but its post ends at about 64 KB and the comments are 3.1 MB. In `fetch-page.ts`, when the body passes `MAX_BODY_BYTES` (a declared `content-length` too), stop reading, cancel the stream and parse what arrived instead of throwing `too_large`. Lower the cap to 1 MB. Decode the truncated bytes safely (a cut multi-byte character must not throw). In the readable text, also drop comment sections: `#comments`, `#respond`, `.comments`, `.comment-list`, `.commentlist`, `ol.comments`, and `.wprm-comments`, the same way `nav` and `footer` are dropped. Update the Fetching rule in spec 6.6 to say the body is cut at 1 MB, not refused. Deno tests:
+  - a 1.5 MB body with JSON-LD and the recipe in the first 100 KB returns them, with no error;
+  - a body cut in the middle of a multi-byte character decodes;
+  - a declared `content-length` over the cap still reads the first 1 MB;
+  - comment sections are missing from `text` while the article text stays;
+  - JSON-LD that comes after the cut is absent, and `jsonLd` holds only the complete blocks before it.
 
 ### App: import from a link (works before the extension exists)
 
@@ -213,6 +219,13 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - each error result;
   - no session or no config → `offline`, with no writes.
 - [ ] "Add recipe from link…" UI. Add it to a list's menu (it imports into that list) and as "Import from link" on the Recipes tab (it asks for the list, defaulting as in the share sheet). A small sheet has a URL field with a Paste button: it reads the clipboard only when tapped, so iOS shows no paste prompt on open. It shows "Reading recipe…" while working, then closes. On success, a toast on the list screen reads "Added *Chicken tikka masala* · 12 items" with **Undo** and **View recipe**. Failures show inline in the sheet with plain copy ("That page doesn't look like a recipe", "Couldn't reach that site", "Try again in a minute"). Follow DESIGN.md (sheet, PrimaryButton, Toast). Put any pure helpers (URL detection from pasted text, toast text) in a module with tests. Manual check in the simulator against a real recipe URL with local Supabase.
+
+- [ ] Device fallback for blocked sites. Many recipe sites answer a server fetch with a bot check (Cloudflare "Just a moment...", "Security Verification", Vercel Security Checkpoint, AllRecipes' JS-only "Simple Page"); it happens from a home connection with a browser user agent too, so a plain `fetch` on the phone won't do either. A real WebKit view does. When `import-recipe` answers `fetch_failed` for a pasted link, `importRecipe` loads the URL in a hidden `react-native-webview` (add it with `yarn expo install`, and read the versioned docs per AGENTS.md first; it's native, so the dev build needs rebuilding), captures `{ title, jsonLd, text }` once the real page has loaded, and calls `import-recipe` again with that `page`. Use the same caps and shape as the share extension's `Preprocess.js` (each JSON-LD block ≤ 200 KB, at most 10; `document.body.innerText` ≤ 50 KB), and keep the capture script in one module so the share extension can copy it. A pure `isBotCheckPage({ title, text })` decides when to keep waiting (a challenge page often reloads into the real one); give up after 20 s. If it still fails, the sheet shows "This site blocked the import. Open it in Safari and tap Share → The Perfect Bite." Only `fetch_failed` falls back, never `not_a_recipe`, `rate_limited` or `invalid_url`. Results from a device-captured page aren't cached on the server (spec 6.6 already says so). Say in spec 4.10 and 6.6 that a pasted link falls back to a device capture. Tests:
+  - `isBotCheckPage` is true for each saved page in `src/features/recipes/__tests__/fixtures/challenge-pages/` (see its `SOURCES.md`; don't fetch new ones) and false for a few eval recipe fixtures;
+  - the capture caps;
+  - `importRecipe` with a fake capture: `fetch_failed` → capture → second call carries `page` and succeeds; a capture timeout → a `blocked` result; `not_a_recipe` never captures.
+
+  Manual check in a development build: paste https://www.allrecipes.com/recipe/230103/buttery-garlic-green-beans/ and https://www.halfbakedharvest.com/20-minute-thai-peanut-chicken-ramen/; both import, and nothing visible flashes on screen.
 
 ### Share extension
 
@@ -241,15 +254,4 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - a bad file is deleted;
   - two concurrent drains import once;
   - a crash between import and delete doesn't duplicate (`importId`).
-- [ ] Failed imports. Add a small local `failed_imports` table (`id`, `url`, `title`, `reason`, `created_at`; device-only, not synced) via drizzle-kit. When it has rows, show a card at the top of the Recipes tab: "Couldn't import 1 recipe". It expands to rows with the title or host, the reason, **Try again** (reruns `importRecipe` into the default list) and **Dismiss**. Tests for the table helpers and the retry and dismiss behaviour.
-- [ ] End-to-end pass on a device. Use a development build on a real iPhone with local Supabase reachable from it (or a preview project), and a real model. Share from:
-  - Safari, on a JSON-LD recipe site and on a site without JSON-LD;
-  - Chrome;
-  - a link shared from Instagram or Messages (URL in text);
-  - a paywalled recipe page while signed in, to confirm Safari's page content is used;
-  - a non-recipe page;
-  - while offline (imports on reconnect);
-  - while signed out (imports after sign-in);
-  - twice for the same recipe (one recipe, items Combine).
-
-  Check the sheet in light and dark, Dynamic Type, and VoiceOver labels. Record each result, the time from opening the app to the toast, and any fixes needed in progress.md. Mark M10 done in the spec.
+- [ ] Failed imports. Add a small local `failed_imports` table (`id`, `url`, `title`, `reason`, `created_at`; device-only, not synced) via drizzle-kit. When it has rows, show a card at the top of the Recipes tab: "Couldn't import 1 recipe". It expands to rows with the title or host, the reason, **Try again** (reruns `importRecipe` into the default list) and **Dismiss**. Tests for the table helpers and the retry and dismiss behaviour. Mark M10 done in the spec.

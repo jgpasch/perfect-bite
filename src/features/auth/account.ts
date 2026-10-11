@@ -70,6 +70,24 @@ export async function sendEmailCode(email: string): Promise<void> {
   if (error) throw error;
 }
 
+// Dev builds only: this email skips the code step and signs in with a fixed password, creating
+// the user on first use. `__DEV__` is false in release builds, so this path is stripped there.
+const DEV_PASSWORD_EMAIL = 'jgpasch@gmail.com';
+const DEV_PASSWORD = 'perfect-bite-dev';
+
+export function isDevPasswordEmail(email: string): boolean {
+  return __DEV__ && email.trim().toLowerCase() === DEV_PASSWORD_EMAIL;
+}
+
+export async function devPasswordSignIn(email: string): Promise<void> {
+  if (!isDevPasswordEmail(email)) throw new Error('Dev password sign-in is not available.');
+  const signIn = await supabase.auth.signInWithPassword({ email: DEV_PASSWORD_EMAIL, password: DEV_PASSWORD });
+  if (!signIn.error) return;
+  const signUp = await supabase.auth.signUp({ email: DEV_PASSWORD_EMAIL, password: DEV_PASSWORD });
+  // "Already registered" means the user exists without this password: report the sign-in error.
+  if (signUp.error) throw signUp.error.code === 'user_already_exists' ? signIn.error : signUp.error;
+}
+
 export async function verifyEmailCode(email: string, token: string): Promise<void> {
   const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
   if (error) throw error;

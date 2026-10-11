@@ -7,7 +7,13 @@ import { Button, SurfaceButton } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { sendEmailCode, useAccountState, verifyEmailCode } from '@/features/auth/account';
+import {
+  devPasswordSignIn,
+  isDevPasswordEmail,
+  sendEmailCode,
+  useAccountState,
+  verifyEmailCode,
+} from '@/features/auth/account';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
@@ -39,6 +45,7 @@ export default function SignInScreen() {
 
   const onSendCode = () =>
     run(async () => {
+      if (isDevPasswordEmail(email)) return devPasswordSignIn(email);
       await sendEmailCode(email.trim());
       setStep('code');
     });
