@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -107,19 +108,6 @@ export function AddBar({
       </View>
     </View>
   );
-}
-
-function useKeyboardVisible(): boolean {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardWillHide', () => setVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  return visible;
 }
 
 const styles = StyleSheet.create({

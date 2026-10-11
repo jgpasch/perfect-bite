@@ -1,0 +1,28 @@
+/**
+ * Sizing for the sign-in screen (board 09), which is exactly the device's height: the title at the
+ * top, the field and buttons at the bottom, and the decorative shapes filling the space between.
+ */
+
+/** The shapes are a grid of this many rows. */
+export const SIGN_IN_SHAPE_ROWS = 2;
+
+/**
+ * The height of each sign-in shape that fits `space` points: the full `max` when there's room,
+ * smaller when there isn't, and 0 (no shapes) once they'd be shorter than `min`, so a short screen,
+ * the keyboard or a large text size squeezes the shapes away before the screen has to scroll.
+ */
+export function signInShapeHeight(space: number, { max, min, gap }: { max: number; min: number; gap: number }): number {
+  if (!Number.isFinite(space) || space <= 0) return 0;
+  const fits = Math.floor((space - gap * (SIGN_IN_SHAPE_ROWS - 1)) / SIGN_IN_SHAPE_ROWS);
+  if (fits < min) return 0;
+  return Math.min(fits, max);
+}
+
+/**
+ * Whether the sign-in content is taller than the screen, so it should scroll. Layout heights are
+ * fractional; anything within a point of the frame counts as fitting.
+ */
+export function signInOverflows(contentHeight: number, frameHeight: number): boolean {
+  if (frameHeight <= 0) return false;
+  return contentHeight - frameHeight > 1;
+}
