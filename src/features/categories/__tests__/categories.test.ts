@@ -372,7 +372,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
         status: 'categorized',
         isGroceryItem: true,
         categorizedBy: 'seed',
-        defaultUnit: 'count',
+        defaultUnit: 'lb',
       },
     ]);
     expect(categoryOf(A, 'Tomatoes')).toBe(id('produce'));

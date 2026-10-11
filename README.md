@@ -210,8 +210,11 @@ The app applies it on next launch.
 **The seed catalog** (`src/shared/seed/`: system categories, and common ingredients with their aisle and default unit) ships in the app and in the database. After changing it, write the database copy as a new migration; never edit the generated SQL by hand:
 
 ```bash
+yarn ai:check-seed # optional: ask the model about every seed name (real calls, cost tokens; resumable)
 yarn db:seed-sql   # writes supabase/migrations/<timestamp>_seed_catalog.sql
 ```
+
+`yarn ai:check-seed` saves every answer to `supabase/functions/categorize-ingredients/eval/results/seed-check.json` and the differences to `seed-check-disagreements.tsv`; commit both, so the answers aren't lost with the database.
 
 The app picks up the change on next launch (it reloads the seed when its hash changes).
 
