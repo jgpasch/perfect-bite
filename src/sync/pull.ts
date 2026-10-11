@@ -49,6 +49,7 @@ import { ensureMissingIngredients } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
+import { reportSyncActivity } from './activity';
 import { observeHlc, type Exec } from './clock';
 import { compareHlc } from './hlc';
 import type { Mutation } from './mutation';
@@ -599,6 +600,7 @@ export function pullNow(options: { now?: () => Date; scope?: PullScope } = {}): 
     queued = mergeScopes(queued, scope);
     return inFlight;
   }
+  reportSyncActivity({ pulling: true });
   inFlight = (async () => {
     try {
       let result = await runPull(now, scope);
@@ -615,6 +617,7 @@ export function pullNow(options: { now?: () => Date; scope?: PullScope } = {}): 
     } finally {
       inFlight = null;
       queued = null;
+      reportSyncActivity({ pulling: false });
     }
   })();
   return inFlight;

@@ -267,8 +267,15 @@ describe('badgeColors', () => {
     });
   });
 
-  it.each(SCHEMES)('keeps both tones at 4.5:1 or better in %s mode', (scheme) => {
-    for (const tone of ['positive', 'owner'] as const) {
+  it('uses pending on pendingSoft and danger on dangerSoft for sync states', () => {
+    expect(badgeColors('pending', Palette.light, AisleColors.light)).toEqual({ fill: '#FFF7E6', text: '#8A5C0C' });
+    expect(badgeColors('danger', Palette.light, AisleColors.light)).toEqual({ fill: '#F7E1E6', text: '#A33D53' });
+    expect(badgeColors('pending', Palette.dark, AisleColors.dark)).toEqual({ fill: Palette.dark.pendingSoft, text: Palette.dark.pending });
+    expect(badgeColors('danger', Palette.dark, AisleColors.dark)).toEqual({ fill: Palette.dark.dangerSoft, text: Palette.dark.danger });
+  });
+
+  it.each(SCHEMES)('keeps every tone at 4.5:1 or better in %s mode', (scheme) => {
+    for (const tone of ['positive', 'owner', 'pending', 'danger'] as const) {
       const { fill, text } = badgeColors(tone, Palette[scheme], AisleColors[scheme]);
       expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(4.5);
     }

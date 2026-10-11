@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { avatarColors } from '@/components/appearance';
+import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
@@ -15,6 +16,7 @@ import { recipeHue } from '@/domain/aisle-color';
 import { signOut, useAccountState } from '@/features/auth/account';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
+import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Settings (board 10): the account card, Shopping and Households cards, then Sign out and the version. */
@@ -32,6 +34,7 @@ export default function SettingsScreen() {
     return listRows.find((l) => l.id === id)?.name;
   }, [userId, listRows]);
   const avatar = avatarColors('amber', colors, aisles);
+  const sync = useSyncStatus();
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -40,10 +43,9 @@ export default function SettingsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
-        {/* TODO(M5): a "Synced" badge when the outbox is empty (spec 7.5). */}
         <Card
           accessible
-          accessibilityLabel={`Signed in as ${email ?? 'unknown'}`}
+          accessibilityLabel={`Signed in as ${email ?? 'unknown'}, ${sync.label}`}
           style={[styles.row, { padding: spacing.lg, gap: spacing.md + spacing.xxs }]}>
           <View
             style={[
@@ -61,6 +63,10 @@ export default function SettingsScreen() {
               Signed in
             </ThemedText>
           </View>
+          {/* Badges align to the top of their parent; this keeps it centred beside the name. */}
+          <View>
+            <Badge label={sync.label} tone={sync.tone} />
+          </View>
         </Card>
 
         <SettingsSection title="Shopping">
@@ -75,6 +81,12 @@ export default function SettingsScreen() {
             label="Aisle order"
             icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
             onPress={() => router.push('/category-order')}
+          />
+          <SettingsRow
+            label="Sync status"
+            value={sync.label}
+            icon={{ name: 'arrow.triangle.2.circlepath', hue: 'grey' }}
+            onPress={() => router.push('/settings/sync')}
             last
           />
         </SettingsSection>

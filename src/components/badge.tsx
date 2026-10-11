@@ -4,7 +4,7 @@ import { badgeColors, type BadgeTone } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 
-/** A small label: positive ("On Groceries", "Synced") or Owner. */
+/** A small label: positive ("On Groceries", "Synced"), Owner, pending ("Syncing…") or danger ("Sync error"). */
 export function Badge({ label, tone = 'positive' }: { label: string; tone?: BadgeTone }) {
   const { colors, aisles, spacing, rounded } = useTheme();
   const look = badgeColors(tone, colors, aisles);

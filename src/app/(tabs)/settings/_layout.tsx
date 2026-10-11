@@ -23,7 +23,8 @@ export default function SettingsStackLayout() {
         // Board 11: the header sits on the household's amber band.
         options={{ title: '', headerBackButtonDisplayMode: 'minimal', headerStyle: { backgroundColor: aisles.amber.soft } }}
       />
-      <Stack.Screen name="siri" options={{ title: 'Siri spike', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="sync" options={{ title: 'Sync status', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="siri"options={{ title: 'Siri spike', headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>
   );
 }

@@ -524,6 +524,7 @@ The device caches the seed set plus every ingredient it has seen, and fetches un
 
 ### 7.5 Sync status
 Settings > "Sync status" (as stash): pending outbox count, last successful sync, last error, and a "Sync now" button.
+- **Client side**: `src/sync/status.ts` `syncStatus(inputs)` is the one rule, from the outbox counts (pending and rejected), the push and pull states (`lastSuccessAt`, `lastError`) and what's running (`src/sync/activity.ts`, reported by push and pull, with the OS's connectivity). In order: signed out → "Not syncing"; offline → "Offline"; a push or pull running → "Syncing…"; a standing push or pull error → "Sync error" (push's error shown first, as "Sending: …"; pull's as "Receiving: …"); pending mutations → "Syncing…"; nothing ever got through → "Not synced yet"; else "Synced". Last successful sync is the later of the last push and pull that got through. Rejected mutations are counted on the screen ("Not accepted") but don't block "Synced", since they never go. The account card's badge and the Settings row show the same label. Sync now pushes (ignoring the backoff), then does a full pull; it's disabled while offline or while either is running.
 
 ---
 

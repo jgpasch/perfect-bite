@@ -22,6 +22,7 @@ import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
+import { reportSyncActivity } from './activity';
 import type { Mutation } from './mutation';
 import { onOutboxWrite } from './outbox-signal';
 
@@ -268,6 +269,7 @@ export function pushNow(options: { force?: boolean; now?: () => Date } = {}): Pr
     rerun = { force: force || (rerun?.force ?? false) };
     return inFlight;
   }
+  reportSyncActivity({ pushing: true });
   inFlight = (async () => {
     try {
       let result = await runPush(now, force);
@@ -286,6 +288,7 @@ export function pushNow(options: { force?: boolean; now?: () => Date } = {}): Pr
     } finally {
       inFlight = null;
       rerun = null;
+      reportSyncActivity({ pushing: false });
     }
   })();
   return inFlight;
@@ -329,6 +332,7 @@ export function startPush(): () => void {
     () => void pushNow({ force: true }),
     (now) => {
       online = now;
+      reportSyncActivity({ online: now });
     },
   );
   void pushNow({ force: true });
@@ -341,5 +345,6 @@ export function startPush(): () => void {
     debounceTimer = null;
     retryTimer = null;
     online = null;
+    reportSyncActivity({ online: null });
   };
 }

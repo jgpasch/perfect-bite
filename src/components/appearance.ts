@@ -104,13 +104,23 @@ export function segmentColors(selected: boolean, tone: SegmentTone = 'chip'): { 
   return { fill: 'surface', text: 'ink' };
 }
 
-export type BadgeTone = 'positive' | 'owner';
+export type BadgeTone = 'positive' | 'owner' | 'pending' | 'danger';
 
-/** Badges: positive ("On Groceries", "Synced") on `primarySoft`; Owner in `pending` on the amber soft tint. */
+/**
+ * Badges: positive ("On Groceries", "Synced") on `primarySoft`; Owner in `pending` on the amber
+ * soft tint; pending ("Syncing…", "Offline") on `pendingSoft`; danger ("Sync error") on `dangerSoft`.
+ */
 export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles): { fill: string; text: string } {
-  return tone === 'owner'
-    ? { fill: aisles.amber.soft, text: colors.pending }
-    : { fill: colors.primarySoft, text: colors.onPrimarySoft };
+  switch (tone) {
+    case 'owner':
+      return { fill: aisles.amber.soft, text: colors.pending };
+    case 'pending':
+      return { fill: colors.pendingSoft, text: colors.pending };
+    case 'danger':
+      return { fill: colors.dangerSoft, text: colors.danger };
+    default:
+      return { fill: colors.primarySoft, text: colors.onPrimarySoft };
+  }
 }
 
 /** A list tile: the Siri default list is filled `primary`; the rest are `surface` cards. */
