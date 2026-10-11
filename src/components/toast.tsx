@@ -15,7 +15,7 @@ type Props = {
   message: string;
   /** Part of the message to set in bold, e.g. the item's name. */
   emphasis?: string;
-  /** One or two actions, e.g. Undo (spec 4.4), or Undo · Adjust. */
+  /** Up to two actions, e.g. Undo (spec 4.4), or Undo · Adjust; none for a plain notice. */
   actions: ToastAction[];
   /** Called when the toast times out (spec 4.2: 5 seconds). */
   onDismiss: () => void;

@@ -157,10 +157,10 @@ function applyAdd(
   list: { id: string; householdId: string },
   add: ParsedAdd,
   decision: AddDecision,
-  meta: { userId: string | null; source: Source; recipeId?: string | null; at?: Date },
+  meta: { userId: string | null; source: Source; recipeId?: string | null; at?: Date; ids?: AddIds },
 ): AddItemResult {
   const at = meta.at ?? new Date();
-  const contributionId = newId();
+  const contributionId = meta.ids?.contributionId ?? newId();
   const contribution = {
     id: contributionId,
     createdAt: at,
@@ -175,7 +175,7 @@ function applyAdd(
   const pendingNames = ensureLocalIngredient(tx, add.ingredientName, add.displayName) ? [add.ingredientName] : [];
 
   if (decision.kind === 'new') {
-    const itemId = newId();
+    const itemId = meta.ids?.itemId ?? newId();
     insertRow(tx, listItems, {
       id: itemId,
       listId: list.id,
@@ -247,6 +247,40 @@ export function addItem(
     const list = getListForAdd(tx, listId);
     const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId));
     return applyAdd(tx, list, add, decision, { userId, source });
+  });
+}
+
+/** Ids an add uses instead of new ones: the item's (if the add makes a new item) and its amount's. */
+export type AddIds = { itemId: string; contributionId: string };
+
+/**
+ * A Siri add (spec 4.9): `addItem` from Siri (Combine silently), but with ids derived from its
+ * queue envelope and the time it was spoken, so applying the same envelope twice adds once. Returns
+ * `'applied'` when its amount already exists (an earlier drain, or `siri-add` via sync), even if
+ * since deleted, and null for text with nothing to add.
+ */
+export function addSiriItem(
+  listId: string,
+  text: string,
+  userId: string | null,
+  ids: AddIds,
+  at: Date,
+): AddItemResult | 'applied' | null {
+  const add = parseAdd(text);
+  if (!add) return null;
+  return db.transaction((tx) => {
+    const contribution = tx
+      .select({ id: listItemContributions.id })
+      .from(listItemContributions)
+      .where(eq(listItemContributions.id, ids.contributionId))
+      .get();
+    if (contribution) return 'applied';
+    const list = getListForAdd(tx, listId);
+    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId));
+    // The derived item id is taken only if an earlier add made that item, whose amount would exist.
+    const taken = tx.select({ id: listItems.id }).from(listItems).where(eq(listItems.id, ids.itemId)).get();
+    const itemId = taken ? newId() : ids.itemId;
+    return applyAdd(tx, list, add, decision, { userId, source: 'siri', at, ids: { ...ids, itemId } });
   });
 }
 

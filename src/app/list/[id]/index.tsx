@@ -56,6 +56,7 @@ import {
   LIST_VIEW_MODES,
   movedToast,
   orderByNewest,
+  siriAddedToast,
   toGetLabel,
   viewModeKey,
   type ListViewMode,
@@ -70,6 +71,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { onSiriAdds } from '@/features/siri/drain';
 import { useTheme } from '@/hooks/use-theme';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
@@ -211,6 +213,16 @@ export default function ListScreen() {
         ],
       });
     }, [id]),
+  );
+  // Adds Siri queued while the app was closed (spec 4.9): one toast, on whichever list is showing.
+  useFocusEffect(
+    useCallback(
+      () =>
+        onSiriAdds((count) =>
+          setToast({ key: `siri-${Date.now()}`, ...siriAddedToast(count), actions: [] }),
+        ),
+      [],
+    ),
   );
 
   const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {

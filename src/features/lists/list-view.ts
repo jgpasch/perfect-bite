@@ -165,3 +165,8 @@ export function movedToast(move: {
   if (move.kind === 'combine') return addedToast(move.name, move.totalAmountText);
   return { message: move.fromListName ? `Moved ${move.name} from ${move.fromListName}` : `Moved ${move.name}`, emphasis: move.name };
 }
+
+/** The toast on a list screen after the Siri queue drained (spec 4.9): "Siri added 2 items". */
+export function siriAddedToast(count: number): { message: string } {
+  return { message: `Siri added ${count} ${count === 1 ? 'item' : 'items'}` };
+}
