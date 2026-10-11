@@ -10,6 +10,7 @@ import { ThemedText } from '@/components/themed-text';
 import { matchParts } from '@/domain/text-match';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { displayItemName } from '@/shared';
 
 import type { ItemView } from './items';
 import { ALREADY_ON_LIST_LABEL, checkOffLabel, itemRowLabel, SORTING_LABEL, toggleActionLabel } from './list-view';
@@ -76,14 +77,15 @@ export function ItemRow({
   const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
+  const name = displayItemName(item.displayName);
   const secondLine = [item.note, hint].filter(Boolean).join(' · ');
   const label = [
-    itemRowLabel({ name: item.displayName, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
+    itemRowLabel({ name, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
     alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
   ]
     .filter(Boolean)
     .join(', ');
-  const match = alreadyOnList ? matchParts(item.displayName, alreadyOnList.typed) : null;
+  const match = alreadyOnList ? matchParts(name, alreadyOnList.typed) : null;
 
   const rowStyle = [
     styles.row,
@@ -111,7 +113,7 @@ export function ItemRow({
               {match.after}
             </>
           ) : (
-            item.displayName
+            name
           )}
         </ThemedText>
         {secondLine ? (
@@ -166,7 +168,7 @@ export function ItemRow({
           </Pressable>
         ) : (
           <View style={rowStyle}>
-            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} onPress={onToggle} accessibilityLabel={checkOffLabel(item.displayName)} />
+            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
             <Pressable
               onPress={onEdit}
               onLongPress={

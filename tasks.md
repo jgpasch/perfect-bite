@@ -297,7 +297,7 @@ Goal: get rid of everything you've checked off without hunting through the ⋯ m
 
 Goal: typing into the add bar doesn't capitalize, and every item name is shown in sentence case wherever it comes from (typed, autocomplete, catalog, recipe import, Siri), so a list reads consistently. Display only: stored names don't change, and there's no migration or backfill. Update `docs/spec.md` 4.2 (name normalization / display name) in the same task as the code.
 
-- [ ] Lowercase input, sentence-case display. In `src/components/add-bar.tsx`, set `autoCapitalize="none"` on the add field. It's shared, so this covers the list and recipe add bars. Add a pure `displayItemName(name)` helper in `src/shared/` that uppercases only the first character, and only when it's a lowercase letter. It leaves the rest as stored ("chicken thighs" → "Chicken thighs", "iPhone charger" stays, "2% milk" stays), uses `toLocaleUpperCase`, and is safe on an empty string. Use it everywhere a stored item or ingredient name is shown for reading:
+- [x] Lowercase input, sentence-case display. In `src/components/add-bar.tsx`, set `autoCapitalize="none"` on the add field. It's shared, so this covers the list and recipe add bars. Add a pure `displayItemName(name)` helper in `src/shared/` that uppercases only the first character, and only when it's a lowercase letter. It leaves the rest as stored ("chicken thighs" → "Chicken thighs", "iPhone charger" stays, "2% milk" stays), uses `toLocaleUpperCase`, and is safe on an empty string. Use it everywhere a stored item or ingredient name is shown for reading:
   - list rows in every view mode;
   - the "also in" hint;
   - the item sheet's title;

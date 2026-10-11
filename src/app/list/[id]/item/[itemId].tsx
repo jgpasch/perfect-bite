@@ -49,7 +49,7 @@ import {
 } from '@/features/lists/items';
 import { setMoveResult } from '@/features/lists/move-result';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_CATEGORY_ID, type Unit } from '@/shared';
+import { displayItemName, OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
 /**
  * Item edit sheet (spec 4.2, 4.3.2, board 04): Got it / Still need it, name, amount, note, the
@@ -236,7 +236,7 @@ export default function ItemEditSheet() {
         <IconTile hue={hue} name={sorting ? 'hourglass' : aisleSymbol(slugOf(selectedId))} size={sizes.sheetIcon} />
         <View style={styles.flex}>
           <ThemedText variant="sheetTitle" accessibilityRole="header" numberOfLines={2}>
-            {edit.name.trim() || initial.name}
+            {displayItemName(edit.name.trim() || initial.name)}
           </ThemedText>
           {amount ? (
             <ThemedText variant="amount" color="inkSecondary">

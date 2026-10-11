@@ -1003,11 +1003,16 @@ describe('changing an amount (spec 4.4)', () => {
   });
 });
 
-test('share text lists unchecked items with amounts and notes', () => {
+test('share text lists unchecked items with amounts and notes, names in sentence case', () => {
   addItem(listId, '2 lbs chicken thighs', USER);
   const milk = addItem(listId, 'milk', USER)!;
   updateItem(milk.itemId, { name: 'milk', amount: '', note: 'oat' });
-  expect(listShareText('Groceries', view().unchecked)).toBe('Groceries\n- 2 lb chicken thighs\n- milk (oat)');
+  addItem(listId, 'iPhone charger', USER);
+  expect(listShareText('Groceries', view().unchecked)).toBe(
+    'Groceries\n- 2 lb Chicken thighs\n- Milk (oat)\n- iPhone charger',
+  );
+  // Display only: the stored names are unchanged.
+  expect(view().unchecked.map((i) => i.displayName)).toEqual(['chicken thighs', 'milk', 'iPhone charger']);
 });
 
 describe('Sorting section (spec 4.3.1)', () => {

@@ -137,7 +137,7 @@ describe('moveItemToList', () => {
     const gone = createList('Old');
     deleteList(gone);
 
-    expect(() => moveItemToList(itemId, groceries)).toThrow('milk is already on this list');
+    expect(() => moveItemToList(itemId, groceries)).toThrow('Milk is already on this list');
     expect(() => moveItemToList(itemId, lake)).toThrow('An item can only move to a list in its household');
     expect(() => moveItemToList(itemId, gone)).toThrow(`No list ${gone}`);
     expect(() => moveItemToList('nope', costco)).toThrow('No list item nope');

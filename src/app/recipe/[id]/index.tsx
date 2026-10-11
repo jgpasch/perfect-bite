@@ -31,6 +31,7 @@ import {
   updateRecipeIngredient,
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { displayItemName } from '@/shared';
 
 /** A recipe (spec 4.5, board 06): ingredients added with the same field and parser as lists. */
 export default function RecipeScreen() {
@@ -146,7 +147,7 @@ export default function RecipeScreen() {
           <View style={{ paddingBottom: spacing.sm }}>
             <Toast
               key={deleted.id}
-              message={`Removed ${deleted.displayName}`}
+              message={`Removed ${displayItemName(deleted.displayName)}`}
               actions={[{ label: 'Undo', onPress: () => (undeleteRecipeIngredient(deleted.id), setDeleted(null)) }]}
               onDismiss={dismissToast}
             />

@@ -25,7 +25,7 @@ import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
-import { normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
+import { displayItemName, normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -970,7 +970,7 @@ export function moveItemToList(itemId: string, toListId: string): MoveItemResult
       .where(and(eq(lists.id, toListId), isNull(lists.deletedAt)))
       .get();
     if (!to) throw new Error(`No list ${toListId}`);
-    if (to.id === item.listId) throw new Error(`${item.displayName} is already on this list`);
+    if (to.id === item.listId) throw new Error(`${displayItemName(item.displayName)} is already on this list`);
     if (to.householdId !== item.householdId) throw new Error('An item can only move to a list in its household');
     const from = tx.select({ name: lists.name }).from(lists).where(eq(lists.id, item.listId)).get();
 

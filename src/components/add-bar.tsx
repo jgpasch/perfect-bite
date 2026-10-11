@@ -76,6 +76,8 @@ export function AddBar({
           onBlur={() => (setFocused(false), onFocusChange?.(false))}
           submitBehavior="submit"
           returnKeyType="done"
+          // Names are stored as typed and shown in sentence case (spec 4.2), so don't capitalize.
+          autoCapitalize="none"
           placeholder={placeholder}
           placeholderTextColor={colors.inkSecondary}
           selectionColor={colors.primary}

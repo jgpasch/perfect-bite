@@ -1,4 +1,5 @@
 // Explicit .ts extensions so the same files resolve under both Metro and Deno.
+export * from './display-name.ts';
 export * from './ingredient-normalizer.ts';
 export * from './quantity-parser.ts';
 export * from './recipe-jsonld.ts';

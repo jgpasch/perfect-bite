@@ -481,6 +481,30 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
     ]);
   });
 
+  test('labels show names in sentence case; the text a chip adds keeps the stored name', () => {
+    const lower = {
+      recipes: [],
+      suggestions: [
+        { key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' as const },
+        { key: 'iphone charger', displayName: 'iPhone charger', source: 'history' as const },
+      ],
+      recentRecipes: [],
+      recent: [
+        { key: 'lime', displayName: 'limes', text: 'limes' },
+        { key: 'milk', displayName: 'milk', text: '2 gal milk' },
+      ],
+    };
+    expect(suggestionChips('2 lbs chi', lower)).toEqual([
+      { kind: 'item', key: 'chicken thigh', label: 'Chicken thighs', text: '2 lbs chicken thighs', removable: true },
+      { kind: 'item', key: 'iphone charger', label: 'iPhone charger', text: '2 lbs iPhone charger', removable: true },
+    ]);
+    expect(suggestionChips('', lower)).toEqual([
+      { kind: 'item', key: 'lime', label: 'Limes', text: 'limes', removable: true },
+      // A leading amount stays as it is.
+      { kind: 'item', key: 'milk', label: '2 gal milk', text: '2 gal milk', removable: true },
+    ]);
+  });
+
   test('nothing to offer: no chips, so the row collapses', () => {
     expect(suggestionChips('zz', { ...sources, recipes: [], suggestions: [] })).toEqual([]);
     expect(suggestionChips('', { ...sources, recentRecipes: [], recent: [] })).toEqual([]);

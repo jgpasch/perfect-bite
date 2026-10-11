@@ -2,7 +2,7 @@
 // without rendering.
 
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
-import { normalizeIngredientName, parseQuantity } from '@/shared';
+import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
 
 // --- Lists home ----------------------------------------------------------------------------
 
@@ -210,14 +210,15 @@ export function toggleActionLabel(checked: boolean): string {
   return checked ? 'Uncheck' : 'Check off';
 }
 
-/** The toast after an add merged into an item: "Added to milk, now 1 gal + 1"; the name is set in bold. */
-export function addedToast(name: string, totalAmountText: string | null | undefined): { message: string; emphasis: string } {
+/** The toast after an add merged into an item: "Added to Milk, now 1 gal + 1"; the name is set in bold. */
+export function addedToast(storedName: string, totalAmountText: string | null | undefined): { message: string; emphasis: string } {
+  const name = displayItemName(storedName);
   return { message: totalAmountText ? `Added to ${name}, now ${totalAmountText}` : `Added to ${name}`, emphasis: name };
 }
 
 /**
  * The toast on the list an item moved to: a Combine reads as an add would ("Added to milk, now
- * 2 gal"); otherwise "Moved milk from Groceries".
+ * 2 gal"); otherwise "Moved Milk from Groceries".
  */
 export function movedToast(move: {
   kind: 'new' | 'combine' | 'reopen';
@@ -226,7 +227,14 @@ export function movedToast(move: {
   fromListName: string;
 }): { message: string; emphasis: string } {
   if (move.kind === 'combine') return addedToast(move.name, move.totalAmountText);
-  return { message: move.fromListName ? `Moved ${move.name} from ${move.fromListName}` : `Moved ${move.name}`, emphasis: move.name };
+  const name = displayItemName(move.name);
+  return { message: move.fromListName ? `Moved ${name} from ${move.fromListName}` : `Moved ${name}`, emphasis: name };
+}
+
+/** The toast after an item was deleted: "Deleted Milk", with Undo; the name is set in bold. */
+export function deletedToast(storedName: string): { message: string; emphasis: string } {
+  const name = displayItemName(storedName);
+  return { message: `Deleted ${name}`, emphasis: name };
 }
 
 /** The toast after Clear checked items (spec 4.6): "Cleared 3 items", with Undo. */

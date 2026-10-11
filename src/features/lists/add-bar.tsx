@@ -8,7 +8,7 @@ import { matchParts } from '@/domain/text-match';
 import { getAccount } from '@/features/auth/account';
 import { ingredientAisles } from '@/features/categories/categories';
 import { useTheme } from '@/hooks/use-theme';
-import { parseQuantity } from '@/shared';
+import { displayItemName, parseQuantity } from '@/shared';
 
 import {
   applySuggestion,
@@ -97,7 +97,7 @@ export function ItemAddBar({
   // Spec 4.2: only household history can be removed; catalog-only suggestions have no menu.
   const removeMenu = ({ key, displayName }: { key: string; displayName: string }) => {
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: displayName, options: ['Remove from suggestions', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
+      { title: displayItemName(displayName), options: ['Remove from suggestions', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
       (index) => {
         if (index !== 0) return;
         hideFromSuggestions(householdId, key);
@@ -258,12 +258,14 @@ function SuggestionRow({
   onPress: () => void;
   onLongPress?: () => void;
 }) {
-  const parts = matchParts(suggestion.displayName, typed);
+  // Display only: tapping adds the stored name (`applySuggestion`), so saving never rewrites it.
+  const name = displayItemName(suggestion.displayName);
+  const parts = matchParts(name, typed);
   return (
     <PanelRow
       aisle={aisle}
       first={first}
-      accessibilityLabel={`Add ${suggestion.displayName}${aisle ? `, ${aisle.name}` : ''}`}
+      accessibilityLabel={`Add ${name}${aisle ? `, ${aisle.name}` : ''}`}
       accessibilityHint={onLongPress ? 'Long press to remove from suggestions' : undefined}
       onPress={onPress}
       onLongPress={onLongPress}>
@@ -275,7 +277,7 @@ function SuggestionRow({
             {parts.after}
           </>
         ) : (
-          suggestion.displayName
+          name
         )}
       </ThemedText>
       {aisle ? (

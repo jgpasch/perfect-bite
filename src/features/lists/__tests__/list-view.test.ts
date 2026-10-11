@@ -15,6 +15,7 @@ import {
   clearCheckedLabel,
   clearedToast,
   compactHeaderSubtitle,
+  deletedToast,
   duplicateQuery,
   isAlreadyOnList,
   DEFAULT_LIST_VIEW_MODE,
@@ -337,14 +338,27 @@ describe('toggleActionLabel', () => {
 });
 
 describe('addedToast', () => {
-  it('says what the item is now, with the name in bold', () => {
-    expect(addedToast('milk', '1 gal + 1')).toEqual({ message: 'Added to milk, now 1 gal + 1', emphasis: 'milk' });
+  it('says what the item is now, with the name in bold and sentence case', () => {
+    expect(addedToast('milk', '1 gal + 1')).toEqual({ message: 'Added to Milk, now 1 gal + 1', emphasis: 'Milk' });
   });
 
   it('leaves out the total when there is none', () => {
-    expect(addedToast('milk', '')).toEqual({ message: 'Added to milk', emphasis: 'milk' });
-    expect(addedToast('milk', null)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
-    expect(addedToast('milk', undefined)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
+    expect(addedToast('milk', '')).toEqual({ message: 'Added to Milk', emphasis: 'Milk' });
+    expect(addedToast('milk', null)).toEqual({ message: 'Added to Milk', emphasis: 'Milk' });
+    expect(addedToast('milk', undefined)).toEqual({ message: 'Added to Milk', emphasis: 'Milk' });
+  });
+
+  it('leaves a name that starts with a capital or a digit as stored', () => {
+    expect(addedToast('iPhone charger', null)).toEqual({ message: 'Added to iPhone charger', emphasis: 'iPhone charger' });
+    expect(addedToast('2% milk', '2 gal')).toEqual({ message: 'Added to 2% milk, now 2 gal', emphasis: '2% milk' });
+  });
+});
+
+describe('deletedToast', () => {
+  it('names the deleted item in bold, in sentence case', () => {
+    expect(deletedToast('chicken thighs')).toEqual({ message: 'Deleted Chicken thighs', emphasis: 'Chicken thighs' });
+    expect(deletedToast('Oat milk')).toEqual({ message: 'Deleted Oat milk', emphasis: 'Oat milk' });
+    expect(deletedToast('iPhone charger')).toEqual({ message: 'Deleted iPhone charger', emphasis: 'iPhone charger' });
   });
 });
 
@@ -365,24 +379,28 @@ describe('clearedToast and clearCheckedLabel', () => {
 describe('movedToast', () => {
   it('reads a Combine as an add would', () => {
     expect(movedToast({ kind: 'combine', name: 'milk', totalAmountText: '2 gal', fromListName: 'Groceries' })).toEqual({
-      message: 'Added to milk, now 2 gal',
-      emphasis: 'milk',
+      message: 'Added to Milk, now 2 gal',
+      emphasis: 'Milk',
     });
   });
 
   it('says where a moved or reopened item came from', () => {
     expect(movedToast({ kind: 'new', name: 'chicken thighs', fromListName: 'Groceries' })).toEqual({
-      message: 'Moved chicken thighs from Groceries',
-      emphasis: 'chicken thighs',
+      message: 'Moved Chicken thighs from Groceries',
+      emphasis: 'Chicken thighs',
     });
     expect(movedToast({ kind: 'reopen', name: 'milk', fromListName: 'Costco' })).toEqual({
-      message: 'Moved milk from Costco',
-      emphasis: 'milk',
+      message: 'Moved Milk from Costco',
+      emphasis: 'Milk',
     });
   });
 
   it('leaves the list off when its name is missing', () => {
-    expect(movedToast({ kind: 'new', name: 'milk', fromListName: '' })).toEqual({ message: 'Moved milk', emphasis: 'milk' });
+    expect(movedToast({ kind: 'new', name: 'milk', fromListName: '' })).toEqual({ message: 'Moved Milk', emphasis: 'Milk' });
+  });
+
+  it("doesn't change the list's name", () => {
+    expect(movedToast({ kind: 'new', name: 'milk', fromListName: 'costco run' }).message).toBe('Moved Milk from costco run');
   });
 });
 

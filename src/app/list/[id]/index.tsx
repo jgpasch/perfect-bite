@@ -75,6 +75,7 @@ import {
   collapsedShowing,
   compactHeaderSubtitle,
   DEFAULT_LIST_VIEW_MODE,
+  deletedToast,
   duplicateQuery,
   expandSection,
   isAlreadyOnList,
@@ -448,8 +449,7 @@ export default function ListScreen() {
     deleteItem(item.id);
     setToast({
       key: `deleted-${item.id}`,
-      message: `Deleted ${item.displayName}`,
-      emphasis: item.displayName,
+      ...deletedToast(item.displayName),
       actions: [{ label: 'Undo', onPress: () => (undeleteItem(item.id), setToast(null)) }],
     });
   }, []);

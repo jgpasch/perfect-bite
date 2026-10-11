@@ -8,6 +8,7 @@ import type { RecipeIngredient } from '@/db';
 import { formatAmount } from '@/domain/quantity-display';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { displayItemName } from '@/shared';
 
 type Props = {
   ingredient: RecipeIngredient;
@@ -22,7 +23,8 @@ export function RecipeIngredientRow({ ingredient, dotColor, onEdit, onDelete }: 
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const amount = formatAmount(ingredient);
-  const label = [amount, ingredient.displayName, ingredient.note].filter(Boolean).join(' ');
+  const name = displayItemName(ingredient.displayName);
+  const label = [amount, name, ingredient.note].filter(Boolean).join(' ');
 
   return (
     <Animated.View entering={entering} exiting={exiting} layout={layout}>
@@ -59,7 +61,7 @@ export function RecipeIngredientRow({ ingredient, dotColor, onEdit, onDelete }: 
           ]}>
           <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
           <View style={styles.text}>
-            <ThemedText variant="body">{ingredient.displayName}</ThemedText>
+            <ThemedText variant="body">{name}</ThemedText>
             {ingredient.note ? (
               <ThemedText variant="footnote" color="inkSecondary">
                 {ingredient.note}

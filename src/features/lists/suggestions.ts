@@ -5,7 +5,7 @@ import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { frecency, rankRecipes, recentRecipes } from '@/domain/suggestion-rank';
 import { searchCatalog } from '@/features/categories/categories';
 import { recipeAddTimes, recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
-import { parseQuantity } from '@/shared';
+import { displayItemName, parseQuantity } from '@/shared';
 
 import { searchRecentItems } from './items';
 
@@ -206,7 +206,7 @@ export function suggestionChips(
         (s): SuggestionChip => ({
           kind: 'item',
           key: s.key,
-          label: s.displayName,
+          label: displayItemName(s.displayName),
           text: applySuggestion(text, s),
           removable: s.source === 'history',
         }),
@@ -215,6 +215,8 @@ export function suggestionChips(
   }
   return [
     ...sources.recentRecipes.map(recipe),
-    ...sources.recent.map((r): SuggestionChip => ({ kind: 'item', key: r.key, label: r.text, text: r.text, removable: true })),
+    ...sources.recent.map(
+      (r): SuggestionChip => ({ kind: 'item', key: r.key, label: displayItemName(r.text), text: r.text, removable: true }),
+    ),
   ];
 }

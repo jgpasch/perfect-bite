@@ -18,6 +18,7 @@ import { addRecipeToList, buildRecipeAdds, replaceRecipeAdd, SERVINGS } from '@/
 import { addCtaLabel, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { displayItemName } from '@/shared';
 
 /**
  * "Add to a list" (spec 4.5, board 07): pick a list, untick what you already have, choose
@@ -114,7 +115,7 @@ export default function AddRecipeToListSheet() {
           return (
             <IngredientChoice
               key={i.id}
-              label={i.displayName}
+              label={displayItemName(i.displayName)}
               amount={amount}
               on={on}
               onPress={() => setSelected(toggle(selected, i.id))}
