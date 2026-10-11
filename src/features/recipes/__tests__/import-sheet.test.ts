@@ -64,6 +64,9 @@ describe('importErrorMessage', () => {
     expect(importErrorMessage({ ok: false, error: 'rate_limited' })).toBe('Try again in a minute');
     expect(importErrorMessage({ ok: false, error: 'failed', reason: 'invalid_url' })).toBe("That doesn't look like a link");
     expect(importErrorMessage({ ok: false, error: 'offline' })).toBe("You're offline");
+    expect(importErrorMessage({ ok: false, error: 'blocked' })).toBe(
+      'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.',
+    );
   });
 
   test('an unexplained failure asks to try again', () => {

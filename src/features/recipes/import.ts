@@ -18,6 +18,7 @@ import {
 import type { Exec } from '@/sync/clock';
 import { insertRow } from '@/sync/mutate';
 
+import { capturePage, toRequestPage } from './page-capture';
 import { addParsedRecipeIngredients, deleteRecipe } from './recipes';
 
 /** The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe id. */
@@ -48,10 +49,11 @@ export type ImportRecipeSuccess = {
 /**
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
  * `rate_limited`: a rate limit or the service is unavailable ("Try again in a minute").
+ * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
-  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' }
+  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' }
   | { ok: false; error: 'failed'; reason?: 'invalid_url' | 'fetch_failed' };
 
 export type ImportRecipeResult = ImportRecipeSuccess | ImportRecipeError;
@@ -75,15 +77,21 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'offline' };
     userId = auth.session.user.id;
-    const body: RecipeImportRequest = input.page ? { url: input.url, page: input.page } : { url: input.url };
-    const { data, error } = await supabase.functions.invoke('import-recipe', { body });
-    if (error) return await errorResult(error);
-    const parsed = RecipeImportResponseSchema.safeParse(data);
-    if (!parsed.success) {
-      console.warn('import-recipe: unexpected response', parsed.error);
-      return { ok: false, error: 'failed' };
+    let fetched = await requestImport(input.page ? { url: input.url, page: input.page } : { url: input.url });
+    // The site blocked the server's fetch: load it on the device and send what the page shows.
+    // Only a link with no page of its own falls back, and only for `fetch_failed`.
+    if (!input.page && isFetchFailed(fetched)) {
+      const captured = await capturePage(input.url);
+      if (captured.ok) {
+        fetched = await requestImport({ url: input.url, page: toRequestPage(captured.page) });
+        if (isFetchFailed(fetched)) return { ok: false, error: 'blocked' };
+      } else if (captured.reason === 'timeout') {
+        return { ok: false, error: 'blocked' };
+      }
+      // Unreachable on the device too: keep the server's "couldn't reach that site".
     }
-    recipe = parsed.data;
+    if ('ok' in fetched) return fetched;
+    recipe = fetched;
   } catch (e) {
     console.warn('import-recipe failed', e);
     return { ok: false, error: 'offline' };
@@ -95,6 +103,22 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
     console.warn('Saving the imported recipe failed', e);
     return { ok: false, error: 'failed' };
   }
+}
+
+/** One call to `import-recipe`: the recipe, or the error it answered with. */
+async function requestImport(body: RecipeImportRequest): Promise<RecipeImportResponse | ImportRecipeError> {
+  const { data, error } = await supabase.functions.invoke('import-recipe', { body });
+  if (error) return await errorResult(error);
+  const parsed = RecipeImportResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    console.warn('import-recipe: unexpected response', parsed.error);
+    return { ok: false, error: 'failed' };
+  }
+  return parsed.data;
+}
+
+function isFetchFailed(result: RecipeImportResponse | ImportRecipeError): boolean {
+  return 'ok' in result && result.error === 'failed' && result.reason === 'fetch_failed';
 }
 
 /** Maps a `functions.invoke` error to a result: a network failure is offline, an HTTP error by its code. */

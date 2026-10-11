@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DatabaseProvider } from '@/db';
 import { AppDataGate } from '@/features/app-data';
 import { startAccount, useAccountState } from '@/features/auth/account';
+import { PageCaptureHost } from '@/features/recipes/page-capture-host';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -76,6 +77,7 @@ export default function RootLayout() {
             </Stack>
           </AppDataGate>
         </DatabaseProvider>
+        {ready && <PageCaptureHost />}
       </ThemeProvider>
     </GestureHandlerRootView>
   );

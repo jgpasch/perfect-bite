@@ -21,6 +21,7 @@ import { resetDb } from '@/test/db';
 import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 
 import { IMPORT_ID_NAMESPACE, importRecipe, recipeIdForImport, type ImportRecipeSuccess } from '../import';
+import { setPageCapturer, type CapturedPage, type CaptureResult, type PageCapturer } from '../page-capture';
 import { addRecipeIngredient, createRecipe, updateRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -164,7 +165,10 @@ beforeEach(() => {
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
-afterEach(() => warn.mockRestore());
+afterEach(() => {
+  warn.mockRestore();
+  setPageCapturer(null);
+});
 
 describe('a new recipe', () => {
   test('creates the recipe with its ingredients in page order', async () => {
@@ -497,5 +501,109 @@ describe('errors write nothing', () => {
     expect(await run()).toEqual({ ok: false, error: 'offline' });
     expect(invoke).not.toHaveBeenCalled();
     expect(supabase.auth.getSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('device fallback for blocked sites', () => {
+  const PAGE: CapturedPage = {
+    title: 'Chicken Tikka Masala',
+    jsonLd: ['{"@type":"Recipe","name":"Chicken Tikka Masala"}'],
+    text: 'Chicken Tikka Masala\n2 lb chicken thighs',
+  };
+  const httpError = (status: number, error: string) => ({
+    data: null,
+    error: {
+      name: 'FunctionsHttpError',
+      message: 'Edge Function returned a non-2xx status code',
+      context: { status, json: () => Promise.resolve({ error, message: error }) },
+    },
+  });
+  const blocked = () => httpError(502, 'fetch_failed');
+  let capture: jest.Mock<PageCapturer>;
+  const captureWith = (result: CaptureResult) => {
+    capture = jest.fn<PageCapturer>().mockResolvedValue(result);
+    setPageCapturer(capture);
+  };
+  const bodies = () => invoke.mock.calls.map((c) => (c[1] as { body: unknown }).body);
+
+  test('fetch_failed → capture → a second call with the page succeeds', async () => {
+    captureWith({ ok: true, page: PAGE });
+    invoke.mockResolvedValueOnce(blocked()).mockResolvedValueOnce({ data: TIKKA, error: null });
+
+    const result = await importOk();
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledWith(URL_);
+    expect(bodies()).toEqual([{ url: URL_ }, { url: URL_, page: PAGE }]);
+    expect(result.recipeName).toBe('Chicken tikka masala');
+    expect(result.added).toBe(4);
+    expect(liveRecipes()).toEqual([
+      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+    ]);
+  });
+
+  test('empty parts of the capture are left out of the page', async () => {
+    captureWith({ ok: true, page: { title: '  ', jsonLd: [], text: 'Tikka: 2 lb chicken' } });
+    invoke.mockResolvedValueOnce(blocked()).mockResolvedValueOnce({ data: TIKKA, error: null });
+    await importOk();
+    expect(bodies()[1]).toEqual({ url: URL_, page: { text: 'Tikka: 2 lb chicken' } });
+  });
+
+  test('the second call’s own error comes back, with nothing written', async () => {
+    captureWith({ ok: true, page: PAGE });
+    invoke.mockResolvedValueOnce(blocked()).mockResolvedValueOnce(httpError(422, 'not_a_recipe'));
+    const before = snapshot();
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_a_recipe' });
+    expect(snapshot()).toEqual(before);
+  });
+
+  test('a capture timeout is blocked, writes nothing and makes no second call', async () => {
+    captureWith({ ok: false, reason: 'timeout' });
+    invoke.mockResolvedValue(blocked());
+    const before = snapshot();
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'blocked' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(snapshot()).toEqual(before);
+  });
+
+  test('a page the device can’t load either keeps "couldn’t reach that site"', async () => {
+    captureWith({ ok: false, reason: 'unreachable' });
+    invoke.mockResolvedValue(blocked());
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'failed', reason: 'fetch_failed' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('a capturer that throws reads as unreachable', async () => {
+    setPageCapturer(() => Promise.reject(new Error('WebView gone')));
+    invoke.mockResolvedValue(blocked());
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'failed', reason: 'fetch_failed' });
+  });
+
+  test('fetch_failed even with the captured page is blocked', async () => {
+    captureWith({ ok: true, page: PAGE });
+    invoke.mockResolvedValue(blocked());
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'blocked' });
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ['not_a_recipe', 422, { ok: false, error: 'not_a_recipe' }],
+    ['rate_limited', 429, { ok: false, error: 'rate_limited' }],
+    ['unavailable', 503, { ok: false, error: 'rate_limited' }],
+    ['invalid_url', 400, { ok: false, error: 'failed', reason: 'invalid_url' }],
+  ])('%s never captures', async (code, status, expected) => {
+    captureWith({ ok: true, page: PAGE });
+    invoke.mockResolvedValue(httpError(status, code));
+    expect(await importRecipe({ url: URL_, listId })).toEqual(expected);
+    expect(capture).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('an import that brought its own page doesn’t capture', async () => {
+    captureWith({ ok: true, page: PAGE });
+    invoke.mockResolvedValue(blocked());
+    const page = { title: 'Tikka', text: 'From Safari' };
+    expect(await importRecipe({ url: URL_, listId, page })).toEqual({ ok: false, error: 'failed', reason: 'fetch_failed' });
+    expect(capture).not.toHaveBeenCalled();
   });
 });

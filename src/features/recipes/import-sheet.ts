@@ -47,6 +47,8 @@ export function importErrorMessage(error: ImportRecipeError): string {
       return 'Try again in a minute';
     case 'offline':
       return "You're offline";
+    case 'blocked':
+      return 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.';
     case 'failed':
       if (error.reason === 'fetch_failed') return "Couldn't reach that site";
       if (error.reason === 'invalid_url') return "That doesn't look like a link";
