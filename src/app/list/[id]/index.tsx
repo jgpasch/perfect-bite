@@ -42,6 +42,7 @@ import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { categoriesQuery } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
+import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { ItemRow } from '@/features/lists/item-row';
 import {
   addItem,
@@ -745,8 +746,8 @@ export default function ListScreen() {
             onAddRecipe={addRecipe}
             onTextChange={setAddText}
             onFocusChange={setAdding}
-            placeholder="Add an item, like 2 lbs chicken thighs"
-            accessibilityLabel="Add an item"
+            placeholder={LIST_ADD_PLACEHOLDER}
+            accessibilityLabel={LIST_ADD_LABEL}
           />
         )}
       </KeyboardAvoidingView>

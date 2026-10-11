@@ -41,17 +41,19 @@ Work the app itself still needs. Sections 1–7 are setup steps; this is the bui
 
 Today the app only talks to local Supabase on the Mac.
 
-- [ ] Create a Supabase project (free tier). Free projects pause after about a week with no activity, but daily use keeps them awake.
-- [ ] `supabase link --project-ref <ref>`, then `supabase db push`. The catalog (categories and seed ingredients) is in the migrations, so it comes along. `seed.sql` (the dev user) stays local only.
-- [ ] `supabase functions deploy categorize-ingredients` and `supabase functions deploy import-recipe`. Add `siri-add` once M8 lands.
-- [ ] `supabase secrets set` for the keys in `supabase/functions/.env.example`: `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_MODEL_CATEGORIZE`, `AI_MODEL_RECIPE`, and any daily caps.
-- [ ] Smoke-test the hosted project from the simulator with `.env.local` pointed at it: sign in, add items (they get categorized), import a recipe link.
+- [x] Create a Supabase project (free tier). Free projects pause after about a week with no activity, but daily use keeps them awake. Save the database password in the password manager.
+  - Security settings at creation: keep **Enable Data API** and **Automatically expose new tables** on, and leave **Enable automatic RLS** off. Every table already enables RLS and revokes access from `anon` and `authenticated` before granting what it needs. But the Edge Functions write to `ingredients`, `recipe_imports` and `ai_calls` as `service_role`, and no migration grants that role table access, so turning off auto-expose would likely break categorization and recipe import in production only. Add explicit `service_role` grants in a migration before turning it off. Automatic RLS adds an event trigger that the local stack doesn't have.
+- [x] `supabase login`, then `supabase link --project-ref ardfjdorkkzymrqdihlw`.
+- [ ] `supabase db push --dry-run`, then `supabase db push`. Commit or finish any work-in-progress migration first: the push applies every file in `supabase/migrations/`. The catalog (categories and seed ingredients) is in the migrations, so it comes along, and the migrations create `pg_cron` and its jobs. `seed.sql` (the dev user) stays local only.
+- [x] Edge Function secrets live in `supabase/functions/.env.production.local`. It's gitignored by `.env.*.local`; a plain `.env.production` would not be. It holds `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_MODEL_CATEGORIZE` and `AI_MODEL_RECIPE` (`google:gemini-3.8-flash`, never `mock`), plus lower daily caps for the alpha: `CATEGORIZE_DAILY_NAME_CAP=2000` and `RECIPE_IMPORT_DAILY_CAP=200` (the defaults are 20000 and 2000). Apply with `supabase secrets set --env-file supabase/functions/.env.production.local`, and check with `supabase secrets list`. Hosted Supabase sets `SUPABASE_URL` and the service keys itself.
+- [x] `supabase functions deploy` (deploys every function: `categorize-ingredients`, `import-recipe`). Redeploy after changing a function or `_shared/`. Add `siri-add` once M8 lands.
+- [ ] Smoke-test the hosted project from the simulator with `.env.local` pointed at it (project URL and publishable key from the dashboard, Settings → API): sign in, add items (they get categorized), import a recipe link. Keep the local values handy to switch back.
 
 ## 3. Sign-in stopgap (until Google sign-in)
 
 Skip this section if Google sign-in (above) is done first. Otherwise the dev sign-in (email + 6-digit code, `signInWithOtp`) can work on hosted Supabase for two people, with two fixes:
 
-- [ ] The email must contain the code, not a link. Push `supabase/templates/otp.html` with `supabase config push`, or paste it into Auth → Email Templates → Magic Link.
+- [ ] The email must contain the code (`{{ .Token }}`), not a link. Paste `supabase/templates/otp.html` into Auth → Email Templates → **Magic Link** and **Confirm signup**. Avoid `supabase config push` for now: it would also push local-only values such as `site_url = "http://127.0.0.1:3000"`.
 - [ ] Supabase's built-in email only sends to members of the Supabase org and is heavily rate limited. Either invite my wife's email to the org, or set up custom SMTP (for example Resend's free tier) under Auth → SMTP.
 - [ ] Set the hosted Auth site URL and redirect URLs to the app scheme (`perfectbite://`).
 

@@ -277,7 +277,7 @@ Goal: pick a colour for each list, so its tile on the Lists home stands out. The
 
 ## Shorter add bar placeholder
 
-- [ ] The list's add bar placeholder (`src/app/list/[id]/index.tsx`) reads "Add an item, like 2 lbs chicken thighs", which is too long and gets cut off on small phones and at large Dynamic Type sizes. Change it to "Add an item", as on the Pantry boards (`docs/design/pantry/lists.html`). Leave the accessibility label as "Add an item", and keep any hint that explains amounts can be typed. Update the spec or tests if they quote the old text.
+- [x] The list's add bar placeholder (`src/app/list/[id]/index.tsx`) reads "Add an item, like 2 lbs chicken thighs", which is too long and gets cut off on small phones and at large Dynamic Type sizes. Change it to "Add an item", as on the Pantry boards (`docs/design/pantry/lists.html`). Leave the accessibility label as "Add an item", and keep any hint that explains amounts can be typed. Update the spec or tests if they quote the old text.
 
 ## Clear checked items from the list
 
