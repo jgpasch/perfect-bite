@@ -6,6 +6,7 @@ import { getAppGroupContainer, readPendingShares, type PendingShare } from '@/fe
 import { siriTargetListId } from '@/features/siri/drain';
 import type { ShareEnvelope } from '@/shared';
 
+import { recordFailedImport } from './failed-imports';
 import { importRecipe, type ImportRecipeError, type ImportRecipeSuccess } from './import';
 
 /** Tries per envelope before a share that keeps failing is recorded as a failed import. */
@@ -27,7 +28,7 @@ export type FailedShare = {
 export type ShareDrainOptions = {
   /** The queue, oldest first. */
   pending?: () => PendingShare[];
-  /** Records a share that won't import. */
+  /** Records a share that won't import. Defaults to the `failed_imports` table. */
   recordFailed?: (failed: FailedShare) => void;
 };
 
@@ -37,10 +38,6 @@ export type ShareDrainResult = {
   /** Shares recorded as failed imports and deleted. */
   failed: number;
 };
-
-function logFailed(failed: FailedShare): void {
-  console.warn('[share] import failed', failed.url, failed.reason);
-}
 
 function remove(item: PendingShare): void {
   try {
@@ -65,7 +62,7 @@ let draining = false;
  * started during another does nothing.
  */
 export async function drainShareQueue(userId: string, options: ShareDrainOptions = {}): Promise<ShareDrainResult> {
-  const { pending = readPendingShares, recordFailed = logFailed } = options;
+  const { pending = readPendingShares, recordFailed = recordFailedImport } = options;
   const result: ShareDrainResult = { imported: [], failed: 0 };
   if (draining) return result;
   draining = true;

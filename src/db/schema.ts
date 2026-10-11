@@ -293,7 +293,25 @@ export const outbox = sqliteTable(
   (t) => [index('outbox_household_idx').on(t.householdId)],
 );
 
+// --- Recipe import (spec 4.10) -------------------------------------------------------------
+
+/** Why a shared recipe didn't import: `ImportRecipeError['error']` in `src/features/recipes/import.ts`. */
+export type FailedImportReason = 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'failed';
+
+/** Shares that won't import, shown on the Recipes tab until retried or dismissed. Device-only, never synced. */
+export const failedImports = sqliteTable('failed_imports', {
+  id: text('id').primaryKey(),
+  url: text('url').notNull(),
+  /** The page title Safari captured; null when the share had none. */
+  title: text('title'),
+  reason: text('reason').$type<FailedImportReason>().notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export type Category = typeof categories.$inferSelect;
+export type FailedImport = typeof failedImports.$inferSelect;
 export type Household = typeof households.$inferSelect;
 export type IngredientUnitUsage = typeof ingredientUnitUsage.$inferSelect;
 export type IngredientUsage = typeof ingredientUsage.$inferSelect;

@@ -254,4 +254,4 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - a bad file is deleted;
   - two concurrent drains import once;
   - a crash between import and delete doesn't duplicate (`importId`).
-- [ ] Failed imports. Add a small local `failed_imports` table (`id`, `url`, `title`, `reason`, `created_at`; device-only, not synced) via drizzle-kit. When it has rows, show a card at the top of the Recipes tab: "Couldn't import 1 recipe". It expands to rows with the title or host, the reason, **Try again** (reruns `importRecipe` into the default list) and **Dismiss**. Tests for the table helpers and the retry and dismiss behaviour. Mark M10 done in the spec.
+- [x] Failed imports. Add a small local `failed_imports` table (`id`, `url`, `title`, `reason`, `created_at`; device-only, not synced) via drizzle-kit. When it has rows, show a card at the top of the Recipes tab: "Couldn't import 1 recipe". It expands to rows with the title or host, the reason, **Try again** (reruns `importRecipe` into the default list) and **Dismiss**. Tests for the table helpers and the retry and dismiss behaviour. Mark M10 done in the spec.

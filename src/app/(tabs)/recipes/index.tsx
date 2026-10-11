@@ -9,8 +9,11 @@ import { EmptyState } from '@/components/empty-state';
 import { IconTile } from '@/components/icon-tile';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
+import { failedImportsQuery } from '@/features/recipes/failed-imports';
+import { FailedImportsCard } from '@/features/recipes/failed-imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
 import {
@@ -27,12 +30,24 @@ export default function RecipesScreen() {
   const { spacing, scheme, colors } = useTheme();
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
+  const { data: failed } = useLiveQueryOn(failedImportsQuery(), [failedImports]);
   const groups = useMemo(() => groupRecipesByHousehold(data), [data]);
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
   // Spec 4.10: the sheet asks for the list.
   const importFromLink = () => router.push('/import-recipe');
+  const empty = (
+    <EmptyState
+      message="No recipes yet."
+      action={
+        <View style={{ gap: spacing.sm }}>
+          <PrimaryButton label="New recipe" onPress={create} />
+          <Button label="Import from link" variant="plain" onPress={importFromLink} />
+        </View>
+      }
+    />
+  );
 
   return (
     <Screen>
@@ -46,18 +61,19 @@ export default function RecipesScreen() {
           onPress={create}
         />
       </Stack.Toolbar>
-      {data.length === 0 ? (
-        <EmptyState
-          message="No recipes yet."
-          action={
-            <View style={{ gap: spacing.sm }}>
-              <PrimaryButton label="New recipe" onPress={create} />
-              <Button label="Import from link" variant="plain" onPress={importFromLink} />
-            </View>
-          }
-        />
+      {data.length === 0 && failed.length === 0 ? (
+        empty
       ) : (
-        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
+          {/* Spec 4.10: shares that won't import, at the top until retried or dismissed. */}
+          {failed.length > 0 ? (
+            <View style={{ paddingTop: spacing.xs }}>
+              <FailedImportsCard rows={failed} />
+            </View>
+          ) : null}
+          {data.length === 0 ? empty : null}
           {groups.map((group, i) => (
             <View key={group.householdId}>
               <ThemedText
@@ -136,5 +152,6 @@ function RecipeCard({ recipe, onList }: { recipe: RecipeSummary; onList: string 
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  grow: { flexGrow: 1 },
   card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
 });
