@@ -1,7 +1,18 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActionSheetIOS, Alert, FlatList, KeyboardAvoidingView, Pressable, Share, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  ActionSheetIOS,
+  Alert,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Pressable,
+  Share,
+  StyleSheet,
+  View,
+} from 'react-native';
+import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { prominentButtonTint } from '@/components/appearance';
@@ -15,6 +26,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Toast, type ToastAction } from '@/components/toast';
+import { Motion } from '@/constants/theme';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor, recipeHue } from '@/domain/aisle-color';
@@ -52,7 +64,10 @@ import {
 import {
   addedToast,
   alsoInHint,
+  compactHeaderSubtitle,
   DEFAULT_LIST_VIEW_MODE,
+  duplicateQuery,
+  isAlreadyOnList,
   LIST_VIEW_MODES,
   movedToast,
   orderByNewest,
@@ -72,7 +87,9 @@ import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-l
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
+import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { parseQuantity } from '@/shared';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
 
@@ -123,6 +140,20 @@ export default function ListScreen() {
   const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
   const listRef = useRef<FlatList<Block>>(null);
 
+  // Add mode: while the add field is focused the big title and view control collapse into the native header,
+  // cards go edge to edge, and items matching the typed text are marked "already on list".
+  const [adding, setAdding] = useState(false);
+  const [addText, setAddText] = useState('');
+  const addMode = adding && !selection;
+  const query = addMode ? duplicateQuery(addText) : null;
+  const typedName = parseQuantity(addText).name;
+  // Select mode swaps the add bar out, and it comes back empty.
+  const startSelecting = (ids: string[]) => {
+    setAdding(false);
+    setAddText('');
+    setSelection(new Set(ids));
+  };
+
   const blocks = useMemo<Block[]>(() => {
     const out: Block[] =
       viewMode === 'newest'
@@ -168,6 +199,17 @@ export default function ListScreen() {
     }
     return out;
   }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById]);
+
+  // By aisle and By recipe put a new item in its section, so scroll that section into view once it's there.
+  const revealRef = useRef<string | null>(null);
+  useEffect(() => {
+    const itemId = revealRef.current;
+    if (!itemId) return;
+    const index = blocks.findIndex((block) => block.entries.some((e) => e.item.id === itemId));
+    if (index === -1) return;
+    revealRef.current = null;
+    listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+  }, [blocks]);
 
   // Select mode (spec 4.5): pick items, then Add to recipe opens the sheet. When it closes having
   // added them, leave Select mode, switch to By recipe and say where they went.
@@ -240,8 +282,9 @@ export default function ListScreen() {
   const add = (value: string) => {
     const result = addItem(id, value, userId);
     if (result) void categorizePending(result.pendingNames);
-    // In Newest a new or re-added item lands at the top, so bring the top into view.
+    // In Newest a new or re-added item lands at the top, so bring the top into view; elsewhere, its section.
     if (viewMode === 'newest' && result && result.kind !== 'combine') listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    if (viewMode !== 'newest' && result) revealRef.current = result.itemId;
     if (result?.kind !== 'combine') return;
     // Spec 4.4: Combine without a prompt, tint the row, and offer Undo.
     setToast({
@@ -300,6 +343,7 @@ export default function ListScreen() {
       item={entry.item}
       background={background}
       tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
+      alreadyOnList={isAlreadyOnList(entry.item, query) ? { typed: typedName } : undefined}
       first={index === 0}
       sorting={sorting}
       amountText={entry.amountText}
@@ -313,7 +357,7 @@ export default function ListScreen() {
       }
       onDelete={() => remove(entry.item)}
       onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
-      onSelect={selection ? undefined : () => setSelection(new Set([entry.item.id]))}
+      onSelect={selection ? undefined : () => startSelecting([entry.item.id])}
     />
   );
 
@@ -326,15 +370,19 @@ export default function ListScreen() {
 
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
+      return <Card flush={addMode}>{block.entries.map(renderEntryWithAisle)}</Card>;
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
-        return <Card background="pendingSoft">{block.entries.map((e, i) => renderEntry(e, i, colors.pendingSoft, true))}</Card>;
+        return (
+          <Card background="pendingSoft" flush={addMode}>
+            {block.entries.map((e, i) => renderEntry(e, i, colors.pendingSoft, true))}
+          </Card>
+        );
       }
       return (
-        <Card>
+        <Card flush={addMode}>
           <SectionHeader
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
@@ -347,7 +395,7 @@ export default function ListScreen() {
     }
     if (block.kind === 'recipe') {
       return (
-        <Card>
+        <Card flush={addMode}>
           <SectionHeader
             title={block.title}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
@@ -378,7 +426,9 @@ export default function ListScreen() {
           </ThemedText>
           <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
         </Pressable>
-        {block.entries.length > 0 ? <Card>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card> : null}
+        {block.entries.length > 0 ? (
+          <Card flush={addMode}>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
+        ) : null}
       </View>
     );
   };
@@ -403,6 +453,11 @@ export default function ListScreen() {
 
   return (
     <Screen>
+      {addMode ? (
+        <Stack.Title asChild>
+          <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode)} />
+        </Stack.Title>
+      ) : null}
       <Stack.Toolbar placement="right">
         {selection ? (
           <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => setSelection(null)}>
@@ -410,7 +465,7 @@ export default function ListScreen() {
           </Stack.Toolbar.Button>
         ) : null}
         <Stack.Toolbar.Menu icon="ellipsis.circle" accessibilityLabel="List actions" hidden={!!selection}>
-          <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => setSelection(new Set())}>
+          <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
             Select items
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
@@ -446,30 +501,36 @@ export default function ListScreen() {
           data={blocks}
           keyExtractor={(block) => block.key}
           ListHeaderComponent={
-            <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
-              <View
-                style={[
-                  styles.title,
-                  { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.sm, columnGap: spacing.sm + spacing.xxs },
-                ]}>
-                <ThemedText variant="screenTitle" accessibilityRole="header">
-                  {list.name}
-                </ThemedText>
-                {toGetLabel(unchecked.length) ? (
-                  <ThemedText variant="amount" color="inkSecondary">
-                    {toGetLabel(unchecked.length)}
+            <CollapsingHeader collapsed={addMode}>
+              <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+                <View
+                  style={[
+                    styles.title,
+                    { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.sm, columnGap: spacing.sm + spacing.xxs },
+                  ]}>
+                  <ThemedText variant="screenTitle" accessibilityRole="header">
+                    {list.name}
                   </ThemedText>
-                ) : null}
+                  {toGetLabel(unchecked.length) ? (
+                    <ThemedText variant="amount" color="inkSecondary">
+                      {toGetLabel(unchecked.length)}
+                    </ThemedText>
+                  ) : null}
+                </View>
+                <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} />
               </View>
-              <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} />
-            </View>
+            </CollapsingHeader>
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
+          // Add mode: scrolling or checking off rows keeps the keyboard up.
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          keyboardDismissMode="none"
           contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
           renderItem={({ item: block }) => renderBlock(block)}
+          onScrollToIndexFailed={({ index, averageItemLength }) =>
+            listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
+          }
         />
 
         {toast ? (
@@ -492,12 +553,74 @@ export default function ListScreen() {
             listId={id}
             onAdd={add}
             onAddRecipe={addRecipe}
+            onTextChange={setAddText}
+            onFocusChange={setAdding}
             placeholder="Add an item, like 2 lbs chicken thighs"
             accessibilityLabel="Add an item"
           />
         )}
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+/**
+ * Add mode's title in the native header, between its back button and ⋯: the list's name over
+ * "8 to get · Newest". Tapping it hides the keyboard, which leaves add mode.
+ */
+function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
+  const { sizes } = useTheme();
+  const { reduceMotion } = useMotion();
+  return (
+    <Animated.View entering={(reduceMotion ? FadeIn : FadeInDown).duration(Motion.duration)}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${name}, ${subtitle}`}
+        accessibilityHint="Hides the keyboard"
+        onPress={Keyboard.dismiss}
+        style={[styles.compactTitle, { minHeight: sizes.minTapTarget }]}>
+        <ThemedText variant="headline" numberOfLines={1}>
+          {name}
+        </ThemedText>
+        <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1}>
+          {subtitle}
+        </ThemedText>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/**
+ * The title and view control above the list, collapsed in add mode: it shrinks, lifts and fades while its height
+ * closes, so the list takes the space. Under Reduce Motion it only fades, and the height snaps.
+ */
+function CollapsingHeader({ collapsed, children }: { collapsed: boolean; children: ReactNode }) {
+  const { spacing } = useTheme();
+  const { reduceMotion } = useMotion();
+  const height = useSharedValue<number | null>(null);
+  const progress = useSharedValue(collapsed ? 1 : 0);
+  const target = collapsed ? 1 : 0;
+  useEffect(() => {
+    progress.value = withTiming(target, { duration: Motion.duration });
+  }, [progress, target]);
+  const lift = spacing.lg;
+  const style = useAnimatedStyle(() => {
+    const p = progress.value;
+    const shut = reduceMotion ? target : p;
+    return {
+      opacity: 1 - p,
+      height: height.value === null ? undefined : height.value * (1 - shut),
+      transform: reduceMotion ? [] : [{ translateY: -lift * p }, { scale: 1 - 0.1 * p }],
+    };
+  });
+  return (
+    <Animated.View
+      style={[styles.collapsing, style]}
+      pointerEvents={collapsed ? 'none' : 'auto'}
+      accessibilityElementsHidden={collapsed}
+      importantForAccessibility={collapsed ? 'no-hide-descendants' : 'auto'}>
+      <View onLayout={(e) => (height.value = e.nativeEvent.layout.height)}>{children}</View>
+    </Animated.View>
   );
 }
 
@@ -558,4 +681,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   title: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' },
   round: { alignItems: 'center', justifyContent: 'center' },
+  compactTitle: { alignItems: 'center', justifyContent: 'center' },
+  // Clips the title while its height closes; the scale shrinks it toward its top.
+  collapsing: { overflow: 'hidden', transformOrigin: 'top' },
 });

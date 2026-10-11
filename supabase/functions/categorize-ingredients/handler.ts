@@ -83,7 +83,7 @@ const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_gro
 const TOO_LONG: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, default_unit: null };
 
 /** A provider error or timeout isn't the names' fault: they stay pending and no attempt counts. */
-function isProviderFailure(err: unknown): boolean {
+export function isProviderFailure(err: unknown): boolean {
   if (APICallError.isInstance(err) || RetryError.isInstance(err)) return true;
   return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
 }

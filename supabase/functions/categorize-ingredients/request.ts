@@ -11,11 +11,16 @@ export const DEFAULT_DAILY_NAME_CAP = 20_000;
 /** Seconds a client should wait after the global cap is reached. */
 export const GLOBAL_CAP_RETRY_AFTER = 3600;
 
+/** An env var as a non-negative Postgres integer; unset or invalid falls back to `fallback`. */
+export function parseCap(value: string | undefined, fallback: number): number {
+  if (!value?.trim() || !/^\d+$/.test(value.trim())) return fallback;
+  const cap = Number(value.trim());
+  return Number.isSafeInteger(cap) && cap <= 2 ** 31 - 1 ? cap : fallback;
+}
+
 /** CATEGORIZE_DAILY_NAME_CAP as a non-negative integer; unset or invalid falls back to the default. */
 export function dailyNameCap(value: string | undefined): number {
-  if (!value?.trim() || !/^\d+$/.test(value.trim())) return DEFAULT_DAILY_NAME_CAP;
-  const cap = Number(value.trim());
-  return Number.isSafeInteger(cap) && cap <= 2 ** 31 - 1 ? cap : DEFAULT_DAILY_NAME_CAP;
+  return parseCap(value, DEFAULT_DAILY_NAME_CAP);
 }
 
 export type RequestDeps = {
@@ -30,7 +35,7 @@ const error = (status: number, code: string, message: string) =>
   Response.json({ error: code, message }, { status });
 
 /** Reads at most `max` bytes of the body; null if it is longer. */
-async function readBody(req: Request, max: number): Promise<Uint8Array | null> {
+export async function readBody(req: Request, max: number): Promise<Uint8Array | null> {
   if (!req.body) return new Uint8Array();
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];

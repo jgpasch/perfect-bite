@@ -164,7 +164,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - unknown units become null with the wording kept in the note;
   - names over 64 characters are dropped;
   - the task options reach the model.
-- [ ] `import-recipe` Edge Function. Add `supabase/functions/import-recipe/`, with a handler behind a store interface as in `categorize-ingredients`, and a JWT-authenticated `POST` (`withSupabase({ auth: 'user' })` around a pure `handleRequest`, exactly as `categorize-ingredients` does; no new auth helper). Flow:
+- [x] `import-recipe` Edge Function. Add `supabase/functions/import-recipe/`, with a handler behind a store interface as in `categorize-ingredients`, and a JWT-authenticated `POST` (`withSupabase({ auth: 'user' })` around a pure `handleRequest`, exactly as `categorize-ingredients` does; no new auth helper). Flow:
   1. validate the request and canonicalize the URL;
   2. check the rate limits and global cap (a migration adding per-user counters, the same approach as `20261009230000_categorize_limit.sql`);
   3. on a cache hit in `recipe_imports` (canonical URL + prompt version, under 30 days old), skip to step 6;
