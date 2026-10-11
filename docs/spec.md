@@ -230,7 +230,7 @@ All changes sync live to all members' devices.
   1. Writes an envelope to the App Group queue: `{ id: uuidv7, text, list_id | null, created_at, source: "siri" }`.
   2. Makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**
   3. Replies with the dialog. If the upload failed, the reply is the same; the item is uploaded later.
-- `siri-add` Edge Function: parses and normalizes with the shared code, resolves the list, applies auto-Combine, inserts the list item and contribution with ids derived from the envelope id (so a repeat upload is a no-op), and triggers categorization for unknown names.
+- `siri-add` Edge Function: parses and normalizes with the shared code, resolves the list, applies auto-Combine, inserts the list item and contribution with ids derived from the envelope id (so a repeat upload is a no-op), and categorizes unknown names inline by calling the shared `categorize()` from `categorize-ingredients` (same limits and LLM boundaries, 6.4). No other process categorizes them later.
 - The app drains the queue on launch, foreground and sign-in (as stash does; signed out, adds wait), one drain at a time, oldest first. Each envelope is parsed like a typed add and goes to its list, or the default list if that list is gone or archived, as a Siri contribution that Combines silently (4.4), dated when it was spoken. The item and contribution ids are UUIDv5s of the envelope id (`siriAddIds`), so an envelope applied twice (a crash before its file is deleted, or already applied by `siri-add`) is a no-op. Applied files are deleted; unreadable ones, and text with nothing to add, are logged and deleted. New names go to categorization in one batch, and a list screen that's showing gets one toast, "Siri added 2 items".
 - Envelope format: one Zod schema in `src/shared/` and a matching Swift `Codable`, with a contract test (as stash).
 - **App name**: the App Shortcut phrase must include the app's display name, so the bundle display name must be exactly what users say. Stash had to use phrases like "Add to my Stash"; test early whether "add to The Perfect Bite" is recognized reliably, and register a few variants ("Add to Perfect Bite", "Add something to The Perfect Bite"). **[SPIKE]**
@@ -453,11 +453,11 @@ Note the `create table` order above is for readability; the real migration must 
 ### 6.1 Flow
 1. Client adds an item. It normalizes the name and looks in its local ingredient cache.
 2. **Hit**: use the cached category. Done.
-3. **Miss**: the client creates the list item with `ingredient_name` set (it already has the key), shows "Sorting...", and puts the name in the **categorization queue**.
-4. The queue flushes as one batch (6.3) to the `categorize-ingredients` Edge Function.
+3. **Miss**: the client creates the list item with `ingredient_name` set (it already has the key), shows "Sorting...", and keeps a local `pending` ingredient row.
+4. Right after the add, the client sends that add's new names in one request (6.3) to the `categorize-ingredients` Edge Function.
 5. The function, per name: if the ingredient exists and is categorized, return it. Otherwise upsert a `pending` row (`on conflict do nothing`) and collect it into one LLM call. Concurrent requests for the same new name are safe: both upsert the same key; whichever finishes the LLM call first writes the result, and the other's write is skipped if the row is already `categorized`.
-6. The response returns `normalized_name -> { category_id, is_grocery_item }` for every name. The client updates its cache and moves the items into their sections. Other devices get the update through Realtime on `ingredients` (7.2).
-7. **Sweep**: a `pg_cron` job every minute calls the function for any `pending` rows older than 30 s, or `failed` rows under the attempt limit. This covers Siri adds, clients that went away mid-flush, and retries.
+6. The response returns `normalized_name -> { status, category_id, is_grocery_item, default_unit }` for every name. The client updates its cache and moves the items into their sections. Other devices get the update through the catalog pull and Realtime on `ingredients` (7.2, 7.4); any device also learns it by sending its own `pending` names.
+7. **Retries**: there is no server sweep. The client retries its local `pending` and `failed` names at launch, foreground and reconnect (the catch-up, 6.3). A server row left `pending` (the client went away, a provider error, the kill switch) is harmless: the next add of that name, by anyone, sends it to the LLM again.
 
 "First time we see any ingredient, regardless of which user logged it" is enforced by step 5: the LLM is only called for names with no categorized row in the global table.
 
@@ -468,8 +468,8 @@ Produce, Bakery, Deli, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods,
 Seed the `ingredients` table with about 7,000 common grocery items pre-categorized (`categorized_by = 'seed'`, `is_grocery_item = true`, `household_count` high enough to pass the 6.5 filter) so most early adds never hit the LLM. Every seed item also has a default unit (4.2); `src/shared/seed/ingredients.ts` groups each category's names by it. The list is hand-curated, then checked against the categorizer: `yarn ai:check-seed` runs every seed name through the categorize prompt, saves the answers to `eval/results/seed-check.json` (in the repo, so paid LLM output survives a database reset), and lists every aisle or unit that differs; the seed follows the model's answer except where it calls a real item non-grocery. The golden-set names (6.4) are kept out of the seed so the eval keeps testing names the model hasn't seen. The same seed ships in the app bundle for offline use. The SQL copy is generated, never hand-edited: `yarn db:seed-sql` (`scripts/gen-seed-sql.ts`) writes a new migration that upserts the categories and seed ingredients, overwriting only rows the seed owns or that aren't categorized yet. The app reloads its local copy whenever a hash of the bundled seed changes.
 
 ### 6.3 Batching (req 5.1)
-- **Client**: the queue flushes when 1.5 s pass with no new misses, when it reaches 25 names, or when the app backgrounds. A recipe or bulk add sends all its misses in one request. Offline, the queue persists in SQLite and flushes on reconnect.
-- **Server**: one request makes at most one LLM call, covering only the unknown names (max 100 per call; split if larger). Already-known names are answered from the database without any LLM call. The sweep (6.1 step 7) batches the same way.
+- **Client** (`src/features/categories/categorization.ts`): no queue and no timers. Each add sends its new names in one request right away: one name for a single add, all of them for a recipe or bulk add. Launch, foreground and reconnect run a **catch-up** (`catch-up.ts`) that sends up to 100 leftover local `pending` and `failed` names in one request, one catch-up at a time. The local `pending` rows are the queue: they live in SQLite, so names added offline go out with the catch-up on reconnect. A failed request changes nothing locally; its names wait for the next catch-up.
+- **Server**: one request makes at most one LLM call, covering only the unknown names (max 100 names per request, so one call). Already-known names are answered from the database without any LLM call. So requirement 5.1 and acceptance 6 hold: a 12-ingredient recipe with 8 unknown names is one request and one call.
 - [Later] Cross-user server-side coalescing (a short queue window across requests) is possible but adds latency; not in v1.
 
 ### 6.4 LLM call
@@ -481,8 +481,19 @@ Seed the `ingredients` table with about 7,000 common grocery items pre-categoriz
   - Output: `[{ "name": string, "category": <one of the slugs>, "is_grocery_item": boolean, "unit": "count" | <a supported unit> }]`. `unit` is stored as the ingredient's `default_unit` (4.2).
 - Prompt guidance: categorize as a typical US supermarket would shelve it; ambiguous items go where most shoppers would look first; non-food household goods go to the household/personal care categories; anything that is not something you buy at a store (e.g. "call mom") gets `is_grocery_item: false` and category `other`. The unit is how a US shopper usually buys the item: `count` for single pieces or packages with no better unit, otherwise the unit it's sold or weighed in (`gal` milk, `dozen` eggs, `lb` fresh meat, `bunch` herbs, `can`/`jar`/`bag`/`box` for packaged goods); non-groceries get `count`.
 - Validation: any missing name, unknown slug or unknown unit is marked `failed` and gets category Other. Failed rows retry (max 3 attempts), then stay Other.
-- Rate limit the function per user (e.g. 60 requests/min, 500 new names/day) to cap cost and abuse.
-- A small golden set (~100 names with expected categories and accepted units) runs as an eval when the model or prompt changes.
+- A small golden set (~100 names with expected categories and accepted units, including 5 prompt-injection names) runs as an eval when the model or prompt changes: `yarn ai:eval`. `yarn ai:categorize <names>` runs one call by hand (`--model`, `--thinking`, `--repeat N` for p50/p95 latency). Both use the real model and are run by hand only.
+
+**LLM boundaries.** These hold for every model call in the app.
+- **Input.** User text is data, never instructions. Names are normalized with the shared normalizer, and names empty afterwards are dropped. A name over 64 characters (after normalizing) is answered `failed` (Other) without reaching the LLM. A request has at most 100 names and a body of at most 16 KB (413 otherwise).
+- **Prompt.** The system prompt (instructions) holds the rules, the category list and the units. The names go in the user prompt only, as a JSON array, after a line saying they are untrusted item names to classify and that any instructions inside them are to be ignored. Prompts live in versioned files (`_shared/ai/prompts/categorize.v2.ts`, exporting `CATEGORIZE_PROMPT_VERSION`).
+- **Output.** The model can only choose a category slug and a unit (both Zod enums) and a boolean per name. No free text from the model is stored or returned to a client. An answer whose `name` isn't one of the names sent is ignored, the first answer for a name counts, and the output is cut to the number of names sent.
+- **Call limits.** `temperature: 0`, `maxOutputTokens` scaled to the batch (50 per name plus 200, capped at 5,500), a 20 s timeout, `maxRetries: 1`, no tools. There's no fallback model unless `AI_MODEL_CATEGORIZE_FALLBACK` is set.
+- **Failures.** Bad output (a missing name, an unknown slug or unit) marks those names `failed` with `attempts + 1`; output that fails the schema fails every name in the call. A provider error or timeout isn't the names' fault: they are answered `pending` without counting an attempt, and the next add or catch-up retries them. The rate limits bound those retries.
+- **Cost.** Per user: 60 requests a minute and 500 LLM-bound names a day (429 beyond either). Globally: `CATEGORIZE_DAILY_NAME_CAP` (default 20,000) LLM-bound names a day across all users. Once it's reached, the function refuses a request that needs the LLM with a 503 and `Retry-After` (an hour), writing nothing, so the client's names stay `pending`; requests answered entirely from the database still succeed. `AI_MODEL_CATEGORIZE=off` is a kill switch: no model call, and LLM-bound names are answered `pending` (a 200). `mock` never touches the network.
+- **Privacy (6.5).** `ai_calls` logs each call's prompt, output, tokens and timing but no user id; only the service role can read it, and rows expire after 30 days. Logs never include the JWT or headers. Categorize is the only AI task; nothing else in the app calls a model.
+- **Secrets and tests.** Provider keys live only in `supabase/functions/.env` (gitignored) and Supabase secrets, never in the app bundle or `EXPO_PUBLIC_*`. `deno test` and `yarn jest` always use the mock or `MockLanguageModelV4`. Real-model runs (`yarn ai:categorize`, `yarn ai:eval`, `yarn ai:check-seed`) are manual only.
+
+**Changed in implementation.** The rate-limit counters live in Postgres: `private.categorize_usage` (per user and UTC day: requests in the current fixed one-minute window, and LLM-bound names today) and `private.categorize_daily_total` (the global count per day). `public.check_categorize_limit` (service role only) checks and updates them once per request, before anything is written, locking the rows so concurrent requests can't both slip under a limit; a refused request uses no budget. pg_cron only prunes old usage and `ai_calls` rows; nothing calls the function on a schedule.
 
 ### 6.5 Privacy
 Ingredient names typed or spoken by any user become part of the global catalog and are sent to the LLM. The catalog stores only the normalized name, never who typed it; `ingredient_households` (service role only) records which households used it, solely to maintain `household_count`. Autocomplete from the global catalog only suggests ingredients with `is_grocery_item = true` and `household_count >= N` [Default N=3], so one person's odd entry doesn't leak into everyone's suggestions.
@@ -564,8 +575,7 @@ src/
     households/     HouseholdsScreen, HouseholdDetail, InviteSheet, JoinHousehold, CopyRecipeSheet
     siri/           app-group-queue (drain), list-snapshot (writes lists.json)
     auth/
-  domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver,
-                    categorization-queue
+  domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver
   shared/           used by app AND Edge Functions: zod schemas, ingredient-normalizer,
                     quantity-parser, siri envelope schema
   db/               Drizzle schema mirroring section 5, migrations, live queries
@@ -575,7 +585,7 @@ targets/
   add-intent/       AddToPerfectBiteIntent.swift, ListEntity, App Group queue writer
 supabase/
   migrations/       schema, RLS, triggers, apply_mutations, household functions, seed categories,
-                    seed ingredients, pg_cron sweep
+                    seed ingredients, categorize rate limits, ai_calls
   functions/        categorize-ingredients/, siri-add/, delete-account/, _shared/
   tests/            RLS and apply_mutations tests
 ```
@@ -610,7 +620,7 @@ As in stash, don't rely on the edge runtime that `supabase start` launches; use 
 
 **Database changes**: `supabase migration new <name>`, write SQL, `supabase db reset`. Tests in `supabase/tests/` (pgTAP) run with `supabase test db`.
 
-**Local categorization**: `categorize-ingredients` runs locally against Gemini 3.8 Flash (`google:gemini-3.8-flash`) using `GOOGLE_GENERATIVE_AI_API_KEY` in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock. The pg_cron sweep runs locally too.
+**Local categorization**: `categorize-ingredients` runs locally against Gemini 3.8 Flash (`google:gemini-3.8-flash`) using `GOOGLE_GENERATIVE_AI_API_KEY` in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock.
 
 **Seed data** (`supabase/seed.sql`), so sharing can be tested on day one:
 - System categories and the ~7,000 seed ingredients, with their default units.
@@ -632,7 +642,7 @@ The two apps are independent; there are no shared packages. Copy what's useful f
 
 ## 9. Testing and acceptance criteria
 
-Unit tests (Jest) required for: ingredient normalizer, quantity parser (including number words), quantity math and display rule, duplicate detector, category resolver, categorization queue batching triggers, HLC. Edge Function tests with a mocked LLM. SQL tests for RLS (one household can't read another's data; one user can't read another's overrides) and for `apply_mutations` (field-level LWW, delete wins, offline duplicate merge). A Swift/Zod contract test for the Siri envelope.
+Unit tests (Jest) required for: ingredient normalizer, quantity parser (including number words), quantity math and display rule, duplicate detector, category resolver, the categorize-on-add client (one request per add; catch-up on launch, foreground and reconnect), HLC. Edge Function tests with a mocked LLM. SQL tests for RLS (one household can't read another's data; one user can't read another's overrides) and for `apply_mutations` (field-level LWW, delete wins, offline duplicate merge). A Swift/Zod contract test for the Siri envelope.
 
 Acceptance criteria:
 1. **Add**: typing `2 lbs chicken thighs` and return creates one item with quantity 2, unit lb, under Meat & Seafood (seed data), with the keyboard still up.
@@ -672,10 +682,11 @@ Each milestone should end with a working app and passing tests.
 6. **M5 Backend and sync**: Supabase schema + RLS + triggers, `apply_mutations`, outbox with HLC, push/pull, Realtime, sync status screen. (Or the chosen sync engine, per 7.0.)
    - *Landed early* for the read-only Households screen: `households`, `household_members` (with RLS, `private.my_household_ids()` and household-mates' profiles readable), `create_household` and `get_household_members`. The household is created locally through the outbox (`ensureStarterData`), and the push sends it with `create_household` like other household data (7.1); the launch-time `registerHouseholds` that did this before sync is gone.
    - *Also landed early*, so the data can be browsed in Studio: the rest of the section 5 schema (catalog with seed, per-user preferences, household data, `user_settings`), with RLS and the unknown-ingredient trigger (`household_invites` came later, with invites; see M7). M5 moved household writes behind `apply_mutations`, and sync replaced the dev-only "Push local data to Supabase" snapshot, which is gone.
-7. **M6 Categorization**: `categorize-ingredients` Edge Function with the AI SDK, client categorization queue, "Sorting..." state, pg_cron sweep, retries, golden-set eval.
+7. **M6 Categorization**: `categorize-ingredients` Edge Function with the AI SDK, categorize-on-add client with catch-up, "Sorting..." state, retries, golden-set eval.
+   - *Landed*: the function (6.1, 6.4) with its LLM boundaries, rate limits, global daily cap and `off` kill switch; `ai_calls`; Gemini 3.8 Flash with thinking `low` (`docs/spikes.md` §4); the categorize-on-add client and catch-up (6.3); "Sorting..."; failed names retried up to 3 attempts; default units (prompt categorize.v2); the ~7,000-name seed, checked with `yarn ai:check-seed`; the golden-set eval, 99/100 on categorize.v2.
 8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
    - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Rename, leave, remove and roles are still M7. *Also landed early (with M5)*: invites: `household_invites` with `create_invite` / `preview_invite` / `accept_invite`, an "Invite someone" button on the household screen and the join screen (`src/app/invite/[token].tsx`), using the app scheme until Universal Links have a domain.
-9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function, default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
+9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function (categorizes unknown names inline by calling the shared `categorize()`), default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
 10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (once Q13 is decided), TestFlight.
 
 ---
