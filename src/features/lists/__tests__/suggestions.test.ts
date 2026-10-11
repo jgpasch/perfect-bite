@@ -83,14 +83,16 @@ describe('getSuggestions (spec 4.2)', () => {
   test('with no history, returns the catalog results unchanged', () => {
     const out = getSuggestions(householdId, 'chi');
     expect(out).toEqual(catalog('chi'));
-    expect(out.map((s) => s.displayName)).toContain('chicken');
+    expect(getSuggestions(householdId, 'chic').map((s) => s.displayName)).toContain('chicken');
     expect(out.every((s) => s.source === 'catalog')).toBe(true);
   });
 
   test('history drops out as the user keeps typing, so catalog items still appear', () => {
     addItem(listId, 'chicken thighs', USER);
     addItem(listId, 'chicken breasts', USER);
-    expect(getSuggestions(householdId, 'chickp')).toEqual([{ key: 'chickpea', displayName: 'chickpeas', source: 'catalog' }]);
+    const out = getSuggestions(householdId, 'chickp');
+    expect(out[0]).toEqual({ key: 'chickpea', displayName: 'chickpeas', source: 'catalog' });
+    expect(out.every((s) => s.source === 'catalog')).toBe(true);
   });
 
   test('`2 lbs chi` behaves the same as `chi`', () => {
@@ -123,9 +125,11 @@ describe('getSuggestions (spec 4.2)', () => {
     expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
     expect(out.slice(1).every((s) => s.source === 'catalog')).toBe(true);
     // The hidden key can still come back from the catalog.
-    expect(getSuggestions(householdId, 'chicken bre')).toEqual([
-      { key: 'chicken breast', displayName: 'chicken breasts', source: 'catalog' },
-    ]);
+    expect(getSuggestions(householdId, 'chicken bre')[0]).toEqual({
+      key: 'chicken breast',
+      displayName: 'chicken breasts',
+      source: 'catalog',
+    });
 
     db.insert(households).values({ id: 'h-other', name: 'Other' }).run();
     expect(getSuggestions('h-other', 'chi')).toEqual(catalog('chi'));

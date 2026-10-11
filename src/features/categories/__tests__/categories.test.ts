@@ -100,23 +100,23 @@ describe('overrides (spec 4.3.2)', () => {
   });
 
   test('the edit sheet reads the status, so a pending item shows Sorting... and can be moved', () => {
-    const item = addItem(listId, 'dukkah', A)!;
-    const current = getIngredientCategory(A, key('dukkah'));
+    const item = addItem(listId, 'kashk', A)!;
+    const current = getIngredientCategory(A, key('kashk'));
     expect(current).toEqual({ defaultCategoryId: null, overrideCategoryId: null, status: 'pending' });
     const defaultId = effectiveCategoryId(null, current.defaultCategoryId, current.status);
     expect(defaultId).toBe(SORTING_CATEGORY_ID);
     expect(categoryNameById(getOrderedCategories(A), defaultId)).toBe('Sorting...');
 
-    updateItem(item.itemId, { name: 'dukkah', amount: '', note: '', categoryId: id('spices') }, A);
-    expect(getIngredientCategory(A, key('dukkah'))).toEqual({
+    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: id('spices') }, A);
+    expect(getIngredientCategory(A, key('kashk'))).toEqual({
       defaultCategoryId: null,
       overrideCategoryId: id('spices'),
       status: 'pending',
     });
-    expect(categoryOf(A, 'dukkah')).toBe(id('spices'));
+    expect(categoryOf(A, 'kashk')).toBe(id('spices'));
     // Reset to default goes back to Sorting...
-    updateItem(item.itemId, { name: 'dukkah', amount: '', note: '', categoryId: null }, A);
-    expect(categoryOf(A, 'dukkah')).toBe(SORTING_CATEGORY_ID);
+    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: null }, A);
+    expect(categoryOf(A, 'kashk')).toBe(SORTING_CATEGORY_ID);
   });
 
   test('getIngredientCategory gives a categorized status, a failed status, or null with no row', () => {
@@ -125,9 +125,9 @@ describe('overrides (spec 4.3.2)', () => {
       overrideCategoryId: null,
       status: 'categorized',
     });
-    addItem(listId, 'dukkah', A);
-    db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, key('dukkah'))).run();
-    expect(getIngredientCategory(A, key('dukkah')).status).toBe('failed');
+    addItem(listId, 'kashk', A);
+    db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, key('kashk'))).run();
+    expect(getIngredientCategory(A, key('kashk')).status).toBe('failed');
     expect(getIngredientCategory(A, key('never added'))).toEqual({
       defaultCategoryId: null,
       overrideCategoryId: null,
@@ -157,7 +157,14 @@ describe('category order (spec 4.3.3)', () => {
 
 describe('autocomplete', () => {
   test('searches the catalog by name or word prefix', () => {
-    expect(searchCatalog('chicken th', 5).map((r) => r.displayName)).toEqual(['chicken thighs']);
+    // Whole-name prefix matches first, shortest first, then word matches, up to the limit.
+    expect(searchCatalog('chicken th', 5).map((r) => r.displayName)).toEqual([
+      'chicken thighs',
+      'frozen chicken thighs',
+      'bone in chicken thighs',
+      'boneless chicken thighs',
+      'boneless skinless chicken thighs',
+    ]);
     expect(searchCatalog('thigh', 5).map((r) => r.displayName)).toContain('chicken thighs');
     expect(searchCatalog('%', 5)).toEqual([]);
   });
@@ -249,9 +256,9 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
   });
 
   test('adding the same unknown name twice creates one row, keeping the first display name', () => {
-    addItem(listId, 'dukkah', A);
+    addItem(listId, 'kashk', A);
     addItem(listId, '2 Dukkah', A);
-    expect(pendingNames()).toEqual([{ name: key('dukkah'), displayName: 'dukkah' }]);
+    expect(pendingNames()).toEqual([{ name: key('kashk'), displayName: 'kashk' }]);
   });
 
   test('a later add does not reset a failed row', () => {
@@ -265,10 +272,10 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
   });
 
   test('a bulk add creates one row per new name', () => {
-    addItemsBulk(listId, [{ text: 'ssamjang' }, { text: 'tomatoes' }, { text: '2 ssamjang' }, { text: 'yuzu kosho' }], A);
+    addItemsBulk(listId, [{ text: 'amba' }, { text: 'tomatoes' }, { text: '2 amba' }, { text: 'yuzu kosho' }], A);
     expect(pendingNames()).toEqual(
       sorted([
-        { name: key('ssamjang'), displayName: 'ssamjang' },
+        { name: key('amba'), displayName: 'amba' },
         { name: key('yuzu kosho'), displayName: 'yuzu kosho' },
       ]),
     );
@@ -285,19 +292,19 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
 
   test('recipe ingredients: added, parsed and edited names create pending rows', () => {
     const recipe = createRecipe('Shakshuka');
-    addRecipeIngredient(recipe, '1 tbsp harissa');
+    addRecipeIngredient(recipe, '1 tbsp black garlic');
     addRecipeIngredient(recipe, '2 eggs');
     addParsedRecipeIngredients(recipe, [
-      { ingredientName: key('urfa biber'), displayName: 'urfa biber', quantity: null, unit: null },
+      { ingredientName: key('black lime'), displayName: 'black lime', quantity: null, unit: null },
       { ingredientName: key('sumac'), displayName: 'sumac', quantity: null, unit: null },
     ]);
     const feta = addRecipeIngredient(recipe, 'feta')!.id;
     updateRecipeIngredient(feta, '100 g labneh');
     expect(pendingNames()).toEqual(
       sorted([
-        { name: key('harissa'), displayName: 'harissa' },
+        { name: key('black garlic'), displayName: 'black garlic' },
         { name: key('labneh'), displayName: 'labneh' },
-        { name: key('urfa biber'), displayName: 'urfa biber' },
+        { name: key('black lime'), displayName: 'black lime' },
       ]),
     );
     expect(rows('eggs')[0].status).toBe('categorized');
@@ -311,7 +318,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
   });
 
   test('ensureMissingIngredients fills the gaps and changes nothing on a second run', () => {
-    addItem(listId, 'ssamjang', A);
+    addItem(listId, 'amba', A);
     addItem(listId, 'tomatoes', A);
     addItem(listId, 'old thing', A);
     const recipe = createRecipe('Bibimbap');
@@ -330,7 +337,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
     expect(pendingNames()).toEqual(
       sorted([
         { name: key('Doenjang'), displayName: 'Doenjang' },
-        { name: key('ssamjang'), displayName: 'ssamjang' },
+        { name: key('amba'), displayName: 'amba' },
       ]),
     );
     expect(db.select().from(ingredients).all()).toHaveLength(before + 2);

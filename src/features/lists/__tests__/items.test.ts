@@ -873,29 +873,29 @@ describe('Sorting section (spec 4.3.1)', () => {
 
   test('an unknown item is grouped under Sorting and a seed item under its category', () => {
     addItem(listId, 'milk', USER);
-    addItem(listId, 'dukkah', USER);
-    const [milk, dukkah] = view().unchecked;
+    addItem(listId, 'kashk', USER);
+    const [milk, kashk] = view().unchecked;
     expect(milk.categoryId).toBe(categoryId('dairy-eggs'));
-    expect(dukkah.categoryId).toBe(SORTING_CATEGORY_ID);
+    expect(kashk.categoryId).toBe(SORTING_CATEGORY_ID);
     expect(sections()).toEqual([
-      ['Sorting...', ['dukkah']],
+      ['Sorting...', ['kashk']],
       ['Dairy & Eggs', ['milk']],
     ]);
   });
 
   test('an item with no ingredient row is under Sorting', () => {
-    addItem(listId, 'dukkah', USER);
-    db.delete(ingredients).where(eq(ingredients.normalizedName, 'dukkah')).run();
+    addItem(listId, 'kashk', USER);
+    db.delete(ingredients).where(eq(ingredients.normalizedName, 'kashk')).run();
     expect(view().unchecked[0].categoryId).toBe(SORTING_CATEGORY_ID);
   });
 
   test('a failed ingredient goes to Other, and an override moves an item out of Sorting', () => {
-    addItem(listId, 'dukkah', USER);
+    addItem(listId, 'kashk', USER);
     addItem(listId, 'flux capacitor', USER);
     db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, 'flux capacitor')).run();
-    setCategoryOverride(USER, 'dukkah', categoryId('spices'));
+    setCategoryOverride(USER, 'kashk', categoryId('spices'));
     expect(sections()).toEqual([
-      ['Spices & Seasonings', ['dukkah']],
+      ['Spices & Seasonings', ['kashk']],
       ['Other', ['flux capacitor']],
     ]);
   });
@@ -1040,8 +1040,8 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
     });
 
     test('Sorting… comes first whatever the order, oldest first', () => {
-      const items = [item('onion', 'produce', 0), item('yuzu', 'sorting', 2), item('dukkah', 'sorting', 1)];
-      expect(ids(orderByAisle(items, order))).toEqual(['dukkah', 'yuzu', 'onion']);
+      const items = [item('onion', 'produce', 0), item('yuzu', 'sorting', 2), item('kashk', 'sorting', 1)];
+      expect(ids(orderByAisle(items, order))).toEqual(['kashk', 'yuzu', 'onion']);
     });
 
     test('a custom order is followed as given', () => {
@@ -1091,9 +1091,9 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
       addItem(listId, 'bread', USER);
       const tacos = createRecipe('Tacos');
       jest.setSystemTime(at(2));
-      addRecipe(tacos, ['cumin', 'cheddar', 'ground beef', 'dukkah', 'tortillas', 'cilantro']);
+      addRecipe(tacos, ['cumin', 'cheddar', 'ground beef', 'kashk', 'tortillas', 'cilantro']);
       expect(byRecipe()).toEqual([
-        ['Tacos', ['dukkah', 'cilantro', 'tortillas', 'ground beef', 'cheddar', 'cumin']],
+        ['Tacos', ['kashk', 'cilantro', 'tortillas', 'ground beef', 'cheddar', 'cumin']],
         ['Other items', ['bread', 'milk']],
       ]);
     });

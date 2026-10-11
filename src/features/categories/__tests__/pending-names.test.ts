@@ -48,9 +48,9 @@ describe('collectPendingNames', () => {
         null,
         { pendingNames: [] },
         { pendingNames: ['sumac', 'za’atar'] },
-        { pendingNames: ['dukkah'] },
+        { pendingNames: ['kashk'] },
       ]),
-    ).toEqual(['za’atar', 'sumac', 'dukkah']);
+    ).toEqual(['za’atar', 'sumac', 'kashk']);
   });
 
   test('nothing in, nothing out', () => {
@@ -70,16 +70,16 @@ describe('list adds', () => {
   });
 
   test('adding the same unknown name again (combine) returns nothing the second time', () => {
-    addItem(listId, 'dukkah', A);
-    const again = addItem(listId, '2 dukkah', A)!;
+    addItem(listId, 'kashk', A);
+    const again = addItem(listId, '2 kashk', A)!;
     expect(again.kind).toBe('combine');
     expect(again.pendingNames).toEqual([]);
   });
 
   test('reopening a checked unknown item returns nothing (its row is already there)', () => {
-    const first = addItem(listId, 'dukkah', A)!;
+    const first = addItem(listId, 'kashk', A)!;
     setItemChecked(first.itemId, true, A);
-    const again = addItem(listId, 'dukkah', A)!;
+    const again = addItem(listId, 'kashk', A)!;
     expect(again.kind).toBe('reopen');
     expect(again.pendingNames).toEqual([]);
   });
@@ -100,11 +100,11 @@ describe('list adds', () => {
   test('a bulk add gives each new name once, in add order, for one request', () => {
     const results = addItemsBulk(
       listId,
-      [{ text: 'yuzu kosho' }, { text: 'tomatoes' }, { text: ' ' }, { text: 'ssamjang' }, { text: '2 yuzu kosho' }],
+      [{ text: 'yuzu kosho' }, { text: 'tomatoes' }, { text: ' ' }, { text: 'amba' }, { text: '2 yuzu kosho' }],
       A,
     );
-    expect(results.map((r) => r?.pendingNames ?? null)).toEqual([[key('yuzu kosho')], [], null, [key('ssamjang')], []]);
-    expect(collectPendingNames(results)).toEqual([key('yuzu kosho'), key('ssamjang')]);
+    expect(results.map((r) => r?.pendingNames ?? null)).toEqual([[key('yuzu kosho')], [], null, [key('amba')], []]);
+    expect(collectPendingNames(results)).toEqual([key('yuzu kosho'), key('amba')]);
   });
 
   test('a bulk add of known names collects nothing', () => {
@@ -128,10 +128,10 @@ describe('item edit sheet', () => {
   });
 
   test('renaming to a name that is already pending returns nothing', () => {
-    addItem(listId, 'dukkah', A);
+    addItem(listId, 'kashk', A);
     addItem(listId, 'tomatoes', A);
-    setItemChecked(itemNamed('dukkah').id, true, A);
-    expect(updateItem(itemNamed('tomatoes').id, { name: 'dukkah', amount: '', note: '' }, A)).toEqual([]);
+    setItemChecked(itemNamed('kashk').id, true, A);
+    expect(updateItem(itemNamed('tomatoes').id, { name: 'kashk', amount: '', note: '' }, A)).toEqual([]);
   });
 });
 
@@ -150,8 +150,8 @@ describe('recipes', () => {
     const r = createRecipe('Salad');
     const parsed = (name: string) => ({ ingredientName: key(name), displayName: name, quantity: null, unit: null });
     expect(
-      addParsedRecipeIngredients(r, [parsed('urfa biber'), parsed('tomatoes'), parsed('urfa biber'), parsed('amchur')]),
-    ).toEqual([key('urfa biber'), key('amchur')]);
+      addParsedRecipeIngredients(r, [parsed('black lime'), parsed('tomatoes'), parsed('black lime'), parsed('anardana')]),
+    ).toEqual([key('black lime'), key('anardana')]);
     expect(addParsedRecipeIngredients(r, [])).toEqual([]);
   });
 
@@ -165,7 +165,7 @@ describe('recipes', () => {
 
   test('acceptance 6: adding a recipe with 8 names the catalog lacks returns all 8 for one request', () => {
     const stew = createRecipe('Stew');
-    const unknown = ['ajvar', 'amchur', 'black garlic', 'doenjang', 'gochugaru', 'kecap manis', 'sumac', 'urfa biber'];
+    const unknown = ['nduja', 'anardana', 'black garlic', 'doenjang', 'kala jeera', 'bottarga', 'sumac', 'black lime'];
     for (const name of [...unknown, 'onion', 'carrots', 'potatoes', 'milk']) addRecipeIngredient(stew, name);
     forget(...unknown);
 
@@ -176,7 +176,7 @@ describe('recipes', () => {
 
   test('adding a recipe whose names were already sent from the recipe returns nothing', () => {
     const stew = createRecipe('Stew');
-    addRecipeIngredient(stew, 'ajvar');
+    addRecipeIngredient(stew, 'nduja');
     addRecipeIngredient(stew, 'onion');
     const ingredientsOfStew = recipeIngredientsQuery(stew).all();
     const adds = buildRecipeAdds(stew, ingredientsOfStew, new Set(ingredientsOfStew.map((i) => i.id)), 2);
@@ -185,25 +185,25 @@ describe('recipes', () => {
 
   test('a recipe ingredient that Combines into an open item still records its name', () => {
     const stew = createRecipe('Stew');
-    addRecipeIngredient(stew, 'ajvar');
-    addItem(listId, 'ajvar', A);
-    forget('ajvar');
+    addRecipeIngredient(stew, 'nduja');
+    addItem(listId, 'nduja', A);
+    forget('nduja');
     const ingredientsOfStew = recipeIngredientsQuery(stew).all();
     const adds = buildRecipeAdds(stew, ingredientsOfStew, new Set(ingredientsOfStew.map((i) => i.id)), 1);
-    expect(addRecipeToList(listId, adds, A).pendingNames).toEqual([key('ajvar')]);
+    expect(addRecipeToList(listId, adds, A).pendingNames).toEqual([key('nduja')]);
   });
 
   test('Make recipe and Add to recipe return names that had no catalog row, and nothing otherwise', () => {
     const beef = addItem(listId, '2 lbs ground beef', A)!;
-    const ajvar = addItem(listId, 'ajvar', A)!;
-    const made = makeRecipeFromItems('Tacos', [beef.itemId, ajvar.itemId], A);
+    const nduja = addItem(listId, 'nduja', A)!;
+    const made = makeRecipeFromItems('Tacos', [beef.itemId, nduja.itemId], A);
     expect(made.pendingNames).toEqual([]);
     expect(recipeIngredientsQuery(made.recipeId).all()).toHaveLength(2);
 
-    const dukkah = addItem(listId, 'dukkah', A)!;
-    forget('dukkah');
+    const kashk = addItem(listId, 'kashk', A)!;
+    forget('kashk');
     const soup = createRecipe('Soup');
-    expect(addItemsToRecipe(soup, [dukkah.itemId, beef.itemId], A)).toEqual([key('dukkah')]);
+    expect(addItemsToRecipe(soup, [kashk.itemId, beef.itemId], A)).toEqual([key('kashk')]);
     expect(addItemsToRecipe(soup, [], A)).toEqual([]);
   });
 });
