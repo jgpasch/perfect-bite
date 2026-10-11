@@ -12,6 +12,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { listHue } from '@/domain/aisle-color';
 import { getAccount } from '@/features/auth/account';
 import { groupListsByHousehold, pairs, tileAccessibilityLabel, tileCount } from '@/features/lists/list-view';
 import {
@@ -156,13 +157,14 @@ function NewListTile({ onPress }: { onPress: () => void }) {
 }
 
 function ListTile({ list, isDefault }: { list: ListSummary; isDefault: boolean }) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const userId = getAccount()?.userId;
   const isArchived = list.archivedAt !== null;
   const count = list.uncheckedCount;
-  const look = listTileColors(isDefault);
+  // Colour is decoration: the VoiceOver label below doesn't mention it.
+  const look = listTileColors(isDefault, listHue(list.color), colors, aisles);
   const headline = tileCount(count);
-  const siri = siriMarkColors(colors, opacity.tint);
+  const siri = siriMarkColors(colors, opacity.tint, look.mark);
 
   const confirmDelete = () =>
     Alert.alert(`Delete “${list.name}”?`, 'Its items are deleted too.', [
@@ -185,7 +187,7 @@ function ListTile({ list, isDefault }: { list: ListSummary; isDefault: boolean }
                 padding: spacing.lg,
                 gap: spacing.sm,
                 borderRadius: rounded.tile,
-                backgroundColor: colors[look.fill],
+                backgroundColor: look.fill,
                 opacity: isArchived ? opacity.disabled : 1,
               },
             ]}>
@@ -205,8 +207,8 @@ function ListTile({ list, isDefault }: { list: ListSummary; isDefault: boolean }
                       backgroundColor: siri.fill,
                     },
                   ]}>
-                  <Icon name="mic.fill" color={look.text} size={sizes.iconSmall} />
-                  <ThemedText variant="caption" color={look.text}>
+                  <Icon name="mic.fill" color={look.mark} size={sizes.iconSmall} />
+                  <ThemedText variant="caption" color={look.mark}>
                     Siri
                   </ThemedText>
                 </View>

@@ -30,7 +30,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { aisleColor, recipeHue } from '@/domain/aisle-color';
+import { AISLE_HUES, aisleColor, listColorName, listHue, recipeHue } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -85,7 +85,7 @@ import {
   type ListViewMode,
   type SectionedViewMode,
 } from '@/features/lists/list-view';
-import { deleteList, listQuery, setDefaultList } from '@/features/lists/lists';
+import { deleteList, listQuery, setDefaultList, setListColor } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { takeMoveResult } from '@/features/lists/move-result';
 import { listShareText } from '@/features/lists/share';
@@ -632,6 +632,14 @@ export default function ListScreen() {
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptListName(list.id, list.name)}>
             Rename
           </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.Menu icon="paintpalette">
+            <Stack.Toolbar.Label>Colour</Stack.Toolbar.Label>
+            {[null, ...AISLE_HUES].map((hue) => (
+              <Stack.Toolbar.MenuAction key={hue ?? 'default'} isOn={listHue(list.color) === hue} onPress={() => setListColor(id, hue)}>
+                {listColorName(hue)}
+              </Stack.Toolbar.MenuAction>
+            ))}
+          </Stack.Toolbar.Menu>
           {userId ? (
             <Stack.Toolbar.MenuAction icon="mic" onPress={() => setDefaultList(userId, id)}>
               Make default for Siri

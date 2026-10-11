@@ -273,19 +273,51 @@ describe('the other primitives’ text pairs', () => {
 });
 
 describe('listTileColors', () => {
-  it('fills the Siri default list primary', () => {
-    expect(listTileColors(true)).toEqual({ fill: 'primary', text: 'onPrimary', secondary: 'onPrimary' });
+  const HUES = ['green', 'blue', 'rose', 'amber', 'grey'] as const;
+
+  it('fills the Siri default list primary while its colour is Default', () => {
+    expect(listTileColors(true, null, Palette.light, AisleColors.light)).toEqual({
+      fill: Palette.light.primary,
+      text: 'onPrimary',
+      secondary: 'onPrimary',
+      mark: 'onPrimary',
+    });
   });
 
-  it('makes other lists surface cards', () => {
-    expect(listTileColors(false)).toEqual({ fill: 'surface', text: 'ink', secondary: 'inkSecondary' });
+  it('makes other Default lists surface cards', () => {
+    expect(listTileColors(false, null, Palette.dark, AisleColors.dark)).toEqual({
+      fill: Palette.dark.surface,
+      text: 'ink',
+      secondary: 'inkSecondary',
+      mark: 'ink',
+    });
   });
 
-  it.each(SCHEMES)('keeps the tile text at 4.5:1 or better in %s mode', (scheme) => {
+  it('fills a coloured list with its hue’s soft tint and ink text, default or not', () => {
+    const rose = { fill: AisleColors.light.rose.soft, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
+    expect(listTileColors(false, 'rose', Palette.light, AisleColors.light)).toEqual(rose);
+    // The Siri list gives up its primary fill, and its mark switches to ink.
+    expect(listTileColors(true, 'rose', Palette.light, AisleColors.light)).toEqual(rose);
+    expect(listTileColors(true, 'grey', Palette.dark, AisleColors.dark).fill).toBe(AisleColors.dark.grey.soft);
+  });
+
+  it.each(SCHEMES)('keeps the tile text at 4.5:1 or better for every colour in %s mode', (scheme) => {
+    const c = Palette[scheme];
     for (const isDefault of [true, false]) {
-      const { fill, text, secondary } = listTileColors(isDefault);
-      expect(contrastRatio(Palette[scheme][text], Palette[scheme][fill])).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(Palette[scheme][secondary], Palette[scheme][fill])).toBeGreaterThanOrEqual(4.5);
+      for (const hue of [null, ...HUES]) {
+        const { fill, text, secondary } = listTileColors(isDefault, hue, c, AisleColors[scheme]);
+        expect(contrastRatio(c[text], fill)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(c[secondary], fill)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it.each(SCHEMES)('keeps "Siri" at 4.5:1 or better on every colour of the default tile in %s mode', (scheme) => {
+    const c = Palette[scheme];
+    for (const hue of [null, ...HUES]) {
+      const { fill, mark } = listTileColors(true, hue, c, AisleColors[scheme]);
+      const { text } = siriMarkColors(c, Opacity.tint, mark);
+      expect(contrastRatio(text, mix(c[mark], fill, Opacity.tint))).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -300,6 +332,13 @@ describe('siriMarkColors', () => {
     // 0.12 × 255 = 30.6 → 31 → 1f.
     expect(siriMarkColors(Palette.light, 0.12)).toEqual({ fill: '#FFFFFF1f', text: '#FFFFFF' });
     expect(siriMarkColors(Palette.dark, 0.12)).toEqual({ fill: '#0E1F141f', text: '#0E1F14' });
+  });
+
+  it('takes another text colour, e.g. ink on a coloured tile', () => {
+    expect(siriMarkColors(Palette.light, 0.12, 'ink')).toEqual({
+      fill: `${Palette.light.ink}1f`,
+      text: Palette.light.ink,
+    });
   });
 
   it.each(SCHEMES)('keeps "Siri" at 4.5:1 or better over the Siri tile in %s mode', (scheme) => {

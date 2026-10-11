@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { AISLE_HUES, aisleColor, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
+import { AISLE_HUES, aisleColor, listColorName, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@/shared/seed/categories';
 
 describe('aisleColor', () => {
@@ -73,6 +73,12 @@ describe('listHue', () => {
       expect(listHue(color)).toBeNull();
     },
   );
+});
+
+describe('listColorName', () => {
+  it('names Default and each hue for the Colour menu', () => {
+    expect([null, ...AISLE_HUES].map(listColorName)).toEqual(['Default', 'Green', 'Blue', 'Rose', 'Amber', 'Grey']);
+  });
 });
 
 describe('recipeHue', () => {

@@ -48,6 +48,7 @@ export function listsWithCountsQuery() {
       householdId: lists.householdId,
       householdName: households.name,
       emoji: lists.emoji,
+      color: lists.color,
       position: lists.position,
       archivedAt: lists.archivedAt,
       uncheckedCount: sql<number>`count(${listItems.id})`,

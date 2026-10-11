@@ -17,6 +17,7 @@ import {
   setDefaultList,
   setLastOpenedList,
   setListArchived,
+  setListColor,
 } from '../lists';
 import { getDeviceSetting } from '@/features/settings/device-settings';
 import { addItem, setItemChecked } from '../items';
@@ -110,6 +111,21 @@ test('deleted lists disappear; archived lists stay, marked', () => {
   ]);
   setListArchived(c, false);
   expect(listsWithCountsQuery().all()[1].archivedAt).toBeNull();
+});
+
+test('the home summary carries each list’s colour, archived ones too', () => {
+  const b = createList('B');
+  const c = createList('C');
+  setListColor(b, 'blue');
+  setListColor(c, 'amber');
+  setListArchived(c, true);
+  expect(listsWithCountsQuery().all().map((l) => [l.name, l.color])).toEqual([
+    ['Groceries', null],
+    ['B', 'blue'],
+    ['C', 'amber'],
+  ]);
+  setListColor(b, null);
+  expect(listsWithCountsQuery().all()[1].color).toBeNull();
 });
 
 test('the default list falls back to the first remaining list', () => {

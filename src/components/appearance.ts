@@ -161,16 +161,28 @@ export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles
   }
 }
 
-/** A list tile: the Siri default list is filled `primary`; the rest are `surface` cards. */
-export function listTileColors(isDefault: boolean): { fill: ColorToken; text: ColorToken; secondary: ColorToken } {
+export type ListTileLook = {
+  fill: string;
+  text: ColorToken;
+  secondary: ColorToken;
+  /** The text colour the Siri mark is built from (`siriMarkColors`). */
+  mark: ColorToken;
+};
+
+/**
+ * A list tile (spec 4.1): a coloured list fills with its hue's `soft` tint, with `ink` text. A Default
+ * one is a `surface` card, except the Siri default list, which is filled `primary`.
+ */
+export function listTileColors(isDefault: boolean, hue: AisleHue | null, colors: ThemeColors, aisles: Aisles): ListTileLook {
+  if (hue) return { fill: aisles[hue].soft, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
   return isDefault
-    ? { fill: 'primary', text: 'onPrimary', secondary: 'onPrimary' }
-    : { fill: 'surface', text: 'ink', secondary: 'inkSecondary' };
+    ? { fill: colors.primary, text: 'onPrimary', secondary: 'onPrimary', mark: 'onPrimary' }
+    : { fill: colors.surface, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
 }
 
-/** The small "Siri" mark on the default list's tile: `onPrimary` on a faint `onPrimary` wash over the tile. */
-export function siriMarkColors(colors: ThemeColors, tint: number): { fill: string; text: string } {
-  return { fill: withAlpha(colors.onPrimary, tint), text: colors.onPrimary };
+/** The small "Siri" mark on the default list's tile: `text` (the tile's `mark`) on a faint wash of itself. */
+export function siriMarkColors(colors: ThemeColors, tint: number, text: ColorToken = 'onPrimary'): { fill: string; text: string } {
+  return { fill: withAlpha(colors[text], tint), text: colors[text] };
 }
 
 /**

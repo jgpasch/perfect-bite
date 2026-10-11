@@ -16,6 +16,13 @@ export function listHue(color: string | null | undefined): AisleHue | null {
   return color != null && (AISLE_HUES as readonly string[]).includes(color) ? (color as AisleHue) : null;
 }
 
+const HUE_NAMES: Record<AisleHue, string> = { green: 'Green', blue: 'Blue', rose: 'Rose', amber: 'Amber', grey: 'Grey' };
+
+/** A list colour's name in the Colour menu: the hue's name, or "Default" for none. */
+export function listColorName(hue: AisleHue | null): string {
+  return hue === null ? 'Default' : HUE_NAMES[hue];
+}
+
 const HUES: Record<CategorySlug, AisleHue> = {
   produce: 'green',
   bakery: 'amber',
