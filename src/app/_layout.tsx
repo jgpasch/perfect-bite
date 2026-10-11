@@ -57,6 +57,8 @@ export default function RootLayout() {
                 />
                 {/* Board 12: "Aisle order" is the large title in the screen, under the Done button. */}
                 <Stack.Screen name="category-order" options={{ title: '', presentation: 'modal' }} />
+                {/* An invite link (spec 4.7): signed out, the guard sends it to sign-in instead. */}
+                <Stack.Screen name="invite/[token]" options={{ title: '', presentation: 'modal' }} />
                 <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: 'Recipes' }} />
                 <Stack.Screen
                   name="recipe/[id]/add-to-list"

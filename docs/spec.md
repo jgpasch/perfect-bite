@@ -172,9 +172,11 @@ A segmented control at the top of each list: **Newest** | **By aisle** | **By re
 - Any member can invite (Q16).
 
 **Invites**
-- "Invite" generates an invite link for that household (Universal Link, single use, expires in 7 days) shared through the share sheet.
+- "Invite" generates an invite link for that household (Universal Link, single use, expires in 7 days) shared through the share sheet. *For now* the link uses the app scheme (`perfectbite://invite/<token>`); Universal Links need a hosted domain (follow-up). Only the token's SHA-256 is stored on the server.
 - Opening the link (signed in) shows "Join *John's household*? You'll share its lists and recipes. Your other households aren't affected." Accepting adds the user as a member. Nothing of theirs moves (Q3).
-- Already a member: the link says so and opens the household.
+- Already a member: the link says so and opens the household (the invite stays unused).
+- A used, expired or unknown link says so ("Ask for a new one"). Opening a link signed out goes to sign-in; the link isn't kept for after sign-in yet (follow-up).
+- On accept, the new membership syncs the household in (7.2) and the app opens the Lists tab.
 
 **Leaving and removal** (Q2)
 - Leaving removes access; the data stays with the household. The user keeps no copy.
@@ -292,6 +294,7 @@ create table household_invites (
   household_id uuid references households on delete cascade,
   token_hash   text not null unique,
   created_by   uuid references auth.users,
+  created_at   timestamptz not null default now(),
   expires_at   timestamptz not null,
   used_by      uuid references auth.users,
   used_at      timestamptz
@@ -435,7 +438,7 @@ Note the `create table` order above is for readability; the real migration must 
 - Custom `categories`, `user_category_overrides`, `user_category_order`, `user_settings`: read/write only where `user_id`/`owner_user_id = auth.uid()`.
 - Household tables: read/write where `household_id` is one of the caller's households: `household_id in (select my_household_ids())`, where `my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
 - `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
-- `household_invites`: no direct access; `create_invite` and `accept_invite` only.
+- `household_invites`: no direct access; `create_invite`, `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired) and `accept_invite` only.
 - `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
 - Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
 
@@ -663,10 +666,10 @@ Each milestone should end with a working app and passing tests.
 5. **M4 Recipes**: recipe CRUD, add recipe to list, make recipe from selection, By recipe view.
 6. **M5 Backend and sync**: Supabase schema + RLS + triggers, `apply_mutations`, outbox with HLC, push/pull, Realtime, sync status screen. (Or the chosen sync engine, per 7.0.)
    - *Landed early* for the read-only Households screen: `households`, `household_members` (with RLS, `private.my_household_ids()` and household-mates' profiles readable), `create_household` and `get_household_members`. The household is created locally through the outbox (`ensureStarterData`), and the push sends it with `create_household` like other household data (7.1); the launch-time `registerHouseholds` that did this before sync is gone.
-   - *Also landed early*, so the data can be browsed in Studio: the rest of the section 5 schema (catalog with seed, per-user preferences, household data, `user_settings`), with RLS and the unknown-ingredient trigger, minus `household_invites`. M5 moved household writes behind `apply_mutations`, and sync replaced the dev-only "Push local data to Supabase" snapshot, which is gone.
+   - *Also landed early*, so the data can be browsed in Studio: the rest of the section 5 schema (catalog with seed, per-user preferences, household data, `user_settings`), with RLS and the unknown-ingredient trigger (`household_invites` came later, with invites; see M7). M5 moved household writes behind `apply_mutations`, and sync replaced the dev-only "Push local data to Supabase" snapshot, which is gone.
 7. **M6 Categorization**: `categorize-ingredients` Edge Function with the AI SDK, client categorization queue, "Sorting..." state, pg_cron sweep, retries, golden-set eval.
 8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
-   - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Invites, rename, leave, remove and roles are still M7. `household_invites` doesn't exist yet.
+   - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Rename, leave, remove and roles are still M7. *Also landed early (with M5)*: invites: `household_invites` with `create_invite` / `preview_invite` / `accept_invite`, an "Invite someone" button on the household screen and the join screen (`src/app/invite/[token].tsx`), using the app scheme until Universal Links have a domain.
 9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function, default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
 10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (once Q13 is decided), TestFlight.
 
