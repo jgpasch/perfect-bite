@@ -101,24 +101,3 @@ export function rankRecipes<T extends RecipeRow>(
     .slice(0, Math.max(0, limit))
     .map((m) => m.recipe);
 }
-
-/**
- * The recipes at the top of "RECENTLY USED" (spec 4.2): the household's recipes that have been added to a list,
- * most recently added first (ties alphabetical), up to `limit`. Recipes with no ingredients are left out.
- */
-export function recentRecipes<T extends RecipeRow>(
-  recipes: readonly T[],
-  uses: readonly RecipeUse[],
-  householdId: string,
-  limit: number,
-): T[] {
-  const added = lastAdds(uses);
-  return recipes
-    .flatMap((recipe) => {
-      const at = added.get(recipe.id);
-      return recipe.householdId === householdId && recipe.ingredientCount > 0 && at !== undefined ? [{ recipe, at }] : [];
-    })
-    .sort((a, b) => b.at - a.at || byName(a.recipe, b.recipe))
-    .slice(0, Math.max(0, limit))
-    .map((m) => m.recipe);
-}

@@ -12,8 +12,6 @@ import { displayItemName, parseQuantity } from '@/shared';
 
 import {
   applySuggestion,
-  getRecentItems,
-  getRecentRecipes,
   getRecipeSuggestions,
   getSuggestions,
   suggestionCaption,
@@ -27,8 +25,8 @@ import { hideFromSuggestions } from './usage';
 type Props = {
   householdId: string;
   /**
-   * On a list, suggestions are a chip row (`SuggestionChips`): recently used items while the field is empty,
-   * leaving out what's already on this list, and the household's recipes too when `onAddRecipe` is set.
+   * On a list, suggestions are a chip row (`SuggestionChips`), shown only while the field has text, with the
+   * household's recipes too when `onAddRecipe` is set.
    */
   listId?: string;
   /** Adds the text; return keeps the keyboard up for the next one (spec 4.2). */
@@ -60,8 +58,7 @@ export function ItemAddBar({
   accessibilityLabel,
 }: Props) {
   const [text, setTextState] = useState('');
-  const [focused, setFocused] = useState(false);
-  // Bumped after "Remove from suggestions" and after adding a recent item or a recipe, so suggestions are read again.
+  // Bumped after "Remove from suggestions" and after adding an item or a recipe, so suggestions are read again.
   const [version, setVersion] = useState(0);
   const setText = (value: string) => {
     setTextState(value);
@@ -75,17 +72,6 @@ export function ItemAddBar({
     () => (offerRecipes ? getRecipeSuggestions(householdId, text) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version only forces a re-read
     [offerRecipes, householdId, text, version],
-  );
-  const showRecent = listId !== undefined && focused && !text.trim();
-  const recent = useMemo(
-    () => (showRecent ? getRecentItems(householdId, listId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- version only forces a re-read
-    [showRecent, householdId, listId, version],
-  );
-  const recentRecipes = useMemo(
-    () => (showRecent && offerRecipes ? getRecentRecipes(householdId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- version only forces a re-read
-    [showRecent, offerRecipes, householdId, version],
   );
   // Panel rows show each suggestion's aisle; chips don't.
   const aisles = useMemo(
@@ -110,7 +96,7 @@ export function ItemAddBar({
     if (!value.trim()) return;
     onAdd(value);
     setText('');
-    // A recent item just added leaves the row; history and recipe times changed too.
+    // History and recipe times changed.
     setVersion((n) => n + 1);
   };
 
@@ -123,12 +109,12 @@ export function ItemAddBar({
 
   let accessory: ReactNode = null;
   if (listId !== undefined) {
-    const chips = suggestionChips(text, { recipes: recipeMatches, suggestions, recentRecipes, recent });
+    const chips = suggestionChips(text, { recipes: recipeMatches, suggestions });
     if (chips.length > 0) {
       accessory = (
         <SuggestionChips
           chips={chips}
-          typed={text.trim() ? typed : ''}
+          typed={typed}
           onPressItem={(chip) => add(chip.text)}
           onPressRecipe={(chip) => addRecipe(chip.recipe)}
           onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
@@ -158,7 +144,7 @@ export function ItemAddBar({
       value={text}
       onChangeText={setText}
       onSubmit={() => add(text)}
-      onFocusChange={(value) => (setFocused(value), onFocusChange?.(value))}
+      onFocusChange={onFocusChange}
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
       accessory={accessory}

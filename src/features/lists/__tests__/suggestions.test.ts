@@ -5,15 +5,12 @@ import { db, households, ingredientUsage, lists } from '@/db';
 import { loadCatalogSeed, searchCatalog } from '@/features/categories/categories';
 import { addRecipeToList, buildRecipeAdds } from '@/features/recipes/add-to-list';
 import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
-import { parseQuantity } from '@/shared';
 import { resetDb } from '@/test/db';
 
-import { addItem, deleteItem, setItemChecked, undoAdd } from '../items';
-import { createList, ensureStarterData, getDefaultListId } from '../lists';
+import { addItem } from '../items';
+import { ensureStarterData, getDefaultListId } from '../lists';
 import {
   applySuggestion,
-  getRecentItems,
-  getRecentRecipes,
   getRecipeSuggestions,
   getSuggestions,
   suggestionCaption,
@@ -229,134 +226,6 @@ describe('suggestionCaption (board 03)', () => {
   });
 });
 
-describe('getRecentItems (spec 4.2, RECENTLY USED)', () => {
-  const NOW = new Date('2026-10-10T12:00:00Z');
-  const DAY = 24 * 60 * 60 * 1000;
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  /** A history row that isn't on any list. */
-  const history = (displayName: string, useCount: number, daysAgo: number, hid = householdId) =>
-    db
-      .insert(ingredientUsage)
-      .values({
-        householdId: hid,
-        ingredientName: displayName,
-        displayName,
-        useCount,
-        lastUsedAt: new Date(NOW.getTime() - daysAgo * DAY),
-      })
-      .run();
-
-  /** Adds `text` and checks it off, so it's in history but not unchecked on the list. */
-  const addChecked = (text: string, list = listId) => setItemChecked(addItem(list, text, USER)!.itemId, true, USER);
-
-  const recent = (limit?: number) => getRecentItems(householdId, listId, limit, NOW);
-  const keys = (limit?: number) => recent(limit).map((r) => r.key);
-
-  test('orders by frecency, ties by shorter name then alphabetical', () => {
-    history('apples', 4, 60); // 4 * 0.25 = 1
-    history('bread', 3, 0); // 3
-    history('cheese', 2, 0); // 2
-    history('dill', 1, 30); // 0.5
-    history('kale', 1, 0); // 1, ties with apples and eggs
-    history('eggs', 1, 0);
-    expect(keys()).toEqual(['bread', 'cheese', 'eggs', 'kale', 'apples', 'dill']);
-  });
-
-  test('a recent use outranks a higher count that has decayed', () => {
-    history('flour', 10, 150); // 10 / 32 ≈ 0.31
-    history('basil', 1, 0); // 1
-    expect(keys()).toEqual(['basil', 'flour']);
-  });
-
-  test('leaves out ingredients already unchecked on this list, matched by key', () => {
-    addItem(listId, '2 lbs chicken thighs', USER);
-    addItem(listId, 'milk', USER);
-    history('bread', 1, 0);
-    expect(keys()).toEqual(['bread']);
-  });
-
-  test('includes checked items, deleted items, and items unchecked only on another list', () => {
-    addChecked('milk');
-    deleteItem(addItem(listId, 'eggs', USER)!.itemId);
-    addItem(createList('Costco', householdId), 'rice', USER);
-    expect(keys().sort()).toEqual(['egg', 'milk', 'rice']);
-  });
-
-  test('a checked item shows until its text is added back, then leaves the panel', () => {
-    const { itemId } = addItem(listId, 'milk', USER)!;
-    expect(keys()).toEqual([]);
-    setItemChecked(itemId, true, USER);
-    expect(keys()).toEqual(['milk']);
-    // Tapping the row adds its text, which reopens the checked item.
-    const result = addItem(listId, recent()[0].text, USER)!;
-    expect(result.itemId).toBe(itemId);
-    expect(keys()).toEqual([]);
-  });
-
-  test('leaves out hidden rows until the ingredient is used again', () => {
-    history('bread', 1, 0);
-    addChecked('milk');
-    hideFromSuggestions(householdId, 'milk');
-    expect(keys()).toEqual(['bread']);
-    addChecked('milk');
-    expect(keys()).toContain('milk');
-  });
-
-  test("only shows this household's history, and an undone add takes its row back", () => {
-    db.insert(households).values({ id: 'h-other', name: 'Other' }).run();
-    history('caviar', 9, 0, 'h-other');
-    undoAdd(addItem(listId, 'tofu', USER)!);
-    expect(keys()).toEqual([]);
-  });
-
-  test('caps at 30 by default, honours a smaller limit, and gives nothing for 0', () => {
-    for (let i = 0; i < 35; i++) history(`item ${String(i).padStart(2, '0')}`, 35 - i, 0);
-    expect(keys()).toHaveLength(30);
-    expect(keys()[0]).toBe('item 00');
-    expect(keys()[29]).toBe('item 29');
-    expect(keys(3)).toEqual(['item 00', 'item 01', 'item 02']);
-    expect(keys(0)).toEqual([]);
-  });
-
-  test('an empty history gives nothing', () => {
-    expect(getRecentItems(householdId, listId)).toEqual([]);
-  });
-
-  test('the text is the last amount and name, and parses back to the same amount', () => {
-    addChecked('2 lbs chicken thighs');
-    addChecked('1 1/2 cups milk');
-    addChecked('3 avocados');
-    addChecked('bread');
-    const byKey = new Map(recent().map((r) => [r.key, r]));
-    expect(byKey.get('chicken thigh')).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', text: '2 lb chicken thighs' });
-    expect(byKey.get('milk')!.text).toBe('1½ cup milk');
-    expect(byKey.get('avocado')!.text).toBe('3 avocados');
-    expect(byKey.get('bread')!.text).toBe('bread');
-    expect(parseQuantity(byKey.get('chicken thigh')!.text)).toEqual({ quantity: 2, unit: 'lb', name: 'chicken thighs' });
-    expect(parseQuantity(byKey.get('milk')!.text)).toEqual({ quantity: 1.5, unit: 'cup', name: 'milk' });
-  });
-
-  test('the text follows the latest use, from a list or a recipe', () => {
-    jest.useFakeTimers({ now: new Date(NOW.getTime() - 3 * DAY) });
-    addChecked('2 lbs chicken thighs');
-    jest.setSystemTime(new Date(NOW.getTime() - 2 * DAY));
-    addChecked('chicken thighs');
-    expect(recent()[0].text).toBe('chicken thighs');
-
-    jest.setSystemTime(new Date(NOW.getTime() - DAY));
-    addRecipeIngredient(createRecipe('Curry'), '500 g chicken thighs');
-    expect(recent()[0].text).toBe('500 g chicken thighs');
-
-    jest.setSystemTime(NOW);
-    addChecked('3 lbs chicken thighs');
-    expect(recent()[0].text).toBe('3 lb chicken thighs');
-  });
-});
-
 describe('recipes in the add bar (spec 4.2)', () => {
   const NOW = new Date('2026-10-10T12:00:00Z');
   const MINUTE = 60 * 1000;
@@ -426,32 +295,15 @@ describe('recipes in the add bar (spec 4.2)', () => {
     expect(itemsAfter.map((s) => s.displayName)).not.toContain('Tagine');
   });
 
-  test('recently added recipes: only ones added to a list, latest add first, up to 3', () => {
-    const ids: Record<string, string> = {};
-    for (const name of ['Tacos', 'Dal', 'Pho', 'Ramen']) ids[name] = recipeWith(name, [`${name} base`]);
-    recipeWith('Never added', ['salt']);
-    expect(getRecentRecipes(householdId)).toEqual([]);
-
-    const order = ['Tacos', 'Dal', 'Pho', 'Ramen', 'Dal'];
-    jest.useFakeTimers({ now: NOW });
-    order.forEach((name, i) => {
-      jest.setSystemTime(new Date(NOW.getTime() + i * MINUTE));
-      addToList(ids[name]);
-    });
-    expect(getRecentRecipes(householdId)).toEqual([
-      { id: ids.Dal, name: 'Dal', ingredientCount: 1 },
-      { id: ids.Ramen, name: 'Ramen', ingredientCount: 1 },
-      { id: ids.Pho, name: 'Pho', ingredientCount: 1 },
-    ]);
-    expect(getRecentRecipes(householdId, 10).map((r) => r.name)).toEqual(['Dal', 'Ramen', 'Pho', 'Tacos']);
-  });
-
-  test('recently added recipes are only this household', () => {
-    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+  test('adding a recipe to a list makes it the most recently used match', () => {
+    jest.useFakeTimers({ now: new Date(NOW.getTime() - 2 * MINUTE) });
     const tacos = recipeWith('Tacos', ['8 tortillas']);
+    jest.setSystemTime(new Date(NOW.getTime() - MINUTE));
+    recipeWith('Tagine', ['1 lamb shoulder']);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toEqual(['Tagine', 'Tacos']);
+    jest.setSystemTime(NOW);
     addToList(tacos);
-    expect(getRecentRecipes('lake')).toEqual([]);
-    expect(getRecentRecipes(householdId).map((r) => r.id)).toEqual([tacos]);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toEqual(['Tacos', 'Tagine']);
   });
 });
 
@@ -462,8 +314,6 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
       { key: 'chicken thigh', displayName: 'Chicken thighs', source: 'history' as const },
       { key: 'chickpea', displayName: 'Chickpeas', source: 'catalog' as const },
     ],
-    recentRecipes: [{ id: 'r2', name: 'Tacos', ingredientCount: 5 }],
-    recent: [{ key: 'lime', displayName: 'Limes', text: '4 Limes' }],
   };
 
   test('while typing: matching recipes, then history, then catalog, keeping the typed amount', () => {
@@ -474,11 +324,37 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
     ]);
   });
 
-  test('with the field empty: recent recipes, then recently used items', () => {
-    expect(suggestionChips('  ', sources)).toEqual([
-      { kind: 'recipe', key: 'recipe-r2', recipe: sources.recentRecipes[0] },
-      { kind: 'item', key: 'lime', label: '4 Limes', text: '4 Limes', removable: true },
+  test('with the field empty or blank: no chips, even with sources to offer', () => {
+    expect(suggestionChips('', sources)).toEqual([]);
+    expect(suggestionChips('  ', sources)).toEqual([]);
+    expect(suggestionChips('\n\t', sources)).toEqual([]);
+  });
+
+  test('clearing the text hides the row again', () => {
+    expect(suggestionChips('chi', sources)).toHaveLength(3);
+    expect(suggestionChips('', sources)).toEqual([]);
+  });
+
+  test('one typed character is enough for the row, if there are chips', () => {
+    expect(suggestionChips('c', { recipes: [], suggestions: [sources.suggestions[0]] })).toEqual([
+      { kind: 'item', key: 'chicken thigh', label: 'Chicken thighs', text: 'Chicken thighs', removable: true },
     ]);
+  });
+
+  test('on a real household: typing shows matching recipes and history, the empty field shows nothing', () => {
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken thighs', USER);
+    addItem(listId, 'chicken breasts', USER);
+    const chili = createRecipe('Chili night', householdId);
+    addRecipeIngredient(chili, 'kidney beans');
+    const chips = (text: string) =>
+      suggestionChips(text, { recipes: getRecipeSuggestions(householdId, text), suggestions: getSuggestions(householdId, text) });
+    expect(chips('chi').map((c) => (c.kind === 'recipe' ? c.recipe.name : c.label))).toEqual([
+      'Chili night',
+      'Chicken thighs',
+      'Chicken breasts',
+    ]);
+    expect(chips('')).toEqual([]);
   });
 
   test('labels show names in sentence case; the text a chip adds keeps the stored name', () => {
@@ -488,25 +364,15 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
         { key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' as const },
         { key: 'iphone charger', displayName: 'iPhone charger', source: 'history' as const },
       ],
-      recentRecipes: [],
-      recent: [
-        { key: 'lime', displayName: 'limes', text: 'limes' },
-        { key: 'milk', displayName: 'milk', text: '2 gal milk' },
-      ],
     };
     expect(suggestionChips('2 lbs chi', lower)).toEqual([
       { kind: 'item', key: 'chicken thigh', label: 'Chicken thighs', text: '2 lbs chicken thighs', removable: true },
       { kind: 'item', key: 'iphone charger', label: 'iPhone charger', text: '2 lbs iPhone charger', removable: true },
     ]);
-    expect(suggestionChips('', lower)).toEqual([
-      { kind: 'item', key: 'lime', label: 'Limes', text: 'limes', removable: true },
-      // A leading amount stays as it is.
-      { kind: 'item', key: 'milk', label: '2 gal milk', text: '2 gal milk', removable: true },
-    ]);
   });
 
   test('nothing to offer: no chips, so the row collapses', () => {
-    expect(suggestionChips('zz', { ...sources, recipes: [], suggestions: [] })).toEqual([]);
-    expect(suggestionChips('', { ...sources, recentRecipes: [], recent: [] })).toEqual([]);
+    expect(suggestionChips('zz', { recipes: [], suggestions: [] })).toEqual([]);
+    expect(suggestionChips('', { recipes: [], suggestions: [] })).toEqual([]);
   });
 });

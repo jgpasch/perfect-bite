@@ -19,8 +19,8 @@ type Props = {
 };
 
 /**
- * One scrolling row of 40 pt chips docked above a list's add bar (spec 4.2): recent items while the field is
- * empty, autocomplete while typing. Taps keep the keyboard up so several can be added in a row. Render nothing
+ * One scrolling row of 40 pt chips docked above a list's add bar (spec 4.2): autocomplete while typing, nothing
+ * while the field is empty. Taps keep the keyboard up so several can be added in a row. Render nothing
  * when there are no chips, so the list gets the space.
  */
 export function SuggestionChips({ chips, typed, onPressItem, onPressRecipe, onRemove }: Props) {

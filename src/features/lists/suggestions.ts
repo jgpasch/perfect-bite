@@ -1,8 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
-
-import { db, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
-import { formatAmount, type Amount } from '@/domain/quantity-display';
-import { frecency, rankRecipes, recentRecipes } from '@/domain/suggestion-rank';
+import { rankRecipes } from '@/domain/suggestion-rank';
 import { searchCatalog } from '@/features/categories/categories';
 import { recipeAddTimes, recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
 import { displayItemName, parseQuantity } from '@/shared';
@@ -53,105 +49,11 @@ export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key'
   return `${prefix}${suggestion.displayName}`;
 }
 
-/** A "RECENTLY USED" row. `text` is what tapping it adds: the last amount used plus the name (`2 lb chicken thighs`). */
-export type RecentItem = { key: string; displayName: string; text: string };
-
-/**
- * The add bar's "RECENTLY USED" panel (spec 4.2), shown while it's focused and empty: the household's history by
- * frecency (ties as in autocomplete: shorter name, then alphabetical), leaving out hidden rows and ingredients already
- * unchecked on `listId`. Checked items stay, so they can be added back.
- */
-export function getRecentItems(householdId: string, listId: string, limit = 30, now = new Date()): RecentItem[] {
-  const onList = new Set(
-    db
-      .select({ key: listItems.ingredientName })
-      .from(listItems)
-      .where(and(eq(listItems.listId, listId), isNull(listItems.deletedAt), isNull(listItems.checkedAt)))
-      .all()
-      .map((r) => r.key),
-  );
-  const rows = db
-    .select()
-    .from(ingredientUsage)
-    .where(and(eq(ingredientUsage.householdId, householdId), isNull(ingredientUsage.hiddenAt)))
-    .all()
-    .filter((r) => !onList.has(r.ingredientName))
-    .map((row) => ({ row, score: frecency(row, now) }))
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        a.row.displayName.length - b.row.displayName.length ||
-        (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
-    )
-    .slice(0, Math.max(0, limit))
-    .map((m) => m.row);
-  const amounts = lastAmounts(
-    householdId,
-    rows.map((r) => r.ingredientName),
-  );
-  return rows.map((r) => {
-    const amount = amounts.get(r.ingredientName);
-    const prefix = amount ? formatAmount(amount) : '';
-    return { key: r.ingredientName, displayName: r.displayName, text: prefix ? `${prefix} ${r.displayName}` : r.displayName };
-  });
-}
-
-/**
- * The amount of each ingredient's latest use in the household: its newest live list amount (even on a since-deleted
- * item, since history outlives items) or recipe ingredient, whichever came last.
- */
-function lastAmounts(householdId: string, keys: string[]): Map<string, Amount> {
-  if (keys.length === 0) return new Map();
-  const uses = [
-    ...db
-      .select({
-        key: listItems.ingredientName,
-        quantity: listItemContributions.quantity,
-        unit: listItemContributions.unit,
-        at: listItemContributions.createdAt,
-      })
-      .from(listItemContributions)
-      .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
-      .where(
-        and(
-          eq(listItems.householdId, householdId),
-          inArray(listItems.ingredientName, keys),
-          isNull(listItemContributions.deletedAt),
-        ),
-      )
-      .all(),
-    ...db
-      .select({
-        key: recipeIngredients.ingredientName,
-        quantity: recipeIngredients.quantity,
-        unit: recipeIngredients.unit,
-        at: recipeIngredients.createdAt,
-      })
-      .from(recipeIngredients)
-      .where(
-        and(
-          eq(recipeIngredients.householdId, householdId),
-          inArray(recipeIngredients.ingredientName, keys),
-          isNull(recipeIngredients.deletedAt),
-        ),
-      )
-      .all(),
-  ];
-  const latest = new Map<string, { amount: Amount; at: Date }>();
-  for (const { key, quantity, unit, at } of uses) {
-    const found = latest.get(key);
-    if (!found || at >= found.at) latest.set(key, { amount: { quantity, unit }, at });
-  }
-  return new Map([...latest].map(([key, { amount }]) => [key, amount]));
-}
-
 /** A recipe row in the add bar's panel (spec 4.2): tapping it adds the whole recipe at 1×. */
 export type RecipeSuggestion = { id: string; name: string; ingredientCount: number };
 
 /** Recipe rows shown above the item suggestions while typing. */
 const RECIPE_SUGGESTION_LIMIT = 2;
-/** Recently added recipes shown at the top of "RECENTLY USED". */
-const RECENT_RECIPE_LIMIT = 3;
 
 function householdRecipes(householdId: string): RecipeSummary[] {
   return recipesQuery()
@@ -172,51 +74,31 @@ export function getRecipeSuggestions(householdId: string, text: string, limit = 
   );
 }
 
-/** The household's most recently added recipes, for the top of "RECENTLY USED" (spec 4.2, `recentRecipes`). */
-export function getRecentRecipes(householdId: string, limit = RECENT_RECIPE_LIMIT): RecipeSuggestion[] {
-  return recentRecipes(householdRecipes(householdId), recipeAddTimes(householdId), householdId, limit).map(
-    toRecipeSuggestion,
-  );
-}
-
 /** A chip in the list add bar's suggestion row. `text` is what tapping an item chip adds. */
 export type SuggestionChip =
   | { kind: 'recipe'; key: string; recipe: RecipeSuggestion }
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
 /**
- * The chip row above a list's add bar (spec 4.2). While typing: matching recipes, then autocomplete (household
- * history, then the catalog), each adding the typed amount with its name. With the field empty: recently added
- * recipes, then recently used items. Empty when there's nothing to offer, so the row collapses.
+ * The chip row above a list's add bar (spec 4.2), only while the field has text: matching recipes, then autocomplete
+ * (household history, then the catalog), each adding the typed amount with its name. Empty when the field is empty or
+ * there's nothing to offer, so the row collapses.
  */
 export function suggestionChips(
   text: string,
-  sources: {
-    recipes: readonly RecipeSuggestion[];
-    suggestions: readonly Suggestion[];
-    recentRecipes: readonly RecipeSuggestion[];
-    recent: readonly RecentItem[];
-  },
+  sources: { recipes: readonly RecipeSuggestion[]; suggestions: readonly Suggestion[] },
 ): SuggestionChip[] {
-  const recipe = (r: RecipeSuggestion): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r });
-  if (text.trim()) {
-    return [
-      ...sources.recipes.map(recipe),
-      ...sources.suggestions.map(
-        (s): SuggestionChip => ({
-          kind: 'item',
-          key: s.key,
-          label: displayItemName(s.displayName),
-          text: applySuggestion(text, s),
-          removable: s.source === 'history',
-        }),
-      ),
-    ];
-  }
+  if (!text.trim()) return [];
   return [
-    ...sources.recentRecipes.map(recipe),
-    ...sources.recent.map(
-      (r): SuggestionChip => ({ kind: 'item', key: r.key, label: displayItemName(r.text), text: r.text, removable: true }),
+    ...sources.recipes.map((r): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r })),
+    ...sources.suggestions.map(
+      (s): SuggestionChip => ({
+        kind: 'item',
+        key: s.key,
+        label: displayItemName(s.displayName),
+        text: applySuggestion(text, s),
+        removable: s.source === 'history',
+      }),
     ),
   ];
 }

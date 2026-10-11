@@ -4,7 +4,6 @@ import {
   frecency,
   rankHistory,
   rankRecipes,
-  recentRecipes,
   type HistoryRow,
   type RecipeRow,
   type RecipeUse,
@@ -191,27 +190,5 @@ describe('rankRecipes (spec 4.2)', () => {
     expect(rows).toEqual(before);
     // History ranking is unaffected by recipes with the same name.
     expect(names(rankHistory([usage('taco shells', 2, 0)], 'ta', now))).toEqual(['taco shells']);
-  });
-});
-
-describe('recentRecipes (spec 4.2)', () => {
-  test('recipes added to a list, most recently added first, up to the limit', () => {
-    const rows = [recipe('Tacos', 0), recipe('Dal', 0), recipe('Pho', 0), recipe('Ramen', 0), recipe('Never added', 0)];
-    const uses = [use('tacos', 9), use('dal', 2), use('pho', 5), use('ramen', 1), use('tacos', 3)];
-    expect(recipeNames(recentRecipes(rows, uses, HOME, 3))).toEqual(['Ramen', 'Dal', 'Tacos']);
-    expect(recipeNames(recentRecipes(rows, uses, HOME, 10))).toEqual(['Ramen', 'Dal', 'Tacos', 'Pho']);
-  });
-
-  test('only this household, never-added and empty recipes left out, ties alphabetical', () => {
-    const rows = [
-      recipe('Tacos', 0, { householdId: 'lake' }),
-      recipe('Empty', 0, { ingredientCount: 0 }),
-      recipe('Pho', 0),
-      recipe('Dal', 0),
-    ];
-    const uses = [use('tacos', 1), use('empty', 1), use('pho', 2), use('dal', 2)];
-    expect(recipeNames(recentRecipes(rows, uses, HOME, 3))).toEqual(['Dal', 'Pho']);
-    expect(recentRecipes(rows, [], HOME, 3)).toEqual([]);
-    expect(recentRecipes(rows, uses, HOME, 0)).toEqual([]);
   });
 });
