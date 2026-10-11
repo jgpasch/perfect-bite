@@ -7,6 +7,7 @@ The three spikes from spec §10 M0. Each records what was done, what's still ope
 | 1 | Siri recognizes "add to The Perfect Bite" | Code ready and builds; **needs the device test below** |
 | 2 | Token refresh from the intent extension | Desk analysis; **recommendation needs sign-off** |
 | 3 | Sync engine (PowerSync) vs custom | Desk evaluation; **decision needed before M1** |
+| 4 | Gemini 3.8 Flash latency (not M0; spec 6.4) | Thinking set to `low`; **timings to run by hand** |
 
 ---
 
@@ -104,3 +105,42 @@ Before committing either way, run the **hands-on spike** the spec calls for, now
 **Decision needed:** run the hands-on PowerSync spike before M1 (recommended), or skip it and go custom as the spec's default.
 
 Sources: [PowerSync React Native & Expo SDK](https://docs.powersync.com/client-sdks/reference/react-native-and-expo), [Supabase + PowerSync](https://docs.powersync.com/integration-guides/supabase-+-powersync), [Local development with Supabase](https://docs.powersync.com/integrations/supabase/local-development), [Drizzle driver](https://docs.powersync.com/client-sdks/orms/js/drizzle), [Sync Streams examples](https://docs.powersync.com/sync/streams/examples), [Bucket count limits](https://docs.powersync.com/sync/streams/bucket-count), [GHSA-q6wc-xx4m-92fj](https://advisories.gitlab.com/npm/@powersync/service-core/GHSA-q6wc-xx4m-92fj/).
+
+---
+
+## 4. Gemini 3.8 Flash latency (spec 6.4)
+
+Gemini 3.8 Flash took 40–60 s per categorize call against the 20 s timeout, most likely because thinking was on: no thinking config was sent, so the model picked its own level. The categorize task now sends Google provider options from `tasks.ts`, `thinkingLevel: 'low'` (`CATEGORIZE_THINKING`). `low` is the lowest level `@ai-sdk/google` 4.0.88 sends for Gemini 3.7+ Flash (it maps "no reasoning" to `low` for these models, and to `minimal` only for older Flash models), so `minimal` and a zero budget (`off`) may be refused or ignored by 3.8 Flash. The runs below will tell.
+
+`AI_THINKING_CATEGORIZE` (`off`, `minimal`, `low`, `medium`, `high` or `default`) overrides the setting without a code change. `default` sends no thinking config, as before. The CLI's `--thinking` sets it for one run.
+
+### How to time it
+
+These are real-model calls, so they cost tokens and are run by hand. From the repo root, with `AI_MODEL_CATEGORIZE=google:gemini-3.8-flash` and the key in `supabase/functions/.env`:
+
+```bash
+jq -r '.cases[].name' supabase/functions/categorize-ingredients/eval/golden.json > /tmp/names-100.txt
+head -25 /tmp/names-100.txt > /tmp/names-25.txt
+for t in off minimal low default; do
+  yarn ai:categorize --quiet --repeat 10 --thinking $t "za'atar"
+  yarn ai:categorize --quiet --repeat 10 --thinking $t - < /tmp/names-25.txt
+  yarn ai:categorize --quiet --repeat 10 --thinking $t - < /tmp/names-100.txt
+done
+```
+
+Each run starts from an empty store, so every run sends all the names. A run's latency is the time its LLM call took. Runs that hit the 20 s timeout are flagged, and their latency is a floor (20 s), not the real time. Note any errors: a refused thinking setting shows as an `api_error` call.
+
+### Results
+
+Not run yet (see manual-checks.md). p50 / p95 in ms, 10 runs each.
+
+| Thinking | 1 name | 25 names | 100 names | Errors |
+|---|---|---|---|---|
+| `off` (budget 0) | | | | |
+| `minimal` | | | | |
+| `low` (set now) | | | | |
+| `default` (as before) | | | | |
+
+### Decision
+
+Pending the table. Keep `google:gemini-3.8-flash` as `AI_MODEL_CATEGORIZE`, and set `CATEGORIZE_THINKING` to the lowest setting that runs without errors. If the 100-name p95 is still over 20 s, first lower the per-call batch cap (`MAX_NAMES_PER_CALL`, spec 6.3), then raise `timeoutMs` to just above the p95, and say which in spec 6.3/6.4. Leave `AI_MODEL_CATEGORIZE_FALLBACK` unset unless Flash errors (not just slow).

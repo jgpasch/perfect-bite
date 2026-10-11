@@ -474,6 +474,7 @@ Seed the `ingredients` table with roughly 500 common grocery items pre-categoriz
 ### 6.4 LLM call
 - Use the Vercel AI SDK in the Edge Function, with stash's provider registry pattern (provider keys in Supabase secrets; a provider is registered only if its key is present; model chosen by env var).
 - Default model [Default]: `google:gemini-3.8-flash` (cheap, fast; categorization is easy), env `AI_MODEL_CATEGORIZE`. Switching provider is config only.
+- Thinking: categorizing needs little reasoning, so the task sends the lowest Gemini thinking level the model accepts (`thinkingLevel: 'low'`, set per task in `tasks.ts`; env `AI_THINKING_CATEGORIZE` overrides it). With the model's own default, 3.8 Flash took 40–60 s per call. Timings: `docs/spikes.md` §4.
 - Structured output (`generateObject` with a Zod schema) so the response is guaranteed parseable:
   - Input: the list of category slugs with names, and the list of normalized ingredient names.
   - Output: `[{ "name": string, "category": <one of the slugs>, "is_grocery_item": boolean }]`.

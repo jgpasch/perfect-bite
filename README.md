@@ -235,6 +235,8 @@ yarn ai:categorize --raw milk                         # also the raw HTTP reques
 yarn ai:categorize --quiet milk                       # just the table and totals
 yarn ai:categorize --dry-run milk                     # print the instructions and prompt; no call, no cost
 yarn ai:categorize --json milk                        # the raw { results } the app would get
+yarn ai:categorize --thinking off milk                # Gemini thinking for this run (off|minimal|low|medium|high|default)
+yarn ai:categorize --quiet --repeat 10 - < names.txt  # 10 runs, then p50/p95 latency (docs/spikes.md §4)
 ```
 
 Every LLM call is printed in full as it finishes: model, prompt version, temperature, max output tokens, timeout, the instructions (system prompt), the prompt (user message), the model's response, any provider warnings or error, the finish reason, input tokens (and how many were cached), output tokens (and how many were reasoning), total tokens, and latency. A fallback attempt prints as a second call. `--raw` adds the exact JSON body sent to the provider (generation config and response schema included) and the provider's raw reply. Then it prints a table (name, category slug, `is_grocery_item`, status) and totals across calls. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.

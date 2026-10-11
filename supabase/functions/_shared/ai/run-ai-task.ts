@@ -175,6 +175,7 @@ export async function runAiTask<N extends AiTaskName>(
         prompt: input.prompt,
         temperature: settings.temperature,
         maxOutputTokens: settings.max_output_tokens,
+        providerOptions: task.providerOptions(),
         abortSignal: AbortSignal.timeout(settings.timeout_ms),
         // At most one retry within an attempt. Schema-invalid output is not retried.
         maxRetries: 1,

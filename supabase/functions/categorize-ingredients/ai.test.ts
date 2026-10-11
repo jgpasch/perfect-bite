@@ -5,9 +5,17 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { mockCategorize, namesFromPrompt } from '../_shared/ai/mock-model.ts';
 import { resolveModel } from '../_shared/ai/registry.ts';
 import { runAiTask, setAiTraceListener, type AiCallRecord, type AiTrace } from '../_shared/ai/run-ai-task.ts';
-import { aiTasks, isAiEnabled, maxOutputTokens } from '../_shared/ai/tasks.ts';
+import {
+  aiTasks,
+  CATEGORIZE_THINKING,
+  isAiEnabled,
+  isThinkingSetting,
+  maxOutputTokens,
+  THINKING_SETTINGS,
+  thinkingProviderOptions,
+} from '../_shared/ai/tasks.ts';
 
-const ENV_KEYS = ['AI_MODEL_CATEGORIZE', 'AI_MODEL_CATEGORIZE_FALLBACK', 'ANTHROPIC_API_KEY'];
+const ENV_KEYS = ['AI_MODEL_CATEGORIZE', 'AI_MODEL_CATEGORIZE_FALLBACK', 'AI_THINKING_CATEGORIZE', 'ANTHROPIC_API_KEY'];
 
 /** Runs `fn` with exactly these AI env vars set, restoring the old values afterwards. */
 async function withEnv(vars: Record<string, string>, fn: () => unknown | Promise<unknown>) {
@@ -154,6 +162,80 @@ Deno.test('runAiTask passes temperature and a batch-sized maxOutputTokens to the
     { model: { instance: recordingModel(seen), modelId: 'mock:model' } },
   );
   assertEquals(seen, [{ temperature: 0, maxOutputTokens: 520 }]);
+});
+
+/** Runs one categorize call and returns the `providerOptions` the model received. */
+async function providerOptionsSent(): Promise<unknown> {
+  const seen: unknown[] = [];
+  const model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      seen.push(options.providerOptions);
+      return recordingModel([]).doGenerate(options);
+    },
+  });
+  await runAiTask('categorize', { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 }, { model: { instance: model, modelId: 'mock:model' } });
+  assertEquals(seen.length, 1);
+  return seen[0];
+}
+
+Deno.test('categorize task: thinking is low by default', () => {
+  assertEquals(CATEGORIZE_THINKING, 'low');
+});
+
+Deno.test('runAiTask: the task thinking setting reaches the model as Google provider options', async () => {
+  await withEnv({}, async () => {
+    assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingLevel: 'low' } } });
+  });
+});
+
+Deno.test('runAiTask: AI_THINKING_CATEGORIZE overrides the setting', async () => {
+  await withEnv({ AI_THINKING_CATEGORIZE: 'off' }, async () => {
+    assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingBudget: 0 } } });
+  });
+  await withEnv({ AI_THINKING_CATEGORIZE: ' minimal ' }, async () => {
+    assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingLevel: 'minimal' } } });
+  });
+  await withEnv({ AI_THINKING_CATEGORIZE: 'high' }, async () => {
+    assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingLevel: 'high' } } });
+  });
+  // `default` sends no thinking config at all, as before this setting existed.
+  await withEnv({ AI_THINKING_CATEGORIZE: 'default' }, async () => {
+    assertEquals(await providerOptionsSent(), undefined);
+  });
+});
+
+Deno.test('runAiTask: an unknown or blank AI_THINKING_CATEGORIZE is ignored, with a warning for unknown', async () => {
+  const warn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (msg: string) => void warnings.push(msg);
+  try {
+    await withEnv({ AI_THINKING_CATEGORIZE: 'none' }, async () => {
+      assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingLevel: 'low' } } });
+    });
+    assertEquals(warnings.length, 1);
+    assertEquals(JSON.parse(warnings[0]), { level: 'warn', event: 'ai_thinking_unknown', env: 'AI_THINKING_CATEGORIZE', value: 'none' });
+    await withEnv({ AI_THINKING_CATEGORIZE: '  ' }, async () => {
+      assertEquals(await providerOptionsSent(), { google: { thinkingConfig: { thinkingLevel: 'low' } } });
+    });
+    assertEquals(warnings.length, 1, 'blank is unset, not unknown');
+  } finally {
+    console.warn = warn;
+  }
+});
+
+Deno.test('thinkingProviderOptions: every setting', () => {
+  assertEquals(
+    THINKING_SETTINGS.map((s) => [s, thinkingProviderOptions(s)]),
+    [
+      ['off', { google: { thinkingConfig: { thinkingBudget: 0 } } }],
+      ['minimal', { google: { thinkingConfig: { thinkingLevel: 'minimal' } } }],
+      ['low', { google: { thinkingConfig: { thinkingLevel: 'low' } } }],
+      ['medium', { google: { thinkingConfig: { thinkingLevel: 'medium' } } }],
+      ['high', { google: { thinkingConfig: { thinkingLevel: 'high' } } }],
+      ['default', undefined],
+    ],
+  );
+  assertEquals(['low', 'default', 'none', 'Low', ''].map(isThinkingSetting), [true, true, false, false, false]);
 });
 
 Deno.test('runAiTask: with no fallback set, an API failure is thrown after one logged attempt', async () => {

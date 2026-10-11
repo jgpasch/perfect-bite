@@ -7,6 +7,7 @@ import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@
 
 import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { isThinkingSetting, THINKING_SETTINGS, type ThinkingSetting } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import {
   categorize,
@@ -23,6 +24,10 @@ export const USAGE = `Usage: yarn ai:categorize [options] <name>... (or - to rea
 
 Options:
   --model <provider:model|mock|off>  Use this model instead of AI_MODEL_CATEGORIZE
+  --thinking <${THINKING_SETTINGS.join('|')}>
+                                     Gemini thinking for this run instead of the task's setting
+  --repeat <N>                       Categorize the same names N times, each against an empty
+                                     store, and print p50/p95 latency
   --raw                              Also print the raw HTTP request and response bodies
   --quiet                            Only the table and totals, not each call's prompt and response
   --dry-run                          Print the instructions and prompt, and make no call
@@ -38,12 +43,19 @@ export type CliArgs = {
   /** `-` was given: names also come from stdin. */
   stdin: boolean;
   model: string | null;
+  /** Sets `AI_THINKING_CATEGORIZE` for the run. */
+  thinking: ThinkingSetting | null;
+  /** Runs; 1 unless `--repeat`. */
+  repeat: number;
   raw: boolean;
   quiet: boolean;
   dryRun: boolean;
   json: boolean;
   help: boolean;
 };
+
+/** Each run is a real model call, so cap the spend of a typo. */
+export const MAX_REPEAT = 100;
 
 export class CliUsageError extends Error {
   override name = 'CliUsageError';
@@ -55,6 +67,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     names: [],
     stdin: false,
     model: null,
+    thinking: null,
+    repeat: 1,
     raw: false,
     quiet: false,
     dryRun: false,
@@ -86,6 +100,16 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         throw new CliUsageError('--model needs a value, e.g. --model mock or --model anthropic:claude-haiku-5-5');
       }
       args.model = value.trim();
+    } else if (arg === '--thinking' || arg.startsWith('--thinking=')) {
+      const value = (arg === '--thinking' ? argv[++i] : arg.slice('--thinking='.length))?.trim() ?? '';
+      if (!isThinkingSetting(value)) throw new CliUsageError(`--thinking needs one of: ${THINKING_SETTINGS.join(', ')}`);
+      args.thinking = value;
+    } else if (arg === '--repeat' || arg.startsWith('--repeat=')) {
+      const value = (arg === '--repeat' ? argv[++i] : arg.slice('--repeat='.length))?.trim() ?? '';
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > MAX_REPEAT) {
+        throw new CliUsageError(`--repeat needs a whole number from 1 to ${MAX_REPEAT}`);
+      }
+      args.repeat = Number(value);
     } else {
       throw new CliUsageError(`Unknown option: ${arg}`);
     }
@@ -203,6 +227,29 @@ export function formatStats(calls: readonly AiCallRecord[]): string {
   ].join('\n');
 }
 
+/** Nearest-rank percentile (`p` in 0..100) of a non-empty list. */
+export function percentile(values: readonly number[], p: number): number {
+  if (values.length === 0) throw new Error('percentile of an empty list');
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.ceil((p / 100) * sorted.length);
+  return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
+}
+
+/**
+ * `--repeat` summary. A run's latency is the time its LLM calls took. Runs with a failed call
+ * (usually the timeout, which caps the latency) are counted, since their latency is a floor.
+ */
+export function formatLatency(runs: readonly (readonly AiCallRecord[])[]): string {
+  const timed = runs.filter((calls) => calls.length > 0);
+  if (timed.length === 0) return `latency (${runs.length} runs): no LLM call made.`;
+  const ms = timed.map((calls) => calls.reduce((n, c) => n + c.duration_ms, 0));
+  const failed = timed.filter((calls) => calls.some((c) => c.status !== 'ok')).length;
+  return [
+    `latency (${timed.length} runs): p50 ${percentile(ms, 50)} ms, p95 ${percentile(ms, 95)} ms, min ${Math.min(...ms)} ms, max ${Math.max(...ms)} ms`,
+    ...(failed > 0 ? [`runs with a failed call: ${failed} (timeouts cap the latency, so these are floors)`] : []),
+  ].join('\n');
+}
+
 /**
  * Runs the CLI. Returns the exit code: 0 ok, 1 any name `failed`, 2 bad usage or an error.
  * `AI_MODEL_CATEGORIZE` is set to `--model` for the run and restored after.
@@ -248,13 +295,22 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     return 0;
   }
 
-  const store = new MemoryStore();
   const stopTrace = args.quiet ? () => {} : traceAiCalls(info, { raw: args.raw });
   const saved = Deno.env.get('AI_MODEL_CATEGORIZE');
+  const savedThinking = Deno.env.get('AI_THINKING_CATEGORIZE');
   Deno.env.set('AI_MODEL_CATEGORIZE', model);
-  let response: CategorizeResponse;
+  if (args.thinking) Deno.env.set('AI_THINKING_CATEGORIZE', args.thinking);
+  const stores: MemoryStore[] = [];
+  let response!: CategorizeResponse;
+  let failed = 0;
   try {
-    response = await categorize(names, store);
+    // Each run starts from an empty store, so every run sends the same names to the LLM.
+    for (let i = 0; i < args.repeat; i++) {
+      const store = new MemoryStore();
+      stores.push(store);
+      response = await categorize(names, store);
+      failed += Object.values(response.results).filter((r) => r.status === 'failed').length;
+    }
   } catch (err) {
     if (err instanceof CategorizeInputError) {
       io.err(err.message);
@@ -266,19 +322,22 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     stopTrace();
     if (saved === undefined) Deno.env.delete('AI_MODEL_CATEGORIZE');
     else Deno.env.set('AI_MODEL_CATEGORIZE', saved);
+    if (savedThinking === undefined) Deno.env.delete('AI_THINKING_CATEGORIZE');
+    else Deno.env.set('AI_THINKING_CATEGORIZE', savedThinking);
   }
 
+  // With --repeat, the table or JSON is the last run's.
   if (args.json) {
     io.out(JSON.stringify(response, null, 2));
   } else {
     io.out(formatTable(names, response));
     io.out('');
   }
-  info(formatStats(store.aiCalls));
+  info(formatStats(stores.flatMap((s) => s.aiCalls)));
+  if (args.repeat > 1) info(formatLatency(stores.map((s) => s.aiCalls)));
 
-  const failed = Object.values(response.results).filter((r) => r.status === 'failed').length;
   if (failed > 0) {
-    io.err(`${failed} name${failed === 1 ? '' : 's'} failed.`);
+    io.err(`${failed} name${failed === 1 ? '' : 's'} failed${args.repeat > 1 ? ' across all runs' : ''}.`);
     return 1;
   }
   return 0;

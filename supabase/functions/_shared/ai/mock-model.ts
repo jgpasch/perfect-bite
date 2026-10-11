@@ -70,6 +70,8 @@ export function mockCategorizeModel(): LanguageModel {
           inputTokens: { total: 0, noCache: 0, cacheRead: undefined, cacheWrite: undefined },
           outputTokens: { total: 0, text: 0, reasoning: undefined },
         },
+        // What a real provider would have been sent, so `--raw` shows e.g. the thinking setting.
+        request: { body: { providerOptions: options.providerOptions ?? null } },
         warnings: [],
       };
     },

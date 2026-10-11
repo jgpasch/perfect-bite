@@ -2,11 +2,22 @@ import { OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { CliUsageError, formatStats, MemoryStore, namesFromText, parseArgs, run, type CliIo } from './cli.ts';
+import {
+  CliUsageError,
+  formatLatency,
+  formatStats,
+  MAX_REPEAT,
+  MemoryStore,
+  namesFromText,
+  parseArgs,
+  percentile,
+  run,
+  type CliIo,
+} from './cli.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
 
-const defaults = { names: [], stdin: false, model: null, raw: false, quiet: false, dryRun: false, json: false, help: false };
+const defaults = { names: [], stdin: false, model: null, thinking: null, repeat: 1, raw: false, quiet: false, dryRun: false, json: false, help: false };
 
 // --- parseArgs ----------------------------------------------------------------------------------
 
@@ -59,6 +70,65 @@ Deno.test('parseArgs: --model without a value is a usage error', () => {
 
 Deno.test('parseArgs: unknown option is a usage error', () => {
   assertThrows(() => parseArgs(['--verbose', 'milk']), CliUsageError, 'Unknown option: --verbose');
+});
+
+Deno.test('parseArgs: --thinking takes each setting, in both forms', () => {
+  for (const s of ['off', 'minimal', 'low', 'medium', 'high', 'default'] as const) {
+    assertEquals(parseArgs(['--thinking', s, 'milk']), { ...defaults, names: ['milk'], thinking: s });
+    assertEquals(parseArgs([`--thinking=${s}`]).thinking, s);
+  }
+});
+
+Deno.test('parseArgs: --thinking without a known setting is a usage error', () => {
+  const msg = '--thinking needs one of: off, minimal, low, medium, high, default';
+  assertThrows(() => parseArgs(['--thinking']), CliUsageError, msg);
+  assertThrows(() => parseArgs(['--thinking', '--json']), CliUsageError, msg);
+  assertThrows(() => parseArgs(['--thinking=none']), CliUsageError, msg);
+  assertThrows(() => parseArgs(['--thinking', 'LOW']), CliUsageError, msg);
+});
+
+Deno.test('parseArgs: --repeat takes 1 to 100, in both forms', () => {
+  assertEquals(parseArgs(['--repeat', '10', 'milk']), { ...defaults, names: ['milk'], repeat: 10 });
+  assertEquals(parseArgs(['--repeat=1']).repeat, 1);
+  assertEquals(parseArgs(['--repeat', String(MAX_REPEAT)]).repeat, 100);
+});
+
+Deno.test('parseArgs: --repeat outside 1..100 or not a whole number is a usage error', () => {
+  const msg = '--repeat needs a whole number from 1 to 100';
+  for (const bad of [['--repeat'], ['--repeat', '0'], ['--repeat', '101'], ['--repeat=-2'], ['--repeat', '2.5'], ['--repeat', 'ten'], ['--repeat', '--json']]) {
+    assertThrows(() => parseArgs(bad), CliUsageError, msg);
+  }
+});
+
+Deno.test('percentile: nearest rank', () => {
+  const ten = [10, 1, 9, 2, 8, 3, 7, 4, 6, 5];
+  assertEquals(percentile(ten, 50), 5);
+  assertEquals(percentile(ten, 95), 10);
+  assertEquals(percentile(ten, 90), 9);
+  assertEquals(percentile(ten, 0), 1);
+  assertEquals(percentile(ten, 100), 10);
+  assertEquals(percentile([7], 50), 7);
+  assertEquals(percentile([7], 95), 7);
+  // 20 values: p95 is the 19th, so one slow outlier doesn't set it.
+  assertEquals(percentile([...Array.from({ length: 19 }, (_, i) => i + 1), 1000], 95), 19);
+  assertThrows(() => percentile([], 50), Error, 'empty');
+});
+
+const timedCall = (ms: number, status: AiCallRecord['status'] = 'ok') => call({ status, duration_ms: ms });
+
+Deno.test('formatLatency: p50, p95, min and max over runs, a run being the sum of its calls', () => {
+  const runs = [[timedCall(300)], [timedCall(100)], [timedCall(200), timedCall(250)], [timedCall(400)]];
+  assertEquals(formatLatency(runs), 'latency (4 runs): p50 300 ms, p95 450 ms, min 100 ms, max 450 ms');
+});
+
+Deno.test('formatLatency: runs with a failed call are flagged; runs with no call are skipped', () => {
+  const runs = [[timedCall(20_001, 'timeout')], [timedCall(5_000)], []];
+  assertEquals(
+    formatLatency(runs),
+    'latency (2 runs): p50 5000 ms, p95 20001 ms, min 5000 ms, max 20001 ms\n' +
+      'runs with a failed call: 1 (timeouts cap the latency, so these are floors)',
+  );
+  assertEquals(formatLatency([[], []]), 'latency (2 runs): no LLM call made.');
 });
 
 Deno.test('namesFromText: one per line, trimmed, blank lines and CRLF handled', () => {
@@ -144,6 +214,82 @@ Deno.test('run --raw: also prints the raw request and response bodies', async ()
   assertEquals(code, 0);
   assertStringIncludes(t.out(), '── raw request body ');
   assertStringIncludes(t.out(), '── raw response body ');
+});
+
+Deno.test('run --repeat 3: one call per run against a fresh store, one table, then p50/p95', async () => {
+  const t = io();
+  const code = await withEnvModel(null, () => run(['--quiet', '--repeat', '3', '--model', 'mock', 'milk', 'Eggs'], t.cliIo));
+  assertEquals(code, 0);
+  const out = t.out();
+  assertEquals(out.split('\n').filter((l) => l.startsWith('name ')).length, 1, 'the table is printed once');
+  assertStringIncludes(out, 'egg   dairy-eggs  true             categorized');
+  assertStringIncludes(out, 'calls:          3');
+  assert(/latency \(3 runs\): p50 \d+ ms, p95 \d+ ms, min \d+ ms, max \d+ ms/.test(out), out);
+  assert(!out.includes('runs with a failed call'));
+  assertEquals(t.err(), '');
+});
+
+Deno.test('run: without --repeat there is no latency summary', async () => {
+  const t = io();
+  await withEnvModel(null, () => run(['--quiet', '--model', 'mock', 'milk'], t.cliIo));
+  assert(!t.out().includes('runs):'));
+});
+
+Deno.test('run --repeat: failed names are counted across all runs', async () => {
+  const t = io();
+  const long = 'x'.repeat(65);
+  const code = await withEnvModel(null, () => run(['--quiet', '--repeat', '2', '--model', 'mock', 'milk', long], t.cliIo));
+  assertEquals(code, 1);
+  assertEquals(t.err(), '2 names failed across all runs.');
+});
+
+Deno.test('run --repeat with --model off: no calls, says so', async () => {
+  const t = io();
+  const code = await withEnvModel(null, () => run(['--quiet', '--repeat', '2', '--model', 'off', 'milk'], t.cliIo));
+  assertEquals(code, 0);
+  assertStringIncludes(t.out(), 'latency (2 runs): no LLM call made.');
+});
+
+/** Runs with AI_THINKING_CATEGORIZE set to `value` (null = unset) and checks the CLI restores it. */
+async function withEnvThinking<T>(value: string | null, fn: () => Promise<T>): Promise<T> {
+  const saved = Deno.env.get('AI_THINKING_CATEGORIZE');
+  if (value === null) Deno.env.delete('AI_THINKING_CATEGORIZE');
+  else Deno.env.set('AI_THINKING_CATEGORIZE', value);
+  try {
+    const result = await fn();
+    assertEquals(Deno.env.get('AI_THINKING_CATEGORIZE') ?? null, value, 'AI_THINKING_CATEGORIZE restored');
+    return result;
+  } finally {
+    if (saved === undefined) Deno.env.delete('AI_THINKING_CATEGORIZE');
+    else Deno.env.set('AI_THINKING_CATEGORIZE', saved);
+  }
+}
+
+Deno.test('run --thinking off: the zero budget reaches the model, for this run only', async () => {
+  const t = io();
+  const code = await withEnvThinking('high', () =>
+    withEnvModel(null, () => run(['--raw', '--thinking', 'off', '--model', 'mock', 'milk'], t.cliIo)),
+  );
+  assertEquals(code, 0);
+  assertStringIncludes(t.out(), '"thinkingBudget": 0');
+  assert(!t.out().includes('thinkingLevel'));
+});
+
+Deno.test('run --thinking minimal: the level reaches the model', async () => {
+  const t = io();
+  await withEnvThinking(null, () => withEnvModel(null, () => run(['--raw', '--thinking=minimal', '--model', 'mock', 'milk'], t.cliIo)));
+  assertStringIncludes(t.out(), '"thinkingLevel": "minimal"');
+});
+
+Deno.test('run: without --thinking the task setting (low) is sent; --thinking default sends none', async () => {
+  const t = io();
+  await withEnvThinking(null, () => withEnvModel(null, () => run(['--raw', '--model', 'mock', 'milk'], t.cliIo)));
+  assertStringIncludes(t.out(), '"thinkingLevel": "low"');
+
+  const d = io();
+  await withEnvThinking(null, () => withEnvModel(null, () => run(['--raw', '--thinking', 'default', '--model', 'mock', 'milk'], d.cliIo)));
+  assertStringIncludes(d.out(), '"providerOptions": null');
+  assert(!d.out().includes('thinking'));
 });
 
 Deno.test('run --json: the trace goes to stderr with the stats', async () => {
