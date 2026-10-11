@@ -84,6 +84,7 @@ import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-re
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { importedToast } from '@/features/recipes/import-sheet';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
@@ -238,6 +239,21 @@ export default function ListScreen() {
           key: `recipe-add-${result.recipeId}-${Date.now()}`,
           ...addedRecipeToListToast(result.recipeName, result.count),
           actions: [{ label: 'Undo', onPress: () => (undoRecipeAdd(result), setToast(null)) }],
+        });
+        return;
+      }
+      if (result.kind === 'imported') {
+        // A recipe imported from a link (spec 4.10): Undo takes back the adds (and a recipe it created).
+        setToast({
+          key: `import-${result.recipeId}-${Date.now()}`,
+          ...importedToast(result.recipeName, result.count),
+          actions: [
+            { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+            {
+              label: 'View recipe',
+              onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+            },
+          ],
         });
         return;
       }
@@ -470,6 +486,9 @@ export default function ListScreen() {
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
             Share as text
+          </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.MenuAction icon="link" onPress={() => router.push({ pathname: '/import-recipe', params: { list: id } })}>
+            Add recipe from link…
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={checked.length === 0} onPress={() => uncheckAll(id)}>
             Uncheck all

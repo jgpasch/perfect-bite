@@ -1,13 +1,15 @@
 // The recipe sheets hand their result back to the list screen they open: the sheet stores it as it
 // closes, and the list screen takes it when it gains focus to show the toast. Add to recipe (spec
 // 4.5) also leaves Select mode and switches to By recipe ("Added 3 items to Tacos"); a recipe added
-// to the list (spec 4.4) shows "Added Tacos · 8 items" with Undo.
+// to the list (spec 4.4) shows "Added Tacos · 8 items" with Undo; a recipe imported from a link (spec
+// 4.10) shows the same with Undo and View recipe.
 
 import type { AddItemResult } from '@/features/lists/items';
 
 export type RecipeAddResult =
   | { kind: 'toRecipe'; listId: string; recipeId: string; recipeName: string; count: number }
-  | { kind: 'toList'; listId: string; recipeId: string; recipeName: string; count: number; results: (AddItemResult | null)[] };
+  | { kind: 'toList'; listId: string; recipeId: string; recipeName: string; count: number; results: (AddItemResult | null)[] }
+  | { kind: 'imported'; listId: string; recipeId: string; recipeName: string; count: number; undo: () => void };
 
 let pending: RecipeAddResult | null = null;
 

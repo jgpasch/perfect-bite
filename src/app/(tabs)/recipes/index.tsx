@@ -4,7 +4,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
-import { PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { IconTile } from '@/components/icon-tile';
 import { ThemedText } from '@/components/themed-text';
@@ -31,10 +31,13 @@ export default function RecipesScreen() {
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
+  // Spec 4.10: the sheet asks for the list.
+  const importFromLink = () => router.push('/import-recipe');
 
   return (
     <Screen>
       <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button icon="link" accessibilityLabel="Import from link" onPress={importFromLink} />
         <Stack.Toolbar.Button
           icon="plus"
           variant="prominent"
@@ -44,7 +47,15 @@ export default function RecipesScreen() {
         />
       </Stack.Toolbar>
       {data.length === 0 ? (
-        <EmptyState message="No recipes yet." action={<PrimaryButton label="New recipe" onPress={create} />} />
+        <EmptyState
+          message="No recipes yet."
+          action={
+            <View style={{ gap: spacing.sm }}>
+              <PrimaryButton label="New recipe" onPress={create} />
+              <Button label="Import from link" variant="plain" onPress={importFromLink} />
+            </View>
+          }
+        />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           {groups.map((group, i) => (

@@ -30,6 +30,21 @@ test('a newer result replaces one not yet taken', () => {
   expect(takeRecipeAddResult('groceries')).toEqual({ kind: 'toRecipe', listId: 'groceries', recipeId: 'dal', recipeName: 'Dal', count: 1 });
 });
 
+test('an imported recipe carries its undo, and only its list takes it', () => {
+  let undone = 0;
+  const undo = () => {
+    undone += 1;
+  };
+  setRecipeAddResult({ kind: 'imported', listId: 'costco', recipeId: 'tikka', recipeName: 'Chicken tikka masala', count: 12, undo });
+  expect(takeRecipeAddResult('groceries')).toBeNull();
+  const taken = takeRecipeAddResult('costco');
+  expect(taken).toEqual({ kind: 'imported', listId: 'costco', recipeId: 'tikka', recipeName: 'Chicken tikka masala', count: 12, undo });
+  if (taken?.kind !== 'imported') throw new Error('expected an import');
+  taken.undo();
+  expect(undone).toBe(1);
+  expect(takeRecipeAddResult('costco')).toBeNull();
+});
+
 test('a recipe added to the list carries its adds, for Undo', () => {
   const added = { itemId: 'i1', contributionId: 'c1', kind: 'new' as const, pendingNames: [] };
   setRecipeAddResult(result);

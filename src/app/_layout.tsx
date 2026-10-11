@@ -64,6 +64,11 @@ export default function RootLayout() {
                   name="recipe/[id]/add-to-list"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.10: a small sheet; from the Recipes tab it also picks the list. */}
+                <Stack.Screen
+                  name="import-recipe"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!ready}>
                 <Stack.Screen name="sign-in" options={{ headerShown: false }} />
