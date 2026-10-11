@@ -1,6 +1,7 @@
 // Spec 6.6 step 4 and "Fetching". Fetches a shared recipe link on the server without letting it
 // reach anything private: http(s) only, every hop's addresses checked (at most 5 redirects), a
-// 10 s timeout, a 3 MB body cap and text/html only. Returns the page's title, JSON-LD blocks and
+// 10 s timeout and text/html only. A body over 1 MB is cut there, not refused: on a big recipe page
+// it's the comments after the recipe that run long. Returns the page's title, JSON-LD blocks and
 // readable text. DNS and fetch are injected so tests need no network.
 //
 // Caveat: fetch resolves the host again after the check, so a DNS server that answers differently
@@ -10,7 +11,7 @@
 import { decodeHtmlEntities } from '../../../src/shared/recipe-jsonld.ts';
 
 export const FETCH_TIMEOUT_MS = 10_000;
-export const MAX_BODY_BYTES = 3 * 1024 * 1024;
+export const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_REDIRECTS = 5;
 export const MAX_TEXT_CHARS = 30_000;
 
@@ -21,7 +22,6 @@ export type FetchPageFailure =
   | 'too_many_redirects'
   | 'http_status'
   | 'not_html'
-  | 'too_large'
   | 'timeout';
 
 /** Every way a fetch can fail. import-recipe maps them all to `fetch_failed`. */
@@ -189,27 +189,29 @@ function charsetOf(contentType: string): string {
   return match ? match[1] : 'utf-8';
 }
 
-async function readBody(response: Response, signal: AbortSignal): Promise<Uint8Array> {
-  const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    await response.body?.cancel().catch(() => {});
-    throw new FetchPageError('too_large', 'The page is over 3 MB');
-  }
-  if (!response.body) return new Uint8Array();
+type Body = { bytes: Uint8Array; truncated: boolean };
+
+/** The body's first MAX_BODY_BYTES, whatever Content-Length says. The rest is never read. */
+async function readBody(response: Response, signal: AbortSignal): Promise<Body> {
+  if (!response.body) return { bytes: new Uint8Array(), truncated: false };
   const reader = response.body.getReader();
   const cancel = () => reader.cancel().catch(() => {});
   signal.addEventListener('abort', cancel, { once: true });
   try {
     const chunks: Uint8Array[] = [];
     let total = 0;
+    let truncated = false;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
+      if (total + value.byteLength > MAX_BODY_BYTES) {
+        chunks.push(value.subarray(0, MAX_BODY_BYTES - total));
+        total = MAX_BODY_BYTES;
+        truncated = true;
         await cancel();
-        throw new FetchPageError('too_large', 'The page is over 3 MB');
+        break;
       }
+      total += value.byteLength;
       chunks.push(value);
     }
     const body = new Uint8Array(total);
@@ -218,20 +220,23 @@ async function readBody(response: Response, signal: AbortSignal): Promise<Uint8A
       body.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return body;
+    return { bytes: body, truncated };
   } finally {
     signal.removeEventListener('abort', cancel);
   }
 }
 
-function decodeBody(body: Uint8Array, contentType: string): string {
+function decodeBody({ bytes, truncated }: Body, contentType: string): string {
   let decoder: TextDecoder;
   try {
     decoder = new TextDecoder(charsetOf(contentType));
   } catch {
     decoder = new TextDecoder();
   }
-  return decoder.decode(body);
+  if (!truncated) return decoder.decode(bytes);
+  // `stream` holds back a multi-byte character cut off at the end, and with no final call it's
+  // dropped. A tag cut in half is dropped too, so it doesn't turn up in the text.
+  return decoder.decode(bytes, { stream: true }).replace(/<[^>]*$/, '');
 }
 
 async function load(url: string, resolve: ResolveHost, fetchFn: typeof fetch, signal: AbortSignal) {
@@ -293,10 +298,15 @@ export async function fetchPage(url: string, deps: FetchPageDeps = {}): Promise<
 // A tag, with quoted attribute values allowed to contain `>`.
 const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
 
-// Comments, and the raw-text elements whose content isn't markup, in one left-to-right pass.
-const COMMENT_OR_RAW = /<!--[\s\S]*?(?:-->|$)|<(script|style)\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)(?:<\/\1\s*>|$)/gi;
+// Comments, and the raw-text elements whose content isn't markup, in one left-to-right pass. The
+// fourth group is the close tag, missing when a truncated body ends inside the element.
+const COMMENT_OR_RAW = /<!--[\s\S]*?(?:-->|$)|<(script|style)\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)(?:(<\/\1\s*>)|$)/gi;
 
 const REMOVED = new Set(['head', 'nav', 'header', 'footer', 'aside', 'noscript', 'template', 'svg']);
+
+// Comment sections (WordPress and recipe plugins), dropped like REMOVED elements whatever their tag.
+const COMMENT_IDS = new Set(['comments', 'respond']);
+const COMMENT_CLASSES = new Set(['comments', 'comment-list', 'commentlist', 'wprm-comments']);
 
 const BLOCK = new Set([
   'address', 'article', 'blockquote', 'br', 'dd', 'div', 'dl', 'dt', 'figcaption', 'figure', 'h1', 'h2',
@@ -315,6 +325,13 @@ function isRecipeCard(attrs: string): boolean {
   if (/(^|\s)https?:\/\/schema\.org\/Recipe(\s|$)/i.test(itemtype)) return true;
   const classes = (attribute(attrs, 'class') ?? '').toLowerCase().split(/\s+/);
   return classes.some((token) => RECIPE_CARD_CLASSES.has(token));
+}
+
+function isRemoved(name: string, attrs: string): boolean {
+  if (REMOVED.has(name)) return true;
+  if (COMMENT_IDS.has((attribute(attrs, 'id') ?? '').toLowerCase())) return true;
+  const classes = (attribute(attrs, 'class') ?? '').toLowerCase().split(/\s+/);
+  return classes.some((token) => COMMENT_CLASSES.has(token));
 }
 
 function isSelfClosing(attrs: string): boolean {
@@ -342,24 +359,28 @@ function innerHtmlOf(html: string, test: (name: string, attrs: string) => boolea
   return open ? html.slice(open.start) : null;
 }
 
-/** Drops each REMOVED element and its content. An element that's never closed loses only its tag. */
+/**
+ * Drops each REMOVED element and comment section with its content. A REMOVED element that's never
+ * closed loses only its tag; a comment section that's never closed (the usual place for a truncated
+ * body to end) is dropped through to the end.
+ */
 function removeElements(html: string): string {
   const tags = new RegExp(TAG.source, 'g');
   let out = '';
   let kept = 0;
-  let skipping: { name: string; start: number; resume: number } | null = null;
+  let skipping: { name: string; start: number; resume: number; toEnd: boolean } | null = null;
   let depth = 0;
   for (let m = tags.exec(html); m; m = tags.exec(html)) {
     const [whole, slash, rawName, attrs] = m;
     const name = rawName.toLowerCase();
     if (!skipping) {
-      if (!slash && REMOVED.has(name)) {
+      if (!slash && isRemoved(name, attrs)) {
         if (isSelfClosing(attrs)) {
           out += html.slice(kept, m.index);
           kept = m.index + whole.length;
           continue;
         }
-        skipping = { name, start: m.index, resume: m.index + whole.length };
+        skipping = { name, start: m.index, resume: m.index + whole.length, toEnd: !REMOVED.has(name) };
         depth = 1;
       }
     } else if (name === skipping.name) {
@@ -373,7 +394,7 @@ function removeElements(html: string): string {
   }
   if (skipping) {
     out += html.slice(kept, skipping.start);
-    return out + removeElements(html.slice(skipping.resume));
+    return skipping.toEnd ? out : out + removeElements(html.slice(skipping.resume));
   }
   return out + html.slice(kept);
 }
@@ -404,12 +425,15 @@ function capText(text: string): string {
  * Title, JSON-LD blocks and readable text from a page's HTML. The text prefers the recipe card
  * (schema.org Recipe microdata or a recipe plugin's card), then the `<article>`, then `<body>`, and
  * drops scripts, styles, comments, `nav`, `header`, `footer` and `aside` (and `head`, `noscript`,
- * `template`, `svg`). Lines are kept, other whitespace collapsed, and it's capped at 30,000 characters.
+ * `template`, `svg`) and comment sections (`#comments`, `#respond`, `.comments`, `.comment-list`,
+ * `.commentlist`, `.wprm-comments`). Lines are kept, other whitespace collapsed, and it's capped at
+ * 30,000 characters. A JSON-LD block counts only if its `</script>` is there: one cut off by a
+ * truncated body can't be whole.
  */
 export function readPage(html: string): ReadablePage {
   const jsonLd: string[] = [];
-  const markup = html.replace(COMMENT_OR_RAW, (_match, element: string | undefined, attrs: string, content: string) => {
-    if (element?.toLowerCase() === 'script' && /(?:^|\s)type\s*=\s*["']?\s*application\/ld\+json/i.test(attrs)) {
+  const markup = html.replace(COMMENT_OR_RAW, (_match, element: string | undefined, attrs: string, content: string, closed: string | undefined) => {
+    if (closed && element?.toLowerCase() === 'script' && /(?:^|\s)type\s*=\s*["']?\s*application\/ld\+json/i.test(attrs)) {
       const block = content.trim();
       if (block !== '') jsonLd.push(block);
     }

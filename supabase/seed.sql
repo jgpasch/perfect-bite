@@ -1,1 +1,21 @@
 -- Seed data (docs/spec.md §8.3). Filled in during M0/M2.
+
+-- Dev user, so `supabase db reset` doesn't sign you out for good. The email and password must match
+-- DEV_PASSWORD_EMAIL / DEV_PASSWORD in src/features/auth/account.ts. The profile comes from the
+-- on_auth_user_created trigger. GoTrue can't read null token columns, so they're set to ''.
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new
+) values (
+  '00000000-0000-0000-0000-000000000000', '019a4c10-0000-7000-8000-0000000de701', 'authenticated',
+  'authenticated', 'jgpasch@gmail.com', extensions.crypt('perfect-bite-dev', extensions.gen_salt('bf')),
+  now(), '{"provider": "email", "providers": ["email"]}', '{}', now(), now(), '', '', '', ''
+);
+
+insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+values (
+  '019a4c10-0000-7000-8000-0000000de701', '019a4c10-0000-7000-8000-0000000de701',
+  '{"sub": "019a4c10-0000-7000-8000-0000000de701", "email": "jgpasch@gmail.com", "email_verified": true}',
+  'email', now(), now(), now()
+);

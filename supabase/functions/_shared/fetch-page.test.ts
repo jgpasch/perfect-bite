@@ -260,46 +260,138 @@ Deno.test('fetchPage refuses an error status', async () => {
   }
 });
 
-Deno.test('fetchPage enforces the 3 MB body cap from Content-Length and from the stream', async () => {
-  assertEquals(MAX_BODY_BYTES, 3 * 1024 * 1024);
-  let pulled = false;
-  const declared = fakeFetch({
-    'https://kitchen.example/': () =>
-      // highWaterMark 0: the stream is only pulled if someone reads it.
-      html(
-        new ReadableStream(
-          {
-            pull: (c) => {
-              pulled = true;
-              c.close();
-            },
-          },
-          { highWaterMark: 0 },
-        ),
-        { 'content-length': String(MAX_BODY_BYTES + 1) },
-      ),
-  });
-  await assertFails(fetchPage('https://kitchen.example/', { fetch: declared.fn, resolve: fakeResolve().fn }), 'too_large');
-  assertEquals(pulled, false);
+/**
+ * A body streamed in `chunkSize` pieces, pulled only on demand (highWaterMark 0), recording how many
+ * bytes were pulled and whether the reader cancelled.
+ */
+function pulledBody(bytes: Uint8Array, chunkSize = 64 * 1024) {
+  const state = { pulledBytes: 0, cancelled: false };
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull(c) {
+        if (state.pulledBytes >= bytes.byteLength) return c.close();
+        const chunk = bytes.subarray(state.pulledBytes, state.pulledBytes + chunkSize);
+        state.pulledBytes += chunk.byteLength;
+        c.enqueue(chunk);
+      },
+      cancel() {
+        state.cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return { stream, state };
+}
 
-  // No Content-Length: the cap is counted while reading, in chunks.
-  const chunk = new Uint8Array(1024 * 1024).fill(0x61);
-  const streamed = (extra: number) =>
-    fakeFetch({
-      'https://kitchen.example/': () =>
-        html(
-          new ReadableStream({
-            start(c) {
-              for (let i = 0; i < 3; i++) c.enqueue(chunk);
-              if (extra) c.enqueue(new Uint8Array(extra).fill(0x62));
-              c.close();
-            },
-          }),
-        ),
-    });
-  await assertFails(fetchPage('https://kitchen.example/', { fetch: streamed(1).fn, resolve: fakeResolve().fn }), 'too_large');
-  const atCap = await fetchPage('https://kitchen.example/', { fetch: streamed(0).fn, resolve: fakeResolve().fn });
-  assertEquals(atCap.text.length, MAX_TEXT_CHARS);
+const encode = (text: string) => new TextEncoder().encode(text);
+
+/** `head`, padded with `filler` characters up to exactly `bytes` UTF-8 bytes, then `tail`. */
+function padTo(head: string, bytes: number, tail: string, filler = 'x'): string {
+  return head + filler.repeat(bytes - encode(head).byteLength) + tail;
+}
+
+Deno.test('fetchPage cuts a big body at 1 MB and parses what arrived', async () => {
+  assertEquals(MAX_BODY_BYTES, 1024 * 1024);
+  const recipe = '{"@type":"Recipe","name":"Apple cake"}';
+  const top =
+    `<html><head><title>Mom's apple cake</title><script type="application/ld+json">${recipe}</script></head>` +
+    '<body><h1>Mom’s apple cake</h1><ul><li>6 apples</li><li>2 cups flour</li></ul>' +
+    '<div id="comments"><ol class="commentlist">';
+  const comment = '<li class="comment"><p>Made this twice, so good!</p></li>';
+  let page = top;
+  while (page.length < 1.5 * 1024 * 1024) page += comment;
+  page += '</ol></div></body></html>';
+  assert(encode(top).byteLength < 100 * 1024);
+
+  const body = pulledBody(encode(page));
+  const fetch = fakeFetch({ 'https://kitchen.example/': () => html(body.stream) });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assertEquals(result.title, "Mom's apple cake");
+  assertEquals(result.jsonLd, [recipe]);
+  assertEquals(result.text, 'Mom’s apple cake\n6 apples\n2 cups flour');
+  // Stopped at the cap: the rest of the comments were never read.
+  assertEquals(body.state.cancelled, true);
+  assert(body.state.pulledBytes <= MAX_BODY_BYTES + 64 * 1024, `pulled ${body.state.pulledBytes}`);
+});
+
+Deno.test('fetchPage reads the first 1 MB when Content-Length declares more', async () => {
+  // The declared length is all the reader sees up front; the body really is bigger than the cap.
+  const page = padTo('<html><body><p>Start of the recipe</p><p>', MAX_BODY_BYTES - 4, '</p><p>After the cut</p>');
+  const body = pulledBody(encode(page + 'y'.repeat(4 * 1024 * 1024)));
+  const fetch = fakeFetch({
+    'https://kitchen.example/': () => html(body.stream, { 'content-length': String(5 * 1024 * 1024) }),
+  });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assert(result.text.startsWith('Start of the recipe\nxxx'), result.text.slice(0, 40));
+  assert(!result.text.includes('After the cut'));
+  assertEquals(body.state.cancelled, true);
+  assert(body.state.pulledBytes <= MAX_BODY_BYTES + 64 * 1024, `pulled ${body.state.pulledBytes}`);
+});
+
+Deno.test('fetchPage reads a body of exactly 1 MB whole', async () => {
+  // Ends in a two-byte character: not truncated, so it's decoded, not held back.
+  const page = padTo('<style>', MAX_BODY_BYTES - encode('</style><p>Crème</p>').byteLength, '</style><p>Crème</p>');
+  assertEquals(encode(page).byteLength, MAX_BODY_BYTES);
+  const body = pulledBody(encode(page));
+  const fetch = fakeFetch({ 'https://kitchen.example/': () => html(body.stream) });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assertEquals(result.text, 'Crème');
+  assertEquals(body.state.cancelled, false);
+});
+
+Deno.test('fetchPage decodes a body cut in the middle of a multi-byte character', async () => {
+  // è is 2 bytes and € is 3: cut after the first byte of each, and after the second byte of €.
+  for (const [char, keep] of [['è', 1], ['€', 1], ['€', 2]] as const) {
+    const page = padTo('<style>', MAX_BODY_BYTES - keep - encode('</style><p>Cr').byteLength, `</style><p>Cr${char}me</p>`);
+    assertEquals(encode(page.slice(0, page.indexOf(char))).byteLength, MAX_BODY_BYTES - keep);
+    for (const chunkSize of [64 * 1024, 1000]) {
+      const body = pulledBody(encode(page + '<p>more</p>'.repeat(100)), chunkSize);
+      const fetch = fakeFetch({ 'https://kitchen.example/': () => html(body.stream) });
+      const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+      assertEquals(result.text, 'Cr', `${char} keep ${keep} chunks ${chunkSize}`);
+    }
+  }
+
+  // A cut in a Latin-1 page has no partial character to drop.
+  const latin1 = new Uint8Array(MAX_BODY_BYTES + 10).fill(0x61);
+  latin1.set(encode('<p>'), 0);
+  latin1[MAX_BODY_BYTES - 1] = 0xe8; // è
+  const body = pulledBody(latin1);
+  const fetch = fakeFetch({
+    'https://kitchen.example/': () => html(body.stream, { 'content-type': 'text/html; charset=iso-8859-1' }),
+  });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assertEquals(result.text.length, MAX_TEXT_CHARS);
+  assert(!result.text.includes('�'));
+});
+
+Deno.test('fetchPage drops a tag cut in half at the end of a truncated body', async () => {
+  const lead = '</style><p>Soup</p><p>Salt';
+  const page = padTo('<style>', MAX_BODY_BYTES - 3 - encode(lead).byteLength, `${lead}<div class="later">Later</div>`);
+  const body = pulledBody(encode(page));
+  const fetch = fakeFetch({ 'https://kitchen.example/': () => html(body.stream) });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  // The body ends at `Salt<di`: the half tag isn't text.
+  assertEquals(result.text, 'Soup\nSalt');
+});
+
+Deno.test('fetchPage keeps only the JSON-LD blocks that end before the cut', async () => {
+  const before = '{"@type":"WebPage","name":"Apple cake"}';
+  const page =
+    padTo(
+      `<html><head><script type="application/ld+json">${before}</script><style>`,
+      MAX_BODY_BYTES - 100,
+      '</style><script type="application/ld+json">{"@type":"Recipe","name":"Cut off",',
+    ) +
+    '"recipeIngredient":["' +
+    'apple '.repeat(100) +
+    '"]}</script>' +
+    '<script type="application/ld+json">{"@type":"Recipe","name":"After"}</script></head><body><p>Hi</p></body></html>';
+  const body = pulledBody(encode(page));
+  const fetch = fakeFetch({ 'https://kitchen.example/': () => html(body.stream) });
+  const result = await fetchPage('https://kitchen.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assertEquals(result.jsonLd, [before]);
+  assertEquals(result.text, '');
 });
 
 Deno.test('fetchPage times out a fetch that never answers, and aborts it', async () => {
@@ -420,6 +512,37 @@ Deno.test('readPage drops script, style, comments, nav, header, footer and aside
 
 Deno.test('readPage keeps the content after an element that is never closed', () => {
   assertEquals(readPage('<body><nav><p>Text after an unclosed nav</p></body>').text, 'Text after an unclosed nav');
+});
+
+Deno.test('readPage drops comment sections by id and class, keeping the article text around them', () => {
+  const sections = [
+    '<div id="comments"><div class="comment"><div>Nested</div>So good</div></div>',
+    "<div id='respond'><form><p>Leave a reply</p></form></div>",
+    '<section class="post-comments comments"><p>Two comments</p></section>',
+    '<ul class="comment-list"><li>Loved it</li></ul>',
+    '<ol class="commentlist"><li>Too sweet</li></ol>',
+    '<ol class="comments"><li>Ordered list</li></ol>',
+    '<div class="wprm-comments"><p>Rated 5 stars</p></div>',
+    '<DIV ID="Comments"><p>Upper case</p></DIV>',
+  ];
+  const page = readPage(`<body><article><p>Step one</p>${sections.join('<p>Between</p>')}<p>Step two</p></article></body>`);
+  assertEquals(page.text, ['Step one', ...Array<string>(sections.length - 1).fill('Between'), 'Step two'].join('\n'));
+  // Names that only look similar are kept.
+  assertEquals(
+    readPage('<body><div id="comments-count">3 comments</div><p class="comment-intro">Say hi</p><div id="no-comments">None</div></body>').text,
+    '3 comments\nSay hi\nNone',
+  );
+});
+
+Deno.test('readPage drops an unclosed comment section to the end, unlike an unclosed nav', () => {
+  assertEquals(readPage('<body><p>Recipe</p><div id="comments"><ol class="commentlist"><li>Yum').text, 'Recipe');
+  assertEquals(readPage('<p>Recipe</p><div class="comments"><p>Cut off').text, 'Recipe');
+});
+
+Deno.test('readPage skips a JSON-LD block cut off by the end of the page', () => {
+  const page = readPage('<script type="application/ld+json">{"a":1}</script><script type="application/ld+json">{"b":');
+  assertEquals(page.jsonLd, ['{"a":1}']);
+  assertEquals(page.text, '');
 });
 
 Deno.test('readPage collapses whitespace, keeps lines, decodes entities and joins inline tags', () => {
