@@ -7,6 +7,7 @@ import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
+import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
 
 import { orderByLastUse } from './recipe-view';
@@ -125,10 +126,10 @@ export function updateRecipe(id: string, edit: RecipeEdit): void {
 
 /**
  * Deletes a recipe. Its list items stay; their amounts from it become "no recipe" (spec 4.5),
- * so they show under Other items in the By recipe view.
+ * so they show under Other items in the By recipe view. `exec`: the caller's transaction.
  */
-export function deleteRecipe(id: string): void {
-  db.transaction((tx) => {
+export function deleteRecipe(id: string, exec: Exec = db): void {
+  exec.transaction((tx) => {
     updateRows(tx, recipes, eq(recipes.id, id), { deletedAt: new Date() });
     updateRows(tx, listItemContributions, eq(listItemContributions.recipeId, id), { recipeId: null });
   });
@@ -138,12 +139,13 @@ export function deleteRecipe(id: string): void {
  * Marks the recipe as just changed, so it sorts first. Local only, not a mutation: `updated_at`
  * is server-set (spec 7.1).
  */
-function touch(recipeId: string) {
-  db.update(recipes).set({ updatedAt: new Date() }).where(eq(recipes.id, recipeId)).run();
+function touch(recipeId: string, exec: Exec = db) {
+  exec
+    .update(recipes).set({ updatedAt: new Date() }).where(eq(recipes.id, recipeId)).run();
 }
 
-function nextPosition(recipeId: string): number {
-  const last = db
+function nextPosition(recipeId: string, exec: Exec = db): number {
+  const last = exec
     .select({ position: max(recipeIngredients.position) })
     .from(recipeIngredients)
     .where(and(eq(recipeIngredients.recipeId, recipeId), liveIngredient))
@@ -183,29 +185,41 @@ export function addRecipeIngredient(recipeId: string, text: string): { id: strin
 
 /**
  * Adds ingredients that are already parsed (from list items, "Make recipe...", spec 4.5). Returns
- * the names it recorded as pending, for `categorizePending`.
+ * the names it recorded as pending, for `categorizePending`. `countUsage: false` leaves household
+ * history alone, for a recipe import, which counts its uses as the list add (spec 4.10). `exec`:
+ * the caller's transaction.
  */
 export function addParsedRecipeIngredients(
   recipeId: string,
-  items: readonly { ingredientName: string; displayName: string; quantity: number | null; unit: RecipeIngredientUnit }[],
+  items: readonly {
+    ingredientName: string;
+    displayName: string;
+    quantity: number | null;
+    unit: RecipeIngredientUnit;
+    note?: string | null;
+  }[],
+  { countUsage = true }: { countUsage?: boolean } = {},
+  exec: Exec = db,
 ): string[] {
-  const recipe = getRecipe(recipeId);
+  const recipe = exec.select().from(recipes).where(and(eq(recipes.id, recipeId), liveRecipe)).get();
   if (!recipe) throw new Error(`No recipe ${recipeId}`);
   const pendingNames: string[] = [];
-  db.transaction((tx) => {
-    let position = nextPosition(recipeId);
+  exec.transaction((tx) => {
+    let position = nextPosition(recipeId, tx);
     const now = new Date();
     for (const item of items) {
       insertRow(tx, recipeIngredients, { id: newId(), recipeId, householdId: recipe.householdId, ...item, position });
-      recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now, {
-        quantity: item.quantity,
-        unit: item.unit ?? null,
-      });
+      if (countUsage) {
+        recordUsage(tx, recipe.householdId, item.ingredientName, item.displayName, now, {
+          quantity: item.quantity,
+          unit: item.unit ?? null,
+        });
+      }
       if (ensureLocalIngredient(tx, item.ingredientName, item.displayName)) pendingNames.push(item.ingredientName);
       position = positionBetween(position, null);
     }
   });
-  touch(recipeId);
+  touch(recipeId, exec);
   return pendingNames;
 }
 type RecipeIngredientUnit = (typeof recipeIngredients.$inferInsert)['unit'];

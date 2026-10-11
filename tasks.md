@@ -201,7 +201,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
 
 ### App: import from a link (works before the extension exists)
 
-- [ ] Client import. Add `src/features/recipes/import.ts` with `importRecipe({ url, listId, page?, importId? })`. It calls `import-recipe`, then in one SQLite transaction:
+- [x] Client import. Add `src/features/recipes/import.ts` with `importRecipe({ url, listId, page?, importId? })`. It calls `import-recipe`, then in one SQLite transaction:
   - writes the returned categories into the local `ingredients` cache (reuse `applyResults` from `categorization.ts`);
   - finds a recipe in the list's household with the same canonical `sourceUrl`, or creates one: id derived from `importId` when given (UUIDv5 under a fixed namespace, so a re-run after a crash doesn't duplicate), name, `sourceUrl`, notes `Serves N` when known;
   - adds the ingredients through `addParsedRecipeIngredients`, only when the recipe is new;

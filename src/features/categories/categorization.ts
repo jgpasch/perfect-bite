@@ -6,6 +6,7 @@ import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import { db, ingredients } from '@/db';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { OTHER_CATEGORY_ID } from '@/shared';
+import type { Exec } from '@/sync/clock';
 
 /** The function's own input limit. */
 export const MAX_NAMES_PER_REQUEST = 100;
@@ -16,7 +17,7 @@ export const MAX_NAMES_PER_REQUEST = 100;
  */
 export const CATEGORIZED_BY_SERVER = 'server';
 
-type CategorizeResult = {
+export type CategorizeResult = {
   status: 'pending' | 'categorized' | 'failed';
   category_id: string | null;
   is_grocery_item: boolean | null;
@@ -69,10 +70,10 @@ async function send(names: readonly string[]): Promise<void> {
 /**
  * Writes the server's answers to local `ingredients` rows in one transaction. `pending` answers
  * change nothing; a `failed` answer goes to Other. Rows already categorized locally are kept, and
- * overrides live in their own table, so they are never touched.
+ * overrides live in their own table, so they are never touched. `exec`: the caller's transaction.
  */
-export function applyResults(results: Record<string, CategorizeResult>): void {
-  db.transaction((tx) => {
+export function applyResults(results: Record<string, CategorizeResult>, exec: Exec = db): void {
+  exec.transaction((tx) => {
     for (const [name, r] of Object.entries(results)) {
       if (r.status !== 'categorized' && r.status !== 'failed') continue;
       const categorized = r.status === 'categorized';

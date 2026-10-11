@@ -23,6 +23,7 @@ import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
+import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
@@ -300,10 +301,10 @@ export function undoAdd(result: AddItemResult): void {
 /**
  * A bulk add's toast "Undo" (spec 4.4): takes back every add in one step, latest first, so an add
  * folded into an earlier one in the same batch goes before it. Combined items return to their
- * earlier amounts, and reopened ones to checked with their old amounts.
+ * earlier amounts, and reopened ones to checked with their old amounts. `exec`: the caller's transaction.
  */
-export function undoAdds(results: readonly (AddItemResult | null)[]): void {
-  db.transaction((tx) => {
+export function undoAdds(results: readonly (AddItemResult | null)[], exec: Exec = db): void {
+  exec.transaction((tx) => {
     const now = new Date();
     for (const result of [...results].reverse()) if (result) undoAddIn(tx, result, now);
   });
@@ -366,10 +367,15 @@ const parseBulkAdd = (a: BulkAdd): ParsedAdd | null => ('parsed' in a ? a.parsed
  * Combines, a checked one is reopened with its amounts replaced, and the same ingredient twice in
  * the batch folds into the first. Returns one result per add (null if the add was empty); pass
  * them to `undoAdds` to take the whole add back. The adds share one timestamp, so Newest (spec
- * 4.6) keeps them together in the order given.
+ * 4.6) keeps them together in the order given. `exec`: the caller's transaction.
  */
-export function addItemsBulk(listId: string, adds: readonly BulkAdd[], userId: string | null): (AddItemResult | null)[] {
-  return db.transaction((tx) => {
+export function addItemsBulk(
+  listId: string,
+  adds: readonly BulkAdd[],
+  userId: string | null,
+  exec: Exec = db,
+): (AddItemResult | null)[] {
+  return exec.transaction((tx) => {
     const list = getListForAdd(tx, listId);
     const parsed = adds.map(parseBulkAdd);
     const decisions = planBulkAdd(
