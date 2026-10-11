@@ -1,0 +1,336 @@
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// Spec 4.10: Share → The Perfect Bite. Picks a list and queues a share envelope for the app to import.
+/// No network call and no React Native in here (extension memory limits).
+@objc(ShareViewController)
+final class ShareViewController: UIViewController {
+  private let model = ShareModel()
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    model.onDone = { [weak self] in self?.extensionContext?.completeRequest(returningItems: nil) }
+    model.onCancel = { [weak self] in
+      self?.extensionContext?.cancelRequest(withError: NSError(domain: "PerfectBite", code: 0))
+    }
+    let host = UIHostingController(rootView: ShareView(model: model))
+    addChild(host)
+    host.view.frame = view.bounds
+    host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    view.addSubview(host.view)
+    host.didMove(toParent: self)
+
+    let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? [])
+      .flatMap { $0.attachments ?? [] }
+    Task { await model.load(providers) }
+  }
+}
+
+@MainActor
+final class ShareModel: ObservableObject {
+  struct Household: Identifiable {
+    let name: String
+    let lists: [SiriQueue.ListSnapshot.List]
+    var id: String { name }
+  }
+
+  @Published var url: URL?
+  @Published var page: ShareQueue.Envelope.Page?
+  @Published var selectedListId: String?
+  @Published var loading = true
+  @Published var added = false
+  @Published var error: String?
+  let snapshot = SiriQueue.loadLists()
+  var onDone: () -> Void = {}
+  var onCancel: () -> Void = {}
+
+  init() {
+    selectedListId = Self.defaultListId(snapshot)
+  }
+
+  /// Last opened list, then the default list, then the first (spec 4.10). The snapshot only holds
+  /// lists that aren't archived or deleted.
+  static func defaultListId(_ snapshot: SiriQueue.ListSnapshot) -> String? {
+    let ids = Set(snapshot.lists.map(\.id))
+    if let id = snapshot.lastOpenedListId, ids.contains(id) { return id }
+    if let id = snapshot.defaultListId, ids.contains(id) { return id }
+    return snapshot.lists.first?.id
+  }
+
+  /// Lists grouped by household, in snapshot order.
+  var households: [Household] {
+    var order: [String] = []
+    var groups: [String: [SiriQueue.ListSnapshot.List]] = [:]
+    for list in snapshot.lists {
+      if groups[list.householdName] == nil { order.append(list.householdName) }
+      groups[list.householdName, default: []].append(list)
+    }
+    return order.map { Household(name: $0, lists: groups[$0] ?? []) }
+  }
+
+  var selectedList: SiriQueue.ListSnapshot.List? {
+    snapshot.lists.first { $0.id == selectedListId }
+  }
+
+  /// The host without `www.`.
+  var host: String? {
+    guard let host = url?.host?.lowercased() else { return nil }
+    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+  }
+
+  var displayTitle: String { page?.title ?? host ?? "" }
+
+  var canAdd: Bool { !loading && !added && url != nil && selectedList != nil }
+
+  /// Safari's web page first (it carries the page), then a web URL, then the first URL in text.
+  func load(_ providers: [NSItemProvider]) async {
+    for provider in providers.prefix(10)
+    where provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
+      await loadWebPage(provider)
+    }
+    for provider in providers.prefix(10) where url == nil {
+      if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+        let item = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier)
+        if let shared = item as? URL, ShareQueue.isWebURL(shared) { url = shared }
+      } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+        let item = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier)
+        if let text = item as? String { url = ShareQueue.firstWebURL(in: text) }
+      }
+    }
+    SiriQueue.log("share open url=\(url != nil) page=\(page != nil) lists=\(snapshot.lists.count)")
+    loading = false
+  }
+
+  /// The results of Preprocess.js: the page's URL, title, JSON-LD blocks and readable text.
+  private func loadWebPage(_ provider: NSItemProvider) async {
+    let item = try? await provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier)
+    guard let dict = item as? NSDictionary,
+      let results = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any]
+    else { return }
+    if let string = results["url"] as? String, let pageURL = URL(string: string), ShareQueue.isWebURL(pageURL) {
+      url = pageURL
+    }
+    page = ShareQueue.page(
+      title: results["title"] as? String,
+      jsonLd: results["jsonLd"] as? [String] ?? [],
+      text: results["text"] as? String)
+  }
+
+  func add() {
+    guard let url, let list = selectedList else { return }
+    let envelope = ShareQueue.makeEnvelope(url: url, listId: list.id, page: page)
+    do {
+      try ShareQueue.enqueue(envelope)
+      SiriQueue.log(
+        "share ok id=\(envelope.id) list=\(list.id) jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0)")
+      added = true
+      Task {
+        try? await Task.sleep(for: .seconds(1.2))
+        onDone()
+      }
+    } catch {
+      SiriQueue.log("share error id=\(envelope.id) \(error)")
+      self.error = "Couldn't save the recipe. Try again."
+    }
+  }
+}
+
+/// DESIGN.md's Pantry colours, mirroring `Palette` in src/constants/theme.ts (light, dark).
+/// src/features/recipes/__tests__/share-extension.test.ts checks they match.
+enum Pantry {
+  static let background = dynamic(light: 0xEEF3EC, dark: 0x111915)
+  static let surface = dynamic(light: 0xFFFFFF, dark: 0x1B241F)
+  static let border = dynamic(light: 0xEEF1EC, dark: 0x26302A)
+  static let controlBorder = dynamic(light: 0xB9C4BC, dark: 0x56635A)
+  static let ink = dynamic(light: 0x1D2A22, dark: 0xE7EEE8)
+  static let inkSecondary = dynamic(light: 0x55635A, dark: 0xA6B3AA)
+  static let primary = dynamic(light: 0x2E6B45, dark: 0x7CC395)
+  static let onPrimary = dynamic(light: 0xFFFFFF, dark: 0x0E1F14)
+  static let primarySoft = dynamic(light: 0xDDEFE2, dark: 0x1E3A28)
+  static let onPrimarySoft = dynamic(light: 0x1F5233, dark: 0xB7E4C5)
+  static let danger = dynamic(light: 0xA33D53, dark: 0xF08B9F)
+
+  static let cardRadius: CGFloat = 22
+  static let cardRowMin: CGFloat = 50
+  static let cta: CGFloat = 54
+  static let check: CGFloat = 24
+
+  private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+    Color(UIColor { $0.userInterfaceStyle == .dark ? uiColor(dark) : uiColor(light) })
+  }
+
+  private static func uiColor(_ hex: UInt32) -> UIColor {
+    UIColor(
+      red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+      blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+  }
+}
+
+struct ShareView: View {
+  @ObservedObject var model: ShareModel
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        Pantry.background.ignoresSafeArea()
+        if model.added {
+          AddedView()
+        } else {
+          content
+        }
+      }
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel", action: model.onCancel).foregroundStyle(Pantry.ink).disabled(model.added)
+        }
+      }
+    }
+    .tint(Pantry.primary)
+  }
+
+  @ViewBuilder private var content: some View {
+    if model.loading {
+      ProgressView()
+    } else if model.snapshot.lists.isEmpty {
+      Message(text: "Open The Perfect Bite once to set up")
+    } else if model.url == nil {
+      Message(text: "There's no link here to import.")
+    } else {
+      VStack(spacing: 0) {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 0) {
+            PageHeader(title: model.displayTitle, host: model.host ?? "")
+            ForEach(model.households) { household in
+              SectionLabel(text: household.name)
+              Card {
+                ForEach(Array(household.lists.enumerated()), id: \.element.id) { index, list in
+                  if index > 0 { Pantry.border.frame(height: 1) }
+                  ListRow(name: list.name, selected: list.id == model.selectedListId) {
+                    model.selectedListId = list.id
+                  }
+                }
+              }
+            }
+          }
+          .padding(.bottom, 16)
+        }
+        if let error = model.error {
+          Text(error).font(.footnote).foregroundStyle(Pantry.danger).padding(.horizontal, 16)
+        }
+        Button(action: model.add) {
+          Text("Add to \(model.selectedList?.name ?? "list")")
+            .font(.headline)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, minHeight: Pantry.cta)
+            .foregroundStyle(Pantry.onPrimary)
+            .background(Pantry.primary, in: Capsule())
+        }
+        .disabled(!model.canAdd)
+        .padding(16)
+      }
+    }
+  }
+}
+
+private struct PageHeader: View {
+  let title: String
+  let host: String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title)
+        .font(.system(.title, design: .rounded, weight: .heavy))
+        .foregroundStyle(Pantry.ink)
+        .lineLimit(3)
+      Text(host).font(.subheadline.weight(.semibold)).foregroundStyle(Pantry.inkSecondary).lineLimit(1)
+    }
+    .padding(.horizontal, 20)
+    .padding(.top, 8)
+  }
+}
+
+private struct SectionLabel: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .font(.footnote.weight(.bold))
+      .foregroundStyle(Pantry.inkSecondary)
+      .padding(.horizontal, 32)
+      .padding(.top, 16)
+      .padding(.bottom, 8)
+  }
+}
+
+private struct Card<Content: View>: View {
+  @ViewBuilder let content: Content
+
+  var body: some View {
+    VStack(spacing: 0) { content }
+      .background(Pantry.surface)
+      .clipShape(RoundedRectangle(cornerRadius: Pantry.cardRadius, style: .continuous))
+      .padding(.horizontal, 16)
+  }
+}
+
+/// A list with a round check, filled when it's the one the recipe goes to.
+private struct ListRow: View {
+  let name: String
+  let selected: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 12) {
+        ZStack {
+          if selected {
+            Circle().fill(Pantry.primary)
+            Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(Pantry.onPrimary)
+          } else {
+            Circle().strokeBorder(Pantry.controlBorder, lineWidth: 2)
+          }
+        }
+        .frame(width: Pantry.check, height: Pantry.check)
+        Text(name).font(.body.weight(.medium)).foregroundStyle(Pantry.ink)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 16)
+      .frame(minHeight: Pantry.cardRowMin)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+
+private struct Message: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .font(.body.weight(.medium))
+      .foregroundStyle(Pantry.ink)
+      .multilineTextAlignment(.center)
+      .padding(32)
+  }
+}
+
+private struct AddedView: View {
+  var body: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "checkmark")
+        .font(.title2.weight(.bold))
+        .foregroundStyle(Pantry.onPrimarySoft)
+        .frame(width: 56, height: 56)
+        .background(Pantry.primarySoft, in: Circle())
+      Text("Added. It'll be on your list when you open The Perfect Bite.")
+        .font(.body.weight(.medium))
+        .foregroundStyle(Pantry.ink)
+        .multilineTextAlignment(.center)
+    }
+    .padding(32)
+    .accessibilityElement(children: .combine)
+  }
+}
