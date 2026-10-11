@@ -2,10 +2,10 @@ import { Host, Menu, RNHostView, Section, Text as SwiftText, Toggle } from '@exp
 import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
-import { SoftDangerButton } from '@/components/button';
+import { Button, PrimaryButton, SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
@@ -13,9 +13,9 @@ import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { listItemContributions } from '@/db';
+import { listItemContributions, listItems } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { addedLine } from '@/domain/added-by';
+import { addedLine, checkedLine } from '@/domain/added-by';
 import { aisleColor } from '@/domain/aisle-color';
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
@@ -36,20 +36,28 @@ import {
   deleteItem,
   getItemEdit,
   getItemHouseholdName,
+  getMoveTargets,
+  itemStatusQuery,
   itemTotal,
+  moveItemToList,
   setItemAmount,
+  setItemChecked,
   steppableAmount,
   stepItemAmount,
   updateItem,
   type ItemEdit,
 } from '@/features/lists/items';
+import { setMoveResult } from '@/features/lists/move-result';
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
-/** Item edit sheet (spec 4.2, 4.3.2, board 04): name, amount, note, aisle, and the amounts added. */
+/**
+ * Item edit sheet (spec 4.2, 4.3.2, board 04): Got it / Still need it, name, amount, note, the
+ * amounts added (a recipe's opens it), aisle, and Move to another list.
+ */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
-  const { spacing, sizes, scheme, colors } = useTheme();
+  const { spacing, sizes, scheme, colors, opacity } = useTheme();
   const userId = getAccount()?.userId ?? null;
   const [initial] = useState(() => getItemEdit(itemId));
   const [householdName] = useState(() => getItemHouseholdName(itemId));
@@ -61,6 +69,10 @@ export default function ItemEditSheet() {
     [userId, initial],
   );
   const { data: contributions } = useLiveQueryOn(contributionsQuery(itemId), [listItemContributions], [itemId]);
+  const { data: statusRows } = useLiveQueryOn(itemStatusQuery(itemId), [listItems], [itemId]);
+  const status = statusRows[0];
+  // Move is left out when the household has no other list.
+  const [moveTargets] = useState(() => getMoveTargets(itemId));
   const [amountTouched, setAmountTouched] = useState(false);
   // The number field's text while it's being typed in; null shows the saved quantity.
   const [quantityDraft, setQuantityDraft] = useState<string | null>(null);
@@ -151,18 +163,56 @@ export default function ItemEditSheet() {
     if (next) saveAmount(() => setItemAmount(itemId, next));
   };
 
-  const save = () => {
+  /** Saves the sheet's edits (Save, and before Got it, Move or opening a recipe). False if they can't be saved. */
+  const persist = (): boolean => {
     try {
-      if (steppable && commitQuantity() === false) return;
+      if (steppable && commitQuantity() === false) return false;
       // A single amount is already saved; passing the saved total tells updateItem it's unchanged.
       const amountText = steppable ? (getItemEdit(itemId)?.amount ?? '') : amount;
       // Choosing the default again only needs a write if there was an override to remove.
       const categoryId = edit.categoryId === null && !current?.overrideCategoryId ? undefined : edit.categoryId;
       void categorizePending(updateItem(itemId, { ...edit, amount: amountText, categoryId }, userId));
-      router.back();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     }
+  };
+
+  const save = () => {
+    if (persist()) router.back();
+  };
+
+  // The row's check (same write, so sync behaves the same). Got it closes the sheet; Still need it
+  // stays, unless the item folded into the same one opened since (spec 4.2), which closes it too.
+  const setChecked = (checked: boolean) => {
+    if (!persist()) return;
+    setItemChecked(itemId, checked, userId);
+    if (checked || !itemStatusQuery(itemId).get()) router.back();
+  };
+
+  const openRecipe = (recipeId: string) => {
+    if (!persist()) return;
+    router.back();
+    router.push({ pathname: '/recipe/[id]', params: { id: recipeId } });
+  };
+
+  // Spec 4.4: the item meets the other list as an add would; that list opens with the toast and Undo.
+  const move = () => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: 'Move to', options: [...moveTargets.map((l) => l.name), 'Cancel'], cancelButtonIndex: moveTargets.length },
+      (index) => {
+        const target = moveTargets[index];
+        if (!target || !persist()) return;
+        try {
+          setMoveResult(moveItemToList(itemId, target.id));
+          router.back();
+          router.push({ pathname: '/list/[id]', params: { id: target.id } });
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      },
+    );
   };
 
   const now = new Date();
@@ -193,7 +243,25 @@ export default function ItemEditSheet() {
               {amount}
             </ThemedText>
           ) : null}
+          {status?.checkedAt ? (
+            <ThemedText variant="footnote" color="inkSecondary">
+              {checkedLine(status.checkedAt, status.checkedBy, userId, now)}
+            </ThemedText>
+          ) : null}
         </View>
+      </View>
+
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        {status?.checkedAt ? (
+          <Button label="Still need it" accessibilityHint="Puts it back on the list" onPress={() => setChecked(false)} />
+        ) : (
+          <PrimaryButton
+            label="Got it"
+            icon="checkmark"
+            accessibilityHint="Checks it off and closes"
+            onPress={() => setChecked(true)}
+          />
+        )}
       </View>
 
       <Card>
@@ -251,8 +319,8 @@ export default function ItemEditSheet() {
         </FieldRow>
       </Card>
 
-      {contributions.length > 1 ? (
-        // Spec 4.4: each add is listed with a delete control (Undo, later).
+      {contributions.length > 1 || contributions.some(fromRecipe) ? (
+        // Spec 4.4: each add is listed with a delete control (Undo, later); a recipe's add opens it.
         <>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
             Added
@@ -260,17 +328,38 @@ export default function ItemEditSheet() {
           <Card>
             {contributions.map((c, i) => {
               const text = formatAmount(c) || 'No amount';
+              const line = addedLine(c, userId, now);
               return (
                 <CardRow key={c.id} first={i === 0}>
                   <ThemedText variant="headline">{text}</ThemedText>
-                  <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
-                    {addedLine(c, userId, now)}
-                  </ThemedText>
-                  <RemoveButton
-                    accessibilityLabel={`Remove ${text}`}
-                    accessibilityHint="Removes this amount"
-                    onPress={() => deleteContribution(c.id)}
-                  />
+                  {fromRecipe(c) ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${text}, ${line}`}
+                      accessibilityHint={`Opens ${c.recipeName}`}
+                      onPress={() => openRecipe(c.recipeId)}
+                      style={({ pressed }) => [
+                        styles.row,
+                        styles.flex,
+                        { minHeight: sizes.minTapTarget, gap: spacing.xs, opacity: pressed ? opacity.pressed : 1 },
+                      ]}>
+                      <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
+                        {line}
+                      </ThemedText>
+                      <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} />
+                    </Pressable>
+                  ) : (
+                    <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
+                      {line}
+                    </ThemedText>
+                  )}
+                  {contributions.length > 1 ? (
+                    <RemoveButton
+                      accessibilityLabel={`Remove ${text}`}
+                      accessibilityHint="Removes this amount"
+                      onPress={() => deleteContribution(c.id)}
+                    />
+                  ) : null}
                 </CardRow>
               );
             })}
@@ -319,6 +408,25 @@ export default function ItemEditSheet() {
         </ThemedText>
       ) : null}
 
+      {moveTargets.length > 0 ? (
+        <Card>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Move to another list"
+            accessibilityHint="Shows the other lists"
+            onPress={move}
+            style={({ pressed }) => ({ opacity: pressed ? opacity.pressed : 1 })}>
+            <CardRow first>
+              <Icon name="arrow.right.circle" color="primary" />
+              <ThemedText variant="headline" style={styles.flex}>
+                Move to another list…
+              </ThemedText>
+              <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} />
+            </CardRow>
+          </Pressable>
+        </Card>
+      ) : null}
+
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <SoftDangerButton
           label="Delete item"
@@ -330,6 +438,13 @@ export default function ItemEditSheet() {
       </View>
     </Screen>
   );
+}
+
+/** An "Added" row from a recipe that still exists, which opens it. */
+function fromRecipe<C extends { source: string; recipeId: string | null; recipeName: string | null }>(
+  c: C,
+): c is C & { recipeId: string; recipeName: string } {
+  return c.source === 'recipe' && c.recipeId !== null && c.recipeName !== null;
 }
 
 const DISABLED_HINT = 'Edit the amount as text';

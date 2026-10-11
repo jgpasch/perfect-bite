@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { addedByLabel, addedLine, addedWhen } from '@/domain/added-by';
+import { addedByLabel, addedLine, addedWhen, checkedLine } from '@/domain/added-by';
 
 const ME = 'user-me';
 
@@ -85,5 +85,23 @@ describe('addedLine', () => {
       'You, Tuesday',
     );
     expect(addedLine({ source: 'siri', addedBy: ME, recipeName: null, createdAt: now }, ME, now)).toBe('Siri, just now');
+  });
+});
+
+describe('checkedLine', () => {
+  const now = new Date(2026, 9, 9, 15, 30);
+
+  it('says when, and "by you" for your own check', () => {
+    expect(checkedLine(new Date(2026, 9, 9, 15, 25), ME, ME, now)).toBe('Checked 5 min ago by you');
+    expect(checkedLine(new Date(2026, 9, 8, 18), ME, ME, now)).toBe('Checked yesterday by you');
+  });
+
+  it("says someone else for another member, whose name isn't on the device", () => {
+    expect(checkedLine(new Date(2026, 9, 6, 9), 'user-2', ME, now)).toBe('Checked Tuesday by someone else');
+    expect(checkedLine(now, 'user-2', null, now)).toBe('Checked just now by someone else');
+  });
+
+  it('leaves the "by" off when no one is recorded', () => {
+    expect(checkedLine(new Date(2026, 1, 3), null, ME, now)).toBe('Checked Feb 3');
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   addedToast,
+  movedToast,
   alsoInHint,
   checkOffLabel,
   DEFAULT_LIST_VIEW_MODE,
@@ -265,6 +266,30 @@ describe('addedToast', () => {
     expect(addedToast('milk', '')).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', null)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', undefined)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
+  });
+});
+
+describe('movedToast', () => {
+  it('reads a Combine as an add would', () => {
+    expect(movedToast({ kind: 'combine', name: 'milk', totalAmountText: '2 gal', fromListName: 'Groceries' })).toEqual({
+      message: 'Added to milk, now 2 gal',
+      emphasis: 'milk',
+    });
+  });
+
+  it('says where a moved or reopened item came from', () => {
+    expect(movedToast({ kind: 'new', name: 'chicken thighs', fromListName: 'Groceries' })).toEqual({
+      message: 'Moved chicken thighs from Groceries',
+      emphasis: 'chicken thighs',
+    });
+    expect(movedToast({ kind: 'reopen', name: 'milk', fromListName: 'Costco' })).toEqual({
+      message: 'Moved milk from Costco',
+      emphasis: 'milk',
+    });
+  });
+
+  it('leaves the list off when its name is missing', () => {
+    expect(movedToast({ kind: 'new', name: 'milk', fromListName: '' })).toEqual({ message: 'Moved milk', emphasis: 'milk' });
   });
 });
 

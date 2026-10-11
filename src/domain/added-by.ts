@@ -44,6 +44,17 @@ export function addedWhen(at: Date, now: Date): string {
   return at.getFullYear() === now.getFullYear() ? date : `${date}, ${at.getFullYear()}`;
 }
 
+/**
+ * The line under a checked item's name on its sheet: "Checked 5 min ago by you". Other members'
+ * names aren't on the device (as in `addedByLabel`), so their checks read "by someone else"; a
+ * check with no one recorded leaves the "by" off.
+ */
+export function checkedLine(checkedAt: Date, checkedBy: string | null, userId: string | null, now: Date): string {
+  const when = `Checked ${addedWhen(checkedAt, now)}`;
+  if (checkedBy === null) return when;
+  return `${when} by ${checkedBy === userId ? 'you' : 'someone else'}`;
+}
+
 /** The second column of an "Added" row: "You, Tuesday". */
 export function addedLine(add: AddedBy & { createdAt: Date }, userId: string | null, now: Date): string {
   return `${addedByLabel(add, userId)}, ${addedWhen(add.createdAt, now)}`;

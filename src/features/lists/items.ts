@@ -827,3 +827,153 @@ export function removeRecipeFromList(listId: string, recipeId: string): void {
     }
   });
 }
+
+// --- Move to another list (edit sheet, spec 4.4) -----------------------------------------------
+
+/** The live item's checked state and list, for the edit sheet's "Got it" toggle and "Checked … by". */
+export function itemStatusQuery(itemId: string) {
+  return db
+    .select({ listId: listItems.listId, checkedAt: listItems.checkedAt, checkedBy: listItems.checkedBy })
+    .from(listItems)
+    .where(and(eq(listItems.id, itemId), liveItem));
+}
+
+/**
+ * The lists an item can move to: the other live, unarchived lists in its list's household, in the
+ * user's order. Empty when the household has only the one list (the sheet then leaves Move out).
+ */
+export function getMoveTargets(itemId: string): { id: string; name: string }[] {
+  const item = db
+    .select({ listId: listItems.listId, householdId: listItems.householdId })
+    .from(listItems)
+    .where(and(eq(listItems.id, itemId), liveItem))
+    .get();
+  if (!item) return [];
+  return db
+    .select({ id: lists.id, name: lists.name })
+    .from(lists)
+    .where(
+      and(eq(lists.householdId, item.householdId), ne(lists.id, item.listId), isNull(lists.deletedAt), isNull(lists.archivedAt)),
+    )
+    .orderBy(asc(lists.position))
+    .all();
+}
+
+export type MoveItemResult = {
+  /** The item that was moved; deleted when its amounts joined an item already on the other list. */
+  itemId: string;
+  fromListId: string;
+  fromListName: string;
+  toListId: string;
+  /** What the move did there, as a single add would (spec 4.4): a new item, Combine, or reopen. */
+  kind: AddDecision['kind'];
+  /** The item the amounts are on now: the moved item itself for 'new'. */
+  targetItemId: string;
+  /** That item's name, and its total after a Combine, for the toast. */
+  name: string;
+  totalAmountText?: string;
+  /** The moved item's amounts. */
+  contributionIds: string[];
+  /** What reopening replaced, so Undo can put it back. */
+  reopened?: { checkedAt: Date; checkedBy: string | null; contributionIds: string[] };
+};
+
+/**
+ * "Move to another list…": moves an item and its amounts to another list in the same household. An
+ * open item meets that list as a single add would (spec 4.4): an open match gets its amounts
+ * (Combine) and the moved item goes; a checked match is unchecked with its amounts replaced; else
+ * the item itself moves. A checked item moves as it is. A move isn't a use, so history is unchanged.
+ * Throws for a missing item or list, the item's own list, or a list in another household.
+ */
+export function moveItemToList(itemId: string, toListId: string): MoveItemResult {
+  return db.transaction((tx) => {
+    const item = getItem(tx, itemId);
+    if (item.deletedAt) throw new Error(`No list item ${itemId}`);
+    const to = tx
+      .select({ id: lists.id, householdId: lists.householdId })
+      .from(lists)
+      .where(and(eq(lists.id, toListId), isNull(lists.deletedAt)))
+      .get();
+    if (!to) throw new Error(`No list ${toListId}`);
+    if (to.id === item.listId) throw new Error(`${item.displayName} is already on this list`);
+    if (to.householdId !== item.householdId) throw new Error('An item can only move to a list in its household');
+    const from = tx.select({ name: lists.name }).from(lists).where(eq(lists.id, item.listId)).get();
+
+    const moved = liveContributions(tx, itemId);
+    const contributionIds = moved.map((c) => c.id);
+    const base = { itemId, fromListId: item.listId, fromListName: from?.name ?? '', toListId, contributionIds };
+    const decision: AddDecision =
+      item.checkedAt === null ? detectDuplicate(item.ingredientName, liveItemsForList(tx, toListId)) : { kind: 'new' };
+
+    if (decision.kind === 'new') {
+      updateRows(tx, listItems, eq(listItems.id, itemId), { listId: toListId });
+      return { ...base, kind: 'new', targetItemId: itemId, name: item.displayName };
+    }
+
+    const target = getItem(tx, decision.itemId);
+    const previous = liveContributions(tx, target.id);
+    const now = new Date();
+    let reopened: MoveItemResult['reopened'];
+    if (decision.kind === 'reopen') {
+      if (previous.length > 0) {
+        updateRows(tx, listItemContributions, inArray(listItemContributions.id, previous.map((c) => c.id)), {
+          deletedAt: now,
+        });
+      }
+      updateRows(tx, listItems, eq(listItems.id, target.id), { checkedAt: null, checkedBy: null });
+      reopened = { checkedAt: target.checkedAt!, checkedBy: target.checkedBy, contributionIds: previous.map((c) => c.id) };
+    }
+    if (contributionIds.length > 0) {
+      updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { listItemId: target.id });
+    }
+    updateRows(tx, listItems, eq(listItems.id, itemId), { deletedAt: now });
+    return {
+      ...base,
+      kind: decision.kind,
+      targetItemId: target.id,
+      name: target.displayName,
+      totalAmountText:
+        decision.kind === 'combine'
+          ? itemTotal(liveContributions(tx, target.id), usualUnitFor(tx, item.householdId, item.ingredientName))
+          : undefined,
+      reopened,
+    };
+  });
+}
+
+/**
+ * The move toast's "Undo": the item goes back to its list with its amounts, and an item it joined
+ * returns to its earlier amounts (and to checked, if the move reopened it). If the same ingredient
+ * has been opened on the first list since, the amounts go onto that item, as `undeleteItem` does.
+ */
+export function undoMove(result: MoveItemResult): void {
+  db.transaction((tx) => {
+    if (result.kind === 'new') {
+      const item = getItem(tx, result.itemId);
+      const open =
+        item.checkedAt === null ? findOpenItem(tx, result.fromListId, item.ingredientName, item.id) : undefined;
+      if (open) {
+        updateRows(tx, listItemContributions, and(eq(listItemContributions.listItemId, item.id), liveContribution), {
+          listItemId: open.id,
+        });
+        updateRows(tx, listItems, eq(listItems.id, item.id), { deletedAt: item.deletedAt ?? new Date() });
+      } else {
+        updateRows(tx, listItems, eq(listItems.id, item.id), { listId: result.fromListId });
+      }
+      return;
+    }
+    if (result.contributionIds.length > 0) {
+      updateRows(tx, listItemContributions, inArray(listItemContributions.id, result.contributionIds), {
+        listItemId: result.itemId,
+      });
+    }
+    if (result.kind === 'reopen' && result.reopened) {
+      const { checkedAt, checkedBy, contributionIds } = result.reopened;
+      updateRows(tx, listItems, eq(listItems.id, result.targetItemId), { checkedAt, checkedBy });
+      if (contributionIds.length > 0) {
+        updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { deletedAt: null });
+      }
+    }
+    restoreItem(tx, getItem(tx, result.itemId), false);
+  });
+}

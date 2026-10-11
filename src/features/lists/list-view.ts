@@ -151,3 +151,17 @@ export function toggleActionLabel(checked: boolean): string {
 export function addedToast(name: string, totalAmountText: string | null | undefined): { message: string; emphasis: string } {
   return { message: totalAmountText ? `Added to ${name}, now ${totalAmountText}` : `Added to ${name}`, emphasis: name };
 }
+
+/**
+ * The toast on the list an item moved to: a Combine reads as an add would ("Added to milk, now
+ * 2 gal"); otherwise "Moved milk from Groceries".
+ */
+export function movedToast(move: {
+  kind: 'new' | 'combine' | 'reopen';
+  name: string;
+  totalAmountText?: string;
+  fromListName: string;
+}): { message: string; emphasis: string } {
+  if (move.kind === 'combine') return addedToast(move.name, move.totalAmountText);
+  return { message: move.fromListName ? `Moved ${move.name} from ${move.fromListName}` : `Moved ${move.name}`, emphasis: move.name };
+}

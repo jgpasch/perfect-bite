@@ -44,6 +44,7 @@ import {
   uncheckAll,
   undeleteItem,
   undoAdd,
+  undoMove,
   USUAL_UNITS_QUERY_TABLES,
   usualUnitsQuery,
   type ItemView,
@@ -53,6 +54,7 @@ import {
   alsoInHint,
   DEFAULT_LIST_VIEW_MODE,
   LIST_VIEW_MODES,
+  movedToast,
   orderByNewest,
   toGetLabel,
   viewModeKey,
@@ -60,6 +62,7 @@ import {
 } from '@/features/lists/list-view';
 import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
+import { takeMoveResult } from '@/features/lists/move-result';
 import { listShareText } from '@/features/lists/share';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
@@ -172,6 +175,17 @@ export default function ListScreen() {
   };
   useFocusEffect(
     useCallback(() => {
+      // An item moved here from its sheet (spec 4.4): a Combine tints the row it joined, as an add does.
+      const moved = takeMoveResult(id);
+      if (moved) {
+        setToast({
+          key: `moved-${moved.itemId}-${Date.now()}`,
+          ...movedToast(moved),
+          itemId: moved.kind === 'combine' ? moved.targetItemId : undefined,
+          actions: [{ label: 'Undo', onPress: () => (undoMove(moved), setToast(null)) }],
+        });
+        return;
+      }
       const result = takeRecipeAddResult(id);
       if (!result) return;
       if (result.kind === 'toList') {
