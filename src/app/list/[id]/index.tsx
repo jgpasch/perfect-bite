@@ -1,4 +1,5 @@
-import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams, usePathname } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -15,7 +16,7 @@ import {
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { prominentButtonTint } from '@/components/appearance';
+import { categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
 import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
@@ -122,8 +123,12 @@ type Block =
 
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors, aisles, spacing, sizes, opacity, scheme } = useTheme();
+  const { colors, aisles, spacing, sizes, rounded, opacity, scheme } = useTheme();
+  const header = listHeaderColors(colors);
   const headerHeight = useHeaderHeight();
+  // Light status bar content on the green header, also while this list's item sheets are up over it.
+  const pathname = usePathname();
+  const onThisList = pathname === `/list/${id}` || pathname.startsWith(`/list/${id}/`);
   const userId = getAccount()?.userId ?? null;
 
   const { data: listRows } = useLiveQueryOn(listQuery(id), [lists], [id]);
@@ -456,13 +461,15 @@ export default function ListScreen() {
     index: number,
     background: string,
     sorting = false,
-    aisle?: { name: string; dot: string },
+    aisle?: { name: string },
   ) => (
     <ItemRow
       key={entry.key}
       item={entry.item}
       background={background}
       tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
+      // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede.
+      look={entry.item.checkedAt === null ? categoryColors(slugById.get(entry.item.categoryId), scheme) : undefined}
       alreadyOnList={isAlreadyOnList(entry.item, query) ? { typed: typedName } : undefined}
       first={index === 0}
       sorting={sorting}
@@ -481,11 +488,10 @@ export default function ListScreen() {
     />
   );
 
-  // Newest and By recipe mix aisles in one card, so each row shows its aisle's dot (or Sorting…).
+  // Newest and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
   const renderEntryWithAisle = (e: Entry, i: number) => {
     const categoryId = e.item.categoryId;
-    const aisle = { name: nameById.get(categoryId) ?? '', dot: aisles[aisleColor(slugById.get(categoryId))].dot };
-    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, aisle);
+    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' });
   };
 
   const renderBlock = (block: Block) => {
@@ -496,8 +502,8 @@ export default function ListScreen() {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
         return (
-          <Card background="pendingSoft" flush={addMode}>
-            {block.entries.map((e, i) => renderEntry(e, i, colors.pendingSoft, true))}
+          <Card flush={addMode}>
+            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, true))}
           </Card>
         );
       }
@@ -586,12 +592,14 @@ export default function ListScreen() {
 
   return (
     <Screen>
+      <Stack.Screen options={{ headerStyle: { backgroundColor: header.ground }, headerTintColor: header.title }} />
+      {onThisList ? <StatusBar style="light" /> : null}
       {addMode ? (
         <Stack.Title asChild>
           <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode)} />
         </Stack.Title>
       ) : null}
-      <Stack.Toolbar placement="right">
+      <Stack.Toolbar placement="right" tintColor={header.title}>
         {selection ? (
           <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => setSelection(null)}>
             Done
@@ -653,25 +661,45 @@ export default function ListScreen() {
           data={blocks}
           keyExtractor={(block) => block.key}
           ListHeaderComponent={
-            <CollapsingHeader collapsed={addMode}>
-              <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
-                <View
-                  style={[
-                    styles.title,
-                    { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.sm, columnGap: spacing.sm + spacing.xxs },
-                  ]}>
-                  <ThemedText variant="screenTitle" accessibilityRole="header">
-                    {list.name}
-                  </ThemedText>
-                  {toGetLabel(unchecked.length) ? (
-                    <ThemedText variant="amount" color="inkSecondary">
-                      {toGetLabel(unchecked.length)}
-                    </ThemedText>
-                  ) : null}
-                </View>
-                <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} />
+            <View>
+              <View style={{ backgroundColor: header.ground }}>
+                {/* Pulling down past the top shows more green, not the list's ground. */}
+                <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
+                <CollapsingHeader collapsed={addMode}>
+                  <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+                    <View
+                      style={[
+                        styles.title,
+                        { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.sm, columnGap: spacing.sm + spacing.xxs },
+                      ]}>
+                      <ThemedText variant="screenTitle" color="onHeader" accessibilityRole="header">
+                        {list.name}
+                      </ThemedText>
+                      {toGetLabel(unchecked.length) ? (
+                        <ThemedText variant="amount" color="onHeaderSecondary">
+                          {toGetLabel(unchecked.length)}
+                        </ThemedText>
+                      ) : null}
+                    </View>
+                    <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} look={header.segments} />
+                  </View>
+                </CollapsingHeader>
+                <View style={{ height: rounded.card }} />
               </View>
-            </CollapsingHeader>
+              {/* The list's sheet: rounded top corners over the bottom of the green. */}
+              <View
+                style={[
+                  styles.sheetTop,
+                  {
+                    height: rounded.card,
+                    marginTop: -rounded.card,
+                    borderTopLeftRadius: rounded.card,
+                    borderTopRightRadius: rounded.card,
+                    backgroundColor: colors.background,
+                  },
+                ]}
+              />
+            </View>
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
           // Add mode: scrolling or checking off rows keeps the keyboard up.
@@ -679,7 +707,20 @@ export default function ListScreen() {
           keyboardDismissMode="none"
           contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
-          renderItem={({ item: block }) => renderBlock(block)}
+          renderItem={({ item: block, index }) =>
+            // Add mode: the cards go edge to edge, so the first one is the sheet's top, rounded up over the green.
+            addMode && index === 0 ? (
+              <View
+                style={[
+                  styles.sheetTop,
+                  { marginTop: -rounded.card, borderTopLeftRadius: rounded.card, borderTopRightRadius: rounded.card },
+                ]}>
+                {renderBlock(block)}
+              </View>
+            ) : (
+              renderBlock(block)
+            )
+          }
           onScrollToIndexFailed={({ index, averageItemLength }) =>
             listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
           }
@@ -731,10 +772,10 @@ function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
         accessibilityHint="Hides the keyboard"
         onPress={Keyboard.dismiss}
         style={[styles.compactTitle, { minHeight: sizes.minTapTarget }]}>
-        <ThemedText variant="headline" numberOfLines={1}>
+        <ThemedText variant="headline" color="onHeader" numberOfLines={1}>
           {name}
         </ThemedText>
-        <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1}>
+        <ThemedText variant="footnote" color="onHeaderSecondary" numberOfLines={1}>
           {subtitle}
         </ThemedText>
       </Pressable>
@@ -841,4 +882,6 @@ const styles = StyleSheet.create({
   compactTitle: { alignItems: 'center', justifyContent: 'center' },
   // Clips the title while its height closes; the scale shrinks it toward its top.
   collapsing: { overflow: 'hidden', transformOrigin: 'top' },
+  overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
+  sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
 });

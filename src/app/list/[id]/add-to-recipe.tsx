@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
@@ -50,15 +50,13 @@ export default function AddToRecipeSheet() {
   };
 
   return (
-    <Screen>
+    <Screen
+      scroll
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
       </Stack.Toolbar>
-      <ScrollView
-        style={styles.flex}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
         <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
           {addToRecipeTitle(itemIds.length)}
         </ThemedText>
@@ -113,7 +111,6 @@ export default function AddToRecipeSheet() {
             ))}
           </Card>
         ) : null}
-      </ScrollView>
     </Screen>
   );
 }

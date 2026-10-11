@@ -15,10 +15,12 @@ type Props<T extends string> = {
   segments: readonly Segment<T>[];
   value: T;
   onChange: (value: T) => void;
+  /** Colours for a coloured ground, e.g. the list screen's green header (`listHeaderColors().segments`). */
+  look?: { track: string; text: string; selected: string; selectedText: string };
 };
 
 /** A track with a filled selected segment. Each segment is a tab with its selected state. */
-export function SegmentedControl<T extends string>({ segments, value, onChange }: Props<T>) {
+export function SegmentedControl<T extends string>({ segments, value, onChange, look: custom }: Props<T>) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
     <View
@@ -29,7 +31,7 @@ export function SegmentedControl<T extends string>({ segments, value, onChange }
           marginHorizontal: spacing.lg,
           padding: sizes.segmentInset,
           borderRadius: rounded.md,
-          backgroundColor: colors.surfaceMuted,
+          backgroundColor: custom?.track ?? colors.surfaceMuted,
         },
       ]}>
       {segments.map((segment) => {
@@ -53,11 +55,14 @@ export function SegmentedControl<T extends string>({ segments, value, onChange }
                 minHeight: sizes.segment,
                 paddingHorizontal: spacing.sm,
                 borderRadius: rounded.segment,
-                backgroundColor: look.fill ? colors[look.fill] : 'transparent',
+                backgroundColor: custom ? (selected ? custom.selected : 'transparent') : look.fill ? colors[look.fill] : 'transparent',
                 opacity: pressed && !selected ? opacity.pressed : 1,
               },
             ]}>
-            <ThemedText variant="amount" color={look.text} style={selected ? styles.selected : undefined}>
+            <ThemedText
+              variant="amount"
+              color={look.text}
+              style={[selected ? styles.selected : undefined, custom ? { color: selected ? custom.selectedText : custom.text } : undefined]}>
               {segment.label}
             </ThemedText>
           </Pressable>

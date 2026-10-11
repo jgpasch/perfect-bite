@@ -5,6 +5,8 @@ import {
   aisleSymbol,
   avatarColors,
   badgeColors,
+  categoryColors,
+  listHeaderColors,
   householdBandColors,
   signInColors,
   checkAppearance,
@@ -510,5 +512,88 @@ describe('settings screen text', () => {
     expect(contrastRatio(colors.danger, colors.background)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(colors.inkSecondary, colors.background)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(colors.inkSecondary, colors.surface)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('categoryColors', () => {
+  const SLUGS = [...SYSTEM_CATEGORIES.map((c) => c.slug), 'my-corner-shop', null];
+
+  it('tints rows close to the light-mode targets', () => {
+    // Targets from the restyle brief; the tint is the aisle dot at 10% over white.
+    expect(categoryColors('produce', 'light')).toEqual({ ring: '#2E6B45', tint: '#EAF0EC', text: '#2E6B45' });
+    expect(categoryColors('dairy-eggs', 'light').tint).toBe('#ECF2F8');
+    expect(categoryColors('meat-seafood', 'light').tint).toBe('#F9EEF0');
+    expect(categoryColors('bakery', 'light').tint).toBe('#FAF3E9');
+  });
+
+  it('is neutral grey for Sorting… (no slug) and custom aisles', () => {
+    expect(categoryColors(undefined, 'light')).toEqual(categoryColors('other', 'light'));
+    expect(categoryColors('my-corner-shop', 'dark')).toEqual(categoryColors('other', 'dark'));
+    expect(categoryColors(null, 'light').ring).toBe(AisleColors.light.grey.dot);
+    expect(categoryColors(null, 'dark').text).toBe(Palette.dark.inkSecondary);
+  });
+
+  it('uses the full aisle colour for the ring', () => {
+    expect(categoryColors('dairy-eggs', 'light').ring).toBe(AisleColors.light.blue.dot);
+    expect(categoryColors('dairy-eggs', 'dark').ring).toBe(AisleColors.dark.blue.dot);
+  });
+
+  describe.each(SCHEMES)('%s scheme', (scheme) => {
+    const colors = Palette[scheme];
+
+    it.each(SLUGS)('keeps every text on the %s tint at 4.5:1 or better', (slug) => {
+      const { tint, text } = categoryColors(slug, scheme);
+      for (const fg of [colors.ink, colors.inkSecondary, colors.pending, text]) {
+        expect(contrastRatio(fg, tint)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it('keeps tints faint: closer to the card than to the aisle colour', () => {
+      for (const slug of SLUGS) {
+        const { tint, ring } = categoryColors(slug, scheme);
+        expect(contrastRatio(tint, colors.surface)).toBeLessThan(contrastRatio(tint, ring));
+        expect(contrastRatio(tint, colors.surface)).toBeLessThan(scheme === 'light' ? 1.2 : 1.45);
+      }
+    });
+
+    it('keeps dark tints dark, never pastel', () => {
+      for (const slug of SLUGS) {
+        const { tint } = categoryColors(slug, scheme);
+        if (scheme === 'dark') expect(contrastRatio(tint, '#000000')).toBeLessThan(2);
+      }
+    });
+  });
+});
+
+describe('listHeaderColors', () => {
+  it('is forest green with a white title in light mode', () => {
+    const header = listHeaderColors(Palette.light);
+    expect(header).toMatchObject({ ground: '#1F4D33', title: '#FFFFFF', subtitle: '#B7D2BF' });
+  });
+
+  it('is a deeper green in dark mode', () => {
+    expect(contrastRatio(Palette.dark.header, '#000000')).toBeLessThan(contrastRatio(Palette.light.header, '#000000'));
+  });
+
+  it.each(SCHEMES)('keeps the title, subtitle and view control readable in %s mode', (scheme) => {
+    const header = listHeaderColors(Palette[scheme]);
+    expect(contrastRatio(header.title, header.ground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(header.subtitle, header.ground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(header.segments.text, header.segments.track)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(header.segments.selectedText, header.segments.selected)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(SCHEMES)('washes the track white over the green in %s mode', (scheme) => {
+    const colors = Palette[scheme];
+    expect(listHeaderColors(colors).segments.track).toBe(mix(colors.onHeader, colors.header, 0.14));
+  });
+});
+
+describe('checkAppearance with an aisle ring', () => {
+  it('replaces the off and sorting ring, but not the checked fill', () => {
+    const ring = AisleColors.light.rose.dot;
+    expect(checkAppearance('off', Palette.light, AisleColors.light, ring).border).toBe(ring);
+    expect(checkAppearance('pending', Palette.light, AisleColors.light, ring)).toMatchObject({ border: ring, borderStyle: 'dashed' });
+    expect(checkAppearance('on', Palette.light, AisleColors.light, ring).border).toBe(Palette.light.primary);
   });
 });

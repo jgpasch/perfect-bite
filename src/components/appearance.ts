@@ -4,8 +4,9 @@
  */
 
 import type { IconName } from '@/components/icon';
-import { withAlpha, type AisleColors, type ColorToken, type ThemeColors } from '@/constants/theme';
-import type { AisleHue } from '@/domain/aisle-color';
+import { AisleColors as AisleTokens, Palette, withAlpha, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
+import { aisleColor, type AisleHue } from '@/domain/aisle-color';
+import { contrastRatio, mix } from '@/domain/contrast';
 import type { CategorySlug } from '@/shared/seed/categories';
 
 type Aisles = (typeof AisleColors)[keyof typeof AisleColors];
@@ -20,16 +21,62 @@ export type CheckAppearance = {
   tick: ColorToken | null;
 };
 
-/** The round check: a `controlBorder` ring when off, filled `primary` with a tick when on, dashed amber while sorting. */
-export function checkAppearance(state: CheckState, colors: ThemeColors, aisles: Aisles): CheckAppearance {
+/**
+ * The round check: a `controlBorder` ring when off, filled `primary` with a tick when on, dashed amber while
+ * sorting. `ring` replaces the off and sorting ring colour, e.g. an item row's aisle colour (`categoryColors`).
+ */
+export function checkAppearance(state: CheckState, colors: ThemeColors, aisles: Aisles, ring?: string): CheckAppearance {
   switch (state) {
     case 'on':
       return { fill: colors.primary, border: colors.primary, borderStyle: 'solid', tick: 'onPrimary' };
     case 'pending':
-      return { fill: 'transparent', border: aisles.amber.dot, borderStyle: 'dashed', tick: null };
+      return { fill: 'transparent', border: ring ?? aisles.amber.dot, borderStyle: 'dashed', tick: null };
     default:
-      return { fill: 'transparent', border: colors.controlBorder, borderStyle: 'solid', tick: null };
+      return { fill: 'transparent', border: ring ?? colors.controlBorder, borderStyle: 'solid', tick: null };
   }
+}
+
+/** How much of the aisle colour an unchecked row's tint takes: faint in light mode, a little more on dark. */
+export const CATEGORY_TINT: Record<ColorScheme, number> = { light: 0.1, dark: 0.16 };
+
+export type CategoryColors = {
+  /** The round check's ring. */
+  ring: string;
+  /** The row's ground: the aisle colour faintly over `surface`. Opaque, so it covers a swipe action. */
+  tint: string;
+  /** The amount at the end of the row: the aisle colour, deepened (`strong`) where the dot is too pale for text. */
+  text: string;
+};
+
+/**
+ * An aisle's colours on an unchecked item row (and any other category UI), by its slug. Unknown slugs, custom
+ * aisles and items still Sorting… (no slug) get the neutral grey.
+ */
+export function categoryColors(slug: string | null | undefined, scheme: ColorScheme): CategoryColors {
+  const hue = AisleTokens[scheme][aisleColor(slug)];
+  const tint = mix(hue.dot, Palette[scheme].surface, CATEGORY_TINT[scheme]);
+  // Dark grey's dot is under 4.5:1 on its own tint; the neutral amount falls back to `inkSecondary`.
+  const text = contrastRatio(hue.strong, tint) >= 4.5 ? hue.strong : Palette[scheme].inkSecondary;
+  return { ring: hue.dot, tint, text };
+}
+
+/** The white wash behind controls on the green header. */
+export const HEADER_WASH = 0.14;
+
+/** The list screen's header (spec: forest green): white title, light green subtitle, a translucent white track. */
+export function listHeaderColors(colors: ThemeColors) {
+  return {
+    ground: colors.header,
+    title: colors.onHeader,
+    subtitle: colors.onHeaderSecondary,
+    /** The segmented control: a white wash over the green, with a white selected segment in the header's green. */
+    segments: {
+      track: mix(colors.onHeader, colors.header, HEADER_WASH),
+      text: colors.onHeader,
+      selected: colors.onHeader,
+      selectedText: colors.header,
+    },
+  };
 }
 
 /** A check's state: checked wins over sorting, since a checked item is done whatever its aisle. */

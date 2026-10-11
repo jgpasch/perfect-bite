@@ -28,6 +28,9 @@ const TEXT_PAIRS: [ColorToken, ColorToken][] = [
   ['pending', 'pendingSoft'],
   ['ink', 'pendingSoft'],
   ['onToast', 'toast'],
+  // The list screen's green header: its title and the "7 to get · Newest" line.
+  ['onHeader', 'header'],
+  ['onHeaderSecondary', 'header'],
 ];
 
 describe('Palette', () => {
@@ -52,6 +55,9 @@ describe('Palette', () => {
       scrim: '#C9D3C7',
       toast: '#1D2A22',
       onToast: '#FFFFFF',
+      header: '#1F4D33',
+      onHeader: '#FFFFFF',
+      onHeaderSecondary: '#B7D2BF',
     });
   });
 

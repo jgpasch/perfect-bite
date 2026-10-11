@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
 
-import { itemNameColor } from '@/components/appearance';
+import { itemNameColor, type CategoryColors } from '@/components/appearance';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -21,6 +21,11 @@ type Props = {
   /** Set while the toast for an add that merged into this item shows (spec 4.4): its aisle's soft tint. */
   tint?: string;
   /**
+   * Unchecked rows: the item's aisle colours (`categoryColors`): a faint tint for the row, the check's ring and
+   * the amount. Rows are then 2 pt apart in the card's ground instead of a hairline. Checked rows leave it out.
+   */
+  look?: CategoryColors;
+  /**
    * Add mode: the item matches what's being typed (`isAlreadyOnList`). A `primarySoft` tint, the typed part of
    * the name in `onPrimarySoft`, and "already on list" in place of the amount.
    */
@@ -33,8 +38,8 @@ type Props = {
   amountText?: string;
   /** A second line, e.g. "Also in Weeknight dal" (spec 4.6). */
   hint?: string;
-  /** Newest and By recipe (spec 4.6): the item's aisle, shown as its dot beside the name and read by VoiceOver. */
-  aisle?: { name: string; dot: string };
+  /** Newest and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
+  aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
   selected?: boolean;
   onToggle: () => void;
@@ -53,6 +58,7 @@ export function ItemRow({
   item,
   background,
   tint,
+  look,
   alreadyOnList,
   first,
   sorting = false,
@@ -65,7 +71,7 @@ export function ItemRow({
   onEdit,
   onSelect,
 }: Props) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
@@ -77,7 +83,6 @@ export function ItemRow({
   ]
     .filter(Boolean)
     .join(', ');
-  const showDot = aisle !== undefined && !(sorting && !checked);
   const match = alreadyOnList ? matchParts(item.displayName, alreadyOnList.typed) : null;
 
   const rowStyle = [
@@ -86,9 +91,9 @@ export function ItemRow({
       minHeight: sizes.cardRowMin,
       paddingLeft: spacing.lg,
       gap: spacing.md,
-      backgroundColor: alreadyOnList ? colors.primarySoft : tint ?? background,
-      borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
-      borderTopColor: colors.border,
+      backgroundColor: alreadyOnList ? colors.primarySoft : tint ?? look?.tint ?? background,
+      borderTopWidth: first ? 0 : look ? spacing.xxs : StyleSheet.hairlineWidth,
+      borderTopColor: look ? background : colors.border,
     },
   ];
 
@@ -96,24 +101,19 @@ export function ItemRow({
   const content = (
     <>
       <View style={styles.text}>
-        <View style={[styles.name, { gap: spacing.sm }]}>
-          {showDot ? (
-            <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: aisle.dot }} />
-          ) : null}
-          <ThemedText variant="body" color={itemNameColor(checked)} style={[styles.flex, checked ? styles.checked : undefined]}>
-            {match ? (
-              <>
-                {match.before}
-                <ThemedText variant="headline" color="onPrimarySoft">
-                  {match.match}
-                </ThemedText>
-                {match.after}
-              </>
-            ) : (
-              item.displayName
-            )}
-          </ThemedText>
-        </View>
+        <ThemedText variant="body" color={itemNameColor(checked)} style={checked ? styles.checked : undefined}>
+          {match ? (
+            <>
+              {match.before}
+              <ThemedText variant="headline" color="onPrimarySoft">
+                {match.match}
+              </ThemedText>
+              {match.after}
+            </>
+          ) : (
+            item.displayName
+          )}
+        </ThemedText>
         {secondLine ? (
           <ThemedText variant="footnote" color="inkSecondary">
             {secondLine}
@@ -125,7 +125,7 @@ export function ItemRow({
           {ALREADY_ON_LIST_LABEL}
         </ThemedText>
       ) : amountText ? (
-        <ThemedText variant="amount" color="inkSecondary">
+        <ThemedText variant="amount" color="inkSecondary" style={look ? { color: look.text } : undefined}>
           {amountText}
         </ThemedText>
       ) : null}
@@ -161,12 +161,12 @@ export function ItemRow({
               rowStyle,
               { paddingRight: spacing.lg, paddingVertical: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
             ]}>
-            <CheckCircle checked={on} pending={sorting} />
+            <CheckCircle checked={on} pending={sorting} ring={look?.ring} />
             <View style={[styles.body, { gap: spacing.md }]}>{content}</View>
           </Pressable>
         ) : (
           <View style={rowStyle}>
-            <CheckCircle checked={checked} pending={sorting} onPress={onToggle} accessibilityLabel={checkOffLabel(item.displayName)} />
+            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} onPress={onToggle} accessibilityLabel={checkOffLabel(item.displayName)} />
             <Pressable
               onPress={onEdit}
               onLongPress={
@@ -216,8 +216,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
-  name: { flexDirection: 'row', alignItems: 'center' },
-  flex: { flex: 1 },
   checked: { textDecorationLine: 'line-through' },
   action: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' },
 });

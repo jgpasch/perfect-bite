@@ -53,6 +53,11 @@ export const Palette = {
     scrim: '#C9D3C7',
     toast: '#1D2A22',
     onToast: '#FFFFFF',
+    /** The list screen's forest-green header, behind the status bar. */
+    header: '#1F4D33',
+    onHeader: '#FFFFFF',
+    /** "7 to get · Newest" on the header. */
+    onHeaderSecondary: '#B7D2BF',
   },
   dark: {
     background: '#111915',
@@ -74,6 +79,9 @@ export const Palette = {
     scrim: '#050806',
     toast: '#E7EEE8',
     onToast: '#111915',
+    header: '#163A26',
+    onHeader: '#FFFFFF',
+    onHeaderSecondary: '#A9C8B3',
   },
 } as const;
 
