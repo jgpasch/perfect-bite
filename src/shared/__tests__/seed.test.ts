@@ -12,7 +12,7 @@ describe('seed data', () => {
     expect(SYSTEM_CATEGORIES.at(-1)!.id).toBe(OTHER_CATEGORY_ID);
   });
 
-  it('has about 500 ingredients, each with a distinct key', () => {
+  it('has at least 4,000 ingredients, each with a distinct key', () => {
     const owners = new Map<string, string[]>();
     for (const { name, category } of seedEntries()) {
       const key = normalizeIngredientName(name);
@@ -21,7 +21,7 @@ describe('seed data', () => {
     }
     const clashes = [...owners.values()].filter((o) => o.length > 1);
     expect(clashes).toEqual([]);
-    expect(owners.size).toBeGreaterThanOrEqual(500);
+    expect(owners.size).toBeGreaterThanOrEqual(4_000);
   });
 
   it('gives every name a supported default unit, with no empty groups', () => {

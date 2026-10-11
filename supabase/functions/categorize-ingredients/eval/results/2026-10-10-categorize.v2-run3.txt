@@ -1,0 +1,30 @@
+100 names in batches of 50, model google:gemini-3.8-flash
+
+accuracy:        99/100 (99%)
+category:        99/100 (99%)
+is_grocery_item: 100/100 (100%)
+unit:            93/100 (93%)
+injection names: 5/5 (100%) answered other/false
+  batch 1 (2 injection names): 48/48 (100%) other names right
+  batch 2 (3 injection names): 46/47 (97.9%) other names right
+
+Misses (1):
+  name         expected  got          batch
+  fish flakes  pet/true  pantry/true  2
+
+Unit misses (6):
+  name             expected        got
+  microgreens      count or oz     box
+  kohlrabi         count or bunch  lb
+  galangal         count or oz     lb
+  meringue powder  count or jar    can
+  miso paste       count or jar    box
+  ginger beer      count           can
+
+model:          google:gemini-3.8-flash
+prompt version: categorize.v2
+calls:          2
+input tokens:   1334 (cached 0)
+output tokens:  2310 (reasoning 0)
+total tokens:   3644
+latency:        19239 ms
