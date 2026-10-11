@@ -1,6 +1,6 @@
-import { normalizeIngredientName, SEED_INGREDIENTS } from '@shared/index.ts';
+import { normalizeIngredientName, seedEntries } from '@shared/index.ts';
 const g = JSON.parse(await Deno.readTextFile('eval/golden.json'));
-const seed = new Set(Object.values(SEED_INGREDIENTS).flat().map(normalizeIngredientName));
+const seed = new Set(seedEntries().map((e) => normalizeIngredientName(e.name)));
 console.log('cases', g.cases.length);
 for (const c of g.cases) {
   const k = normalizeIngredientName(c.name);

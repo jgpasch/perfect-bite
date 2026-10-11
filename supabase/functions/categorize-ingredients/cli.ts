@@ -5,7 +5,7 @@
 // Every LLM call is printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@shared/index.ts';
 
-import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v1.ts';
+import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v2.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isThinkingSetting, THINKING_SETTINGS, type ThinkingSetting } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
@@ -145,6 +145,7 @@ export class MemoryStore implements CategorizeStore {
         status: 'pending',
         default_category_id: null,
         is_grocery_item: null,
+        default_unit: null,
         attempts: 0,
       });
     }
@@ -154,7 +155,12 @@ export class MemoryStore implements CategorizeStore {
     for (const r of rows) {
       const row = this.rows.get(r.normalized_name);
       if (!row || row.status === 'categorized') continue;
-      Object.assign(row, { status: 'categorized', default_category_id: r.default_category_id, is_grocery_item: r.is_grocery_item });
+      Object.assign(row, {
+        status: 'categorized',
+        default_category_id: r.default_category_id,
+        is_grocery_item: r.is_grocery_item,
+        default_unit: r.default_unit,
+      });
     }
   }
 
@@ -197,7 +203,7 @@ function table(rows: string[][]): string {
 }
 
 export function formatTable(names: readonly string[], response: CategorizeResponse): string {
-  const rows = [['name', 'category', 'is_grocery_item', 'status']];
+  const rows = [['name', 'category', 'is_grocery_item', 'unit', 'status']];
   for (const key of resultKeys(names)) {
     const r = response.results[key];
     if (!r) continue;
@@ -205,6 +211,7 @@ export function formatTable(names: readonly string[], response: CategorizeRespon
       key,
       r.category_id ? (SLUG_BY_ID.get(r.category_id) ?? r.category_id) : '-',
       r.is_grocery_item === null ? '-' : String(r.is_grocery_item),
+      r.default_unit ?? '-',
       r.status,
     ]);
   }

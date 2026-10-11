@@ -27,6 +27,13 @@ export const UNITS = [
 ] as const;
 export type Unit = (typeof UNITS)[number];
 
+/**
+ * A stored unit key (`ingredient_unit_usage.unit_key`, `ingredients.default_unit`): a unit, or
+ * `count` for a plain number.
+ */
+export const UNIT_KEYS = ['count', ...UNITS] as const;
+export type UnitKey = (typeof UNIT_KEYS)[number];
+
 /** Spellings (lowercase, no trailing period) → unit. */
 const UNIT_ALIASES: Record<string, Unit> = {
   g: 'g', gr: 'g', gram: 'g', grams: 'g',

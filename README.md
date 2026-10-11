@@ -207,6 +207,14 @@ yarn drizzle-kit generate --name <name>   # writes src/db/migrations/
 
 The app applies it on next launch.
 
+**The seed catalog** (`src/shared/seed/`: system categories, and common ingredients with their aisle and default unit) ships in the app and in the database. After changing it, write the database copy as a new migration; never edit the generated SQL by hand:
+
+```bash
+yarn db:seed-sql   # writes supabase/migrations/<timestamp>_seed_catalog.sql
+```
+
+The app picks up the change on next launch (it reloads the seed when its hash changes).
+
 ## Checks
 
 Run these before committing:
@@ -239,7 +247,7 @@ yarn ai:categorize --thinking off milk                # Gemini thinking for this
 yarn ai:categorize --quiet --repeat 10 - < names.txt  # 10 runs, then p50/p95 latency (docs/spikes.md §4)
 ```
 
-Every LLM call is printed in full as it finishes: model, prompt version, temperature, max output tokens, timeout, the instructions (system prompt), the prompt (user message), the model's response, any provider warnings or error, the finish reason, input tokens (and how many were cached), output tokens (and how many were reasoning), total tokens, and latency. A fallback attempt prints as a second call. `--raw` adds the exact JSON body sent to the provider (generation config and response schema included) and the provider's raw reply. Then it prints a table (name, category slug, `is_grocery_item`, status) and totals across calls. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
+Every LLM call is printed in full as it finishes: model, prompt version, temperature, max output tokens, timeout, the instructions (system prompt), the prompt (user message), the model's response, any provider warnings or error, the finish reason, input tokens (and how many were cached), output tokens (and how many were reasoning), total tokens, and latency. A fallback attempt prints as a second call. `--raw` adds the exact JSON body sent to the provider (generation config and response schema included) and the provider's raw reply. Then it prints a table (name, category slug, `is_grocery_item`, default unit, status) and totals across calls. The limits match the function's: at most 100 names, and names over 64 characters fail. It exits 1 if any name `failed` and 2 on bad usage, so it works in a shell loop. The tests only ever run it with `--model mock`.
 
 Run the golden-set eval whenever the categorize model or prompt changes (a new `AI_MODEL_CATEGORIZE`, or a new `prompts/categorize.vN.ts`), before deploying the change:
 
@@ -248,7 +256,7 @@ yarn ai:eval                                          # the model in supabase/fu
 yarn ai:eval --model anthropic:claude-haiku-5-5       # or try another model
 ```
 
-It sends the ~100 hard names in `supabase/functions/categorize-ingredients/eval/golden.json` (ambiguous items, non-food, errands, and a few prompt-injection attempts) through the same `categorize()` and in-memory store as the CLI, in batches of 50 (one LLM call each). It prints the accuracy (category and `is_grocery_item` both right; `also` lists other aisles that count as right), how many injection names came back `other`/not a grocery item, how the rest of each injection batch did, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing. Compare the score with the last one recorded in `progress.md`, and add new misses you care about to `golden.json`.
+It sends the ~100 hard names in `supabase/functions/categorize-ingredients/eval/golden.json` (ambiguous items, non-food, errands, and a few prompt-injection attempts) through the same `categorize()` and in-memory store as the CLI, in batches of 50 (one LLM call each). It prints the accuracy (category and `is_grocery_item` both right; `also` lists other aisles that count as right), the default-unit score (scored on its own, against each name's accepted `units`, with unit misses listed separately), how many injection names came back `other`/not a grocery item, how the rest of each injection batch did, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing. Compare the score with the last one recorded in `progress.md`, and add new misses you care about to `golden.json`.
 
 ### Adding an LLM task
 

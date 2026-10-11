@@ -57,6 +57,13 @@
       "when": 1791674195222,
       "tag": "0007_outbox_rejections",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791682026270,
+      "tag": "0008_ingredient_default_unit",
+      "breakpoints": true
     }
   ]
 }

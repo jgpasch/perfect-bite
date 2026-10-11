@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { UNITS } from '@/shared';
 
-import { unitFromKey, unitKey, usualUnit, usualUnitsByKey, type UnitUsageRow } from '../usual-unit';
+import { unitFromKey, unitKey, usualUnit, usualUnitsByKey, withDefaultUnit, type UnitUsageRow } from '../usual-unit';
 
 const t = (day: number) => new Date(Date.UTC(2026, 9, day));
 const row = (unitKey: string, useCount: number, day = 1): UnitUsageRow => ({
@@ -115,5 +115,23 @@ describe('usualUnitsByKey', () => {
 
   it('is empty for no rows', () => {
     expect(usualUnitsByKey([]).size).toBe(0);
+  });
+});
+
+describe('withDefaultUnit', () => {
+  it('uses household history over the default', () => {
+    expect(withDefaultUnit('qt', 'gal')).toBe('qt');
+    expect(withDefaultUnit(null, 'gal')).toBeNull();
+  });
+
+  it('falls back to the default when there is no history', () => {
+    expect(withDefaultUnit(undefined, 'gal')).toBe('gal');
+    expect(withDefaultUnit(undefined, 'count')).toBeNull();
+  });
+
+  it('knows nothing with no default or an unknown one', () => {
+    expect(withDefaultUnit(undefined, null)).toBeUndefined();
+    expect(withDefaultUnit(undefined, undefined)).toBeUndefined();
+    expect(withDefaultUnit(undefined, 'furlong')).toBeUndefined();
   });
 });

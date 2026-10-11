@@ -44,6 +44,11 @@ export const ingredients = sqliteTable('ingredients', {
     .default('pending'),
   isGroceryItem: integer('is_grocery_item', { mode: 'boolean' }),
   categorizedBy: text('categorized_by'),
+  /**
+   * How the item is usually bought (spec 4.2): a `unit_key` (a unit, or `count`), from the seed or
+   * the categorizer. The usual unit until the household has its own history; null when unknown.
+   */
+  defaultUnit: text('default_unit'),
 });
 
 // --- Per-user preferences (spec 4.3.2, 4.3.3). Never shared with the household. ------------

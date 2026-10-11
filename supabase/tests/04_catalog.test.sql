@@ -1,7 +1,7 @@
 -- Catalog and per-user preferences (spec 5, 6.2).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(18);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 insert into auth.users (id, email, aud, role) values
@@ -24,6 +24,10 @@ select ok((select count(*) from public.ingredients where categorized_by = 'seed'
   'the ingredient seed is loaded');
 select results_eq($$ select c.slug from public.ingredients i join public.categories c on c.id = i.default_category_id where i.normalized_name = 'banana' $$,
   $$ values ('produce') $$, 'seed ingredients point at their category');
+select results_eq($$ select default_unit from public.ingredients where normalized_name in ('milk', 'egg') order by normalized_name $$,
+  $$ values ('dozen'), ('gal') $$, 'seed ingredients carry their default unit');
+select is((select count(*)::int from public.ingredients where categorized_by = 'seed' and default_unit is null), 0,
+  'every seed ingredient has a default unit');
 
 -- As Alex -----------------------------------------------------------------------
 set local role authenticated;

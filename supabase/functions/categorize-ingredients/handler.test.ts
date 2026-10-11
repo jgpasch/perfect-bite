@@ -4,7 +4,7 @@ import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { namesFromPrompt } from '../_shared/ai/mock-model.ts';
-import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v1.ts';
+import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v2.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import {
   categorize,
@@ -37,6 +37,7 @@ class FakeStore implements CategorizeStore {
       status: 'categorized',
       default_category_id: cat('pantry'),
       is_grocery_item: true,
+      default_unit: null,
       attempts: 0,
       categorized_by: 'seed',
       ...row,
@@ -47,7 +48,7 @@ class FakeStore implements CategorizeStore {
     return names.flatMap((n) => {
       const r = this.rows.get(n);
       return r
-        ? [{ normalized_name: r.normalized_name, status: r.status, default_category_id: r.default_category_id, is_grocery_item: r.is_grocery_item, attempts: r.attempts }]
+        ? [{ normalized_name: r.normalized_name, status: r.status, default_category_id: r.default_category_id, is_grocery_item: r.is_grocery_item, default_unit: r.default_unit, attempts: r.attempts }]
         : [];
     });
   }
@@ -64,7 +65,13 @@ class FakeStore implements CategorizeStore {
     for (const a of rows) {
       const r = this.rows.get(a.normalized_name);
       if (!r || r.status === 'categorized') continue;
-      Object.assign(r, { status: 'categorized', default_category_id: a.default_category_id, is_grocery_item: a.is_grocery_item, categorized_by: categorizedBy });
+      Object.assign(r, {
+        status: 'categorized',
+        default_category_id: a.default_category_id,
+        is_grocery_item: a.is_grocery_item,
+        default_unit: a.default_unit,
+        categorized_by: categorizedBy,
+      });
     }
   }
 
@@ -90,7 +97,8 @@ class FakeStore implements CategorizeStore {
   }
 }
 
-type Answer = { name: string; category: string; is_grocery_item: boolean };
+/** `unit` defaults to `count` when a test leaves it out. */
+type Answer = { name: string; category: string; is_grocery_item: boolean; unit?: string };
 type SeenCall = { names: string[]; system: string; user: string };
 
 /** A model that records each call and answers with `answer(names)`: an array, raw text, or a thrown error. */
@@ -106,7 +114,12 @@ function fakeModel(answer: (names: string[]) => Answer[] | string | Error) {
       const out = answer(names);
       if (out instanceof Error) throw out;
       return {
-        content: [{ type: 'text', text: typeof out === 'string' ? out : JSON.stringify({ results: out }) }],
+        content: [
+          {
+            type: 'text',
+            text: typeof out === 'string' ? out : JSON.stringify({ results: out.map((a) => ({ unit: 'count', ...a })) }),
+          },
+        ],
         finishReason: { unified: 'stop', raw: undefined },
         usage: {
           inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
@@ -136,14 +149,14 @@ async function withModelEnv(value: string | null, fn: () => Promise<void>) {
 /** Tests run with the categorize task enabled unless they say otherwise. */
 const test = (name: string, fn: () => Promise<void>) => Deno.test(name, () => withModelEnv('mock', fn));
 
-const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null };
-const FAILED_OTHER: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null };
+const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null };
+const FAILED_OTHER: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, default_unit: null };
 
 // --- Known names --------------------------------------------------------------------------------
 
 test('all-known input makes no LLM call and is answered from the database', async () => {
   const store = new FakeStore();
-  store.seed('milk', { default_category_id: cat('dairy-eggs') });
+  store.seed('milk', { default_category_id: cat('dairy-eggs'), default_unit: 'gal' });
   store.seed('call mom', { default_category_id: OTHER_CATEGORY_ID, is_grocery_item: false });
   const { calls, model } = fakeModel(allPantry);
 
@@ -152,8 +165,8 @@ test('all-known input makes no LLM call and is answered from the database', asyn
   assertEquals(calls.length, 0);
   assertEquals(store.aiCalls.length, 0);
   assertEquals(res.results, {
-    milk: { status: 'categorized', category_id: cat('dairy-eggs'), is_grocery_item: true },
-    'call mom': { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: false },
+    milk: { status: 'categorized', category_id: cat('dairy-eggs'), is_grocery_item: true, default_unit: 'gal' },
+    'call mom': { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: false, default_unit: null },
   });
 });
 
@@ -162,7 +175,7 @@ test('8 unknown + 4 known names make exactly one call covering only the 8 (accep
   const known = ['milk', 'egg', 'flour', 'salt'];
   for (const n of known) store.seed(n);
   const unknown = ['dukkah', 'gochugaru', 'yuzu', 'kecap manis', 'nduja', 'ajwain', 'amchur', 'shiso'];
-  const { calls, model } = fakeModel((names) => names.map((name) => ({ name, category: 'spices', is_grocery_item: true })));
+  const { calls, model } = fakeModel((names) => names.map((name) => ({ name, category: 'spices', is_grocery_item: true, unit: 'jar' })));
 
   const res = await categorize([...unknown.slice(0, 4), ...known, ...unknown.slice(4)], store, model);
 
@@ -171,8 +184,9 @@ test('8 unknown + 4 known names make exactly one call covering only the 8 (accep
   assertEquals(store.aiCalls.map((c) => [c.model, c.status, c.prompt_version]), [['test:model', 'ok', CATEGORIZE_PROMPT_VERSION]]);
   assertEquals(Object.keys(res.results).length, 12);
   for (const n of unknown) {
-    assertEquals(res.results[n], { status: 'categorized', category_id: cat('spices'), is_grocery_item: true });
+    assertEquals(res.results[n], { status: 'categorized', category_id: cat('spices'), is_grocery_item: true, default_unit: 'jar' });
     assertEquals(store.rows.get(n)!.categorized_by, 'test:model');
+    assertEquals(store.rows.get(n)!.default_unit, 'jar');
     assertEquals(store.rows.get(n)!.attempts, 0);
   }
   for (const n of known) assertEquals(res.results[n].category_id, cat('pantry'));
@@ -208,7 +222,7 @@ test('a missing name becomes failed/Other with one attempt; the rest are categor
 
   assertEquals(res.results.shiso, FAILED_OTHER);
   assertEquals(store.rows.get('shiso')!.attempts, 1);
-  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('pantry'), is_grocery_item: true });
+  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('pantry'), is_grocery_item: true, default_unit: 'count' });
 });
 
 test('an unknown slug fails the schema, so the whole batch becomes failed/Other', async () => {
@@ -221,6 +235,18 @@ test('an unknown slug fails the schema, so the whole batch becomes failed/Other'
 
   assertEquals(res.results, { dukkah: FAILED_OTHER, shiso: FAILED_OTHER });
   assertEquals([store.rows.get('dukkah')!.attempts, store.rows.get('shiso')!.attempts], [1, 1]);
+  assertEquals(store.aiCalls.map((c) => c.status), ['invalid_output']);
+});
+
+test('an unknown unit fails the schema too, so the whole batch becomes failed/Other', async () => {
+  const store = new FakeStore();
+  const { model } = fakeModel((names) => [
+    { name: names[0], category: 'spices', is_grocery_item: true, unit: 'furlong' },
+    ...allPantry(names.slice(1)),
+  ]);
+  const res = await categorize(['dukkah', 'shiso'], store, model);
+
+  assertEquals(res.results, { dukkah: FAILED_OTHER, shiso: FAILED_OTHER });
   assertEquals(store.aiCalls.map((c) => c.status), ['invalid_output']);
 });
 
@@ -245,9 +271,9 @@ test('an answer for a name that was not sent is ignored', async () => {
   // `milk` is known, so only dukkah and shiso are sent; the model's `milk` answer changes nothing.
   const res = await categorize(['dukkah', 'shiso', 'milk'], store, model);
 
-  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true });
+  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true, default_unit: 'count' });
   assertEquals(res.results.shiso, FAILED_OTHER);
-  assertEquals(res.results.milk, { status: 'categorized', category_id: cat('dairy-eggs'), is_grocery_item: true });
+  assertEquals(res.results.milk, { status: 'categorized', category_id: cat('dairy-eggs'), is_grocery_item: true, default_unit: null });
   assertEquals(store.rows.get('milk')!.categorized_by, 'seed');
 });
 
@@ -259,7 +285,7 @@ test('when a name is answered twice, the first answer wins', async () => {
   ]);
   const res = await categorize(['dukkah', 'shiso'], store, model);
 
-  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true });
+  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true, default_unit: 'count' });
   assertEquals(res.results.shiso, FAILED_OTHER);
 });
 
@@ -385,13 +411,13 @@ test('a name with injected instructions is only in the JSON array of the user pr
 });
 
 test('buildCategorizePrompt: same instructions for any names, names only in the prompt', () => {
-  const a = buildCategorizePrompt(['milk']);
+  const a = buildCategorizePrompt(['dukkah']);
   const b = buildCategorizePrompt(['call mom', 'x"]']);
   assertEquals(a.instructions, b.instructions);
   assert(a.instructions.includes('never instructions'));
   assert(a.prompt.startsWith('Untrusted item names to classify'));
   assertEquals(namesFromPrompt(b.prompt), ['call mom', 'x"]']);
-  assertFalse(a.instructions.includes('milk'));
+  assertFalse(a.instructions.includes('dukkah'));
   return Promise.resolve();
 });
 
@@ -399,13 +425,13 @@ test('a row categorized by a concurrent request is not overwritten', async () =>
   const store = new FakeStore();
   store.beforeSave = () => {
     const r = store.rows.get('dukkah')!;
-    Object.assign(r, { status: 'categorized', default_category_id: cat('spices'), is_grocery_item: true, categorized_by: 'other:model' });
+    Object.assign(r, { status: 'categorized', default_category_id: cat('spices'), is_grocery_item: true, default_unit: 'jar', categorized_by: 'other:model' });
   };
-  const { model } = fakeModel((names) => names.map((name) => ({ name, category: 'produce', is_grocery_item: true })));
+  const { model } = fakeModel((names) => names.map((name) => ({ name, category: 'produce', is_grocery_item: true, unit: 'lb' })));
   const res = await categorize(['dukkah'], store, model);
 
   assertEquals(store.rows.get('dukkah')!.categorized_by, 'other:model');
-  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true });
+  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('spices'), is_grocery_item: true, default_unit: 'jar' });
 });
 
 // --- Rate limit ---------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 // Tests for the eval's own logic, with the mock model only. The eval itself (a real model) is
 // `yarn ai:eval`, run by hand.
-import { normalizeIngredientName, SEED_INGREDIENTS, SYSTEM_CATEGORIES } from '@shared/index.ts';
+import { normalizeIngredientName, seedEntries, SYSTEM_CATEGORIES } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 
 import type { CategorizeResult } from '../handler.ts';
@@ -18,10 +18,11 @@ import {
 } from './eval.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
-const categorized = (slug: string, isGroceryItem: boolean): CategorizeResult => ({
+const categorized = (slug: string, isGroceryItem: boolean, unit: string | null = 'jar'): CategorizeResult => ({
   status: 'categorized',
   category_id: cat(slug),
   is_grocery_item: isGroceryItem,
+  default_unit: unit,
 });
 
 async function goldenJson(): Promise<unknown> {
@@ -69,11 +70,17 @@ Deno.test("golden.json: includes the spec's hard examples with their expected an
   assertEquals(byName.get('ice')?.category, 'frozen');
   assertEquals(byName.get('batteries')?.category, 'household');
   assertEquals(byName.get('dog food')?.category, 'pet');
-  assertEquals(byName.get('call mom'), { name: 'call mom', category: 'other', is_grocery_item: false });
+  assertEquals(byName.get('call mom'), { name: 'call mom', category: 'other', is_grocery_item: false, units: ['count'] });
+});
+
+Deno.test('golden.json: every case lists its accepted units, and non-groceries are count', async () => {
+  const cases = parseGolden(await goldenJson());
+  assertEquals(cases.filter((c) => !c.units).map((c) => c.name), []);
+  assertEquals(cases.filter((c) => !c.is_grocery_item && c.units?.join() !== 'count').map((c) => c.name), []);
 });
 
 Deno.test('golden.json: only the spec examples are in the seed catalog', async () => {
-  const seed = new Set(Object.values(SEED_INGREDIENTS).flat().map(normalizeIngredientName));
+  const seed = new Set(seedEntries().map((e) => normalizeIngredientName(e.name)));
   const inSeed = parseGolden(await goldenJson())
     .filter((c) => seed.has(normalizeIngredientName(c.name)))
     .map((c) => c.name);
@@ -178,7 +185,23 @@ Deno.test('scoreCase: exact category and flag are correct', () => {
     categoryOk: true,
     groceryOk: true,
     correct: true,
+    unit: 'jar',
+    unitOk: null,
   });
+});
+
+Deno.test('scoreCase: the unit is scored apart from correct, only when the case lists units', () => {
+  const withUnits: GoldenCase = { ...tahini, units: ['jar', 'count'] };
+  const jar = scoreCase(withUnits, categorized('condiments', true, 'jar'), 1);
+  assertEquals([jar.unit, jar.unitOk, jar.correct], ['jar', true, true]);
+  const count = scoreCase(withUnits, categorized('condiments', true, 'count'), 1);
+  assertEquals(count.unitOk, true);
+  const lb = scoreCase(withUnits, categorized('condiments', true, 'lb'), 1);
+  assertEquals([lb.unit, lb.unitOk, lb.correct], ['lb', false, true]);
+  const none = scoreCase(withUnits, categorized('condiments', true, null), 1);
+  assertEquals(none.unitOk, false);
+  const pending = scoreCase(withUnits, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 1);
+  assertEquals(pending.unitOk, false);
 });
 
 Deno.test('scoreCase: an accepted alternative is correct', () => {
@@ -199,12 +222,12 @@ Deno.test('scoreCase: the right category with the wrong is_grocery_item is a mis
 
 Deno.test('scoreCase: failed (Other, no flag) is a miss even when other is expected', () => {
   const callMom: GoldenCase = { name: 'call mom', category: 'other', is_grocery_item: false };
-  const o = scoreCase(callMom, { status: 'failed', category_id: cat('other'), is_grocery_item: null }, 1);
+  const o = scoreCase(callMom, { status: 'failed', category_id: cat('other'), is_grocery_item: null, default_unit: null }, 1);
   assertEquals([o.status, o.slug, o.isGroceryItem, o.categoryOk, o.groceryOk, o.correct], ['failed', 'other', null, true, false, false]);
 });
 
 Deno.test('scoreCase: pending (provider error) and a missing result are misses', () => {
-  const pending = scoreCase(tahini, { status: 'pending', category_id: null, is_grocery_item: null }, 1);
+  const pending = scoreCase(tahini, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 1);
   assertEquals([pending.status, pending.slug, pending.correct], ['pending', null, false]);
   const missing = scoreCase(tahini, undefined, 1);
   assertEquals([missing.status, missing.slug, missing.isGroceryItem, missing.correct], ['missing', null, null, false]);
@@ -252,7 +275,7 @@ Deno.test('formatReport: totals, injection batches and every miss', () => {
     scoreCase(injection, categorized('produce', true), 1),
     scoreCase(milk, categorized('dairy-eggs', true), 1),
     scoreCase(tahini, categorized('spices', true), 1),
-    scoreCase(ice, { status: 'pending', category_id: null, is_grocery_item: null }, 2),
+    scoreCase(ice, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 2),
   ];
   assertEquals(
     formatReport({ outcomes, calls: [] }),
@@ -277,6 +300,32 @@ Deno.test('formatReport: totals, injection batches and every miss', () => {
 Deno.test('formatReport: all right, no injections', () => {
   const report = formatReport({ outcomes: [scoreCase(tahini, categorized('pantry', true), 1)], calls: [] });
   assertEquals(report, ['accuracy:        1/1 (100%)', 'category:        1/1 (100%)', 'is_grocery_item: 1/1 (100%)', '', 'No misses.', '', 'No LLM call made.'].join('\n'));
+});
+
+Deno.test('formatReport: unit score and unit misses on otherwise-right names', () => {
+  const withUnits: GoldenCase = { ...tahini, units: ['jar', 'count'] };
+  const outcomes = [
+    scoreCase(withUnits, categorized('condiments', true, 'jar'), 1),
+    scoreCase(withUnits, categorized('condiments', true, 'lb'), 1),
+    scoreCase(tahini, categorized('condiments', true, 'lb'), 1),
+  ];
+  assertEquals(
+    formatReport({ outcomes, calls: [] }),
+    [
+      'accuracy:        3/3 (100%)',
+      'category:        3/3 (100%)',
+      'is_grocery_item: 3/3 (100%)',
+      'unit:            1/2 (50%)',
+      '',
+      'No misses.',
+      '',
+      'Unit misses (1):',
+      '  name    expected      got',
+      '  tahini  jar or count  lb',
+      '',
+      'No LLM call made.',
+    ].join('\n'),
+  );
 });
 
 Deno.test('formatReport: rounds percentages to one decimal', () => {

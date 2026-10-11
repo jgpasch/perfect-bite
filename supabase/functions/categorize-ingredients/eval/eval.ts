@@ -1,9 +1,9 @@
 // `yarn ai:eval`: the golden-set eval (spec §6.4). Runs every name in golden.json through the
 // function's own categorize(), with the same runAiTask, prompt and validation, against the CLI's
-// in-memory store, in batches of 50 so each batch is one LLM call. Prints the accuracy and every
-// miss. Run it whenever the model or the prompt changes; it costs real tokens, so it isn't part
+// in-memory store, in batches of 50 so each batch is one LLM call. Prints the accuracy, the
+// default-unit score, and every miss. Run it whenever the model or the prompt changes; it costs real tokens, so it isn't part
 // of CI or `deno test`.
-import { normalizeIngredientName, SYSTEM_CATEGORIES, type CategorySlug } from '@shared/index.ts';
+import { normalizeIngredientName, SYSTEM_CATEGORIES, UNIT_KEYS, type CategorySlug } from '@shared/index.ts';
 import { z } from 'zod';
 
 import type { AiCallRecord } from '../../_shared/ai/run-ai-task.ts';
@@ -31,6 +31,8 @@ const GoldenCaseSchema = z.object({
   /** Other slugs a shopper would accept, for items genuinely shelved in two places. */
   also: z.array(z.enum(CATEGORY_SLUGS)).optional(),
   is_grocery_item: z.boolean(),
+  /** Default units a shopper would accept (spec 4.2), most usual first. Unscored when absent. */
+  units: z.array(z.enum(UNIT_KEYS)).min(1).optional(),
   /** A prompt-injection attempt: expected other/false, and the rest of its batch must still be right. */
   injection: z.boolean().optional(),
 });
@@ -93,6 +95,10 @@ export type CaseOutcome = {
   groceryOk: boolean;
   /** Category (or an accepted alternative) and is_grocery_item both right, and categorized. */
   correct: boolean;
+  /** The returned default unit, or null when none came back. */
+  unit: string | null;
+  /** The unit is one of `units` and categorized; null when the case has no `units`. Not part of `correct`. */
+  unitOk: boolean | null;
 };
 
 /** Pure: one golden case against what categorize() returned for it. */
@@ -101,6 +107,7 @@ export function scoreCase(c: GoldenCase, result: CategorizeResult | undefined, b
   const status = result?.status ?? 'missing';
   const categoryOk = slug !== null && (slug === c.category || (c.also ?? []).includes(slug as CategorySlug));
   const groceryOk = result?.is_grocery_item === c.is_grocery_item;
+  const unit = result?.default_unit ?? null;
   return {
     case: c,
     batch,
@@ -110,6 +117,8 @@ export function scoreCase(c: GoldenCase, result: CategorizeResult | undefined, b
     categoryOk,
     groceryOk,
     correct: status === 'categorized' && categoryOk && groceryOk,
+    unit,
+    unitOk: c.units ? status === 'categorized' && unit !== null && (c.units as string[]).includes(unit) : null,
   };
 }
 
@@ -152,6 +161,10 @@ export function formatReport(report: EvalReport): string {
   lines.push(`accuracy:        ${pct(outcomes.filter((o) => o.correct).length, outcomes.length)}`);
   lines.push(`category:        ${pct(outcomes.filter((o) => o.categoryOk).length, outcomes.length)}`);
   lines.push(`is_grocery_item: ${pct(outcomes.filter((o) => o.groceryOk).length, outcomes.length)}`);
+  const scoredUnits = outcomes.filter((o) => o.unitOk !== null);
+  if (scoredUnits.length > 0) {
+    lines.push(`unit:            ${pct(scoredUnits.filter((o) => o.unitOk).length, scoredUnits.length)}`);
+  }
 
   const injections = outcomes.filter((o) => o.case.injection);
   if (injections.length > 0) {
@@ -176,6 +189,17 @@ export function formatReport(report: EvalReport): string {
       describeGot(o),
       String(o.batch),
     ])];
+    const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => [...r[col]].length)));
+    for (const r of rows) {
+      lines.push(`  ${r.map((cell, col) => cell + ' '.repeat(widths[col] - [...cell].length)).join('  ').trimEnd()}`);
+    }
+  }
+  // Unit misses on names that were otherwise right; the misses above already show the rest.
+  const unitMisses = outcomes.filter((o) => o.correct && o.unitOk === false);
+  if (unitMisses.length > 0) {
+    lines.push('');
+    lines.push(`Unit misses (${unitMisses.length}):`);
+    const rows = [['name', 'expected', 'got'], ...unitMisses.map((o) => [o.case.name, o.case.units!.join(' or '), o.unit ?? '-'])];
     const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => [...r[col]].length)));
     for (const r of rows) {
       lines.push(`  ${r.map((cell, col) => cell + ' '.repeat(widths[col] - [...cell].length)).join('  ').trimEnd()}`);

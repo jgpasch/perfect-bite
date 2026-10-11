@@ -1,10 +1,10 @@
 // Every AI task and its model, in one place (spec §6.4). Switch a model with
 // `supabase secrets set AI_MODEL_CATEGORIZE=google:gemini-3.8-flash`; no code change.
-import { SYSTEM_CATEGORIES, type CategorySlug } from '@shared/index.ts';
+import { SYSTEM_CATEGORIES, UNIT_KEYS, type CategorySlug } from '@shared/index.ts';
 import { z } from 'zod';
 
 import { mockCategorizeModel } from './mock-model.ts';
-import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v1.ts';
+import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v2.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
 export const AI_OFF = 'off';
@@ -17,14 +17,16 @@ export const CategorizeOutputSchema = z.object({
       name: z.string(),
       category: z.enum(CATEGORY_SLUGS),
       is_grocery_item: z.boolean(),
+      /** How it's usually bought (spec 4.2): a unit key, `count` for a plain number. */
+      unit: z.enum(UNIT_KEYS),
     }),
   ),
 });
 export type CategorizeOutput = z.infer<typeof CategorizeOutputSchema>;
 
-/** About 40 output tokens per name plus 200, capped at 4,500 (LLM boundaries: call limits). */
+/** About 50 output tokens per name plus 200, capped at 5,500 (LLM boundaries: call limits). */
 export function maxOutputTokens(nameCount: number): number {
-  return Math.min(4_500, 200 + 40 * Math.max(0, nameCount));
+  return Math.min(5_500, 200 + 50 * Math.max(0, nameCount));
 }
 
 function env(name: string): string | null {
@@ -70,7 +72,7 @@ function thinking(name: string, fallback: ThinkingSetting): ThinkingSetting {
 export const CATEGORIZE_THINKING: ThinkingSetting = 'low';
 
 export const aiTasks = {
-  /** Shelf category for 1..100 normalized ingredient names in one call. */
+  /** Shelf category and default unit for 1..100 normalized ingredient names in one call. */
   categorize: {
     /** No default: the function fails clearly when it isn't set. */
     model: () => env('AI_MODEL_CATEGORIZE'),

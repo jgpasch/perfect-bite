@@ -229,6 +229,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
     status: 'pending',
     isGroceryItem: null,
     categorizedBy: null,
+    defaultUnit: null,
   });
   const itemNamed = (name: string) =>
     groupItems(listItemsQuery(listId, A).all()).unchecked.find((i) => i.displayName === name)!;
@@ -364,6 +365,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
         status: 'categorized',
         isGroceryItem: true,
         categorizedBy: 'seed',
+        defaultUnit: 'count',
       },
     ]);
     expect(categoryOf(A, 'Tomatoes')).toBe(id('produce'));

@@ -61,7 +61,8 @@
     "lint": "expo lint",
     "test": "jest",
     "ai:categorize": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/cli.ts",
-    "ai:eval": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/eval.ts"
+    "ai:eval": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/eval.ts",
+    "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts"
   },
   "private": true,
   "packageManager": "yarn@4.18.0",

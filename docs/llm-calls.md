@@ -52,7 +52,7 @@ yarn ai:categorize --model mock milk # fake model, no key needed
 ```
 ━━ AI call #1 · categorize · google:gemini-3.8-flash · OK ━━━━━━━━━
 call id:        …
-prompt version: categorize.v1
+prompt version: categorize.v2
 temperature:    0
 max output:     320 tokens
 timeout:        20,000 ms

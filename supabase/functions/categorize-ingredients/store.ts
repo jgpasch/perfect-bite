@@ -17,7 +17,7 @@ export function createCategorizeStore(
     async getIngredients(names) {
       if (names.length === 0) return [];
       const { data, error } = await ingredients()
-        .select('normalized_name, status, default_category_id, is_grocery_item, attempts')
+        .select('normalized_name, status, default_category_id, is_grocery_item, default_unit, attempts')
         .in('normalized_name', names);
       if (error) throw error;
       return data as IngredientRow[];
@@ -32,10 +32,10 @@ export function createCategorizeStore(
     },
 
     async saveCategorized(rows, categorizedBy) {
-      // One update per (category, is_grocery_item) pair rather than one per name.
+      // One update per (category, is_grocery_item, unit) rather than one per name.
       const groups = new Map<string, CategorizedAnswer[]>();
       for (const row of rows) {
-        const key = `${row.default_category_id}:${row.is_grocery_item}`;
+        const key = `${row.default_category_id}:${row.is_grocery_item}:${row.default_unit}`;
         groups.set(key, [...(groups.get(key) ?? []), row]);
       }
       for (const group of groups.values()) {
@@ -44,6 +44,7 @@ export function createCategorizeStore(
             status: 'categorized',
             default_category_id: group[0].default_category_id,
             is_grocery_item: group[0].is_grocery_item,
+            default_unit: group[0].default_unit,
             categorized_by: categorizedBy,
           })
           .in('normalized_name', group.map((r) => r.normalized_name))

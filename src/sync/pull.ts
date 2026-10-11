@@ -349,6 +349,7 @@ function applyIngredient(tx: Exec, remote: ServerRow): void {
     status: remote.status as typeof local.status,
     isGroceryItem: (remote.is_grocery_item as boolean | null) ?? null,
     categorizedBy: (remote.categorized_by as string | null) ?? null,
+    defaultUnit: (remote.default_unit as string | null) ?? null,
   };
   const same = (Object.keys(next) as (keyof typeof next)[]).every((k) => next[k] === local[k]);
   if (!same) tx.update(ingredients).set(next).where(eq(ingredients.normalizedName, name)).run();

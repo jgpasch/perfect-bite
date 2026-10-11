@@ -292,6 +292,34 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     expect(usualUnitsQuery(listId).all()).toEqual([]);
   });
 
+  describe('catalog default unit', () => {
+    const setDefaultUnit = (ingredientName: string, defaultUnit: string) =>
+      db.update(ingredients).set({ defaultUnit }).where(eq(ingredients.normalizedName, ingredientName)).run();
+
+    test('with no history, the default unit is the usual unit', () => {
+      const milk = addItem(listId, '1 gal milk', USER)!;
+      db.delete(ingredientUnitUsage).run();
+      setDefaultUnit('milk', 'gal');
+      expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('2 gal');
+      expect(rows(view().unchecked)).toEqual(['2 gal milk']);
+      expect(view().unchecked[0].usualUnit).toBe('gal');
+      expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '2 gal', usualUnit: 'gal', hasUsualUnit: true });
+    });
+
+    test('household history wins over the default', () => {
+      addItem(listId, '1 qt milk', USER);
+      setDefaultUnit('milk', 'gal');
+      expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('2 qt');
+      expect(view().unchecked[0].usualUnit).toBe('qt');
+    });
+
+    test('a count default is a known usual unit', () => {
+      const r = addItem(listId, 'lemons', USER)!;
+      setDefaultUnit('lemon', 'count');
+      expect(getItemEdit(r.itemId)).toMatchObject({ usualUnit: null, hasUsualUnit: true });
+    });
+  });
+
   test('usualUnitsQuery reads only the list household’s rows for keys on the list', () => {
     db.insert(households).values({ id: 'other', name: 'Other' }).run();
     addItem(listId, '2 lbs chicken thighs', USER);

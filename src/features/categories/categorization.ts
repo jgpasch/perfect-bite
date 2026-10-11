@@ -20,6 +20,8 @@ type CategorizeResult = {
   status: 'pending' | 'categorized' | 'failed';
   category_id: string | null;
   is_grocery_item: boolean | null;
+  /** A `unit_key`; absent from servers older than the default unit. */
+  default_unit?: string | null;
 };
 
 let catchUp: Promise<void> | null = null;
@@ -80,6 +82,7 @@ export function applyResults(results: Record<string, CategorizeResult>): void {
           defaultCategoryId: (categorized && r.category_id) || OTHER_CATEGORY_ID,
           isGroceryItem: r.is_grocery_item,
           categorizedBy: categorized ? CATEGORIZED_BY_SERVER : null,
+          defaultUnit: (categorized && r.default_unit) || null,
         })
         .where(and(eq(ingredients.normalizedName, name), ne(ingredients.status, 'categorized')))
         .run();

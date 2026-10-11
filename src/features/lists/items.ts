@@ -19,7 +19,7 @@ import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplica
 import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory } from '@/domain/suggestion-rank';
-import { usualUnit } from '@/domain/usual-unit';
+import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
@@ -129,14 +129,22 @@ function usualUnitFor(tx: Tx, householdId: string, ingredientName: string): Unit
   return knownUsualUnit(tx, householdId, ingredientName) ?? null;
 }
 
-/** `usualUnit` for one ingredient: null for a plain count, undefined when nothing is known. */
+/**
+ * `usualUnit` for one ingredient, falling back to its catalog default unit: null for a plain count,
+ * undefined when nothing is known.
+ */
 function knownUsualUnit(tx: Tx, householdId: string, ingredientName: string): Unit | null | undefined {
   const rows = tx
     .select()
     .from(ingredientUnitUsage)
     .where(and(eq(ingredientUnitUsage.householdId, householdId), eq(ingredientUnitUsage.ingredientName, ingredientName)))
     .all();
-  return usualUnit(rows);
+  const catalog = tx
+    .select({ defaultUnit: ingredients.defaultUnit })
+    .from(ingredients)
+    .where(eq(ingredients.normalizedName, ingredientName))
+    .get();
+  return withDefaultUnit(usualUnit(rows), catalog?.defaultUnit);
 }
 
 export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
@@ -582,6 +590,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
       createdAt: listItems.createdAt,
       defaultCategoryId: ingredients.defaultCategoryId,
       ingredientStatus: ingredients.status,
+      defaultUnit: ingredients.defaultUnit,
       overrideCategoryId: userCategoryOverrides.categoryId,
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
@@ -650,7 +659,7 @@ export type ItemView = {
   /** When the item row was made; Newest (spec 4.6) goes by its amounts and falls back to this. */
   createdAt: Date;
   amounts: Amount[];
-  /** The household's usual unit for the ingredient (null: a count, or nothing known). */
+  /** The household's usual unit for the ingredient, else its default unit (null: a count, or nothing known). */
   usualUnit: Unit | null;
   /** `2 lb`, `1 gal + 1`, `2 gal` (usually bought by the gallon), or empty. */
   amountText: string;
@@ -687,7 +696,7 @@ export function groupItems(
         checkedAt: row.checkedAt,
         createdAt: row.createdAt,
         amounts: [],
-        usualUnit: usualUnits.get(row.ingredientName) ?? null,
+        usualUnit: withDefaultUnit(usualUnits.get(row.ingredientName), row.defaultUnit) ?? null,
         amountText: '',
         contributions: [],
       };

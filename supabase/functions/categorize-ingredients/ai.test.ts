@@ -76,6 +76,18 @@ Deno.test('mock: keyword rules pick the category, everything else is pantry', ()
   );
 });
 
+Deno.test('mock: units by keyword, count otherwise and for errands', () => {
+  const out = mockCategorize(['whole milk', 'eggs', 'ground beef', 'cilantro', 'flour', 'call mom']);
+  assertEquals(out.results.map((r) => [r.name, r.unit]), [
+    ['whole milk', 'gal'],
+    ['eggs', 'dozen'],
+    ['ground beef', 'lb'],
+    ['cilantro', 'bunch'],
+    ['flour', 'count'],
+    ['call mom', 'count'],
+  ]);
+});
+
 Deno.test('mock: errands are not groceries and go to Other, even when they name food', () => {
   const out = mockCategorize(['call mom', 'email landlord', 'pick up chicken', 'callaloo']);
   assertEquals(
@@ -113,12 +125,12 @@ Deno.test('mock model through runAiTask: categorizes every name and is recorded 
     );
     assertEquals(res.output, {
       results: [
-        { name: 'salmon', category: 'meat-seafood', is_grocery_item: true },
-        { name: 'call mom', category: 'other', is_grocery_item: false },
-        { name: 'flour', category: 'pantry', is_grocery_item: true },
+        { name: 'salmon', category: 'meat-seafood', is_grocery_item: true, unit: 'lb' },
+        { name: 'call mom', category: 'other', is_grocery_item: false, unit: 'count' },
+        { name: 'flour', category: 'pantry', is_grocery_item: true, unit: 'count' },
       ],
     });
-    assertEquals([res.model, res.promptVersion], ['mock', 'categorize.v1']);
+    assertEquals([res.model, res.promptVersion], ['mock', 'categorize.v2']);
     assertEquals(calls.length, 1);
     assertEquals([calls[0].task, calls[0].model, calls[0].status, calls[0].fallback_of], ['categorize', 'mock', 'ok', null]);
     assertEquals(calls[0].prompt, PROMPT(['salmon', 'call mom', 'flour']));
@@ -127,12 +139,12 @@ Deno.test('mock model through runAiTask: categorizes every name and is recorded 
 
 // --- Task config --------------------------------------------------------------------------------
 
-Deno.test('maxOutputTokens: 40 per name plus 200, capped at 4,500', () => {
+Deno.test('maxOutputTokens: 50 per name plus 200, capped at 5,500', () => {
   assertEquals(maxOutputTokens(0), 200);
-  assertEquals(maxOutputTokens(1), 240);
-  assertEquals(maxOutputTokens(100), 4_200);
-  assertEquals(maxOutputTokens(108), 4_500);
-  assertEquals(maxOutputTokens(500), 4_500);
+  assertEquals(maxOutputTokens(1), 250);
+  assertEquals(maxOutputTokens(100), 5_200);
+  assertEquals(maxOutputTokens(106), 5_500);
+  assertEquals(maxOutputTokens(500), 5_500);
   assertEquals(maxOutputTokens(-3), 200);
 });
 
@@ -161,7 +173,7 @@ Deno.test('runAiTask passes temperature and a batch-sized maxOutputTokens to the
     { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 8 },
     { model: { instance: recordingModel(seen), modelId: 'mock:model' } },
   );
-  assertEquals(seen, [{ temperature: 0, maxOutputTokens: 520 }]);
+  assertEquals(seen, [{ temperature: 0, maxOutputTokens: 600 }]);
 });
 
 /** Runs one categorize call and returns the `providerOptions` the model received. */
@@ -262,7 +274,7 @@ Deno.test('runAiTask: AI_MODEL_CATEGORIZE_FALLBACK is tried after an API failure
       { model: { instance: recordingModel([], overloaded()), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
     );
     assertEquals(res.model, 'mock');
-    assertEquals(res.output.results, [{ name: 'beef', category: 'meat-seafood', is_grocery_item: true }]);
+    assertEquals(res.output.results, [{ name: 'beef', category: 'meat-seafood', is_grocery_item: true, unit: 'lb' }]);
     assertEquals(calls.map((c) => [c.model, c.status]), [['mock:model', 'api_error'], ['mock', 'ok']]);
     assertEquals(calls[1].fallback_of, calls[0].id);
   });
@@ -310,7 +322,7 @@ Deno.test('trace listener: gets the full call, settings and raw bodies on succes
   assertEquals(traces.length, 1);
   const [t] = traces;
   assertEquals([t.status, t.model, t.instructions, t.prompt], ['ok', 'mock:model', 'rules', PROMPT(['milk'])]);
-  assertEquals([t.temperature, t.max_output_tokens, t.timeout_ms], [0, 280, 20_000]);
+  assertEquals([t.temperature, t.max_output_tokens, t.timeout_ms], [0, 300, 20_000]);
   assertEquals([t.input_tokens, t.cached_input_tokens, t.output_tokens, t.reasoning_tokens], [100, 40, 20, 5]);
   assertEquals([t.request_body, t.response_body], [{ sent: true }, { received: true }]);
   assertEquals(t.finish_reason, 'stop');

@@ -28,7 +28,9 @@ function addLocal(name: string, status: 'pending' | 'failed' | 'categorized' = '
 const row = (name: string) => db.select().from(ingredients).where(eq(ingredients.normalizedName, name)).get();
 const sentNames = (call = 0) => (invoke.mock.calls[call][1] as { body: { names: string[] } }).body.names;
 
-function respond(results: Record<string, { status: string; category_id: string | null; is_grocery_item: boolean | null }>) {
+function respond(
+  results: Record<string, { status: string; category_id: string | null; is_grocery_item: boolean | null; default_unit?: string | null }>,
+) {
   invoke.mockResolvedValue({ data: { results }, error: null });
 }
 
@@ -69,12 +71,12 @@ describe('explicit names', () => {
 });
 
 describe('results', () => {
-  test('writes category, status, is_grocery_item and categorized_by', async () => {
+  test('writes category, status, is_grocery_item, categorized_by and default unit', async () => {
     addLocal("za'atar");
     addLocal('call mom');
     respond({
-      "za'atar": { status: 'categorized', category_id: SPICES, is_grocery_item: true },
-      'call mom': { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: false },
+      "za'atar": { status: 'categorized', category_id: SPICES, is_grocery_item: true, default_unit: 'jar' },
+      'call mom': { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: false, default_unit: 'count' },
     });
     await categorizePending(["za'atar", 'call mom']);
     expect(row("za'atar")).toEqual({
@@ -84,6 +86,7 @@ describe('results', () => {
       status: 'categorized',
       isGroceryItem: true,
       categorizedBy: CATEGORIZED_BY_SERVER,
+      defaultUnit: 'jar',
     });
     expect(row('call mom')).toMatchObject({ status: 'categorized', defaultCategoryId: OTHER_CATEGORY_ID, isGroceryItem: false });
     expect(warn).not.toHaveBeenCalled();

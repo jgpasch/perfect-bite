@@ -1,6 +1,6 @@
 // `AI_MODEL_CATEGORIZE=mock` (spec §8.3): a deterministic fake categorizer with no key, no
 // network and no cost. Keyword rules only; good enough to watch items leave "Sorting...".
-import type { CategorySlug } from '@shared/index.ts';
+import type { CategorySlug, UnitKey } from '@shared/index.ts';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
@@ -23,6 +23,14 @@ const KEYWORD_RULES: [CategorySlug, string[]][] = [
   ['pasta-grains', ['pasta', 'rice', 'spaghetti', 'noodle', 'quinoa']],
 ];
 
+/** First match wins; anything unmatched is a count, as are non-groceries. */
+const UNIT_RULES: [UnitKey, string[]][] = [
+  ['dozen', ['egg']],
+  ['gal', ['milk']],
+  ['lb', ['chicken', 'beef', 'salmon', 'pork', 'turkey', 'shrimp', 'steak']],
+  ['bunch', ['cilantro', 'parsley', 'kale']],
+];
+
 /** Errands typed into a list are not groceries (spec §6.4). */
 const NOT_GROCERY = ['call ', 'email ', 'pick up '];
 
@@ -31,10 +39,16 @@ export function mockCategorize(names: readonly string[]): CategorizeOutput {
     results: names.map((name) => {
       const lower = name.toLowerCase();
       if (NOT_GROCERY.some((k) => lower.includes(k))) {
-        return { name, category: 'other' as const, is_grocery_item: false };
+        return { name, category: 'other' as const, is_grocery_item: false, unit: 'count' as const };
       }
       const rule = KEYWORD_RULES.find(([, keywords]) => keywords.some((k) => lower.includes(k)));
-      return { name, category: rule ? rule[0] : ('pantry' as const), is_grocery_item: true };
+      const unit = UNIT_RULES.find(([, keywords]) => keywords.some((k) => lower.includes(k)));
+      return {
+        name,
+        category: rule ? rule[0] : ('pantry' as const),
+        is_grocery_item: true,
+        unit: unit ? unit[0] : ('count' as const),
+      };
     }),
   };
 }

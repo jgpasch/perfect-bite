@@ -718,6 +718,7 @@ describe('ingredient catalog', () => {
     status: 'categorized',
     is_grocery_item: true,
     categorized_by: 'model',
+    default_unit: 'qt',
     attempts: 1,
     household_count: 2,
     created_at: ts(0),
@@ -745,6 +746,7 @@ describe('ingredient catalog', () => {
       status: 'categorized',
       isGroceryItem: true,
       categorizedBy: 'model',
+      defaultUnit: 'qt',
     });
     expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'natto')).get()).toBeUndefined();
     expect(getPullState().cursors['catalog:ingredients']).toBe(ts(8));

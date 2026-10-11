@@ -5,17 +5,18 @@ import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
 
 import { categories, db, ingredients, userCategoryOrder, userCategoryOverrides } from '@/db';
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
+import { fingerprint } from '@/domain/fingerprint';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { deleteRows, insertRow, updateRows, upsertRow } from '@/sync/mutate';
-import { normalizeIngredientName, SEED_INGREDIENTS, SYSTEM_CATEGORIES } from '@/shared';
+import { normalizeIngredientName, SEED_INGREDIENTS, seedEntries, SYSTEM_CATEGORIES } from '@/shared';
 
 // --- Seed ----------------------------------------------------------------------------------
 
-/** Changes whenever the bundled seed does, so an app update re-applies it. */
-const SEED_FINGERPRINT = JSON.stringify([SYSTEM_CATEGORIES, SEED_INGREDIENTS]).length;
+/** Changes whenever the bundled seed does (names, categories or units), so an app update re-applies it. */
+const SEED_FINGERPRINT = fingerprint([SYSTEM_CATEGORIES, SEED_INGREDIENTS]);
 const SEED_KEY = 'catalog.seedFingerprint';
 
 /**
@@ -32,25 +33,24 @@ export function loadCatalogSeed(): void {
         .onConflictDoUpdate({ target: categories.id, set: { slug: c.slug, name: c.name, defaultRank: rank } })
         .run();
     });
-    for (const [slug, names] of Object.entries(SEED_INGREDIENTS)) {
-      for (const displayName of names) {
-        const row = {
-          normalizedName: normalizeIngredientName(displayName),
-          displayName,
-          defaultCategoryId: slugToId.get(slug)!,
-          status: 'categorized' as const,
-          isGroceryItem: true,
-          categorizedBy: 'seed',
-        };
-        tx.insert(ingredients)
-          .values(row)
-          .onConflictDoUpdate({
-            target: ingredients.normalizedName,
-            set: row,
-            setWhere: or(eq(ingredients.categorizedBy, 'seed'), sql`${ingredients.status} <> 'categorized'`),
-          })
-          .run();
-      }
+    for (const { name: displayName, category, unit } of seedEntries()) {
+      const row = {
+        normalizedName: normalizeIngredientName(displayName),
+        displayName,
+        defaultCategoryId: slugToId.get(category)!,
+        status: 'categorized' as const,
+        isGroceryItem: true,
+        categorizedBy: 'seed',
+        defaultUnit: unit,
+      };
+      tx.insert(ingredients)
+        .values(row)
+        .onConflictDoUpdate({
+          target: ingredients.normalizedName,
+          set: row,
+          setWhere: or(eq(ingredients.categorizedBy, 'seed'), sql`${ingredients.status} <> 'categorized'`),
+        })
+        .run();
     }
   });
   setDeviceSetting(SEED_KEY, SEED_FINGERPRINT);

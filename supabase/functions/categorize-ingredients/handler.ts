@@ -1,9 +1,9 @@
 // categorize-ingredients (spec §6.1 step 5, §6.4): pure logic behind a store interface, so it
 // runs in Deno tests with a fake store and MockLanguageModelV4. index.ts wires the real store.
-import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@shared/index.ts';
+import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES, type UnitKey } from '@shared/index.ts';
 import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } from 'ai';
 
-import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v1.ts';
+import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v2.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 
@@ -23,6 +23,8 @@ export type IngredientRow = {
   status: IngredientStatus;
   default_category_id: string | null;
   is_grocery_item: boolean | null;
+  /** A unit key (spec 4.2); null when unknown. */
+  default_unit: string | null;
   attempts: number;
 };
 
@@ -30,6 +32,7 @@ export type CategorizedAnswer = {
   normalized_name: string;
   default_category_id: string;
   is_grocery_item: boolean;
+  default_unit: UnitKey;
 };
 
 /** The `ingredients` table as the function sees it. index.ts implements it with the service role. */
@@ -37,7 +40,7 @@ export interface CategorizeStore {
   getIngredients(names: readonly string[]): Promise<IngredientRow[]>;
   /** Inserts `pending` rows; `on conflict do nothing`. */
   insertPending(rows: readonly { normalized_name: string; display_name: string }[]): Promise<void>;
-  /** Sets the category, `status = 'categorized'` and `categorized_by`, only `where status <> 'categorized'`. */
+  /** Sets the category, default unit, `status = 'categorized'` and `categorized_by`, only `where status <> 'categorized'`. */
   saveCategorized(rows: readonly CategorizedAnswer[], categorizedBy: string): Promise<void>;
   /** Sets `status = 'failed'`, `attempts + 1` and category Other, only `where status <> 'categorized'`. */
   saveFailed(names: readonly string[]): Promise<void>;
@@ -56,6 +59,8 @@ export type CategorizeResult = {
   status: IngredientStatus;
   category_id: string | null;
   is_grocery_item: boolean | null;
+  /** A unit key; null when unknown. */
+  default_unit: string | null;
 };
 
 export type CategorizeResponse = { results: Record<string, CategorizeResult> };
@@ -74,8 +79,8 @@ export class CategorizeLimitError extends Error {
 
 const CATEGORY_ID_BY_SLUG = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.slug, c.id]));
 
-const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null };
-const TOO_LONG: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null };
+const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null };
+const TOO_LONG: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, default_unit: null };
 
 /** A provider error or timeout isn't the names' fault: they stay pending and no attempt counts. */
 function isProviderFailure(err: unknown): boolean {
@@ -146,7 +151,12 @@ export async function categorize(
     if (!row || (deferred.has(n) && row.status !== 'categorized')) {
       results.set(n, PENDING);
     } else {
-      results.set(n, { status: row.status, category_id: row.default_category_id, is_grocery_item: row.is_grocery_item });
+      results.set(n, {
+        status: row.status,
+        category_id: row.default_category_id,
+        is_grocery_item: row.is_grocery_item,
+        default_unit: row.default_unit,
+      });
     }
   }
   for (const n of tooLong) results.set(n, TOO_LONG);
@@ -188,6 +198,7 @@ async function categorizeBatch(
       normalized_name: answer.name,
       default_category_id: categoryId,
       is_grocery_item: answer.is_grocery_item,
+      default_unit: answer.unit,
     });
   }
   if (answers.size > 0) await store.saveCategorized([...answers.values()], result.model);

@@ -1,5 +1,5 @@
 // Spec 4.2, 4.4: the unit a household usually buys an ingredient in, from `ingredient_unit_usage`
-// rows. Pure.
+// rows, falling back to the catalog's default unit. Pure.
 import { UNITS, type Unit } from '@/shared';
 
 /** `unit_key` for a quantity with no unit. */
@@ -34,6 +34,19 @@ export function usualUnit(rows: readonly UnitUsageRow[]): Unit | null | undefine
     if (!best || compare(row, best) < 0) best = row;
   }
   return best && unitFromKey(best.unitKey);
+}
+
+/**
+ * The usual unit with the catalog's default unit (`ingredients.default_unit`, a `unit_key`) as the
+ * fallback: household history wins, and the default applies until there is some. Same return as
+ * `usualUnit`; an unknown default key counts as nothing known.
+ */
+export function withDefaultUnit(
+  known: Unit | null | undefined,
+  defaultUnitKey: string | null | undefined,
+): Unit | null | undefined {
+  if (known !== undefined) return known;
+  return defaultUnitKey == null ? undefined : unitFromKey(defaultUnitKey);
 }
 
 /**
