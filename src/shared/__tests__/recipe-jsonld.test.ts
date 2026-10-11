@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
-import { cleanJsonLdText, findRecipe } from '../recipe-jsonld';
+import { cleanJsonLdText, decodeHtmlEntities, findRecipe } from '../recipe-jsonld';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -243,8 +243,19 @@ describe('cleanJsonLdText', () => {
   });
 });
 
+describe('decodeHtmlEntities', () => {
+  it('decodes named, decimal and hex entities without touching tags or whitespace', () => {
+    expect(decodeHtmlEntities('<b>Fish &AMP; chips</b>  &#8211;&#x2014;&frac12;')).toBe('<b>Fish & chips</b>  –—½');
+  });
+
+  it('leaves unknown and out-of-range entities alone, and decodes once', () => {
+    expect(decodeHtmlEntities('&copy; &#0; &#x110000; &amp;gt;')).toBe('&copy; &#0; &#x110000; &gt;');
+  });
+});
+
 describe('exports', () => {
-  it('exports findRecipe from @/shared', () => {
+  it('exports findRecipe and decodeHtmlEntities from @/shared', () => {
     expect(shared.findRecipe).toBe(findRecipe);
+    expect(shared.decodeHtmlEntities).toBe(decodeHtmlEntities);
   });
 });

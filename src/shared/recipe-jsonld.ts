@@ -27,7 +27,8 @@ const NAMED_ENTITIES: Record<string, string> = {
   rsquo: '’',
 };
 
-function decodeEntities(text: string): string {
+/** Decodes numeric entities and the named ones recipe pages use; unknown names stay as written. */
+export function decodeHtmlEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);/gi, (match, body: string) => {
     if (body[0] === '#') {
       const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
@@ -39,7 +40,7 @@ function decodeEntities(text: string): string {
 
 /** Strips tags, decodes HTML entities and collapses whitespace. */
 export function cleanJsonLdText(text: string): string {
-  return decodeEntities(text.replace(/<[^>]*>/g, ' '))
+  return decodeHtmlEntities(text.replace(/<[^>]*>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim();
 }

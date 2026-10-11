@@ -8,7 +8,10 @@ import { useTheme } from '@/hooks/use-theme';
 type Props = {
   value: string;
   onChangeText: (text: string) => void;
-  /** Called by return and by the + button. Return keeps the keyboard up for the next one (spec 4.2). */
+  /**
+   * Called by return and by the + button. Return keeps the keyboard up for the next one (spec 4.2);
+   * on an empty field it hides the keyboard instead.
+   */
   onSubmit: () => void;
   placeholder: string;
   accessibilityLabel: string;
@@ -36,6 +39,8 @@ export function AddBar({
   const keyboardVisible = useKeyboardVisible();
   const [focused, setFocused] = useState(false);
   const empty = !value.trim();
+  // While typing into an empty field the disabled + would be dead weight, so it hides the keyboard instead.
+  const dismiss = focused && empty;
   const inset = (sizes.bar - sizes.barButton) / 2;
 
   return (
@@ -65,7 +70,7 @@ export function AddBar({
         <TextInput
           value={value}
           onChangeText={onChangeText}
-          onSubmitEditing={onSubmit}
+          onSubmitEditing={empty ? Keyboard.dismiss : onSubmit}
           onFocus={() => (setFocused(true), onFocusChange?.(true))}
           onBlur={() => (setFocused(false), onFocusChange?.(false))}
           submitBehavior="submit"
@@ -78,10 +83,10 @@ export function AddBar({
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Add"
-          accessibilityState={{ disabled: empty }}
-          disabled={empty}
-          onPress={onSubmit}
+          accessibilityLabel={dismiss ? 'Hide keyboard' : 'Add'}
+          accessibilityState={{ disabled: empty && !dismiss }}
+          disabled={empty && !dismiss}
+          onPress={dismiss ? Keyboard.dismiss : onSubmit}
           hitSlop={(sizes.minTapTarget - sizes.barButton) / 2}
           style={({ pressed }) => [
             styles.add,
@@ -89,11 +94,15 @@ export function AddBar({
               width: sizes.barButton,
               height: sizes.barButton,
               borderRadius: rounded.full,
-              backgroundColor: colors.primary,
-              opacity: empty ? opacity.disabled : pressed ? opacity.pressed : 1,
+              backgroundColor: dismiss ? colors.surfaceMuted : colors.primary,
+              opacity: empty && !dismiss ? opacity.disabled : pressed ? opacity.pressed : 1,
             },
           ]}>
-          <Icon name="plus" color="onPrimary" weight="bold" />
+          {dismiss ? (
+            <Icon name="keyboard.chevron.compact.down" color="ink" weight="semibold" />
+          ) : (
+            <Icon name="plus" color="onPrimary" weight="bold" />
+          )}
         </Pressable>
       </View>
     </View>
