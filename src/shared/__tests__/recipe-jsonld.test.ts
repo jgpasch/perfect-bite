@@ -2,6 +2,13 @@ import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
 import { cleanJsonLdText, findRecipe } from '../recipe-jsonld';
+import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
+import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
+import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
+import delish from './fixtures/recipe-jsonld/delish.json';
+import kingarthur from './fixtures/recipe-jsonld/kingarthur.json';
+import recipetineats from './fixtures/recipe-jsonld/recipetineats.json';
+import tasty from './fixtures/recipe-jsonld/tasty.json';
 
 const recipe = (fields: Record<string, unknown> = {}) => ({
   '@context': 'https://schema.org',
@@ -165,6 +172,60 @@ describe('findRecipe: servings', () => {
     expect(servings('')).toBeNull();
     expect(servings([])).toBeNull();
     expect(servings({ value: 4 })).toBeNull();
+  });
+});
+
+// Every application/ld+json block from each page, as served on 2026-10-10.
+const FIXTURES: [string, string[], string, number, string, string, number][] = [
+  ['bbc.co.uk/food (@graph, HTML in strings)', bbcfood, 'Easy chocolate cake', 12, '225g/8oz plain flour', '200ml/7fl oz double cream', 12],
+  ['bbcgoodfood (Recipe in 2nd block)', bbcgoodfood, 'Easy pancakes', 6, '100g plain flour', 'caster sugar to serve (optional)', 12],
+  [
+    'bonappetit (top-level Recipe)',
+    bonappetit,
+    'BA’s Best Chocolate Chip Cookies',
+    10,
+    '1½ cups plus 1 Tbsp. (200 g) all-purpose flour (spooning into measuring cups, then leveling)',
+    '6 oz. (170 g) bittersweet chocolate (60%–70% cacao), coarsely chopped, or semisweet chocolate chips',
+    16,
+  ],
+  ['delish (top-level array)', delish, 'Creamy Tuscan Chicken', 12, '1 tbsp. extra-virgin olive oil', 'Lemon wedges, for serving', 4],
+  [
+    'kingarthurbaking (@graph)',
+    kingarthur,
+    'Classic Sandwich Bread',
+    7,
+    '3 cups (360g) King Arthur Unbleached All-Purpose Flour',
+    '2 teaspoons instant yeast',
+    16,
+  ],
+  [
+    'recipetineats (Yoast @graph, entities)',
+    recipetineats,
+    "JB's Chicken Chasseur",
+    19,
+    '4 chicken thighs, bone-in, skin on ((~250g/8oz each) (Note 1))',
+    'Creamy mashed potato ((or rice or small pasta))',
+    4,
+  ],
+  [
+    'tasty (Recipe, VideoObject, array blocks)',
+    tasty,
+    'One-Pot Garlic Parmesan Pasta Recipe by Tasty',
+    9,
+    '2 tablespoons unsalted butter',
+    '2 tablespoons fresh parsley, chopped',
+    4,
+  ],
+];
+
+describe('findRecipe: real pages', () => {
+  it.each(FIXTURES)('%s', (_site, blocks, name, lineCount, first, last, servings) => {
+    const found = findRecipe(blocks);
+    expect(found?.name).toBe(name);
+    expect(found?.ingredientLines).toHaveLength(lineCount);
+    expect(found?.ingredientLines[0]).toBe(first);
+    expect(found?.ingredientLines.at(-1)).toBe(last);
+    expect(found?.servings).toBe(servings);
   });
 });
 
