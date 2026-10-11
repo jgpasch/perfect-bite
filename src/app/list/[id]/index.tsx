@@ -199,7 +199,7 @@ export default function ListScreen() {
   const listRef = useRef<FlatList<Block>>(null);
 
   // Add mode: while the add field is focused the big title and view control collapse into the native header,
-  // cards go edge to edge, and items matching the typed text are marked "already on list".
+  // and items matching the typed text are marked "already on list".
   const [adding, setAdding] = useState(false);
   const [addText, setAddText] = useState('');
   const addMode = adding && !selection;
@@ -518,19 +518,19 @@ export default function ListScreen() {
 
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return <Card flush={addMode}>{block.entries.map(renderEntryWithAisle)}</Card>;
+      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
         return (
-          <Card flush={addMode}>
+          <Card>
             {block.entries.map((e, i) => renderEntry(e, i, colors.surface, true))}
           </Card>
         );
       }
       return (
-        <Card flush={addMode}>
+        <Card>
           <FoldingSection
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
@@ -545,7 +545,7 @@ export default function ListScreen() {
     }
     if (block.kind === 'recipe') {
       return (
-        <Card flush={addMode}>
+        <Card>
           <FoldingSection
             title={block.title}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
@@ -588,7 +588,7 @@ export default function ListScreen() {
           <ClearCheckedButton count={block.count} onPress={clear} />
         </View>
         {block.entries.length > 0 ? (
-          <Card flush={addMode}>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
+          <Card>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
         ) : null}
       </View>
     );
@@ -737,20 +737,7 @@ export default function ListScreen() {
           keyboardDismissMode="none"
           contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
-          renderItem={({ item: block, index }) =>
-            // Add mode: the cards go edge to edge, so the first one is the sheet's top, rounded up over the green.
-            addMode && index === 0 ? (
-              <View
-                style={[
-                  styles.sheetTop,
-                  { marginTop: -rounded.card, borderTopLeftRadius: rounded.card, borderTopRightRadius: rounded.card },
-                ]}>
-                {renderBlock(block)}
-              </View>
-            ) : (
-              renderBlock(block)
-            )
-          }
+          renderItem={({ item: block }) => renderBlock(block)}
           onScrollToIndexFailed={({ index, averageItemLength }) =>
             listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
           }

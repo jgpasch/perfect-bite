@@ -4,7 +4,7 @@
  */
 
 import type { IconName } from '@/components/icon';
-import { AisleColors as AisleTokens, Palette, withAlpha, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
+import { AisleColors as AisleTokens, Palette, Rounded, Spacing, withAlpha, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
 import { aisleColor, type AisleHue } from '@/domain/aisle-color';
 import { contrastRatio, mix } from '@/domain/contrast';
 import type { CategorySlug } from '@/shared/seed/categories';
@@ -259,4 +259,15 @@ export function toastAnnouncement(message: string, actionLabels: string[]): stri
  */
 export function addBarButton(value: string): { label: 'Add'; disabled: boolean } {
   return { label: 'Add', disabled: !value.trim() };
+}
+
+/**
+ * A card's box: its ground, the `card` radius and a 16 pt inset from the screen edge, the same in every
+ * mode. The list's add mode keeps it too, so focusing the add field moves only the title, never the cards.
+ */
+export function cardLook(
+  background: ColorToken,
+  colors: ThemeColors,
+): { backgroundColor: string; borderRadius: number; marginHorizontal: number } {
+  return { backgroundColor: colors[background], borderRadius: Rounded.card, marginHorizontal: Spacing.lg };
 }

@@ -3,6 +3,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   addBarButton,
   aisleRowLook,
+  cardLook,
   aisleSymbol,
   avatarColors,
   badgeColors,
@@ -30,6 +31,26 @@ import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 jest.mock('@/global.css', () => ({}));
 
 const SCHEMES: ColorScheme[] = ['light', 'dark'];
+
+describe('cardLook', () => {
+  it('is a white card with the 22 pt radius, 16 pt in from the edge, in light mode', () => {
+    expect(cardLook('surface', Palette.light)).toEqual({ backgroundColor: '#FFFFFF', borderRadius: 22, marginHorizontal: 16 });
+  });
+
+  it('uses the dark surface in dark mode, with the same shape', () => {
+    expect(cardLook('surface', Palette.dark)).toEqual({ backgroundColor: '#1B241F', borderRadius: 22, marginHorizontal: 16 });
+  });
+
+  it('takes another ground without changing its shape (the Sorting… card)', () => {
+    expect(cardLook('pendingSoft', Palette.light)).toEqual({ backgroundColor: '#FFF7E6', borderRadius: 22, marginHorizontal: 16 });
+  });
+
+  it.each(SCHEMES)('never goes edge to edge or square in %s mode', (scheme) => {
+    const look = cardLook('surface', Palette[scheme]);
+    expect(look.borderRadius).toBeGreaterThan(0);
+    expect(look.marginHorizontal).toBe(Spacing.lg);
+  });
+});
 
 describe('checkState', () => {
   it('is off when unchecked and not sorting', () => {
