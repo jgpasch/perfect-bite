@@ -5,6 +5,17 @@ import type { CategorySlug } from '@/shared/seed/categories';
 
 export type AisleHue = 'green' | 'blue' | 'rose' | 'amber' | 'grey';
 
+/** Every aisle hue, in the order pickers show them. The server's `lists.color` check allows exactly these. */
+export const AISLE_HUES: readonly AisleHue[] = ['green', 'blue', 'rose', 'amber', 'grey'];
+
+/**
+ * A list's stored colour as a hue, or null for Default (spec 4.1). Anything else, e.g. a hue a newer
+ * app version added, reads as Default.
+ */
+export function listHue(color: string | null | undefined): AisleHue | null {
+  return color != null && (AISLE_HUES as readonly string[]).includes(color) ? (color as AisleHue) : null;
+}
+
 const HUES: Record<CategorySlug, AisleHue> = {
   produce: 'green',
   bakery: 'amber',

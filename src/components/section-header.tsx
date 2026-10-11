@@ -1,9 +1,13 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { sectionHeaderLabel } from '@/components/appearance';
+import { Collapsible } from '@/components/collapsible';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
+import { Motion, type Spacing } from '@/constants/theme';
+import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -20,7 +24,7 @@ type Props = {
   trailing?: ReactNode;
   /** What VoiceOver reads instead of the title, e.g. for the Sorting… section. */
   accessibilityLabel?: string;
-  /** Makes the header a button that folds the card's rows away (spec 4.6), with a chevron. */
+  /** Makes the header a button that folds the card's rows away (spec 4.6), with a chevron. Use `FoldingSection`. */
   onToggle?: () => void;
   collapsed?: boolean;
 };
@@ -39,9 +43,7 @@ export function SectionHeader({
 }: Props) {
   const { spacing, sizes, rounded, opacity } = useTheme();
   const label = sectionHeaderLabel(accessibilityLabel ?? title, count);
-  const paddingTop = spacing.md + spacing.xxs;
-  // A folded card is just its header, so it sits in the middle.
-  const paddingBottom = collapsed ? paddingTop : spacing.xs + spacing.xxs;
+  const { paddingTop, paddingBottom } = headerPadding(spacing);
   const content = (
     <>
       {leading ??
@@ -98,10 +100,50 @@ export function SectionHeader({
           },
         ]}>
         {content}
-        <Icon name={collapsed ? 'chevron.right' : 'chevron.down'} color="inkSecondary" size={sizes.iconSmall} />
+        <Chevron collapsed={collapsed} size={sizes.iconSmall} />
       </Pressable>
       {trailing}
     </View>
+  );
+}
+
+type FoldingSectionProps = Omit<Props, 'onToggle' | 'collapsed'> & {
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+};
+
+/** A card's foldable section (spec 4.6): its header, then its rows, which spring open and folded. */
+export function FoldingSection({ collapsed, children, ...header }: FoldingSectionProps) {
+  const { spacing } = useTheme();
+  const { paddingTop, paddingBottom } = headerPadding(spacing);
+  return (
+    <>
+      <SectionHeader {...header} collapsed={collapsed} />
+      {/* A folded card is just its header, so it sits in the middle. */}
+      <Collapsible open={!collapsed} closedHeight={paddingTop - paddingBottom}>
+        {children}
+      </Collapsible>
+    </>
+  );
+}
+
+function headerPadding(spacing: typeof Spacing) {
+  return { paddingTop: spacing.md + spacing.xxs, paddingBottom: spacing.xs + spacing.xxs };
+}
+
+/** Points down while open and turns to point right as the section folds. */
+function Chevron({ collapsed, size }: { collapsed: boolean; size: number }) {
+  const { reduceMotion } = useMotion();
+  const turn = useSharedValue(collapsed ? 1 : 0);
+  useEffect(() => {
+    turn.value = reduceMotion ? (collapsed ? 1 : 0) : withSpring(collapsed ? 1 : 0, Motion.spring);
+  }, [collapsed, reduceMotion, turn]);
+  const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 * turn.value}deg` }] }));
+  return (
+    <Animated.View style={style}>
+      <Icon name="chevron.down" color="inkSecondary" size={size} />
+    </Animated.View>
   );
 }
 

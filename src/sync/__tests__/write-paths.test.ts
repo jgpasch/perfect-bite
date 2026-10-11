@@ -81,6 +81,7 @@ describe('households and lists', () => {
           household_id: household.id,
           name: 'Groceries',
           emoji: null,
+          color: null,
           position: 1,
           archived_at: null,
           deleted_at: null,

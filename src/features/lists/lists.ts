@@ -2,6 +2,7 @@
 import { and, asc, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { db, households, listItems, lists, userSettings, type List } from '@/db';
+import type { AisleHue } from '@/domain/aisle-color';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
@@ -90,6 +91,11 @@ export function renameList(id: string, name: string): void {
   const trimmed = name.trim();
   if (!trimmed) return;
   updateRows(db, lists, eq(lists.id, id), { name: trimmed });
+}
+
+/** Sets the list's colour, or `null` for Default. Shared with the household like its name. */
+export function setListColor(id: string, hue: AisleHue | null): void {
+  updateRows(db, lists, eq(lists.id, id), { color: hue });
 }
 
 export function setListArchived(id: string, archived: boolean): void {

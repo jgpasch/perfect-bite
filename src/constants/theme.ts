@@ -246,6 +246,8 @@ export const Sizes = {
 export const Motion = {
   duration: 250,
   spring: { damping: 20, stiffness: 220, mass: 1 },
+  /** Opening and folding a card's section: a near-critical spring, so the height settles without a visible gap. */
+  fold: { duration: 300, dampingRatio: 0.9 },
   /** Undo toasts (spec 4.2, 4.4). */
   undoTimeoutMs: 5000,
 } as const;

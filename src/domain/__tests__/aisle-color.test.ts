@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { aisleColor, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
+import { AISLE_HUES, aisleColor, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@/shared/seed/categories';
 
 describe('aisleColor', () => {
@@ -51,6 +51,28 @@ describe('aisleColor', () => {
     expect(aisleColor(null)).toBe('grey');
     expect(aisleColor(undefined)).toBe('grey');
   });
+});
+
+describe('listHue', () => {
+  it('knows the five aisle hues, in picker order', () => {
+    expect(AISLE_HUES).toEqual(['green', 'blue', 'rose', 'amber', 'grey']);
+  });
+
+  it.each(['green', 'blue', 'rose', 'amber', 'grey'] as const)('reads %s as itself', (hue) => {
+    expect(listHue(hue)).toBe(hue);
+  });
+
+  it('reads null and undefined as Default', () => {
+    expect(listHue(null)).toBeNull();
+    expect(listHue(undefined)).toBeNull();
+  });
+
+  it.each(['purple', '', 'Green', ' green', 'toString', '__proto__'])(
+    'reads anything else as Default, e.g. a hue from a newer app version: %p',
+    (color) => {
+      expect(listHue(color)).toBeNull();
+    },
+  );
 });
 
 describe('recipeHue', () => {

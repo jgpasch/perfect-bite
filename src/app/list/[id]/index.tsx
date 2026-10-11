@@ -22,7 +22,7 @@ import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
-import { SectionHeader } from '@/components/section-header';
+import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { SegmentedControl } from '@/components/segmented-control';
@@ -166,12 +166,8 @@ export default function ListScreen() {
     },
     [id],
   );
-  const { reduceMotion } = useMotion();
-  // The section just opened fades its rows in; nothing else does, so a first render doesn't flash.
-  const [justOpened, setJustOpened] = useState<string | null>(null);
   const toggleSection = (mode: SectionedViewMode, key: string) => {
     const saved = readCollapsed(mode);
-    setJustOpened(saved.includes(key) ? key : null);
     saveCollapsed(mode, toggleCollapsedSection(saved, key));
   };
   const openSection = useCallback(
@@ -179,7 +175,6 @@ export default function ListScreen() {
       const saved = readCollapsed(mode);
       const next = expandSection(saved, key);
       if (next === saved) return;
-      setJustOpened(key);
       saveCollapsed(mode, next);
     },
     [readCollapsed, saveCollapsed],
@@ -509,26 +504,22 @@ export default function ListScreen() {
       }
       return (
         <Card flush={addMode}>
-          <SectionHeader
+          <FoldingSection
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
             dotColor={aisles[aisleColor(block.slug)].dot}
             count={block.entries.length}
             collapsed={block.collapsed}
-            onToggle={() => toggleSection('category', block.key)}
-          />
-          {block.collapsed ? null : (
-            <SectionRows fade={block.key === justOpened && !reduceMotion}>
-              {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
-            </SectionRows>
-          )}
+            onToggle={() => toggleSection('category', block.key)}>
+            {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+          </FoldingSection>
         </Card>
       );
     }
     if (block.kind === 'recipe') {
       return (
         <Card flush={addMode}>
-          <SectionHeader
+          <FoldingSection
             title={block.title}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
             trailing={block.recipeId ? <RecipeActionsButton name={block.title} onPress={() => recipeMenu(block)} /> : undefined}
@@ -536,11 +527,9 @@ export default function ListScreen() {
             count={block.entries.length}
             hideCount={!block.collapsed}
             collapsed={block.collapsed}
-            onToggle={() => toggleSection('recipe', block.key)}
-          />
-          {block.collapsed ? null : (
-            <SectionRows fade={block.key === justOpened && !reduceMotion}>{block.entries.map(renderEntryWithAisle)}</SectionRows>
-          )}
+            onToggle={() => toggleSection('recipe', block.key)}>
+            {block.entries.map(renderEntryWithAisle)}
+          </FoldingSection>
         </Card>
       );
     }
@@ -625,7 +614,7 @@ export default function ListScreen() {
             <Stack.Toolbar.MenuAction
               icon="rectangle.compress.vertical"
               disabled={foldableKeys.length === 0 || foldedCount === foldableKeys.length}
-              onPress={() => (setJustOpened(null), saveCollapsed(sectionMode, foldableKeys))}>
+              onPress={() => saveCollapsed(sectionMode, foldableKeys)}>
               Collapse all
             </Stack.Toolbar.MenuAction>
           ) : null}
@@ -633,7 +622,7 @@ export default function ListScreen() {
             <Stack.Toolbar.MenuAction
               icon="rectangle.expand.vertical"
               disabled={foldedCount === 0}
-              onPress={() => (setJustOpened(null), saveCollapsed(sectionMode, []))}>
+              onPress={() => saveCollapsed(sectionMode, [])}>
               Expand all
             </Stack.Toolbar.MenuAction>
           ) : null}
@@ -815,11 +804,6 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
       <View onLayout={(e) => (height.value = e.nativeEvent.layout.height)}>{children}</View>
     </Animated.View>
   );
-}
-
-/** A section's rows; they fade in when it's just been opened (not under Reduce Motion). */
-function SectionRows({ fade, children }: { fade: boolean; children: ReactNode }) {
-  return <Animated.View entering={fade ? FadeIn.duration(Motion.duration) : undefined}>{children}</Animated.View>;
 }
 
 function toggleIn(set: Set<string>, value: string): Set<string> {

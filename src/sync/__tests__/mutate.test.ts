@@ -44,6 +44,7 @@ test('insertRow writes the row, its clock and one mutation with every column', (
     household_id: H,
     name: 'Groceries',
     emoji: null,
+    color: null,
     position: 1,
     archived_at: null,
     deleted_at: null,

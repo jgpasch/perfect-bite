@@ -80,7 +80,8 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 ## 4. Product behavior
 
 ### 4.1 Lists (req 10)
-- A household can have any number of lists. Each list belongs to exactly one household and has a name, an optional emoji/color, and a sort position.
+- A household can have any number of lists. Each list belongs to exactly one household and has a name, an optional emoji, a colour, and a sort position.
+- **List colour**: one of the aisle hues (green, blue, rose, amber, grey; DESIGN.md), or **Default** (stored as null), the look tiles have without one. Like the name, it belongs to the list and syncs, so every member of the household sees the same colour, and any member can change it (the same rules as renaming). It is never per user or per device. A value the app doesn't know (a hue added by a newer version) shows as Default.
 - Home screen: all lists the user can see, with unchecked-item counts. If the user belongs to more than one household, lists are grouped into one section per household (household name as the header, in the user's household order); with one household there is no household UI at all. Create (choosing the household when there is more than one), rename, reorder (drag, within a household), archive, and delete (with confirm).
 - List actions: "Clear checked items", "Uncheck all", "Share as text" (plain text via the system share sheet).
 - Each user has a **default list** [Default: the first list, "Groceries"], changeable in Settings and from a list's menu ("Make default for Siri"). If the default list is deleted or archived, the first remaining list becomes the default.
@@ -343,6 +344,7 @@ create table lists (
   household_id uuid not null references households,
   name         text not null,
   emoji        text,
+  color        text check (color in ('green', 'blue', 'rose', 'amber', 'grey')),  -- null = Default (4.1)
   position     double precision not null,
   archived_at  timestamptz,
   deleted_at   timestamptz,

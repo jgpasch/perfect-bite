@@ -113,6 +113,11 @@ export const lists = sqliteTable(
       .references(() => households.id),
     name: text('name').notNull(),
     emoji: text('emoji'),
+    /**
+     * The list's colour (spec 4.1): an aisle hue key, null for Default. Shared by the household.
+     * Read it through `listHue`, so a hue from a newer app version shows as Default.
+     */
+    color: text('color'),
     position: real('position').notNull(),
     archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
     deletedAt,
