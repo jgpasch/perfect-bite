@@ -1,6 +1,4 @@
-// What the recipe screens show (boards 05–08). Pure: no React, SQLite or network.
-
-import type { BulkConflict } from '@/features/lists/items';
+// What the recipe screens show (boards 05–07). Pure: no React, SQLite or network.
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
@@ -51,21 +49,9 @@ export function addCtaLabel(count: number, listName: string): string {
   return count === 0 ? 'Nothing selected' : `Add ${count} to ${listName}`;
 }
 
-/** The already-on-the-list step's title: "2 are already on Groceries". */
-export function conflictTitle(count: number, listName: string): string {
-  return `${count} ${count === 1 ? 'is' : 'are'} already on ${listName}`;
-}
-
-type ConflictAmounts = Pick<BulkConflict, 'existingAmountText' | 'combinedAmountText' | 'keptAmountText'>;
-
-/**
- * A clash row's result on the right: "→ 6 lb" when combining, "stays 4" when keeping (or "→ …" if
- * keeping still changes the total), or nothing when there's no amount to show.
- */
-export function conflictResult(conflict: ConflictAmounts, keeping: boolean): string {
-  if (!keeping) return conflict.combinedAmountText ? `→ ${conflict.combinedAmountText}` : '';
-  if (conflict.keptAmountText !== conflict.existingAmountText) return conflict.keptAmountText ? `→ ${conflict.keptAmountText}` : '';
-  return conflict.existingAmountText ? `stays ${conflict.existingAmountText}` : '';
+/** The toast after adding a recipe to a list: "Added Tacos · 8 items", the recipe's name in bold. */
+export function addedRecipeToListToast(recipeName: string, count: number): { message: string; emphasis: string } {
+  return { message: `Added ${recipeName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName };
 }
 
 /**
@@ -93,9 +79,4 @@ export function addToRecipeTitle(count: number): string {
 /** The toast after adding items to a recipe: "Added 3 items to Tacos", the recipe's name in bold. */
 export function addedToRecipeToast(count: number, recipeName: string): { message: string; emphasis: string } {
   return { message: `Added ${count} ${count === 1 ? 'item' : 'items'} to ${recipeName}`, emphasis: recipeName };
-}
-
-/** The Keep segment's label: "Keep 4", or "Keep" when the item has no amount. */
-export function keepLabel(conflict: Pick<BulkConflict, 'existingAmountText'>): string {
-  return conflict.existingAmountText ? `Keep ${conflict.existingAmountText}` : 'Keep';
 }

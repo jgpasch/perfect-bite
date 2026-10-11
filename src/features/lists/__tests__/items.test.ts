@@ -17,7 +17,6 @@ import {
   groupItems,
   listItemsQuery,
   orderByAisle,
-  planBulkAddToList,
   searchRecentItems,
   setItemAmount,
   setItemChecked,
@@ -26,6 +25,7 @@ import {
   uncheckAll,
   undeleteItem,
   undoAdd,
+  undoAdds,
   updateItem,
   usualUnitsQuery,
 } from '../items';
@@ -142,97 +142,50 @@ describe('undo and keep existing (spec 4.4)', () => {
 describe('bulk add (spec 4.4)', () => {
   const adds = [{ text: '2 cups milk' }, { text: '3 eggs' }, { text: '1 tsp salt' }, { text: '1 cup milk' }];
 
-  test('reports conflicts with open items only', () => {
-    addItem(listId, '1 gal milk', USER);
-    const eggs = addItem(listId, 'eggs', USER)!;
-    setItemChecked(eggs.itemId, true, USER);
-    expect(planBulkAddToList(listId, adds)).toEqual([
-      {
-        index: 0,
-        ingredientName: 'milk',
-        displayName: 'milk',
-        existingAmountText: '1 gal',
-        incomingAmountText: '2 cup',
-        // The batch's later "1 cup milk" folds in too: 1 gal + 3 cups.
-        combinedAmountText: '1¼ gal',
-        keptAmountText: '1 gal',
-      },
-    ]);
-  });
-
-  test('the combined total matches what Combine writes, and the kept total what Keep writes', () => {
+  test('every clash Combines with no question, the total as its row reads', () => {
     addItem(listId, '2 lb chicken thighs', USER);
     addItem(listId, '4 limes', USER);
-    const batch = [{ text: '4 lb chicken thighs' }, { text: '2 limes' }];
-    const plan = planBulkAddToList(listId, batch);
-    expect(plan.map((c) => [c.displayName, c.combinedAmountText, c.keptAmountText])).toEqual([
-      ['chicken thighs', '6 lb', '2 lb'],
-      ['limes', '6', '4'],
-    ]);
-    addItemsBulk(listId, batch, USER, new Set([1]));
-    expect(rows(view().unchecked)).toEqual(['6 lb chicken thighs', '4 limes']);
+    const results = addItemsBulk(listId, [{ text: '4 lb chicken thighs' }, { text: '2 limes' }], USER);
+    expect(results.map((r) => r?.kind)).toEqual(['combine', 'combine']);
+    expect(results.map((r) => r?.totalAmountText)).toEqual(['6 lb', '6']);
+    expect(rows(view().unchecked)).toEqual(['6 lb chicken thighs', '6 limes']);
   });
 
-  test('a recipe kept as existing still adds its later repeats, so the kept total grows', () => {
+  test('a recipe repeat folds into its first add, which Combines', () => {
     const pie = createRecipe('Pie');
     addItem(listId, '1 cup butter', USER);
-    const batch = [
-      { text: '1/2 cup butter', source: 'recipe' as const, recipeId: pie },
-      { text: '4 tbsp butter', source: 'recipe' as const, recipeId: pie },
-    ];
-    const [conflict] = planBulkAddToList(listId, batch);
-    expect(conflict.existingAmountText).toBe('1 cup');
-    expect(conflict.combinedAmountText).toBe('1¾ cup');
-    expect(conflict.keptAmountText).toBe('1¼ cup');
-    addItemsBulk(listId, batch, USER, new Set([0]));
-    expect(rows(view().unchecked)).toEqual(['1¼ cup butter']);
-  });
-
-  test('a typed add kept as existing drops its repeats too, so the kept total stays', () => {
-    addItem(listId, '1 cup butter', USER);
-    const [conflict] = planBulkAddToList(listId, [{ text: '1/2 cup butter' }, { text: '4 tbsp butter' }]);
-    expect(conflict.keptAmountText).toBe('1 cup');
+    addItemsBulk(
+      listId,
+      [
+        { text: '1/2 cup butter', source: 'recipe', recipeId: pie },
+        { text: '4 tbsp butter', source: 'recipe', recipeId: pie },
+      ],
+      USER,
+    );
+    expect(rows(view().unchecked)).toEqual(['1¾ cup butter']);
   });
 
   test('an incoming add with no amount counts as one; a recipe link with none adds nothing', () => {
     addItem(listId, '2 eggs', USER);
-    expect(planBulkAddToList(listId, [{ text: 'eggs' }])[0].combinedAmountText).toBe('3');
+    addItemsBulk(listId, [{ text: 'eggs' }], USER);
+    expect(rows(view().unchecked)).toEqual(['3 eggs']);
     const tacos = createRecipe('Tacos');
-    expect(planBulkAddToList(listId, [{ text: 'eggs', source: 'recipe', recipeId: tacos }])[0].combinedAmountText).toBe('2');
+    addItemsBulk(listId, [{ text: 'eggs', source: 'recipe', recipeId: tacos }], USER);
+    expect(rows(view().unchecked)).toEqual(['3 eggs']);
   });
 
-  test('combines by default, folding repeats within the batch', () => {
+  test('combines, folding repeats within the batch', () => {
     addItem(listId, '1 gal milk', USER);
     addItemsBulk(listId, adds, USER);
     expect(rows(view().unchecked)).toEqual(['1¼ gal milk', '3 eggs', '1 tsp salt']); // 1 gal + 3 cups
   });
-
-  test('keep existing skips a manual add, but keeps a recipe link without a quantity', () => {
-    addItem(listId, '1 gal milk', USER);
-    addItemsBulk(listId, adds, USER, new Set([0]));
-    // The batch's second milk still folds into the first add, which was skipped.
-    expect(rows(view().unchecked)).toEqual(['1 gal milk', '3 eggs', '1 tsp salt']);
-
-    resetDb();
-    ensureStarterData(USER);
-    listId = getDefaultListId(USER)!;
-    const tacos = createRecipe('Tacos');
-    const recipeAdds = adds.map((a) => ({ ...a, source: 'recipe' as const, recipeId: tacos }));
-    const milk = addItem(listId, '1 gal milk', USER)!;
-    addItemsBulk(listId, recipeAdds, USER, new Set([0]));
-    const amounts = contributionsQuery(milk.itemId).all();
-    expect(amounts.map((c) => [c.source, c.quantity])).toEqual([
-      ['manual', 1],
-      ['recipe', null],
-      ['recipe', 1],
-    ]);
-  });
 });
 
 describe('adds with no amount count as one (spec 4.4)', () => {
-  const keepExistingLink = (text: string) => {
+  // A recipe ingredient with no amount added onto an open item: a link that records the recipe only.
+  const recipeLink = (text: string) => {
     const tacos = createRecipe('Tacos');
-    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER, new Set([0]));
+    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER);
   };
 
   test('adding milk twice reads 2, and the combine toast says so', () => {
@@ -271,9 +224,9 @@ describe('adds with no amount count as one (spec 4.4)', () => {
     expect(before.map((c) => c.quantity)).toEqual([null, null]);
   });
 
-  test('a Keep existing recipe link does not count as one', () => {
+  test('a recipe link with no amount does not count as one', () => {
     const beef = addItem(listId, '2 lbs ground beef', USER)!;
-    keepExistingLink('ground beef');
+    recipeLink('ground beef');
     expect(contributionsQuery(beef.itemId).all().map((c) => [c.source, c.quantity])).toEqual([
       ['manual', 2],
       ['recipe', null],
@@ -284,7 +237,7 @@ describe('adds with no amount count as one (spec 4.4)', () => {
 
   test('a manual add with no amount plus a link still reads empty', () => {
     const milk = addItem(listId, 'milk', USER)!;
-    keepExistingLink('milk');
+    recipeLink('milk');
     expect(contributionsQuery(milk.itemId).all()).toHaveLength(2);
     expect(rows(view().unchecked)).toEqual(['milk']);
     expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '' });
@@ -379,12 +332,10 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     ]);
   });
 
-  test('the bulk sheet shows the existing total with the usual unit', () => {
+  test('a bulk add Combines with the usual unit, as a single add does', () => {
     addItem(listId, '1 gal milk', USER);
     addItem(listId, 'milk', USER);
-    expect(planBulkAddToList(listId, [{ text: 'milk' }])).toMatchObject([
-      { existingAmountText: '2 gal', incomingAmountText: '' },
-    ]);
+    expect(addItemsBulk(listId, [{ text: 'milk' }], USER)).toMatchObject([{ kind: 'combine', totalAmountText: '3 gal' }]);
   });
 });
 
@@ -463,10 +414,16 @@ describe('ingredient history (spec 4.2)', () => {
     expect(counts()).toEqual({ egg: 1, milk: 3, salt: 1 });
   });
 
-  test('addItemsBulk records nothing for a kept-existing manual add or empty text', () => {
+  test('addItemsBulk records nothing for empty text', () => {
     addItem(listId, '1 gal milk', USER);
-    addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '!!' }, { text: 'eggs' }], USER, new Set([0]));
-    expect(counts()).toEqual({ egg: 1, milk: 1 });
+    expect(addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '!!' }, { text: 'eggs' }], USER)[1]).toBeNull();
+    expect(counts()).toEqual({ egg: 1, milk: 2 });
+  });
+
+  test('undoAdds takes back every use the bulk add counted', () => {
+    addItem(listId, '1 gal milk', USER);
+    undoAdds(addItemsBulk(listId, [{ text: '2 cups milk' }, { text: '!!' }, { text: 'eggs' }, { text: 'milk' }], USER));
+    expect(counts()).toEqual({ milk: 1 });
   });
 });
 
@@ -679,9 +636,10 @@ describe('updateItem', () => {
 });
 
 describe('changing an amount (spec 4.4)', () => {
-  const keepExistingLink = (text: string) => {
+  // A recipe ingredient with no amount added onto an open item: a link that records the recipe only.
+  const recipeLink = (text: string) => {
     const tacos = createRecipe('Tacos');
-    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER, new Set([0]));
+    addItemsBulk(listId, [{ text, source: 'recipe', recipeId: tacos }], USER);
   };
   const amounts = (itemId: string) =>
     contributionsQuery(itemId)
@@ -784,7 +742,7 @@ describe('changing an amount (spec 4.4)', () => {
     test('keeps recipe links with no quantity', () => {
       const beef = addItem(listId, '2 lbs ground beef', USER)!;
       addItem(listId, '8 oz ground beef', USER);
-      keepExistingLink('ground beef');
+      recipeLink('ground beef');
       expect(stepItemAmount(beef.itemId, -1, 'lb')).toEqual({ quantity: 2, unit: 'lb' });
       expect(amounts(beef.itemId)).toEqual([
         ['manual', 2, 'lb'],
@@ -820,7 +778,7 @@ describe('changing an amount (spec 4.4)', () => {
 
     test('keeps recipe links with no quantity, and adds an amount beside a lone link', () => {
       const beef = addItem(listId, '2 lbs ground beef', USER)!;
-      keepExistingLink('ground beef');
+      recipeLink('ground beef');
       setItemAmount(beef.itemId, { quantity: 3, unit: 'lb' });
       expect(amounts(beef.itemId)).toEqual([
         ['manual', 3, 'lb'],
@@ -895,7 +853,7 @@ describe('Sorting section (spec 4.3.1)', () => {
 
 describe('item sheet "Added" rows and household (board 04)', () => {
   const addFromRecipe = (recipeId: string) =>
-    addItemsBulk(listId, [{ text: '1 cup milk', source: 'recipe', recipeId }], USER, new Set());
+    addItemsBulk(listId, [{ text: '1 cup milk', source: 'recipe', recipeId }], USER);
 
   test('contributionsQuery says who added each amount and from which recipe', () => {
     const milk = addItem(listId, '1 gal milk', USER)!;

@@ -175,7 +175,6 @@ describe('ingredient history (spec 4.2)', () => {
       getDefaultListId(USER)!,
       buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 1),
       USER,
-      new Set(),
     );
     expect(usage()).toEqual([['tortilla', 'tortillas', 2]]);
   });

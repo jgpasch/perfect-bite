@@ -30,18 +30,17 @@ describe('detectDuplicate', () => {
 });
 
 describe('planBulkAdd', () => {
-  it('flags only open matches as conflicts, and folds repeats in the batch', () => {
+  it('decides each add as a single add would, and folds repeats in the batch', () => {
     const plan = planBulkAdd(['milk', 'egg', 'salt', 'milk'], [open('m', 'milk'), checked('e', 'egg', 1)]);
-    expect(plan.decisions).toEqual([
+    expect(plan).toEqual([
       { kind: 'combine', itemId: 'm' },
       { kind: 'reopen', itemId: 'e' },
       { kind: 'new' },
       { kind: 'sameAsEarlier', index: 0 },
     ]);
-    expect(plan.conflicts).toEqual([0]);
   });
 
-  it('has no conflicts for an empty list', () => {
-    expect(planBulkAdd(['a', 'b'], []).conflicts).toEqual([]);
+  it('adds everything new to an empty list', () => {
+    expect(planBulkAdd(['a', 'b'], [])).toEqual([{ kind: 'new' }, { kind: 'new' }]);
   });
 });

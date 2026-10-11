@@ -193,7 +193,7 @@ export default function ItemEditSheet() {
       </Card>
 
       {contributions.length > 1 ? (
-        // Spec 4.4: each add is listed with a delete control (Undo / Keep existing, later).
+        // Spec 4.4: each add is listed with a delete control (Undo, later).
         <>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
             Added

@@ -95,8 +95,8 @@ function liveContributions(tx: Tx, itemId: string) {
 }
 
 /**
- * An item's total as it reads on its row. A recipe link with no quantity (from "Keep
- * existing", or "Make recipe..." on an existing item) records the recipe, not an amount, so it
+ * An item's total as it reads on its row. A recipe link with no quantity (a recipe ingredient
+ * with no amount, or "Make recipe..." on an existing item) records the recipe, not an amount, so it
  * doesn't count: `2 lb` plus a link reads `2 lb`, not `2 lb + 1`. An add with no amount counts as
  * one of the ingredient's `usualUnit` (`summarizeAmounts`).
  */
@@ -247,26 +247,39 @@ export function addItem(
 
 /** Toast "Undo" (spec 4.4): removes the add entirely, restoring what it changed, and its use. */
 export function undoAdd(result: AddItemResult): void {
+  db.transaction((tx) => undoAddIn(tx, result, new Date()));
+}
+
+/**
+ * A bulk add's toast "Undo" (spec 4.4): takes back every add in one step, latest first, so an add
+ * folded into an earlier one in the same batch goes before it. Combined items return to their
+ * earlier amounts, and reopened ones to checked with their old amounts.
+ */
+export function undoAdds(results: readonly (AddItemResult | null)[]): void {
   db.transaction((tx) => {
     const now = new Date();
-    const item = getItem(tx, result.itemId);
-    const undone = tx
-      .select({ quantity: listItemContributions.quantity, unit: listItemContributions.unit })
-      .from(listItemContributions)
-      .where(eq(listItemContributions.id, result.contributionId))
-      .get();
-    unrecordUsage(tx, item.householdId, item.ingredientName, undone);
-    updateRows(tx, listItemContributions, eq(listItemContributions.id, result.contributionId), { deletedAt: now });
-    if (result.kind === 'new') {
-      updateRows(tx, listItems, eq(listItems.id, result.itemId), { deletedAt: now });
-    } else if (result.kind === 'reopen' && result.reopened) {
-      const { checkedAt, checkedBy, contributionIds } = result.reopened;
-      updateRows(tx, listItems, eq(listItems.id, result.itemId), { checkedAt, checkedBy });
-      if (contributionIds.length > 0) {
-        updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { deletedAt: null });
-      }
-    }
+    for (const result of [...results].reverse()) if (result) undoAddIn(tx, result, now);
   });
+}
+
+function undoAddIn(tx: Tx, result: AddItemResult, now: Date): void {
+  const item = getItem(tx, result.itemId);
+  const undone = tx
+    .select({ quantity: listItemContributions.quantity, unit: listItemContributions.unit })
+    .from(listItemContributions)
+    .where(eq(listItemContributions.id, result.contributionId))
+    .get();
+  unrecordUsage(tx, item.householdId, item.ingredientName, undone);
+  updateRows(tx, listItemContributions, eq(listItemContributions.id, result.contributionId), { deletedAt: now });
+  if (result.kind === 'new') {
+    updateRows(tx, listItems, eq(listItems.id, result.itemId), { deletedAt: now });
+  } else if (result.kind === 'reopen' && result.reopened) {
+    const { checkedAt, checkedBy, contributionIds } = result.reopened;
+    updateRows(tx, listItems, eq(listItems.id, result.itemId), { checkedAt, checkedBy });
+    if (contributionIds.length > 0) {
+      updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { deletedAt: null });
+    }
+  }
 }
 
 /** The edit sheet's per-amount delete control (spec 4.4). */
@@ -301,74 +314,18 @@ export type BulkAdd = ({ text: string } | { parsed: ParsedAdd }) & { source?: So
 
 const parseBulkAdd = (a: BulkAdd): ParsedAdd | null => ('parsed' in a ? a.parsed : parseAdd(a.text));
 
-export type BulkConflict = {
-  /** Index into the adds. */
-  index: number;
-  ingredientName: string;
-  displayName: string;
-  /** The open item's current amounts, and the incoming one. */
-  existingAmountText: string;
-  incomingAmountText: string;
-  /**
-   * The item's total after Combine, and after Keep existing, as its row would read. Both count
-   * the batch's later adds of the same ingredient, which fold into this one as `addItemsBulk` does.
-   */
-  combinedAmountText: string;
-  keptAmountText: string;
-};
-
-/** What a bulk add would conflict with, for the bulk sheet. Reads only. */
-export function planBulkAddToList(listId: string, adds: readonly BulkAdd[]): BulkConflict[] {
-  return db.transaction((tx) => {
-    const parsed = adds.map(parseBulkAdd);
-    const list = getListForAdd(tx, listId);
-    const live = liveItemsForList(tx, listId);
-    const { decisions, conflicts } = planBulkAdd(
-      parsed.map((p) => p?.ingredientName ?? ''),
-      live,
-    );
-    const amountOf = (i: number) => ({ source: adds[i].source ?? 'manual', quantity: parsed[i]!.quantity, unit: parsed[i]!.unit });
-    return conflicts
-      .filter((i) => parsed[i] !== null)
-      .map((index) => {
-        const p = parsed[index]!;
-        const existing = live.find((l) => l.ingredientName === p.ingredientName && l.checkedAt === null)!;
-        const contributions = liveContributions(tx, existing.id);
-        const usual = usualUnitFor(tx, list.householdId, p.ingredientName);
-        const repeats = decisions.flatMap((d, i) =>
-          d.kind === 'sameAsEarlier' && d.index === index && parsed[i] !== null ? [amountOf(i)] : [],
-        );
-        // Keep existing drops a typed add and its repeats; a recipe keeps a link (no amount), so its repeats still add.
-        const keepsRepeats = (adds[index].source ?? 'manual') === 'recipe';
-        return {
-          index,
-          ingredientName: p.ingredientName,
-          displayName: getItem(tx, existing.id).displayName,
-          existingAmountText: itemTotal(contributions, usual),
-          incomingAmountText: summarizeAmounts([p]),
-          combinedAmountText: itemTotal([...contributions, amountOf(index), ...repeats], usual),
-          keptAmountText: itemTotal(keepsRepeats ? [...contributions, ...repeats] : contributions, usual),
-        };
-      });
-  });
-}
-
 /**
- * Adds many items in one transaction. Conflicts Combine unless their index is in
- * `keepExisting` (the bulk sheet's per-row toggle). Returns one result per add (null if the add
- * was empty or kept nothing). The adds share one timestamp, so Newest (spec 4.6) keeps them
- * together in the order given.
+ * Adds many items in one transaction, each as a single add would (spec 4.4): an open match
+ * Combines, a checked one is reopened with its amounts replaced, and the same ingredient twice in
+ * the batch folds into the first. Returns one result per add (null if the add was empty); pass
+ * them to `undoAdds` to take the whole add back. The adds share one timestamp, so Newest (spec
+ * 4.6) keeps them together in the order given.
  */
-export function addItemsBulk(
-  listId: string,
-  adds: readonly BulkAdd[],
-  userId: string | null,
-  keepExistingIndexes: ReadonlySet<number> = new Set(),
-): (AddItemResult | null)[] {
+export function addItemsBulk(listId: string, adds: readonly BulkAdd[], userId: string | null): (AddItemResult | null)[] {
   return db.transaction((tx) => {
     const list = getListForAdd(tx, listId);
     const parsed = adds.map(parseBulkAdd);
-    const { decisions } = planBulkAdd(
+    const decisions = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
       liveItemsForList(tx, listId),
     );
@@ -382,11 +339,6 @@ export function addItemsBulk(
         const first = results[decision.index];
         if (!first) return results.push(null);
         return results.push(applyAdd(tx, list, add, { kind: 'combine', itemId: first.itemId }, meta));
-      }
-      if (decision.kind === 'combine' && keepExistingIndexes.has(i)) {
-        // Keep existing: no new amount, but a recipe still records its link (no quantity).
-        if (meta.source !== 'recipe') return results.push(null);
-        return results.push(applyAdd(tx, list, { ...add, quantity: null, unit: null }, decision, meta));
       }
       results.push(applyAdd(tx, list, add, decision, meta));
     });

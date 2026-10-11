@@ -24,21 +24,15 @@ export function detectDuplicate(ingredientName: string, existing: readonly Exist
 export type BulkDecision = AddDecision | { kind: 'sameAsEarlier'; index: number };
 
 /**
- * Decides a bulk add (a recipe added to a list). The same ingredient twice in one batch
- * combines into the first occurrence. `conflicts` are the adds that match an open item: the
- * ones the bulk sheet asks about (Combine / Keep existing).
+ * Decides a bulk add (a recipe added to a list): each add as a single add would be decided, except
+ * that the same ingredient twice in one batch combines into the first occurrence.
  */
-export function planBulkAdd(
-  ingredientNames: readonly string[],
-  existing: readonly ExistingItem[],
-): { decisions: BulkDecision[]; conflicts: number[] } {
+export function planBulkAdd(ingredientNames: readonly string[], existing: readonly ExistingItem[]): BulkDecision[] {
   const firstIndex = new Map<string, number>();
-  const decisions: BulkDecision[] = ingredientNames.map((name, index) => {
+  return ingredientNames.map((name, index) => {
     const earlier = firstIndex.get(name);
     if (earlier !== undefined) return { kind: 'sameAsEarlier', index: earlier };
     firstIndex.set(name, index);
     return detectDuplicate(name, existing);
   });
-  const conflicts = decisions.flatMap((d, i) => (d.kind === 'combine' ? [i] : []));
-  return { decisions, conflicts };
 }

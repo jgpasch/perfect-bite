@@ -7,26 +7,26 @@ import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { Pill } from '@/components/pill';
-import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
-import type { BulkConflict } from '@/features/lists/items';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
-import { addRecipeToList, buildRecipeAdds, planRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
-import { addCtaLabel, conflictResult, conflictTitle, keepLabel, servingsLabel } from '@/features/recipes/recipe-view';
+import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { addRecipeToList, buildRecipeAdds, SERVINGS } from '@/features/recipes/add-to-list';
+import { addCtaLabel, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
  * "Add to a list" (spec 4.5, board 07): pick a list, untick what you already have, choose
- * servings. Any ingredient already open on the list is asked about on one bulk step (spec 4.4, board 08).
+ * servings. Ingredients already on the list Combine as single adds do (spec 4.4); the list screen
+ * then shows "Added Tacos · 8 items" with Undo.
  */
 export default function AddRecipeToListSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
   // A sheet is short-lived: read once rather than live.
@@ -41,25 +41,19 @@ export default function AddRecipeToListSheet() {
   const [listId, setListId] = useState(() => (userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null);
   const [selected, setSelected] = useState(() => new Set(ingredients.map((i) => i.id)));
   const [servings, setServings] = useState(1);
-  const [conflicts, setConflicts] = useState<BulkConflict[] | null>(null);
-  const [keep, setKeep] = useState<Set<number>>(new Set());
 
   const adds = useMemo(() => buildRecipeAdds(id, ingredients, selected, servings), [id, ingredients, selected, servings]);
   const listName = lists.find((l) => l.id === listId)?.name ?? '';
 
   if (!recipe || !listId) return <Screen />;
 
-  const finish = (keepExisting: Set<number>) => {
-    void categorizePending(addRecipeToList(listId, adds, userId, keepExisting));
+  // Spec 4.4: no clash step. Every ingredient already open Combines, and the list shows the toast.
+  const add = () => {
+    const added = addRecipeToList(listId, adds, userId);
+    void categorizePending(added.pendingNames);
+    setRecipeAddResult({ kind: 'toList', listId, recipeId: id, recipeName: recipe.name, count: added.count, results: added.results });
     router.back();
     router.push({ pathname: '/list/[id]', params: { id: listId } });
-  };
-
-  const add = () => {
-    const found = planRecipeAdd(listId, adds);
-    if (found.length === 0) return finish(new Set());
-    setKeep(new Set());
-    setConflicts(found);
   };
 
   const toggle = <T,>(set: Set<T>, value: T) => {
@@ -68,69 +62,6 @@ export default function AddRecipeToListSheet() {
     else next.add(value);
     return next;
   };
-
-  if (conflicts) {
-    // The bulk duplicate step (spec 4.4): per-row Combine / Keep existing, plus "all" shortcuts.
-    return (
-      <SheetLayout cta={<PrimaryButton label={`Add to ${listName}`} onPress={() => finish(keep)} />}>
-        <View style={{ paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.xs + spacing.xxs }}>
-          <ThemedText variant="title" accessibilityRole="header">
-            {conflictTitle(conflicts.length, listName)}
-          </ThemedText>
-          <ThemedText variant="callout" color="inkSecondary">
-            Combine the amounts, or keep what’s there?
-          </ThemedText>
-        </View>
-        <Card>
-          {conflicts.map((c, i) => {
-            const keeping = keep.has(c.index);
-            const result = conflictResult(c, keeping);
-            return (
-              <View
-                key={c.index}
-                style={{
-                  paddingHorizontal: spacing.lg,
-                  paddingVertical: spacing.md + spacing.xxs,
-                  gap: spacing.sm + spacing.xxs,
-                  borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                  borderTopColor: colors.border,
-                }}>
-                <View style={[styles.row, { gap: spacing.sm }]}>
-                  <ThemedText variant="headline" style={styles.flex}>
-                    {c.displayName}
-                  </ThemedText>
-                  {result ? (
-                    <ThemedText variant="amount" color="inkSecondary">
-                      {result}
-                    </ThemedText>
-                  ) : null}
-                </View>
-                <SegmentedControl
-                  flush
-                  track="background"
-                  accessibilityLabel={c.displayName}
-                  segments={[
-                    { value: 'combine', label: 'Combine', tone: 'primary' },
-                    { value: 'keep', label: keepLabel(c), tone: 'ink' },
-                  ]}
-                  value={keeping ? 'keep' : 'combine'}
-                  onChange={() => setKeep(toggle(keep, c.index))}
-                />
-              </View>
-            );
-          })}
-        </Card>
-        <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
-          <View style={styles.flex}>
-            <Pill label="Combine all" onPress={() => setKeep(new Set())} />
-          </View>
-          <View style={styles.flex}>
-            <Pill label="Keep all existing" onPress={() => setKeep(new Set(conflicts.map((c) => c.index)))} />
-          </View>
-        </View>
-      </SheetLayout>
-    );
-  }
 
   return (
     <SheetLayout cta={<PrimaryButton label={addCtaLabel(adds.length, listName)} disabled={adds.length === 0} onPress={add} />}>

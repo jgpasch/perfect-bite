@@ -1,6 +1,6 @@
 import type { RecipeIngredient } from '@/db';
 import { collectPendingNames } from '@/features/categories/categories';
-import { addItemsBulk, planBulkAddToList, type BulkAdd, type BulkConflict } from '@/features/lists/items';
+import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
 
 /** Servings multipliers offered when adding a recipe to a list (spec 4.5). */
 export const SERVINGS = [0.5, 1, 2, 3] as const;
@@ -26,20 +26,24 @@ export function buildRecipeAdds(
     }));
 }
 
-/** Conflicts to ask about before adding (the bulk sheet), or none. */
-export function planRecipeAdd(listId: string, adds: readonly BulkAdd[]): BulkConflict[] {
-  return planBulkAddToList(listId, adds);
-}
+/** What one recipe add did: the adds, for Undo, how many there were, for the toast, and new names. */
+export type RecipeListAdd = {
+  results: (AddItemResult | null)[];
+  count: number;
+  /** Every name the add recorded as pending, for one `categorizePending` call. */
+  pendingNames: string[];
+};
 
 /**
- * Adds the recipe's ingredients; `keepExisting` holds the indexes the user chose to keep. Returns
- * every name the add recorded as pending, for one `categorizePending` call.
+ * Adds the recipe's chosen ingredients as single adds would (spec 4.4): every one already open on
+ * the list Combines, and a checked one is reopened with its amounts replaced. Nothing to ask.
  */
-export function addRecipeToList(
-  listId: string,
-  adds: readonly BulkAdd[],
-  userId: string | null,
-  keepExisting: ReadonlySet<number>,
-): string[] {
-  return collectPendingNames(addItemsBulk(listId, adds, userId, keepExisting));
+export function addRecipeToList(listId: string, adds: readonly BulkAdd[], userId: string | null): RecipeListAdd {
+  const results = addItemsBulk(listId, adds, userId);
+  return { results, count: results.filter((r) => r !== null).length, pendingNames: collectPendingNames(results) };
+}
+
+/** The toast's Undo: takes back the whole recipe add in one step. */
+export function undoRecipeAdd(add: Pick<RecipeListAdd, 'results'>): void {
+  undoAdds(add.results);
 }

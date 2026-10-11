@@ -9,7 +9,7 @@
 //
 // Units (ingredient_unit_usage, for the usual unit): each of those uses that has a quantity also
 // counts one use of its unit (`unitKey`: the unit, or 'count' for a bare number). A use with no
-// quantity (`milk`, or a "Keep existing" recipe link) counts no unit. Undo takes the unit back too.
+// quantity (`milk`, or a recipe ingredient with no amount) counts no unit. Undo takes the unit back too.
 import { and, eq, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 
 import { db, ingredientUnitUsage, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';

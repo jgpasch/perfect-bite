@@ -171,7 +171,7 @@ describe('recipes', () => {
 
     const ingredientsOfStew = recipeIngredientsQuery(stew).all();
     const adds = buildRecipeAdds(stew, ingredientsOfStew, new Set(ingredientsOfStew.map((i) => i.id)), 1);
-    expect(addRecipeToList(listId, adds, A, new Set())).toEqual(unknown.map(key));
+    expect(addRecipeToList(listId, adds, A).pendingNames).toEqual(unknown.map(key));
   });
 
   test('adding a recipe whose names were already sent from the recipe returns nothing', () => {
@@ -180,17 +180,17 @@ describe('recipes', () => {
     addRecipeIngredient(stew, 'onion');
     const ingredientsOfStew = recipeIngredientsQuery(stew).all();
     const adds = buildRecipeAdds(stew, ingredientsOfStew, new Set(ingredientsOfStew.map((i) => i.id)), 2);
-    expect(addRecipeToList(listId, adds, A, new Set())).toEqual([]);
+    expect(addRecipeToList(listId, adds, A).pendingNames).toEqual([]);
   });
 
-  test('a kept-existing conflict still records its name', () => {
+  test('a recipe ingredient that Combines into an open item still records its name', () => {
     const stew = createRecipe('Stew');
     addRecipeIngredient(stew, 'ajvar');
     addItem(listId, 'ajvar', A);
     forget('ajvar');
     const ingredientsOfStew = recipeIngredientsQuery(stew).all();
     const adds = buildRecipeAdds(stew, ingredientsOfStew, new Set(ingredientsOfStew.map((i) => i.id)), 1);
-    expect(addRecipeToList(listId, adds, A, new Set([0]))).toEqual([key('ajvar')]);
+    expect(addRecipeToList(listId, adds, A).pendingNames).toEqual([key('ajvar')]);
   });
 
   test('Make recipe and Add to recipe return names that had no catalog row, and nothing otherwise', () => {

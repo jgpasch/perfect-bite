@@ -102,7 +102,7 @@ describe('ingredient history (spec 4.2)', () => {
 
     const ingredients = recipeIngredientsQuery(tacos).all();
     const all = new Set(ingredients.map((i) => i.id));
-    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, all, 1), USER, new Set());
+    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, all, 1), USER);
     expect(counts()).toEqual({ 'ground beef': 3, lime: 3, milk: 1 });
   });
 
@@ -158,7 +158,7 @@ describe('Add to recipe sheet (spec 4.5)', () => {
 
     // Adding Tacos to a list is a use, and moves it to the top.
     const ingredients = recipeIngredientsQuery(tacos).all();
-    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 1), USER, new Set());
+    addRecipeToList(listId, buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), 1), USER);
     setAdded(tacos, '2026-10-05');
     expect(picked().map(([name]) => name)).toEqual(['Tacos', 'Dal', 'Soup']);
 

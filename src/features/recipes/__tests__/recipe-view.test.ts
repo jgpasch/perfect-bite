@@ -2,13 +2,11 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   addCtaLabel,
+  addedRecipeToListToast,
   addedToRecipeToast,
   addToRecipeTitle,
-  conflictResult,
-  conflictTitle,
   groupRecipesByHousehold,
   ingredientCountLabel,
-  keepLabel,
   onListByRecipe,
   orderByLastUse,
   recipeCardLabel,
@@ -143,35 +141,9 @@ describe('labels', () => {
     expect(addCtaLabel(0, 'Groceries')).toBe('Nothing selected');
   });
 
-  test('the clash title agrees with the count', () => {
-    expect(conflictTitle(2, 'Groceries')).toBe('2 are already on Groceries');
-    expect(conflictTitle(1, 'Groceries')).toBe('1 is already on Groceries');
-  });
-});
-
-describe('conflictResult and keepLabel (board 08)', () => {
-  const chicken = { existingAmountText: '2 lb', combinedAmountText: '6 lb', keptAmountText: '2 lb' };
-
-  test('combining shows the new total; keeping shows what stays', () => {
-    expect(conflictResult(chicken, false)).toBe('→ 6 lb');
-    expect(conflictResult(chicken, true)).toBe('stays 2 lb');
-  });
-
-  test('keeping that still changes the total (a recipe’s repeats) shows the new total', () => {
-    expect(conflictResult({ existingAmountText: '1 cup', combinedAmountText: '1¾ cup', keptAmountText: '1¼ cup' }, true)).toBe(
-      '→ 1¼ cup',
-    );
-  });
-
-  test('shows nothing when there is no amount', () => {
-    const none = { existingAmountText: '', combinedAmountText: '', keptAmountText: '' };
-    expect(conflictResult(none, false)).toBe('');
-    expect(conflictResult(none, true)).toBe('');
-    expect(conflictResult({ existingAmountText: '2', combinedAmountText: '3', keptAmountText: '' }, true)).toBe('');
-  });
-
-  test('the Keep segment names the existing amount', () => {
-    expect(keepLabel({ existingAmountText: '4' })).toBe('Keep 4');
-    expect(keepLabel({ existingAmountText: '' })).toBe('Keep');
+  test('the toast after adding a recipe names it and counts its items', () => {
+    expect(addedRecipeToListToast('Tacos', 8)).toEqual({ message: 'Added Tacos · 8 items', emphasis: 'Tacos' });
+    expect(addedRecipeToListToast('Toast', 1)).toEqual({ message: 'Added Toast · 1 item', emphasis: 'Toast' });
+    expect(addedRecipeToListToast('Tacos', 0)).toEqual({ message: 'Added Tacos · 0 items', emphasis: 'Tacos' });
   });
 });

@@ -63,7 +63,8 @@ import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { categorizePending } from '@/features/categories/categorization';
-import { addedToRecipeToast } from '@/features/recipes/recipe-view';
+import { undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -172,6 +173,15 @@ export default function ListScreen() {
     useCallback(() => {
       const result = takeRecipeAddResult(id);
       if (!result) return;
+      if (result.kind === 'toList') {
+        // A recipe added from its screen (spec 4.4): items land where this view puts them; one Undo.
+        setToast({
+          key: `recipe-add-${result.recipeId}-${Date.now()}`,
+          ...addedRecipeToListToast(result.recipeName, result.count),
+          actions: [{ label: 'Undo', onPress: () => (undoRecipeAdd(result), setToast(null)) }],
+        });
+        return;
+      }
       setSelection(null);
       setViewModeState('recipe');
       setDeviceSetting(viewModeKey(id), 'recipe');

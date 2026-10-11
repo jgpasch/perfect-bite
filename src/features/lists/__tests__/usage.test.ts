@@ -238,9 +238,9 @@ describe('unit usage', () => {
     expect(units()).toEqual([]);
   });
 
-  test('Keep existing records a use but no unit', () => {
+  test('a recipe link with no amount records a use but no unit', () => {
     addItem('l1', '2 lb ground beef', null);
-    addItemsBulk('l1', [{ text: '1 lb ground beef', source: 'recipe', recipeId: 'r1' }], null, new Set([0]));
+    addItemsBulk('l1', [{ text: 'ground beef', source: 'recipe', recipeId: 'r1' }], null);
     expect(usage()).toEqual([expect.objectContaining({ ingredientName: 'ground beef', useCount: 2 })]);
     expect(units()).toEqual([expect.objectContaining({ ingredientName: 'ground beef', unitKey: 'lb', useCount: 1 })]);
   });
@@ -253,7 +253,7 @@ describe('unit usage', () => {
     jest.setSystemTime(T2);
     const ingredients = recipeIngredientsQuery('r1').all();
     const adds = buildRecipeAdds('r1', ingredients, new Set(ingredients.map((i) => i.id)), 1);
-    addRecipeToList('l1', adds, null, new Set());
+    addRecipeToList('l1', adds, null);
     expect(units()).toEqual([{ ingredientName: 'chickpea', unitKey: 'g', useCount: 2, lastUsedAt: T2 }]);
   });
 

@@ -38,7 +38,7 @@ export default function AddToRecipeSheet() {
 
   const finish = (recipeId: string, recipeName: string, pendingNames: string[]) => {
     void categorizePending(pendingNames);
-    setRecipeAddResult({ listId: id, recipeId, recipeName, count: itemIds.length });
+    setRecipeAddResult({ kind: 'toRecipe', listId: id, recipeId, recipeName, count: itemIds.length });
     router.back();
   };
 

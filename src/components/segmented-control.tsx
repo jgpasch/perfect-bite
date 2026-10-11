@@ -1,8 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { segmentColors, type SegmentTone } from '@/components/appearance';
+import { segmentColors } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
-import type { ColorToken } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type Segment<T extends string> = {
@@ -10,48 +9,32 @@ export type Segment<T extends string> = {
   label: string;
   /** What VoiceOver reads after the label, e.g. what the segment shows. */
   hint?: string;
-  /** How the segment is filled when selected; defaults to a `surface` chip. */
-  tone?: SegmentTone;
 };
 
 type Props<T extends string> = {
   segments: readonly Segment<T>[];
   value: T;
   onChange: (value: T) => void;
-  /** The track's colour; defaults to `surfaceMuted`. Inside a card, use `background`. */
-  track?: ColorToken;
-  /** Drop the 16 pt side margin, e.g. when the control sits inside a padded card row. */
-  flush?: boolean;
-  /** What VoiceOver reads for the group, e.g. the item the choice is about. */
-  accessibilityLabel?: string;
 };
 
 /** A track with a filled selected segment. Each segment is a tab with its selected state. */
-export function SegmentedControl<T extends string>({
-  segments,
-  value,
-  onChange,
-  track = 'surfaceMuted',
-  flush = false,
-  accessibilityLabel,
-}: Props<T>) {
+export function SegmentedControl<T extends string>({ segments, value, onChange }: Props<T>) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
     <View
       accessibilityRole="tablist"
-      accessibilityLabel={accessibilityLabel}
       style={[
         styles.track,
         {
-          marginHorizontal: flush ? 0 : spacing.lg,
+          marginHorizontal: spacing.lg,
           padding: sizes.segmentInset,
           borderRadius: rounded.md,
-          backgroundColor: colors[track],
+          backgroundColor: colors.surfaceMuted,
         },
       ]}>
       {segments.map((segment) => {
         const selected = segment.value === value;
-        const look = segmentColors(selected, segment.tone);
+        const look = segmentColors(selected);
         return (
           <Pressable
             key={segment.value}
