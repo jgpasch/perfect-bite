@@ -259,7 +259,7 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     expect(third).toMatchObject({ kind: 'combine', totalAmountText: '3 gal' });
     expect(rows(view().unchecked)).toEqual(['3 gal milk']);
     expect(view().unchecked[0].usualUnit).toBe('gal');
-    expect(getItemEdit(third.itemId)).toMatchObject({ amount: '3 gal', usualUnit: 'gal' });
+    expect(getItemEdit(third.itemId)).toMatchObject({ amount: '3 gal', usualUnit: 'gal', hasUsualUnit: true });
   });
 
   test('with no unit history, an add with no amount is a plain 1', () => {
@@ -268,7 +268,7 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     db.delete(ingredientUnitUsage).run();
     expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
     expect(view().unchecked[0].usualUnit).toBeNull();
-    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '1 gal + 1', usualUnit: null });
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '1 gal + 1', usualUnit: null, hasUsualUnit: false });
     expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('1 gal + 2');
   });
 
@@ -278,6 +278,8 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     const r = addItem(listId, 'milk', USER)!;
     expect(r.totalAmountText).toBe('1 gal + 1');
     expect(rows(view().unchecked)).toEqual(['1 gal + 1 milk']);
+    // A count is a known usual unit, unlike no history at all.
+    expect(getItemEdit(r.itemId)).toMatchObject({ usualUnit: null, hasUsualUnit: true });
   });
 
   test('a usual unit from another household does not apply', () => {
@@ -286,7 +288,7 @@ describe('usual unit in totals (spec 4.2, 4.4)', () => {
     const milk = addItem(listId, 'milk', USER)!;
     expect(addItem(listId, 'milk', USER)!.totalAmountText).toBe('2');
     expect(rows(view().unchecked)).toEqual(['2 milk']);
-    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '2', usualUnit: null });
+    expect(getItemEdit(milk.itemId)).toMatchObject({ amount: '2', usualUnit: null, hasUsualUnit: false });
     expect(usualUnitsQuery(listId).all()).toEqual([]);
   });
 
@@ -608,6 +610,7 @@ describe('updateItem', () => {
       note: '',
       ingredientName: 'chicken thigh',
       usualUnit: 'lb',
+      hasUsualUnit: true,
     });
     updateItem(item.itemId, { name: 'Chicken breasts', amount: '1.5 lb', note: ' boneless ' });
     expect(view().unchecked[0]).toMatchObject({ displayName: 'Chicken breasts', amountText: '1.5 lb', note: 'boneless' });
@@ -796,6 +799,25 @@ describe('changing an amount (spec 4.4)', () => {
         ['recipe', null, null],
       ]);
       expect(view().unchecked.find((i) => i.id === salsa.id)!.amountText).toBe('2 jar');
+    });
+
+    test('no amount (an emptied number field) clears the amounts but keeps recipe links', () => {
+      const beef = addItem(listId, '2 lbs ground beef', USER)!;
+      addItem(listId, '8 oz ground beef', USER);
+      recipeLink('ground beef');
+      setItemAmount(beef.itemId, { quantity: null, unit: null });
+      expect(amounts(beef.itemId)).toEqual([
+        ['manual', null, null],
+        ['recipe', null, null],
+      ]);
+      expect(view().unchecked[0].amountText).toBe('');
+      expect(getItemEdit(beef.itemId)!.amount).toBe('');
+      // A number typed afterwards replaces the empty amount in place.
+      setItemAmount(beef.itemId, { quantity: 3, unit: 'lb' });
+      expect(amounts(beef.itemId)).toEqual([
+        ['manual', 3, 'lb'],
+        ['recipe', null, null],
+      ]);
     });
 
     test('throws for a missing item', () => {

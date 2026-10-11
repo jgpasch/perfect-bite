@@ -126,12 +126,17 @@ export function steppableAmount(
 
 /** The household's usual unit for one ingredient (spec 4.2), or null when none is known. */
 function usualUnitFor(tx: Tx, householdId: string, ingredientName: string): Unit | null {
+  return knownUsualUnit(tx, householdId, ingredientName) ?? null;
+}
+
+/** `usualUnit` for one ingredient: null for a plain count, undefined when nothing is known. */
+function knownUsualUnit(tx: Tx, householdId: string, ingredientName: string): Unit | null | undefined {
   const rows = tx
     .select()
     .from(ingredientUnitUsage)
     .where(and(eq(ingredientUnitUsage.householdId, householdId), eq(ingredientUnitUsage.ingredientName, ingredientName)))
     .all();
-  return usualUnit(rows) ?? null;
+  return usualUnit(rows);
 }
 
 export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
@@ -706,20 +711,23 @@ export function orderByAisle<I extends { id: string; categoryId: string; created
  */
 export function getItemEdit(
   itemId: string,
-): (ItemEdit & { ingredientName: string; usualUnit: Unit | null }) | null {
+): (ItemEdit & { ingredientName: string; usualUnit: Unit | null; hasUsualUnit: boolean }) | null {
   return db.transaction((tx) => {
     const rows = listItemsQueryForItem(tx, itemId);
     if (rows.length === 0) return null;
     const amounts = rows
       .filter((r) => r.contributionId)
       .map((r) => ({ quantity: r.quantity, unit: r.unit, source: r.source! }));
-    const unit = usualUnitFor(tx, rows[0].householdId, rows[0].ingredientName);
+    const known = knownUsualUnit(tx, rows[0].householdId, rows[0].ingredientName);
+    const unit = known ?? null;
     return {
       name: rows[0].displayName,
       amount: itemTotal(amounts, unit),
       note: rows[0].note ?? '',
       ingredientName: rows[0].ingredientName,
       usualUnit: unit,
+      // usualUnit is null both for a plain count and when nothing is known; the unit menu marks only a count.
+      hasUsualUnit: known !== undefined,
     };
   });
 }
