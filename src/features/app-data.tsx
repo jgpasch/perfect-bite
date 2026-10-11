@@ -6,6 +6,7 @@ import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending } from '@/features/categories/categorization';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
+import { startShareDrain } from '@/features/recipes/share-drain';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
 import { pullNow, startPull } from '@/sync/pull';
@@ -57,5 +58,7 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   }, [userId, signedOut]);
   // Siri's queue (spec 4.9): applied on launch, foreground and sign-in; signed out, adds wait.
   useEffect(() => (userId ? startSiriDrain(userId) : undefined), [userId]);
+  // The share queue (spec 4.10): imported on launch, foreground, reconnect and sign-in; signed out, shares wait.
+  useEffect(() => (userId ? startShareDrain(userId) : undefined), [userId]);
   return children;
 }

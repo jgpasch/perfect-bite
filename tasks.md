@@ -237,7 +237,7 @@ Goal: on a recipe page in Safari (or any app that shares a link), tap Share → 
   - "Open The Perfect Bite once to set up" when there's no snapshot.
 
   Add writes the envelope atomically (`.tmp` then rename) and shows "Added. It'll be on your list when you open The Perfect Bite." for about a second, then completes. There is no network call and no React Native (extension memory limit). Rebuild with `yarn expo prebuild --clean` and a development build. Check it appears in Safari's share sheet. Log to the shared native log as Siri does.
-- [ ] Drain shares in the app. On launch, foreground and reconnect (next to wherever the Siri queue drains; add the hook if it doesn't exist yet), process `readPendingShares()` one at a time, oldest first:
+- [x] Drain shares in the app. On launch, foreground and reconnect (next to wherever the Siri queue drains; add the hook if it doesn't exist yet), process `readPendingShares()` one at a time, oldest first:
   - fall back to the default list if the envelope's list is gone;
   - call `importRecipe` with the envelope's `page` and `importId = envelope.id`;
   - on success, delete the file and show the success toast (for several imports in one drain, a single "Added 3 recipes" toast);

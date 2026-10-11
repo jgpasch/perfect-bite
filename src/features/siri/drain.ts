@@ -25,8 +25,11 @@ export function siriAddIds(envelopeId: string): AddIds {
   };
 }
 
-/** The envelope's list if it's still live and not archived, else the user's default list. */
-export function siriTargetListId(envelope: SiriEnvelope, userId: string): string | null {
+/**
+ * The envelope's list if it's still live and not archived, else the user's default list. The share
+ * drain uses it too (spec 4.10).
+ */
+export function siriTargetListId(envelope: { listId?: SiriEnvelope['listId'] | null }, userId: string): string | null {
   const named = envelope.listId ? getList(envelope.listId) : undefined;
   if (named && !named.archivedAt) return named.id;
   return getDefaultListId(userId);

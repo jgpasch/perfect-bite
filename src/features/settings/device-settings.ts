@@ -14,3 +14,8 @@ export function setDeviceSetting<T>(key: string, value: T): void {
     .onConflictDoUpdate({ target: deviceSettings.key, set: { value } })
     .run();
 }
+
+/** Forgets a per-device setting, so `getDeviceSetting` gives its fallback again. */
+export function clearDeviceSetting(key: string): void {
+  db.delete(deviceSettings).where(eq(deviceSettings.key, key)).run();
+}

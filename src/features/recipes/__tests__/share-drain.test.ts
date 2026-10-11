@@ -1,0 +1,389 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { asc, isNull } from 'drizzle-orm';
+
+import { db, recipes } from '@/db';
+import { loadCatalogSeed } from '@/features/categories/categories';
+import { groupItems, listItemsQuery } from '@/features/lists/items';
+import { createList, deleteList, ensureStarterData, getDefaultListId, setListArchived } from '@/features/lists/lists';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { SHARE_PENDING_DIR } from '@/features/siri/app-group';
+import { normalizeIngredientName, SYSTEM_CATEGORIES } from '@/shared';
+import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
+import { resetDb } from '@/test/db';
+import { File, setAppGroupRoot } from '@/test/fake-file-system';
+import { makeSession, resetSupabase, supabase } from '@/test/fake-supabase';
+
+import { recipeIdForImport } from '../import';
+import { sharedImportsToast } from '../import-sheet';
+import {
+  drainShareQueue,
+  MAX_SHARE_ATTEMPTS,
+  onShareImports,
+  runShareDrain,
+  shareAttemptsKey,
+  type FailedShare,
+} from '../share-drain';
+
+jest.mock('@/db/client', () => require('@/test/db'));
+jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
+jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+
+const USER = 'user-1';
+const invoke = supabase.functions.invoke;
+const category = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
+
+// UUIDv7 envelope ids, in the order they were shared.
+const E1 = '019a4c2e-7d3b-7a10-8f2e-3b9d1c0e5a71';
+const E2 = '019a4c2e-9e01-7c44-b1aa-0f6e2d8c3b92';
+const E3 = '019a4c2f-0102-7d55-a2bb-1a2b3c4d5e6f';
+const GONE_LIST = '019a4c10-0000-7000-8000-00000000c057';
+
+const TIKKA_URL = 'https://example.com/tikka';
+const SOUP_URL = 'https://example.com/soup';
+
+const recipeFor = (name: string, sourceUrl: string, ...names: string[]): RecipeImportResponse => ({
+  name,
+  sourceUrl,
+  servings: null,
+  ingredients: names.map((displayName) => ({
+    ingredientName: normalizeIngredientName(displayName),
+    displayName,
+    quantity: null,
+    unit: null,
+    note: '',
+    categoryId: category('produce'),
+    status: 'categorized',
+  })),
+});
+const TIKKA = recipeFor('Chicken tikka masala', TIKKA_URL, 'garlic', 'onion');
+const SOUP = recipeFor('Leek soup', SOUP_URL, 'leek');
+
+/** What `functions.invoke` gives for a non-2xx answer. */
+const httpError = (status: number, error: string) => ({
+  data: null,
+  error: {
+    name: 'FunctionsHttpError',
+    message: 'Edge Function returned a non-2xx status code',
+    context: { status, json: () => Promise.resolve({ error }) },
+  },
+});
+const offline = { data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send a request' } };
+
+/** Answers each import by its URL: a recipe, or an error. */
+function respond(byUrl: Record<string, RecipeImportResponse | { data: null; error: unknown }>) {
+  invoke.mockImplementation(async (_fn: string, options: { body: { url: string } }) => {
+    const answer = byUrl[options.body.url];
+    if (!answer) throw new Error(`no answer for ${options.body.url}`);
+    return 'error' in answer ? answer : { data: answer, error: null };
+  });
+}
+
+let root: string;
+let groceries: string;
+let costco: string;
+let recordFailed: jest.Mock<(failed: FailedShare) => void>;
+
+beforeEach(() => {
+  resetDb();
+  resetSupabase();
+  loadCatalogSeed();
+  ensureStarterData(USER);
+  groceries = getDefaultListId(USER)!;
+  costco = createList('Costco');
+  supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });
+  respond({ [TIKKA_URL]: TIKKA, [SOUP_URL]: SOUP });
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'share-drain-'));
+  fs.mkdirSync(path.join(root, SHARE_PENDING_DIR), { recursive: true });
+  setAppGroupRoot(root);
+  recordFailed = jest.fn();
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+/** Writes a queued share as the extension does: `share/pending/<id>.json`. */
+function enqueue(id: string, url: string, extra: { listId?: string | null; page?: Record<string, unknown> } = {}): void {
+  const envelope = {
+    id,
+    url,
+    listId: costco,
+    createdAt: '2026-10-08T17:42:05.123-05:00',
+    appVersion: '1.0.0',
+    source: 'share',
+    ...extra,
+  };
+  writeQueued(`${id}.json`, JSON.stringify(envelope));
+}
+const writeQueued = (name: string, body: string) => fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, name), body);
+const queued = () => fs.readdirSync(path.join(root, SHARE_PENDING_DIR)).sort();
+const drain = () => drainShareQueue(USER, { recordFailed });
+
+const liveRecipes = () =>
+  db
+    .select({ id: recipes.id, name: recipes.name, sourceUrl: recipes.sourceUrl })
+    .from(recipes)
+    .where(isNull(recipes.deletedAt))
+    .orderBy(asc(recipes.name))
+    .all();
+const rows = (listId: string) => groupItems(listItemsQuery(listId, USER).all()).unchecked.map((i) => i.displayName);
+const importedUrls = () => invoke.mock.calls.map(([, options]) => (options as { body: { url: string } }).body.url);
+
+describe('drainShareQueue', () => {
+  test('imports a share into its list, deletes the file and returns the import', async () => {
+    enqueue(E1, TIKKA_URL);
+    const result = await drain();
+
+    expect(result.failed).toBe(0);
+    expect(result.imported).toHaveLength(1);
+    expect(result.imported[0]).toMatchObject({
+      ok: true,
+      recipeId: recipeIdForImport(E1),
+      recipeName: 'Chicken tikka masala',
+      listId: costco,
+      added: 2,
+      combined: 0,
+    });
+    expect(liveRecipes()).toEqual([{ id: recipeIdForImport(E1), name: 'Chicken tikka masala', sourceUrl: TIKKA_URL }]);
+    expect(rows(costco)).toEqual(['garlic', 'onion']);
+    expect(rows(groceries)).toEqual([]);
+    expect(queued()).toEqual([]);
+    expect(recordFailed).not.toHaveBeenCalled();
+  });
+
+  test('sends the captured page with the envelope id as the import id', async () => {
+    const page = { title: 'Tikka | Example', jsonLd: ['{"@type":"Recipe"}'], text: 'Chicken tikka' };
+    enqueue(E1, TIKKA_URL, { page });
+    await drain();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: TIKKA_URL, page } });
+  });
+
+  test('imports several shares oldest first', async () => {
+    enqueue(E2, SOUP_URL);
+    enqueue(E1, TIKKA_URL);
+    const result = await drain();
+    expect(importedUrls()).toEqual([TIKKA_URL, SOUP_URL]);
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala', 'Leek soup']);
+    expect(rows(costco)).toEqual(['garlic', 'onion', 'leek']);
+    expect(queued()).toEqual([]);
+  });
+
+  test('uses the default list when the envelope has none, or its list is deleted, archived or unknown', async () => {
+    const archived = createList('Old');
+    setListArchived(archived, true);
+    const deleted = createList('Gone');
+    deleteList(deleted);
+    enqueue(E1, TIKKA_URL, { listId: null });
+    enqueue(E2, SOUP_URL, { listId: GONE_LIST });
+    const result = await drain();
+    expect(result.imported.map((i) => i.listId)).toEqual([groceries, groceries]);
+
+    enqueue(E3, TIKKA_URL, { listId: archived });
+    const third = await drain();
+    expect(third.imported.map((i) => i.listId)).toEqual([groceries]);
+    expect(rows(groceries)).toEqual(['garlic', 'onion', 'leek']);
+    expect(rows(costco)).toEqual([]);
+    expect(queued()).toEqual([]);
+  });
+
+  test.each([
+    ['offline', offline],
+    ['rate_limited', httpError(429, 'rate_limited')],
+    ['failed', httpError(500, 'internal')],
+  ])('%s keeps the file and counts a try', async (_error, answer) => {
+    respond({ [TIKKA_URL]: answer });
+    enqueue(E1, TIKKA_URL);
+
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(queued()).toEqual([`${E1}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(1);
+
+    await drain();
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(2);
+    expect(queued()).toEqual([`${E1}.json`]);
+    expect(liveRecipes()).toEqual([]);
+    expect(recordFailed).not.toHaveBeenCalled();
+  });
+
+  test('offline, the rest of the queue waits without counting a try', async () => {
+    respond({ [TIKKA_URL]: offline, [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    await drain();
+    expect(importedUrls()).toEqual([TIKKA_URL]);
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E2), 0)).toBe(0);
+  });
+
+  test('a failure that isn’t offline or rate limited moves on to the next share', async () => {
+    respond({ [TIKKA_URL]: httpError(500, 'internal'), [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    const result = await drain();
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Leek soup']);
+    expect(queued()).toEqual([`${E1}.json`]);
+  });
+
+  test('the 5th failure records a failed import and deletes the file', async () => {
+    respond({ [TIKKA_URL]: httpError(429, 'rate_limited') });
+    enqueue(E1, TIKKA_URL, { page: { title: '  Tikka | Example ' } });
+    for (let i = 1; i < MAX_SHARE_ATTEMPTS; i++) {
+      await drain();
+      expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(i);
+    }
+    expect(recordFailed).not.toHaveBeenCalled();
+
+    expect(await drain()).toEqual({ imported: [], failed: 1 });
+    expect(recordFailed).toHaveBeenCalledTimes(1);
+    expect(recordFailed).toHaveBeenCalledWith({ url: TIKKA_URL, title: 'Tikka | Example', reason: 'rate_limited' });
+    expect(queued()).toEqual([]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
+    expect(invoke).toHaveBeenCalledTimes(MAX_SHARE_ATTEMPTS);
+  });
+
+  test('a share that imports after failing forgets its tries', async () => {
+    setDeviceSetting(shareAttemptsKey(E1), 3);
+    enqueue(E1, TIKKA_URL);
+    expect((await drain()).imported).toHaveLength(1);
+    expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
+  });
+
+  test('not a recipe records a failed import at once, with no title when the share had no page', async () => {
+    respond({ [TIKKA_URL]: httpError(422, 'not_a_recipe'), [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    const result = await drain();
+    expect(result.failed).toBe(1);
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Leek soup']);
+    expect(recordFailed).toHaveBeenCalledTimes(1);
+    expect(recordFailed).toHaveBeenCalledWith({ url: TIKKA_URL, title: null, reason: 'not_a_recipe' });
+    expect(queued()).toEqual([]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
+  });
+
+  test('deletes and logs a bad file, and imports the rest', async () => {
+    writeQueued(`${E1}.json`, '{ not json');
+    writeQueued(`${E2}.json`, JSON.stringify({ id: E2, url: 'ftp://example.com', source: 'share' }));
+    enqueue(E3, TIKKA_URL);
+    const result = await drain();
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala']);
+    expect(queued()).toEqual([]);
+    expect(console.warn).toHaveBeenCalledWith('[share] dropping a bad queued share', `${E1}.json`, expect.any(String));
+    expect(console.warn).toHaveBeenCalledWith('[share] dropping a bad queued share', `${E2}.json`, expect.any(String));
+    expect(recordFailed).not.toHaveBeenCalled();
+  });
+
+  test('skips in-progress .tmp writes', async () => {
+    writeQueued(`${E1}.json.tmp`, '{');
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(queued()).toEqual([`${E1}.json.tmp`]);
+  });
+
+  test('two concurrent drains import once', async () => {
+    let answer!: () => void;
+    invoke.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = () => resolve({ data: TIKKA, error: null }))),
+    );
+    enqueue(E1, TIKKA_URL);
+    const first = drain();
+    // Let the first drain reach the import call.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    answer();
+    expect((await first).imported).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(liveRecipes()).toHaveLength(1);
+    expect(queued()).toEqual([]);
+    // Free again afterwards.
+    enqueue(E2, SOUP_URL);
+    expect((await drain()).imported).toHaveLength(1);
+  });
+
+  test('a crash between import and delete imports the same recipe again, not a second one', async () => {
+    enqueue(E1, TIKKA_URL);
+    const del = jest.spyOn(File.prototype, 'delete').mockImplementationOnce(() => {
+      throw new Error('crashed');
+    });
+    await drain();
+    expect(queued()).toEqual([`${E1}.json`]);
+    del.mockRestore();
+
+    // The household's recipe is now named differently, so only the import id can find it.
+    respond({ [TIKKA_URL]: { ...TIKKA, sourceUrl: 'https://example.com/tikka-v2' } });
+    const again = await drain();
+    expect(again.imported[0].recipeId).toBe(recipeIdForImport(E1));
+    expect(liveRecipes()).toEqual([{ id: recipeIdForImport(E1), name: 'Chicken tikka masala', sourceUrl: TIKKA_URL }]);
+    expect(rows(costco)).toEqual(['garlic', 'onion']);
+    expect(queued()).toEqual([]);
+  });
+
+  test('with no list to import into, every share waits', async () => {
+    deleteList(costco);
+    deleteList(groceries);
+    enqueue(E1, TIKKA_URL);
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(queued()).toEqual([`${E1}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(0);
+  });
+
+  test('signed out, shares wait and count a try', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    enqueue(E1, TIKKA_URL);
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(queued()).toEqual([`${E1}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(1);
+    expect(liveRecipes()).toEqual([]);
+  });
+});
+
+describe('runShareDrain', () => {
+  test('tells listeners once with every import of the drain', async () => {
+    const listener = jest.fn();
+    const stop = onShareImports(listener);
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    await runShareDrain(USER, { recordFailed });
+    expect(listener).toHaveBeenCalledTimes(1);
+    const [imported] = listener.mock.calls[0] as [{ recipeName: string }[]];
+    expect(imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala', 'Leek soup']);
+
+    // Nothing imported: no call. Unsubscribed: no call.
+    await runShareDrain(USER, { recordFailed });
+    stop();
+    enqueue(E3, TIKKA_URL);
+    await runShareDrain(USER, { recordFailed });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  test('does nothing without the App Group', async () => {
+    setAppGroupRoot(null);
+    expect(await runShareDrain(USER)).toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test('undo from the toast takes back the adds and the recipe the import created', async () => {
+    enqueue(E1, TIKKA_URL);
+    const result = await runShareDrain(USER, { recordFailed });
+    result!.imported[0].undo();
+    expect(rows(costco)).toEqual([]);
+    expect(liveRecipes()).toEqual([]);
+  });
+});
+
+describe('sharedImportsToast', () => {
+  test('counts the recipes', () => {
+    expect(sharedImportsToast(3)).toEqual({ message: 'Added 3 recipes' });
+    expect(sharedImportsToast(2)).toEqual({ message: 'Added 2 recipes' });
+    expect(sharedImportsToast(1)).toEqual({ message: 'Added 1 recipe' });
+  });
+});

@@ -84,7 +84,8 @@ import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-re
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
-import { importedToast } from '@/features/recipes/import-sheet';
+import { importedToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
@@ -280,6 +281,31 @@ export default function ListScreen() {
         onSiriAdds((count) =>
           setToast({ key: `siri-${Date.now()}`, ...siriAddedToast(count), actions: [] }),
         ),
+      [],
+    ),
+  );
+  // Recipes shared to the extension (spec 4.10): one with Undo and View recipe, several as one toast.
+  useFocusEffect(
+    useCallback(
+      () =>
+        onShareImports((imported) => {
+          if (imported.length > 1) {
+            setToast({ key: `shared-${Date.now()}`, ...sharedImportsToast(imported.length), actions: [] });
+            return;
+          }
+          const [result] = imported;
+          setToast({
+            key: `shared-${result.recipeId}-${Date.now()}`,
+            ...importedToast(result.recipeName, result.added),
+            actions: [
+              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              {
+                label: 'View recipe',
+                onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+              },
+            ],
+          });
+        }),
       [],
     ),
   );

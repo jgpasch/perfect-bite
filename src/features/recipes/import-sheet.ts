@@ -60,3 +60,8 @@ export function importErrorMessage(error: ImportRecipeError): string {
 export function importedToast(recipeName: string, count: number): { message: string; emphasis: string } {
   return addedRecipeToListToast(recipeName, count);
 }
+
+/** The list screen's toast when one share-queue drain imported several recipes: "Added 3 recipes". */
+export function sharedImportsToast(count: number): { message: string } {
+  return { message: `Added ${count} ${count === 1 ? 'recipe' : 'recipes'}` };
+}
