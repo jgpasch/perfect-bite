@@ -72,12 +72,16 @@ export function recipesForPicker(householdId: string): RecipeSummary[] {
   const all = recipesQuery()
     .all()
     .filter((r) => r.householdId === householdId);
-  const uses = db
+  return orderByLastUse(all, recipeAddTimes(householdId));
+}
+
+/** Each time one of the household's recipes was added to a list: one per recipe contribution. */
+export function recipeAddTimes(householdId: string): { recipeId: string; at: Date }[] {
+  return db
     .select({ recipeId: sql<string>`${listItemContributions.recipeId}`, at: listItemContributions.createdAt })
     .from(listItemContributions)
     .where(and(isNotNull(listItemContributions.recipeId), eq(listItemContributions.householdId, householdId)))
     .all();
-  return orderByLastUse(all, uses);
 }
 
 export function recipeQuery(id: string) {

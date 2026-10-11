@@ -22,3 +22,32 @@ export function takeRecipeAddResult(listId: string): RecipeAddResult | null {
   pending = null;
   return result;
 }
+
+// A recipe added from the add bar (spec 4.2) can be adjusted: its toast's Adjust opens the recipe's
+// add sheet with a token, and the sheet's add replaces the add the token names. Only one at a time;
+// a newer Adjust replaces it, and Cancel leaves the first add as it is.
+
+export type AdjustableAdd = { listId: string; recipeId: string; results: (AddItemResult | null)[] };
+
+let adjusting: { token: string; add: AdjustableAdd } | null = null;
+let nextToken = 0;
+
+/** Remembers the add to replace and returns the token to hand to the add sheet. */
+export function startAdjust(add: AdjustableAdd): string {
+  nextToken += 1;
+  const token = String(nextToken);
+  adjusting = { token, add };
+  return token;
+}
+
+/**
+ * The add this token names, once, if it's for this recipe: the sheet takes it as it adds (to any list; the old
+ * add goes from its own list). A stale or missing token gives null, so the sheet adds without replacing anything.
+ */
+export function takeAdjust(token: string | undefined, recipeId: string): AdjustableAdd | null {
+  if (!token || adjusting?.token !== token) return null;
+  const { add } = adjusting;
+  if (add.recipeId !== recipeId) return null;
+  adjusting = null;
+  return add;
+}

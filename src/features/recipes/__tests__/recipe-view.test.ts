@@ -10,6 +10,8 @@ import {
   onListByRecipe,
   orderByLastUse,
   recipeCardLabel,
+  recipeSuggestionDetail,
+  recipeSuggestionLabel,
   servingsLabel,
 } from '../recipe-view';
 
@@ -145,5 +147,13 @@ describe('labels', () => {
     expect(addedRecipeToListToast('Tacos', 8)).toEqual({ message: 'Added Tacos · 8 items', emphasis: 'Tacos' });
     expect(addedRecipeToListToast('Toast', 1)).toEqual({ message: 'Added Toast · 1 item', emphasis: 'Toast' });
     expect(addedRecipeToListToast('Tacos', 0)).toEqual({ message: 'Added Tacos · 0 items', emphasis: 'Tacos' });
+  });
+
+  test("an add bar recipe row says it's a recipe and counts its items", () => {
+    expect(recipeSuggestionDetail(8)).toBe('Recipe · 8 items');
+    expect(recipeSuggestionDetail(1)).toBe('Recipe · 1 item');
+    expect(recipeSuggestionDetail(0)).toBe('Recipe · 0 items');
+    expect(recipeSuggestionLabel('Tacos', 8)).toBe('Add recipe Tacos, 8 items');
+    expect(recipeSuggestionLabel('Toast', 1)).toBe('Add recipe Toast, 1 item');
   });
 });

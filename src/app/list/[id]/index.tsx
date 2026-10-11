@@ -61,9 +61,10 @@ import {
 import { deleteList, listQuery, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { listShareText } from '@/features/lists/share';
-import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
-import { undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
@@ -222,6 +223,30 @@ export default function ListScreen() {
       ...addedToast(result.existingName ?? value.trim(), result.totalAmountText),
       itemId: result.itemId,
       actions: [{ label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) }],
+    });
+  };
+
+  // Spec 4.2: a recipe picked in the add bar adds all its ingredients at 1× (Combine as 4.4 bulk add), with Undo,
+  // and Adjust, which opens the recipe's add sheet; adding from there replaces this add.
+  const addRecipe = (recipe: RecipeSuggestion) => {
+    const added = addWholeRecipeToList(id, recipe.id, userId);
+    if (!added) return;
+    void categorizePending(added.pendingNames);
+    if (viewMode === 'newest') listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    setToast({
+      key: `recipe-add-${recipe.id}-${Date.now()}`,
+      ...addedRecipeToListToast(added.recipeName, added.count),
+      actions: [
+        { label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) },
+        {
+          label: 'Adjust',
+          onPress: () => {
+            setToast(null);
+            const adjust = startAdjust({ listId: id, recipeId: recipe.id, results: added.results });
+            router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id, list: id, adjust } });
+          },
+        },
+      ],
     });
   };
 
@@ -440,6 +465,7 @@ export default function ListScreen() {
             householdId={list.householdId}
             listId={id}
             onAdd={add}
+            onAddRecipe={addRecipe}
             placeholder="Add an item, like 2 lbs chicken thighs"
             accessibilityLabel="Add an item"
           />

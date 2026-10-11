@@ -49,6 +49,16 @@ export function addCtaLabel(count: number, listName: string): string {
   return count === 0 ? 'Nothing selected' : `Add ${count} to ${listName}`;
 }
 
+/** A recipe row's second line in the add bar's panel (spec 4.2): "Recipe · 8 items". */
+export function recipeSuggestionDetail(count: number): string {
+  return `Recipe · ${count} ${count === 1 ? 'item' : 'items'}`;
+}
+
+/** What VoiceOver reads for that row: "Add recipe Tacos, 8 items". */
+export function recipeSuggestionLabel(name: string, count: number): string {
+  return `Add recipe ${name}, ${count} ${count === 1 ? 'item' : 'items'}`;
+}
+
 /** The toast after adding a recipe to a list: "Added Tacos · 8 items", the recipe's name in bold. */
 export function addedRecipeToListToast(recipeName: string, count: number): { message: string; emphasis: string } {
   return { message: `Added ${recipeName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName };

@@ -3,13 +3,21 @@ import { eq } from 'drizzle-orm';
 
 import { db, households, ingredientUsage, lists } from '@/db';
 import { loadCatalogSeed, searchCatalog } from '@/features/categories/categories';
-import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
+import { addRecipeToList, buildRecipeAdds } from '@/features/recipes/add-to-list';
+import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { parseQuantity } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import { addItem, deleteItem, setItemChecked, undoAdd } from '../items';
 import { createList, ensureStarterData, getDefaultListId } from '../lists';
-import { applySuggestion, getRecentItems, getSuggestions, suggestionCaption } from '../suggestions';
+import {
+  applySuggestion,
+  getRecentItems,
+  getRecentRecipes,
+  getRecipeSuggestions,
+  getSuggestions,
+  suggestionCaption,
+} from '../suggestions';
 import { hideFromSuggestions } from '../usage';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -341,5 +349,103 @@ describe('getRecentItems (spec 4.2, RECENTLY USED)', () => {
     jest.setSystemTime(NOW);
     addChecked('3 lbs chicken thighs');
     expect(recent()[0].text).toBe('3 lb chicken thighs');
+  });
+});
+
+describe('recipes in the add bar (spec 4.2)', () => {
+  const NOW = new Date('2026-10-10T12:00:00Z');
+  const MINUTE = 60 * 1000;
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const recipeWith = (name: string, ingredients: string[], inHousehold = householdId) => {
+    const id = createRecipe(name, inHousehold);
+    for (const text of ingredients) addRecipeIngredient(id, text);
+    return id;
+  };
+
+  const addToList = (recipeId: string) => {
+    const ingredients = recipeIngredientsQuery(recipeId).all();
+    addRecipeToList(listId, buildRecipeAdds(recipeId, ingredients, new Set(ingredients.map((i) => i.id)), 1), USER);
+  };
+
+  test('matches the household recipe by name, with its ingredient count', () => {
+    const tacos = recipeWith('Tacos', ['1 lb ground beef', '8 tortillas', 'limes']);
+    expect(getRecipeSuggestions(householdId, 'tac')).toEqual([{ id: tacos, name: 'Tacos', ingredientCount: 3 }]);
+    expect(getRecipeSuggestions(householdId, 'TACOS')).toEqual([{ id: tacos, name: 'Tacos', ingredientCount: 3 }]);
+    expect(getRecipeSuggestions(householdId, 'beef')).toEqual([]);
+  });
+
+  test('only this household, and no recipe with no ingredients', () => {
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    recipeWith('Tagine', ['1 lamb shoulder'], 'lake');
+    recipeWith('Tahini sauce', []);
+    const tacos = recipeWith('Tacos', ['8 tortillas']);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.id)).toEqual([tacos]);
+    expect(getRecipeSuggestions('lake', 'ta').map((r) => r.name)).toEqual(['Tagine']);
+  });
+
+  test('a typed amount, a single letter or a deleted recipe matches nothing', () => {
+    const tacos = recipeWith('Tacos', ['8 tortillas']);
+    expect(getRecipeSuggestions(householdId, '2 ta')).toEqual([]);
+    expect(getRecipeSuggestions(householdId, 't')).toEqual([]);
+    expect(getRecipeSuggestions(householdId, '')).toEqual([]);
+    deleteRecipe(tacos);
+    expect(getRecipeSuggestions(householdId, 'tacos')).toEqual([]);
+  });
+
+  test('up to 2 recipe rows by default, most recently used first', () => {
+    jest.useFakeTimers({ now: new Date(NOW.getTime() - 3 * MINUTE) });
+    recipeWith('Tacos', ['8 tortillas']);
+    jest.setSystemTime(new Date(NOW.getTime() - 2 * MINUTE));
+    recipeWith('Tagine', ['1 lamb shoulder']);
+    jest.setSystemTime(new Date(NOW.getTime() - MINUTE));
+    recipeWith('Tamales', ['masa']);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toEqual(['Tamales', 'Tagine']);
+    expect(getRecipeSuggestions(householdId, 'ta', 5).map((r) => r.name)).toEqual(['Tamales', 'Tagine', 'Tacos']);
+  });
+
+  test("recipes don't push item suggestions out", () => {
+    for (const name of ['taco shells', 'tahini', 'tamarind', 'tarragon', 'tater tots', 'tangerines']) addItem(listId, name, USER);
+    const itemsBefore = getSuggestions(householdId, 'ta');
+    expect(itemsBefore).toHaveLength(5);
+    recipeWith('Tacos', ['taco shells', '1 lb ground beef']);
+    recipeWith('Tagine', ['1 lamb shoulder']);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toHaveLength(2);
+    // Same five item suggestions, all history, no recipe among them.
+    const itemsAfter = getSuggestions(householdId, 'ta');
+    expect(itemsAfter.map((s) => s.source)).toEqual(['history', 'history', 'history', 'history', 'history']);
+    expect(itemsAfter.map((s) => s.displayName)).not.toContain('Tacos');
+    expect(itemsAfter.map((s) => s.displayName)).not.toContain('Tagine');
+  });
+
+  test('recently added recipes: only ones added to a list, latest add first, up to 3', () => {
+    const ids: Record<string, string> = {};
+    for (const name of ['Tacos', 'Dal', 'Pho', 'Ramen']) ids[name] = recipeWith(name, [`${name} base`]);
+    recipeWith('Never added', ['salt']);
+    expect(getRecentRecipes(householdId)).toEqual([]);
+
+    const order = ['Tacos', 'Dal', 'Pho', 'Ramen', 'Dal'];
+    jest.useFakeTimers({ now: NOW });
+    order.forEach((name, i) => {
+      jest.setSystemTime(new Date(NOW.getTime() + i * MINUTE));
+      addToList(ids[name]);
+    });
+    expect(getRecentRecipes(householdId)).toEqual([
+      { id: ids.Dal, name: 'Dal', ingredientCount: 1 },
+      { id: ids.Ramen, name: 'Ramen', ingredientCount: 1 },
+      { id: ids.Pho, name: 'Pho', ingredientCount: 1 },
+    ]);
+    expect(getRecentRecipes(householdId, 10).map((r) => r.name)).toEqual(['Dal', 'Ramen', 'Pho', 'Tacos']);
+  });
+
+  test('recently added recipes are only this household', () => {
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    const tacos = recipeWith('Tacos', ['8 tortillas']);
+    addToList(tacos);
+    expect(getRecentRecipes('lake')).toEqual([]);
+    expect(getRecentRecipes(householdId).map((r) => r.id)).toEqual([tacos]);
   });
 });

@@ -1,4 +1,4 @@
-// Spec 4.2: orders the household's ingredient history for autocomplete. Pure.
+// Spec 4.2: orders the household's ingredient history, and its recipes, for autocomplete. Pure.
 
 export type HistoryRow = {
   /** Ingredient key. */
@@ -19,9 +19,9 @@ export function frecency(row: HistoryRow, now: Date): number {
   return row.useCount * 0.5 ** (days / HALF_LIFE_DAYS);
 }
 
-/** 'prefix' when the whole name starts with the query, 'word' when a later word does. */
-function matchKind(row: HistoryRow, query: string): 'prefix' | 'word' | null {
-  const names = [row.displayName.toLowerCase(), row.ingredientName.toLowerCase()];
+/** 'prefix' when a whole name starts with the (lowercase) query, 'word' when a later word does. */
+function matchKind(rawNames: readonly string[], query: string): 'prefix' | 'word' | null {
+  const names = rawNames.map((n) => n.toLowerCase());
   if (names.some((n) => n.startsWith(query))) return 'prefix';
   if (names.some((n) => n.split(/\s+/).some((w) => w.startsWith(query)))) return 'word';
   return null;
@@ -38,7 +38,7 @@ export function rankHistory<T extends HistoryRow>(rows: readonly T[], query: str
   return rows
     .flatMap((row) => {
       if (row.hiddenAt !== null) return [];
-      const kind = matchKind(row, q);
+      const kind = matchKind([row.displayName, row.ingredientName], q);
       return kind ? [{ row, kind, score: frecency(row, now) }] : [];
     })
     .sort(
@@ -49,4 +49,76 @@ export function rankHistory<T extends HistoryRow>(rows: readonly T[], query: str
         (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
     )
     .map((m) => m.row);
+}
+
+/** A recipe as the add bar sees it (spec 4.2), with its number of live ingredients. */
+export type RecipeRow = { id: string; name: string; householdId: string; ingredientCount: number; updatedAt: Date };
+
+/** One time a recipe was added to a list: one per recipe contribution. */
+export type RecipeUse = { recipeId: string; at: Date };
+
+/** The latest add to a list of each recipe, in ms. */
+function lastAdds(uses: readonly RecipeUse[]): Map<string, number> {
+  const last = new Map<string, number>();
+  for (const use of uses) last.set(use.recipeId, Math.max(last.get(use.recipeId) ?? -Infinity, use.at.getTime()));
+  return last;
+}
+
+const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+const squash = (text: string) => text.trim().replace(/\s+/g, ' ');
+
+/**
+ * The household's recipes for autocomplete (spec 4.2): the same prefix/word rule as history, on the recipe's
+ * name. Most recently used first (the later of its last change and its last add to a list), then a whole-name
+ * prefix match before a word match, then the shorter name, then alphabetical. Recipes in other households and
+ * recipes with no ingredients (nothing to add) are left out; a query under 2 characters matches nothing. The
+ * result is kept apart from item suggestions, so recipes never take their slots.
+ */
+export function rankRecipes<T extends RecipeRow>(
+  recipes: readonly T[],
+  uses: readonly RecipeUse[],
+  householdId: string,
+  query: string,
+  limit: number,
+): T[] {
+  const q = squash(query).toLowerCase();
+  if (q.length < 2) return [];
+  const added = lastAdds(uses);
+  return recipes
+    .flatMap((recipe) => {
+      if (recipe.householdId !== householdId || recipe.ingredientCount === 0) return [];
+      const kind = matchKind([squash(recipe.name)], q);
+      const lastUse = Math.max(recipe.updatedAt.getTime(), added.get(recipe.id) ?? -Infinity);
+      return kind ? [{ recipe, kind, lastUse }] : [];
+    })
+    .sort(
+      (a, b) =>
+        b.lastUse - a.lastUse ||
+        (a.kind === b.kind ? 0 : a.kind === 'prefix' ? -1 : 1) ||
+        a.recipe.name.length - b.recipe.name.length ||
+        byName(a.recipe, b.recipe),
+    )
+    .slice(0, Math.max(0, limit))
+    .map((m) => m.recipe);
+}
+
+/**
+ * The recipes at the top of "RECENTLY USED" (spec 4.2): the household's recipes that have been added to a list,
+ * most recently added first (ties alphabetical), up to `limit`. Recipes with no ingredients are left out.
+ */
+export function recentRecipes<T extends RecipeRow>(
+  recipes: readonly T[],
+  uses: readonly RecipeUse[],
+  householdId: string,
+  limit: number,
+): T[] {
+  const added = lastAdds(uses);
+  return recipes
+    .flatMap((recipe) => {
+      const at = added.get(recipe.id);
+      return recipe.householdId === householdId && recipe.ingredientCount > 0 && at !== undefined ? [{ recipe, at }] : [];
+    })
+    .sort((a, b) => b.at - a.at || byName(a.recipe, b.recipe))
+    .slice(0, Math.max(0, limit))
+    .map((m) => m.recipe);
 }

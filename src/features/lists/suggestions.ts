@@ -2,8 +2,9 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, ingredientUsage, listItemContributions, listItems, recipeIngredients } from '@/db';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
-import { frecency } from '@/domain/suggestion-rank';
+import { frecency, rankRecipes, recentRecipes } from '@/domain/suggestion-rank';
 import { searchCatalog } from '@/features/categories/categories';
+import { recipeAddTimes, recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
 import { parseQuantity } from '@/shared';
 
 import { searchRecentItems } from './items';
@@ -142,4 +143,38 @@ function lastAmounts(householdId: string, keys: string[]): Map<string, Amount> {
     if (!found || at >= found.at) latest.set(key, { amount: { quantity, unit }, at });
   }
   return new Map([...latest].map(([key, { amount }]) => [key, amount]));
+}
+
+/** A recipe row in the add bar's panel (spec 4.2): tapping it adds the whole recipe at 1×. */
+export type RecipeSuggestion = { id: string; name: string; ingredientCount: number };
+
+/** Recipe rows shown above the item suggestions while typing. */
+const RECIPE_SUGGESTION_LIMIT = 2;
+/** Recently added recipes shown at the top of "RECENTLY USED". */
+const RECENT_RECIPE_LIMIT = 3;
+
+function householdRecipes(householdId: string): RecipeSummary[] {
+  return recipesQuery()
+    .all()
+    .filter((r) => r.householdId === householdId);
+}
+
+const toRecipeSuggestion = ({ id, name, ingredientCount }: RecipeSummary): RecipeSuggestion => ({ id, name, ingredientCount });
+
+/**
+ * The household's recipes whose name matches the add text (spec 4.2, `rankRecipes`). Matches the whole text, so a
+ * typed amount (`2 ta`) matches no recipe. Separate from `getSuggestions`, whose slots recipes never take.
+ */
+export function getRecipeSuggestions(householdId: string, text: string, limit = RECIPE_SUGGESTION_LIMIT): RecipeSuggestion[] {
+  if (text.trim().length < 2) return [];
+  return rankRecipes(householdRecipes(householdId), recipeAddTimes(householdId), householdId, text, limit).map(
+    toRecipeSuggestion,
+  );
+}
+
+/** The household's most recently added recipes, for the top of "RECENTLY USED" (spec 4.2, `recentRecipes`). */
+export function getRecentRecipes(householdId: string, limit = RECENT_RECIPE_LIMIT): RecipeSuggestion[] {
+  return recentRecipes(householdRecipes(householdId), recipeAddTimes(householdId), householdId, limit).map(
+    toRecipeSuggestion,
+  );
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 
 import { db, ingredientUnitUsage, ingredientUsage, listItems } from '@/db';
 import { groupByRecipe } from '@/domain/recipe-grouping';
@@ -12,11 +13,11 @@ import {
   removeRecipeFromList,
   setItemChecked,
 } from '@/features/lists/items';
-import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { createList, ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
-import { addRecipeToList, buildRecipeAdds, undoRecipeAdd } from '../add-to-list';
-import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
+import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds, replaceRecipeAdd, undoRecipeAdd } from '../add-to-list';
+import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -251,5 +252,78 @@ describe('By recipe actions (spec 4.6)', () => {
     addAll(tacos);
     removeRecipeFromList(listId, tacos);
     expect(rows()).toEqual(['2 limes']);
+  });
+});
+
+describe('a recipe picked in the add bar (spec 4.2)', () => {
+  test('adds every ingredient at 1×, Combining with what is open', () => {
+    addItem(listId, 'limes', USER);
+    const added = addWholeRecipeToList(listId, tacos, USER)!;
+    expect(added.recipeName).toBe('Tacos');
+    expect(added.count).toBe(5);
+    expect(added.results.map((r) => r?.kind)).toEqual(['new', 'new', 'new', 'new', 'combine']);
+    expect(rows()).toEqual(['3 limes', '1 lb ground beef', '8 tortillas', '1 cup salsa', 'cilantro']);
+    // Every item groups under the recipe.
+    const sections = groupByRecipe(groupItems(listItemsQuery(listId, USER).all()).unchecked);
+    expect(sections.map((s) => [s.name, s.entries.length])).toEqual([['Tacos', 5]]);
+  });
+
+  test('Undo takes the whole add back', () => {
+    addItem(listId, 'limes', USER);
+    const added = addWholeRecipeToList(listId, tacos, USER)!;
+    undoRecipeAdd(added);
+    expect(rows()).toEqual(['limes']);
+  });
+
+  test('a deleted recipe adds nothing', () => {
+    deleteRecipe(tacos);
+    expect(addWholeRecipeToList(listId, tacos, USER)).toBeNull();
+    expect(rows()).toEqual([]);
+  });
+
+  test('a recipe with no ingredients adds nothing', () => {
+    const empty = createRecipe('Empty');
+    const added = addWholeRecipeToList(listId, empty, USER)!;
+    expect(added).toMatchObject({ recipeName: 'Empty', count: 0, results: [] });
+    expect(rows()).toEqual([]);
+  });
+
+  describe('Adjust replaces that add', () => {
+    test('with 2× and one ingredient unticked, the list is as if only the adjusted add happened', () => {
+      addItem(listId, 'limes', USER);
+      const first = addWholeRecipeToList(listId, tacos, USER)!;
+      const ingredients = recipeIngredientsQuery(tacos).all();
+      const selected = new Set(ingredients.filter((i) => i.displayName !== 'cilantro').map((i) => i.id));
+      const adjusted = replaceRecipeAdd(first, listId, buildRecipeAdds(tacos, ingredients, selected, 2), USER);
+      expect(adjusted.count).toBe(4);
+      // Limes: the plain `limes` (counts as one) + 4 from the doubled recipe, not + 2 + 4.
+      expect(rows()).toEqual(['5 limes', '2 lb ground beef', '16 tortillas', '2 cup salsa']);
+      // Undo of the adjusted add leaves the list as it was before either.
+      undoRecipeAdd(adjusted);
+      expect(rows()).toEqual(['limes']);
+    });
+
+    test('a checked match reopened by the first add is reopened once, with the adjusted amount', () => {
+      const tortillas = addItem(listId, '10 tortillas', USER)!;
+      setItemChecked(tortillas.itemId, true, USER);
+      const first = addWholeRecipeToList(listId, tacos, USER)!;
+      const ingredients = recipeIngredientsQuery(tacos).all();
+      const onlyTortillas = new Set(ingredients.filter((i) => i.displayName === 'tortillas').map((i) => i.id));
+      replaceRecipeAdd(first, listId, buildRecipeAdds(tacos, ingredients, onlyTortillas, 0.5), USER);
+      expect(rows()).toEqual(['4 tortillas']);
+      const item = db.select().from(listItems).where(eq(listItems.id, tortillas.itemId)).get()!;
+      expect(item.checkedAt).toBeNull();
+    });
+
+    test('adjusting to another list takes the first add off its own list', () => {
+      const costco = createList('Costco');
+      const first = addWholeRecipeToList(listId, tacos, USER)!;
+      const ingredients = recipeIngredientsQuery(tacos).all();
+      replaceRecipeAdd(first, costco, buildRecipeAdds(tacos, ingredients, new Set([ingredients[0].id]), 1), USER);
+      expect(rows()).toEqual([]);
+      expect(groupItems(listItemsQuery(costco, USER).all()).unchecked.map((i) => `${i.amountText} ${i.displayName}`)).toEqual([
+        '1 lb ground beef',
+      ]);
+    });
   });
 });

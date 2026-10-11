@@ -1,6 +1,14 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, test } from '@jest/globals';
 
-import { frecency, rankHistory, type HistoryRow } from '../suggestion-rank';
+import {
+  frecency,
+  rankHistory,
+  rankRecipes,
+  recentRecipes,
+  type HistoryRow,
+  type RecipeRow,
+  type RecipeUse,
+} from '../suggestion-rank';
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = new Date(Date.UTC(2026, 9, 9));
@@ -111,5 +119,99 @@ describe('rankHistory', () => {
     const ranked = rankHistory(rows, 'chi', now);
     expect(ranked[0]).toBe(rows[1]);
     expect(rows).toEqual(before);
+  });
+});
+
+const HOME = 'home';
+const recipe = (name: string, ageDays: number, extra: Partial<RecipeRow> = {}): RecipeRow => ({
+  id: name.toLowerCase().replace(/\s+/g, '-'),
+  name,
+  householdId: HOME,
+  ingredientCount: 8,
+  updatedAt: daysAgo(ageDays),
+  ...extra,
+});
+const use = (recipeId: string, ageDays: number): RecipeUse => ({ recipeId, at: daysAgo(ageDays) });
+const recipeNames = (rows: RecipeRow[]) => rows.map((r) => r.name);
+
+describe('rankRecipes (spec 4.2)', () => {
+  test('matches a whole-name prefix or the start of a later word, case-insensitively', () => {
+    const rows = [recipe('Tacos', 1), recipe('Fish tacos', 2), recipe('Potato salad', 3), recipe('Dal', 4)];
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'TA', 5))).toEqual(['Tacos', 'Fish tacos']);
+    // Not a word start: "ta" inside "potato" doesn't match.
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'ato', 5))).toEqual([]);
+    expect(recipeNames(rankRecipes(rows, [], HOME, '  fish   ta ', 5))).toEqual(['Fish tacos']);
+  });
+
+  test('only this household, and only recipes with something to add', () => {
+    const rows = [
+      recipe('Tacos', 1, { householdId: 'lake' }),
+      recipe('Tahini sauce', 2, { ingredientCount: 0 }),
+      recipe('Tagine', 3),
+    ];
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'ta', 5))).toEqual(['Tagine']);
+    expect(recipeNames(rankRecipes(rows, [], 'lake', 'ta', 5))).toEqual(['Tacos']);
+    expect(rankRecipes(rows, [], 'nowhere', 'ta', 5)).toEqual([]);
+  });
+
+  test('a query under 2 characters, or blank, matches nothing', () => {
+    const rows = [recipe('Tacos', 1)];
+    expect(rankRecipes(rows, [], HOME, 't', 5)).toEqual([]);
+    expect(rankRecipes(rows, [], HOME, '   ', 5)).toEqual([]);
+    expect(rankRecipes(rows, [], HOME, ' t ', 5)).toEqual([]);
+  });
+
+  test('most recently used first: the later of its last change and its last add to a list', () => {
+    const rows = [recipe('Tacos', 10), recipe('Tagine', 5), recipe('Tamales', 20)];
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'ta', 5))).toEqual(['Tagine', 'Tacos', 'Tamales']);
+    // Tamales was added to a list yesterday, Tacos 7 days ago (still after its last change).
+    const uses = [use('tamales', 30), use('tamales', 1), use('tacos', 7)];
+    expect(recipeNames(rankRecipes(rows, uses, HOME, 'ta', 5))).toEqual(['Tamales', 'Tagine', 'Tacos']);
+    // An add older than the last change doesn't move it.
+    expect(recipeNames(rankRecipes(rows, [use('tamales', 40)], HOME, 'ta', 5))).toEqual(['Tagine', 'Tacos', 'Tamales']);
+  });
+
+  test('ties: prefix before word, then shorter name, then alphabetical', () => {
+    const rows = [recipe('Fish tacos', 1), recipe('Tacos al pastor', 1), recipe('Tacos', 1), recipe('Tabbouleh', 1)];
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'ta', 5))).toEqual(['Tacos', 'Tabbouleh', 'Tacos al pastor', 'Fish tacos']);
+  });
+
+  test('capped at the limit; zero or negative gives none', () => {
+    const rows = [recipe('Tacos', 1), recipe('Tagine', 2), recipe('Tamales', 3)];
+    expect(recipeNames(rankRecipes(rows, [], HOME, 'ta', 2))).toEqual(['Tacos', 'Tagine']);
+    expect(rankRecipes(rows, [], HOME, 'ta', 0)).toEqual([]);
+    expect(rankRecipes(rows, [], HOME, 'ta', -1)).toEqual([]);
+  });
+
+  test('works on the rows it was given: item history never enters, so recipes take no item slots', () => {
+    const rows = [recipe('Tacos', 1)];
+    const before = structuredClone(rows);
+    const ranked = rankRecipes(rows, [], HOME, 'ta', 5);
+    expect(ranked[0]).toBe(rows[0]);
+    expect(rows).toEqual(before);
+    // History ranking is unaffected by recipes with the same name.
+    expect(names(rankHistory([usage('taco shells', 2, 0)], 'ta', now))).toEqual(['taco shells']);
+  });
+});
+
+describe('recentRecipes (spec 4.2)', () => {
+  test('recipes added to a list, most recently added first, up to the limit', () => {
+    const rows = [recipe('Tacos', 0), recipe('Dal', 0), recipe('Pho', 0), recipe('Ramen', 0), recipe('Never added', 0)];
+    const uses = [use('tacos', 9), use('dal', 2), use('pho', 5), use('ramen', 1), use('tacos', 3)];
+    expect(recipeNames(recentRecipes(rows, uses, HOME, 3))).toEqual(['Ramen', 'Dal', 'Tacos']);
+    expect(recipeNames(recentRecipes(rows, uses, HOME, 10))).toEqual(['Ramen', 'Dal', 'Tacos', 'Pho']);
+  });
+
+  test('only this household, never-added and empty recipes left out, ties alphabetical', () => {
+    const rows = [
+      recipe('Tacos', 0, { householdId: 'lake' }),
+      recipe('Empty', 0, { ingredientCount: 0 }),
+      recipe('Pho', 0),
+      recipe('Dal', 0),
+    ];
+    const uses = [use('tacos', 1), use('empty', 1), use('pho', 2), use('dal', 2)];
+    expect(recipeNames(recentRecipes(rows, uses, HOME, 3))).toEqual(['Dal', 'Pho']);
+    expect(recentRecipes(rows, [], HOME, 3)).toEqual([]);
+    expect(recentRecipes(rows, uses, HOME, 0)).toEqual([]);
   });
 });

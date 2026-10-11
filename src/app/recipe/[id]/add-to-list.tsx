@@ -13,8 +13,8 @@ import { formatAmount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
-import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
-import { addRecipeToList, buildRecipeAdds, SERVINGS } from '@/features/recipes/add-to-list';
+import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
+import { addRecipeToList, buildRecipeAdds, replaceRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
 import { addCtaLabel, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
@@ -25,7 +25,8 @@ import { useTheme } from '@/hooks/use-theme';
  * then shows "Added Tacos · 8 items" with Undo.
  */
 export default function AddRecipeToListSheet() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // From the add bar's Adjust (spec 4.2): `list` preselects that list and `adjust` names the add this one replaces.
+  const { id, list: fromList, adjust } = useLocalSearchParams<{ id: string; list?: string; adjust?: string }>();
   const { spacing } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
@@ -38,7 +39,9 @@ export default function AddRecipeToListSheet() {
       .all()
       .filter((l) => l.archivedAt === null),
   );
-  const [listId, setListId] = useState(() => (userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null);
+  const [listId, setListId] = useState(
+    () => lists.find((l) => l.id === fromList)?.id ?? (userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null,
+  );
   const [selected, setSelected] = useState(() => new Set(ingredients.map((i) => i.id)));
   const [servings, setServings] = useState(1);
 
@@ -48,12 +51,15 @@ export default function AddRecipeToListSheet() {
   if (!recipe || !listId) return <Screen />;
 
   // Spec 4.4: no clash step. Every ingredient already open Combines, and the list shows the toast.
+  // Opened from Adjust, this add replaces the add bar's one.
   const add = () => {
-    const added = addRecipeToList(listId, adds, userId);
+    const previous = takeAdjust(adjust, id);
+    const added = previous ? replaceRecipeAdd(previous, listId, adds, userId) : addRecipeToList(listId, adds, userId);
     void categorizePending(added.pendingNames);
     setRecipeAddResult({ kind: 'toList', listId, recipeId: id, recipeName: recipe.name, count: added.count, results: added.results });
     router.back();
-    router.push({ pathname: '/list/[id]', params: { id: listId } });
+    // Opened from that list's toast, the list is underneath already.
+    if (listId !== fromList) router.push({ pathname: '/list/[id]', params: { id: listId } });
   };
 
   const toggle = <T,>(set: Set<T>, value: T) => {

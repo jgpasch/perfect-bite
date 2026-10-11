@@ -1,6 +1,13 @@
-import { expect, test } from '@jest/globals';
+import { describe, expect, test } from '@jest/globals';
 
-import { setRecipeAddResult, takeRecipeAddResult, type RecipeAddResult } from '../recipe-add-result';
+import {
+  setRecipeAddResult,
+  startAdjust,
+  takeAdjust,
+  takeRecipeAddResult,
+  type AdjustableAdd,
+  type RecipeAddResult,
+} from '../recipe-add-result';
 
 const result: RecipeAddResult = { kind: 'toRecipe', listId: 'groceries', recipeId: 'tacos', recipeName: 'Tacos', count: 3 };
 
@@ -36,4 +43,32 @@ test('a recipe added to the list carries its adds, for Undo', () => {
     results: [added, null],
   });
   expect(takeRecipeAddResult('groceries')).toBeNull();
+});
+
+describe('Adjust (spec 4.2)', () => {
+  const added = { itemId: 'i1', contributionId: 'c1', kind: 'new' as const, pendingNames: [] };
+  const tacosAdd: AdjustableAdd = { listId: 'groceries', recipeId: 'tacos', results: [added] };
+
+  test('the sheet takes the add its token names, once', () => {
+    const token = startAdjust(tacosAdd);
+    expect(takeAdjust(token, 'tacos')).toEqual(tacosAdd);
+    expect(takeAdjust(token, 'tacos')).toBeNull();
+  });
+
+  test('no token (the sheet opened from the recipe screen) replaces nothing, and keeps the pending add', () => {
+    const token = startAdjust(tacosAdd);
+    expect(takeAdjust(undefined, 'tacos')).toBeNull();
+    expect(takeAdjust('', 'tacos')).toBeNull();
+    expect(takeAdjust(token, 'tacos')).toEqual(tacosAdd);
+  });
+
+  test('another recipe, or a stale token, replaces nothing', () => {
+    const stale = startAdjust(tacosAdd);
+    const dalAdd = { ...tacosAdd, recipeId: 'dal' };
+    const token = startAdjust(dalAdd);
+    expect(token).not.toBe(stale);
+    expect(takeAdjust(stale, 'tacos')).toBeNull();
+    expect(takeAdjust(token, 'tacos')).toBeNull();
+    expect(takeAdjust(token, 'dal')).toEqual(dalAdd);
+  });
 });
