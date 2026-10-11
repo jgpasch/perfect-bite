@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
-import { db, households, ingredients, ingredientUnitUsage, ingredientUsage, lists } from '@/db';
+import {
+  db,
+  households,
+  ingredients,
+  ingredientUnitUsage,
+  ingredientUsage,
+  listItemContributions,
+  listItems,
+  lists,
+  type ListItem,
+} from '@/db';
 import { resetDb } from '@/test/db';
 
 import {
@@ -17,6 +27,7 @@ import {
   groupItems,
   listItemsQuery,
   orderByAisle,
+  restoreItems,
   searchRecentItems,
   setItemAmount,
   setItemChecked,
@@ -612,9 +623,147 @@ describe('check, delete, undo', () => {
     uncheckAll(listId);
     expect(view().unchecked).toHaveLength(3);
     setItemChecked(a.itemId, true, USER);
-    expect(clearChecked(listId)).toBe(1);
+    expect(clearChecked(listId).ids).toEqual([a.itemId]);
     expect(rows(view().unchecked)).toEqual(['bread', 'cheese']);
     expect(view().checked).toHaveLength(0);
+  });
+});
+
+describe('clearChecked and restoreItems', () => {
+  const itemRow = (id: string) => db.select().from(listItems).where(eq(listItems.id, id)).get()!;
+  const liveContributionIds = (id: string) =>
+    db
+      .select({ id: listItemContributions.id })
+      .from(listItemContributions)
+      .where(and(eq(listItemContributions.listItemId, id), isNull(listItemContributions.deletedAt)))
+      .all()
+      .map((c) => c.id)
+      .sort();
+
+  test('clears only the checked items, all at one time, and leaves their amounts', () => {
+    const milk = addItem(listId, '2 gal milk', USER)!;
+    addItem(listId, '1 gal milk', USER);
+    const eggs = addItem(listId, '12 eggs', USER)!;
+    addItem(listId, 'bread', USER);
+    setItemChecked(milk.itemId, true, USER);
+    setItemChecked(eggs.itemId, true, USER);
+
+    const cleared = clearChecked(listId);
+    expect([...cleared.ids].sort()).toEqual([milk.itemId, eggs.itemId].sort());
+    expect(itemRow(milk.itemId).deletedAt).toEqual(cleared.deletedAt);
+    expect(itemRow(eggs.itemId).deletedAt).toEqual(cleared.deletedAt);
+    expect(liveContributionIds(milk.itemId)).toHaveLength(2);
+    expect(rows(view().unchecked)).toEqual(['bread']);
+    expect(view().checked).toEqual([]);
+  });
+
+  test('nothing checked clears nothing, and restoring nothing does nothing', () => {
+    addItem(listId, 'bread', USER);
+    const cleared = clearChecked(listId);
+    expect(cleared.ids).toEqual([]);
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(0);
+    expect(rows(view().unchecked)).toEqual(['bread']);
+  });
+
+  test("doesn't touch checked items on another list", () => {
+    const other = createList('Hardware');
+    const nails = addItem(other, 'nails', USER)!;
+    setItemChecked(nails.itemId, true, USER);
+    const milk = addItem(listId, 'milk', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    expect(clearChecked(listId).ids).toEqual([milk.itemId]);
+    expect(rows(view(other).checked)).toEqual(['nails']);
+  });
+
+  test('restore puts back the same rows, checked as they were, with the same amounts', () => {
+    const milk = addItem(listId, '2 gal milk', USER)!;
+    addItem(listId, '1 gal milk', USER);
+    const eggs = addItem(listId, '12 eggs', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    setItemChecked(eggs.itemId, true, 'user-2');
+    const before = { milk: itemRow(milk.itemId), eggs: itemRow(eggs.itemId) };
+    const amounts = { milk: liveContributionIds(milk.itemId), eggs: liveContributionIds(eggs.itemId) };
+    const checkedView = rows(view().checked);
+
+    const cleared = clearChecked(listId);
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(2);
+
+    for (const [name, item] of Object.entries(before) as [keyof typeof before, ListItem][]) {
+      const after = itemRow(item.id);
+      expect(after.deletedAt).toBeNull();
+      expect(after.checkedAt).toEqual(item.checkedAt);
+      expect(after.checkedBy).toBe(item.checkedBy);
+      expect(after.displayName).toBe(item.displayName);
+      expect(liveContributionIds(item.id)).toEqual(amounts[name]);
+    }
+    expect(itemRow(eggs.itemId).checkedBy).toBe('user-2');
+    expect(rows(view().checked)).toEqual(checkedView);
+    expect(rows(view().checked)).toEqual(expect.arrayContaining(['3 gal milk', '12 eggs']));
+    expect(view().unchecked).toEqual([]);
+  });
+
+  test("restore doesn't resurrect an item another device deleted again in the meantime", () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    setItemChecked(eggs.itemId, true, USER);
+    const cleared = clearChecked(listId);
+    // A pull brings down a later delete of eggs from another device (pull writes straight to SQLite).
+    const later = new Date(cleared.deletedAt.getTime() + 60_000);
+    db.update(listItems).set({ deletedAt: later }).where(eq(listItems.id, eggs.itemId)).run();
+
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(1);
+    expect(itemRow(eggs.itemId).deletedAt).toEqual(later);
+    expect(rows(view().checked)).toEqual(['milk']);
+  });
+
+  test('restore skips an item that is gone from this device, and one already back', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    setItemChecked(eggs.itemId, true, USER);
+    const cleared = clearChecked(listId);
+    db.delete(listItemContributions).where(eq(listItemContributions.listItemId, eggs.itemId)).run();
+    db.delete(listItems).where(eq(listItems.id, eggs.itemId)).run();
+    // Another device restored milk (a pull set deleted_at back to null).
+    db.update(listItems).set({ deletedAt: null }).where(eq(listItems.id, milk.itemId)).run();
+
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(0);
+    expect(rows(view().checked)).toEqual(['milk']);
+  });
+
+  test('a second Undo restores nothing more', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    const cleared = clearChecked(listId);
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(1);
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(0);
+    expect(rows(view().checked)).toEqual(['milk']);
+  });
+
+  test("restore doesn't bring back an item deleted on its own before the clear", () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    setItemChecked(milk.itemId, true, USER);
+    setItemChecked(eggs.itemId, true, USER);
+    deleteItem(eggs.itemId);
+    const cleared = clearChecked(listId);
+    expect(cleared.ids).toEqual([milk.itemId]);
+    expect(restoreItems([milk.itemId, eggs.itemId], cleared.deletedAt)).toBe(1);
+    expect(rows(view().checked)).toEqual(['milk']);
+  });
+
+  test('an item unchecked on another device comes back open, merging into an open copy', () => {
+    const first = addItem(listId, '1 gal milk', USER)!;
+    setItemChecked(first.itemId, true, USER);
+    const cleared = clearChecked(listId);
+    // Another device unchecked it before the clear reached it, and milk was added again here.
+    db.update(listItems).set({ checkedAt: null, checkedBy: null }).where(eq(listItems.id, first.itemId)).run();
+    addItem(listId, '2 gal milk', USER);
+
+    restoreItems(cleared.ids, cleared.deletedAt);
+    expect(rows(view().unchecked)).toEqual(['3 gal milk']);
+    expect(view().checked).toEqual([]);
   });
 
   test('uncheck all merges two checked copies of the same ingredient', () => {

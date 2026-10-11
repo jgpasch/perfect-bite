@@ -81,6 +81,31 @@ Skip this section if Google sign-in (above) is done first. Otherwise the dev sig
 
 ## 7. Day-to-day
 
+### Shipping a change
+
+Nothing reaches the hosted project on its own. Each kind of change gets there through one command, and I run them myself (`! <command>` when working with Claude, which has ask-rules for them in `.claude/settings.json`).
+
+| What changed | Ships with | What hosted has now |
+|---|---|---|
+| Database (`supabase/migrations/`) | `supabase db push` | `supabase migration list` |
+| Edge Function code (including `_shared/`) | `supabase functions deploy <name>` | `supabase functions list` |
+| Function keys, models, caps | `supabase secrets set --env-file supabase/functions/.env.production.local` | `supabase secrets list` |
+| The app (including its SQLite migrations in `src/db/migrations/`) | `eas update` (JS only) or `eas build` (native) | EAS dashboard |
+
+1. Build and test locally: `supabase db reset`, `supabase test db`, `functions serve`, the checks.
+2. Commit.
+3. Look before shipping: `supabase migration list` and `supabase db push --dry-run`. Every migration it lists should be one I recognise.
+4. Backend first: `db push`, then `functions deploy` for any changed function.
+5. App last. A new app may need a new column; an old app is fine with extra columns.
+
+Rules once hosted has real data:
+
+- Never edit a migration that's been pushed. Hosted won't re-run it, so local and hosted drift apart. Write a new one.
+- Keep schema changes additive (add, don't rename or drop). Older builds on our phones still sync.
+- `supabase db reset` is local only. Never add `--linked`: that wipes the hosted database.
+
+### Builds and updates
+
 - JS-only changes: `yarn dlx eas-cli update --channel production`. Both phones pick it up on the next launch or two.
 - Native changes (new native module, extension code, `app.json`): `yarn dlx eas-cli build -p ios --profile production --auto-submit`, then the build appears in TestFlight once processed.
 - Bump `version` or let EAS auto-increment the build number (`autoIncrement` in `eas.json`), or App Store Connect rejects the upload.

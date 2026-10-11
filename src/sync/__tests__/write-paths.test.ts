@@ -18,6 +18,7 @@ import {
   deleteItem,
   DuplicateItemError,
   removeRecipeFromList,
+  restoreItems,
   setItemAmount,
   setItemChecked,
   undeleteItem,
@@ -265,7 +266,7 @@ describe('list items', () => {
     addItem(listId, 'bread', USER);
     clearOutbox();
     checkItems([a, b], USER);
-    expect(clearChecked(listId)).toBe(2);
+    expect(clearChecked(listId).ids).toHaveLength(2);
     const patches = outboxPatches();
     expect(patches.slice(0, 2).map((p) => [p.id, p.fields])).toEqual(
       expect.arrayContaining([
@@ -280,6 +281,24 @@ describe('list items', () => {
       ]),
     );
     expect(patches).toHaveLength(4);
+  });
+
+  test("restoreItems enqueues each restored item's deleted_at, and nothing for its amounts", () => {
+    const a = addItem(listId, 'milk', USER)!.itemId;
+    const b = addItem(listId, 'eggs', USER)!.itemId;
+    checkItems([a, b], USER);
+    const cleared = clearChecked(listId);
+    clearOutbox();
+    expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(2);
+    const patches = outboxPatches();
+    expect(patches.every((p) => p.table === 'list_items')).toBe(true);
+    expect(patches.map((p) => [p.id, p.fields.deleted_at])).toEqual(
+      expect.arrayContaining([
+        [a, null],
+        [b, null],
+      ]),
+    );
+    expect(patches).toHaveLength(2);
   });
 
   test('editing the name and note leaves the amounts alone', () => {

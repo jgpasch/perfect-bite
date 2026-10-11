@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { router, Stack, useFocusEffect, useLocalSearchParams, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useHeaderHeight } from 'expo-router/react-navigation';
@@ -54,6 +55,7 @@ import {
   listItemsQuery,
   orderByAisle,
   removeRecipeFromList,
+  restoreItems,
   setItemChecked,
   uncheckAll,
   undeleteItem,
@@ -67,6 +69,8 @@ import {
   addedToast,
   aisleSectionKey,
   alsoInHint,
+  clearCheckedLabel,
+  clearedToast,
   collapsedSectionsKey,
   collapsedShowing,
   compactHeaderSubtitle,
@@ -450,6 +454,28 @@ export default function ListScreen() {
     });
   }, []);
 
+  // Spec 4.1, 4.6: no confirmation; the toast's Undo brings exactly those items back.
+  const clear = useCallback(() => {
+    const cleared = clearChecked(id);
+    if (cleared.ids.length === 0) return;
+    setToast({
+      key: `cleared-${cleared.deletedAt.getTime()}`,
+      ...clearedToast(cleared.ids.length),
+      actions: [{ label: 'Undo', onPress: () => (restoreItems(cleared.ids, cleared.deletedAt), setToast(null)) }],
+    });
+  }, [id]);
+
+  const checkedMenu = (count: number) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    ActionSheetIOS.showActionSheetWithOptions(
+      { options: [clearCheckedLabel(count), 'Uncheck all', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
+      (index) => {
+        if (index === 0) clear();
+        if (index === 1) uncheckAll(id);
+      },
+    );
+  };
+
   const dismissToast = useCallback(() => setToast(null), []);
 
   const renderEntry = (
@@ -536,25 +562,31 @@ export default function ListScreen() {
     }
     return (
       <View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: showChecked }}
-          accessibilityLabel={`Checked, ${block.count} ${block.count === 1 ? 'item' : 'items'}`}
-          onPress={() => setShowChecked((v) => !v)}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              minHeight: sizes.minTapTarget,
-              paddingHorizontal: spacing.lg + spacing.xs,
-              gap: spacing.sm,
-              opacity: pressed ? opacity.pressed : 1,
-            },
-          ]}>
-          <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.flex}>
-            Checked ({block.count})
-          </ThemedText>
-          <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
-        </Pressable>
+        <View style={[styles.row, { paddingRight: spacing.lg + spacing.xs - spacing.sm }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showChecked }}
+            accessibilityLabel={`Checked, ${block.count} ${block.count === 1 ? 'item' : 'items'}`}
+            onPress={() => setShowChecked((v) => !v)}
+            onLongPress={() => checkedMenu(block.count)}
+            style={({ pressed }) => [
+              styles.row,
+              styles.flex,
+              {
+                minHeight: sizes.minTapTarget,
+                paddingLeft: spacing.lg + spacing.xs,
+                paddingRight: spacing.sm,
+                gap: spacing.sm,
+                opacity: pressed ? opacity.pressed : 1,
+              },
+            ]}>
+            <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.flex}>
+              Checked ({block.count})
+            </ThemedText>
+            <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
+          </Pressable>
+          <ClearCheckedButton count={block.count} onPress={clear} />
+        </View>
         {block.entries.length > 0 ? (
           <Card flush={addMode}>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
         ) : null}
@@ -608,7 +640,7 @@ export default function ListScreen() {
           <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={checked.length === 0} onPress={() => uncheckAll(id)}>
             Uncheck all
           </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction icon="xmark.circle" disabled={checked.length === 0} onPress={() => clearChecked(id)}>
+          <Stack.Toolbar.MenuAction icon="xmark.circle" disabled={checked.length === 0} onPress={clear}>
             Clear checked items
           </Stack.Toolbar.MenuAction>
           {sectionMode ? (
@@ -840,6 +872,33 @@ function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: 
       </ThemedText>
       <PrimaryButton label="Add to recipe" disabled={count === 0} onPress={onAddToRecipe} />
     </View>
+  );
+}
+
+/** The Checked header's Clear: a small soft destructive pill with a 44 pt hit area. */
+function ClearCheckedButton({ count, onPress }: { count: number; onPress: () => void }) {
+  const { colors, sizes, spacing, rounded, opacity } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={clearCheckedLabel(count)}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.round,
+        { minHeight: sizes.minTapTarget, paddingHorizontal: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
+      ]}>
+      <View
+        style={{
+          backgroundColor: colors.dangerSoft,
+          borderRadius: rounded.full,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
+        }}>
+        <ThemedText variant="sectionLabel" color="danger">
+          Clear
+        </ThemedText>
+      </View>
+    </Pressable>
   );
 }
 

@@ -12,6 +12,8 @@ import {
   movedToast,
   alsoInHint,
   checkOffLabel,
+  clearCheckedLabel,
+  clearedToast,
   compactHeaderSubtitle,
   duplicateQuery,
   isAlreadyOnList,
@@ -343,6 +345,20 @@ describe('addedToast', () => {
     expect(addedToast('milk', '')).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', null)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
     expect(addedToast('milk', undefined)).toEqual({ message: 'Added to milk', emphasis: 'milk' });
+  });
+});
+
+describe('clearedToast and clearCheckedLabel', () => {
+  it('counts the cleared items, singular for one', () => {
+    expect(clearedToast(3)).toEqual({ message: 'Cleared 3 items' });
+    expect(clearedToast(1)).toEqual({ message: 'Cleared 1 item' });
+    expect(clearedToast(0)).toEqual({ message: 'Cleared 0 items' });
+  });
+
+  it('labels the Clear button with how many checked items it clears', () => {
+    expect(clearCheckedLabel(3)).toBe('Clear 3 checked items');
+    expect(clearCheckedLabel(1)).toBe('Clear 1 checked item');
+    expect(clearCheckedLabel(12)).toBe('Clear 12 checked items');
   });
 });
 

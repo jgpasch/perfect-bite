@@ -229,6 +229,16 @@ export function movedToast(move: {
   return { message: move.fromListName ? `Moved ${move.name} from ${move.fromListName}` : `Moved ${move.name}`, emphasis: move.name };
 }
 
+/** The toast after Clear checked items (spec 4.6): "Cleared 3 items", with Undo. */
+export function clearedToast(count: number): { message: string } {
+  return { message: `Cleared ${count} ${count === 1 ? 'item' : 'items'}` };
+}
+
+/** The Checked header's Clear button and long-press action, for VoiceOver: "Clear 3 checked items". */
+export function clearCheckedLabel(count: number): string {
+  return `Clear ${count} checked ${count === 1 ? 'item' : 'items'}`;
+}
+
 /** The toast on a list screen after the Siri queue drained (spec 4.9): "Siri added 2 items". */
 export function siriAddedToast(count: number): { message: string } {
   return { message: `Siri added ${count} ${count === 1 ? 'item' : 'items'}` };

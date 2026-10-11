@@ -446,10 +446,36 @@ export function undeleteItem(itemId: string): void {
   });
 }
 
-/** "Clear checked items": deletes every checked item on the list. Returns how many. */
-export function clearChecked(listId: string): number {
+/** What "Clear checked items" deleted, for its toast's Undo (`restoreItems`). */
+export type ClearedItems = { ids: string[]; deletedAt: Date };
+
+/**
+ * "Clear checked items" (spec 4.2, 4.6): deletes every checked item on the list, all at one time.
+ * Their amounts stay, so `restoreItems` can bring them back whole.
+ */
+export function clearChecked(listId: string): ClearedItems {
+  const deletedAt = new Date();
   const where = and(eq(listItems.listId, listId), liveItem, isNotNull(listItems.checkedAt));
-  return updateRows(db, listItems, where, { deletedAt: new Date() }).length;
+  return { ids: updateRows(db, listItems, where, { deletedAt }).map((r) => r.id), deletedAt };
+}
+
+/**
+ * The clear toast's "Undo": puts back the items `clearChecked` deleted at `deletedAt`, checked as
+ * they were, with their amounts. An item whose deletion has changed since (deleted again on another
+ * device, or gone from this one) stays deleted, and one already back is left alone. Returns how
+ * many came back.
+ */
+export function restoreItems(ids: readonly string[], deletedAt: Date): number {
+  if (ids.length === 0) return 0;
+  return db.transaction((tx) => {
+    const cleared = tx
+      .select()
+      .from(listItems)
+      .where(and(inArray(listItems.id, [...ids]), eq(listItems.deletedAt, deletedAt)))
+      .all();
+    for (const item of cleared) restoreItem(tx, item, item.checkedAt !== null);
+    return cleared.length;
+  });
 }
 
 /** "Uncheck all". */

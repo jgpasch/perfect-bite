@@ -283,7 +283,7 @@ Goal: pick a colour for each list, so its tile on the Lists home stands out. The
 
 Goal: get rid of everything you've checked off without hunting through the ⋯ menu. **Clear checked items** already exists there (`clearChecked` in `src/features/lists/items.ts`), but nobody finds it, and it deletes at once with no way back. Update `docs/spec.md` 4.2 (list actions) and 4.6 (the Checked section) in the same task as the code, and keep the Pantry look.
 
-- [ ] Clear from the Checked section, with Undo. On the "Checked (N)" header row at the bottom of the list (every view mode):
+- [x] Clear from the Checked section, with Undo. On the "Checked (N)" header row at the bottom of the list (every view mode):
   - add a small **Clear** button at the trailing end (≥ 44 pt hit area, `inkSecondary` or a soft danger tint per DESIGN.md);
   - long-pressing the header opens a context menu with **Clear N checked items** (destructive) and **Uncheck all**, with a light haptic.
 

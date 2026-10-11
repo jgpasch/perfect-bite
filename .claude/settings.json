@@ -7,6 +7,19 @@
       "Bash(supabase:*)",
       "Bash(xcrun simctl:*)",
       "Bash(yarn expo run:ios:*)"
+    ],
+    "ask": [
+      "Bash(supabase db push:*)",
+      "Bash(supabase * --linked*)",
+      "Bash(supabase functions deploy:*)",
+      "Bash(supabase functions delete:*)",
+      "Bash(supabase secrets set:*)",
+      "Bash(supabase secrets unset:*)",
+      "Bash(supabase config push:*)",
+      "Bash(supabase migration repair:*)",
+      "Bash(supabase link:*)",
+      "Bash(yarn dlx eas-cli:*)",
+      "Bash(eas:*)"
     ]
   }
 }
