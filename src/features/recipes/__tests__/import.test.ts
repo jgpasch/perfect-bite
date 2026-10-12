@@ -15,10 +15,19 @@ import {
 import { loadCatalogSeed } from '@/features/categories/categories';
 import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { getFeatures, hasFeature } from '@/features/plans/features';
+import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
 import { resetDb } from '@/test/db';
-import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
+import {
+  makeSession,
+  resetSupabase,
+  respondToRpc,
+  rpcCallsFor,
+  setSupabaseConfigured,
+  supabase,
+} from '@/test/fake-supabase';
 
 import { IMPORT_ID_NAMESPACE, importRecipe, recipeIdForImport, type ImportRecipeSuccess } from '../import';
 import { setPageCapturer, type CapturedPage, type CaptureResult, type PageCapturer } from '../page-capture';
@@ -26,6 +35,7 @@ import { addRecipeIngredient, createRecipe, updateRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+jest.mock('@/features/categories/catch-up', () => ({ startCatchUpTriggers: () => () => {} }));
 
 const USER = 'user-1';
 const URL_ = 'https://www.example.com/tikka/?utm_source=pin#recipe';
@@ -461,6 +471,18 @@ describe('errors write nothing', () => {
     expect(await run()).toEqual({ ok: false, error: 'failed' });
   });
 
+  test('not entitled: the plan has no recipe import', async () => {
+    respondWithError(403, { error: 'not_entitled', message: "Your plan doesn't include recipe_import" });
+    expect(await run()).toEqual({ ok: false, error: 'not_entitled' });
+  });
+
+  test('a bare 403 with no JSON body is not entitled; a 403 with another code isn’t', async () => {
+    respondWithError(403, 'Forbidden');
+    expect(await run()).toEqual({ ok: false, error: 'not_entitled' });
+    respondWithError(403, { error: 'rate_limited', message: 'Slow down' });
+    expect(await run()).toEqual({ ok: false, error: 'rate_limited' });
+  });
+
   test('a network failure is offline', async () => {
     invoke.mockResolvedValue({ data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send a request' } });
     expect(await run()).toEqual({ ok: false, error: 'offline' });
@@ -591,6 +613,7 @@ describe('device fallback for blocked sites', () => {
     ['rate_limited', 429, { ok: false, error: 'rate_limited' }],
     ['unavailable', 503, { ok: false, error: 'rate_limited' }],
     ['invalid_url', 400, { ok: false, error: 'failed', reason: 'invalid_url' }],
+    ['not_entitled', 403, { ok: false, error: 'not_entitled' }],
   ])('%s never captures', async (code, status, expected) => {
     captureWith({ ok: true, page: PAGE });
     invoke.mockResolvedValue(httpError(status, code));
@@ -605,5 +628,49 @@ describe('device fallback for blocked sites', () => {
     const page = { title: 'Tikka', text: 'From Safari' };
     expect(await importRecipe({ url: URL_, listId, page })).toEqual({ ok: false, error: 'failed', reason: 'fetch_failed' });
     expect(capture).not.toHaveBeenCalled();
+  });
+});
+
+describe('plans (spec 4.12)', () => {
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  let stopFeatures: (() => void) | null = null;
+
+  beforeEach(async () => {
+    respondToRpc('my_features', { data: ['categorize', 'recipe_import', 'recipe_import_photo'] });
+    stopFeatures = startFeatures(USER);
+    await flush();
+    expect(hasFeature('recipe_import')).toBe(true);
+  });
+
+  afterEach(() => {
+    stopFeatures?.();
+    stopFeatures = null;
+    clearFeatures();
+  });
+
+  test('not_entitled reloads the plan', async () => {
+    respondWithError(403, { error: 'not_entitled', message: 'No' });
+    respondToRpc('my_features', { data: ['categorize'] });
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_entitled' });
+    await flush();
+    expect(rpcCallsFor('my_features')).toHaveLength(2);
+    expect(getFeatures()).toEqual(['categorize']);
+  });
+
+  test('not_entitled drops recipe_import even when the reload fails, and keeps the rest', async () => {
+    respondWithError(403, { error: 'not_entitled', message: 'No' });
+    respondToRpc('my_features', { data: null, error: { message: 'boom' } });
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_entitled' });
+    await flush();
+    expect(rpcCallsFor('my_features')).toHaveLength(2);
+    expect(getFeatures()).toEqual(['categorize', 'recipe_import_photo']);
+  });
+
+  test('other errors leave the plan alone', async () => {
+    respondWithError(422, { error: 'not_a_recipe', message: 'No' });
+    expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_a_recipe' });
+    await flush();
+    expect(hasFeature('recipe_import')).toBe(true);
+    expect(rpcCallsFor('my_features')).toHaveLength(1);
   });
 });

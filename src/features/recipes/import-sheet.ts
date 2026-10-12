@@ -38,11 +38,16 @@ function count(text: string, char: string): number {
   return text.split(char).length - 1;
 }
 
+/** What the sheet, a failed share and the imports card say when the plan has no recipe import (spec 4.10). */
+export const NOT_ENTITLED_MESSAGE = "Recipe import isn't included in your plan.";
+
 /** Spec 4.10's inline failure copy; the sheet stays open. */
 export function importErrorMessage(error: ImportRecipeError): string {
   switch (error.error) {
     case 'not_a_recipe':
       return "That page doesn't look like a recipe";
+    case 'not_entitled':
+      return NOT_ENTITLED_MESSAGE;
     case 'rate_limited':
       return 'Try again in a minute';
     case 'offline':

@@ -99,7 +99,7 @@ const removed = new Set<string>();
 
 /**
  * Imports `pending` (oldest first) as `userId`, one at a time, deleting each file once imported.
- * Bad files are logged and deleted. "Not a recipe" is recorded as failed at once; other failures
+ * Bad files are logged and deleted. "Not a recipe" and "not in your plan" are recorded as failed at once; other failures
  * keep the file and count a try, and the fifth is recorded as failed. Offline or rate-limited, the
  * rest wait for the next drain, as they would fail the same way. One drain at a time: a drain
  * started during another does nothing.
@@ -134,7 +134,9 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
         remove(item);
         continue;
       }
-      const attempts = imported.error === 'not_a_recipe' ? MAX_SHARE_ATTEMPTS : getDeviceSetting(key, 0) + 1;
+      // Trying again won't change the page or the plan: these fail at once.
+      const final = imported.error === 'not_a_recipe' || imported.error === 'not_entitled';
+      const attempts = final ? MAX_SHARE_ATTEMPTS : getDeviceSetting(key, 0) + 1;
       if (attempts >= MAX_SHARE_ATTEMPTS) {
         recordFailed(failedShare(envelope, imported.error));
         result.failed += 1;

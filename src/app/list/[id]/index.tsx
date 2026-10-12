@@ -151,6 +151,8 @@ export default function ListScreen() {
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   // Without `categorize`, nothing is waiting for an aisle: new names show in Other (spec 4.12).
   const sorts = useFeature('categorize');
+  // Spec 4.12: recipe import is a plus feature; without it the menu doesn't offer it.
+  const canImport = useFeature('recipe_import');
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits, sorts), [itemRows, usualUnits, sorts]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
   // so a second tap can take it back.
@@ -745,9 +747,11 @@ export default function ListScreen() {
           <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
             Share as text
           </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction icon="link" onPress={() => router.push({ pathname: '/import-recipe', params: { list: id } })}>
-            Add recipe from link…
-          </Stack.Toolbar.MenuAction>
+          {canImport ? (
+            <Stack.Toolbar.MenuAction icon="link" onPress={() => router.push({ pathname: '/import-recipe', params: { list: id } })}>
+              Add recipe from link…
+            </Stack.Toolbar.MenuAction>
+          ) : null}
           <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={checked.length === 0} onPress={() => uncheckAll(id)}>
             Uncheck all
           </Stack.Toolbar.MenuAction>

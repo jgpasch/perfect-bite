@@ -67,6 +67,7 @@ describe('importErrorMessage', () => {
     expect(importErrorMessage({ ok: false, error: 'blocked' })).toBe(
       'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.',
     );
+    expect(importErrorMessage({ ok: false, error: 'not_entitled' })).toBe("Recipe import isn't included in your plan.");
   });
 
   test('an unexplained failure asks to try again', () => {

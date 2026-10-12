@@ -280,6 +280,25 @@ describe('drainShareQueue', () => {
     expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
   });
 
+  test('not in the plan records a failed import at once, with no retries, for every share', async () => {
+    respond({ [TIKKA_URL]: httpError(403, 'not_entitled'), [SOUP_URL]: httpError(403, 'not_entitled') });
+    enqueue(E1, TIKKA_URL, { page: { title: 'Tikka' } });
+    enqueue(E2, SOUP_URL);
+    // Tries from before the plan changed don't matter.
+    setDeviceSetting(shareAttemptsKey(E2), 2);
+    expect(await drain()).toEqual({ imported: [], failed: 2 });
+    expect(recordFailed.mock.calls).toEqual([
+      [{ url: TIKKA_URL, title: 'Tikka', reason: 'not_entitled' }],
+      [{ url: SOUP_URL, title: null, reason: 'not_entitled' }],
+    ]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(queued()).toEqual([]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
+    expect(getDeviceSetting(shareAttemptsKey(E2), null)).toBeNull();
+    expect(getShareQueueStatus()).toEqual(EMPTY_SHARE_QUEUE_STATUS);
+    expect(liveRecipes()).toEqual([]);
+  });
+
   test('deletes and logs a bad file, and imports the rest', async () => {
     writeQueued(`${E1}.json`, '{ not json');
     writeQueued(`${E2}.json`, JSON.stringify({ id: E2, url: 'ftp://example.com', source: 'share' }));

@@ -7,6 +7,7 @@ import { getDefaultListId } from '@/features/lists/lists';
 import { newId } from '@/lib/id';
 
 import { importRecipe, type ImportRecipeResult } from './import';
+import { NOT_ENTITLED_MESSAGE } from './import-sheet';
 import type { FailedShare } from './share-drain';
 
 /** The share drain's writer: records a share that won't import. Returns its id. */
@@ -63,6 +64,8 @@ export function failedImportReason(reason: FailedImportReason): string {
       return 'The import service was busy';
     case 'offline':
       return "Couldn't connect";
+    case 'not_entitled':
+      return NOT_ENTITLED_MESSAGE;
     case 'failed':
       return "Couldn't read that page";
   }

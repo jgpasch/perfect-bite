@@ -177,6 +177,17 @@ describe('retryFailedImport', () => {
     expect(liveRecipes()).toEqual([]);
   });
 
+  test('not in the plan keeps it, and the card says so', async () => {
+    const id = recordFailedImport({ url: TIKKA_URL, title: 'Tikka', reason: 'rate_limited' });
+    invoke.mockResolvedValue(httpError(403, 'not_entitled'));
+
+    expect(await retryFailedImport(id, USER)).toEqual({ ok: false, error: 'not_entitled' });
+    const [row] = rows();
+    expect([row.id, row.reason]).toEqual([id, 'not_entitled']);
+    expect(failedImportReason(row.reason)).toBe("Recipe import isn't included in your plan.");
+    expect(liveRecipes()).toEqual([]);
+  });
+
   test('signed out (no session) keeps it as offline and calls nothing', async () => {
     const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed' });
     supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
@@ -240,5 +251,6 @@ describe('copy', () => {
     expect(failedImportReason('rate_limited')).toBe('The import service was busy');
     expect(failedImportReason('offline')).toBe("Couldn't connect");
     expect(failedImportReason('failed')).toBe("Couldn't read that page");
+    expect(failedImportReason('not_entitled')).toBe("Recipe import isn't included in your plan.");
   });
 });

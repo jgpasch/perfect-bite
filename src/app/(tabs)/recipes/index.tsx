@@ -15,6 +15,7 @@ import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { getList } from '@/features/lists/lists';
+import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
@@ -56,13 +57,15 @@ export default function RecipesScreen() {
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
   // Spec 4.10: the sheet asks for the list.
   const importFromLink = () => router.push('/import-recipe');
+  // Spec 4.12: recipe import is a plus feature; without it neither button shows.
+  const canImport = useFeature('recipe_import');
   const empty = (
     <EmptyState
       message="No recipes yet."
       action={
         <View style={{ gap: spacing.sm }}>
           <PrimaryButton label="New recipe" onPress={create} />
-          <Button label="Import from link" variant="plain" onPress={importFromLink} />
+          {canImport ? <Button label="Import from link" variant="plain" onPress={importFromLink} /> : null}
         </View>
       }
     />
@@ -98,7 +101,9 @@ export default function RecipesScreen() {
   return (
     <Screen>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button icon="link" accessibilityLabel="Import from link" onPress={importFromLink} />
+        {canImport ? (
+          <Stack.Toolbar.Button icon="link" accessibilityLabel="Import from link" onPress={importFromLink} />
+        ) : null}
         <Stack.Toolbar.Button
           icon="plus"
           variant="prominent"

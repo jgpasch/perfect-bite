@@ -6,6 +6,7 @@ import { v5 } from 'uuid';
 import { db, lists, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
+import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
@@ -50,10 +51,11 @@ export type ImportRecipeSuccess = {
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
  * `rate_limited`: a rate limit or the service is unavailable ("Try again in a minute").
  * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
+ * `not_entitled`: the user's plan doesn't have `recipe_import` (spec 4.12).
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
-  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' }
+  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'not_entitled' }
   | { ok: false; error: 'failed'; reason?: 'invalid_url' | 'fetch_failed' };
 
 export type ImportRecipeResult = ImportRecipeSuccess | ImportRecipeError;
@@ -136,6 +138,11 @@ async function errorResult(error: unknown): Promise<ImportRecipeError> {
     // Not a JSON body; fall back to the status.
   }
   const status = response?.status;
+  if (code === 'not_entitled' || (!code && status === 403)) {
+    // The plan has no recipe import: hide its entry points now and reload the plan (spec 4.12).
+    void lostFeature('recipe_import');
+    return { ok: false, error: 'not_entitled' };
+  }
   if (code === 'not_a_recipe' || (!code && status === 422)) return { ok: false, error: 'not_a_recipe' };
   if (code === 'rate_limited' || code === 'unavailable' || (!code && (status === 429 || status === 503))) {
     return { ok: false, error: 'rate_limited' };
