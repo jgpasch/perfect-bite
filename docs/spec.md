@@ -210,7 +210,7 @@ All changes sync live to all members' devices.
 - **Google sign-in only**, through Supabase Auth, the same way as stash (native Google Sign-In SDK, then `signInWithIdToken`).
 - **During development**: dev builds (`__DEV__`) also show stash's dev sign-in stub (email + 6-digit code; local Supabase delivers the code to Inbucket). Release builds show Google only. The OAuth clients are in their own Google Cloud project (Q13). Nothing else in the app may depend on which sign-in method is used.
 - A first-run user gets a personal household (4.7) with a starter list named "Groceries", which is their default list.
-- Account deletion (App Store requirement): deletes the user, their overrides, order, and custom categories, then leaves each of their households per 4.7 (owner promotion; households where they were the last member are deleted with their data). Shared households keep their data.
+- Account deletion (App Store requirement): leaves each of the user's households by the leaving rules (4.7, `private.remove_member_from_household`: owner promotion; households where they were the last member are deleted with their data), then deletes the user with their profile, aisle order and settings. Category overrides and custom aisles are household data (4.3.2) and stay with the household, like its lists and recipes. Items, check-offs and invites they made in shared households stay, with the reference to them cleared. For now it's done by hand with `admin.delete_user` (4.12).
 - Note: App Store Guideline 4.8 expects a privacy-focused login (e.g. Sign in with Apple) alongside Google for a *public* release. Fine to ignore for personal/TestFlight use; revisit only if this goes to the public App Store.
 
 ### 4.9 Siri (req 12)
@@ -295,6 +295,20 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 - **One at a time.** Notifications queue in the order they're posted, and the next one drops in when the one showing goes. Posting with the id of a notification that is already queued or showing replaces it in place, and a replaced banner that's showing restarts its timer.
 - **Only while the app is in the foreground.** The timer starts when the banner shows. A notification posted while the app is in the background waits until the app comes back. A banner showing when the app goes to the background stays up and restarts its timer when the app returns.
 - **Not kept.** Notifications live in memory only. There's no inbox, and nothing survives the app quitting or signing out (sign-out clears the queue).
+
+### 4.12 Admin and plans
+
+**The dashboard is the admin tool.** There's no custom admin portal (it stays in `tasks-future.md`). The app is run from the Supabase dashboard: Authentication → Users, the Table Editor, the SQL Editor, and the Edge Function logs. How to do common jobs there is in [`docs/admin.md`](admin.md).
+
+- The dashboard runs as `postgres` and doesn't know the app's rules. So a change that has rules goes through a tested SQL function in the `admin` schema, run as a saved SQL snippet, never by editing or deleting rows by hand. A change with no rules beyond the table's own constraints is made in the Table Editor.
+- `admin` isn't one of the API's exposed schemas (`supabase/config.toml`), and its schema usage and every function's execute are revoked from `public`, `anon`, `authenticated` and `service_role`, so only the dashboard can call them.
+- Each admin function writes one `admin.admin_actions` row (5) in the same transaction. `performed_by` is always `postgres` from the dashboard, so each function takes a `p_note`, and the snippets always fill it in: it's the only record of who asked and why.
+
+**`admin.delete_user(p_user_id, p_note)`**: account deletion (4.8).
+- Raises `user not found` for an unknown id, changing nothing.
+- For each of the user's households (in their household order) it runs the leaving rules, `private.remove_member_from_household` (4.7): the last member leaving deletes the household and its data (`deleted`); the last owner leaving promotes the member who joined earliest (`promoted`); otherwise the user just leaves (`left`). The helper doesn't create a personal household; that's for callers whose user goes on using the app (`leave_household`, `remove_member`).
+- Then it deletes the `auth.users` row, which cascades their memberships, profile, aisle order and settings. Rows they made in households that remain (items added or checked, contributions, invites) stay, with `added_by`, `checked_by`, `created_by` and `used_by` set to null.
+- Its audit row has `action` `delete_user`, the user's id, the note, and `details`: the email, the display name and, per household, its id, name and outcome (with `promoted_user_id` for `promoted`). It returns the same `details`.
 
 ---
 
@@ -500,6 +514,19 @@ create table user_settings (
   user_id         uuid primary key references auth.users on delete cascade,
   default_list_id uuid references lists
 );
+
+-- Audit log of admin functions (4.12), one row per call. In the `admin` schema; no foreign keys,
+-- so a row outlives the user or household it describes.
+create table admin.admin_actions (
+  id                  uuid primary key default gen_random_uuid(),
+  action              text not null,                         -- e.g. 'delete_user'
+  target_user_id      uuid,
+  target_household_id uuid,
+  details             jsonb not null default '{}',
+  note                text,                                  -- who asked and why
+  performed_by        text not null default session_user,    -- always 'postgres' from the dashboard
+  created_at          timestamptz not null default now()
+);
 ```
 
 Note the `create table` order above is for readability; the real migration must create referenced tables first.
@@ -519,6 +546,7 @@ Note the `create table` order above is for readability; the real migration must 
 - `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
 - `household_invites`: no direct access; `security definer` functions only, all for `authenticated`: `create_invite(household, email?)` (members; with an email, raises `already a member` for a member's email and revokes the open invite to the same email first), `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired; revoked and declined read as used), `accept_invite` (by link, whoever has it), `list_household_invites` (members; open, unexpired invites), `revoke_invite` (any member of the invite's household), `my_invites` (open, unexpired invites to the caller's `auth.email()`, case-insensitive, for households they aren't in), and `accept_invite_by_id` / `decline_invite` (only for an invite to the caller's email; anyone else gets `invite not found`, the same as an unknown id).
 - `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
+- The `admin` schema (`admin_actions`, `delete_user`, 4.12): `postgres` (the dashboard) only. Not exposed by the API; usage on the schema, every privilege on `admin_actions` and execute on its functions are revoked from `public`, `anon`, `authenticated` and `service_role` (each function revokes its own execute: a per-schema default privilege can't take away Postgres's global PUBLIC execute). The leaving rules, `private.remove_member_from_household(household_id, user_id)`, return `left`, `promoted` or `deleted` and are callable only by `postgres` and the `security definer` functions that use them.
 - Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
 
 ---
