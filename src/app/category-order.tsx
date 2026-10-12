@@ -9,6 +9,7 @@ import { categories, households, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { orderCategories } from '@/domain/category-resolver';
 import { getAccount } from '@/features/auth/account';
+import { aisleHouseholdLine } from '@/features/categories/aisle-copy';
 import { AisleOrderList } from '@/features/categories/aisle-order-list';
 import { categoriesQuery, moveCategory } from '@/features/categories/categories';
 import { householdsQuery } from '@/features/households/households';
@@ -29,7 +30,11 @@ export default function CategoryOrderScreen() {
     [categories, userCategoryOrder],
     [userId, householdIds.join()],
   );
-  const ordered = useMemo(() => orderCategories(data), [data]);
+  // With more than one household, a custom aisle shows its household's name (two "Costco"s).
+  const ordered = useMemo(
+    () => orderCategories(data).map((c) => ({ ...c, household: aisleHouseholdLine(c.householdId, householdRows) })),
+    [data, householdRows],
+  );
 
   return (
     // A modal is its own native view tree, so the drag gesture needs its own root.

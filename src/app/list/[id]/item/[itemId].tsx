@@ -28,6 +28,7 @@ import {
   unitMenuSections,
   withUnit,
 } from '@/features/lists/amount-stepper';
+import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import {
@@ -417,11 +418,18 @@ export default function ItemEditSheet() {
             )}
           </View>
           {isOverride ? (
-            <ThemedText variant="footnote" color="inkSecondary" style={labelInset}>
-              {householdName
-                ? `Just for you. Others in ${householdName} still see ${categoryName(defaultId)}.`
-                : `Just for you. Others still see ${categoryName(defaultId)}.`}
-            </ThemedText>
+            // The aisle is the household's (spec 4.3.2): read after the pills.
+            <View style={[styles.start, labelInset]}>
+              <ThemedText variant="footnote" color="inkSecondary">
+                {sharedAisleFootnote(householdName)}
+              </ThemedText>
+              <Button
+                label="Reset to default"
+                variant="plain"
+                accessibilityHint="Uses the usual aisle for everyone"
+                onPress={() => chooseCategory(defaultId)}
+              />
+            </View>
           ) : null}
         </>
       ) : null}
@@ -721,6 +729,7 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap' },
   centered: { alignItems: 'center', justifyContent: 'center' },
   label: { alignSelf: 'flex-start' },
+  start: { alignItems: 'flex-start' },
   inline: { borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
   title: { padding: 0 },
 });

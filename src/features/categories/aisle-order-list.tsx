@@ -24,7 +24,8 @@ import { useTheme } from '@/hooks/use-theme';
 
 import { aisleRowActions, aisleRowLabel, autoScrollStep, dropIndex, moveId } from './aisle-order';
 
-export type AisleOrderItem = { id: string; name: string; slug: string | null };
+/** `household`: a custom aisle's household name, shown as a second line (null for none). */
+export type AisleOrderItem = { id: string; name: string; slug: string | null; household?: string | null };
 
 type Props = {
   aisles: AisleOrderItem[];
@@ -294,7 +295,7 @@ function AisleRow({
     <GestureDetector gesture={gesture}>
       <Animated.View
         accessible
-        accessibilityLabel={aisleRowLabel(aisle.name, index, count)}
+        accessibilityLabel={aisleRowLabel(aisle.name, index, count, aisle.household)}
         accessibilityHint="Touch and hold, then drag to move"
         accessibilityActions={aisleRowActions(index, count)}
         onAccessibilityAction={(e) => {
@@ -322,12 +323,16 @@ function AisleRow({
           style,
         ]}>
         <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: look.dot }} />
-        <ThemedText
-          variant={dragging ? 'headline' : 'body'}
-          numberOfLines={2}
-          style={[styles.name, !dragging && styles.semibold, { paddingVertical: spacing.sm }]}>
-          {aisle.name}
-        </ThemedText>
+        <View style={[styles.name, { paddingVertical: spacing.sm }]}>
+          <ThemedText variant={dragging ? 'headline' : 'body'} numberOfLines={2} style={!dragging && styles.semibold}>
+            {aisle.name}
+          </ThemedText>
+          {aisle.household ? (
+            <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1}>
+              {aisle.household}
+            </ThemedText>
+          ) : null}
+        </View>
         <View style={[styles.grip, { width: sizes.grip }]}>
           <Icon name="line.3.horizontal" size={sizes.icon} color={look.grip} />
         </View>

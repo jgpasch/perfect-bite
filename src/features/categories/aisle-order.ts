@@ -39,7 +39,7 @@ export function aisleRowActions(index: number, count: number): { name: 'moveUp' 
   return actions;
 }
 
-/** What VoiceOver reads for an aisle row: "Produce, 1 of 20". */
-export function aisleRowLabel(name: string, index: number, count: number): string {
-  return `${name}, ${index + 1} of ${count}`;
+/** What VoiceOver reads for an aisle row: "Produce, 1 of 20", or "Costco, Test home, 3 of 20" with a household line. */
+export function aisleRowLabel(name: string, index: number, count: number, household?: string | null): string {
+  return household ? `${name}, ${household}, ${index + 1} of ${count}` : `${name}, ${index + 1} of ${count}`;
 }

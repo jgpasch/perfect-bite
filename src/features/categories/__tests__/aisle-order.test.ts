@@ -120,4 +120,13 @@ describe('aisle row accessibility', () => {
     expect(aisleRowLabel('Produce', 0, 20)).toBe('Produce, 1 of 20');
     expect(aisleRowLabel('Meat & seafood', 19, 20)).toBe('Meat & seafood, 20 of 20');
   });
+
+  it("reads a custom aisle's household between its name and position", () => {
+    expect(aisleRowLabel('Costco', 2, 20, 'Test home')).toBe('Costco, Test home, 3 of 20');
+  });
+
+  it('leaves out a missing or empty household', () => {
+    expect(aisleRowLabel('Costco', 2, 20, null)).toBe('Costco, 3 of 20');
+    expect(aisleRowLabel('Costco', 2, 20, '')).toBe('Costco, 3 of 20');
+  });
 });
