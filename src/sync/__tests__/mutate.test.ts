@@ -5,12 +5,13 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOverrides,
   households,
   ingredientUnitUsage,
   ingredientUsage,
   ingredients,
   lists,
-  userCategoryOverrides,
+  userCategoryOrder,
   userSettings,
 } from '@/db';
 import { resetDb } from '@/test/db';
@@ -154,17 +155,40 @@ test('a counter-only update sends no fields and leaves field_clock alone', () =>
 test('per-user rows have no household and hard-delete with a delete mutation', () => {
   db.insert(categories).values({ id: 'produce', slug: 'produce', name: 'Produce' }).run();
   upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
-  insertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'milk', categoryId: 'produce' });
+  insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'produce', position: 1 });
 
-  expect(deleteRows(db, userCategoryOverrides, eq(userCategoryOverrides.userId, 'u1'))).toBe(1);
+  expect(deleteRows(db, userCategoryOrder, eq(userCategoryOrder.userId, 'u1'))).toBe(1);
 
   expect(outboxPatches()).toEqual([
     { table: 'user_settings', key: { user_id: 'u1' }, fields: { default_list_id: null } },
-    { table: 'user_category_overrides', key: { user_id: 'u1', ingredient_name: 'milk' }, fields: { category_id: 'produce' } },
-    { table: 'user_category_overrides', key: { user_id: 'u1', ingredient_name: 'milk' }, fields: {}, delete: true },
+    { table: 'user_category_order', key: { user_id: 'u1', category_id: 'produce' }, fields: { position: 1 } },
+    { table: 'user_category_order', key: { user_id: 'u1', category_id: 'produce' }, fields: {}, delete: true },
   ]);
   expect(outboxRows().map((r) => r.householdId)).toEqual([null, null, null]);
-  expect(db.select().from(userCategoryOverrides).all()).toEqual([]);
+  expect(db.select().from(userCategoryOrder).all()).toEqual([]);
+});
+
+test("a household's custom categories and overrides are household rows, keyed like the usage tables", () => {
+  addHousehold();
+  db.insert(categories).values({ id: 'produce', slug: 'produce', name: 'Produce', defaultRank: 0 }).run();
+  insertRow(db, categories, { id: 'bulk', name: 'Bulk', householdId: H });
+  upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: 'bulk' }, { categoryId: 'bulk' });
+  upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: null }, { categoryId: null });
+
+  expect(outboxPatches().slice(1)).toEqual([
+    // A custom category never sends the system-only slug and rank.
+    { table: 'categories', id: 'bulk', fields: { name: 'Bulk', household_id: H } },
+    { table: 'household_category_overrides', key: { household_id: H, ingredient_name: 'milk' }, fields: { category_id: 'bulk' } },
+    { table: 'household_category_overrides', key: { household_id: H, ingredient_name: 'milk' }, fields: { category_id: null } },
+  ]);
+  expect(outboxRows().map((r) => r.householdId)).toEqual([H, H, H, H]);
+  // Reset keeps the row, with a null category and its clock.
+  const override = db.select().from(householdCategoryOverrides).get()!;
+  expect(override).toMatchObject({ householdId: H, ingredientName: 'milk', categoryId: null });
+  expect(override.fieldClock.category_id).toBe(outboxMutations().at(-1)!.hlc);
+  expect(() => updateRows(db, categories, eq(categories.id, 'bulk'), { defaultRank: 3 })).toThrow(
+    "categories.defaultRank can't be patched",
+  );
 });
 
 test('a failed insert leaves neither the row nor a mutation', () => {
@@ -215,6 +239,6 @@ test('the device id is stable', () => {
 });
 
 test('deleteRows only enqueues rows it removed', () => {
-  expect(deleteRows(db, userCategoryOverrides, eq(userCategoryOverrides.userId, 'nobody'))).toBe(0);
+  expect(deleteRows(db, userCategoryOrder, eq(userCategoryOrder.userId, 'nobody'))).toBe(0);
   expect(outboxRows()).toEqual([]);
 });

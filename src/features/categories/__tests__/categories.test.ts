@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 
 import { eq } from 'drizzle-orm';
 
-import { db, ingredients } from '@/db';
+import { categories, db, householdCategoryOverrides, households, ingredients } from '@/db';
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { addItem, addItemsBulk, deleteItem, groupItems, listItemsQuery, updateItem } from '@/features/lists/items';
-import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { createList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
+import { insertRow } from '@/sync/mutate';
 import { applySuggestion, getSuggestions } from '@/features/lists/suggestions';
 import {
   addParsedRecipeIngredients,
@@ -35,20 +36,30 @@ jest.mock('@/db/client', () => require('@/test/db'));
 
 const A = 'user-a';
 const B = 'user-b';
+/** A second household, with its own list: A's cabin, which B isn't in. */
+const CABIN = 'household-cabin';
 const id = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
-const names = (userId: string) => getOrderedCategories(userId).map((c) => c.name);
 let listId: string;
+/** The household of A's starter list, which B shares on this device. */
+let home: string;
+let cabinListId: string;
+const names = (userId: string, households: string | string[] = home) =>
+  getOrderedCategories(userId, households).map((c) => c.name);
 
 beforeEach(() => {
   resetDb();
   loadCatalogSeed();
   ensureStarterData(A);
   listId = getDefaultListId(A)!;
+  home = getList(listId)!.householdId;
+  insertRow(db, households, { id: CABIN, name: 'Cabin' });
+  cabinListId = createList('Cabin groceries', CABIN);
 });
 
 const key = normalizeIngredientName;
-const categoryOf = (userId: string, name: string) =>
-  groupItems(listItemsQuery(listId, userId).all()).unchecked.find((i) => i.displayName === name)!.categoryId;
+/** The aisle an item shows under on a list; the same for every member, whoever looks. */
+const categoryOf = (name: string, list = listId) =>
+  groupItems(listItemsQuery(list).all()).unchecked.find((i) => i.displayName === name)!.categoryId;
 
 describe('seed', () => {
   test('loads categories in store-walk order, and only once', () => {
@@ -62,9 +73,9 @@ describe('seed', () => {
     addItem(listId, '2 lbs chicken thighs', A);
     addItem(listId, 'Tomatoes', A);
     addItem(listId, 'flux capacitor', A);
-    expect(categoryOf(A, 'chicken thighs')).toBe(id('meat-seafood'));
-    expect(categoryOf(A, 'Tomatoes')).toBe(id('produce'));
-    expect(categoryOf(A, 'flux capacitor')).toBe(SORTING_CATEGORY_ID);
+    expect(categoryOf('chicken thighs')).toBe(id('meat-seafood'));
+    expect(categoryOf('Tomatoes')).toBe(id('produce'));
+    expect(categoryOf('flux capacitor')).toBe(SORTING_CATEGORY_ID);
   });
 
   test('does not overwrite an ingredient the server categorized', () => {
@@ -75,60 +86,98 @@ describe('seed', () => {
     require('@/features/settings/device-settings').setDeviceSetting('catalog.seedFingerprint', 0);
     loadCatalogSeed();
     addItem(listId, 'milk', A);
-    expect(categoryOf(A, 'milk')).toBe(id('snacks'));
+    expect(categoryOf('milk')).toBe(id('snacks'));
   });
 });
 
 describe('overrides (spec 4.3.2)', () => {
-  test('apply to the user on every list, not to anyone else', () => {
+  test("apply to everyone in the household on every list, not to another household's", () => {
+    const second = createList('Costco', home);
     addItem(listId, 'tahini', A);
-    setCategoryOverride(A, 'tahini', id('pantry'));
-    expect(categoryOf(A, 'tahini')).toBe(id('pantry'));
-    expect(categoryOf(B, 'tahini')).toBe(id('condiments'));
-    clearCategoryOverride(A, 'tahini');
-    expect(categoryOf(A, 'tahini')).toBe(id('condiments'));
+    addItem(second, 'tahini', B);
+    addItem(cabinListId, 'tahini', A);
+    setCategoryOverride(home, 'tahini', id('pantry'));
+    // A set it; B, in the same household, sees it too, on both of its lists.
+    expect(categoryOf('tahini')).toBe(id('pantry'));
+    expect(categoryOf('tahini', second)).toBe(id('pantry'));
+    expect(getIngredientCategory(home, 'tahini').overrideCategoryId).toBe(id('pantry'));
+    // The cabin is another household: still the default.
+    expect(categoryOf('tahini', cabinListId)).toBe(id('condiments'));
+    expect(getIngredientCategory(CABIN, 'tahini').overrideCategoryId).toBeNull();
   });
 
-  test('set from the edit sheet, and reset to default', () => {
+  test('a user in two households has a separate override in each', () => {
+    addItem(listId, 'tahini', A);
+    addItem(cabinListId, 'tahini', A);
+    setCategoryOverride(home, 'tahini', id('pantry'));
+    setCategoryOverride(CABIN, 'tahini', id('spices'));
+    expect(categoryOf('tahini')).toBe(id('pantry'));
+    expect(categoryOf('tahini', cabinListId)).toBe(id('spices'));
+    clearCategoryOverride(CABIN, 'tahini');
+    expect(categoryOf('tahini')).toBe(id('pantry'));
+    expect(categoryOf('tahini', cabinListId)).toBe(id('condiments'));
+  });
+
+  test('reset writes a null category for the whole household and falls back to the default', () => {
+    addItem(listId, 'tahini', A);
+    setCategoryOverride(home, 'tahini', id('pantry'));
+    clearCategoryOverride(home, 'tahini');
+    expect(db.select().from(householdCategoryOverrides).all()).toMatchObject([
+      { householdId: home, ingredientName: 'tahini', categoryId: null },
+    ]);
+    expect(getIngredientCategory(home, 'tahini')).toEqual({
+      defaultCategoryId: id('condiments'),
+      overrideCategoryId: null,
+      status: 'categorized',
+    });
+    expect(categoryOf('tahini')).toBe(id('condiments'));
+    // And a later change still applies over the reset.
+    setCategoryOverride(home, 'tahini', id('spices'));
+    expect(categoryOf('tahini')).toBe(id('spices'));
+  });
+
+  test("set from the edit sheet for the item's household, and reset to default", () => {
     const item = addItem(listId, 'tahini', A)!;
-    updateItem(item.itemId, { name: 'tahini', amount: '', note: '', categoryId: id('pantry') }, A);
-    expect(categoryOf(A, 'tahini')).toBe(id('pantry'));
-    updateItem(item.itemId, { name: 'tahini', amount: '', note: '' }, A); // untouched
-    expect(categoryOf(A, 'tahini')).toBe(id('pantry'));
-    updateItem(item.itemId, { name: 'tahini', amount: '', note: '', categoryId: null }, A);
-    expect(categoryOf(A, 'tahini')).toBe(id('condiments'));
+    addItem(cabinListId, 'tahini', A);
+    updateItem(item.itemId, { name: 'tahini', amount: '', note: '', categoryId: id('pantry') });
+    expect(categoryOf('tahini')).toBe(id('pantry'));
+    expect(categoryOf('tahini', cabinListId)).toBe(id('condiments'));
+    updateItem(item.itemId, { name: 'tahini', amount: '', note: '' }); // untouched
+    expect(categoryOf('tahini')).toBe(id('pantry'));
+    updateItem(item.itemId, { name: 'tahini', amount: '', note: '', categoryId: null });
+    expect(categoryOf('tahini')).toBe(id('condiments'));
   });
 
   test('the edit sheet reads the status, so a pending item shows Sorting... and can be moved', () => {
     const item = addItem(listId, 'kashk', A)!;
-    const current = getIngredientCategory(A, key('kashk'));
+    const current = getIngredientCategory(home, key('kashk'));
     expect(current).toEqual({ defaultCategoryId: null, overrideCategoryId: null, status: 'pending' });
     const defaultId = effectiveCategoryId(null, current.defaultCategoryId, current.status);
     expect(defaultId).toBe(SORTING_CATEGORY_ID);
-    expect(categoryNameById(getOrderedCategories(A), defaultId)).toBe('Sorting...');
+    expect(categoryNameById(getOrderedCategories(A, home), defaultId)).toBe('Sorting...');
 
-    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: id('spices') }, A);
-    expect(getIngredientCategory(A, key('kashk'))).toEqual({
+    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: id('spices') });
+    expect(getIngredientCategory(home, key('kashk'))).toEqual({
       defaultCategoryId: null,
       overrideCategoryId: id('spices'),
       status: 'pending',
     });
-    expect(categoryOf(A, 'kashk')).toBe(id('spices'));
+    expect(categoryOf('kashk')).toBe(id('spices'));
     // Reset to default goes back to Sorting...
-    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: null }, A);
-    expect(categoryOf(A, 'kashk')).toBe(SORTING_CATEGORY_ID);
+    updateItem(item.itemId, { name: 'kashk', amount: '', note: '', categoryId: null });
+    expect(categoryOf('kashk')).toBe(SORTING_CATEGORY_ID);
   });
 
   test('getIngredientCategory gives a categorized status, a failed status, or null with no row', () => {
-    expect(getIngredientCategory(A, key('milk'))).toEqual({
+    expect(getIngredientCategory(home, key('milk'))).toEqual({
       defaultCategoryId: id('dairy-eggs'),
       overrideCategoryId: null,
       status: 'categorized',
     });
     addItem(listId, 'kashk', A);
     db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, key('kashk'))).run();
-    expect(getIngredientCategory(A, key('kashk')).status).toBe('failed');
-    expect(getIngredientCategory(A, key('never added'))).toEqual({
+    expect(getIngredientCategory(home, key('kashk')).status).toBe('failed');
+    expect(getIngredientCategory(home, key('never added'))).toEqual({
       defaultCategoryId: null,
       overrideCategoryId: null,
       status: null,
@@ -139,19 +188,63 @@ describe('overrides (spec 4.3.2)', () => {
 describe('category order (spec 4.3.3)', () => {
   test('moving a category changes only that user’s order', () => {
     const dairy = names(A).indexOf('Dairy & Eggs');
-    moveCategory(A, dairy, 0);
+    moveCategory(A, home, dairy, 0);
     expect(names(A).slice(0, 2)).toEqual(['Dairy & Eggs', 'Produce']);
     expect(names(B).slice(0, 2)).toEqual(['Produce', 'Bakery']);
-    moveCategory(A, 1, 2);
+    moveCategory(A, home, 1, 2);
     expect(names(A).slice(0, 3)).toEqual(['Dairy & Eggs', 'Bakery', 'Produce']);
+    // The order is the user's, whichever household's aisles are shown.
+    expect(names(A, CABIN).slice(0, 3)).toEqual(['Dairy & Eggs', 'Bakery', 'Produce']);
+  });
+});
+
+describe('custom aisles (spec 4.3.2)', () => {
+  test("belong to the household: every member has them, another household doesn't", () => {
+    const costco = createCategory(A, home, ' Costco  run ');
+    expect(names(A).at(-1)).toBe('Costco run');
+    // B is in the same household, so has it too (at the end: B hasn't placed it).
+    expect(names(B)).toContain('Costco run');
+    expect(names(A, CABIN)).not.toContain('Costco run');
+    expect(db.select().from(categories).where(eq(categories.id, costco)).get()).toMatchObject({
+      name: 'Costco run',
+      householdId: home,
+      slug: null,
+      defaultRank: null,
+    });
   });
 
-  test('custom categories are per user and go at the end; names are reused', () => {
-    const costco = createCategory(A, ' Costco  run ');
-    expect(names(A).at(-1)).toBe('Costco run');
-    expect(createCategory(A, 'costco run')).toBe(costco);
-    expect(names(B)).not.toContain('Costco run');
-    expect(() => createCategory(A, ' ')).toThrow();
+  test('names are deduped within the household, in any case, system aisles included', () => {
+    const costco = createCategory(A, home, 'Costco');
+    expect(createCategory(B, home, 'costco')).toBe(costco);
+    expect(createCategory(A, home, 'PRODUCE')).toBe(id('produce'));
+    // Another household gets its own.
+    const cabinCostco = createCategory(A, CABIN, 'Costco');
+    expect(cabinCostco).not.toBe(costco);
+    expect(names(A, CABIN).filter((n) => n === 'Costco')).toHaveLength(1);
+    expect(() => createCategory(A, home, ' ')).toThrow();
+  });
+
+  test('a member can file an item under the household aisle another member made', () => {
+    const costco = createCategory(A, home, 'Costco');
+    const item = addItem(listId, 'paper towels', B)!;
+    updateItem(item.itemId, { name: 'paper towels', amount: '', note: '', categoryId: costco });
+    expect(categoryOf('paper towels')).toBe(costco);
+  });
+
+  test('the aisle order screen shows every household the user is in', () => {
+    createCategory(A, home, 'Costco');
+    createCategory(A, CABIN, 'Costco');
+    createCategory(A, CABIN, 'Farm stand');
+    const all = names(A, [home, CABIN]);
+    expect(all.filter((n) => n === 'Costco')).toHaveLength(2);
+    expect(all).toContain('Farm stand');
+    expect(all).toHaveLength(SYSTEM_CATEGORIES.length + 3);
+    expect(names(A, [])).toHaveLength(SYSTEM_CATEGORIES.length);
+    // Moving within that view moves the right aisle.
+    const farm = all.indexOf('Farm stand');
+    moveCategory(A, [home, CABIN], farm, 0);
+    expect(names(A, [home, CABIN])[0]).toBe('Farm stand');
+    expect(names(A, CABIN)[0]).toBe('Farm stand');
   });
 });
 
@@ -171,7 +264,7 @@ describe('autocomplete', () => {
 
   test('suggests recent household items first, then the catalog, keeping a typed amount', () => {
     addItem(listId, 'chicken sausage from the butcher', A);
-    const household = groupItems(listItemsQuery(listId, A).all()); // ensure the add landed
+    const household = groupItems(listItemsQuery(listId).all()); // ensure the add landed
     expect(household.unchecked).toHaveLength(1);
     const list = require('@/features/lists/lists').getList(listId);
     const suggestions = getSuggestions(list.householdId, '2 lbs chick');
@@ -186,7 +279,7 @@ describe('autocomplete', () => {
 
 describe('ingredientAisles (autocomplete panel)', () => {
   test('gives each ingredient its default aisle', () => {
-    const aisles = ingredientAisles(A, [key('chicken thighs'), key('chickpeas'), key('milk')]);
+    const aisles = ingredientAisles(home, [key('chicken thighs'), key('chickpeas'), key('milk')]);
     expect(Object.fromEntries(aisles)).toEqual({
       [key('chicken thighs')]: { slug: 'meat-seafood', name: 'Meat & Seafood' },
       [key('chickpeas')]: { slug: 'canned-jarred', name: 'Canned & Jarred' },
@@ -194,27 +287,29 @@ describe('ingredientAisles (autocomplete panel)', () => {
     });
   });
 
-  test("uses this user's override, and only theirs", () => {
-    setCategoryOverride(A, key('milk'), id('beverages'));
-    expect(ingredientAisles(A, [key('milk')]).get(key('milk'))).toEqual({ slug: 'beverages', name: 'Beverages' });
-    expect(ingredientAisles(B, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
-    expect(ingredientAisles(null, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
+  test("uses the household's override, and only that household's", () => {
+    setCategoryOverride(home, key('milk'), id('beverages'));
+    expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: 'beverages', name: 'Beverages' });
+    expect(ingredientAisles(CABIN, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
+    // A reset override is the default again.
+    clearCategoryOverride(home, key('milk'));
+    expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Dairy & Eggs' });
   });
 
   test('gives a custom aisle no slug', () => {
-    const custom = createCategory(A, 'Asian market');
-    setCategoryOverride(A, key('milk'), custom);
-    expect(ingredientAisles(A, [key('milk')]).get(key('milk'))).toEqual({ slug: null, name: 'Asian market' });
+    const custom = createCategory(A, home, 'Asian market');
+    setCategoryOverride(home, key('milk'), custom);
+    expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: null, name: 'Asian market' });
   });
 
   test('leaves out pending and unknown ingredients', () => {
     addItem(listId, 'gochujang paste from h mart', A); // pending: not in the seed
-    const aisles = ingredientAisles(A, [key('gochujang paste from h mart'), 'not an ingredient']);
+    const aisles = ingredientAisles(home, [key('gochujang paste from h mart'), 'not an ingredient']);
     expect(aisles.size).toBe(0);
   });
 
   test('is empty for no names', () => {
-    expect(ingredientAisles(A, []).size).toBe(0);
+    expect(ingredientAisles(home, []).size).toBe(0);
   });
 });
 
@@ -239,7 +334,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
     defaultUnit: null,
   });
   const itemNamed = (name: string) =>
-    groupItems(listItemsQuery(listId, A).all()).unchecked.find((i) => i.displayName === name)!;
+    groupItems(listItemsQuery(listId).all()).unchecked.find((i) => i.displayName === name)!;
 
   test('adding an unknown name creates one pending row', () => {
     addItem(listId, '2 Flux Capacitors', A);
@@ -284,9 +379,9 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
   test('renaming an item to an unknown name creates a row; other edits do not', () => {
     addItem(listId, 'tomatoes', A);
     const item = itemNamed('tomatoes');
-    updateItem(item.id, { name: 'tomatoes', amount: '', note: 'ripe' }, A);
+    updateItem(item.id, { name: 'tomatoes', amount: '', note: 'ripe' });
     expect(pendingNames()).toEqual([]);
-    updateItem(item.id, { name: 'Tomatillos', amount: '', note: '' }, A);
+    updateItem(item.id, { name: 'Tomatillos', amount: '', note: '' });
     expect(rows('Tomatillos')).toEqual([pendingRow('Tomatillos')]);
   });
 
@@ -375,6 +470,6 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
         defaultUnit: 'lb',
       },
     ]);
-    expect(categoryOf(A, 'Tomatoes')).toBe(id('produce'));
+    expect(categoryOf('Tomatoes')).toBe(id('produce'));
   });
 });

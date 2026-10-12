@@ -5,10 +5,10 @@
 // - Household mutations go to `apply_mutations` in batches. Each mutation gets its own result; a
 //   rejected one (not a member, malformed, a constraint) is recorded on its outbox row and skipped,
 //   so it never blocks the rest. Applied, unchanged and merged ones leave the outbox.
-// - `apply_mutations` doesn't take the per-user tables or `households` (spec 7.1), so those are
-//   sent one at a time, in their place in the queue: per-user rows as direct writes (RLS limits
-//   them to the user's own rows), a new household through `create_household`. A 4xx for one of
-//   them is recorded and skipped the same way.
+// - `apply_mutations` doesn't take the per-user tables (aisle order, settings) or `households`
+//   (spec 7.1), so those are sent one at a time, in their place in the queue: per-user rows as
+//   direct writes (RLS limits them to the user's own rows), a new household through
+//   `create_household`. A 4xx for one of them is recorded and skipped the same way.
 // - Anything else that fails (offline, timeout, 5xx, an expired token) stops the run with the
 //   queue untouched and retries on the backoff schedule.
 //
@@ -53,6 +53,8 @@ const APPLY_TABLES = new Set([
   'recipe_ingredients',
   'ingredient_usage',
   'ingredient_unit_usage',
+  'categories',
+  'household_category_overrides',
 ]);
 
 /** Push state, kept in a device setting so the backoff survives a relaunch (and for 7.5's status). */
@@ -164,7 +166,6 @@ async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number;
 
 /** Columns a client may write per per-user table (the server's grants). */
 const USER_TABLE_COLUMNS: Record<string, readonly string[]> = {
-  user_category_overrides: ['category_id'],
   user_category_order: ['position'],
   user_settings: ['default_list_id'],
 };
@@ -182,14 +183,6 @@ function singleRequest(m: Mutation): PromiseLike<Response> | Rejection {
     }
     return { code: 'unsupported', message: 'Household changes other than creation are not synced yet' };
   }
-  if (m.table === 'categories') {
-    if (!m.id) return { code: 'unsupported', message: 'A category needs an id' };
-    if ('owner_user_id' in m.fields) {
-      // An insert: a re-send is a duplicate key, which counts as done (see pushSingle).
-      return supabase.from('categories').insert({ id: m.id, name: m.fields.name, owner_user_id: m.fields.owner_user_id });
-    }
-    return supabase.from('categories').update(pick(m.fields, ['name'])).eq('id', m.id);
-  }
   const columns = USER_TABLE_COLUMNS[m.table];
   if (!columns || !m.key) return { code: 'unsupported', message: `${m.table} isn't synced` };
   if (m.delete) return supabase.from(m.table).delete().match(m.key);
@@ -203,8 +196,7 @@ async function pushSingle(row: OutboxRow, at: Date): Promise<{ pushed: number; r
   let rejection: Rejection | null = null;
   if ('then' in request) {
     const res = await call(request);
-    const duplicateInsert = row.mutation.table === 'categories' && res.error?.code === '23505';
-    if (res.error && !duplicateInsert) {
+    if (res.error) {
       if (!isPermanent(res.status)) throw new RetryLater(describe(res));
       rejection = { code: res.error.code || String(res.status), message: describe(res) };
     }

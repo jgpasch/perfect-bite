@@ -62,7 +62,9 @@ beforeEach(() => {
   listId = getDefaultListId(USER)!;
 });
 
-const view = (id = listId) => groupItems(listItemsQuery(id, USER).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
+const view = (id = listId) => groupItems(listItemsQuery(id).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
+/** The default list's household. */
+const listHousehold = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
 const rows = (items: { displayName: string; amountText: string }[]) =>
   items.map((i) => (i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName));
 
@@ -785,6 +787,7 @@ describe('updateItem', () => {
       name: 'chicken thighs',
       amount: '2 lb',
       note: '',
+      householdId: listHousehold(),
       ingredientName: 'chicken thigh',
       usualUnit: 'lb',
       hasUsualUnit: true,
@@ -1018,7 +1021,7 @@ test('share text lists unchecked items with amounts and notes, names in sentence
 describe('Sorting section (spec 4.3.1)', () => {
   const categoryId = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
   const sections = () =>
-    groupByCategory(getOrderedCategories(USER), view().unchecked).map((s) => [
+    groupByCategory(getOrderedCategories(USER, listHousehold()), view().unchecked).map((s) => [
       s.category.name,
       s.items.map((i) => i.displayName),
     ]);
@@ -1047,7 +1050,7 @@ describe('Sorting section (spec 4.3.1)', () => {
     addItem(listId, 'kashk', USER);
     addItem(listId, 'flux capacitor', USER);
     db.update(ingredients).set({ status: 'failed' }).where(eq(ingredients.normalizedName, 'flux capacitor')).run();
-    setCategoryOverride(USER, 'kashk', categoryId('spices'));
+    setCategoryOverride(listHousehold(), 'kashk', categoryId('spices'));
     expect(sections()).toEqual([
       ['Spices & Seasonings', ['kashk']],
       ['Other', ['flux capacitor']],
@@ -1231,7 +1234,7 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
     });
 
     const byRecipe = () =>
-      groupByRecipe(orderByAisle(view().unchecked, getOrderedCategories(USER))).map((s) => [
+      groupByRecipe(orderByAisle(view().unchecked, getOrderedCategories(USER, listHousehold()))).map((s) => [
         s.name,
         s.entries.map((e) => e.item.displayName),
       ]);
@@ -1265,7 +1268,7 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
       ]);
     });
 
-    test("the user's custom order and overrides apply; ties go by when added", () => {
+    test("the user's custom order and the household's overrides apply; ties go by when added", () => {
       jest.useFakeTimers({ now: at(0) });
       addItem(listId, 'cumin', USER);
       jest.setSystemTime(at(1));
@@ -1275,12 +1278,12 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
       expect(byRecipe()).toEqual([['Other items', ['cilantro', 'milk', 'cumin']]]);
 
       // Dairy & Eggs to the top of this user's order.
-      const dairy = getOrderedCategories(USER).findIndex((c) => c.id === cat('dairy-eggs'));
-      moveCategory(USER, dairy, 0);
+      const dairy = getOrderedCategories(USER, listHousehold()).findIndex((c) => c.id === cat('dairy-eggs'));
+      moveCategory(USER, listHousehold(), dairy, 0);
       expect(byRecipe()).toEqual([['Other items', ['milk', 'cilantro', 'cumin']]]);
 
-      // Cumin moved to Produce for this user: it joins cilantro, and was added first.
-      setCategoryOverride(USER, 'cumin', cat('produce'));
+      // Cumin moved to Produce for the household: it joins cilantro, and was added first.
+      setCategoryOverride(listHousehold(), 'cumin', cat('produce'));
       expect(byRecipe()).toEqual([['Other items', ['milk', 'cumin', 'cilantro']]]);
     });
   });

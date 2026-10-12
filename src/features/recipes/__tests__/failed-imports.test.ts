@@ -81,7 +81,7 @@ afterEach(() => {
 const rows = () => failedImportsQuery().all();
 const liveRecipes = () => db.select({ name: recipes.name }).from(recipes).where(isNull(recipes.deletedAt)).all();
 const itemNames = (listId: string) =>
-  listItemsQuery(listId, USER)
+  listItemsQuery(listId)
     .all()
     .map((i) => i.displayName)
     .sort();

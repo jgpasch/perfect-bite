@@ -1,16 +1,16 @@
-// Categories, the ingredient catalog cache, and per-user overrides and order (spec 4.3).
-// Local reads and writes. Per-user tables (custom categories, order, overrides) write through the
-// sync helpers (outbox, spec 7.1); the catalog is local here and M6 fills it from the server.
-import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
+// Categories, the ingredient catalog cache, household overrides and custom aisles, and the user's
+// aisle order (spec 4.3). Local reads and writes. Custom categories, overrides and order write
+// through the sync helpers (outbox, spec 7.1); the catalog is local here and pull fills it.
+import { and, asc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 
-import { categories, db, ingredients, userCategoryOrder, userCategoryOverrides } from '@/db';
+import { categories, db, householdCategoryOverrides, ingredients, userCategoryOrder } from '@/db';
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
 import { fingerprint } from '@/domain/fingerprint';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
-import { deleteRows, insertRow, updateRows, upsertRow } from '@/sync/mutate';
+import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 import { normalizeIngredientName, SEED_INGREDIENTS, seedEntries, SYSTEM_CATEGORIES } from '@/shared';
 
 // --- Seed ----------------------------------------------------------------------------------
@@ -29,7 +29,7 @@ export function loadCatalogSeed(): void {
   db.transaction((tx) => {
     SYSTEM_CATEGORIES.forEach((c, rank) => {
       tx.insert(categories)
-        .values({ id: c.id, slug: c.slug, name: c.name, ownerUserId: null, defaultRank: rank })
+        .values({ id: c.id, slug: c.slug, name: c.name, householdId: null, defaultRank: rank })
         .onConflictDoUpdate({ target: categories.id, set: { slug: c.slug, name: c.name, defaultRank: rank } })
         .run();
     });
@@ -100,15 +100,25 @@ export function ensureMissingIngredients(): void {
 
 // --- Categories and order ------------------------------------------------------------------
 
-/** System categories plus the user's custom ones, each with the user's position (if any). */
-export function categoriesQuery(userId: string) {
+/**
+ * A household, or several: a list or recipe uses its own household's custom aisles, the aisle
+ * order screen every household's the user is in.
+ */
+export type Households = string | readonly string[];
+
+/**
+ * System categories plus the custom ones of `households` (spec 4.3.2), each with the user's
+ * position (if any). The order is the user's own (4.3.3).
+ */
+export function categoriesQuery(userId: string, households: Households) {
+  const householdIds = typeof households === 'string' ? [households] : [...households];
   return db
     .select({
       id: categories.id,
       name: categories.name,
       slug: categories.slug,
       defaultRank: categories.defaultRank,
-      ownerUserId: categories.ownerUserId,
+      householdId: categories.householdId,
       position: userCategoryOrder.position,
     })
     .from(categories)
@@ -116,21 +126,21 @@ export function categoriesQuery(userId: string) {
       userCategoryOrder,
       and(eq(userCategoryOrder.categoryId, categories.id), eq(userCategoryOrder.userId, userId)),
     )
-    .where(or(isNull(categories.ownerUserId), eq(categories.ownerUserId, userId)));
+    .where(or(isNull(categories.householdId), inArray(categories.householdId, householdIds)));
 }
 export type CategoryRow = Awaited<ReturnType<typeof categoriesQuery>>[number];
 
-/** The user's categories in their order (spec 4.3.3). */
-export function getOrderedCategories(userId: string): CategoryRow[] {
-  return orderCategories(categoriesQuery(userId).all());
+/** The categories of `households`, in the user's order (spec 4.3.3). */
+export function getOrderedCategories(userId: string, households: Households): CategoryRow[] {
+  return orderCategories(categoriesQuery(userId, households).all());
 }
 
 /**
  * Writes a position for every category the user hasn't placed yet, keeping the current order,
  * so a move only ever needs one more write. Returns the categories in order.
  */
-function placeAll(userId: string): CategoryRow[] {
-  const ordered = getOrderedCategories(userId);
+function placeAll(userId: string, households: Households): CategoryRow[] {
+  const ordered = getOrderedCategories(userId, households);
   let last: number | null = null;
   db.transaction((tx) => {
     for (const c of ordered) {
@@ -144,10 +154,13 @@ function placeAll(userId: string): CategoryRow[] {
   return ordered;
 }
 
-/** Moves the category at `from` to `to` in the user's order. */
-export function moveCategory(userId: string, from: number, to: number): void {
+/**
+ * Moves the category at `from` to `to` in the user's order. The indexes are into the categories of
+ * `households`, as the aisle order screen shows them.
+ */
+export function moveCategory(userId: string, households: Households, from: number, to: number): void {
   if (from === to) return;
-  const ordered = placeAll(userId);
+  const ordered = placeAll(userId, households);
   if (!ordered[from]) return;
   const position = positionForMove(
     ordered.map((c) => c.position!),
@@ -162,16 +175,20 @@ export function moveCategory(userId: string, from: number, to: number): void {
   );
 }
 
-/** "New category...": a custom category for this user, at the end of their order. */
-export function createCategory(userId: string, name: string): string {
+/**
+ * "New aisle...": a custom category for the household (every member gets it), at the end of this
+ * user's order. A name the household already has (a system aisle or one of its own, in any case)
+ * returns that one instead.
+ */
+export function createCategory(userId: string, householdId: string, name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
   if (!trimmed) throw new Error('A category needs a name');
-  const existing = getOrderedCategories(userId).find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  const existing = getOrderedCategories(userId, householdId).find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) return existing.id;
-  const ordered = placeAll(userId);
+  const ordered = placeAll(userId, householdId);
   const id = newId();
   db.transaction((tx) => {
-    insertRow(tx, categories, { id, name: trimmed, ownerUserId: userId });
+    insertRow(tx, categories, { id, name: trimmed, householdId });
     insertRow(tx, userCategoryOrder, {
       userId,
       categoryId: id,
@@ -183,23 +200,25 @@ export function createCategory(userId: string, name: string): string {
 
 // --- Overrides (spec 4.3.2) ----------------------------------------------------------------
 
-/** Moves an ingredient to a category for this user only, on every list. `tx`: the caller's transaction. */
-export function setCategoryOverride(userId: string, ingredientName: string, categoryId: string, tx: Exec = db): void {
-  upsertRow(tx, userCategoryOverrides, { userId, ingredientName, categoryId }, { categoryId });
+/**
+ * Moves an ingredient to a category for everyone in the household, on every list. `tx`: the
+ * caller's transaction.
+ */
+export function setCategoryOverride(householdId: string, ingredientName: string, categoryId: string, tx: Exec = db): void {
+  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName, categoryId }, { categoryId });
 }
 
-/** "Reset to default". */
-export function clearCategoryOverride(userId: string, ingredientName: string, tx: Exec = db): void {
-  deleteRows(
-    tx,
-    userCategoryOverrides,
-    and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)),
-  );
+/**
+ * "Reset to default", for the whole household. Writes a null category rather than deleting the
+ * row, so it syncs like any other change: the later of two conflicting changes wins (7.3).
+ */
+export function clearCategoryOverride(householdId: string, ingredientName: string, tx: Exec = db): void {
+  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName, categoryId: null }, { categoryId: null });
 }
 
-/** An ingredient's category for this user, and whether it is their override. */
+/** An ingredient's category in a household, and the household's override (null: the default). */
 export function getIngredientCategory(
-  userId: string,
+  householdId: string,
   ingredientName: string,
 ): { defaultCategoryId: string | null; overrideCategoryId: string | null; status: IngredientStatus | null } {
   const row = db
@@ -208,9 +227,14 @@ export function getIngredientCategory(
     .where(eq(ingredients.normalizedName, ingredientName))
     .get();
   const override = db
-    .select({ categoryId: userCategoryOverrides.categoryId })
-    .from(userCategoryOverrides)
-    .where(and(eq(userCategoryOverrides.userId, userId), eq(userCategoryOverrides.ingredientName, ingredientName)))
+    .select({ categoryId: householdCategoryOverrides.categoryId })
+    .from(householdCategoryOverrides)
+    .where(
+      and(
+        eq(householdCategoryOverrides.householdId, householdId),
+        eq(householdCategoryOverrides.ingredientName, ingredientName),
+      ),
+    )
     .get();
   return {
     defaultCategoryId: row?.defaultCategoryId ?? null,
@@ -220,11 +244,11 @@ export function getIngredientCategory(
 }
 
 /**
- * The aisle each ingredient shows under for this user (their override, else the default), for the
+ * The aisle each ingredient shows under in a household (its override, else the default), for the
  * autocomplete panel's dot and short name. Ingredients still sorting, or unknown, are left out.
  */
 export function ingredientAisles(
-  userId: string | null,
+  householdId: string,
   ingredientNames: readonly string[],
 ): Map<string, { slug: string | null; name: string }> {
   const out = new Map<string, { slug: string | null; name: string }>();
@@ -233,8 +257,7 @@ export function ingredientAisles(
     db.select({ id: categories.id, slug: categories.slug, name: categories.name }).from(categories).all().map((c) => [c.id, c]),
   );
   for (const name of ingredientNames) {
-    // Signed out there are no overrides; '' matches none.
-    const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(userId ?? '', name);
+    const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(householdId, name);
     const category = byId.get(overrideCategoryId ?? defaultCategoryId ?? '');
     if (category) out.set(name, { slug: category.slug, name: category.name });
   }

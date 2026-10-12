@@ -116,7 +116,7 @@ const ingredientRows = (recipeId: string) =>
     .all();
 
 const rows = () =>
-  groupItems(listItemsQuery(listId, USER).all()).unchecked.map((i) =>
+  groupItems(listItemsQuery(listId).all()).unchecked.map((i) =>
     i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName,
   );
 
@@ -313,7 +313,7 @@ describe('duplicates on the list (spec 4.4)', () => {
     expect(result.combined).toBe(0);
     expect(itemFor('garlic')).toMatchObject({ id: garlic.id, checkedAt: null, checkedBy: null });
     expect(contributionsFor(garlic.id)).toEqual([{ source: 'recipe', recipeId: result.recipeId, quantity: 4, unit: 'clove' }]);
-    expect(groupItems(listItemsQuery(listId, USER).all()).checked).toEqual([]);
+    expect(groupItems(listItemsQuery(listId).all()).checked).toEqual([]);
   });
 });
 

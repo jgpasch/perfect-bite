@@ -26,7 +26,7 @@ const TABLES = [
   schema.outbox,
   schema.deviceSettings,
   schema.userSettings,
-  schema.userCategoryOverrides,
+  schema.householdCategoryOverrides,
   schema.userCategoryOrder,
   schema.ingredientUnitUsage,
   schema.ingredientUsage,
@@ -35,9 +35,9 @@ const TABLES = [
   schema.recipeIngredients,
   schema.recipes,
   schema.lists,
-  schema.households,
   schema.ingredients,
   schema.categories,
+  schema.households,
 ];
 
 /** Empties every table. Call in `beforeEach`. */

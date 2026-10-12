@@ -35,7 +35,7 @@ beforeEach(() => {
   costco = createList('Costco');
 });
 
-const view = (id: string) => groupItems(listItemsQuery(id, USER).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
+const view = (id: string) => groupItems(listItemsQuery(id).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
 /** "1 gal milk" per unchecked item, then "✓ 2 milk" per checked one. */
 const rows = (id: string) => {
   const { unchecked, checked } = view(id);

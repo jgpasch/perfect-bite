@@ -141,7 +141,7 @@ export default function ListScreen() {
 
   const { data: listRows } = useLiveQueryOn(listQuery(id), [lists], [id]);
   const list = listRows[0];
-  const { data: itemRows } = useLiveQueryOn(listItemsQuery(id, userId), LIST_ITEMS_QUERY_TABLES, [id, userId]);
+  const { data: itemRows } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
@@ -176,7 +176,13 @@ export default function ListScreen() {
   );
   // Rows are placed by `placed`, but drawn (checked or not) as the item really is.
   const itemById = useMemo(() => new Map([...unchecked, ...checked].map((item) => [item.id, item])), [unchecked, checked]);
-  const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
+  // The list household's aisles (spec 4.3.2), in this user's order.
+  const householdId = list?.householdId ?? '';
+  const { data: categoryRows } = useLiveQueryOn(
+    categoriesQuery(userId ?? '', householdId),
+    [categories, userCategoryOrder],
+    [userId, householdId],
+  );
   const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
   const sections = useMemo(() => groupByCategory(orderedCategories, placed), [orderedCategories, placed]);
 

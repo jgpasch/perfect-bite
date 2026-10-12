@@ -21,13 +21,17 @@ export const deviceSettings = sqliteTable('device_settings', {
 // --- Catalog (spec 5, 7.4) -----------------------------------------------------------------
 // Global tables, cached on the device: the bundled seed now, plus server rows from M6.
 
-/** System categories (`owner_user_id` null) and the user's custom ones. */
+/**
+ * System categories (`household_id` null, from the seed and the server) and households' custom ones
+ * (spec 4.3.2): every member of a household has its custom aisles.
+ */
 export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
   /** e.g. 'produce'; null for custom categories. */
   slug: text('slug').unique(),
   name: text('name').notNull(),
-  ownerUserId: text('owner_user_id'),
+  /** The household a custom category belongs to; null for system ones. */
+  householdId: text('household_id').references(() => households.id),
   /** Default store-walk order for system categories. */
   defaultRank: integer('default_rank'),
   /** Custom categories only; system ones come from the seed and the server. */
@@ -51,20 +55,7 @@ export const ingredients = sqliteTable('ingredients', {
   defaultUnit: text('default_unit'),
 });
 
-// --- Per-user preferences (spec 4.3.2, 4.3.3). Never shared with the household. ------------
-
-export const userCategoryOverrides = sqliteTable(
-  'user_category_overrides',
-  {
-    userId: text('user_id').notNull(),
-    ingredientName: text('ingredient_name').notNull(),
-    categoryId: text('category_id')
-      .notNull()
-      .references(() => categories.id),
-    fieldClock: fieldClock(),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.ingredientName] })],
-);
+// --- Per-user aisle order (spec 4.3.3). Never shared with the household. --------------------
 
 export const userCategoryOrder = sqliteTable(
   'user_category_order',
@@ -264,6 +255,24 @@ export const ingredientUnitUsage = sqliteTable(
     ...timestamps,
   },
   (t) => [primaryKey({ columns: [t.householdId, t.ingredientName, t.unitKey] })],
+);
+
+/**
+ * The household's aisle for an ingredient (spec 4.3.2), on every list. `category_id` null is "the
+ * default": Reset to default writes null rather than deleting the row, so the later change wins (7.3).
+ */
+export const householdCategoryOverrides = sqliteTable(
+  'household_category_overrides',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** Ingredient key (`normalizeIngredientName`). */
+    ingredientName: text('ingredient_name').notNull(),
+    categoryId: text('category_id').references(() => categories.id),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
 );
 
 /** Per-user settings (spec 5). Synced in M5. */

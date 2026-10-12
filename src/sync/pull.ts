@@ -29,6 +29,7 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOverrides,
   households,
   ingredients,
   ingredientUnitUsage,
@@ -40,7 +41,6 @@ import {
   recipeIngredients,
   recipes,
   userCategoryOrder,
-  userCategoryOverrides,
   userSettings,
   type FieldClock,
 } from '@/db';
@@ -74,9 +74,11 @@ type PullSpec = {
   latest?: readonly string[];
 };
 
-/** Parents before children, for foreign keys. */
+/** Parents before children, for foreign keys: custom categories before the overrides that use them. */
 const HOUSEHOLD_SPECS: PullSpec[] = [
   { table: households, key: ['id'] },
+  { table: categories, key: ['id'] },
+  { table: householdCategoryOverrides, key: ['householdId', 'ingredientName'] },
   { table: lists, key: ['id'] },
   { table: recipes, key: ['id'] },
   { table: listItems, key: ['id'] },
@@ -91,21 +93,25 @@ const HOUSEHOLD_SPECS: PullSpec[] = [
   },
 ];
 
-/** Categories come first: overrides and order point at them (and custom ones are the user's). */
+/**
+ * The user's own tables. Their order can point at any household's custom categories, which the
+ * household jobs bring first.
+ */
 const USER_SPECS: PullSpec[] = [
-  { table: categories, key: ['id'] },
   { table: userCategoryOrder, key: ['userId', 'categoryId'] },
-  { table: userCategoryOverrides, key: ['userId', 'ingredientName'] },
   { table: userSettings, key: ['userId'] },
 ];
 
+/** System categories: part of the catalog, before the ingredients that point at them. */
+const SYSTEM_CATEGORIES_SPEC: PullSpec = { table: categories, key: ['id'] };
+
 /** One table to pull: what to read, which rows, and how to apply them. */
 type Job = {
-  /** Cursor key, e.g. `household:<id>:lists`, `user:categories`, `catalog:ingredients`. */
+  /** Cursor key, e.g. `household:<id>:lists`, `user:user_settings`, `catalog:ingredients`. */
   cursor: string;
   table: string;
-  /** Equality filters, as [column, value]. */
-  filters: [string, string][];
+  /** Filters, as [column, value]: equality, or `is null` for a null value. */
+  filters: [string, string | null][];
   apply: (tx: Exec, row: ServerRow, pending: PendingIndex) => void;
 };
 
@@ -309,8 +315,7 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
 
 /** Per-user tables the server hard-deletes from, by server name: pull can't see those deletes. */
 const HARD_DELETE_SPECS: Record<string, PullSpec> = {
-  user_category_order: USER_SPECS[1],
-  user_category_overrides: USER_SPECS[2],
+  user_category_order: USER_SPECS[0],
 };
 
 /**
@@ -374,7 +379,7 @@ async function call(request: PromiseLike<Response>, what: string): Promise<unkno
 /** Rows changed after `after` (a page, oldest first), or every row changed exactly `at`. */
 function fetchRows(job: Job, range: { after: string | null } | { at: string }): Promise<ServerRow[]> {
   let query = supabase.from(job.table).select('*');
-  for (const [column, value] of job.filters) query = query.eq(column, value);
+  for (const [column, value] of job.filters) query = value === null ? query.is(column, null) : query.eq(column, value);
   if ('at' in range) return call(query.eq('updated_at', range.at), job.table) as Promise<ServerRow[]>;
   if (range.after) query = query.gt('updated_at', range.after);
   return call(query.order('updated_at', { ascending: true }).limit(PULL_PAGE_SIZE), job.table) as Promise<ServerRow[]>;
@@ -460,19 +465,27 @@ function userJobs(userId: string): Job[] {
     return {
       cursor: `user:${table}`,
       table,
-      // RLS shows system categories and the user's own; the rest are filtered to the user.
-      filters: spec.table === categories ? [] : [['user_id', userId]],
+      filters: [['user_id', userId]],
       apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
     };
   });
 }
 
-const CATALOG_JOB: Job = {
-  cursor: 'catalog:ingredients',
-  table: 'ingredients',
-  filters: [],
-  apply: (tx, row) => applyIngredient(tx, row),
-};
+/** System categories first: ingredients point at them. Custom ones come with their household. */
+const CATALOG_JOBS: Job[] = [
+  {
+    cursor: 'catalog:categories',
+    table: 'categories',
+    filters: [['household_id', null]],
+    apply: (tx, row, pending) => applySyncedRow(SYSTEM_CATEGORIES_SPEC, tx, row, pending),
+  },
+  {
+    cursor: 'catalog:ingredients',
+    table: 'ingredients',
+    filters: [],
+    apply: (tx, row) => applyIngredient(tx, row),
+  },
+];
 
 // --- Running -------------------------------------------------------------------------------
 
@@ -573,7 +586,9 @@ async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullS
     }
     // Names pulled in are cached as pending until the catalog (or categorization) knows them.
     if (all || memberships.length || scope.user) ensureMissingIngredients();
-    if (all || scope.catalog) pulled += await pullTable(CATALOG_JOB);
+    if (all || scope.catalog) {
+      for (const job of CATALOG_JOBS) pulled += await pullTable(job);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[pull] failed: ${message}`);

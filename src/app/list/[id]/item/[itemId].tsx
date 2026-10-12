@@ -63,9 +63,12 @@ export default function ItemEditSheet() {
   const [householdName] = useState(() => getItemHouseholdName(itemId));
   const [edit, setEdit] = useState<ItemEdit | null>(initial);
   const [error, setError] = useState<string | null>(null);
-  const [categoryList, setCategoryList] = useState(() => (userId ? getOrderedCategories(userId) : []));
+  // The aisles are the list household's (spec 4.3.2), in this user's order.
+  const [categoryList, setCategoryList] = useState(() =>
+    userId && initial ? getOrderedCategories(userId, initial.householdId) : [],
+  );
   const current = useMemo(
-    () => (userId && initial ? getIngredientCategory(userId, initial.ingredientName) : null),
+    () => (userId && initial ? getIngredientCategory(initial.householdId, initial.ingredientName) : null),
     [userId, initial],
   );
   const { data: contributions } = useLiveQueryOn(contributionsQuery(itemId), [listItemContributions], [itemId]);
@@ -116,8 +119,8 @@ export default function ItemEditSheet() {
     if (!userId) return;
     Alert.prompt('New aisle', undefined, (name) => {
       if (!name?.trim()) return;
-      const id = createCategory(userId, name);
-      setCategoryList(getOrderedCategories(userId));
+      const id = createCategory(userId, initial.householdId, name);
+      setCategoryList(getOrderedCategories(userId, initial.householdId));
       chooseCategory(id);
     });
   };
@@ -177,7 +180,7 @@ export default function ItemEditSheet() {
       const amountText = steppable ? (getItemEdit(itemId)?.amount ?? '') : amount;
       // Choosing the default again only needs a write if there was an override to remove.
       const categoryId = edit.categoryId === null && !current?.overrideCategoryId ? undefined : edit.categoryId;
-      void categorizePending(updateItem(itemId, { ...edit, amount: amountText, categoryId }, userId));
+      void categorizePending(updateItem(itemId, { ...edit, amount: amountText, categoryId }));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

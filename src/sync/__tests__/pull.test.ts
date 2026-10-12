@@ -5,6 +5,7 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOverrides,
   households,
   ingredients,
   ingredientUnitUsage,
@@ -13,9 +14,10 @@ import {
   listItems,
   lists,
   userCategoryOrder,
-  userCategoryOverrides,
   userSettings,
 } from '@/db';
+import { setCategoryOverride } from '@/features/categories/categories';
+import { listItemsQuery } from '@/features/lists/items';
 import { onQuery, queries, queriesFor, resetSupabase, type RecordedQuery } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxRows } from '@/test/outbox';
@@ -68,6 +70,7 @@ function serve(query: RecordedQuery) {
   let limit: number | null = null;
   for (const [op, column, value] of query.ops) {
     if (op === 'eq') rows = rows.filter((r) => String(r[column as string]) === value);
+    if (op === 'is' && value === null) rows = rows.filter((r) => r[column as string] == null);
     if (op === 'gt') rows = rows.filter((r) => Date.parse(r[column as string] as string) > Date.parse(value as string));
     if (op === 'order') rows.sort((a, b) => ((a[column as string] as string) < (b[column as string] as string) ? -1 : 1));
     if (op === 'limit') limit = column as number;
@@ -199,6 +202,8 @@ describe('first pull of a household', () => {
     expect(queries.map((q) => q.table)).toEqual([
       'household_members',
       'households',
+      'categories',
+      'household_category_overrides',
       'lists',
       'recipes',
       'list_items',
@@ -206,10 +211,9 @@ describe('first pull of a household', () => {
       'list_item_contributions',
       'ingredient_usage',
       'ingredient_unit_usage',
-      'categories',
       'user_category_order',
-      'user_category_overrides',
       'user_settings',
+      'categories',
       'ingredients',
     ]);
     expect(queriesFor('household_members')[0].ops).toEqual([
@@ -227,6 +231,12 @@ describe('first pull of a household', () => {
     ]);
     expect(tableQueries('households')[0][1]).toEqual(['eq', 'id', H1]);
     expect(tableQueries('user_settings')[0][1]).toEqual(['eq', 'user_id', 'u1']);
+    // Custom categories with their household; system ones with the catalog.
+    expect(tableQueries('categories').map((ops) => ops[1])).toEqual([
+      ['eq', 'household_id', H1],
+      ['is', 'household_id', null],
+    ]);
+    expect(tableQueries('household_category_overrides')[0][1]).toEqual(['eq', 'household_id', H1]);
 
     expect(db.select().from(households).all()).toEqual([
       { id: H1, name: 'Home', createdAt: new Date(ts(0)), updatedAt: new Date(ts(1)), fieldClock: {} },
@@ -631,74 +641,184 @@ describe('counters and usage', () => {
   });
 });
 
-describe("the user's own preferences", () => {
-  const customCategory: ServerRow = {
-    id: 'cat-snacks',
+describe("the household's aisles (spec 4.3.2)", () => {
+  const customCategory = (id: string, name: string, updated: string, householdId = H1): ServerRow => ({
+    id,
     slug: null,
-    name: 'Snacks',
-    owner_user_id: 'u1',
+    name,
+    household_id: householdId,
     default_rank: null,
-    created_at: ts(0),
-    updated_at: ts(3),
-  };
-  const override = (categoryId: string, updated: string): ServerRow => ({
-    user_id: 'u1',
-    ingredient_name: 'chips',
-    category_id: categoryId,
+    field_clock: { household_id: OLD, name: OLD },
     created_at: ts(0),
     updated_at: updated,
   });
-  const overrideRow = () => db.select().from(userCategoryOverrides).get();
+  /** An override another member (or device) wrote, its category set at `hlc`. */
+  const override = (categoryId: string | null, updated: string, hlc = OLD, householdId = H1): ServerRow => ({
+    household_id: householdId,
+    ingredient_name: 'chips',
+    category_id: categoryId,
+    field_clock: { category_id: hlc },
+    created_at: ts(0),
+    updated_at: updated,
+  });
+  const overrideRow = (householdId = H1) =>
+    db.select().from(householdCategoryOverrides).where(eq(householdCategoryOverrides.householdId, householdId)).get();
 
   beforeEach(() => {
     seedPulledList();
-    put('categories', customCategory, { ...customCategory, id: 'cat-bulk', name: 'Bulk', updated_at: ts(4) });
+    put('categories', customCategory('cat-snacks', 'Snacks', ts(3)), customCategory('cat-bulk', 'Bulk', ts(4)));
   });
 
-  test('custom categories, overrides and settings come down, with a cursor each', async () => {
-    put('user_category_overrides', override('cat-snacks', ts(5)));
-    put('user_settings', { user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(6) });
+  test("another member's custom aisles and overrides come down with the household, with a cursor each", async () => {
+    put('household_category_overrides', override('cat-snacks', ts(5)));
+    put('list_items', remoteItem('i1', ts(2), { ingredient_name: 'chips', display_name: 'chips' }));
 
     await pullNow();
 
     expect(db.select().from(categories).where(eq(categories.id, 'cat-snacks')).get()).toMatchObject({
       name: 'Snacks',
-      ownerUserId: 'u1',
+      householdId: H1,
+      slug: null,
+      fieldClock: { household_id: OLD, name: OLD },
     });
-    expect(overrideRow()).toMatchObject({ userId: 'u1', ingredientName: 'chips', categoryId: 'cat-snacks' });
+    expect(overrideRow()).toMatchObject({ householdId: H1, ingredientName: 'chips', categoryId: 'cat-snacks' });
+    // So the item shows in that aisle on this user's list.
+    expect(listItemsQuery(L).all()[0]).toMatchObject({ ingredientName: 'chips', overrideCategoryId: 'cat-snacks' });
+    expect(getPullState().cursors).toMatchObject({
+      [householdCursorKey(H1, 'categories')]: ts(4),
+      [householdCursorKey(H1, 'household_category_overrides')]: ts(5),
+    });
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test("a user in two households gets each one's own override", async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H2, ts(1), 'Cabin'));
+    put('categories', customCategory('cat-cabin', 'Farm stand', ts(3), H2));
+    put('household_category_overrides', override('cat-snacks', ts(5)), override('cat-cabin', ts(5), OLD, H2));
+
+    await pullNow();
+
+    expect(overrideRow(H1)!.categoryId).toBe('cat-snacks');
+    expect(overrideRow(H2)!.categoryId).toBe('cat-cabin');
+    expect(db.select().from(categories).where(eq(categories.id, 'cat-cabin')).get()!.householdId).toBe(H2);
+  });
+
+  test('a reset comes down as a null category, and the default applies again', async () => {
+    put('household_category_overrides', override('cat-snacks', ts(5)));
+    await pullNow();
+    server.household_category_overrides = [override(null, ts(20), NEW)];
+
+    await pullNow();
+
+    expect(overrideRow()).toMatchObject({ categoryId: null, fieldClock: { category_id: NEW } });
+  });
+
+  test('the later of two conflicting overrides wins, whichever arrives last', async () => {
+    put('household_category_overrides', override('cat-snacks', ts(5)));
+    await pullNow();
+    // This device moves chips to Bulk (now) and pushes it.
+    setCategoryOverride(H1, 'chips', 'cat-bulk');
+    const mine = overrideRow()!.fieldClock.category_id;
+    clearOutbox();
+
+    // Another member's earlier change arrives after: it loses.
+    server.household_category_overrides = [override('cat-snacks', ts(20), OLD)];
+    await pullNow();
+    expect(overrideRow()!.categoryId).toBe('cat-bulk');
+    expect(overrideRow()!.fieldClock.category_id).toBe(mine);
+
+    // A later one wins.
+    server.household_category_overrides = [override('cat-snacks', ts(30), NEW)];
+    await pullNow();
+    expect(overrideRow()!.categoryId).toBe('cat-snacks');
+  });
+
+  test('a renamed custom aisle comes down by field clock too', async () => {
+    await pullNow();
+    server.categories = [{ ...customCategory('cat-bulk', 'Bulk bins', ts(30)), field_clock: { household_id: OLD, name: NEW } }];
+
+    await pullNow();
+
+    expect(db.select().from(categories).where(eq(categories.id, 'cat-bulk')).get()!.name).toBe('Bulk bins');
+  });
+
+  test('system categories come with the catalog', async () => {
+    put('categories', {
+      id: 'cat-new-system',
+      slug: 'frozen-treats',
+      name: 'Frozen Treats',
+      household_id: null,
+      default_rank: 30,
+      field_clock: {},
+      created_at: ts(0),
+      updated_at: ts(8),
+    });
+
+    await pullNow();
+
+    expect(db.select().from(categories).where(eq(categories.id, 'cat-new-system')).get()).toMatchObject({
+      slug: 'frozen-treats',
+      householdId: null,
+      defaultRank: 30,
+    });
+    expect(getPullState().cursors['catalog:categories']).toBe(ts(8));
+  });
+});
+
+describe("the user's own preferences", () => {
+  beforeEach(() => {
+    seedPulledList();
+    db.insert(categories).values({ id: 'cat-dairy', slug: 'dairy', name: 'Dairy', defaultRank: 1 }).run();
+  });
+
+  test('aisle order and settings come down, with a cursor each', async () => {
+    put('user_category_order', { user_id: 'u1', category_id: 'cat-dairy', position: 3, created_at: ts(0), updated_at: ts(5) });
+    put('user_settings', { user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(6) });
+
+    await pullNow();
+
+    expect(db.select().from(userCategoryOrder).get()).toMatchObject({ userId: 'u1', categoryId: 'cat-dairy', position: 3 });
     expect(db.select().from(userSettings).get()).toMatchObject({ userId: 'u1', defaultListId: L });
     expect(getPullState().cursors).toMatchObject({
-      'user:categories': ts(4),
-      'user:user_category_overrides': ts(5),
+      'user:user_category_order': ts(5),
       'user:user_settings': ts(6),
     });
     expect(outboxRows()).toEqual([]);
   });
 
   test("an unpushed local change wins over the server's row; a pushed one doesn't", async () => {
-    put('user_category_overrides', override('cat-snacks', ts(5)));
+    const order = (position: number, updated: string): ServerRow => ({
+      user_id: 'u1',
+      category_id: 'cat-dairy',
+      position,
+      created_at: ts(0),
+      updated_at: updated,
+    });
+    put('user_category_order', order(3, ts(5)));
     await pullNow();
-    upsertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'chips', categoryId: 'cat-bulk' }, { categoryId: 'cat-bulk' });
-    server.user_category_overrides = [override('cat-snacks', ts(20))];
+    upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'cat-dairy', position: 7 }, { position: 7 });
+    server.user_category_order = [order(4, ts(20))];
 
     await pullNow();
-    expect(overrideRow()!.categoryId).toBe('cat-bulk');
+    expect(db.select().from(userCategoryOrder).get()!.position).toBe(7);
 
     clearOutbox();
-    server.user_category_overrides = [override('cat-snacks', ts(30))];
+    server.user_category_order = [order(4, ts(30))];
     await pullNow();
-    expect(overrideRow()!.categoryId).toBe('cat-snacks');
+    expect(db.select().from(userCategoryOrder).get()!.position).toBe(4);
   });
 
   test("a row removed here but not yet pushed isn't brought back", async () => {
-    put('user_category_overrides', override('cat-snacks', ts(5)));
+    const order: ServerRow = { user_id: 'u1', category_id: 'cat-dairy', position: 3, created_at: ts(0), updated_at: ts(5) };
+    put('user_category_order', order);
     await pullNow();
-    deleteRows(db, userCategoryOverrides, undefined);
-    server.user_category_overrides = [override('cat-snacks', ts(20))];
+    deleteRows(db, userCategoryOrder, undefined);
+    server.user_category_order = [{ ...order, updated_at: ts(20) }];
 
     await pullNow();
 
-    expect(overrideRow()).toBeUndefined();
+    expect(db.select().from(userCategoryOrder).get()).toBeUndefined();
   });
 
   test("a default list this device doesn't have is left out", async () => {
@@ -1013,6 +1133,8 @@ function pick(cursors: Record<string, string>, ...prefixes: string[]) {
 describe('scoped pulls (for Realtime)', () => {
   const HOUSEHOLD_TABLES = [
     'households',
+    'categories',
+    'household_category_overrides',
     'lists',
     'recipes',
     'list_items',
@@ -1053,7 +1175,7 @@ describe('scoped pulls (for Realtime)', () => {
 
   test("the user's tables only", async () => {
     await pullNow({ scope: { user: true } });
-    expect(queries.map((q) => q.table)).toEqual(['categories', 'user_category_order', 'user_category_overrides', 'user_settings']);
+    expect(queries.map((q) => q.table)).toEqual(['user_category_order', 'user_settings']);
   });
 
   test('the catalog only', async () => {
@@ -1069,7 +1191,7 @@ describe('scoped pulls (for Realtime)', () => {
 
     await expect(pullNow({ scope: { catalog: true } })).resolves.toEqual({ pulled: 1, households: [], error: null });
 
-    expect(queries.map((q) => q.table)).toEqual(['ingredients']);
+    expect(queries.map((q) => q.table)).toEqual(['categories', 'ingredients']);
     expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'kefir')).get()).toMatchObject({
       status: 'categorized',
       categorizedBy: 'model',
@@ -1090,7 +1212,7 @@ describe('scoped pulls (for Realtime)', () => {
 
     await Promise.all([first, second, third]);
 
-    expect(queries.map((q) => q.table)).toEqual([...HOUSEHOLD_TABLES, ...HOUSEHOLD_TABLES, 'ingredients']);
+    expect(queries.map((q) => q.table)).toEqual([...HOUSEHOLD_TABLES, ...HOUSEHOLD_TABLES, 'categories', 'ingredients']);
     expect(tableQueries('lists').map((ops) => ops[1])).toEqual([
       ['eq', 'household_id', H1],
       ['eq', 'household_id', H2],
@@ -1103,7 +1225,7 @@ describe('scoped pulls (for Realtime)', () => {
 
     await Promise.all([first, second]);
 
-    expect(queries[0].table).toBe('ingredients');
+    expect(queries.slice(0, 2).map((q) => q.table)).toEqual(['categories', 'ingredients']);
     expect(queriesFor('household_members')).toHaveLength(1);
     expect(queriesFor('ingredients')).toHaveLength(2);
   });
@@ -1157,49 +1279,48 @@ describe('onMemberships', () => {
 describe('applyRemoteDelete (per-user rows deleted on another device)', () => {
   const C = 'cat-snacks';
 
-  function seedOverride() {
-    db.insert(categories).values({ id: C, name: 'Snacks', ownerUserId: 'u1' }).run();
-    db.insert(userCategoryOverrides).values({ userId: 'u1', ingredientName: 'chips', categoryId: C }).run();
+  function seedOrder() {
+    db.insert(categories).values({ id: C, slug: 'snacks', name: 'Snacks', defaultRank: 1 }).run();
+    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: C, position: 1 }).run();
   }
-  const overrides = () => db.select().from(userCategoryOverrides).all();
+  const orderRows = () => db.select().from(userCategoryOrder).all();
 
-  test("deletes the user's row named by the event's key, without writing to the outbox", () => {
-    seedOverride();
+  test("deletes the user's order row named by the event's key, without writing to the outbox", () => {
+    seedOrder();
 
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(true);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
 
-    expect(overrides()).toEqual([]);
+    expect(orderRows()).toEqual([]);
     expect(outboxRows()).toEqual([]);
   });
 
   test('keeps a row with an unpushed local change', () => {
-    seedOverride();
-    upsertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'chips', categoryId: C }, { categoryId: C });
+    seedOrder();
+    upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: C, position: 2 }, { position: 2 });
 
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(false);
-    expect(overrides()).toHaveLength(1);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(false);
+    expect(orderRows()).toHaveLength(1);
 
     clearOutbox();
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'chips' }, 'u1')).toBe(true);
-    expect(overrides()).toEqual([]);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
+    expect(orderRows()).toEqual([]);
   });
 
   test("ignores another user's row, a missing row, an incomplete key and other tables", () => {
-    seedOverride();
+    seedOrder();
+    db.insert(households).values({ id: H1, name: 'Home' }).run();
+    db.insert(householdCategoryOverrides).values({ householdId: H1, ingredientName: 'chips', categoryId: C }).run();
 
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u2', ingredient_name: 'chips' }, 'u1')).toBe(false);
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1', ingredient_name: 'salsa' }, 'u1')).toBe(false);
-    expect(applyRemoteDelete('user_category_overrides', { user_id: 'u1' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u2', category_id: C }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: 'other' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1' }, 'u1')).toBe(false);
     expect(applyRemoteDelete('user_settings', { user_id: 'u1' }, 'u1')).toBe(false);
     expect(applyRemoteDelete('lists', { id: L, user_id: 'u1' }, 'u1')).toBe(false);
-    expect(overrides()).toHaveLength(1);
-  });
-
-  test('deletes a category order row', () => {
-    seedOverride();
-    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: C, position: 1 }).run();
-
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
-    expect(db.select().from(userCategoryOrder).all()).toEqual([]);
+    // Overrides are household data: a reset is a null category, never a delete event to apply.
+    expect(applyRemoteDelete('household_category_overrides', { household_id: H1, ingredient_name: 'chips', user_id: 'u1' }, 'u1')).toBe(
+      false,
+    );
+    expect(orderRows()).toHaveLength(1);
+    expect(db.select().from(householdCategoryOverrides).all()).toHaveLength(1);
   });
 });

@@ -2,14 +2,15 @@
 // `field_clock` and an outbox mutation in one transaction (a savepoint inside the caller's), so a
 // failure leaves none of them.
 //
-// Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage)
-// and per-user tables (custom categories, overrides, order, settings) go through here. The
-// catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
+// Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage,
+// custom categories, category overrides) and per-user tables (order, settings) go through here.
+// The catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
 import { and, eq, getTableColumns, getTableName, SQL, sql, type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
   categories,
+  householdCategoryOverrides,
   households,
   ingredientUnitUsage,
   ingredientUsage,
@@ -20,7 +21,6 @@ import {
   recipeIngredients,
   recipes,
   userCategoryOrder,
-  userCategoryOverrides,
   userSettings,
 } from '@/db';
 
@@ -35,6 +35,8 @@ type Spec = {
   counters?: readonly string[];
   /** Household data has a household; per-user tables don't. */
   household: boolean;
+  /** Columns the device keeps but never sends (the server doesn't take them from clients). */
+  unsent?: readonly string[];
 };
 
 const SPECS = new Map<SQLiteTable, Spec>([
@@ -46,8 +48,10 @@ const SPECS = new Map<SQLiteTable, Spec>([
   [recipeIngredients, { key: ['id'], household: true }],
   [ingredientUsage, { key: ['householdId', 'ingredientName'], counters: ['useCount'], household: true }],
   [ingredientUnitUsage, { key: ['householdId', 'ingredientName', 'unitKey'], counters: ['useCount'], household: true }],
-  [categories, { key: ['id'], household: false }],
-  [userCategoryOverrides, { key: ['userId', 'ingredientName'], household: false }],
+  // Custom categories only; slug and rank belong to system ones.
+  [categories, { key: ['id'], household: true, unsent: ['slug', 'defaultRank'] }],
+  // Only the category is the client's to set; the server stamps created_at.
+  [householdCategoryOverrides, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdAt'] }],
   [userCategoryOrder, { key: ['userId', 'categoryId'], household: false }],
   [userSettings, { key: ['userId'], household: false }],
 ]);
@@ -62,7 +66,7 @@ export type SyncedTable =
   | typeof ingredientUsage
   | typeof ingredientUnitUsage
   | typeof categories
-  | typeof userCategoryOverrides
+  | typeof householdCategoryOverrides
   | typeof userCategoryOrder
   | typeof userSettings;
 
@@ -119,7 +123,14 @@ function patchFields(table: SQLiteTable, spec: Spec, patch: Row): Record<string,
   const fields: Record<string, WireValue> = {};
   for (const [k, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (!columns[k] || spec.key.includes(k) || spec.counters?.includes(k) || LOCAL_ONLY.has(k) || value instanceof SQL) {
+    if (
+      !columns[k] ||
+      spec.key.includes(k) ||
+      spec.counters?.includes(k) ||
+      spec.unsent?.includes(k) ||
+      LOCAL_ONLY.has(k) ||
+      value instanceof SQL
+    ) {
       throw new Error(`${getTableName(table)}.${k} can't be patched`);
     }
     fields[columns[k].name] = toWire(value);
@@ -142,8 +153,8 @@ function counterDeltas(table: SQLiteTable, spec: Spec, counters: Counters = {}):
 }
 
 /**
- * Inserts a row and enqueues it with every column but the key, counters and server-owned ones
- * (defaults included, so the server gets the row as the device has it). Counters start at their
+ * Inserts a row and enqueues it with every column but the key, counters, unsent and server-owned
+ * ones (defaults included, so the server gets the row as the device has it). Counters start at their
  * delta. Returns the row.
  */
 export function insertRow<T extends SyncedTable>(
@@ -165,7 +176,9 @@ export function insertRow<T extends SyncedTable>(
       .get() as Row;
     const sent: Row = {};
     for (const [k, value] of Object.entries(row)) {
-      if (!spec.key.includes(k) && !spec.counters?.includes(k) && !LOCAL_ONLY.has(k)) sent[k] = value;
+      if (!spec.key.includes(k) && !spec.counters?.includes(k) && !spec.unsent?.includes(k) && !LOCAL_ONLY.has(k)) {
+        sent[k] = value;
+      }
     }
     const fields = patchFields(table, spec, sent);
     tx.update(table as SQLiteTable)
@@ -241,10 +254,11 @@ export function upsertRow<T extends SyncedTable>(
 }
 
 /**
- * Hard-deletes the matching rows of a per-user table and enqueues a `delete` for each. Household
- * tables soft-delete instead (`updateRows` with `deletedAt`). Returns how many rows went.
+ * Hard-deletes the matching rows of the user's category order and enqueues a `delete` for each.
+ * Household tables soft-delete instead (`updateRows` with `deletedAt`, or a null override).
+ * Returns how many rows went.
  */
-export function deleteRows(exec: Exec, table: typeof userCategoryOverrides | typeof userCategoryOrder, where: SQL | undefined): number {
+export function deleteRows(exec: Exec, table: typeof userCategoryOrder, where: SQL | undefined): number {
   const spec = specOf(table);
   return exec.transaction((tx) => {
     const rows = tx.delete(table).where(where).returning().all() as Row[];

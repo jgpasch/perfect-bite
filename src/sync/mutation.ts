@@ -17,8 +17,8 @@ export type Mutation = {
   /** Deltas that add up across devices (the usage tables' `use_count`). */
   counters?: Record<string, number>;
   /**
-   * The row was removed. Only for per-user tables (overrides, order), which hard-delete; household
-   * tables soft-delete with a `deleted_at` field instead.
+   * The row was removed. Only for the per-user category order, which hard-deletes; household
+   * tables soft-delete with a `deleted_at` field (or a null override) instead.
    */
   delete?: true;
 };

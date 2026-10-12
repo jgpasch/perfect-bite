@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 
 import { eq } from 'drizzle-orm';
 
-import { db, ingredients, userCategoryOverrides } from '@/db';
+import { db, householdCategoryOverrides, households, ingredients } from '@/db';
 import { OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
 import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 
-import { loadCatalogSeed } from '../categories';
+import { getIngredientCategory, loadCatalogSeed, setCategoryOverride } from '../categories';
 import { CATEGORIZED_BY_SERVER, categorizePending, catchUpNames, MAX_NAMES_PER_REQUEST } from '../categorization';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -92,15 +92,22 @@ describe('results', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  test("leaves the user's overrides alone", async () => {
+  test("leaves the household's overrides alone", async () => {
     addLocal("za'atar");
-    db.insert(userCategoryOverrides).values({ userId: 'u1', ingredientName: "za'atar", categoryId: id('produce') }).run();
+    db.insert(households).values({ id: 'h1', name: 'Home' }).run();
+    setCategoryOverride('h1', "za'atar", id('produce'));
     respond({ "za'atar": { status: 'categorized', category_id: SPICES, is_grocery_item: true } });
     await categorizePending(["za'atar"]);
     expect(row("za'atar")!.defaultCategoryId).toBe(SPICES);
-    expect(db.select().from(userCategoryOverrides).all()).toEqual([
-      { userId: 'u1', ingredientName: "za'atar", categoryId: id('produce'), fieldClock: {} },
+    expect(db.select().from(householdCategoryOverrides).all()).toMatchObject([
+      { householdId: 'h1', ingredientName: "za'atar", categoryId: id('produce') },
     ]);
+    // So the item still shows in the household's aisle, not the new default.
+    expect(getIngredientCategory('h1', "za'atar")).toEqual({
+      defaultCategoryId: SPICES,
+      overrideCategoryId: id('produce'),
+      status: 'categorized',
+    });
   });
 
   test('a failed result goes to Other', async () => {

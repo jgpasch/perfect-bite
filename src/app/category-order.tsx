@@ -5,12 +5,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { prominentButtonTint } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { categories, userCategoryOrder } from '@/db';
+import { categories, households, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { orderCategories } from '@/domain/category-resolver';
 import { getAccount } from '@/features/auth/account';
 import { AisleOrderList } from '@/features/categories/aisle-order-list';
 import { categoriesQuery, moveCategory } from '@/features/categories/categories';
+import { householdsQuery } from '@/features/households/households';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
@@ -20,7 +21,14 @@ import { useTheme } from '@/hooks/use-theme';
 export default function CategoryOrderScreen() {
   const { spacing, colors, scheme } = useTheme();
   const userId = getAccount()?.userId ?? '';
-  const { data } = useLiveQueryOn(categoriesQuery(userId), [categories, userCategoryOrder], [userId]);
+  // System aisles plus the custom aisles of every household the user is in (spec 4.3.3).
+  const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households], []);
+  const householdIds = useMemo(() => householdRows.map((h) => h.id), [householdRows]);
+  const { data } = useLiveQueryOn(
+    categoriesQuery(userId, householdIds),
+    [categories, userCategoryOrder],
+    [userId, householdIds.join()],
+  );
   const ordered = useMemo(() => orderCategories(data), [data]);
 
   return (
@@ -34,7 +42,7 @@ export default function CategoryOrderScreen() {
         </Stack.Toolbar>
         <AisleOrderList
           aisles={ordered}
-          onMove={(from, to) => moveCategory(userId, from, to)}
+          onMove={(from, to) => moveCategory(userId, householdIds, from, to)}
           header={
             <>
               <ThemedText

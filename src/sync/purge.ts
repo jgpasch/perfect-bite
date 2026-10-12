@@ -3,12 +3,15 @@
 // still had queued for it. The server would reject those anyway (not a member).
 //
 // Pull writes, like the rows it brings down: nothing here goes to the outbox. Per-user rows stay
-// (they belong to the user, not the household); a Siri default list in the household is cleared
+// (they belong to the user, not the household), except the user's order rows for the household's
+// custom aisles, which the server cascades away; a Siri default list in the household is cleared
 // here, as the server's `on delete set null` does there.
-import { count, eq, inArray, like } from 'drizzle-orm';
+import { and, count, eq, inArray, like, sql } from 'drizzle-orm';
 
 import {
+  categories,
   deviceSettings,
+  householdCategoryOverrides,
   households,
   ingredientUnitUsage,
   ingredientUsage,
@@ -18,6 +21,7 @@ import {
   outbox,
   recipeIngredients,
   recipes,
+  userCategoryOrder,
   userSettings,
 } from '@/db';
 import { LAST_OPENED_LIST_KEY } from '@/features/lists/lists';
@@ -59,6 +63,27 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
   tx.delete(recipeIngredients).where(eq(recipeIngredients.householdId, householdId)).run();
   tx.delete(ingredientUsage).where(eq(ingredientUsage.householdId, householdId)).run();
   tx.delete(ingredientUnitUsage).where(eq(ingredientUnitUsage.householdId, householdId)).run();
+  // Its aisles (spec 4.3.2): overrides, custom categories, and the user's order rows for them,
+  // with their queued order mutations (per-user, so the household filter below misses them).
+  tx.delete(householdCategoryOverrides).where(eq(householdCategoryOverrides.householdId, householdId)).run();
+  const categoryIds = tx
+    .select({ id: categories.id })
+    .from(categories)
+    .where(eq(categories.householdId, householdId))
+    .all()
+    .map((r) => r.id);
+  if (categoryIds.length) {
+    tx.delete(userCategoryOrder).where(inArray(userCategoryOrder.categoryId, categoryIds)).run();
+    tx.delete(outbox)
+      .where(
+        and(
+          sql`json_extract(${outbox.mutation}, '$.table') = 'user_category_order'`,
+          inArray(sql`json_extract(${outbox.mutation}, '$.key.category_id')`, categoryIds),
+        ),
+      )
+      .run();
+    tx.delete(categories).where(inArray(categories.id, categoryIds)).run();
+  }
   if (listIds.length) {
     tx.update(userSettings).set({ defaultListId: null }).where(inArray(userSettings.defaultListId, listIds)).run();
   }

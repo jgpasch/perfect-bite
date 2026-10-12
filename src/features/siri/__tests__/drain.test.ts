@@ -62,7 +62,7 @@ const queued = () => fs.readdirSync(path.join(root, PENDING_DIR)).sort();
 
 /** "1 gal milk" per unchecked item, then "✓ 2 milk" per checked one. */
 const rows = (id: string) => {
-  const { unchecked, checked } = groupItems(listItemsQuery(id, USER).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
+  const { unchecked, checked } = groupItems(listItemsQuery(id).all(), usualUnitsByKey(usualUnitsQuery(id).all()));
   const text = (i: { displayName: string; amountText: string }) => (i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName);
   return [...unchecked.map(text), ...checked.map((i) => `✓ ${text(i)}`)];
 };

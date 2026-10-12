@@ -30,7 +30,7 @@ beforeEach(() => {
   listId = getDefaultListId(USER)!;
 });
 
-const view = () => groupItems(listItemsQuery(listId, USER).all()).unchecked;
+const view = () => groupItems(listItemsQuery(listId).all()).unchecked;
 
 test('acceptance 3: make a recipe from 3 selected items; they group under it', () => {
   const beef = addItem(listId, '2 lbs ground beef', USER)!;

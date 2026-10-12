@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, households, lists, userCategoryOrder, userCategoryOverrides, userSettings } from '@/db';
+import { categories, db, householdCategoryOverrides, households, lists, userCategoryOrder, userSettings } from '@/db';
 import { onQuery, onRpc, queries, resetSupabase, respondTo, respondToRpc, rpcCalls, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxRows } from '@/test/outbox';
@@ -144,34 +144,43 @@ describe('order', () => {
     expect(outboxRows()).toEqual([]);
   });
 
-  test('per-user writes: order upsert, override delete, category insert and rename', async () => {
-    insertRow(db, categories, { id: 'c1', name: 'Bakery', ownerUserId: 'u1' });
+  test('custom categories and overrides go through apply_mutations; the order stays a per-user write', async () => {
+    applyAll();
+    insertRow(db, categories, { id: 'c1', name: 'Bakery', householdId: H });
     upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c1', position: 2 }, { position: 2 });
-    insertRow(db, userCategoryOverrides, { userId: 'u1', ingredientName: 'milk', categoryId: 'c1' });
-    deleteRows(db, userCategoryOverrides, eq(userCategoryOverrides.ingredientName, 'milk'));
+    upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: 'c1' }, { categoryId: 'c1' });
+    upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: null }, { categoryId: null });
     updateRows(db, categories, eq(categories.id, 'c1'), { name: 'Bread' });
+    deleteRows(db, userCategoryOrder, eq(userCategoryOrder.categoryId, 'c1'));
 
-    await expect(pushNow()).resolves.toEqual({ pushed: 5, rejected: 0, failed: false });
+    await expect(pushNow()).resolves.toEqual({ pushed: 6, rejected: 0, failed: false });
 
+    // Two batches around the order upsert; no direct category or override writes.
+    expect(applyCalls()).toHaveLength(2);
+    expect(sent(0).map((m) => [m.table, m.id ?? m.key, m.fields])).toEqual([
+      ['categories', 'c1', { name: 'Bakery', household_id: H }],
+    ]);
+    expect(sent(1).map((m) => [m.table, m.id ?? m.key, m.fields])).toEqual([
+      ['household_category_overrides', { household_id: H, ingredient_name: 'milk' }, { category_id: 'c1' }],
+      ['household_category_overrides', { household_id: H, ingredient_name: 'milk' }, { category_id: null }],
+      ['categories', 'c1', { name: 'Bread' }],
+    ]);
     expect(queries.map((q) => [q.table, ...q.ops])).toEqual([
-      ['categories', ['insert', { id: 'c1', name: 'Bakery', owner_user_id: 'u1' }]],
       ['user_category_order', ['upsert', { user_id: 'u1', category_id: 'c1', position: 2 }, { onConflict: 'user_id,category_id' }]],
-      [
-        'user_category_overrides',
-        ['upsert', { user_id: 'u1', ingredient_name: 'milk', category_id: 'c1' }, { onConflict: 'user_id,ingredient_name' }],
-      ],
-      ['user_category_overrides', ['delete'], ['match', { user_id: 'u1', ingredient_name: 'milk' }]],
-      ['categories', ['update', { name: 'Bread' }], ['eq', 'id', 'c1']],
+      ['user_category_order', ['delete'], ['match', { user_id: 'u1', category_id: 'c1' }]],
     ]);
     expect(outboxRows()).toEqual([]);
   });
 
-  test('a re-sent category insert (duplicate key) counts as sent', async () => {
-    insertRow(db, categories, { id: 'c1', name: 'Bakery', ownerUserId: 'u1' });
-    respondTo('categories', { error: { code: '23505', message: 'duplicate key' }, status: 409 });
+  test('a rejected override is recorded and skipped like any household mutation', async () => {
+    upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: null }, { categoryId: null });
+    respondToRpc('apply_mutations', { data: [{ status: 'rejected', code: '22023', message: "category isn't available" }] });
 
-    await expect(pushNow()).resolves.toEqual({ pushed: 1, rejected: 0, failed: false });
-    expect(outboxRows()).toEqual([]);
+    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 1, failed: false });
+    expect(outboxRows().map((r) => [r.mutation.table, r.error])).toEqual([
+      ['household_category_overrides', { code: '22023', message: "category isn't available" }],
+    ]);
+    expect(queries).toEqual([]);
   });
 });
 
@@ -204,7 +213,7 @@ describe('a rejected mutation does not block the rest', () => {
 
   test('a 4xx on a per-user write is recorded and the queue moves on', async () => {
     // Only on this device (no mutation), so the server doesn't have it.
-    db.insert(categories).values({ id: 'c9', name: 'Local', ownerUserId: 'u1' }).run();
+    db.insert(categories).values({ id: 'c9', name: 'Local', householdId: H }).run();
     insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c9', position: 1 });
     addList('l1');
     respondTo('user_category_order', { error: { code: '23503', message: 'violates foreign key' }, status: 409 });

@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 const rows = () =>
-  groupItems(listItemsQuery(listId, USER).all()).unchecked.map((i) =>
+  groupItems(listItemsQuery(listId).all()).unchecked.map((i) =>
     i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName,
   );
 
@@ -70,7 +70,7 @@ describe('clashes Combine like single adds (spec 4.4)', () => {
     return buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), servings);
   };
   const checkedRows = () =>
-    groupItems(listItemsQuery(listId, USER).all()).checked.map((i) => (i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName));
+    groupItems(listItemsQuery(listId).all()).checked.map((i) => (i.amountText ? `${i.amountText} ${i.displayName}` : i.displayName));
 
   test('every clashing ingredient Combines, none asks or is skipped', () => {
     addItem(listId, '2 lbs ground beef', USER);
@@ -236,13 +236,13 @@ describe('By recipe actions (spec 4.6)', () => {
     addRecipeIngredient(soup, '3 limes');
     addAll(tacos);
     addAll(soup);
-    const { unchecked } = groupItems(listItemsQuery(listId, USER).all());
+    const { unchecked } = groupItems(listItemsQuery(listId).all());
     const sections = groupByRecipe(unchecked);
     expect(sections.map((s) => s.name)).toEqual(['Lime soup', 'Tacos']);
     const limeInSoup = sections[0].entries[0];
     expect(limeInSoup).toMatchObject({ amountText: '3', alsoIn: ['Tacos'] });
     checkItems([limeInSoup.item.id], USER);
-    const after = groupByRecipe(groupItems(listItemsQuery(listId, USER).all()).unchecked);
+    const after = groupByRecipe(groupItems(listItemsQuery(listId).all()).unchecked);
     expect(after.map((s) => s.name)).toEqual(['Tacos']);
     expect(after[0].entries.map((e) => e.item.displayName)).not.toContain('limes');
   });
@@ -264,7 +264,7 @@ describe('a recipe picked in the add bar (spec 4.2)', () => {
     expect(added.results.map((r) => r?.kind)).toEqual(['new', 'new', 'new', 'new', 'combine']);
     expect(rows()).toEqual(['3 limes', '1 lb ground beef', '8 tortillas', '1 cup salsa', 'cilantro']);
     // Every item groups under the recipe.
-    const sections = groupByRecipe(groupItems(listItemsQuery(listId, USER).all()).unchecked);
+    const sections = groupByRecipe(groupItems(listItemsQuery(listId).all()).unchecked);
     expect(sections.map((s) => [s.name, s.entries.length])).toEqual([['Tacos', 5]]);
   });
 
@@ -321,7 +321,7 @@ describe('a recipe picked in the add bar (spec 4.2)', () => {
       const ingredients = recipeIngredientsQuery(tacos).all();
       replaceRecipeAdd(first, costco, buildRecipeAdds(tacos, ingredients, new Set([ingredients[0].id]), 1), USER);
       expect(rows()).toEqual([]);
-      expect(groupItems(listItemsQuery(costco, USER).all()).unchecked.map((i) => `${i.amountText} ${i.displayName}`)).toEqual([
+      expect(groupItems(listItemsQuery(costco).all()).unchecked.map((i) => `${i.amountText} ${i.displayName}`)).toEqual([
         '1 lb ground beef',
       ]);
     });

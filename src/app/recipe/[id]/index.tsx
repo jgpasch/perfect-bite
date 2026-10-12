@@ -10,11 +10,17 @@ import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast } from '@/components/toast';
-import { ingredients as ingredientsTable, recipeIngredients, recipes, userCategoryOverrides, type Recipe, type RecipeIngredient } from '@/db';
+import {
+  householdCategoryOverrides,
+  ingredients as ingredientsTable,
+  recipeIngredients,
+  recipes,
+  type Recipe,
+  type RecipeIngredient,
+} from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor, recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { formatAmount } from '@/domain/quantity-display';
-import { getAccount } from '@/features/auth/account';
 import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
@@ -43,12 +49,14 @@ export default function RecipeScreen() {
   // ingredients and overrides: re-read when an ingredient gets its aisle, so its dot follows.
   const { data: ingredients } = useLiveQueryOn(
     recipeIngredientsQuery(id),
-    [recipeIngredients, ingredientsTable, userCategoryOverrides],
+    [recipeIngredients, ingredientsTable, householdCategoryOverrides],
     [id],
   );
+  // The recipe household's aisles (spec 4.3.2).
+  const householdId = recipe?.householdId ?? '';
   const aisleOf = useMemo(
-    () => ingredientAisles(getAccount()?.userId ?? null, [...new Set(ingredients.map((i) => i.ingredientName))]),
-    [ingredients],
+    () => ingredientAisles(householdId, [...new Set(ingredients.map((i) => i.ingredientName))]),
+    [householdId, ingredients],
   );
   const [deleted, setDeleted] = useState<RecipeIngredient | null>(null);
   const dismissToast = useCallback(() => setDeleted(null), []);

@@ -5,7 +5,6 @@ import { AddBar } from '@/components/add-bar';
 import { ThemedText } from '@/components/themed-text';
 import { aisleColor, shortAisleName } from '@/domain/aisle-color';
 import { matchParts } from '@/domain/text-match';
-import { getAccount } from '@/features/auth/account';
 import { ingredientAisles } from '@/features/categories/categories';
 import { useTheme } from '@/hooks/use-theme';
 import { displayItemName, parseQuantity } from '@/shared';
@@ -75,8 +74,8 @@ export function ItemAddBar({
   );
   // Panel rows show each suggestion's aisle; chips don't.
   const aisles = useMemo(
-    () => (listId === undefined ? ingredientAisles(getAccount()?.userId ?? null, suggestions.map((s) => s.key)) : new Map()),
-    [listId, suggestions],
+    () => (listId === undefined ? ingredientAisles(householdId, suggestions.map((s) => s.key)) : new Map()),
+    [listId, householdId, suggestions],
   );
   const typed = parseQuantity(text).name;
 

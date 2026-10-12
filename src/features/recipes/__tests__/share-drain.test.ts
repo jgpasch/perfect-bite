@@ -144,7 +144,7 @@ const liveRecipes = () =>
     .where(isNull(recipes.deletedAt))
     .orderBy(asc(recipes.name))
     .all();
-const rows = (listId: string) => groupItems(listItemsQuery(listId, USER).all()).unchecked.map((i) => i.displayName);
+const rows = (listId: string) => groupItems(listItemsQuery(listId).all()).unchecked.map((i) => i.displayName);
 const importedUrls = () => invoke.mock.calls.map(([, options]) => (options as { body: { url: string } }).body.url);
 
 describe('drainShareQueue', () => {

@@ -117,7 +117,7 @@
       "./plugins/with-scene-lifecycle",
       [
         "@react-native-google-signin/google-signin",
-        { "iosUrlScheme": "com.googleusercontent.apps.1033128621834-7vi2id9283ncn7tfot9htr8t7igcanss" }
+        { "iosUrlScheme": "com.googleusercontent.apps.1031126351526-q2tn88imviuf5j9stsjqmb34pisoc7ng" }
       ]
     ],
     "experiments": {

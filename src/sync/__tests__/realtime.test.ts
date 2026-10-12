@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, households, listItems, lists, userCategoryOverrides } from '@/db';
+import { categories, db, householdCategoryOverrides, households, listItems, lists, userCategoryOrder } from '@/db';
 import {
   emitChange,
   onQuery,
@@ -142,9 +142,7 @@ describe('channels', () => {
     expect(openChannels().map((c) => c.name)).toEqual(['sync:user:1', 'sync:catalog:2']);
     expect(channelNamed('user')!.bindings.map(({ table, filter, event, schema }) => ({ table, filter, event, schema }))).toEqual([
       { table: 'household_members', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
-      { table: 'categories', filter: 'owner_user_id=eq.u-new', event: '*', schema: 'public' },
       { table: 'user_category_order', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
-      { table: 'user_category_overrides', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
       { table: 'user_settings', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
     ]);
     expect(channelNamed('catalog')!.bindings.map((b) => [b.table, b.filter])).toEqual([['ingredients', undefined]]);
@@ -160,6 +158,13 @@ describe('channels', () => {
       ['households', `id=eq.${H2}`],
       ...HOUSEHOLD_TABLES.slice(1).map((table) => [table, `household_id=eq.${H2}`]),
     ]);
+    // The household's aisles are on its channel (spec 4.3.2).
+    expect(h2.bindings.map((b) => [b.table, b.filter])).toEqual(
+      expect.arrayContaining([
+        ['categories', `household_id=eq.${H2}`],
+        ['household_category_overrides', `household_id=eq.${H2}`],
+      ]),
+    );
     expect(channelNamed(`household:${H1}`)).toBeDefined();
     expect(openChannels()).toHaveLength(4);
   });
@@ -246,25 +251,48 @@ describe('events pull what they touched', () => {
   test("the user's own tables pull just those", async () => {
     emitChange({ table: 'user_settings', eventType: 'UPDATE', new: { user_id: 'u1' } });
     await settle();
-    expect(tablesQueried()).toEqual(['categories', 'user_category_order', 'user_category_overrides', 'user_settings']);
+    expect(tablesQueried()).toEqual(['user_category_order', 'user_settings']);
   });
 
   test('a catalog change pulls just the catalog', async () => {
     emitChange({ table: 'ingredients', eventType: 'UPDATE', new: { normalized_name: 'milk' } });
     await settle();
-    expect(tablesQueried()).toEqual(['ingredients']);
+    expect(tablesQueried()).toEqual(['categories', 'ingredients']);
   });
 
-  test("a deleted override is applied from the event's key, without a pull", async () => {
-    db.insert(categories).values({ id: 'cat-snacks', name: 'Snacks', ownerUserId: 'u1' }).run();
-    db.insert(userCategoryOverrides).values({ userId: 'u1', ingredientName: 'chips', categoryId: 'cat-snacks' }).run();
+  test("another member's override or custom aisle pulls that household", async () => {
+    const override = {
+      household_id: H1,
+      ingredient_name: 'chips',
+      category_id: 'cat-snacks',
+      field_clock: { category_id: NEW },
+      created_at: ts(0),
+      updated_at: ts(10),
+    };
+    server.categories = [
+      { id: 'cat-snacks', slug: null, name: 'Snacks', household_id: H1, default_rank: null, field_clock: {}, created_at: ts(0), updated_at: ts(10) },
+    ];
+    server.household_category_overrides = [override];
+
+    emitChange({ table: 'household_category_overrides', eventType: 'INSERT', new: override });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(queries.find((q) => q.table === 'household_category_overrides')!.ops).toContainEqual(['eq', 'household_id', H1]);
+    expect(db.select().from(householdCategoryOverrides).get()).toMatchObject({ householdId: H1, categoryId: 'cat-snacks' });
+    expect(db.select().from(categories).where(eq(categories.id, 'cat-snacks')).get()!.householdId).toBe(H1);
+  });
+
+  test("a deleted order row is applied from the event's key, without a pull", async () => {
+    db.insert(categories).values({ id: 'cat-snacks', slug: 'snacks', name: 'Snacks', defaultRank: 1 }).run();
+    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: 'cat-snacks', position: 1 }).run();
 
     // Deletes can't be filtered: another user's arrives too and is ignored.
-    emitChange({ table: 'user_category_overrides', eventType: 'DELETE', old: { user_id: 'u2', ingredient_name: 'chips' } });
-    expect(db.select().from(userCategoryOverrides).all()).toHaveLength(1);
+    emitChange({ table: 'user_category_order', eventType: 'DELETE', old: { user_id: 'u2', category_id: 'cat-snacks' } });
+    expect(db.select().from(userCategoryOrder).all()).toHaveLength(1);
 
-    emitChange({ table: 'user_category_overrides', eventType: 'DELETE', old: { user_id: 'u1', ingredient_name: 'chips' } });
-    expect(db.select().from(userCategoryOverrides).all()).toEqual([]);
+    emitChange({ table: 'user_category_order', eventType: 'DELETE', old: { user_id: 'u1', category_id: 'cat-snacks' } });
+    expect(db.select().from(userCategoryOrder).all()).toEqual([]);
     await settle();
     expect(queries).toEqual([]);
   });
@@ -281,10 +309,9 @@ describe('events pull what they touched', () => {
     expect(tablesQueried()).toEqual([
       ...HOUSEHOLD_TABLES,
       ...HOUSEHOLD_TABLES,
-      'categories',
       'user_category_order',
-      'user_category_overrides',
       'user_settings',
+      'categories',
       'ingredients',
     ]);
   });

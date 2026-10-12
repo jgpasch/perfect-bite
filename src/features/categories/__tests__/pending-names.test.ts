@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 const itemNamed = (name: string) =>
-  groupItems(listItemsQuery(listId, A).all()).unchecked.find((i) => i.displayName === name)!;
+  groupItems(listItemsQuery(listId).all()).unchecked.find((i) => i.displayName === name)!;
 /** Simulates names whose catalog rows don't exist yet (an install from before pending rows). */
 const forget = (...names: string[]) =>
   db.delete(ingredients).where(inArray(ingredients.normalizedName, names.map(key))).run();
@@ -115,7 +115,7 @@ describe('list adds', () => {
 describe('item edit sheet', () => {
   test('renaming to an unknown name returns it', () => {
     addItem(listId, 'tomatoes', A);
-    expect(updateItem(itemNamed('tomatoes').id, { name: 'Tomatillos', amount: '', note: '' }, A)).toEqual([
+    expect(updateItem(itemNamed('tomatoes').id, { name: 'Tomatillos', amount: '', note: '' })).toEqual([
       key('Tomatillos'),
     ]);
   });
@@ -123,15 +123,15 @@ describe('item edit sheet', () => {
   test('renaming to a known name, or editing without a rename, returns nothing', () => {
     addItem(listId, 'tomatoes', A);
     const itemId = itemNamed('tomatoes').id;
-    expect(updateItem(itemId, { name: 'tomatoes', amount: '3', note: 'ripe' }, A)).toEqual([]);
-    expect(updateItem(itemId, { name: 'milk', amount: '3', note: '' }, A)).toEqual([]);
+    expect(updateItem(itemId, { name: 'tomatoes', amount: '3', note: 'ripe' })).toEqual([]);
+    expect(updateItem(itemId, { name: 'milk', amount: '3', note: '' })).toEqual([]);
   });
 
   test('renaming to a name that is already pending returns nothing', () => {
     addItem(listId, 'kashk', A);
     addItem(listId, 'tomatoes', A);
     setItemChecked(itemNamed('kashk').id, true, A);
-    expect(updateItem(itemNamed('tomatoes').id, { name: 'kashk', amount: '', note: '' }, A)).toEqual([]);
+    expect(updateItem(itemNamed('tomatoes').id, { name: 'kashk', amount: '', note: '' })).toEqual([]);
   });
 });
 

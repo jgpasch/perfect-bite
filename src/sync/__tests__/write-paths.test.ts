@@ -3,7 +3,17 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
-import { categories, db, households, listItemContributions, listItems, lists, recipeIngredients, recipes } from '@/db';
+import {
+  categories,
+  db,
+  householdCategoryOverrides,
+  households,
+  listItemContributions,
+  listItems,
+  lists,
+  recipeIngredients,
+  recipes,
+} from '@/db';
 import {
   clearCategoryOverride,
   createCategory,
@@ -46,6 +56,7 @@ import {
   updateRecipe,
   updateRecipeIngredient,
 } from '@/features/recipes/recipes';
+import { updateRows } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
 
@@ -310,19 +321,21 @@ describe('list items', () => {
     ]);
   });
 
-  test('editing the category enqueues the per-user override in the same save', () => {
+  test("editing the category enqueues the household's override in the same save", () => {
     loadCatalogSeed();
     const { itemId } = addItem(listId, 'milk', USER)!;
     const produce = db.select().from(categories).where(eq(categories.slug, 'produce')).get()!;
     clearOutbox();
-    updateItem(itemId, { name: 'milk', amount: '', note: '', categoryId: produce.id }, USER);
-    updateItem(itemId, { name: 'milk', amount: '', note: '', categoryId: null }, USER);
-    expect(tables()).toEqual(['list_items', 'user_category_overrides', 'list_items', 'user_category_overrides']);
-    const overrides = outboxPatches().filter((p) => p.table === 'user_category_overrides');
+    updateItem(itemId, { name: 'milk', amount: '', note: '', categoryId: produce.id });
+    updateItem(itemId, { name: 'milk', amount: '', note: '', categoryId: null });
+    expect(tables()).toEqual(['list_items', 'household_category_overrides', 'list_items', 'household_category_overrides']);
+    const key = { household_id: householdId, ingredient_name: 'milk' };
+    const overrides = outboxPatches().filter((p) => p.table === 'household_category_overrides');
     expect(overrides).toEqual([
-      { table: 'user_category_overrides', key: { user_id: USER, ingredient_name: 'milk' }, fields: { category_id: produce.id } },
-      { table: 'user_category_overrides', key: { user_id: USER, ingredient_name: 'milk' }, fields: {}, delete: true },
+      { table: 'household_category_overrides', key, fields: { category_id: produce.id } },
+      { table: 'household_category_overrides', key, fields: { category_id: null } },
     ]);
+    expect(outboxRows().every((r) => r.householdId === householdId)).toBe(true);
   });
 
   test('a rename onto an open item fails and enqueues nothing', () => {
@@ -474,17 +487,14 @@ describe('usage and per-user preferences', () => {
     ]);
   });
 
-  test('a custom category enqueues the category and the order rows it needs', () => {
+  test("a custom category enqueues the household's category and the user's order rows it needs", () => {
     loadCatalogSeed();
-    const id = createCategory(USER, ' Bulk  bin ');
+    const id = createCategory(USER, householdId, ' Bulk  bin ');
     const patches = outboxPatches();
     const orders = patches.filter((p) => p.table === 'user_category_order');
+    // No slug or rank: those are system categories' and the server doesn't take them.
     expect(patches.filter((p) => p.table === 'categories')).toEqual([
-      {
-        table: 'categories',
-        id,
-        fields: { slug: null, name: 'Bulk bin', owner_user_id: USER, default_rank: null },
-      },
+      { table: 'categories', id, fields: { name: 'Bulk bin', household_id: householdId } },
     ]);
     expect(orders.at(-1)).toEqual({
       table: 'user_category_order',
@@ -493,28 +503,42 @@ describe('usage and per-user preferences', () => {
     });
     // Every system category got placed too, so later moves write one row.
     expect(orders.length).toBeGreaterThan(1);
-    expect(outboxRows().every((r) => r.householdId === null)).toBe(true);
+    // The category is household data; the order is the user's.
+    const householdOf = (table: string) => outboxRows().filter((r) => r.mutation.table === table).map((r) => r.householdId);
+    expect(householdOf('categories')).toEqual([householdId]);
+    expect(new Set(householdOf('user_category_order'))).toEqual(new Set([null]));
 
     clearOutbox();
-    moveCategory(USER, 0, 2);
+    moveCategory(USER, householdId, 0, 2);
     expect(outboxPatches()).toEqual([
       { table: 'user_category_order', key: { user_id: USER, category_id: expect.any(String) }, fields: { position: expect.any(Number) } },
     ]);
   });
 
-  test('overrides upsert, then delete on reset; resetting nothing enqueues nothing', () => {
+  test('overrides upsert; reset writes a null category rather than deleting', () => {
     loadCatalogSeed();
-    const id = createCategory(USER, 'Bulk');
+    const id = createCategory(USER, householdId, 'Bulk');
     clearOutbox();
-    setCategoryOverride(USER, 'rice', id);
-    setCategoryOverride(USER, 'rice', id);
-    clearCategoryOverride(USER, 'rice');
-    clearCategoryOverride(USER, 'rice');
-    const key = { user_id: USER, ingredient_name: 'rice' };
+    setCategoryOverride(householdId, 'rice', id);
+    setCategoryOverride(householdId, 'rice', id);
+    clearCategoryOverride(householdId, 'rice');
+    const key = { household_id: householdId, ingredient_name: 'rice' };
     expect(outboxPatches()).toEqual([
-      { table: 'user_category_overrides', key, fields: { category_id: id } },
-      { table: 'user_category_overrides', key, fields: { category_id: id } },
-      { table: 'user_category_overrides', key, fields: {}, delete: true },
+      { table: 'household_category_overrides', key, fields: { category_id: id } },
+      { table: 'household_category_overrides', key, fields: { category_id: id } },
+      { table: 'household_category_overrides', key, fields: { category_id: null } },
     ]);
+    expect(db.select().from(householdCategoryOverrides).all()).toMatchObject([
+      { householdId, ingredientName: 'rice', categoryId: null },
+    ]);
+  });
+
+  test("renaming a household's custom category isn't a patchable slug", () => {
+    loadCatalogSeed();
+    const id = createCategory(USER, householdId, 'Bulk');
+    clearOutbox();
+    updateRows(db, categories, eq(categories.id, id), { name: 'Bulk bins' });
+    expect(outboxPatches()).toEqual([{ table: 'categories', id, fields: { name: 'Bulk bins' } }]);
+    expect(() => updateRows(db, categories, eq(categories.id, id), { slug: 'bulk' })).toThrow("categories.slug can't be patched");
   });
 });

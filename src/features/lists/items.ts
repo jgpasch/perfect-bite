@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle-
 
 import {
   db,
+  householdCategoryOverrides,
   households,
   ingredientUnitUsage,
   ingredientUsage,
@@ -11,7 +12,6 @@ import {
   listItems,
   lists,
   recipes,
-  userCategoryOverrides,
   type ListItem,
 } from '@/db';
 import { effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
@@ -496,7 +496,7 @@ export type ItemEdit = {
   amount: string;
   note: string;
   /**
-   * Category choice from the sheet: a category id (the user's override), null for "Reset to
+   * Category choice from the sheet: a category id (the household's override), null for "Reset to
    * default", or undefined when the user didn't touch it.
    */
   categoryId?: string | null;
@@ -504,11 +504,12 @@ export type ItemEdit = {
 
 /**
  * Saves the item edit sheet. The amount is text (`2 lb`); when it changes, the item's amounts
- * are replaced by that one amount. Throws `DuplicateItemError` if a rename would make a second
- * open item for the same ingredient, and a plain Error for an unreadable amount. Returns the new
- * name if the rename recorded it as pending, for `categorizePending`.
+ * are replaced by that one amount. A category choice is written for the item's household.
+ * Throws `DuplicateItemError` if a rename would make a second open item for the same ingredient,
+ * and a plain Error for an unreadable amount. Returns the new name if the rename recorded it as
+ * pending, for `categorizePending`.
  */
-export function updateItem(itemId: string, edit: ItemEdit, userId: string | null = null): string[] {
+export function updateItem(itemId: string, edit: ItemEdit): string[] {
   const name = edit.name.trim().replace(/\s+/g, ' ');
   const ingredientName = normalizeIngredientName(name);
   if (!ingredientName) throw new Error('An item needs a name');
@@ -526,10 +527,10 @@ export function updateItem(itemId: string, edit: ItemEdit, userId: string | null
     const pendingNames =
       ingredientName !== item.ingredientName && ensureLocalIngredient(tx, ingredientName, name) ? [ingredientName] : [];
 
-    // Spec 4.3.2: a per-user override for the ingredient, on every list.
-    if (userId && edit.categoryId !== undefined) {
-      if (edit.categoryId === null) clearCategoryOverride(userId, ingredientName, tx);
-      else setCategoryOverride(userId, ingredientName, edit.categoryId, tx);
+    // Spec 4.3.2: the household's override for the ingredient, on every list.
+    if (edit.categoryId !== undefined) {
+      if (edit.categoryId === null) clearCategoryOverride(item.householdId, ingredientName, tx);
+      else setCategoryOverride(item.householdId, ingredientName, edit.categoryId, tx);
     }
 
     const contributions = tx
@@ -610,8 +611,8 @@ export function stepItemAmount(itemId: string, direction: 1 | -1, usualUnit: Uni
 
 // --- Reads ---------------------------------------------------------------------------------
 
-/** One row per (item, contribution), with this user's category; group with `groupItems`. */
-export function listItemsQuery(listId: string, userId: string | null) {
+/** One row per (item, contribution), with the household's category; group with `groupItems`. */
+export function listItemsQuery(listId: string) {
   return db
     .select({
       id: listItems.id,
@@ -623,7 +624,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
       defaultCategoryId: ingredients.defaultCategoryId,
       ingredientStatus: ingredients.status,
       defaultUnit: ingredients.defaultUnit,
-      overrideCategoryId: userCategoryOverrides.categoryId,
+      overrideCategoryId: householdCategoryOverrides.categoryId,
       quantity: listItemContributions.quantity,
       unit: listItemContributions.unit,
       contributionId: listItemContributions.id,
@@ -640,10 +641,10 @@ export function listItemsQuery(listId: string, userId: string | null) {
     .leftJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
     .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
     .leftJoin(
-      userCategoryOverrides,
+      householdCategoryOverrides,
       and(
-        eq(userCategoryOverrides.ingredientName, listItems.ingredientName),
-        eq(userCategoryOverrides.userId, userId ?? ''),
+        eq(householdCategoryOverrides.householdId, listItems.householdId),
+        eq(householdCategoryOverrides.ingredientName, listItems.ingredientName),
       ),
     )
     .where(and(eq(listItems.listId, listId), liveItem))
@@ -651,7 +652,7 @@ export function listItemsQuery(listId: string, userId: string | null) {
 }
 
 /** Tables `listItemsQuery` reads, for `useLiveQueryOn`. */
-export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, userCategoryOverrides, recipes];
+export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, householdCategoryOverrides, recipes];
 
 /**
  * The list household's unit history for the ingredients on the list; turn it into a map with
@@ -786,7 +787,7 @@ export function orderByAisle<I extends { id: string; categoryId: string; created
  */
 export function getItemEdit(
   itemId: string,
-): (ItemEdit & { ingredientName: string; usualUnit: Unit | null; hasUsualUnit: boolean }) | null {
+): (ItemEdit & { householdId: string; ingredientName: string; usualUnit: Unit | null; hasUsualUnit: boolean }) | null {
   return db.transaction((tx) => {
     const rows = listItemsQueryForItem(tx, itemId);
     if (rows.length === 0) return null;
@@ -799,6 +800,7 @@ export function getItemEdit(
       name: rows[0].displayName,
       amount: itemTotal(amounts, unit),
       note: rows[0].note ?? '',
+      householdId: rows[0].householdId,
       ingredientName: rows[0].ingredientName,
       usualUnit: unit,
       // usualUnit is null both for a plain count and when nothing is known; the unit menu marks only a count.
