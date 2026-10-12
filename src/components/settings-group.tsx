@@ -32,6 +32,8 @@ type RowProps = {
   detail?: string;
   /** What VoiceOver reads instead of the label, value and detail, e.g. to include a badge. */
   accessibilityLabel?: string;
+  /** What VoiceOver adds about what tapping the row does, e.g. that Leave household asks first. */
+  accessibilityHint?: string;
   /** Shown on the right in `inkSecondary`. */
   value?: string;
   /** A 32 pt tinted icon tile before the label. */
@@ -54,6 +56,7 @@ export function SettingsRow({
   label,
   detail,
   accessibilityLabel,
+  accessibilityHint,
   value,
   icon,
   trailing,
@@ -115,6 +118,7 @@ export function SettingsRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}
+      accessibilityHint={accessibilityHint}
       accessibilityState={choice ? { selected } : undefined}
       onPress={onPress}
       style={({ pressed }) => [rowStyle, { opacity: pressed ? opacity.pressed : 1 }]}>

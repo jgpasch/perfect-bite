@@ -18,6 +18,7 @@ import {
 } from '@/db';
 import { setCategoryOverride } from '@/features/categories/categories';
 import { listItemsQuery } from '@/features/lists/items';
+import { ensureStarterData } from '@/features/lists/lists';
 import { onQuery, queries, queriesFor, resetSupabase, type RecordedQuery } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxRows } from '@/test/outbox';
@@ -1122,6 +1123,69 @@ describe('lost memberships (4.7)', () => {
     await pullNow();
 
     expect(db.select().from(userSettings).get()).toMatchObject({ userId: 'u1', defaultListId: null });
+  });
+
+  describe('leaving your only household (the server makes a new one)', () => {
+    const NEW_H = 'household-new';
+    const NEW_L = 'groceries-new';
+
+    /** H1 pulled with a default list; then `leave_household` on the server: H1 gone, a new Personal with Groceries. */
+    async function leaveOnlyHousehold() {
+      seedPulledList();
+      put('user_settings', { user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(1) });
+      await pullNow();
+      expect(localHouseholds()).toEqual([H1]);
+      memberships = [NEW_H];
+      server.households = [remoteHousehold(NEW_H, ts(20), 'Personal')];
+      server.lists = [remoteList(NEW_L, ts(20), { household_id: NEW_H, name: 'Groceries' })];
+      server.user_settings = [{ user_id: 'u1', default_list_id: NEW_L, created_at: ts(0), updated_at: ts(20) }];
+    }
+
+    test('one pull swaps them: the device ends with exactly one household, the new one, and its default list', async () => {
+      await leaveOnlyHousehold();
+
+      await expect(pullNow()).resolves.toMatchObject({ households: [NEW_H], error: null });
+
+      expect(localHouseholds()).toEqual([NEW_H]);
+      expect(db.select({ id: lists.id, name: lists.name }).from(lists).all()).toEqual([{ id: NEW_L, name: 'Groceries' }]);
+      expect(db.select().from(userSettings).get()).toMatchObject({ userId: 'u1', defaultListId: NEW_L });
+      // The launch-time starter step then has nothing to do.
+      ensureStarterData('u1');
+      expect(localHouseholds()).toEqual([NEW_H]);
+      expect(outboxRows()).toEqual([]);
+    });
+
+    test("a pull that fails after the new household lands keeps the old one too, so there's never none", async () => {
+      await leaveOnlyHousehold();
+      failTable = 'recipes';
+
+      await expect(pullNow()).resolves.toMatchObject({ error: 'recipes: Network request failed' });
+
+      expect(localHouseholds()).toEqual([NEW_H, H1].sort());
+      // An offline launch now makes no second household.
+      ensureStarterData('u1');
+      expect(localHouseholds()).toEqual([NEW_H, H1].sort());
+      expect(outboxRows()).toEqual([]);
+
+      failTable = null;
+      await pullNow();
+      expect(localHouseholds()).toEqual([NEW_H]);
+    });
+
+    test('a pull that fails before the new household lands keeps the old one, so the device still has one', async () => {
+      await leaveOnlyHousehold();
+      failTable = 'households';
+
+      await pullNow();
+
+      expect(localHouseholds()).toEqual([H1]);
+      ensureStarterData('u1');
+      expect(localHouseholds()).toEqual([H1]);
+
+      failTable = null;
+      await pullNow();
+      expect(localHouseholds()).toEqual([NEW_H]);
+    });
   });
 });
 

@@ -5,6 +5,7 @@ import { ActionSheetIOS, ActivityIndicator, Alert, StyleSheet, View } from 'reac
 import { avatarColors, householdBandColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
+import { Card } from '@/components/card';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -15,10 +16,18 @@ import {
   avatarInitial,
   fetchHouseholdMembers,
   HOUSEHOLD_COUNT_TABLES,
+  householdActionAlert,
   householdCountsLabel,
   householdsWithCountsQuery,
+  LEAVE_HINT,
+  leaveConfirmation,
+  leaveHousehold,
+  MEMBER_ACTIONS_HINT,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
+  removeMember,
+  removeMemberConfirmation,
+  removeMemberSheet,
   roleLabel,
   type HouseholdMember,
 } from '@/features/households/households';
@@ -42,8 +51,12 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`). Under
  * Members, the Invited section (design S4) lists the household's open invites, loaded with the
  * members; it's hidden when there are none or they can't be fetched (offline). Tapping one offers
- * Send again (email invites) and Cancel invite.
- * TODO(M7): rename, leave, delete and per-member actions.
+ * Send again (email invites) and Cancel invite. Owners tap another member's row to remove them;
+ * everyone can Leave household (the bottom row), after a confirm worded for their case. Leaving
+ * pulls, which drops the household from this device (and brings down the new personal household,
+ * if the server made one), then goes back to Settings. The list screen is a root-stack screen above
+ * the tabs, so no list of this household can be open under this one.
+ * TODO(M7): rename, make owner and delete household.
  */
 export default function HouseholdScreen() {
   const { colors, aisles, spacing } = useTheme();
@@ -57,6 +70,8 @@ export default function HouseholdScreen() {
   const [state, setState] = useState<MembersState>({ status: 'loading' });
   const [invites, setInvites] = useState<HouseholdInvite[]>([]);
   const [busyInvite, setBusyInvite] = useState<string | null>(null);
+  const [busyMember, setBusyMember] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
   const request = useRef(0);
 
   const load = useCallback(() => {
@@ -138,6 +153,68 @@ export default function HouseholdScreen() {
     );
   };
 
+  const members = state.status === 'ready' ? state.members : [];
+  const isOwner = members.some((m) => m.isYou && m.role === 'owner');
+  const householdName = household?.name ?? '';
+
+  const remove = async (member: HouseholdMember) => {
+    setBusyMember(member.userId);
+    try {
+      await removeMember(id, member.userId);
+      load();
+    } catch (err) {
+      console.warn(`[households] couldn't remove ${member.userId} from ${id}`, err);
+      const alert = householdActionAlert('remove', err, { householdName, memberName: member.displayName });
+      Alert.alert(alert.title, alert.message);
+    } finally {
+      setBusyMember(null);
+    }
+  };
+
+  const memberMenu = (member: HouseholdMember) => {
+    if (busyMember || leaving) return;
+    const sheet = removeMemberSheet(householdName);
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: member.displayName, ...sheet },
+      (index) => {
+        if (index !== sheet.destructiveButtonIndex) return;
+        const confirm = removeMemberConfirmation(member.displayName, householdName);
+        Alert.alert(confirm.title, confirm.message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Remove', style: 'destructive', onPress: () => void remove(member) },
+        ]);
+      },
+    );
+  };
+
+  const leave = async () => {
+    setLeaving(true);
+    try {
+      await leaveHousehold(id);
+      router.back();
+    } catch (err) {
+      console.warn(`[households] couldn't leave ${id}`, err);
+      const alert = householdActionAlert('leave', err, { householdName });
+      Alert.alert(alert.title, alert.message);
+      setLeaving(false);
+    }
+  };
+
+  const confirmLeave = () => {
+    if (leaving || busyMember || !household) return;
+    const confirm = leaveConfirmation({
+      householdName,
+      members,
+      listCount: household.listCount,
+      recipeCount: household.recipeCount,
+      onlyHousehold: data.length === 1,
+    });
+    Alert.alert(confirm.title, confirm.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: confirm.confirmLabel, style: 'destructive', onPress: () => void leave() },
+    ]);
+  };
+
   useFocusEffect(
     useCallback(() => {
       load();
@@ -185,15 +262,28 @@ export default function HouseholdScreen() {
             <Button label="Retry" variant="plain" onPress={load} />
           </View>
         ) : (
-          state.members.map((m, i) => (
-            <SettingsRow
-              key={m.userId}
-              label={memberLabel(m)}
-              value={m.role === 'owner' ? undefined : roleLabel(m.role)}
-              trailing={m.role === 'owner' ? <Badge label={roleLabel(m.role)} tone="owner" /> : undefined}
-              last={i === state.members.length - 1}
-            />
-          ))
+          state.members.map((m, i) => {
+            const actionable = isOwner && !m.isYou;
+            return (
+              <SettingsRow
+                key={m.userId}
+                label={memberLabel(m)}
+                value={m.role === 'owner' ? undefined : roleLabel(m.role)}
+                accessibilityLabel={actionable ? `${memberLabel(m)}, ${roleLabel(m.role)}` : undefined}
+                accessibilityHint={actionable ? MEMBER_ACTIONS_HINT : undefined}
+                trailing={
+                  busyMember === m.userId ? (
+                    <ActivityIndicator color={colors.inkSecondary} />
+                  ) : m.role === 'owner' ? (
+                    <Badge label={roleLabel(m.role)} tone="owner" />
+                  ) : undefined
+                }
+                chevron={false}
+                last={i === state.members.length - 1}
+                onPress={actionable ? () => memberMenu(m) : undefined}
+              />
+            );
+          })
         )}
       </SettingsSection>
 
@@ -223,6 +313,22 @@ export default function HouseholdScreen() {
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={() => invite()} />
       </View>
+
+      {state.status === 'ready' && household ? (
+        <View style={{ paddingTop: spacing.lg }}>
+          <Card>
+            <SettingsRow
+              label="Leave household"
+              labelColor="danger"
+              accessibilityHint={LEAVE_HINT}
+              trailing={leaving ? <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Leaving" /> : undefined}
+              chevron={false}
+              last
+              onPress={confirmLeave}
+            />
+          </Card>
+        </View>
+      ) : null}
     </Screen>
   );
 }
