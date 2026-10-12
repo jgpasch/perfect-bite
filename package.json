@@ -7,6 +7,7 @@
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
     "@expo-google-fonts/figtree": "^0.4.1",
     "@expo/ui": "~57.0.22",
+    "@react-native-google-signin/google-signin": "^16.1.5",
     "@supabase/supabase-js": "^2.117.3",
     "drizzle-orm": "^0.45.3",
     "expo": "~57.0.27",

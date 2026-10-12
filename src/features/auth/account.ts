@@ -3,6 +3,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 
+import { getGoogleIdToken, signOutOfGoogle } from '@/lib/google-sign-in';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export type Account = { userId: string; email?: string };
@@ -61,9 +62,17 @@ export function startAccount() {
 
 // --- Sign-in ------------------------------------------------------------------------------
 
+/** Google sign-in (spec 4.8). Resolves without signing in if the user cancels the picker. */
+export async function signInWithGoogle(): Promise<void> {
+  const token = await getGoogleIdToken();
+  if (!token) return;
+  const { error } = await supabase.auth.signInWithIdToken({ provider: 'google', token });
+  if (error) throw error;
+}
+
 /**
  * Dev-only email sign-in with a 6-digit code (local Supabase delivers it to the mail viewer,
- * http://127.0.0.1:55324). Google sign-in replaces this in M9 (spec 4.8, Q13).
+ * http://127.0.0.1:55324). Shown only in dev builds, next to Google.
  */
 export async function sendEmailCode(email: string): Promise<void> {
   const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
@@ -96,4 +105,5 @@ export async function verifyEmailCode(email: string, token: string): Promise<voi
 export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+  await signOutOfGoogle().catch(() => {});
 }

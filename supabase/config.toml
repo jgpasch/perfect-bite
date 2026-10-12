@@ -329,6 +329,16 @@ max_frequency = "5s"
 # Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
+# Google sign-in (spec 4.8). The app gets an ID token from the native Google SDK and calls
+# signInWithIdToken, so no redirect is involved. client_id lists the web client (Google issues the
+# token for it) and the iOS client, comma-separated. Both values come from supabase/.env.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# The iOS SDK can't pass Supabase a nonce.
+skip_nonce_check = true
+
 [auth.external.apple]
 enabled = false
 client_id = ""

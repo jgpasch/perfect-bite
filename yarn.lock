@@ -3175,6 +3175,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@react-native-google-signin/google-signin@npm:^16.1.5":
+  version: 16.1.5
+  resolution: "@react-native-google-signin/google-signin@npm:16.1.5"
+  peerDependencies:
+    expo: ">=52.0.40"
+    react: "*"
+    react-native: "*"
+  peerDependenciesMeta:
+    expo:
+      optional: true
+  checksum: 10c0/59fc1cdcdca2ae911db3acdc0d8629252d12ea9585afa1eb3264bf82bbb9ca00ebfbdb68591281fc91f5d7de09b5e3acdc05418230f0e3c2aa4ff65a6e605417
+  languageName: node
+  linkType: hard
+
 "@react-native-masked-view/masked-view@npm:^0.3.2":
   version: 0.3.2
   resolution: "@react-native-masked-view/masked-view@npm:0.3.2"
@@ -10161,6 +10175,7 @@ __metadata:
     "@expo-google-fonts/bricolage-grotesque": "npm:^0.4.1"
     "@expo-google-fonts/figtree": "npm:^0.4.1"
     "@expo/ui": "npm:~57.0.22"
+    "@react-native-google-signin/google-signin": "npm:^16.1.5"
     "@react-native/jest-preset": "npm:0.86.3"
     "@supabase/supabase-js": "npm:^2.117.3"
     "@types/better-sqlite3": "npm:^9.6.0"

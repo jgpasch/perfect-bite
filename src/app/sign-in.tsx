@@ -11,18 +11,20 @@ import {
   devPasswordSignIn,
   isDevPasswordEmail,
   sendEmailCode,
+  signInWithGoogle,
   useAccountState,
   verifyEmailCode,
 } from '@/features/auth/account';
 import { signInOverflows, signInShapeHeight } from '@/features/auth/sign-in-layout';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
+import { isGoogleConfigured } from '@/lib/google-sign-in';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
- * Sign-in (board 09): the app's name at the top, the dev sign-in (email + 6-digit code) at the
- * bottom, and a grid of coloured shapes filling the space between, on the primary green. Local
- * Supabase delivers the code to Inbucket (http://127.0.0.1:55324). Google sign-in replaces this in
- * M9 (spec 4.8).
+ * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and a grid of
+ * coloured shapes filling the space between, on the primary green (spec 4.8). Dev builds also get
+ * the email + 6-digit code stub; local Supabase delivers the code to Inbucket
+ * (http://127.0.0.1:55324).
  */
 export default function SignInScreen() {
   const account = useAccountState();
@@ -66,6 +68,7 @@ export default function SignInScreen() {
       setStep('code');
     });
   const onVerify = () => run(() => verifyEmailCode(email.trim(), code.trim()));
+  const onGoogle = () => run(signInWithGoogle);
 
   return (
     // The screen is exactly the device's height. The safe-area insets are padding inside it, not the
@@ -110,7 +113,11 @@ export default function SignInScreen() {
 
         {account.status === 'unconfigured' ? null : (
           <View style={{ gap: spacing.md }}>
-            {step === 'email' ? (
+            {step === 'email' && isGoogleConfigured ? (
+              <SurfaceButton label={busy ? 'Signing in…' : 'Continue with Google'} onPress={onGoogle} disabled={busy} />
+            ) : null}
+
+            {!__DEV__ ? null : step === 'email' ? (
               <TextField
                 value={email}
                 onChangeText={setEmail}
@@ -123,7 +130,6 @@ export default function SignInScreen() {
                 textContentType="emailAddress"
                 returnKeyType="send"
                 onSubmitEditing={onSendCode}
-                autoFocus
               />
             ) : (
               <TextField
@@ -147,7 +153,7 @@ export default function SignInScreen() {
               </ThemedText>
             ) : null}
 
-            {step === 'email' ? (
+            {!__DEV__ ? null : step === 'email' ? (
               <SurfaceButton
                 label={busy ? 'Sending…' : 'Send code'}
                 icon="envelope"

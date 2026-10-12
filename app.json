@@ -69,19 +69,43 @@
               {
                 "fontFamily": "Bricolage Grotesque",
                 "fontDefinitions": [
-                  { "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/500Medium/BricolageGrotesque_500Medium.ttf", "weight": 500 },
-                  { "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/600SemiBold/BricolageGrotesque_600SemiBold.ttf", "weight": 600 },
-                  { "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/700Bold/BricolageGrotesque_700Bold.ttf", "weight": 700 },
-                  { "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/800ExtraBold/BricolageGrotesque_800ExtraBold.ttf", "weight": 800 }
+                  {
+                    "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/500Medium/BricolageGrotesque_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/600SemiBold/BricolageGrotesque_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/700Bold/BricolageGrotesque_700Bold.ttf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/bricolage-grotesque/800ExtraBold/BricolageGrotesque_800ExtraBold.ttf",
+                    "weight": 800
+                  }
                 ]
               },
               {
                 "fontFamily": "Figtree",
                 "fontDefinitions": [
-                  { "path": "./node_modules/@expo-google-fonts/figtree/400Regular/Figtree_400Regular.ttf", "weight": 400 },
-                  { "path": "./node_modules/@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf", "weight": 500 },
-                  { "path": "./node_modules/@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf", "weight": 600 },
-                  { "path": "./node_modules/@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf", "weight": 700 }
+                  {
+                    "path": "./node_modules/@expo-google-fonts/figtree/400Regular/Figtree_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf",
+                    "weight": 700
+                  }
                 ]
               }
             ]
@@ -90,7 +114,11 @@
       ],
       "expo-sqlite",
       "@bacons/apple-targets",
-      "./plugins/with-scene-lifecycle"
+      "./plugins/with-scene-lifecycle",
+      [
+        "@react-native-google-signin/google-signin",
+        { "iosUrlScheme": "com.googleusercontent.apps.1033128621834-7vi2id9283ncn7tfot9htr8t7igcanss" }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

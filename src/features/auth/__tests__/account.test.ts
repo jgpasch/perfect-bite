@@ -4,6 +4,8 @@ import type * as AccountModule from '../account';
 import type * as FakeSupabase from '@/test/fake-supabase';
 
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+// The native Google SDK isn't available under Jest.
+jest.mock('@/lib/google-sign-in', () => ({ getGoogleIdToken: jest.fn(), signOutOfGoogle: jest.fn(async () => {}) }));
 
 let mod: typeof AccountModule;
 let fake: typeof FakeSupabase;

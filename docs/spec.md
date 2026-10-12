@@ -295,13 +295,15 @@ Postgres (Supabase). Row ids are UUIDv7 generated on the client so rows can be c
 **Ingredient key**: ingredients are identified by `normalized_name` (text primary key). The client can always compute it, offline included, so list items reference an ingredient without waiting for the server. No provisional ids, no rewriting.
 
 ```sql
--- Global, shared across all users
+-- System categories (global, shared across all users) and households' custom ones
 create table categories (
   id            uuid primary key,
   slug          text unique,          -- e.g. 'produce'; null for custom
   name          text not null,
-  owner_user_id uuid references auth.users, -- null = system category
-  default_rank  int                    -- default store-walk order for system categories
+  household_id  uuid references households on delete cascade, -- null = system category
+  default_rank  int,                   -- default store-walk order for system categories
+  field_clock   jsonb not null default '{}',  -- custom ones sync as household data (7.3)
+  check ((slug is not null and household_id is null) or (slug is null and household_id is not null))
 );
 
 create table ingredients (
@@ -451,14 +453,18 @@ create table ingredient_unit_usage (
   primary key (household_id, ingredient_name, unit_key)
 );
 
--- Per-user preferences (req 6, 9). Never shared with the household.
-create table user_category_overrides (
-  user_id         uuid references auth.users on delete cascade,
-  ingredient_name text references ingredients,
-  category_id     uuid references categories,
-  primary key (user_id, ingredient_name)
+-- A household's aisle for an ingredient (req 6, 4.3.2). Household data: every member sees it.
+-- category_id is the only field written (LWW through apply_mutations); null means "the default",
+-- which is how Reset to default is written, so a later change can still win.
+create table household_category_overrides (
+  household_id    uuid not null references households on delete cascade,
+  ingredient_name text not null references ingredients,
+  category_id     uuid references categories on delete cascade, -- a system category or one of this household's
+  field_clock     jsonb not null default '{}',
+  primary key (household_id, ingredient_name)
 );
 
+-- Per-user aisle order (req 9). Never shared with the household.
 create table user_category_order (
   user_id     uuid references auth.users on delete cascade,
   category_id uuid references categories,
@@ -486,12 +492,13 @@ Note the `create table` order above is for readability; the real migration must 
 
 **Ingredient history and Siri**: `ingredient_usage` and `ingredient_unit_usage` are written by the app in the same local transaction as the add. Siri adds go through the `siri-add` Edge Function (4.9), so they aren't counted until M5 sync, when the server records the use and it syncs down like any other household row.
 
-**Effective category** for a user and ingredient = `user_category_overrides.category_id` if present, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed).
+**Effective category** for an ingredient in a household (the household of the list or recipe it's on) = that household's `household_category_overrides.category_id` if the row exists and it isn't null, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed). Someone in two households has a separate set of overrides and custom aisles in each.
 
 **Row-level security**
-- `ingredients`, system `categories`: readable by any authenticated user; writable only by the service role and the insert trigger above.
+- `ingredients`, system `categories` (`household_id is null`): readable by any authenticated user; writable only by the service role and the insert trigger above.
 - `ingredient_households`: no client access.
-- Custom `categories`, `user_category_overrides`, `user_category_order`, `user_settings`: read/write only where `user_id`/`owner_user_id = auth.uid()`.
+- Custom `categories` and `household_category_overrides`: household data, readable by members of their household only (`household_id in (select my_household_ids())`); written through `apply_mutations` (custom categories: insert with `household_id`, `name` and `created_at`, then `name`; overrides: `category_id` only, which must be a system category or a custom one of the same household).
+- `user_category_order`, `user_settings`: read/write only where `user_id = auth.uid()`.
 - Household tables: read/write where `household_id` is one of the caller's households: `household_id in (select my_household_ids())`, where `my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
 - `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
 - `household_invites`: no direct access; `create_invite`, `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired) and `accept_invite` only.
@@ -814,7 +821,7 @@ Turn on react-native-web for planning on a laptop (lists, recipes, households). 
 | Q1 | ~~(req 7.1) Who controls shared data?~~ | **Decided**: the household owns it. All members edit equally; owners (one or more) manage membership and can delete the household (4.7). |
 | Q2 | ~~(req 7.1) When someone leaves, do they keep a copy?~~ | **Decided**: no; data stays with the household. Leaving your only household gives you a new empty personal one. |
 | Q3 | ~~(req 7.1) What happens to a joiner's existing data?~~ | **Decided**: nothing; it stays in their own household(s). Joining only adds access. |
-| Q4 | Should many users recategorizing the same ingredient eventually change the global default? | No, overrides are private in v1. Overrides are stored so this could be added later (e.g. if 70% of 20+ users agree). |
+| Q4 | Should many users recategorizing the same ingredient eventually change the global default? | No, not in v1. Overrides are per household (shared by its members, not by the rest of the app) and are stored so this could be added later (e.g. if 70% of 20+ households agree). |
 | Q5 | Should category order be per user (all devices) or per device (e.g. different stores)? | Per user, synced. Per-store orders are a natural later feature. |
 | Q6 | ~~Can a user belong to more than one household?~~ | **Decided**: yes, any number (4.7). |
 | Q7 | Should custom categories be shareable with the household? | No, per user. |

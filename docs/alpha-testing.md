@@ -33,8 +33,8 @@ Work the app itself still needs. Sections 1–7 are setup steps; this is the bui
 
 ## 1. Apple Developer Program
 
-- [ ] Enroll at developer.apple.com ($99/yr). Individuals are often approved the same day, but it can take a day or two.
-- [ ] Check that `ios.appleTeamId` in `app.json` (`4537GH756L`) is the paid team's ID, not a free Personal Team. Fix it if not.
+- [x] Enroll at developer.apple.com ($99/yr). Individuals are often approved the same day, but it can take a day or two.
+- [x] Check that `ios.appleTeamId` in `app.json` (`4537GH756L`) is the paid team's ID, not a free Personal Team. Fix it if not.
 - [ ] Start sections 2 and 3 while enrollment is pending. They don't depend on Apple.
 
 ## 2. Hosted Supabase
