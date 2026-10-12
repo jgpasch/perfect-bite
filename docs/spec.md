@@ -312,6 +312,14 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 - Then it deletes the `auth.users` row, which cascades their memberships, profile, aisle order and settings. Rows they made in households that remain (items added or checked, contributions, invites) stay, with `added_by`, `checked_by`, `created_by` and `used_by` set to null.
 - Its audit row has `action` `delete_user`, the user's id, the note, and `details`: the email, the display name and, per household, its id, name and outcome (with `promoted_user_id` for `promoted`). It returns the same `details`.
 
+**Plans and features.** A feature is a text key; a plan is a named set of features (`plans`, `plan_features`, `user_plans`, 5).
+- v1 features: `categorize` (the LLM categorizes new ingredient names, 6.1), `recipe_import` (4.10; it categorizes in the same request, so a plan with it also has `categorize`, and the pgTAP suite checks every plan for that) and `recipe_import_photo` (future photo import; nothing checks it yet).
+- Seeded plans: **base** (no features), **standard** (`categorize`; the default) and **plus** (`categorize`, `recipe_import`, `recipe_import_photo`). At most one plan is the default (a partial unique index); if none is, a user with no assignment has no features. New plans are made by hand in SQL; there's no `create_plan`.
+- **Per user.** A user's plan is their `user_plans` row, else the default plan. Members of one household can be on different plans, and each gets their own.
+- Changing a plan has no rules beyond the table's constraints, so there's no admin function: add, edit or delete the user's `user_plans` row in the Table Editor (the foreign key only allows real plans; no row means the default; a `before update` trigger sets `assigned_at`). The plans migration puts the owner's account (jgpasch@gmail.com) on plus, so it keeps recipe import on hosted.
+- **Resolution.** `has_feature(user, feature, household)` (for Edge Functions, `service_role` only) and `my_features(household)` (for the app, the caller's features, sorted) are the only places a plan is resolved. Both take the household the action is in, when it's known, and ignore it today. To make plans per household later (so one paying member can't share their plan by inviting anyone), change only that resolution, e.g. to a household's plan or the best plan among its members.
+- Edge Functions enforce entitlements; the app only hides or skips what isn't enabled.
+
 ---
 
 ## 5. Data model
@@ -529,6 +537,25 @@ create table admin.admin_actions (
   performed_by        text not null default session_user,    -- always 'postgres' from the dashboard
   created_at          timestamptz not null default now()
 );
+
+-- Plans (4.12). A user's plan is their user_plans row, else the default plan.
+create table plans (
+  id         text primary key,                 -- 'base', 'standard', 'plus'
+  name       text not null,
+  is_default boolean not null default false     -- at most one (partial unique index)
+);
+
+create table plan_features (
+  plan_id text references plans on delete cascade,
+  feature text not null check (feature in ('categorize', 'recipe_import', 'recipe_import_photo')),
+  primary key (plan_id, feature)
+);
+
+create table user_plans (
+  user_id     uuid primary key references auth.users on delete cascade,
+  plan_id     text not null references plans,
+  assigned_at timestamptz not null default now()  -- reset by a before update trigger
+);
 ```
 
 Note the `create table` order above is for readability; the real migration must create referenced tables first.
@@ -549,6 +576,7 @@ Note the `create table` order above is for readability; the real migration must 
 - `household_invites`: no direct access; `security definer` functions only, all for `authenticated`: `create_invite(household, email?)` (members; with an email, raises `already a member` for a member's email and revokes the open invite to the same email first), `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired; revoked and declined read as used), `accept_invite` (by link, whoever has it), `list_household_invites` (members; open, unexpired invites), `revoke_invite` (any member of the invite's household), `my_invites` (open, unexpired invites to the caller's `auth.email()`, case-insensitive, for households they aren't in), and `accept_invite_by_id` / `decline_invite` (only for an invite to the caller's email; anyone else gets `invite not found`, the same as an unknown id).
 - `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
 - The `admin` schema (`admin_actions`, `delete_user`, 4.12): `postgres` (the dashboard) only. Not exposed by the API; usage on the schema, every privilege on `admin_actions` and execute on its functions are revoked from `public`, `anon`, `authenticated` and `service_role` (each function revokes its own execute: a per-schema default privilege can't take away Postgres's global PUBLIC execute). The leaving rules, `private.remove_member_from_household(household_id, user_id)`, return `left`, `promoted` or `deleted` and are callable only by `postgres` and the `security definer` functions that use them.
+- `plans`, `plan_features`, `user_plans` (4.12): no client access (RLS on, no policies, privileges revoked from `anon` and `authenticated`); edited from the dashboard. `has_feature(user_id, feature, household_id default null)` is `stable security definer` in `public` so Edge Functions can call it with the service role (like `check_categorize_limit`); execute is revoked from `public`, `anon` and `authenticated`. `my_features(household_id default null)` returns the caller's features, sorted, for `authenticated`; it's `security definer` with `search_path = ''`, since run as the caller it couldn't read the plan tables.
 - Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
 
 ---
