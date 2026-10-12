@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { AISLE_HUES, aisleColor, listColorName, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
+import { AISLE_HUES, aisleColor, householdColor, listColorName, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@/shared/seed/categories';
 
 describe('aisleColor', () => {
@@ -134,5 +134,15 @@ describe('shortAisleName', () => {
   it("doesn't split inside a word", () => {
     expect(shortAisleName('Candy')).toBe('Candy');
     expect(shortAisleName('Sandwiches')).toBe('Sandwiches');
+  });
+});
+
+describe('householdColor', () => {
+  it('is a stable hash of the id over the four aisle hues, never grey', () => {
+    expect(householdColor('a')).toBe('blue');
+    expect(householdColor('d')).toBe('green');
+    const id = '0190a6f2-7c1e-7b3a-9d4e-1f2a3b4c5d6e';
+    expect(householdColor(id)).toBe(householdColor(id));
+    for (const id of ['h1', 'h2', 'h3', 'h4', 'h5']) expect(['green', 'blue', 'rose', 'amber']).toContain(householdColor(id));
   });
 });

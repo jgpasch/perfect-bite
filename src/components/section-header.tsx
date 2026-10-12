@@ -14,6 +14,11 @@ type Props = {
   title: string;
   /** The aisle's `dot` colour, from `aisles[aisleColor(slug)].dot`. */
   dotColor?: string;
+  /**
+   * Colours the whole header as a band in place of the dot: an aisle card whose rows aren't tinted
+   * (`aisleHeaderBand`). The name, count and chevron take its `text`.
+   */
+  band?: { ground: string; text: string };
   /** Shown in place of the dot, e.g. a recipe's icon well. */
   leading?: ReactNode;
   /** The count on the right. */
@@ -33,6 +38,7 @@ type Props = {
 export function SectionHeader({
   title,
   dotColor,
+  band,
   leading,
   count,
   hideCount = false,
@@ -43,18 +49,19 @@ export function SectionHeader({
 }: Props) {
   const { spacing, sizes, rounded, opacity } = useTheme();
   const label = sectionHeaderLabel(accessibilityLabel ?? title, count);
-  const { paddingTop, paddingBottom } = headerPadding(spacing);
+  const { paddingTop, paddingBottom } = headerPadding(spacing, !!band);
+  const bandText = band ? { color: band.text } : undefined;
   const content = (
     <>
       {leading ??
-        (dotColor ? (
+        (dotColor && !band ? (
           <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
         ) : null)}
       <ThemedText
         variant="sectionTitle"
         accessibilityRole={onToggle ? undefined : 'header'}
         accessibilityLabel={onToggle ? undefined : label}
-        style={styles.title}>
+        style={[styles.title, bandText]}>
         {title}
       </ThemedText>
       {count !== undefined && !hideCount ? (
@@ -63,7 +70,7 @@ export function SectionHeader({
           color="inkSecondary"
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={styles.count}>
+          style={[styles.count, bandText]}>
           {count}
         </ThemedText>
       ) : null}
@@ -72,7 +79,11 @@ export function SectionHeader({
 
   if (!onToggle) {
     return (
-      <View style={[styles.row, { gap: spacing.sm, paddingTop, paddingBottom, paddingHorizontal: spacing.lg }]}>
+      <View
+        style={[
+          styles.row,
+          { gap: spacing.sm, paddingTop, paddingBottom, paddingHorizontal: spacing.lg, backgroundColor: band?.ground },
+        ]}>
         {content}
         {trailing}
       </View>
@@ -80,7 +91,7 @@ export function SectionHeader({
   }
 
   return (
-    <View style={[styles.row, { gap: spacing.sm, paddingRight: trailing ? spacing.lg : 0 }]}>
+    <View style={[styles.row, { gap: spacing.sm, paddingRight: trailing ? spacing.lg : 0, backgroundColor: band?.ground }]}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: !collapsed }}
@@ -100,7 +111,7 @@ export function SectionHeader({
           },
         ]}>
         {content}
-        <Chevron collapsed={collapsed} size={sizes.iconSmall} />
+        <Chevron collapsed={collapsed} size={sizes.iconSmall} tint={band?.text} />
       </Pressable>
       {trailing}
     </View>
@@ -116,7 +127,7 @@ type FoldingSectionProps = Omit<Props, 'onToggle' | 'collapsed'> & {
 /** A card's foldable section (spec 4.6): its header, then its rows, which spring open and folded. */
 export function FoldingSection({ collapsed, children, ...header }: FoldingSectionProps) {
   const { spacing } = useTheme();
-  const { paddingTop, paddingBottom } = headerPadding(spacing);
+  const { paddingTop, paddingBottom } = headerPadding(spacing, !!header.band);
   return (
     <>
       <SectionHeader {...header} collapsed={collapsed} />
@@ -128,12 +139,14 @@ export function FoldingSection({ collapsed, children, ...header }: FoldingSectio
   );
 }
 
-function headerPadding(spacing: typeof Spacing) {
+/** A band is padded evenly, so it is the whole card when folded; a plain header sits closer to its rows. */
+function headerPadding(spacing: typeof Spacing, band = false) {
+  if (band) return { paddingTop: spacing.md, paddingBottom: spacing.md };
   return { paddingTop: spacing.md + spacing.xxs, paddingBottom: spacing.xs + spacing.xxs };
 }
 
 /** Points down while open and turns to point right as the section folds. */
-function Chevron({ collapsed, size }: { collapsed: boolean; size: number }) {
+function Chevron({ collapsed, size, tint }: { collapsed: boolean; size: number; tint?: string }) {
   const { reduceMotion } = useMotion();
   const turn = useSharedValue(collapsed ? 1 : 0);
   useEffect(() => {
@@ -142,7 +155,7 @@ function Chevron({ collapsed, size }: { collapsed: boolean; size: number }) {
   const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 * turn.value}deg` }] }));
   return (
     <Animated.View style={style}>
-      <Icon name="chevron.down" color="inkSecondary" size={size} />
+      <Icon name="chevron.down" color="inkSecondary" tint={tint} size={size} />
     </Animated.View>
   );
 }

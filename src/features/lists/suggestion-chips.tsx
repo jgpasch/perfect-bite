@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -19,21 +19,26 @@ type Props = {
 };
 
 /**
- * One scrolling row of 40 pt chips docked above a list's add bar (spec 4.2): autocomplete while typing, nothing
- * while the field is empty. Taps keep the keyboard up so several can be added in a row. Render nothing
- * when there are no chips, so the list gets the space.
+ * The keyboard's top row on a list (spec 4.2), in place of iOS's QuickType bar: one scrolling row of 32 pt chips,
+ * autocomplete while typing. Taps keep the keyboard up so several can be added in a row. The row keeps its height
+ * when there are no chips, so the add field never jumps while typing.
  */
 export function SuggestionChips({ chips, typed, onPressItem, onPressRecipe, onRemove }: Props) {
-  const { spacing } = useTheme();
+  const { colors, spacing, sizes } = useTheme();
   return (
-    <ScrollView
-      horizontal
-      keyboardShouldPersistTaps="always"
-      showsHorizontalScrollIndicator={false}
-      accessibilityLabel="Suggestions"
-      // Edge to edge under the add bar's side padding, so chips scroll off the screen's edge.
-      style={{ marginHorizontal: -spacing.lg, marginBottom: spacing.sm }}
-      contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
+    <View
+      style={{
+        height: sizes.keyboardRow,
+        backgroundColor: colors.keyboard,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.controlBorder,
+      }}>
+      <ScrollView
+        horizontal
+        keyboardShouldPersistTaps="always"
+        showsHorizontalScrollIndicator={false}
+        accessibilityLabel="Suggestions"
+        contentContainerStyle={{ paddingHorizontal: spacing.sm, gap: spacing.sm, alignItems: 'center' }}>
       {chips.map((chip) =>
         chip.kind === 'recipe' ? (
           <Chip
@@ -56,7 +61,8 @@ export function SuggestionChips({ chips, typed, onPressItem, onPressRecipe, onRe
           />
         ),
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -87,17 +93,17 @@ function Chip({
       accessibilityHint={accessibilityHint}
       onPress={onPress}
       onLongPress={onLongPress}
-      hitSlop={(sizes.minTapTarget - sizes.pill) / 2}
+      hitSlop={{ top: (sizes.keyboardRow - sizes.keyboardChip) / 2, bottom: (sizes.keyboardRow - sizes.keyboardChip) / 2 }}
       style={({ pressed }) => [
         styles.chip,
         {
-          minHeight: sizes.pill,
+          height: sizes.keyboardChip,
           paddingHorizontal: spacing.md + spacing.xxs - sizes.chipBorder,
           gap: spacing.xs + spacing.xxs,
           borderRadius: rounded.full,
-          backgroundColor: colors.surface,
+          backgroundColor: colors.keyboardChip,
           borderWidth: sizes.chipBorder,
-          borderColor: recipe ? colors.primary : colors.surface,
+          borderColor: recipe ? colors.primary : colors.keyboardChip,
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>

@@ -56,8 +56,12 @@ export const Palette = {
     /** The list screen's forest-green header, behind the status bar. */
     header: '#1F4D33',
     onHeader: '#FFFFFF',
-    /** "7 to get · Newest" on the header. */
+    /** "7 to get · As added" on the header. */
     onHeaderSecondary: '#B7D2BF',
+    /** The suggestion row on top of the keyboard, matching the system keyboard's ground. */
+    keyboard: '#D3D6DC',
+    /** A suggestion chip on the keyboard row. */
+    keyboardChip: '#FFFFFF',
   },
   dark: {
     background: '#111915',
@@ -82,6 +86,8 @@ export const Palette = {
     header: '#163A26',
     onHeader: '#FFFFFF',
     onHeaderSecondary: '#A9C8B3',
+    keyboard: '#252928',
+    keyboardChip: '#363B39',
   },
 } as const;
 
@@ -130,6 +136,8 @@ export const Typography = {
   title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
   /** The item-to-get count on a list tile. */
   tileCount: { fontFamily: Fonts.display, fontSize: 34, fontWeight: '800', lineHeight: 36, letterSpacing: tight(34) },
+  /** A household's name over its tiles on the Lists home, when there is more than one. */
+  householdName: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '700', lineHeight: 24 },
   /** The letter in a round avatar (account card, household members). */
   initial: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   /** Card section headers: aisle or recipe name. */
@@ -204,6 +212,8 @@ export const Sizes = {
   /** segmented control: segment height and the track's inset */
   segment: 34,
   segmentInset: 3,
+  /** the list screen's view button pill (its hit area is still 44) */
+  viewButton: 32,
   /** primary CTA */
   cta: 54,
   /** soft destructive button */
@@ -216,8 +226,16 @@ export const Sizes = {
   focusRing: 2,
   /** a recipe chip's outline in the add bar's suggestion row */
   chipBorder: 1,
+  /** the suggestion row on top of the keyboard, and its chips */
+  keyboardRow: 44,
+  keyboardChip: 32,
   /** list tiles on the lists home (a minimum, so Dynamic Type can grow them) */
   tile: 132,
+  /** the New list tile when it sits alone on its row */
+  tileCompact: 56,
+  /** the colour bar before a household's name on the Lists home */
+  householdBar: 22,
+  householdBarWidth: 4,
   /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */
   iconWell: 36,
   /** the item's icon tile beside its name at the top of the item sheet */

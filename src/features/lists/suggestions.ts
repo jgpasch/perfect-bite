@@ -13,20 +13,18 @@ const HISTORY_ONLY_MIN = 2;
 /**
  * Add-bar autocomplete (spec 4.2): household history wins. With 2 or more history matches only history is shown;
  * with fewer, the catalog fills the remaining slots. Matches the name part of the text, so `2 lbs chi` suggests
- * chicken thighs. A history match identical to the typed name is still shown, so a recently used item stays first;
- * a catalog suggestion identical to it is skipped.
+ * chicken thighs. A match identical to the typed name is still shown, so typing a whole name (`dill`) keeps it first.
  * TODO(M6): limit catalog suggestions per spec 6.5 once server rows are cached.
  */
 export function getSuggestions(householdId: string, text: string, limit = 5): Suggestion[] {
   const { name } = parseQuantity(text);
-  const typed = name.trim().toLowerCase();
-  if (typed.length < 2) return [];
+  if (name.trim().length < 2) return [];
   const seen = new Set<string>();
   const out: Suggestion[] = [];
   const push = (rows: { key: string; displayName: string }[], source: Suggestion['source']) => {
     for (const r of rows) {
       if (out.length === limit) return;
-      if (seen.has(r.key) || (source === 'catalog' && r.displayName.toLowerCase() === typed)) continue;
+      if (seen.has(r.key)) continue;
       seen.add(r.key);
       out.push({ key: r.key, displayName: r.displayName, source });
     }
@@ -80,9 +78,9 @@ export type SuggestionChip =
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
 /**
- * The chip row above a list's add bar (spec 4.2), only while the field has text: matching recipes, then autocomplete
- * (household history, then the catalog), each adding the typed amount with its name. Empty when the field is empty or
- * there's nothing to offer, so the row collapses.
+ * The chips on top of the keyboard for a list's add bar (spec 4.2), only while the field has text: matching recipes,
+ * then autocomplete (household history, then the catalog), each adding the typed amount with its name. Empty when the
+ * field is empty or there's nothing to offer, leaving the row blank.
  */
 export function suggestionChips(
   text: string,

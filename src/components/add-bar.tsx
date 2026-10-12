@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useId, useState, type ReactNode } from 'react';
+import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { addBarButton } from '@/components/appearance';
@@ -19,6 +19,12 @@ type Props = {
   accessibilityLabel: string;
   /** Shown above the input, e.g. autocomplete suggestions. */
   accessory?: ReactNode;
+  /**
+   * The keyboard's top row while the input is focused (an `InputAccessoryView` on iOS), e.g. suggestion chips. It
+   * takes the place of iOS's QuickType bar, so autocorrect and spell check are off on this input. Elsewhere it's
+   * shown above the input like `accessory`.
+   */
+  keyboardRow?: ReactNode;
   /** Called when the input gains or loses focus. */
   onFocusChange?: (focused: boolean) => void;
 };
@@ -34,6 +40,7 @@ export function AddBar({
   placeholder,
   accessibilityLabel,
   accessory,
+  keyboardRow,
   onFocusChange,
 }: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, typography, opacity } = useTheme();
@@ -43,6 +50,8 @@ export function AddBar({
   const button = addBarButton(value);
   const empty = button.disabled;
   const inset = (sizes.bar - sizes.barButton) / 2;
+  const keyboardRowId = useId();
+  const onKeyboard = keyboardRow !== undefined && Platform.OS === 'ios';
 
   return (
     <View
@@ -53,6 +62,13 @@ export function AddBar({
         backgroundColor: colors.background,
       }}>
       {accessory}
+      {onKeyboard ? (
+        <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
+          {keyboardRow}
+        </InputAccessoryView>
+      ) : (
+        keyboardRow
+      )}
       <View
         style={[
           styles.field,
@@ -78,6 +94,10 @@ export function AddBar({
           returnKeyType="done"
           // Names are stored as typed and shown in sentence case (spec 4.2), so don't capitalize.
           autoCapitalize="none"
+          inputAccessoryViewID={onKeyboard ? keyboardRowId : undefined}
+          autoCorrect={keyboardRow === undefined}
+          spellCheck={keyboardRow === undefined}
+          autoComplete={keyboardRow === undefined ? undefined : 'off'}
           placeholder={placeholder}
           placeholderTextColor={colors.inkSecondary}
           selectionColor={colors.primary}

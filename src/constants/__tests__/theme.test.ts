@@ -28,9 +28,12 @@ const TEXT_PAIRS: [ColorToken, ColorToken][] = [
   ['pending', 'pendingSoft'],
   ['ink', 'pendingSoft'],
   ['onToast', 'toast'],
-  // The list screen's green header: its title and the "7 to get · Newest" line.
+  // The list screen's green header: its title and the "7 to get · As added" line.
   ['onHeader', 'header'],
   ['onHeaderSecondary', 'header'],
+  // Suggestion chips on the keyboard row: the label and its typed part.
+  ['ink', 'keyboardChip'],
+  ['primary', 'keyboardChip'],
 ];
 
 describe('Palette', () => {
@@ -58,6 +61,8 @@ describe('Palette', () => {
       header: '#1F4D33',
       onHeader: '#FFFFFF',
       onHeaderSecondary: '#B7D2BF',
+      keyboard: '#D3D6DC',
+      keyboardChip: '#FFFFFF',
     });
   });
 
@@ -140,7 +145,7 @@ describe('AisleColors', () => {
 
 describe('Typography', () => {
   it('uses the display face for titles and Figtree for the rest', () => {
-    const display = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title', 'tileCount', 'initial', 'sectionTitle'];
+    const display = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title', 'tileCount', 'householdName', 'initial', 'sectionTitle'];
     for (const [name, style] of Object.entries(Typography)) {
       expect(style.fontFamily).toBe(display.includes(name) ? 'Bricolage Grotesque' : 'Figtree');
     }
@@ -153,6 +158,7 @@ describe('Typography', () => {
     expect(Typography.title).toMatchObject({ fontSize: 28, fontWeight: '800', letterSpacing: -0.7 });
     expect(Typography.tileCount).toMatchObject({ fontSize: 34, fontWeight: '800', letterSpacing: -0.85 });
     expect(Typography.sectionTitle).toMatchObject({ fontSize: 17, fontWeight: '700' });
+    expect(Typography.householdName).toMatchObject({ fontSize: 20, fontWeight: '700' });
     expect(Typography.body).toMatchObject({ fontSize: 17, fontWeight: '500' });
     expect(Typography.amount).toMatchObject({ fontSize: 15, fontWeight: '600' });
     expect(Typography.sectionLabel).toMatchObject({ fontSize: 13, fontWeight: '700' });

@@ -1,6 +1,7 @@
 // What the Pantry lists home and list screen show (boards 01–03). Pure, so it can be tested
 // without rendering.
 
+import type { IconName } from '@/components/icon';
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
 import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
 
@@ -22,6 +23,45 @@ export function groupListsByHousehold<L extends { householdId: string; household
     groups.set(list.householdId, group);
   }
   return [...groups.values()];
+}
+
+/**
+ * What the Lists home shows. With one household there is no household UI: just its lists. With more,
+ * one section per household, always open, even when it has no lists yet (it still gets a New list
+ * tile). The primary household comes first, then the rest by name.
+ */
+export type ListsOverview<L> =
+  | { kind: 'single'; householdId: string | null; lists: L[] }
+  | { kind: 'multi'; sections: HouseholdGroup<L>[] };
+
+export function listsOverview<L extends { householdId: string }>(
+  householdRows: readonly { id: string; name: string }[],
+  lists: readonly L[],
+  primaryId: string | null,
+): ListsOverview<L> {
+  if (householdRows.length <= 1) return { kind: 'single', householdId: householdRows[0]?.id ?? null, lists: [...lists] };
+  const byName = (a: { id: string; name: string }, b: { id: string; name: string }) =>
+    (a.id === primaryId ? -1 : 0) - (b.id === primaryId ? -1 : 0) ||
+    a.name.localeCompare(b.name) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return {
+    kind: 'multi',
+    sections: [...householdRows].sort(byName).map((h) => ({
+      householdId: h.id,
+      name: h.name,
+      lists: lists.filter((l) => l.householdId === h.id),
+    })),
+  };
+}
+
+/** What VoiceOver reads for a household's section header: "test fam, 2 members", or just the name when the members aren't known. */
+export function householdHeaderLabel(name: string, memberCount?: number): string {
+  return memberCount === undefined ? name : `${name}, ${memberCount} ${memberCount === 1 ? 'member' : 'members'}`;
+}
+
+/** A household's New list tile is the short one when it would sit alone on a new row. */
+export function newListTileIsCompact(listCount: number): boolean {
+  return listCount % 2 === 0;
 }
 
 /** Grid cells two to a row; the last row may have one. */
@@ -74,20 +114,31 @@ export function toGetLabel(uncheckedCount: number): string | null {
 
 export type ListViewMode = 'newest' | 'category' | 'recipe';
 
-/** The list screen's segments (spec 4.6), in order; each is a tab, so the hint says what it shows. */
-export const LIST_VIEW_MODES: readonly { value: ListViewMode; label: string; hint?: string }[] = [
-  { value: 'newest', label: 'Newest', hint: 'Items you added most recently first' },
-  { value: 'category', label: 'By aisle' },
-  { value: 'recipe', label: 'By recipe' },
+/** The list screen's views (spec 4.6), in menu order, each with its menu icon. */
+export const LIST_VIEW_MODES: readonly { value: ListViewMode; label: string; icon: IconName }[] = [
+  { value: 'newest', label: 'As added', icon: 'clock' },
+  { value: 'category', label: 'By aisle', icon: 'cart' },
+  { value: 'recipe', label: 'By recipe', icon: 'fork.knife' },
 ];
 
-/** A list with no saved choice on this device opens in Newest. */
+/** A list with no saved choice on this device opens in As added. */
 export const DEFAULT_LIST_VIEW_MODE: ListViewMode = 'newest';
 
-/** The compact add-mode header's second line: the count and the view mode, `8 to get · Newest`. */
+/** The view's name, as the view button and the menu show it: `As added`. */
+export function viewModeLabel(mode: ListViewMode): string {
+  return LIST_VIEW_MODES.find((m) => m.value === mode)?.label ?? '';
+}
+
+/** What VoiceOver reads for the view button: `View: As added`. */
+export function viewButtonAccessibilityLabel(mode: ListViewMode): string {
+  return `View: ${viewModeLabel(mode)}`;
+}
+
+export const VIEW_BUTTON_HINT = 'Changes how the list is grouped';
+
+/** The compact add-mode header's second line: the count and the view, `8 to get · As added`. */
 export function compactHeaderSubtitle(uncheckedCount: number, mode: ListViewMode): string {
-  const label = LIST_VIEW_MODES.find((m) => m.value === mode)?.label ?? '';
-  return [toGetLabel(uncheckedCount), label].filter(Boolean).join(' · ');
+  return [toGetLabel(uncheckedCount), viewModeLabel(mode)].filter(Boolean).join(' · ');
 }
 
 /**
@@ -108,10 +159,36 @@ export function isAlreadyOnList(item: { ingredientName: string; checkedAt: Date 
   return query !== null && item.checkedAt === null && item.ingredientName.includes(query);
 }
 
-/** Where the device setting for a list's view mode lives. Saved choices from before Newest still read. */
+/** Where the device setting for a list's view mode lives. Saved choices from before As added still read. */
 export const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
-/** The view modes with sections that fold away (spec 4.6); Newest has none. */
+/**
+ * Where By aisle shows each aisle's colour: tinting every unchecked row (the default), or only the card's
+ * header, with plain rows under it. A device setting, like the view mode.
+ */
+export type AisleColorStyle = 'rows' | 'header';
+
+export const AISLE_COLORS_KEY = 'list.aisleColors';
+
+export const DEFAULT_AISLE_COLOR_STYLE: AisleColorStyle = 'rows';
+
+/** The choices on Settings > Aisle colours, in order. */
+export const AISLE_COLOR_STYLES: readonly { value: AisleColorStyle; label: string }[] = [
+  { value: 'rows', label: 'Whole row' },
+  { value: 'header', label: 'Header only' },
+];
+
+/** The saved aisle colours choice, read defensively: anything unknown is the default. */
+export function readAisleColorStyle(saved: unknown): AisleColorStyle {
+  return AISLE_COLOR_STYLES.some((s) => s.value === saved) ? (saved as AisleColorStyle) : DEFAULT_AISLE_COLOR_STYLE;
+}
+
+/** The choice's label, for the Settings row. */
+export function aisleColorStyleLabel(style: AisleColorStyle): string {
+  return AISLE_COLOR_STYLES.find((s) => s.value === style)?.label ?? '';
+}
+
+/** The view modes with sections that fold away (spec 4.6); As added has none. */
 export type SectionedViewMode = Exclude<ListViewMode, 'newest'>;
 
 /** Where the device setting for a list's collapsed sections in one view mode lives. */
@@ -157,7 +234,7 @@ type NewestItem = {
 };
 
 /**
- * The Newest view (spec 4.6): unchecked items, latest first by the earliest of each item's current
+ * The As added view (spec 4.6): unchecked items, latest first by the earliest of each item's current
  * amounts. A Combine adds a later amount, so the item keeps its place; re-adding a checked item
  * replaces its amounts, so it moves to the top. A recipe add shares one timestamp and its amounts'
  * ids (UUIDv7) count up in ingredient order, so ties go by that id, then the item's id. An item with
@@ -184,11 +261,39 @@ export function alsoInHint(alsoIn: readonly string[]): string | undefined {
   return alsoIn.length > 0 ? `Also in ${alsoIn.join(', ')}` : undefined;
 }
 
+/**
+ * The second line on a checked item from a recipe: "From Tacos". Checking leaves an item's recipe
+ * amounts in place, so it still knows its recipes while it sits in Checked.
+ */
+export function fromRecipesHint(contributions: readonly { recipeId: string | null; recipeName: string | null }[]): string | undefined {
+  const names = [...new Set(contributions.flatMap((c) => (c.recipeId !== null && c.recipeName ? [c.recipeName] : [])))];
+  return names.length > 0 ? `From ${names.join(', ')}` : undefined;
+}
+
+/** How long a just-checked row stays where it was, struck through, so a second tap can take it back. */
+export const CHECK_LINGER_MS = 1000;
+
+/**
+ * The items each view places, given the ids checked a moment ago: those stay in their unchecked
+ * place (as if unchecked, for placement only) and leave Checked until the linger ends.
+ */
+export function withLingering<I extends { id: string; checkedAt: Date | null }>(
+  unchecked: readonly I[],
+  checked: readonly I[],
+  lingering: ReadonlySet<string>,
+): { placed: I[]; checked: I[] } {
+  if (lingering.size === 0) return { placed: [...unchecked], checked: [...checked] };
+  return {
+    placed: [...unchecked, ...checked.filter((i) => lingering.has(i.id)).map((i) => ({ ...i, checkedAt: null }))],
+    checked: checked.filter((i) => !lingering.has(i.id)),
+  };
+}
+
 /** The label on each row in the Sorting… card. */
 export const SORTING_LABEL = 'Sorting…';
 
 /**
- * What VoiceOver reads for an item row: name, amount, note and hint, then its aisle (Newest shows it
+ * What VoiceOver reads for an item row: name, amount, note and hint, then its aisle (As added shows it
  * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
  */
 export function itemRowLabel(

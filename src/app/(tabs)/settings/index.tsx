@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { avatarColors } from '@/components/appearance';
@@ -15,7 +15,9 @@ import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { signOut, useAccountState } from '@/features/auth/account';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
+import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
+import { getAisleColorStyle } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -35,6 +37,9 @@ export default function SettingsScreen() {
   }, [userId, listRows]);
   const avatar = avatarColors('amber', colors, aisles);
   const sync = useSyncStatus();
+  // A device setting: read again on coming back from its screen.
+  const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
+  useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -80,6 +85,12 @@ export default function SettingsScreen() {
             label="Aisle order"
             icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
             onPress={() => router.push('/category-order')}
+          />
+          <SettingsRow
+            label="Aisle colours"
+            value={aisleColorStyleLabel(aisleColors)}
+            icon={{ name: 'paintpalette', hue: 'rose' }}
+            onPress={() => router.push('/settings/aisle-colors')}
           />
           <SettingsRow
             label="Sync status"

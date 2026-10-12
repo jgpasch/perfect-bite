@@ -10,7 +10,11 @@ import {
   recipeSectionKey,
   toggleCollapsedSection,
   movedToast,
+  aisleColorStyleLabel,
   alsoInHint,
+  readAisleColorStyle,
+  fromRecipesHint,
+  withLingering,
   checkOffLabel,
   clearCheckedLabel,
   clearedToast,
@@ -20,9 +24,15 @@ import {
   isAlreadyOnList,
   DEFAULT_LIST_VIEW_MODE,
   groupListsByHousehold,
+  householdHeaderLabel,
+  listsOverview,
+  newListTileIsCompact,
   itemRowLabel,
   launchListId,
   LIST_VIEW_MODES,
+  VIEW_BUTTON_HINT,
+  viewButtonAccessibilityLabel,
+  viewModeLabel,
   orderByNewest,
   pairs,
   SORTING_LABEL,
@@ -131,6 +141,39 @@ describe('alsoInHint', () => {
   });
 });
 
+describe('fromRecipesHint', () => {
+  it('names each recipe once', () => {
+    expect(
+      fromRecipesHint([
+        { recipeId: 'r1', recipeName: 'Tacos' },
+        { recipeId: 'r1', recipeName: 'Tacos' },
+        { recipeId: null, recipeName: null },
+        { recipeId: 'r2', recipeName: 'Chili' },
+      ]),
+    ).toBe('From Tacos, Chili');
+  });
+
+  it('is undefined for an item from no recipe', () => {
+    expect(fromRecipesHint([{ recipeId: null, recipeName: null }])).toBeUndefined();
+    expect(fromRecipesHint([])).toBeUndefined();
+  });
+});
+
+describe('withLingering', () => {
+  const at = new Date(0);
+  const a: { id: string; checkedAt: Date | null } = { id: 'a', checkedAt: null };
+  const b = { id: 'b', checkedAt: at };
+  const c = { id: 'c', checkedAt: at };
+
+  it('keeps a just-checked item in place, as unchecked, and out of Checked', () => {
+    expect(withLingering([a], [b, c], new Set(['b']))).toEqual({ placed: [a, { id: 'b', checkedAt: null }], checked: [c] });
+  });
+
+  it('changes nothing when nothing lingers', () => {
+    expect(withLingering([a], [b], new Set())).toEqual({ placed: [a], checked: [b] });
+  });
+});
+
 describe('itemRowLabel', () => {
   it('reads the name, amount, note and hint', () => {
     expect(itemRowLabel({ name: 'Limes', amountText: '3', note: 'ripe', hint: 'Also in Weeknight dal' })).toBe(
@@ -147,7 +190,7 @@ describe('itemRowLabel', () => {
     expect(SORTING_LABEL).toBe('Sorting…');
   });
 
-  it('reads the aisle last (Newest shows it as a dot)', () => {
+  it('reads the aisle last (As added shows it as a dot)', () => {
     expect(itemRowLabel({ name: 'Limes', amountText: '3', aisle: 'Produce' })).toBe('Limes, 3, Produce');
   });
 
@@ -161,19 +204,26 @@ describe('itemRowLabel', () => {
 });
 
 describe('list view modes', () => {
-  it('orders the segments Newest | By aisle | By recipe', () => {
-    expect(LIST_VIEW_MODES.map((m) => [m.value, m.label])).toEqual([
-      ['newest', 'Newest'],
-      ['category', 'By aisle'],
-      ['recipe', 'By recipe'],
+  it('orders the menu As added | By aisle | By recipe, each with its icon', () => {
+    expect(LIST_VIEW_MODES.map((m) => [m.value, m.label, m.icon])).toEqual([
+      ['newest', 'As added', 'clock'],
+      ['category', 'By aisle', 'cart'],
+      ['recipe', 'By recipe', 'fork.knife'],
     ]);
   });
 
-  it('gives Newest a hint saying what it shows', () => {
-    expect(LIST_VIEW_MODES[0].hint).toBe('Items you added most recently first');
+  it('labels the view button with the current view', () => {
+    expect(viewModeLabel('newest')).toBe('As added');
+    expect(viewButtonAccessibilityLabel('newest')).toBe('View: As added');
+    expect(viewButtonAccessibilityLabel('category')).toBe('View: By aisle');
+    expect(VIEW_BUTTON_HINT).toBe('Changes how the list is grouped');
   });
 
-  it('opens a list with no saved choice in Newest', () => {
+  it('shows no user-facing "Newest"', () => {
+    expect(LIST_VIEW_MODES.some((m) => /newest/i.test(m.label))).toBe(false);
+  });
+
+  it('opens a list with no saved choice in As added', () => {
     expect(DEFAULT_LIST_VIEW_MODE).toBe('newest');
   });
 
@@ -432,7 +482,7 @@ describe('launchListId', () => {
 
 describe('add mode', () => {
   it('sums up the list under the compact title', () => {
-    expect(compactHeaderSubtitle(8, 'newest')).toBe('8 to get · Newest');
+    expect(compactHeaderSubtitle(8, 'newest')).toBe('8 to get · As added');
     expect(compactHeaderSubtitle(1, 'category')).toBe('1 to get · By aisle');
     expect(compactHeaderSubtitle(0, 'recipe')).toBe('By recipe');
   });
@@ -451,5 +501,70 @@ describe('add mode', () => {
     expect(isAlreadyOnList(broth, duplicateQuery('tuna'))).toBe(false);
     expect(isAlreadyOnList(broth, null)).toBe(false);
     expect(isAlreadyOnList({ ...broth, checkedAt: new Date() }, duplicateQuery('chi'))).toBe(false);
+  });
+});
+
+describe('readAisleColorStyle', () => {
+  it('reads a saved choice', () => {
+    expect(readAisleColorStyle('header')).toBe('header');
+    expect(readAisleColorStyle('rows')).toBe('rows');
+  });
+
+  it('is the whole-row default for nothing saved or anything unknown', () => {
+    expect(readAisleColorStyle(null)).toBe('rows');
+    expect(readAisleColorStyle('stripes')).toBe('rows');
+    expect(readAisleColorStyle(1)).toBe('rows');
+  });
+
+  it('labels each choice', () => {
+    expect(aisleColorStyleLabel('rows')).toBe('Whole row');
+    expect(aisleColorStyleLabel('header')).toBe('Header only');
+  });
+});
+
+describe('listsOverview', () => {
+  const tile = (id: string, householdId: string) => ({ id, householdId });
+
+  it('has no household UI with one household', () => {
+    const lists = [tile('a', 'h1'), tile('b', 'h1')];
+    expect(listsOverview([{ id: 'h1', name: 'Home' }], lists, 'h1')).toEqual({ kind: 'single', householdId: 'h1', lists });
+  });
+
+  it('gives each of several households a section: primary first, then by name, empty ones too', () => {
+    const overview = listsOverview(
+      [
+        { id: 'h1', name: 'Peacher Paschal Fam' },
+        { id: 'h2', name: 'test fam' },
+        { id: 'h3', name: 'Lake house' },
+      ],
+      [tile('a', 'h2'), tile('b', 'h1'), tile('c', 'h2')],
+      'h1',
+    );
+    expect(overview.kind === 'multi' && overview.sections.map((s) => [s.householdId, s.lists.map((l) => l.id)])).toEqual([
+      ['h1', ['b']],
+      ['h3', []],
+      ['h2', ['a', 'c']],
+    ]);
+  });
+
+  it('goes back to one layout when a household is left', () => {
+    expect(listsOverview([{ id: 'h2', name: 'test fam' }], [tile('a', 'h2')], 'h2').kind).toBe('single');
+  });
+});
+
+describe('householdHeaderLabel', () => {
+  it('reads the name, with the member count when known', () => {
+    expect(householdHeaderLabel('test fam', 2)).toBe('test fam, 2 members');
+    expect(householdHeaderLabel('Solo', 1)).toBe('Solo, 1 member');
+    expect(householdHeaderLabel('test fam')).toBe('test fam');
+  });
+});
+
+describe('newListTileIsCompact', () => {
+  it('is short when it starts a row on its own', () => {
+    expect(newListTileIsCompact(0)).toBe(true);
+    expect(newListTileIsCompact(1)).toBe(false);
+    expect(newListTileIsCompact(2)).toBe(true);
+    expect(newListTileIsCompact(3)).toBe(false);
   });
 });

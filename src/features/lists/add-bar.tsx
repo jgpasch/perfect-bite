@@ -25,8 +25,8 @@ import { hideFromSuggestions } from './usage';
 type Props = {
   householdId: string;
   /**
-   * On a list, suggestions are a chip row (`SuggestionChips`), shown only while the field has text, with the
-   * household's recipes too when `onAddRecipe` is set.
+   * On a list, suggestions are a chip row (`SuggestionChips`) on top of the keyboard, filled only while the field has
+   * text, with the household's recipes too when `onAddRecipe` is set.
    */
   listId?: string;
   /** Adds the text; return keeps the keyboard up for the next one (spec 4.2). */
@@ -44,8 +44,8 @@ type Props = {
 type Aisle = { slug: string | null; name: string } | null;
 
 /**
- * The persistent add bar at the bottom of a list or recipe, with its suggestions above it: a chip row on a
- * list, the autocomplete panel on a recipe (board 03). Put it last in a KeyboardAvoidingView.
+ * The persistent add bar at the bottom of a list or recipe, with its suggestions: a chip row on top of the keyboard
+ * on a list, the autocomplete panel above it on a recipe (board 03). Put it last in a KeyboardAvoidingView.
  */
 export function ItemAddBar({
   householdId,
@@ -108,19 +108,18 @@ export function ItemAddBar({
   };
 
   let accessory: ReactNode = null;
+  let keyboardRow: ReactNode;
   if (listId !== undefined) {
-    const chips = suggestionChips(text, { recipes: recipeMatches, suggestions });
-    if (chips.length > 0) {
-      accessory = (
-        <SuggestionChips
-          chips={chips}
-          typed={typed}
-          onPressItem={(chip) => add(chip.text)}
-          onPressRecipe={(chip) => addRecipe(chip.recipe)}
-          onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
-        />
-      );
-    }
+    // Always there, even with no chips, so the row and the field don't jump while typing.
+    keyboardRow = (
+      <SuggestionChips
+        chips={suggestionChips(text, { recipes: recipeMatches, suggestions })}
+        typed={typed}
+        onPressItem={(chip) => add(chip.text)}
+        onPressRecipe={(chip) => addRecipe(chip.recipe)}
+        onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
+      />
+    );
   } else if (suggestions.length > 0) {
     accessory = (
       <Panel caption={suggestionCaption(suggestions)}>
@@ -148,6 +147,7 @@ export function ItemAddBar({
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
       accessory={accessory}
+      keyboardRow={keyboardRow}
     />
   );
 }

@@ -4,6 +4,7 @@ import {
   addBarButton,
   aisleRowLook,
   cardLook,
+  aisleHeaderBand,
   aisleSymbol,
   avatarColors,
   badgeColors,
@@ -593,6 +594,22 @@ describe('settings screen text', () => {
   });
 });
 
+describe('aisleHeaderBand', () => {
+  const SLUGS = [...SYSTEM_CATEGORIES.map((c) => c.slug), 'my-corner-shop', null];
+
+  it("is the aisle's soft band with its strong text", () => {
+    expect(aisleHeaderBand('produce', 'light')).toEqual({ ground: AisleColors.light.green.soft, text: AisleColors.light.green.strong });
+    expect(aisleHeaderBand('my-corner-shop', 'dark').ground).toBe(AisleColors.dark.grey.soft);
+  });
+
+  it.each(SCHEMES)('keeps the text at 4.5:1 or better in the %s scheme', (scheme) => {
+    for (const slug of SLUGS) {
+      const { ground, text } = aisleHeaderBand(slug, scheme);
+      expect(contrastRatio(text, ground)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
 describe('categoryColors', () => {
   const SLUGS = [...SYSTEM_CATEGORIES.map((c) => c.slug), 'my-corner-shop', null];
 
@@ -653,17 +670,16 @@ describe('listHeaderColors', () => {
     expect(contrastRatio(Palette.dark.header, '#000000')).toBeLessThan(contrastRatio(Palette.light.header, '#000000'));
   });
 
-  it.each(SCHEMES)('keeps the title, subtitle and view control readable in %s mode', (scheme) => {
+  it.each(SCHEMES)('keeps the title, subtitle and view button readable in %s mode', (scheme) => {
     const header = listHeaderColors(Palette[scheme]);
     expect(contrastRatio(header.title, header.ground)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(header.subtitle, header.ground)).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio(header.segments.text, header.segments.track)).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio(header.segments.selectedText, header.segments.selected)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(header.viewButton.text, header.viewButton.fill)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(SCHEMES)('washes the track white over the green in %s mode', (scheme) => {
+  it.each(SCHEMES)('washes the view button white over the green in %s mode', (scheme) => {
     const colors = Palette[scheme];
-    expect(listHeaderColors(colors).segments.track).toBe(mix(colors.onHeader, colors.header, 0.14));
+    expect(listHeaderColors(colors).viewButton.fill).toBe(mix(colors.onHeader, colors.header, 0.14));
   });
 });
 

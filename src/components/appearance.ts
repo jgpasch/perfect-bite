@@ -60,21 +60,30 @@ export function categoryColors(slug: string | null | undefined, scheme: ColorSch
   return { ring: hue.dot, tint, text };
 }
 
+/**
+ * An aisle card's header when only the header carries the aisle colour (the "Header only" aisle colours
+ * setting): the aisle's `soft` as a band, the name, count and chevron in its `strong`, or `ink` where that's
+ * under 4.5:1. Unknown slugs, custom aisles and no slug get the neutral grey.
+ */
+export function aisleHeaderBand(slug: string | null | undefined, scheme: ColorScheme): { ground: string; text: string } {
+  const hue = AisleTokens[scheme][aisleColor(slug)];
+  const text = contrastRatio(hue.strong, hue.soft) >= 4.5 ? hue.strong : Palette[scheme].ink;
+  return { ground: hue.soft, text };
+}
+
 /** The white wash behind controls on the green header. */
 export const HEADER_WASH = 0.14;
 
-/** The list screen's header (spec: forest green): white title, light green subtitle, a translucent white track. */
+/** The list screen's header (spec: forest green): white title, light green subtitle, a translucent white view button. */
 export function listHeaderColors(colors: ThemeColors) {
   return {
     ground: colors.header,
     title: colors.onHeader,
     subtitle: colors.onHeaderSecondary,
-    /** The segmented control: a white wash over the green, with a white selected segment in the header's green. */
-    segments: {
-      track: mix(colors.onHeader, colors.header, HEADER_WASH),
+    /** The view button under the title: a white wash pill over the green with a white label. */
+    viewButton: {
+      fill: mix(colors.onHeader, colors.header, HEADER_WASH),
       text: colors.onHeader,
-      selected: colors.onHeader,
-      selectedText: colors.header,
     },
   };
 }

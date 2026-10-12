@@ -1,7 +1,7 @@
-import { Host, List, Text as SwiftText } from '@expo/ui/swift-ui';
+import { Host, List, Section, Text as SwiftText } from '@expo/ui/swift-ui';
 import { deleteDisabled, environment } from '@expo/ui/swift-ui/modifiers';
 import { Link, router, Stack } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { listTileColors, siriMarkColors } from '@/components/appearance';
@@ -14,7 +14,8 @@ import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { listHue } from '@/domain/aisle-color';
 import { getAccount } from '@/features/auth/account';
-import { groupListsByHousehold, pairs, tileAccessibilityLabel, tileCount } from '@/features/lists/list-view';
+import { householdsQuery } from '@/features/households/households';
+import { listsOverview, tileAccessibilityLabel, tileCount } from '@/features/lists/list-view';
 import {
   deleteList,
   getDefaultListId,
@@ -24,17 +25,24 @@ import {
   setListArchived,
   type ListSummary,
 } from '@/features/lists/lists';
+import { ListsOverviewGrid, TileGrid } from '@/features/lists/lists-overview';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { useTheme } from '@/hooks/use-theme';
 
-/** Lists home (spec 4.1, board 01): a two-column grid of list tiles under each household's name. */
+/**
+ * Lists home (spec 4.1, board 01): a two-column grid of list tiles. With more than one household,
+ * a section per household, each always open.
+ */
 export default function ListsScreen() {
   const { spacing, scheme, colors } = useTheme();
   // userSettings: so the Siri tile follows "Make default for Siri".
   const { data } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
+  // Live, so joining or leaving a household switches between one and several without a restart.
+  const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households]);
   const active = useMemo(() => data.filter((l) => l.archivedAt === null), [data]);
   const archived = useMemo(() => data.filter((l) => l.archivedAt !== null), [data]);
-  const groups = useMemo(() => groupListsByHousehold(active), [active]);
+  // Oldest first, so the first is the one new lists default to.
+  const overview = useMemo(() => listsOverview(householdRows, active, householdRows[0]?.id ?? null), [householdRows, active]);
   const userId = getAccount()?.userId;
   // Re-read whenever the lists or settings change (`data` is a new array then).
   const defaultListId = useMemo(() => (userId && data.length > 0 ? getDefaultListId(userId) : null), [userId, data]);
@@ -44,6 +52,19 @@ export default function ListsScreen() {
   const create = (householdId?: string) =>
     promptListName(null, '', (id) => router.push({ pathname: '/list/[id]', params: { id } }), householdId);
 
+  // SwiftUI's onMove destination is the index to insert before.
+  const reorderRows = (group: ListSummary[]) => (
+    <List.ForEach
+      onMove={(from, destination) => {
+        const source = from[0];
+        moveList(group, source, destination > source ? destination - 1 : destination);
+      }}>
+      {group.map((l) => (
+        <SwiftText key={l.id} modifiers={[deleteDisabled()]}>{l.emoji ? `${l.emoji} ${l.name}` : l.name}</SwiftText>
+      ))}
+    </List.ForEach>
+  );
+
   return (
     <Screen>
       <Stack.Toolbar placement="right">
@@ -52,39 +73,53 @@ export default function ListsScreen() {
             {reordering ? 'Done' : 'Edit'}
           </Stack.Toolbar.Button>
         ) : null}
-        <Stack.Toolbar.Button icon="plus" accessibilityLabel="New list" onPress={() => create()} hidden={reordering} />
+        {overview.kind === 'multi' ? (
+          // Several households: ask which one gets the new list.
+          <Stack.Toolbar.Menu icon="plus" accessibilityLabel="New list" title="New list in" hidden={reordering}>
+            {overview.sections.map((s) => (
+              <Stack.Toolbar.MenuAction key={s.householdId} icon="circle.fill" onPress={() => create(s.householdId)}>
+                {s.name}
+              </Stack.Toolbar.MenuAction>
+            ))}
+          </Stack.Toolbar.Menu>
+        ) : (
+          <Stack.Toolbar.Button
+            icon="plus"
+            accessibilityLabel="New list"
+            onPress={() => create(overview.householdId ?? undefined)}
+            hidden={reordering}
+          />
+        )}
       </Stack.Toolbar>
 
       {reordering ? (
-        // Native drag handles. SwiftUI's onMove destination is the index to insert before.
+        // Native drag handles. With several households each is its own section, so a list can't be
+        // dragged into another household.
         <Host style={styles.flex} colorScheme={scheme} seedColor={colors.primary}>
           <List modifiers={[environment('editMode', 'active')]}>
-            <List.ForEach
-              onMove={(from, destination) => {
-                const source = from[0];
-                moveList(active, source, destination > source ? destination - 1 : destination);
-              }}>
-              {active.map((l) => (
-                <SwiftText key={l.id} modifiers={[deleteDisabled()]}>{l.emoji ? `${l.emoji} ${l.name}` : l.name}</SwiftText>
-              ))}
-            </List.ForEach>
+            {overview.kind === 'multi'
+              ? overview.sections
+                  .filter((s) => s.lists.length > 0)
+                  .map((s) => (
+                    <Section key={s.householdId} title={s.name}>
+                      {reorderRows(s.lists)}
+                    </Section>
+                  ))
+              : reorderRows(active)}
           </List>
         </Host>
-      ) : active.length === 0 && archived.length === 0 ? (
-        <EmptyState message="No lists yet." action={<PrimaryButton label="New list" onPress={() => create()} />} />
+      ) : overview.kind === 'single' && active.length === 0 && archived.length === 0 ? (
+        <EmptyState
+          message="No lists yet."
+          action={<PrimaryButton label="New list" onPress={() => create(overview.householdId ?? undefined)} />}
+        />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
-          {groups.map((group, i) => (
-            <View key={group.householdId}>
-              <HouseholdLabel name={group.name} first={i === 0} />
-              <TileGrid
-                cells={[
-                  ...group.lists.map((l) => <ListTile key={l.id} list={l} isDefault={l.id === defaultListId} />),
-                  <NewListTile key="new" onPress={() => create(group.householdId)} />,
-                ]}
-              />
-            </View>
-          ))}
+          <ListsOverviewGrid
+            overview={overview}
+            renderTile={(l) => <ListTile key={l.id} list={l} isDefault={l.id === defaultListId} />}
+            onNewList={create}
+          />
           {archived.length > 0 ? (
             <ArchivedHeader count={archived.length} open={showArchived} onPress={() => setShowArchived((v) => !v)} />
           ) : null}
@@ -92,67 +127,6 @@ export default function ListsScreen() {
         </ScrollView>
       )}
     </Screen>
-  );
-}
-
-/** The household's name above its tiles. */
-function HouseholdLabel({ name, first }: { name: string; first: boolean }) {
-  const { spacing } = useTheme();
-  return (
-    <ThemedText
-      variant="sectionLabel"
-      color="inkSecondary"
-      accessibilityRole="header"
-      style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingTop: first ? spacing.xs : spacing.xl, paddingBottom: spacing.sm }}>
-      {name}
-    </ThemedText>
-  );
-}
-
-/** Two columns of tiles with a 12 pt gap; an odd last tile keeps its column width. */
-function TileGrid({ cells }: { cells: ReactNode[] }) {
-  const { spacing } = useTheme();
-  return (
-    <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
-      {pairs(cells).map((row, i) => (
-        <View key={i} style={[styles.row, styles.stretch, { gap: spacing.md }]}>
-          {row.map((cell, j) => (
-            <View key={j} style={styles.flex}>
-              {cell}
-            </View>
-          ))}
-          {row.length === 1 ? <View style={styles.flex} /> : null}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-/** The dashed tile that ends each household's grid. */
-function NewListTile({ onPress }: { onPress: () => void }) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="New list"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.newTile,
-        {
-          minHeight: sizes.tile,
-          borderRadius: rounded.tile,
-          borderWidth: sizes.checkBorder,
-          borderColor: colors.controlBorder,
-          gap: spacing.xs + spacing.xxs,
-          padding: spacing.lg,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <Icon name="plus" color="inkSecondary" weight="semibold" size={sizes.iconLarge} />
-      <ThemedText variant="amount" color="inkSecondary">
-        New list
-      </ThemedText>
-    </Pressable>
   );
 }
 
@@ -270,9 +244,7 @@ function ArchivedHeader({ count, open, onPress }: { count: number; open: boolean
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  stretch: { alignItems: 'stretch' },
   tile: { flex: 1, justifyContent: 'space-between', borderCurve: 'continuous' },
   tileName: { fontWeight: '600' },
-  newTile: { flex: 1, alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed' },
 });
 

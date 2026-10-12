@@ -1094,7 +1094,7 @@ describe('item sheet "Added" rows and household (board 04)', () => {
   });
 });
 
-describe('Newest view (spec 4.6)', () => {
+describe('As added view (spec 4.6)', () => {
   const T0 = new Date('2026-10-10T09:00:00Z');
   const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
   const newest = () => orderByNewest(view().unchecked).map((i) => i.displayName);

@@ -19,3 +19,17 @@ values (
   '{"sub": "019a4c10-0000-7000-8000-0000000de701", "email": "jgpasch@gmail.com", "email_verified": true}',
   'email', now(), now(), now()
 );
+
+-- The dev user's household, which they own, with a "Groceries" list as their default (the shape
+-- ensureStarterData in src/features/lists/lists.ts gives a new user). The household goes through
+-- create_household as the dev user, the way the app's push sends it. On sign-in the app pulls it
+-- instead of making a starter household.
+select set_config('request.jwt.claims', '{"sub": "019a4c10-0000-7000-8000-0000000de701"}', false);
+select public.create_household('019a4c10-0000-7000-8000-00000000a001', 'Peacher Paschal Fam');
+select set_config('request.jwt.claims', '', false);
+
+insert into public.lists (id, household_id, name, position)
+values ('019a4c10-0000-7000-8000-00000000a002', '019a4c10-0000-7000-8000-00000000a001', 'Groceries', 1);
+
+insert into public.user_settings (user_id, default_list_id)
+values ('019a4c10-0000-7000-8000-0000000de701', '019a4c10-0000-7000-8000-00000000a002');

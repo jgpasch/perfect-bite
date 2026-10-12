@@ -4,7 +4,8 @@ create extension if not exists pgtap with schema extensions;
 select plan(12);
 
 -- Fixtures (as postgres) ------------------------------------------------------
--- Alex and Jo share household A, which has one list. Sam owns household S.
+-- Alex and Jo share household A, which has one list. Sam owns household S. Queries name the list,
+-- since the seed has lists of its own.
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated'),
@@ -23,12 +24,12 @@ insert into public.lists (id, household_id, name, position) values
 -- The column ----------------------------------------------------------------------
 select has_column('public', 'lists', 'color', 'lists has a color column');
 select col_is_null('public', 'lists', 'color', 'color is nullable (null is Default)');
-select is((select color from public.lists), null, 'a list starts as Default');
+select is((select color from public.lists where id = 'a1000000-0000-7000-8000-000000000001'), null, 'a list starts as Default');
 select throws_ok(
-  $$ update public.lists set color = 'purple' $$,
+  $$ update public.lists set color = 'purple' where id = 'a1000000-0000-7000-8000-000000000001' $$,
   '23514', null, 'a value that isn''t an aisle hue is rejected by the check constraint');
 select lives_ok(
-  $$ update public.lists set color = 'grey'; update public.lists set color = null $$,
+  $$ update public.lists set color = 'grey' where id = 'a1000000-0000-7000-8000-000000000001'; update public.lists set color = null where id = 'a1000000-0000-7000-8000-000000000001' $$,
   'an aisle hue and null are accepted');
 
 -- As Alex (a member) --------------------------------------------------------------
@@ -43,13 +44,13 @@ select is(
   '[{"status": "rejected", "code": "23514", "message": "new row for relation \"lists\" violates check constraint \"lists_color_check\""}]'::jsonb,
   'a bad colour is rejected through apply_mutations too');
 select throws_ok(
-  $$ update public.lists set color = 'blue' $$,
+  $$ update public.lists set color = 'blue' where id = 'a1000000-0000-7000-8000-000000000001' $$,
   '42501', null, 'the column can''t be updated directly, only through apply_mutations');
 
 -- As Jo (another member of the same household) ------------------------------------
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
 
-select is((select color from public.lists), 'rose', 'another member sees the colour Alex set');
+select is((select color from public.lists where id = 'a1000000-0000-7000-8000-000000000001'), 'rose', 'another member sees the colour Alex set');
 select is(
   public.apply_mutations($$ [{ "table": "lists", "id": "a1000000-0000-7000-8000-000000000001", "hlc": "1760000000003-0000-jo", "fields": { "color": null } }] $$),
   '[{"status": "applied"}]'::jsonb, 'any member can change it back to Default');
@@ -64,7 +65,7 @@ select is(
 
 reset role;
 select results_eq(
-  $$ select color, field_clock ->> 'color' from public.lists $$,
+  $$ select color, field_clock ->> 'color' from public.lists where id = 'a1000000-0000-7000-8000-000000000001' $$,
   $$ values (null::text, '1760000000003-0000-jo') $$,
   'only the members'' edits landed: Default, clocked at Jo''s edit');
 

@@ -110,9 +110,9 @@ describe('getSuggestions (spec 4.2)', () => {
     expect(out.slice(1).every((s) => s.source === 'catalog')).toBe(true);
   });
 
-  test('a catalog suggestion identical to the typed name is skipped', () => {
-    expect(catalog('chicken').map((s) => s.displayName)).toContain('chicken');
-    expect(getSuggestions(householdId, 'chicken').map((s) => s.displayName)).not.toContain('chicken');
+  test('a catalog suggestion identical to the typed name is still shown first', () => {
+    expect(getSuggestions(householdId, 'chicken')[0]).toEqual({ key: 'chicken', displayName: 'chicken', source: 'catalog' });
+    expect(getSuggestions(householdId, 'Chicken')[0]?.key).toBe('chicken');
   });
 
   test('hidden history rows and other households are not history matches', () => {

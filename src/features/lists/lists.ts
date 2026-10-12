@@ -15,8 +15,7 @@ const live = isNull(lists.deletedAt);
 /**
  * First run: a personal household with a "Groceries" list, which is also the default list.
  * Written through the outbox, so the push creates the household on the server (`create_household`).
- * TODO: a second device signing in to the same account makes another one; adopt the server's
- * household on first pull instead.
+ * Called after the sign-in pull (AppDataGate), so an account's existing households count.
  */
 export function ensureStarterData(userId: string): void {
   db.transaction((tx) => {

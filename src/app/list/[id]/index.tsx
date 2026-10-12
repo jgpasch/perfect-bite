@@ -17,7 +17,7 @@ import {
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
+import { aisleHeaderBand, categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
 import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
@@ -26,7 +26,6 @@ import { IconTile } from '@/components/icon-tile';
 import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { SegmentedControl } from '@/components/segmented-control';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, lists, userCategoryOrder } from '@/db';
@@ -69,6 +68,7 @@ import {
   addedToast,
   aisleSectionKey,
   alsoInHint,
+  CHECK_LINGER_MS,
   clearCheckedLabel,
   clearedToast,
   collapsedSectionsKey,
@@ -78,8 +78,8 @@ import {
   deletedToast,
   duplicateQuery,
   expandSection,
+  fromRecipesHint,
   isAlreadyOnList,
-  LIST_VIEW_MODES,
   movedToast,
   orderByNewest,
   readCollapsedSections,
@@ -88,12 +88,14 @@ import {
   toGetLabel,
   toggleCollapsedSection,
   viewModeKey,
+  withLingering,
   type ListViewMode,
   type SectionedViewMode,
 } from '@/features/lists/list-view';
 import { deleteList, listQuery, setDefaultList, setListColor } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { takeMoveResult } from '@/features/lists/move-result';
+import { ViewMenuButton } from '@/features/lists/view-menu-button';
 import { listShareText } from '@/features/lists/share';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
@@ -102,7 +104,7 @@ import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-l
 import { importedToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
-import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { getAisleColorStyle, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
@@ -143,9 +145,40 @@ export default function ListScreen() {
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
+  // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
+  // so a second tap can take it back.
+  const [lingering, setLingering] = useState<ReadonlySet<string>>(new Set());
+  const lingerTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = lingerTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
+  const stopLingering = useCallback((itemId: string) => {
+    clearTimeout(lingerTimers.current.get(itemId));
+    lingerTimers.current.delete(itemId);
+    setLingering((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+  }, []);
+  const toggleChecked = (item: ItemView) => {
+    const checking = item.checkedAt === null;
+    setItemChecked(item.id, checking, userId);
+    if (!checking) return stopLingering(item.id);
+    setLingering((prev) => new Set(prev).add(item.id));
+    lingerTimers.current.set(item.id, setTimeout(() => stopLingering(item.id), CHECK_LINGER_MS));
+  };
+  const { placed, checked: shownChecked } = useMemo(
+    () => withLingering(unchecked, checked, lingering),
+    [unchecked, checked, lingering],
+  );
+  // Rows are placed by `placed`, but drawn (checked or not) as the item really is.
+  const itemById = useMemo(() => new Map([...unchecked, ...checked].map((item) => [item.id, item])), [unchecked, checked]);
   const { data: categoryRows } = useLiveQueryOn(categoriesQuery(userId ?? ''), [categories, userCategoryOrder], [userId]);
   const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
-  const sections = useMemo(() => groupByCategory(orderedCategories, unchecked), [orderedCategories, unchecked]);
+  const sections = useMemo(() => groupByCategory(orderedCategories, placed), [orderedCategories, placed]);
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
@@ -158,6 +191,10 @@ export default function ListScreen() {
     setViewModeState(mode);
     setDeviceSetting(viewModeKey(id), mode);
   };
+  // Settings > Aisle colours: By aisle tints each row (the default) or only the aisle's header. Read on
+  // focus, since it's changed on the Settings tab.
+  const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
+  useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   // Spec 4.6: sections folded away in By aisle and By recipe, remembered per list and mode on this device.
   // The device setting is the source of truth; this state mirrors it so the list re-renders.
   const readCollapsed = useCallback(
@@ -198,7 +235,7 @@ export default function ListScreen() {
   const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
   const listRef = useRef<FlatList<Block>>(null);
 
-  // Add mode: while the add field is focused the big title and view control collapse into the native header,
+  // Add mode: while the add field is focused the big title and view button collapse into the native header,
   // and items matching the typed text are marked "already on list".
   const [adding, setAdding] = useState(false);
   const [addText, setAddText] = useState('');
@@ -215,9 +252,9 @@ export default function ListScreen() {
   const blocks = useMemo<Block[]>(() => {
     const out: Block[] =
       viewMode === 'newest'
-        ? // Newest: one card, no header, latest add at the top; each row shows its aisle's dot.
-          unchecked.length > 0
-          ? [{ kind: 'newest', key: 'newest', entries: orderByNewest(unchecked).map((item) => ({ key: item.id, item })) }]
+        ? // As added: one card, no header, latest add at the top; each row shows its aisle's dot.
+          placed.length > 0
+          ? [{ kind: 'newest', key: 'newest', entries: orderByNewest(placed).map((item) => ({ key: item.id, item })) }]
           : []
         : viewMode === 'category'
         ? // By aisle: a card per aisle in the user's order, empty ones hidden, items by when added.
@@ -234,7 +271,7 @@ export default function ListScreen() {
           }))
         : // By recipe: a card per recipe (an item can be under several), then Other items; in each,
           // Sorting… first, then the user's aisle order, then by when added.
-          groupByRecipe(orderByAisle(unchecked, orderedCategories)).map(
+          groupByRecipe(orderByAisle(placed, orderedCategories)).map(
             (section): Block => ({
               kind: 'recipe',
               key: recipeSectionKey(section.recipeId),
@@ -250,16 +287,19 @@ export default function ListScreen() {
               })),
             }),
           );
-    if (checked.length > 0) {
+    if (shownChecked.length > 0) {
       out.push({
         kind: 'checked',
         key: 'checked',
-        count: checked.length,
-        entries: showChecked ? checked.map((item) => ({ key: item.id, item })) : [],
+        count: shownChecked.length,
+        // An item from a recipe still says so once checked.
+        entries: showChecked
+          ? shownChecked.map((item) => ({ key: item.id, item, hint: fromRecipesHint(item.contributions) }))
+          : [],
       });
     }
     return out;
-  }, [viewMode, sections, orderedCategories, unchecked, checked, showChecked, slugById, collapsedSaved]);
+  }, [viewMode, sections, orderedCategories, placed, shownChecked, showChecked, slugById, collapsedSaved]);
 
   // The sections Collapse all and Expand all work on: every header in this view (Sorting… has none).
   const sectionMode: SectionedViewMode | null = viewMode === 'newest' ? null : viewMode;
@@ -408,7 +448,7 @@ export default function ListScreen() {
   const add = (value: string) => {
     const result = addItem(id, value, userId);
     if (result) void categorizePending(result.pendingNames);
-    // In Newest a new or re-added item lands at the top, so bring the top into view; elsewhere, its section.
+    // In As added a new or re-added item lands at the top, so bring the top into view; elsewhere, its section.
     if (viewMode === 'newest' && result && result.kind !== 'combine') listRef.current?.scrollToOffset({ offset: 0, animated: true });
     if (viewMode !== 'newest' && result) revealRef.current = result.itemId;
     if (result?.kind !== 'combine') return;
@@ -484,33 +524,34 @@ export default function ListScreen() {
     background: string,
     sorting = false,
     aisle?: { name: string },
-  ) => (
-    <ItemRow
-      key={entry.key}
-      item={entry.item}
-      background={background}
-      tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
-      // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede.
-      look={entry.item.checkedAt === null ? categoryColors(slugById.get(entry.item.categoryId), scheme) : undefined}
-      alreadyOnList={isAlreadyOnList(entry.item, query) ? { typed: typedName } : undefined}
-      first={index === 0}
-      sorting={sorting}
-      amountText={entry.amountText}
-      hint={entry.hint}
-      aisle={aisle}
-      selected={selection ? selection.has(entry.item.id) : undefined}
-      onToggle={() =>
-        selection
-          ? setSelection(toggleIn(selection, entry.item.id))
-          : setItemChecked(entry.item.id, entry.item.checkedAt === null, userId)
-      }
-      onDelete={() => remove(entry.item)}
-      onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
-      onSelect={selection ? undefined : () => startSelecting([entry.item.id])}
-    />
-  );
+    plain = false,
+  ) => {
+    const item = itemById.get(entry.item.id) ?? entry.item;
+    return (
+      <ItemRow
+        key={entry.key}
+        item={item}
+        background={background}
+        tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
+        // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
+        // as do rows under a coloured aisle header.
+        look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme) : undefined}
+        alreadyOnList={isAlreadyOnList(item, query) ? { typed: typedName } : undefined}
+        first={index === 0}
+        sorting={sorting}
+        amountText={entry.amountText}
+        hint={entry.hint}
+        aisle={aisle}
+        selected={selection ? selection.has(entry.item.id) : undefined}
+        onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
+        onDelete={() => remove(entry.item)}
+        onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
+        onSelect={selection ? undefined : () => startSelecting([entry.item.id])}
+      />
+    );
+  };
 
-  // Newest and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
+  // As added and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
   const renderEntryWithAisle = (e: Entry, i: number) => {
     const categoryId = e.item.categoryId;
     return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' });
@@ -535,10 +576,11 @@ export default function ListScreen() {
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
             dotColor={aisles[aisleColor(block.slug)].dot}
+            band={aisleColors === 'header' ? aisleHeaderBand(block.slug, scheme) : undefined}
             count={block.entries.length}
             collapsed={block.collapsed}
             onToggle={() => toggleSection('category', block.key)}>
-            {block.entries.map((e, i) => renderEntry(e, i, colors.surface))}
+            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, false, undefined, aisleColors === 'header'))}
           </FoldingSection>
         </Card>
       );
@@ -711,7 +753,9 @@ export default function ListScreen() {
                         </ThemedText>
                       ) : null}
                     </View>
-                    <SegmentedControl segments={LIST_VIEW_MODES} value={viewMode} onChange={setViewMode} look={header.segments} />
+                    <View style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+                      <ViewMenuButton value={viewMode} onChange={setViewMode} />
+                    </View>
                   </View>
                 </CollapsingHeader>
                 <View style={{ height: rounded.card }} />
@@ -776,7 +820,7 @@ export default function ListScreen() {
 
 /**
  * Add mode's title in the native header, between its back button and ⋯: the list's name over
- * "8 to get · Newest". Tapping it hides the keyboard, which leaves add mode.
+ * "8 to get · As added". Tapping it hides the keyboard, which leaves add mode.
  */
 function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
   const { sizes } = useTheme();
@@ -801,7 +845,7 @@ function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
 }
 
 /**
- * The title and view control above the list, collapsed in add mode: it shrinks, lifts and fades while its height
+ * The title and view button above the list, collapsed in add mode: it shrinks, lifts and fades while its height
  * closes, so the list takes the space. Under Reduce Motion it only fades, and the height snaps.
  */
 function CollapsingHeader({ collapsed, children }: { collapsed: boolean; children: ReactNode }) {

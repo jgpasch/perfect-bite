@@ -2,7 +2,7 @@ import { Host, Menu, RNHostView, Section, Text as SwiftText, Toggle } from '@exp
 import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
 import { Button, PrimaryButton, SoftDangerButton } from '@/components/button';
@@ -52,12 +52,12 @@ import { useTheme } from '@/hooks/use-theme';
 import { displayItemName, OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
 /**
- * Item edit sheet (spec 4.2, 4.3.2, board 04): Got it / Still need it, name, amount, note, the
+ * Item edit sheet (spec 4.2, 4.3.2, board 04): the name (the title, edited in place), Got it / Still need it, amount, note, the
  * amounts added (a recipe's opens it), aisle, and Move to another list.
  */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
-  const { spacing, sizes, scheme, colors, opacity } = useTheme();
+  const { spacing, sizes, scheme, colors, opacity, typography } = useTheme();
   const userId = getAccount()?.userId ?? null;
   const [initial] = useState(() => getItemEdit(itemId));
   const [householdName] = useState(() => getItemHouseholdName(itemId));
@@ -76,6 +76,10 @@ export default function ItemEditSheet() {
   const [amountTouched, setAmountTouched] = useState(false);
   // The number field's text while it's being typed in; null shows the saved quantity.
   const [quantityDraft, setQuantityDraft] = useState<string | null>(null);
+  // The title is the name field; it shows the name as typed while editing, capitalized otherwise.
+  const [editingName, setEditingName] = useState(false);
+  // The aisle picker shows the first few aisles (always with the current one) until Show all.
+  const [aislesOpen, setAislesOpen] = useState(false);
 
   if (!edit || !initial) return <Screen />;
 
@@ -101,6 +105,8 @@ export default function ItemEditSheet() {
   const sortingDefault = defaultId === SORTING_CATEGORY_ID;
   const sorting = selectedId === SORTING_CATEGORY_ID;
   const hue = sorting ? 'amber' : aisleColor(slugOf(selectedId));
+  const shownAisles = aislesOpen ? categoryList : previewAisles(categoryList, selectedId, sortingDefault);
+  const hiddenAisles = categoryList.length - shownAisles.length;
 
   const chooseCategory = (id: string) => {
     setEdit({ ...edit, categoryId: id === defaultId ? null : id });
@@ -235,9 +241,19 @@ export default function ItemEditSheet() {
       <View style={[styles.row, { paddingHorizontal: spacing.lg + spacing.xs, paddingVertical: spacing.xs, gap: spacing.md }]}>
         <IconTile hue={hue} name={sorting ? 'hourglass' : aisleSymbol(slugOf(selectedId))} size={sizes.sheetIcon} />
         <View style={styles.flex}>
-          <ThemedText variant="sheetTitle" accessibilityRole="header" numberOfLines={2}>
-            {displayItemName(edit.name.trim() || initial.name)}
-          </ThemedText>
+          <TextInput
+            value={editingName ? edit.name : displayItemName(edit.name.trim() || initial.name)}
+            onChangeText={set('name')}
+            onFocus={() => setEditingName(true)}
+            onBlur={() => setEditingName(false)}
+            accessibilityLabel="Name"
+            accessibilityHint="Renames the item on this list"
+            multiline
+            submitBehavior="blurAndSubmit"
+            returnKeyType="done"
+            selectionColor={colors.primary}
+            style={[typography.sheetTitle, styles.title, { color: colors.ink }]}
+          />
           {amount ? (
             <ThemedText variant="amount" color="inkSecondary">
               {amount}
@@ -265,10 +281,7 @@ export default function ItemEditSheet() {
       </View>
 
       <Card>
-        <FieldRow label="Name" first>
-          <InlineField value={edit.name} onChangeText={set('name')} accessibilityLabel="Name" returnKeyType="done" />
-        </FieldRow>
-        <FieldRow label="Amount">
+        <FieldRow label="Amount" first>
           <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingVertical: spacing.xs }]}>
             <View style={[styles.grow, { minWidth: sizes.fieldLabel }]}>
               {shown ? (
@@ -381,7 +394,7 @@ export default function ItemEditSheet() {
                 onPress={() => chooseCategory(defaultId)}
               />
             ) : null}
-            {categoryList.map((c) => (
+            {shownAisles.map((c) => (
               <Pill
                 key={c.id}
                 label={c.name}
@@ -390,7 +403,15 @@ export default function ItemEditSheet() {
                 onPress={() => chooseCategory(c.id)}
               />
             ))}
-            <Pill label="+ New" accessibilityLabel="New aisle" dashed onPress={newCategory} />
+            {hiddenAisles > 0 ? (
+              <Pill
+                label="Show all"
+                accessibilityHint={`Shows ${hiddenAisles} more aisles`}
+                onPress={() => setAislesOpen(true)}
+              />
+            ) : (
+              <Pill label="+ New" accessibilityLabel="New aisle" dashed onPress={newCategory} />
+            )}
           </View>
           {isOverride ? (
             <ThemedText variant="footnote" color="inkSecondary" style={labelInset}>
@@ -438,6 +459,21 @@ export default function ItemEditSheet() {
       </View>
     </Screen>
   );
+}
+
+// About two rows of pills on a phone before Show all.
+const PREVIEW_AISLES = 6;
+
+/** The first aisles in the user's order, swapping the last for the current one when it's further down. */
+function previewAisles<C extends { id: string }>(aisles: C[], selectedId: string, sortingDefault: boolean): C[] {
+  // The Sorting… pill takes one of the places while it's shown.
+  const room = sortingDefault ? PREVIEW_AISLES - 1 : PREVIEW_AISLES;
+  // Showing all but one would hide a single aisle behind a button the same size.
+  if (aisles.length <= room + 1) return aisles;
+  const first = aisles.slice(0, room);
+  const selected = aisles.find((c) => c.id === selectedId);
+  if (!selected || first.includes(selected)) return first;
+  return [...first.slice(0, -1), selected];
 }
 
 /** An "Added" row from a recipe that still exists, which opens it. */
@@ -683,4 +719,5 @@ const styles = StyleSheet.create({
   centered: { alignItems: 'center', justifyContent: 'center' },
   label: { alignSelf: 'flex-start' },
   inline: { borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
+  title: { padding: 0 },
 });

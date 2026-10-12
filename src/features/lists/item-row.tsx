@@ -39,7 +39,7 @@ type Props = {
   amountText?: string;
   /** A second line, e.g. "Also in Weeknight dal" (spec 4.6). */
   hint?: string;
-  /** Newest and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
+  /** As added and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
   aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
   selected?: boolean;

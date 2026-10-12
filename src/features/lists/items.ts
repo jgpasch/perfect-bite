@@ -366,7 +366,7 @@ const parseBulkAdd = (a: BulkAdd): ParsedAdd | null => ('parsed' in a ? a.parsed
  * Adds many items in one transaction, each as a single add would (spec 4.4): an open match
  * Combines, a checked one is reopened with its amounts replaced, and the same ingredient twice in
  * the batch folds into the first. Returns one result per add (null if the add was empty); pass
- * them to `undoAdds` to take the whole add back. The adds share one timestamp, so Newest (spec
+ * them to `undoAdds` to take the whole add back. The adds share one timestamp, so As added (spec
  * 4.6) keeps them together in the order given. `exec`: the caller's transaction.
  */
 export function addItemsBulk(
@@ -688,7 +688,7 @@ export type ItemView = {
   displayName: string;
   note: string | null;
   checkedAt: Date | null;
-  /** When the item row was made; Newest (spec 4.6) goes by its amounts and falls back to this. */
+  /** When the item row was made; As added (spec 4.6) goes by its amounts and falls back to this. */
   createdAt: Date;
   amounts: Amount[];
   /** The household's usual unit for the ingredient, else its default unit (null: a count, or nothing known). */

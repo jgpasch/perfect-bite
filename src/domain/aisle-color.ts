@@ -53,14 +53,24 @@ export function aisleColor(slug: string | null | undefined): AisleHue {
   return HUES[slug as CategorySlug];
 }
 
-/** The hues a recipe's icon tile can take: the aisle hues without grey. */
-const RECIPE_HUES: readonly AisleHue[] = ['green', 'blue', 'rose', 'amber'];
+/** The hues a recipe's icon tile or a household can take: the aisle hues without grey. */
+const ID_HUES: readonly AisleHue[] = ['green', 'blue', 'rose', 'amber'];
+
+/** A stable hash of an id over `ID_HUES`, the same on every launch and device. */
+function idHue(id: string): AisleHue {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return ID_HUES[Math.abs(hash) % ID_HUES.length];
+}
 
 /** A recipe's tint: a stable hash of its id over the aisle hues, so a recipe keeps its colour everywhere. */
 export function recipeHue(recipeId: string): AisleHue {
-  let hash = 0;
-  for (let i = 0; i < recipeId.length; i++) hash = (hash * 31 + recipeId.charCodeAt(i)) | 0;
-  return RECIPE_HUES[Math.abs(hash) % RECIPE_HUES.length];
+  return idHue(recipeId);
+}
+
+/** A household's colour (its section bar on the Lists home), from its id; there is no column for it. */
+export function householdColor(householdId: string): AisleHue {
+  return idHue(householdId);
 }
 
 /** An aisle's short name for tight spots, e.g. the autocomplete panel: "Meat & seafood" → "Meat". */
