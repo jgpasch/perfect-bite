@@ -37,6 +37,8 @@ function failureResponse(failure: ImportFailure, message: string): Response {
   switch (failure.code) {
     case 'invalid_url':
       return error(400, 'invalid_url', message);
+    case 'not_entitled':
+      return error(403, 'not_entitled', message);
     case 'fetch_failed':
       return error(502, 'fetch_failed', 'The page could not be fetched');
     case 'not_a_recipe':
@@ -63,7 +65,7 @@ function parseRequest(bytes: Uint8Array): RecipeImportRequest | Response {
 }
 
 /**
- * POST RecipeImportRequest → 200 RecipeImportResponse · 400 · 405 · 413 · 422 · 429 · 500 · 502 ·
+ * POST RecipeImportRequest → 200 RecipeImportResponse · 400 · 403 · 405 · 413 · 422 · 429 · 500 · 502 ·
  * 503 with Retry-After. Never logs headers or page content.
  */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {

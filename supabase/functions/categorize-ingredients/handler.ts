@@ -6,6 +6,7 @@ import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } 
 import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v2.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
+import type { Feature } from '../_shared/entitlements.ts';
 
 /** Names per request (LLM boundaries: input). */
 export const MAX_NAMES = 100;
@@ -51,6 +52,11 @@ export interface CategorizeStore {
    * names it would send to the LLM. Called once per request, before anything is written.
    */
   checkLimit(newNames: number): Promise<LimitResult>;
+  /**
+   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
+   * `_shared/entitlements.ts`). Called first, before the rate limit or any database or LLM work.
+   */
+  requireFeature(feature: Feature): Promise<void>;
 }
 
 export type LimitResult = 'ok' | 'user_limit' | 'global_cap';
@@ -97,13 +103,14 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 /**
  * Answers every input name from the database, sending only the uncategorized ones (with attempts
  * left) to the LLM in one call per 100 names. `model` is injected by tests; otherwise the task's
- * env model is used.
+ * env model is used. Throws NotEntitledError, before any other work, without `categorize`.
  */
 export async function categorize(
   names: readonly string[],
   store: CategorizeStore,
   model?: { instance: LanguageModel; modelId: string },
 ): Promise<CategorizeResponse> {
+  await store.requireFeature('categorize');
   if (names.length > MAX_NAMES) throw new CategorizeInputError(`At most ${MAX_NAMES} names per request`);
 
   // Normalized name → display name (the first spelling seen). Names empty after normalizing are dropped.

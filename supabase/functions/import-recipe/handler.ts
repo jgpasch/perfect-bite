@@ -16,6 +16,7 @@ import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v1.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
+import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { FetchPageError, type FetchedPage } from '../_shared/fetch-page.ts';
 import {
   CategorizeLimitError,
@@ -43,6 +44,11 @@ export interface RecipeImportStore {
   saveCached(urlKey: string, promptVersion: string, result: ExtractedRecipe): Promise<void>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
+  /**
+   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
+   * `_shared/entitlements.ts`). Called first, before the rate limit, the cache or any fetch.
+   */
+  requireFeature(feature: Feature): Promise<void>;
 }
 
 export type ImportDeps = {
@@ -122,6 +128,14 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
  * Only extractions of pages the server fetched are cached, `not_a_recipe` answers included.
  */
 export async function importRecipe(request: RecipeImportRequest, deps: ImportDeps): Promise<RecipeImportResponse> {
+  try {
+    await deps.store.requireFeature('recipe_import');
+  } catch (err) {
+    if (err instanceof NotEntitledError) {
+      throw new ImportRecipeError({ code: 'not_entitled' }, "Recipe import isn't included in your plan");
+    }
+    throw err;
+  }
   const now = deps.now ?? Date.now;
   const urlKey = canonicalRecipeUrl(request.url);
   if (!urlKey) throw new ImportRecipeError({ code: 'invalid_url' }, 'Not an http(s) URL');

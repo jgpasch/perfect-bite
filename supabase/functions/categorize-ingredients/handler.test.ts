@@ -6,6 +6,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { namesFromPrompt } from '../_shared/ai/mock-model.ts';
 import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v2.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import {
   categorize,
   CategorizeInputError,
@@ -94,6 +95,15 @@ class FakeStore implements CategorizeStore {
   async checkLimit(newNames: number) {
     this.limitChecks.push(newNames);
     return this.limit;
+  }
+
+  /** The features the caller's plan has, and every feature checked. */
+  features = new Set<Feature>(['categorize', 'recipe_import', 'recipe_import_photo']);
+  featureChecks: Feature[] = [];
+
+  async requireFeature(feature: Feature) {
+    this.featureChecks.push(feature);
+    if (!this.features.has(feature)) throw new NotEntitledError(feature);
   }
 }
 
@@ -494,6 +504,69 @@ test('an error from the limit check is thrown, and nothing is written', async ()
   const { calls, model } = fakeModel(allPantry);
 
   await assertRejects(() => categorize(['dukkah'], store, model), Error, 'db down');
+  assertEquals(calls.length, 0);
+  assertEquals(store.rows.size, 0);
+});
+
+// --- Plans --------------------------------------------------------------------------------------
+
+test('without categorize: not_entitled before any read, limit check, write or LLM call', async () => {
+  const store = new FakeStore();
+  store.seed('milk');
+  store.features = new Set();
+  let reads = 0;
+  const getIngredients = store.getIngredients.bind(store);
+  store.getIngredients = (names) => {
+    reads++;
+    return getIngredients(names);
+  };
+  const { calls, model } = fakeModel(allPantry);
+
+  const err = await assertRejects(() => categorize(['dukkah', 'milk'], store, model), NotEntitledError);
+
+  assertEquals(err.feature, 'categorize');
+  assertEquals(store.featureChecks, ['categorize']);
+  assertEquals(reads, 0);
+  assertEquals(store.limitChecks, []);
+  assertEquals(calls.length, 0);
+  assertEquals(store.aiCalls.length, 0);
+  assertEquals([...store.rows.keys()], ['milk']);
+});
+
+test('only recipe_import is not enough: categorize is checked by its own key', async () => {
+  const store = new FakeStore();
+  store.features = new Set(['recipe_import', 'recipe_import_photo']);
+  await assertRejects(() => categorize(['dukkah'], store, fakeModel(allPantry).model), NotEntitledError);
+  assertEquals(store.limitChecks, []);
+});
+
+test('the plan is checked before the 101-name input limit', async () => {
+  const store = new FakeStore();
+  store.features = new Set();
+  const names = Array.from({ length: 101 }, (_, i) => `item ${i}`);
+  await assertRejects(() => categorize(names, store), NotEntitledError);
+});
+
+test('with categorize: checked once per request, then categorized as usual', async () => {
+  const store = new FakeStore();
+  store.features = new Set(['categorize']);
+  const { calls, model } = fakeModel(allPantry);
+
+  const res = await categorize(['dukkah'], store, model);
+
+  assertEquals(store.featureChecks, ['categorize']);
+  assertEquals(store.limitChecks, [1]);
+  assertEquals(calls.length, 1);
+  assertEquals(res.results.dukkah, { status: 'categorized', category_id: cat('pantry'), is_grocery_item: true, default_unit: 'count' });
+});
+
+test('an error from the plan check is thrown as is, before any other work', async () => {
+  const store = new FakeStore();
+  store.requireFeature = () => Promise.reject(new Error('db down'));
+  const { calls, model } = fakeModel(allPantry);
+
+  await assertRejects(() => categorize(['dukkah'], store, model), Error, 'db down');
+  assertEquals(store.limitChecks, []);
   assertEquals(calls.length, 0);
   assertEquals(store.rows.size, 0);
 });

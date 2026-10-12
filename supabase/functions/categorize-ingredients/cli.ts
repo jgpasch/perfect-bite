@@ -180,6 +180,9 @@ export class MemoryStore implements CategorizeStore {
   async checkLimit() {
     return 'ok' as const;
   }
+
+  /** No database, so no plans: every feature is granted. */
+  async requireFeature() {}
 }
 
 export type CliIo = {

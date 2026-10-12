@@ -1,5 +1,6 @@
 // HTTP layer for categorize-ingredients, kept free of `@supabase/server` so Deno tests can call it.
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
+import { NotEntitledError } from '../_shared/entitlements.ts';
 import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
 /** Request body cap: 100 names of 64 characters fit with room for JSON and multi-byte text. */
@@ -74,7 +75,7 @@ function parseNames(bytes: Uint8Array): string[] | string {
   return names;
 }
 
-/** POST { names: string[] } → 200 CategorizeResponse · 400 · 405 · 413 · 429 · 503 · 500. Never logs headers. */
+/** POST { names: string[] } → 200 CategorizeResponse · 400 · 403 · 405 · 413 · 429 · 503 · 500. Never logs headers. */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
   if (req.method !== 'POST') return error(405, 'method_not_allowed', 'Use POST');
 
@@ -97,6 +98,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   try {
     return Response.json(await deps.categorize(names));
   } catch (err) {
+    if (err instanceof NotEntitledError) return error(403, 'not_entitled', "Categorizing isn't included in your plan");
     if (err instanceof CategorizeInputError) return error(400, 'invalid_request', err.message);
     if (err instanceof CategorizeLimitError) {
       if (err.reason === 'user_limit') return error(429, 'rate_limited', 'Too many requests; try again later');

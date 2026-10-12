@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { requireFeature } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import type { CachedImport, RecipeImportStore } from './handler.ts';
 
 /**
- * RecipeImportStore over the service-role client. `recipe_imports` has no user id; the rate limit
- * is per `userId` and global up to `dailyCap` imports a day.
+ * RecipeImportStore over the service-role client. `recipe_imports` has no user id; the plan check
+ * and the rate limit are per `userId`, and the global limit is `dailyCap` imports a day.
  */
 export function createRecipeImportStore(
   admin: SupabaseClient,
@@ -49,6 +50,10 @@ export function createRecipeImportStore(
     async logAiCall(call) {
       const { error } = await admin.from('ai_calls').insert(call);
       if (error) throw error;
+    },
+
+    requireFeature(feature) {
+      return requireFeature(admin, limits.userId, feature);
     },
   };
 }

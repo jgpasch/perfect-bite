@@ -439,6 +439,13 @@ Deno.test('MemoryStore: starts empty; failed goes to Other and counts an attempt
   assertEquals(await store.checkLimit(), 'ok');
 });
 
+Deno.test('MemoryStore grants every feature, so the CLI and evals run without a database', async () => {
+  const store = new MemoryStore();
+  for (const feature of ['categorize', 'recipe_import', 'recipe_import_photo'] as const) {
+    assertEquals(await store.requireFeature(feature), undefined);
+  }
+});
+
 const call = (over: Partial<AiCallRecord>): AiCallRecord => ({
   id: 'x',
   task: 'categorize',

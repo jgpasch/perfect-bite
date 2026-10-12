@@ -77,6 +77,15 @@ Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after 
   assertEquals([PAUSED_RETRY_AFTER, AI_FAILED_RETRY_AFTER], [3600, 30]);
 });
 
+Deno.test('not_entitled is 403 with its message and no Retry-After', async () => {
+  const failure = new ImportRecipeError({ code: 'not_entitled' }, "Recipe import isn't included in your plan");
+  const { d } = deps({ importRecipe: () => Promise.reject(failure) });
+  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  assertEquals(res.status, 403);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'not_entitled', message: "Recipe import isn't included in your plan" });
+});
+
 Deno.test('fetch_failed doesn’t echo the fetch error to the client', async () => {
   const res = await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'fetch_failed' }));
   assertEquals(await res.json(), { error: 'fetch_failed', message: 'The page could not be fetched' });

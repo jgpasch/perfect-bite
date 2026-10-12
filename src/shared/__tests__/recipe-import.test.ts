@@ -224,8 +224,22 @@ describe('RecipeImportResponseSchema', () => {
 });
 
 describe('error codes', () => {
-  it('are exactly the five from spec 6.6', () => {
-    expect(RECIPE_IMPORT_ERROR_CODES).toEqual(['invalid_url', 'fetch_failed', 'not_a_recipe', 'rate_limited', 'unavailable']);
+  it('are exactly the five from spec 6.6 plus not_entitled from 4.12', () => {
+    expect(RECIPE_IMPORT_ERROR_CODES).toEqual([
+      'invalid_url',
+      'fetch_failed',
+      'not_a_recipe',
+      'rate_limited',
+      'unavailable',
+      'not_entitled',
+    ]);
+  });
+
+  it('parse a not_entitled error body', () => {
+    const body = { error: 'not_entitled', message: "Recipe import isn't included in your plan" };
+    expect(RecipeImportErrorSchema.parse(body)).toEqual(body);
+    expect(RecipeImportErrorCodeSchema.safeParse('not_entitled').success).toBe(true);
+    expect(RecipeImportErrorCodeSchema.safeParse('forbidden').success).toBe(false);
   });
 
   it('parse in an error body and reject anything else', () => {

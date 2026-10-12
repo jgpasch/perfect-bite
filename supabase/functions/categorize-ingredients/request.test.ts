@@ -1,6 +1,7 @@
 import { OTHER_CATEGORY_ID } from '@shared/index.ts';
 import { assertEquals } from '@std/assert';
 
+import { NotEntitledError } from '../_shared/entitlements.ts';
 import { CategorizeInputError, CategorizeLimitError, type CategorizeResponse } from './handler.ts';
 import { dailyNameCap, DEFAULT_DAILY_NAME_CAP, handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
 
@@ -239,6 +240,30 @@ Deno.test('a bad request is 400 before the rate limit is reached', async () => {
   const { d, calls } = deps({ categorize: () => Promise.reject(new CategorizeLimitError('user_limit')) });
   await expectError(await handleRequest(post('not json'), d), 400, 'invalid_request');
   assertEquals(calls, []);
+});
+
+// --- 403 ----------------------------------------------------------------------------------------
+
+Deno.test('not_entitled is 403 with the usual error body and no Retry-After', async () => {
+  const { d } = deps({ categorize: () => Promise.reject(new NotEntitledError('categorize')) });
+  const res = await handleRequest(post(JSON.stringify({ names: ['milk'] })), d);
+  assertEquals(res.status, 403);
+  assertEquals(res.headers.get('retry-after'), null);
+  assertEquals(await res.json(), { error: 'not_entitled', message: "Categorizing isn't included in your plan" });
+});
+
+Deno.test('not_entitled comes from categorize with the names; a bad body is still 400 first', async () => {
+  const calls: string[][] = [];
+  const { d } = deps({
+    categorize: (names) => {
+      calls.push(names);
+      return Promise.reject(new NotEntitledError('categorize'));
+    },
+  });
+  await expectError(await handleRequest(post(JSON.stringify({ names: ['milk'] })), d), 403, 'not_entitled');
+  assertEquals(calls, [['milk']]);
+  await expectError(await handleRequest(post('not json'), d), 400, 'invalid_request');
+  assertEquals(calls.length, 1);
 });
 
 // --- CATEGORIZE_DAILY_NAME_CAP ------------------------------------------------------------------

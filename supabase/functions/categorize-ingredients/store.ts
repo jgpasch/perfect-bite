@@ -1,15 +1,16 @@
 import { OTHER_CATEGORY_ID } from '@shared/index.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { requireFeature } from '../_shared/entitlements.ts';
 import type { CategorizedAnswer, CategorizeStore, IngredientRow, LimitResult } from './handler.ts';
 
 /**
- * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The rate
- * limit is per `userId` (null for the pg_cron sweep) and global up to `dailyNameCap` new names a day.
+ * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The plan
+ * check and the rate limit are per `userId`; the global limit is `dailyNameCap` new names a day.
  */
 export function createCategorizeStore(
   admin: SupabaseClient,
-  limits: { userId: string | null; dailyNameCap: number },
+  limits: { userId: string; dailyNameCap: number },
 ): CategorizeStore {
   const ingredients = () => admin.from('ingredients');
 
@@ -84,6 +85,10 @@ export function createCategorizeStore(
       });
       if (error) throw error;
       return data as LimitResult;
+    },
+
+    requireFeature(feature) {
+      return requireFeature(admin, limits.userId, feature);
     },
   };
 }

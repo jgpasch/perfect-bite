@@ -6,6 +6,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage } from '../_shared/fetch-page.ts';
 import {
   categorize,
@@ -92,6 +93,13 @@ class FakeRecipeStore implements RecipeImportStore {
   async logAiCall(call: AiCallRecord) {
     this.aiCalls.push(call);
   }
+  /** The features the caller's plan has, and every feature checked. */
+  features = new Set<Feature>(['categorize', 'recipe_import', 'recipe_import_photo']);
+  featureChecks: Feature[] = [];
+  async requireFeature(feature: Feature) {
+    this.featureChecks.push(feature);
+    if (!this.features.has(feature)) throw new NotEntitledError(feature);
+  }
 }
 
 /** In-memory `ingredients`, enough for categorize(). */
@@ -125,6 +133,8 @@ class FakeCategorizeStore implements CategorizeStore {
   async checkLimit() {
     return this.limit;
   }
+  /** Like index.ts: `recipe_import` was checked first and implies `categorize`. */
+  async requireFeature() {}
 }
 
 /** A model whose every call throws `error`. */
@@ -514,6 +524,77 @@ test('AI_MODEL_CATEGORIZE=off still imports, with the names pending', async () =
     assertEquals(body.ingredients.map((i) => i.status), ['pending', 'pending', 'pending', 'pending']);
     assertEquals(calls('categorize'), 0);
   });
+});
+
+// --- Plans ------------------------------------------------------------------------------------------
+
+for (const features of [[], ['categorize']] as Feature[][]) {
+  test(`without recipe_import (plan: ${features.join(', ') || 'none'}): 403 not_entitled before anything else`, async () => {
+    const { post, store, fetched, aiCalls } = setup({
+      categorize: () => Promise.reject(new Error('should not categorize')),
+    });
+    store.features = new Set(features);
+    store.getCached = () => Promise.reject(new Error('should not be read'));
+
+    const res = await post({ url: PASTA_URL });
+
+    assertEquals(res.status, 403);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(await res.json(), { error: 'not_entitled', message: "Recipe import isn't included in your plan" });
+    assertEquals(store.featureChecks, ['recipe_import']);
+    assertEquals(store.limitChecks, 0);
+    assertEquals(store.saves, []);
+    assertEquals(fetched, []);
+    assertEquals(aiCalls, []);
+  });
+}
+
+test('without recipe_import, a client-supplied page is refused too, with nothing extracted', async () => {
+  const { deps, store, aiCalls } = setup();
+  store.features = new Set(['categorize']);
+  const err = await importRecipe({ url: BARS_URL, page: { title: 'Lemon Bars', text: '1 cup flour' } }, deps).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  assert(err instanceof ImportRecipeError);
+  assertEquals(err.failure, { code: 'not_entitled' });
+  assertEquals(store.limitChecks, 0);
+  assertEquals(aiCalls, []);
+});
+
+test('the plan is checked before the URL and the kill switch', async () => {
+  await withEnv({ AI_MODEL_RECIPE: 'off' }, async () => {
+    const { post, deps, store } = setup();
+    store.features = new Set();
+    await expectError(await post({ url: PASTA_URL }), 403, 'not_entitled');
+    const err = await importRecipe({ url: 'ftp://example.com/a' }, deps).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert(err instanceof ImportRecipeError);
+    assertEquals(err.failure, { code: 'not_entitled' });
+    assertEquals(store.featureChecks, ['recipe_import', 'recipe_import']);
+  });
+});
+
+test('with recipe_import: checked once, then imported and categorized as usual', async () => {
+  const { post, store, calls } = setup();
+  store.features = new Set(['categorize', 'recipe_import']);
+  const res = await post({ url: PASTA_URL });
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), PASTA_RESPONSE);
+  assertEquals(store.featureChecks, ['recipe_import']);
+  assertEquals(calls('extractRecipe'), 1);
+  assertEquals(calls('categorize'), 1);
+});
+
+test('an error from the plan check is a 500, with no limit check, fetch or LLM call', async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  store.requireFeature = () => Promise.reject(new Error('db down'));
+  await expectError(await post({ url: PASTA_URL }), 500, 'internal_error');
+  assertEquals(store.limitChecks, 0);
+  assertEquals(fetched, []);
+  assertEquals(aiCalls, []);
 });
 
 // --- URLs and fetching ------------------------------------------------------------------------------

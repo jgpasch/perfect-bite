@@ -120,6 +120,7 @@ export const RECIPE_IMPORT_ERROR_CODES = [
   'not_a_recipe',
   'rate_limited',
   'unavailable',
+  'not_entitled',
 ] as const;
 export const RecipeImportErrorCodeSchema = z.enum(RECIPE_IMPORT_ERROR_CODES);
 export type RecipeImportErrorCode = z.infer<typeof RecipeImportErrorCodeSchema>;

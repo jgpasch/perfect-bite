@@ -103,7 +103,7 @@ export function placeholderUrl(file: string): string {
   return `https://file.invalid/${encodeURIComponent(base)}`;
 }
 
-/** `recipe_imports` and `ai_calls` in memory: the cache starts empty and there are no limits. */
+/** `recipe_imports` and `ai_calls` in memory: the cache starts empty and there are no limits or plans. */
 export class MemoryRecipeStore implements RecipeImportStore {
   cache = new Map<string, CachedImport>();
   aiCalls: AiCallRecord[] = [];
@@ -123,6 +123,9 @@ export class MemoryRecipeStore implements RecipeImportStore {
   async logAiCall(call: AiCallRecord) {
     this.aiCalls.push(call);
   }
+
+  /** No database, so no plans: every feature is granted. */
+  async requireFeature() {}
 }
 
 const SLUG_BY_ID = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.id, c.slug]));
