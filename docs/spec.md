@@ -186,6 +186,8 @@ A small button under each list's title reads the current view ("As added ⌄") a
 - Opening the link (signed in) shows "Join *John's household*? You'll share its lists and recipes. Your other households aren't affected." Accepting adds the user as a member. Nothing of theirs moves (Q3).
 - Already a member: the link says so and opens the household (the invite stays unused).
 - A used, expired or unknown link says so ("Ask for a new one"). Opening a link signed out goes to sign-in; the link isn't kept for after sign-in yet (follow-up).
+- **Email invites** (server side done; app in progress). An invite can name the email it's for (stored trimmed and lower-cased; null for a link-only invite). Inviting the email of someone already in the household fails ("already a member"); inviting an email with no account works the same as any other, so the inviter never learns whether an address has an account. Inviting the same email to the same household again revokes the earlier invite and makes a new link ("Send again"; only the token's hash is stored, so the old link can't be re-shown). The email decides who sees the invite in the app, but doesn't lock the link: whoever opens it first can join with it.
+- An invite is **open** until it's used, revoked or declined; expiry is checked when it's read. Any member can see the household's open, unexpired invites (email or link-only, who sent it, when, when it expires) and revoke any of them. Someone signed in with an invite's email sees it in the app (household, inviter, member count) unless they're already in that household, and can join or decline it there without the link. Revoked and declined links read as used.
 - On accept, the new membership syncs the household in (7.2) and the app opens the Lists tab.
 
 **Leaving and removal** (Q2)
@@ -202,7 +204,7 @@ All changes sync live to all members' devices.
 
 ### 4.8 Accounts
 - **Google sign-in only**, through Supabase Auth, the same way as stash (native Google Sign-In SDK, then `signInWithIdToken`).
-- **During development**: use stash's dev sign-in stub (email + 6-digit code; local Supabase delivers the code to Inbucket). Google replaces it once OAuth client IDs exist (Q13). Nothing else in the app may depend on which sign-in method is used.
+- **During development**: dev builds (`__DEV__`) also show stash's dev sign-in stub (email + 6-digit code; local Supabase delivers the code to Inbucket). Release builds show Google only. The OAuth clients are in their own Google Cloud project (Q13). Nothing else in the app may depend on which sign-in method is used.
 - A first-run user gets a personal household (4.7) with a starter list named "Groceries", which is their default list.
 - Account deletion (App Store requirement): deletes the user, their overrides, order, and custom categories, then leaves each of their households per 4.7 (owner promotion; households where they were the last member are deleted with their data). Shared households keep their data.
 - Note: App Store Guideline 4.8 expects a privacy-focused login (e.g. Sign in with Apple) alongside Google for a *public* release. Fine to ignore for personal/TestFlight use; revisit only if this goes to the public App Store.
@@ -358,8 +360,14 @@ create table household_invites (
   created_at   timestamptz not null default now(),
   expires_at   timestamptz not null,
   used_by      uuid references auth.users,
-  used_at      timestamptz
+  used_at      timestamptz,
+  invited_email text check (invited_email = lower(invited_email) and invited_email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'), -- null = link-only
+  revoked_at   timestamptz,
+  declined_at  timestamptz
 );
+-- One open (not used, revoked or declined) invite per household and email.
+create unique index on household_invites (household_id, invited_email)
+  where invited_email is not null and used_at is null and revoked_at is null and declined_at is null;
 
 -- Household data
 create table lists (
@@ -505,7 +513,7 @@ Note the `create table` order above is for readability; the real migration must 
 - `user_category_order`, `user_settings`: read/write only where `user_id = auth.uid()`.
 - Household tables: read/write where `household_id` is one of the caller's households: `household_id in (select my_household_ids())`, where `my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
 - `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
-- `household_invites`: no direct access; `create_invite`, `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired) and `accept_invite` only.
+- `household_invites`: no direct access; `security definer` functions only, all for `authenticated`: `create_invite(household, email?)` (members; with an email, raises `already a member` for a member's email and revokes the open invite to the same email first), `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired; revoked and declined read as used), `accept_invite` (by link, whoever has it), `list_household_invites` (members; open, unexpired invites), `revoke_invite` (any member of the invite's household), `my_invites` (open, unexpired invites to the caller's `auth.email()`, case-insensitive, for households they aren't in), and `accept_invite_by_id` / `decline_invite` (only for an invite to the caller's email; anyone else gets `invite not found`, the same as an unknown id).
 - `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
 - Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
 
@@ -785,7 +793,7 @@ Each milestone should end with a working app and passing tests.
 8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
    - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Rename, leave, remove and roles are still M7. *Also landed early (with M5)*: invites: `household_invites` with `create_invite` / `preview_invite` / `accept_invite`, an "Invite someone" button on the household screen and the join screen (`src/app/invite/[token].tsx`), using the app scheme until Universal Links have a domain.
 9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function (categorizes unknown names inline by calling the shared `categorize()`), default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
-10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (once Q13 is decided), TestFlight.
+10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (done; the stub stays in dev builds), TestFlight.
 11. **M10 Recipe import** (4.10, 6.6), after M6's categorizer works, since extraction is a bigger LLM call. **Done**: everything below has landed; the end-to-end device pass and the extension's first build are manual checks still to run.
     - *Spec*: this section, 4.10 and 6.6.
     - *Server*: shared schemas and `canonicalRecipeUrl`; the JSON-LD recipe reader with real-site fixtures; safe page fetch and readable text; the `extract-recipe` AI task and prompt, with a recipe mock; the `import-recipe` Edge Function with rate limits, global cap and the `recipe_imports` cache; `yarn ai:recipe` and the recipe eval (`yarn ai:eval:recipe`).
@@ -836,7 +844,7 @@ Turn on react-native-web for planning on a laptop (lists, recipes, households). 
 | Q10 | ~~Prompt on in-app duplicate adds, or auto-Combine with an undo toast?~~ | **Decided**: auto-Combine with an undo toast, for single adds and recipe adds alike. A recipe add has no "already on the list" step; one toast with **Undo** takes back the whole add (4.4). |
 | Q11 | Is the Siri default list per user or per household? | Per user. |
 | Q12 | ~~Final app name.~~ | **Decided**: "The Perfect Bite" as the display name; the M0 spike confirms Siri recognizes it and picks the phrase variants. |
-| Q13 | Google Cloud project for OAuth client IDs: reuse stash's or a new one? | New project, same setup as stash; dev stub until then. |
+| Q13 | Google Cloud project for OAuth client IDs: reuse stash's or a new one? | Closed: a new project, same setup as stash. |
 | Q14 | ~~Copy stash code or share packages?~~ | **Decided**: copy when useful; no shared packages. The apps evolve independently. |
 | Q15 | Repo name and bundle id. | `perfect-bite`, `com.jgp.perfectbite`. The display name stays "The Perfect Bite". |
 | Q16 | Can any member invite people, or only owners? | Any member. |

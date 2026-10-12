@@ -9,13 +9,13 @@ Work the app itself still needs. Sections 1–7 are setup steps; this is the bui
 ### Must have
 
 - [ ] **Host the backend on Supabase.** Today everything runs on local Supabase on the Mac, which neither phone can reach away from home. Steps in section 2.
-- [ ] **Google sign-in (Q13).** Replaces the dev sign-in stub (spec §4.8, M9). Until it lands, the email-code stopgap in section 3 works for two people.
-  - [ ] New Google Cloud project (Q13's default: same setup as stash).
-  - [ ] OAuth consent screen in Testing mode, with both our Gmail addresses as test users. That's enough for an alpha, with no Google verification.
-  - [ ] OAuth client IDs: one iOS client (bundle ID `com.jgp.perfectbite`) and one Web client, which Supabase uses to verify the token.
-  - [ ] Enable the Google provider on the hosted Supabase project with the Web client ID and secret.
-  - [ ] Native Google sign-in in the app (check the SDK 57 Expo docs for the current recommended approach), exchanging the ID token with `supabase.auth.signInWithIdToken`. Keep the email-code stub for dev builds only.
-  - [ ] Update spec §4.8 and close Q13.
+- [x] **Google sign-in (Q13).** Replaces the dev sign-in stub (spec §4.8, M9). Until it lands, the email-code stopgap in section 3 works for two people.
+  - [x] New Google Cloud project (Q13's default: same setup as stash).
+  - [x] OAuth consent screen in Testing mode, with both our Gmail addresses as test users. That's enough for an alpha, with no Google verification.
+  - [x] OAuth client IDs: one iOS client (bundle ID `com.jgp.perfectbite`) and one Web client, which Supabase uses to verify the token.
+  - [x] Enable the Google provider on the hosted Supabase project with the Web client ID and secret.
+  - [x] Native Google sign-in in the app (check the SDK 57 Expo docs for the current recommended approach), exchanging the ID token with `supabase.auth.signInWithIdToken`. Keep the email-code stub for dev builds only.
+  - [x] Update spec §4.8 and close Q13.
 - [ ] **Share extension compiles.** `targets/share-recipe` has never been built (`manual-checks.md`). An EAS build fails if any target fails, so do one local device build first and fix the Swift.
 - [ ] **One full pass on a real device against the hosted backend:** sign in, add items and see them categorized, import a recipe, invite the other person to the household and see sync between the two phones.
 
@@ -61,7 +61,7 @@ Skip this section if Google sign-in (above) is done first. Otherwise the dev sig
 
 - [ ] `yarn dlx eas-cli login` and `yarn dlx eas-cli init` (adds the EAS project ID to the app config).
 - [ ] `yarn dlx eas-cli build:configure` to create `eas.json` with a `production` profile.
-- [ ] Add EAS environment variables for production: `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the hosted project.
+- [ ] Add EAS environment variables for production: `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the hosted project, and `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (the same values as `.env.local`). Without the Google pair, a release build has no way to sign in.
 - [ ] Add `ITSAppUsesNonExemptEncryption: false` to `ios.infoPlist`, so App Store Connect stops asking about export compliance on every build.
 - [ ] `yarn expo install expo-updates` and configure it, so JS-only changes can ship with `eas update` instead of a new build.
 - [ ] Commit `eas.json` and the config changes. `ios/` is gitignored, so EAS generates it from `app.json` (CNG).
