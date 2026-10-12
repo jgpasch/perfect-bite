@@ -1,0 +1,420 @@
+<title>Household Invite Flow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one reading column for the plan, with horizontally scrolling rows of phone frames in the app's Pantry palette. */
+:root{
+  --bg:#EEF3EC; --surface:#FFFFFF; --muted:#DCE4DA; --border:#E3E9E1; --ctl:#B9C4BC;
+  --ink:#1D2A22; --ink2:#55635A; --ink3:#7C877F;
+  --primary:#2E6B45; --onprimary:#FFFFFF; --psoft:#DDEFE2; --onpsoft:#1F5233;
+  --pending:#8A5C0C; --pendsoft:#FFF7E6; --danger:#A33D53; --dsoft:#F7E1E6;
+  --amber:#F6EBD4; --blue:#3E7BB8; --rose:#C2556B; --stage:#DCE4DA;
+  --bubble:#E9E9EB; --imsg:#0B84FE;
+  --display:'Bricolage Grotesque',ui-rounded,system-ui,sans-serif;
+  --body:'Figtree',system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111915; --surface:#1B241F; --muted:#28332C; --border:#26302A; --ctl:#56635A;
+  --ink:#E7EEE8; --ink2:#A6B3AA; --ink3:#7E8B82;
+  --primary:#7CC395; --onprimary:#0E1F14; --psoft:#1E3A28; --onpsoft:#B7E4C5;
+  --pending:#E8B65A; --pendsoft:#33290F; --danger:#F08B9F; --dsoft:#3B1E26;
+  --amber:#33290F; --blue:#6FA3D6; --rose:#E07C90; --stage:#0B110E;
+  --bubble:#2C2C2E; --imsg:#0B84FE; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111915; --surface:#1B241F; --muted:#28332C; --border:#26302A; --ctl:#56635A;
+  --ink:#E7EEE8; --ink2:#A6B3AA; --ink3:#7E8B82;
+  --primary:#7CC395; --onprimary:#0E1F14; --psoft:#1E3A28; --onpsoft:#B7E4C5;
+  --pending:#E8B65A; --pendsoft:#33290F; --danger:#F08B9F; --dsoft:#3B1E26;
+  --amber:#33290F; --blue:#6FA3D6; --rose:#E07C90; --stage:#0B110E;
+  --bubble:#2C2C2E; --imsg:#0B84FE; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;padding:0 16px}
+.wrap{max-width:980px;margin:0 auto;padding-block:40px 80px}
+.col{max-width:680px}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.025em;line-height:1.08;text-wrap:balance;margin:0}
+h1{font-size:clamp(34px,6vw,48px)}
+h2{font-size:28px;margin-top:56px}
+h3{font-size:19px;font-weight:700;letter-spacing:-.01em}
+p{margin:0}
+.lede{font-size:18px;color:var(--ink2);margin-top:14px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+.stack{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;background:var(--muted);padding:1px 5px;border-radius:6px}
+.now{background:var(--surface);border-radius:22px;padding:20px;margin-top:20px;display:grid;gap:10px}
+.now ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.gap{color:var(--danger);font-weight:600}
+
+/* pattern cards */
+.patterns{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:20px}
+.pat{background:var(--surface);border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.pat.pick{outline:2px solid var(--primary)}
+.pat .ex{font-size:14px;color:var(--ink2)}
+.pat ul{margin:0;padding-left:18px;font-size:15px;display:grid;gap:4px}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:3px 8px;border-radius:10px;background:var(--psoft);color:var(--onpsoft);align-self:flex-start}
+.pro{color:var(--ink)} .con{color:var(--ink2)}
+
+/* phone rows */
+.row{display:flex;gap:28px;overflow-x:auto;padding:28px 24px 32px;margin:20px -16px 0;background:var(--stage);border-radius:28px}
+.shot{display:flex;flex-direction:column;gap:10px;flex:0 0 auto;width:268px}
+.shot .cap{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.shot .note{font-size:13.5px;color:var(--ink2);line-height:1.45}
+.ph{width:268px;height:580px;border-radius:40px;background:var(--bg);overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 18px 44px rgba(29,42,34,.18);font-size:14px;line-height:1.35}
+.sb{height:40px;flex:0 0 auto}
+.navr{display:flex;align-items:center;justify-content:space-between;padding:0 12px;height:36px}
+.ib{width:34px;height:34px;border-radius:17px;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:16px}
+.band{background:var(--amber);padding:6px 16px 16px}
+.disp{font-family:var(--display);font-weight:800;letter-spacing:-.025em;line-height:1.02}
+.sub{font-size:12px;font-weight:600;color:var(--pending);margin-top:4px}
+.avs{display:flex;margin-top:12px}
+.av{width:34px;height:34px;border-radius:17px;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--display);font-weight:800;font-size:14px;border:2.5px solid var(--amber);margin-right:-8px}
+.lbl{font-size:11px;font-weight:700;color:var(--ink2);padding:14px 26px 6px}
+.card{background:var(--surface);border-radius:18px;margin:0 12px;overflow:hidden}
+.it{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 14px;border-top:1px solid var(--border);font-size:14px;font-weight:500}
+.it:first-child{border-top:0}
+.it .grow{flex:1;min-width:0}
+.it .v{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.small{font-size:11.5px;color:var(--ink2);font-weight:400}
+.badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:8px}
+.b-owner{background:var(--amber);color:var(--pending)}
+.b-pend{background:var(--pendsoft);color:var(--pending)}
+.cta{height:44px;border-radius:22px;background:var(--primary);color:var(--onprimary);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;margin:0 12px}
+.plain{text-align:center;font-weight:700;font-size:13.5px;color:var(--primary);padding:10px}
+.hl{outline:2px dashed var(--primary);outline-offset:3px;border-radius:22px}
+.scrim{position:absolute;inset:0;background:rgba(29,42,34,.28)}
+.sheet{position:absolute;left:0;right:0;bottom:0;top:58px;background:var(--bg);border-radius:24px 24px 0 0;display:flex;flex-direction:column}
+.sheet .hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 4px;font-size:13.5px}
+.grab{width:32px;height:4px;border-radius:2px;background:var(--ctl)}
+.field{background:var(--surface);border-radius:22px;margin:0 12px;height:44px;display:flex;align-items:center;padding:0 16px;font-size:14px;outline:2px solid var(--primary)}
+.caret{display:inline-block;width:1.5px;height:17px;background:var(--primary);margin-left:1px;vertical-align:-3px}
+.help{font-size:11.5px;color:var(--ink2);padding:8px 26px 0}
+.kb{margin-top:auto;height:170px;background:var(--muted);display:grid;grid-template-columns:repeat(10,1fr);gap:5px;padding:10px 4px;align-content:start}
+.kb span{height:30px;background:var(--surface);border-radius:5px}
+.opt{display:flex;align-items:center;gap:12px;padding:10px 14px;min-height:52px;border-top:1px solid var(--border)}
+.opt:first-child{border-top:0}
+.oi{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:16px;font-weight:700}
+.oi.g{background:#34C759;color:#fff} .oi.b{background:#1E88F5;color:#fff} .oi.s{background:var(--psoft);color:var(--onpsoft)} .oi.n{background:var(--muted);color:var(--ink)}
+.chev{color:var(--ink3);font-size:15px}
+.who{display:flex;align-items:center;gap:10px;padding:4px 16px 14px}
+.who .av{border-color:var(--bg);margin:0}
+
+/* messages mock */
+.msg{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:0 12px 14px;background:var(--surface)}
+.mtop{background:var(--surface);text-align:center;padding:4px 0 10px;border-bottom:1px solid var(--border);font-size:12px}
+.mtop .ma{width:38px;height:38px;border-radius:19px;background:var(--ctl);margin:0 auto 4px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+.bub{max-width:82%;padding:8px 12px;border-radius:18px;font-size:13.5px}
+.bub.in{background:var(--bubble);color:var(--ink);align-self:flex-start}
+.lp{align-self:flex-start;width:82%;border-radius:18px;overflow:hidden;background:var(--bubble)}
+.lp .img{height:92px;background:var(--primary);display:flex;align-items:flex-end;padding:10px;gap:6px}
+.lp .img i{display:block;width:30px;height:30px;border-radius:9px}
+.lp .t{padding:8px 12px 10px;font-size:12.5px}
+.lp .t b{display:block;font-size:13px}
+
+/* web landing */
+.web{flex:1;display:flex;flex-direction:column;background:var(--primary);color:var(--onprimary);padding:20px 18px}
+.url{font-size:11px;text-align:center;opacity:.8;padding-bottom:14px}
+.wbtn{height:44px;border-radius:22px;background:var(--surface);color:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.steps{display:grid;gap:8px;font-size:13px;margin-top:16px}
+.steps div{display:flex;gap:8px}
+.steps b{width:20px;height:20px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:11px;flex:0 0 auto}
+
+/* banner */
+.banner{position:absolute;left:10px;right:10px;top:44px;background:var(--surface);border-radius:18px;padding:12px;display:flex;gap:10px;box-shadow:0 10px 30px rgba(29,42,34,.2)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 12px}
+.tile{height:100px;border-radius:18px;background:var(--surface);padding:12px;display:flex;flex-direction:column;justify-content:space-between}
+.tile.g{background:var(--primary);color:var(--onprimary)}
+.tile .n{font-family:var(--display);font-weight:800;font-size:26px}
+.inv{margin:0 12px 14px;background:var(--surface);border-radius:18px;padding:14px;display:grid;gap:10px;outline:2px solid var(--primary)}
+.inv .btns{display:flex;gap:8px}
+.inv .btns div{flex:1;height:38px;border-radius:19px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+
+/* decision + tables */
+.dec{background:var(--surface);border-radius:22px;padding:20px;display:grid;gap:8px}
+.dec .q{font-weight:700}
+.dec .rec{font-size:15px}
+.dec .rec b{color:var(--primary)}
+.dec .alt{font-size:14px;color:var(--ink2)}
+.tbl{overflow-x:auto;margin-top:16px;background:var(--surface);border-radius:22px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+th,td{text-align:left;padding:11px 16px;border-top:1px solid var(--border);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);border-top:0}
+td:first-child{white-space:nowrap;font-weight:600}
+.flowline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;font-size:14px}
+.flowline span{background:var(--surface);padding:6px 12px;border-radius:999px;font-weight:600}
+.flowline em{font-style:normal;color:var(--ink3)}
+@media (prefers-reduced-motion:no-preference){.row{scroll-behavior:smooth}}
+</style>
+
+<div class="wrap">
+  <div class="col">
+    <div class="eyebrow">Plan · not implemented · Oct 2026</div>
+    <h1 style="margin-top:10px">Inviting someone to a household</h1>
+    <p class="lede">Ask for the person's email first, then let the inviter choose how to tell them. The email is what makes the invite reach the right person, even someone who doesn't have the app yet. The link is just one way of telling them.</p>
+  </div>
+
+  <h2>What happens today</h2>
+  <div class="col">
+    <div class="now">
+      <ol>
+        <li>Household screen → <b>Invite someone</b>.</li>
+        <li>The app calls <code>create_invite</code> and opens the iOS share sheet with "Join “Smith household” on The Perfect Bite: perfectbite://invite/…".</li>
+        <li>Whoever taps the link sees the join screen, if they have the app and are signed in.</li>
+      </ol>
+      <p class="gap">Where it breaks down</p>
+      <ul style="margin:0;padding-left:20px;display:grid;gap:4px">
+        <li>A <code>perfectbite://</code> link does nothing for someone who hasn't installed the app. Messages may not even make it tappable.</li>
+        <li>If they're signed out, the link is dropped after sign-in (the spec lists this as a follow-up).</li>
+        <li>The inviter can't see who has been invited, and can't cancel or resend an invite. The server never knows who an invite was meant for.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>How other apps handle it</h2>
+  <div class="col"><p class="lede" style="font-size:16px">Apps mostly fall into three patterns. The one you described is the third, and it's what most current apps do.</p></div>
+  <div class="patterns">
+    <div class="pat">
+      <h3>1 · Link only</h3>
+      <p class="ex">WhatsApp group links, Splitwise's invite link. This is what you have now.</p>
+      <ul>
+        <li class="pro">Nothing to build on the server, works in any chat app</li>
+        <li class="con">Anyone holding the link can join</li>
+        <li class="con">Nothing to show as "pending"</li>
+        <li class="con">Needs working universal links plus deferred deep linking to cover new users</li>
+      </ul>
+    </div>
+    <div class="pat">
+      <h3>2 · Email, sent by the app</h3>
+      <p class="ex">Slack, Notion, Google Docs, AnyList. You type an address and the app's server sends the email.</p>
+      <ul>
+        <li class="pro">Invite is tied to one person</li>
+        <li class="pro">Shows as pending, and the invite is waiting when they sign up</li>
+        <li class="con">Needs a mail provider, a sending domain, templates and deliverability work</li>
+        <li class="con">An email from an unfamiliar sender is easy to ignore. A text from your partner isn't.</li>
+      </ul>
+    </div>
+    <div class="pat pick">
+      <span class="tag">Recommended</span>
+      <h3>3 · Email first, you choose how to send</h3>
+      <p class="ex">Apple's sharing sheet in Notes, Reminders and Files (Messages / Mail / Copy link, plus who can join). Todoist and Figma work the same way.</p>
+      <ul>
+        <li class="pro">Invite is tied to an email: it shows as pending and appears in the app when they sign in</li>
+        <li class="pro">The message comes from the inviter, through Messages or their own Mail</li>
+        <li class="pro">No mail provider needed. Server-sent email can be added later as one more option.</li>
+        <li class="con">Adds one step before sharing</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Sending an invite</h2>
+  <div class="flowline"><span>Invite someone</span><em>→</em><span>Their email</span><em>→</em><span>How to tell them</span><em>→</em><span>Pending in Members</span></div>
+  <div class="row" role="list">
+
+    <!-- S1 household -->
+    <div class="shot" role="listitem">
+      <div class="cap">S1 · Household</div>
+      <div class="ph" aria-label="Household screen mockup">
+        <div class="sb" style="background:var(--amber)"></div>
+        <div class="navr" style="background:var(--amber)"><div class="ib">‹</div><div class="ib">⋯</div></div>
+        <div class="band">
+          <div class="disp" style="font-size:26px">Smith household</div>
+          <div class="sub">3 lists · 12 recipes</div>
+          <div class="avs"><div class="av" style="background:#2E6B45">J</div><div class="av" style="background:#2F6396">A</div></div>
+        </div>
+        <div class="lbl">Members</div>
+        <div class="card">
+          <div class="it"><span class="grow">John (you)</span><span class="badge b-owner">OWNER</span></div>
+          <div class="it"><span class="grow">Alex</span><span class="v">Member</span></div>
+        </div>
+        <div style="padding-top:16px" class="hl"><div class="cta">＋ Invite someone</div></div>
+      </div>
+      <p class="note">Same button as today. Tapping it opens a sheet instead of going straight to the share sheet.</p>
+    </div>
+
+    <!-- S2 email -->
+    <div class="shot" role="listitem">
+      <div class="cap">S2 · Who are you inviting?</div>
+      <div class="ph" aria-label="Email entry sheet mockup">
+        <div class="sb" style="background:var(--amber)"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="hdr"><span>Cancel</span><span class="grab"></span><span style="font-weight:700;color:var(--ink3)">Next</span></div>
+          <div class="disp" style="font-size:22px;padding:10px 16px 4px">Invite to Smith household</div>
+          <p class="small" style="padding:0 16px 14px;font-size:12.5px">They'll share its lists and recipes. Their other households aren't affected.</p>
+          <div class="field">sam.lee@gmail<span class="caret"></span></div>
+          <p class="help">Use the email they sign in with (their Google account).</p>
+          <div class="plain" style="text-align:left;padding:14px 26px 0">Pick from Contacts</div>
+          <div class="plain" style="text-align:left;padding:8px 26px 0;color:var(--ink2);font-weight:600">Don't know their email? Share a link instead</div>
+          <div class="kb" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </div>
+      <p class="note">An email keyboard with autofill. "Pick from Contacts" is optional (the iOS contact picker). The link fallback creates an invite with no email, which works like today's.</p>
+    </div>
+
+    <!-- S3 channel -->
+    <div class="shot" role="listitem">
+      <div class="cap">S3 · How should they hear?</div>
+      <div class="ph" aria-label="Delivery choice sheet mockup">
+        <div class="sb" style="background:var(--amber)"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="hdr"><span>‹ Back</span><span class="grab"></span><span style="width:36px"></span></div>
+          <div class="disp" style="font-size:22px;padding:10px 16px 10px">Let Sam know</div>
+          <div class="who"><div class="av" style="background:#A33D53">S</div><div><div style="font-weight:700">sam.lee@gmail.com</div><div class="small">Invite expires in 7 days</div></div></div>
+          <div class="card">
+            <div class="opt"><div class="oi g">✉︎</div><span class="grow" style="flex:1">Messages</span><span class="chev">›</span></div>
+            <div class="opt"><div class="oi b">@</div><span style="flex:1">Mail</span><span class="chev">›</span></div>
+            <div class="opt"><div class="oi s">⧉</div><span style="flex:1">Copy link</span></div>
+            <div class="opt"><div class="oi n">↑</div><span style="flex:1">More…</span><span class="chev">›</span></div>
+          </div>
+          <div style="margin:14px 12px 0;padding:12px 14px;border-radius:16px;background:var(--psoft);color:var(--onpsoft);font-size:12.5px;line-height:1.4">
+            You can also skip this. If Sam signs in with this email, they'll see the invite in the app.
+          </div>
+          <div class="plain" style="margin-top:auto;padding-bottom:28px">Done</div>
+        </div>
+      </div>
+      <p class="note">The invite already exists on the server at this point. <b>Messages</b> and <b>Mail</b> open a filled-in compose screen, with the To field set in Mail. <b>More…</b> opens the system share sheet (WhatsApp and others).</p>
+    </div>
+
+    <!-- S4 pending -->
+    <div class="shot" role="listitem">
+      <div class="cap">S4 · Pending invite</div>
+      <div class="ph" aria-label="Household with pending invite mockup">
+        <div class="sb" style="background:var(--amber)"></div>
+        <div class="navr" style="background:var(--amber)"><div class="ib">‹</div><div class="ib">⋯</div></div>
+        <div class="band">
+          <div class="disp" style="font-size:26px">Smith household</div>
+          <div class="sub">3 lists · 12 recipes</div>
+        </div>
+        <div class="lbl">Members</div>
+        <div class="card">
+          <div class="it"><span class="grow">John (you)</span><span class="badge b-owner">OWNER</span></div>
+          <div class="it"><span class="grow">Alex</span><span class="v">Member</span></div>
+        </div>
+        <div class="lbl">Invited</div>
+        <div class="card hl" style="border-radius:18px">
+          <div class="it"><span class="grow">sam.lee@gmail.com<br><span class="small">Sent by you · expires Oct 18</span></span><span class="badge b-pend">PENDING</span></div>
+        </div>
+        <div style="padding-top:16px"><div class="cta">＋ Invite someone</div></div>
+      </div>
+      <p class="note">Tapping the row gives <b>Send again</b> (back to S3 with a new link) and <b>Cancel invite</b>. Every member sees this section.</p>
+    </div>
+  </div>
+
+  <h2>Receiving an invite</h2>
+  <div class="col"><p class="lede" style="font-size:16px">There are three cases, depending on whether they have the app and whether they tapped the link. All three end on the join screen that already exists.</p></div>
+  <div class="row" role="list">
+
+    <div class="shot" role="listitem">
+      <div class="cap">R1 · The message</div>
+      <div class="ph" aria-label="iMessage mockup">
+        <div class="sb" style="background:var(--surface)"></div>
+        <div class="mtop"><div class="ma">J</div>John</div>
+        <div class="msg">
+          <div class="bub in">I added you to our household on The Perfect Bite 🛒</div>
+          <div class="lp"><div class="img"><i style="background:#3E7BB8"></i><i style="background:#C98A1E;border-radius:15px"></i><i style="background:#C2556B"></i></div>
+            <div class="t"><b>Join Smith household</b><span class="small">perfectbite.app</span></div></div>
+        </div>
+      </div>
+      <p class="note">An <code>https://</code> link gets a rich preview and opens the app when it's installed. That needs the hosted domain that universal links are already waiting on.</p>
+    </div>
+
+    <div class="shot" role="listitem">
+      <div class="cap">R2a · No app yet</div>
+      <div class="ph" aria-label="Web landing page mockup">
+        <div class="sb" style="background:var(--primary)"></div>
+        <div class="web">
+          <div class="url">perfectbite.app/invite/…</div>
+          <div class="disp" style="font-size:30px">John invited you to Smith household</div>
+          <p style="margin-top:10px;font-size:13.5px;opacity:.9">Share shopping lists and recipes, sorted by aisle.</p>
+          <div class="steps">
+            <div><b>1</b>Install The Perfect Bite</div>
+            <div><b>2</b>Sign in as <u>sam.lee@gmail.com</u></div>
+            <div><b>3</b>Your invite will be waiting</div>
+          </div>
+          <div style="margin-top:auto" class="wbtn">Get the app</div>
+        </div>
+      </div>
+      <p class="note">This is where the email pays off. No deferred deep linking is needed: once Sam signs in with that address, the server matches the invite.</p>
+    </div>
+
+    <div class="shot" role="listitem">
+      <div class="cap">R2b · Waiting in the app</div>
+      <div class="ph" aria-label="Lists home with invite card mockup">
+        <div class="sb"></div>
+        <div class="disp" style="font-size:28px;padding:10px 16px 14px">Your lists</div>
+        <div class="inv">
+          <div style="display:flex;gap:10px;align-items:center"><div class="av" style="background:#2E6B45;margin:0;border:0">J</div><div><b>John invited you</b><div class="small">to Smith household · 2 members</div></div></div>
+          <div class="btns"><div style="background:var(--primary);color:var(--onprimary)">Join</div><div style="background:var(--muted);color:var(--ink)">Decline</div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile g"><span class="n">0</span><span>Groceries</span></div>
+          <div class="tile" style="border:2px dashed var(--ctl);background:transparent;color:var(--ink2)"><span class="n">＋</span><span>New list</span></div>
+        </div>
+      </div>
+      <p class="note">On sign-in, and live through realtime, the app asks for invites sent to the user's email. Each one shows as a card at the top of Lists until they join or decline. This also covers someone who already uses the app and never saw the text.</p>
+    </div>
+
+    <div class="shot" role="listitem">
+      <div class="cap">R3 · Join screen (exists)</div>
+      <div class="ph" aria-label="Join screen mockup">
+        <div class="sb"></div>
+        <div style="padding:30px 20px;display:flex;flex-direction:column;gap:12px;flex:1">
+          <div class="disp" style="font-size:28px">Join Smith household?</div>
+          <div style="font-size:13px;font-weight:600;color:var(--ink2)">Invited by John</div>
+          <p style="font-size:15px;color:var(--ink2)">You'll share its lists and recipes. Your other households aren't affected.</p>
+          <div class="cta" style="margin:8px 0 0">Join</div>
+          <div class="plain">Not now</div>
+        </div>
+      </div>
+      <p class="note">Tapping the link, or Join on R2b, ends here. Joining syncs the household in and opens Lists, as it does today.</p>
+    </div>
+  </div>
+
+  <h2>Decisions for you</h2>
+  <div class="stack col">
+    <div class="dec">
+      <div class="q">1. Who can use an email invite's link?</div>
+      <p class="rec"><b>Recommend: anyone who opens it, once</b> (as now). The email decides who sees the invite in the app, but it doesn't lock the link.</p>
+      <p class="alt">Locking it to the email is stricter, but with Google-only sign-in people often have more than one account. "This invite is for sam.lee@gmail.com, you're signed in as sam@work.com" is a frustrating dead end in a two-person household app.</p>
+    </div>
+    <div class="dec">
+      <div class="q">2. Should the app send the email itself?</div>
+      <p class="rec"><b>Recommend: not in v1.</b> The inviter sends it through Messages or Mail. Add a "Send email for me" option later, from an Edge Function using a provider such as Resend, once there's a domain.</p>
+      <p class="alt">Supabase's built-in mailer only sends auth emails, so this needs its own provider, sending domain and templates.</p>
+    </div>
+    <div class="dec">
+      <div class="q">3. Is a hosted domain in scope now?</div>
+      <p class="rec"><b>Recommend: yes, as its own task first.</b> R1 and R2a both need it: an <code>https</code> link, an <code>apple-app-site-association</code> file and a one-page landing site. Without it, the email-plus-in-app path (R2b) still works, but the link only helps people who already have the app.</p>
+    </div>
+    <div class="dec">
+      <div class="q">4. Keep a link-only option?</div>
+      <p class="rec"><b>Recommend: yes, as the small link in S2.</b> It covers "I'll just AirDrop it" and not knowing which Google address they use.</p>
+    </div>
+  </div>
+
+  <h2>What would change</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Area</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>Schema</td><td><code>household_invites</code> gets <code>invited_email</code> (lower-cased, nullable for link-only), <code>revoked_at</code> and <code>declined_at</code>. One open invite per household and email: inviting the same address again replaces the old one.</td></tr>
+        <tr><td>RPCs</td><td><code>create_invite(household, email?)</code> returns the token. New: <code>list_household_invites</code> (S4), <code>revoke_invite</code>, <code>my_invites</code> (R2b, matched on <code>auth.email()</code>), <code>accept_invite_by_id</code>, <code>decline_invite</code>. <code>preview_invite</code> and <code>accept_invite</code> stay for links.</td></tr>
+        <tr><td>Send again</td><td>Only a hash of the token is stored, so an old link can't be shown again. Send again creates a new token and the old link stops working.</td></tr>
+        <tr><td>Privacy</td><td>Never tell the inviter whether an email already has an account. S4 says "Pending" either way.</td></tr>
+        <tr><td>Already a member</td><td>Inviting a member's email says "Sam is already in Smith household" (they're visible to every member anyway).</td></tr>
+        <tr><td>Client</td><td>An invite sheet with two steps (S2, S3). Mail via <code>expo-mail-composer</code>, Messages via <code>expo-sms</code>, Copy link via <code>expo-clipboard</code>, More… via <code>Share</code>. The Invited section on the household screen. The invite card on Lists.</td></tr>
+        <tr><td>Realtime</td><td>New invites addressed to the user show up live. Simplest: a pull of <code>my_invites</code> on sign-in and foreground, before adding a realtime channel.</td></tr>
+        <tr><td>Spec</td><td>4.7 Invites, section 5 (schema and RLS paragraph), M7 in section 10, and the "link isn't kept for after sign-in" follow-up, which R2b makes unnecessary.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Suggested order</h2>
+  <div class="col">
+    <div class="now">
+      <ol>
+        <li><b>Email invites without a domain:</b> schema, RPCs, the S2/S3 sheet, the S4 pending list and the R2b card. These work as soon as they ship, because the in-app card doesn't need links.</li>
+        <li><b>Hosted domain:</b> <code>https</code> links, AASA, the landing page (R2a) and rich previews (R1).</li>
+        <li><b>Later:</b> "Send email for me", the contact picker and push notifications for invites.</li>
+      </ol>
+    </div>
+  </div>
+</div>

@@ -26,6 +26,7 @@ const TEXT_PAIRS: [ColorToken, ColorToken][] = [
   ['danger', 'background'],
   ['danger', 'dangerSoft'],
   ['pending', 'pendingSoft'],
+  ['pending', 'surface'],
   ['ink', 'pendingSoft'],
   ['onToast', 'toast'],
   // The list screen's green header: its title and the "7 to get · As added" line.

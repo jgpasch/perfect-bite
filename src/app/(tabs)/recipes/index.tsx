@@ -1,6 +1,7 @@
-import { Link, router, Stack } from 'expo-router';
-import { useMemo } from 'react';
+import { Link, router, Stack, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -8,12 +9,15 @@ import { Button, PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { IconTile } from '@/components/icon-tile';
 import { ThemedText } from '@/components/themed-text';
+import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
 import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
+import { getList } from '@/features/lists/lists';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
-import { FailedImportsCard } from '@/features/recipes/failed-imports-card';
+import { importedOnRecipesToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
 import {
@@ -23,6 +27,8 @@ import {
   recipesQuery,
   type RecipeSummary,
 } from '@/features/recipes/recipes';
+import { onShareImports } from '@/features/recipes/share-drain';
+import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
@@ -31,6 +37,19 @@ export default function RecipesScreen() {
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const { data: failed } = useLiveQueryOn(failedImportsQuery(), [failedImports]);
+  const queue = useShareQueueStatus();
+  const showImports = importsCardHeading(failed.length, queue) !== null;
+  const [toast, setToast] = useState<{
+    key: string;
+    message: string;
+    emphasis?: string;
+    actions: ToastAction[];
+    /** The recipe the toast is about, outlined while it shows. */
+    recipeId?: string;
+  } | null>(
+    null,
+  );
+  const dismissToast = useCallback(() => setToast(null), []);
   const groups = useMemo(() => groupRecipesByHousehold(data), [data]);
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
@@ -49,6 +68,33 @@ export default function RecipesScreen() {
     />
   );
 
+  // Recipes shared to the extension (spec 4.10), when the drain finishes while this tab shows.
+  useFocusEffect(
+    useCallback(
+      () =>
+        onShareImports((imported) => {
+          if (imported.length > 1) {
+            setToast({ key: `shared-${Date.now()}`, ...sharedImportsToast(imported.length), actions: [] });
+            return;
+          }
+          const [result] = imported;
+          setToast({
+            key: `shared-${result.recipeId}-${Date.now()}`,
+            recipeId: result.recipeId,
+            ...importedOnRecipesToast(result.recipeName, result.added, getList(result.listId)?.name ?? null),
+            actions: [
+              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              {
+                label: 'Open list',
+                onPress: () => (setToast(null), router.push({ pathname: '/list/[id]', params: { id: result.listId } })),
+              },
+            ],
+          });
+        }),
+      [],
+    ),
+  );
+
   return (
     <Screen>
       <Stack.Toolbar placement="right">
@@ -61,16 +107,16 @@ export default function RecipesScreen() {
           onPress={create}
         />
       </Stack.Toolbar>
-      {data.length === 0 && failed.length === 0 ? (
+      {data.length === 0 && !showImports ? (
         empty
       ) : (
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
-          {/* Spec 4.10: shares that won't import, at the top until retried or dismissed. */}
-          {failed.length > 0 ? (
+          {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
+          {showImports ? (
             <View style={{ paddingTop: spacing.xs }}>
-              <FailedImportsCard rows={failed} />
+              <ImportsCard failed={failed} queue={queue} />
             </View>
           ) : null}
           {data.length === 0 ? empty : null}
@@ -89,18 +135,38 @@ export default function RecipesScreen() {
               </ThemedText>
               <View style={{ gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg }}>
                 {group.recipes.map((r) => (
-                  <RecipeCard key={r.id} recipe={r} onList={onList.get(r.id) ?? null} />
+                  <RecipeCard
+                    key={r.id}
+                    recipe={r}
+                    onList={onList.get(r.id) ?? null}
+                    highlighted={toast?.recipeId === r.id}
+                  />
                 ))}
               </View>
             </View>
           ))}
         </ScrollView>
       )}
+      {toast ? (
+        // Above the tab bar: the bottom safe area here includes it.
+        <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
+          <Toast key={toast.key} message={toast.message} emphasis={toast.emphasis} actions={toast.actions} onDismiss={dismissToast} />
+        </SafeAreaView>
+      ) : null}
     </Screen>
   );
 }
 
-function RecipeCard({ recipe, onList }: { recipe: RecipeSummary; onList: string | null }) {
+function RecipeCard({
+  recipe,
+  onList,
+  highlighted,
+}: {
+  recipe: RecipeSummary;
+  onList: string | null;
+  /** Just imported: outlined in `primary` while the toast shows. */
+  highlighted: boolean;
+}) {
   const { colors, spacing, sizes, rounded } = useTheme();
 
   const confirmDelete = () =>
@@ -122,6 +188,8 @@ function RecipeCard({ recipe, onList }: { recipe: RecipeSummary; onList: string 
                 gap: spacing.md + spacing.xxs,
                 borderRadius: rounded.card,
                 backgroundColor: colors.surface,
+                borderWidth: sizes.focusRing,
+                borderColor: highlighted ? colors.primary : 'transparent',
               },
             ]}>
             <IconTile hue={recipeHue(recipe.id)} name="fork.knife" size={sizes.recipeTile} />
@@ -153,5 +221,6 @@ function RecipeCard({ recipe, onList }: { recipe: RecipeSummary; onList: string 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   grow: { flexGrow: 1 },
+  toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
 });

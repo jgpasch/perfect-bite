@@ -7,6 +7,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DatabaseProvider } from '@/db';
 import { AppDataGate } from '@/features/app-data';
 import { startAccount, useAccountState } from '@/features/auth/account';
+import { NotificationHost } from '@/features/notifications/notification-host';
+import { clearNotifications } from '@/features/notifications/notifications';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -29,6 +31,11 @@ export default function RootLayout() {
   useEffect(() => {
     if (account.status !== 'loading') SplashScreen.hideAsync();
   }, [account.status]);
+
+  // In-app notifications are the signed-in user's (spec 4.11): none survive signing out.
+  useEffect(() => {
+    if (!ready) clearNotifications();
+  }, [ready]);
 
   if (account.status === 'loading') return null;
 
@@ -78,6 +85,7 @@ export default function RootLayout() {
           </AppDataGate>
         </DatabaseProvider>
         {ready && <PageCaptureHost />}
+        {ready && <NotificationHost />}
       </ThemeProvider>
     </GestureHandlerRootView>
   );

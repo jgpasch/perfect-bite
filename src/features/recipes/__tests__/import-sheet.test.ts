@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 
-import { importedToast, importErrorMessage, urlFromText } from '../import-sheet';
+import { importedOnRecipesToast, importedToast, importErrorMessage, urlFromText } from '../import-sheet';
 
 describe('urlFromText', () => {
   test('a plain link comes back as it is', () => {
@@ -84,5 +84,15 @@ describe('importedToast', () => {
 
   test('one item is singular', () => {
     expect(importedToast('Toast', 1)).toEqual({ message: 'Added Toast · 1 item', emphasis: 'Toast' });
+  });
+});
+
+describe('importedOnRecipesToast', () => {
+  test('on the Recipes tab, also names the list', () => {
+    expect(importedOnRecipesToast('Chicken tikka masala', 12, 'Groceries')).toEqual({
+      message: 'Added Chicken tikka masala · 12 items on Groceries',
+      emphasis: 'Chicken tikka masala',
+    });
+    expect(importedOnRecipesToast('Toast', 1, null).message).toBe('Added Toast · 1 item');
   });
 });

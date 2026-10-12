@@ -18,11 +18,21 @@ import { File, setAppGroupRoot } from '@/test/fake-file-system';
 import { makeSession, resetSupabase, supabase } from '@/test/fake-supabase';
 
 import { recipeIdForImport } from '../import';
+import {
+  EMPTY_SHARE_QUEUE_STATUS,
+  getShareQueueStatus,
+  importsBadgeCount,
+  importsCardHeading,
+  queuedShareDetail,
+  setShareQueueStatus,
+  type QueuedShare,
+} from '../share-queue-status';
 import { sharedImportsToast } from '../import-sheet';
 import {
   drainShareQueue,
   MAX_SHARE_ATTEMPTS,
   onShareImports,
+  removeQueuedShare,
   runShareDrain,
   shareAttemptsKey,
   type FailedShare,
@@ -101,6 +111,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(root, SHARE_PENDING_DIR), { recursive: true });
   setAppGroupRoot(root);
   recordFailed = jest.fn();
+  setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -385,5 +396,141 @@ describe('sharedImportsToast', () => {
     expect(sharedImportsToast(3)).toEqual({ message: 'Added 3 recipes' });
     expect(sharedImportsToast(2)).toEqual({ message: 'Added 2 recipes' });
     expect(sharedImportsToast(1)).toEqual({ message: 'Added 1 recipe' });
+  });
+});
+
+describe('queue status', () => {
+  test('after a drain stops offline, lists what waits with its list and tries, and why', async () => {
+    respond({ [TIKKA_URL]: offline, [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL, { page: { title: ' Tikka | Example ' } });
+    enqueue(E2, SOUP_URL, { listId: null });
+    await drain();
+    expect(getShareQueueStatus()).toEqual({
+      queued: [
+        { id: E1, url: TIKKA_URL, title: 'Tikka | Example', listName: 'Costco', attempts: 1 },
+        { id: E2, url: SOUP_URL, title: null, listName: 'Groceries', attempts: 0 },
+      ],
+      importing: null,
+      waitReason: 'offline',
+    });
+  });
+
+  test('says which share is importing, then empties once the queue is imported', async () => {
+    let answer!: () => void;
+    invoke.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = () => resolve({ data: TIKKA, error: null }))),
+    );
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    const running = drain();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(getShareQueueStatus().importing).toEqual({ id: E1, position: 1, total: 2 });
+    expect(getShareQueueStatus().queued.map((s) => s.id)).toEqual([E1, E2]);
+    answer();
+    await running;
+    expect(getShareQueueStatus()).toEqual(EMPTY_SHARE_QUEUE_STATUS);
+  });
+
+  test('Remove deletes a waiting share and forgets its tries', async () => {
+    respond({ [TIKKA_URL]: offline });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    await drain();
+    expect(removeQueuedShare(E2, USER)).toBe(true);
+    expect(queued()).toEqual([`${E1}.json`]);
+    expect(getShareQueueStatus().queued.map((s) => s.id)).toEqual([E1]);
+    expect(getShareQueueStatus().waitReason).toBe('offline');
+
+    expect(removeQueuedShare(E1, USER)).toBe(true);
+    expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
+    expect(getShareQueueStatus()).toEqual(EMPTY_SHARE_QUEUE_STATUS);
+    expect(removeQueuedShare(E1, USER)).toBe(false);
+  });
+
+  test('the share importing can’t be removed; one removed mid-drain isn’t imported', async () => {
+    let answer!: () => void;
+    invoke.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = () => resolve({ data: TIKKA, error: null }))),
+    );
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+    const running = drain();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(removeQueuedShare(E1, USER)).toBe(false);
+    expect(removeQueuedShare(E2, USER)).toBe(true);
+    answer();
+    const result = await running;
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala']);
+    expect(importedUrls()).toEqual([TIKKA_URL]);
+    expect(queued()).toEqual([]);
+  });
+});
+
+describe('imports card copy', () => {
+  const share = (id: string, extra: Partial<QueuedShare> = {}): QueuedShare => ({
+    id,
+    url: 'https://www.bonappetit.com/recipe/tikka',
+    title: 'Chicken tikka masala',
+    listName: 'Groceries',
+    attempts: 0,
+    ...extra,
+  });
+  const idle = (queued: QueuedShare[], waitReason: 'offline' | 'rate_limited' | 'failed' | null = null) => ({
+    queued,
+    importing: null,
+    waitReason,
+  });
+
+  test('nothing to show without failed imports or shares', () => {
+    expect(importsCardHeading(0, EMPTY_SHARE_QUEUE_STATUS)).toBeNull();
+  });
+
+  test('importing shows progress and the share', () => {
+    const queue = { queued: [share(E1), share(E2)], importing: { id: E1, position: 1, total: 2 }, waitReason: null };
+    expect(importsCardHeading(0, queue)).toEqual({
+      tone: 'importing',
+      title: 'Importing 1 of 2…',
+      subtitle: 'Chicken tikka masala · to Groceries',
+    });
+  });
+
+  test('waiting says why', () => {
+    expect(importsCardHeading(0, idle([share(E1), share(E2)], 'offline'))).toEqual({
+      tone: 'waiting',
+      title: '2 recipes waiting',
+      subtitle: "You're offline. They'll import when you're back.",
+    });
+    expect(importsCardHeading(0, idle([share(E1)], 'rate_limited'))?.subtitle).toBe(
+      "The import service is busy. They'll import next time you open the app.",
+    );
+    expect(importsCardHeading(0, idle([share(E1)]))?.title).toBe('1 recipe waiting');
+  });
+
+  test('failed imports lead, with the queue under them', () => {
+    expect(importsCardHeading(1, EMPTY_SHARE_QUEUE_STATUS)).toEqual({
+      tone: 'failed',
+      title: "Couldn't import 1 recipe",
+      subtitle: null,
+    });
+    expect(importsCardHeading(2, idle([share(E1)]))?.subtitle).toBe('1 more waiting');
+    expect(importsCardHeading(1, idle([share(E1)], 'offline'))?.subtitle).toBe(
+      "1 more waiting · You're offline. They'll import when you're back.",
+    );
+    const importing = { queued: [share(E1)], importing: { id: E1, position: 1, total: 1 }, waitReason: null };
+    expect(importsCardHeading(1, importing)?.subtitle).toBe('Importing 1 of 1…');
+  });
+
+  test('a waiting row gives the host, the list and the tries', () => {
+    expect(queuedShareDetail(share(E1))).toBe('bonappetit.com · to Groceries');
+    expect(queuedShareDetail(share(E1, { attempts: 1, listName: null }))).toBe('bonappetit.com · tried once');
+    expect(queuedShareDetail(share(E1, { attempts: 2 }))).toBe('bonappetit.com · to Groceries · tried twice');
+    expect(queuedShareDetail(share(E1, { attempts: 4 }))).toBe('bonappetit.com · to Groceries · tried 4 times');
+  });
+
+  test('the tab badge counts waiting shares and failed imports, not while importing', () => {
+    expect(importsBadgeCount(idle([share(E1), share(E2)]), 1)).toBe(3);
+    const importing = { queued: [share(E1)], importing: { id: E1, position: 1, total: 1 }, waitReason: null };
+    expect(importsBadgeCount(importing, 1)).toBe(1);
+    expect(importsBadgeCount(EMPTY_SHARE_QUEUE_STATUS, 0)).toBe(0);
   });
 });

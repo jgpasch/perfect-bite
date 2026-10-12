@@ -268,6 +268,8 @@ export const Motion = {
   fold: { duration: 300, dampingRatio: 0.9 },
   /** Undo toasts (spec 4.2, 4.4). */
   undoTimeoutMs: 5000,
+  /** In-app notification banners (spec 4.11). */
+  notificationTimeoutMs: 6000,
 } as const;
 
 /** Opacity tokens: tints (12%), shadows (25%), pressed and disabled states. */

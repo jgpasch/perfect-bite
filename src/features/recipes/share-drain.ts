@@ -1,6 +1,7 @@
 // Imports the share queue (spec 4.10): recipes shared to the extension while the app was closed,
 // on launch, foreground, reconnect and sign-in, next to the Siri queue. Signed out, shares wait.
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { getList } from '@/features/lists/lists';
 import { clearDeviceSetting, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { getAppGroupContainer, readPendingShares, type PendingShare } from '@/features/siri/app-group';
 import { siriTargetListId } from '@/features/siri/drain';
@@ -8,6 +9,13 @@ import type { ShareEnvelope } from '@/shared';
 
 import { recordFailedImport } from './failed-imports';
 import { importRecipe, type ImportRecipeError, type ImportRecipeSuccess } from './import';
+import {
+  EMPTY_SHARE_QUEUE_STATUS,
+  getShareQueueStatus,
+  setShareQueueStatus,
+  type QueuedShare,
+  type ShareQueueStatus,
+} from './share-queue-status';
 
 /** Tries per envelope before a share that keeps failing is recorded as a failed import. */
 export const MAX_SHARE_ATTEMPTS = 5;
@@ -52,7 +60,42 @@ function failedShare(envelope: ShareEnvelope, reason: FailedShare['reason']): Fa
   return { url: envelope.url, title: envelope.page?.title?.trim() || null, reason };
 }
 
+/** The queue as the imports card shows it: readable shares, oldest first, with their list and tries. */
+function queuedShares(items: PendingShare[], userId: string): QueuedShare[] {
+  return items.flatMap((item) => {
+    if (!item.ok) return [];
+    const { envelope } = item;
+    const listId = siriTargetListId(envelope, userId);
+    return [
+      {
+        id: envelope.id,
+        url: envelope.url,
+        title: envelope.page?.title?.trim() || null,
+        listName: listId ? (getList(listId)?.name ?? null) : null,
+        attempts: getDeviceSetting(shareAttemptsKey(envelope.id), 0),
+      },
+    ];
+  });
+}
+
+/** Reads the queue again and publishes it for the imports card. */
+function publishStatus(
+  userId: string,
+  pending: () => PendingShare[],
+  importing: ShareQueueStatus['importing'],
+  waitReason: ShareQueueStatus['waitReason'],
+): void {
+  try {
+    const queued = queuedShares(pending(), userId);
+    setShareQueueStatus({ queued, importing, waitReason: queued.length > 0 ? waitReason : null });
+  } catch (err) {
+    console.warn('[share] reading the queue failed', err);
+  }
+}
+
 let draining = false;
+/** Shares removed from the card while a drain is running, which that drain then skips. */
+const removed = new Set<string>();
 
 /**
  * Imports `pending` (oldest first) as `userId`, one at a time, deleting each file once imported.
@@ -66,16 +109,23 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
   const result: ShareDrainResult = { imported: [], failed: 0 };
   if (draining) return result;
   draining = true;
+  let waitReason: ShareQueueStatus['waitReason'] = null;
   try {
-    for (const item of pending()) {
+    const items = pending();
+    const total = items.filter((item) => item.ok).length;
+    let position = 0;
+    for (const item of items) {
       if (!item.ok) {
         console.warn('[share] dropping a bad queued share', item.fileName, item.error);
         remove(item);
         continue;
       }
       const { envelope } = item;
+      position += 1;
+      if (removed.has(envelope.id)) continue;
       const listId = siriTargetListId(envelope, userId);
       if (!listId) break;
+      publishStatus(userId, pending, { id: envelope.id, position, total }, waitReason);
       const imported = await importRecipe({ url: envelope.url, listId, page: envelope.page, importId: envelope.id });
       const key = shareAttemptsKey(envelope.id);
       if (imported.ok) {
@@ -93,14 +143,34 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
         continue;
       }
       setDeviceSetting(key, attempts);
+      waitReason = imported.error;
       if (imported.error === 'offline' || imported.error === 'rate_limited') break;
     }
   } catch (err) {
     console.warn('[share] draining the queue failed', err);
   } finally {
     draining = false;
+    removed.clear();
+    publishStatus(userId, pending, null, waitReason);
   }
   return result;
+}
+
+/**
+ * Takes a waiting share out of the queue (the imports card's Remove). The share importing now can't
+ * be removed. Returns whether it was.
+ */
+export function removeQueuedShare(id: string, userId: string, options: Pick<ShareDrainOptions, 'pending'> = {}): boolean {
+  const { pending = readPendingShares } = options;
+  const current = getShareQueueStatus();
+  if (current.importing?.id === id) return false;
+  const item = pending().find((p) => p.ok && p.envelope.id === id);
+  if (!item) return false;
+  if (draining) removed.add(id);
+  remove(item);
+  clearDeviceSetting(shareAttemptsKey(id));
+  publishStatus(userId, pending, current.importing, current.waitReason);
+  return true;
 }
 
 type ShareImportsListener = (imported: ImportRecipeSuccess[]) => void;
@@ -123,5 +193,9 @@ export async function runShareDrain(userId: string, options?: ShareDrainOptions)
 /** Drains now, and on every return to the foreground and every reconnect. Returns a stop function. */
 export function startShareDrain(userId: string, options?: ShareDrainOptions): () => void {
   void runShareDrain(userId, options);
-  return startCatchUpTriggers(() => void runShareDrain(userId, options));
+  const stop = startCatchUpTriggers(() => void runShareDrain(userId, options));
+  return () => {
+    stop();
+    setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
+  };
 }

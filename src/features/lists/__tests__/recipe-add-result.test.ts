@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
 
 import {
+  onRecipeAddResult,
   setRecipeAddResult,
   startAdjust,
   takeAdjust,
@@ -86,4 +87,14 @@ describe('Adjust (spec 4.2)', () => {
     expect(takeAdjust(token, 'tacos')).toBeNull();
     expect(takeAdjust(token, 'dal')).toEqual(dalAdd);
   });
+});
+
+test('a list that is showing hears about a result set while it shows', () => {
+  const heard: (RecipeAddResult | null)[] = [];
+  const stop = onRecipeAddResult(() => heard.push(takeRecipeAddResult('groceries')));
+  setRecipeAddResult(result);
+  stop();
+  setRecipeAddResult(result);
+  expect(heard).toEqual([result]);
+  expect(takeRecipeAddResult('groceries')).toEqual(result);
 });

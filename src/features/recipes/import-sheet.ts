@@ -61,6 +61,16 @@ export function importedToast(recipeName: string, count: number): { message: str
   return addedRecipeToListToast(recipeName, count);
 }
 
+/** The Recipes tab's toast for one shared recipe: "Added Chicken tikka masala · 12 items on Groceries". */
+export function importedOnRecipesToast(
+  recipeName: string,
+  count: number,
+  listName: string | null,
+): { message: string; emphasis: string } {
+  const toast = importedToast(recipeName, count);
+  return listName ? { ...toast, message: `${toast.message} on ${listName}` } : toast;
+}
+
 /** The list screen's toast when one share-queue drain imported several recipes: "Added 3 recipes". */
 export function sharedImportsToast(count: number): { message: string } {
   return { message: `Added ${count} ${count === 1 ? 'recipe' : 'recipes'}` };

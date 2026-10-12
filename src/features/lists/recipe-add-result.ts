@@ -12,9 +12,20 @@ export type RecipeAddResult =
   | { kind: 'imported'; listId: string; recipeId: string; recipeName: string; count: number; undo: () => void };
 
 let pending: RecipeAddResult | null = null;
+const listeners = new Set<() => void>();
 
 export function setRecipeAddResult(result: RecipeAddResult): void {
   pending = result;
+  for (const listener of [...listeners]) listener();
+}
+
+/**
+ * Tells a list screen that's already showing about a result set while it shows (an import's
+ * notification tapped on that list, spec 4.10), since it won't gain focus to take it.
+ */
+export function onRecipeAddResult(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
 /** The result for this list, once: taking it clears it. A result for another list stays. */

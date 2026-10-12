@@ -14,7 +14,9 @@ import { getAccount } from '@/features/auth/account';
 import { groupListsByHousehold } from '@/features/lists/list-view';
 import { getLaunchListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { notify } from '@/features/notifications/notifications';
 import { importRecipe } from '@/features/recipes/import';
+import { importedNotification, importFailedNotification } from '@/features/recipes/import-notifications';
 import { importErrorMessage, urlFromText } from '@/features/recipes/import-sheet';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -23,9 +25,11 @@ import { useTheme } from '@/hooks/use-theme';
  * Recipes tab it asks for the list first, defaulting to the last opened one, then the default list. The
  * clipboard is read only when Paste is tapped, so iOS shows no paste prompt on open. On success the
  * sheet closes and the list shows "Added Chicken tikka masala · 12 items" with Undo and View recipe.
+ * Closed while reading, the import carries on and its result comes as an in-app notification (spec 4.11);
+ * a failed one's notification reopens the sheet with `to` (that list, picker still shown) and `url`.
  */
 export default function ImportRecipeSheet() {
-  const { list: fromList } = useLocalSearchParams<{ list?: string }>();
+  const { list: fromList, to, url: retryUrl } = useLocalSearchParams<{ list?: string; to?: string; url?: string }>();
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const userId = getAccount()?.userId ?? null;
@@ -37,13 +41,14 @@ export default function ImportRecipeSheet() {
       .filter((l) => l.archivedAt === null),
   );
   const [listId, setListId] = useState(
-    () => lists.find((l) => l.id === fromList)?.id ?? (userId ? getLaunchListId(userId) : null) ?? lists[0]?.id ?? null,
+    () =>
+      lists.find((l) => l.id === (fromList ?? to))?.id ?? (userId ? getLaunchListId(userId) : null) ?? lists[0]?.id ?? null,
   );
-  const [text, setText] = useState('');
+  const [text, setText] = useState(retryUrl ?? '');
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Cancelled while reading: the import still lands (its toast waits for the list), but the sheet doesn't navigate.
+  // Closed while reading: the import still lands, and says so with a notification instead.
   const open = useRef(true);
   useEffect(
     () => () => {
@@ -73,18 +78,35 @@ export default function ImportRecipeSheet() {
       if (open.current) {
         setWorking(false);
         setError(importErrorMessage(result));
+      } else {
+        notify({
+          ...importFailedNotification(result, url),
+          onPress: () => router.push({ pathname: '/import-recipe', params: { to: listId, url } }),
+        });
       }
       return;
     }
-    setRecipeAddResult({
+    const added = {
       kind: 'imported',
       listId: result.listId,
       recipeId: result.recipeId,
       recipeName: result.recipeName,
       count: result.added,
       undo: result.undo,
-    });
-    if (!open.current) return;
+    } as const;
+    if (!open.current) {
+      const listName = lists.find((l) => l.id === result.listId)?.name ?? 'your list';
+      notify({
+        ...importedNotification(result, listName),
+        // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
+        onPress: () => {
+          setRecipeAddResult(added);
+          router.navigate({ pathname: '/list/[id]', params: { id: result.listId } });
+        },
+      });
+      return;
+    }
+    setRecipeAddResult(added);
     router.back();
     // From that list's menu, the list is underneath already.
     if (result.listId !== fromList) router.push({ pathname: '/list/[id]', params: { id: result.listId } });
@@ -141,6 +163,12 @@ export default function ImportRecipeSheet() {
             <Button label="Paste" variant="plain" disabled={working} onPress={paste} />
           </View>
         </Card>
+
+        {working ? (
+          <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+            You can close this. We&apos;ll let you know when it&apos;s ready.
+          </ThemedText>
+        ) : null}
 
         {error ? (
           <ThemedText

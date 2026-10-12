@@ -97,7 +97,7 @@ import { promptListName } from '@/features/lists/prompt-list-name';
 import { takeMoveResult } from '@/features/lists/move-result';
 import { ViewMenuButton } from '@/features/lists/view-menu-button';
 import { listShareText } from '@/features/lists/share';
-import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { onRecipeAddResult, startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
@@ -344,57 +344,62 @@ export default function ListScreen() {
   };
   useFocusEffect(
     useCallback(() => {
-      // An item moved here from its sheet (spec 4.4): a Combine tints the row it joined, as an add does.
-      const moved = takeMoveResult(id);
-      if (moved) {
-        if (moved.kind === 'combine') openSectionOf(moved.targetItemId);
+      // Taken on focus, and while showing too: an import's notification tapped on this list (spec 4.10).
+      const show = () => {
+        // An item moved here from its sheet (spec 4.4): a Combine tints the row it joined, as an add does.
+        const moved = takeMoveResult(id);
+        if (moved) {
+          if (moved.kind === 'combine') openSectionOf(moved.targetItemId);
+          setToast({
+            key: `moved-${moved.itemId}-${Date.now()}`,
+            ...movedToast(moved),
+            itemId: moved.kind === 'combine' ? moved.targetItemId : undefined,
+            actions: [{ label: 'Undo', onPress: () => (undoMove(moved), setToast(null)) }],
+          });
+          return;
+        }
+        const result = takeRecipeAddResult(id);
+        if (!result) return;
+        if (result.kind === 'toList') {
+          // A recipe added from its screen (spec 4.4): items land where this view puts them; one Undo.
+          setToast({
+            key: `recipe-add-${result.recipeId}-${Date.now()}`,
+            ...addedRecipeToListToast(result.recipeName, result.count),
+            actions: [{ label: 'Undo', onPress: () => (undoRecipeAdd(result), setToast(null)) }],
+          });
+          return;
+        }
+        if (result.kind === 'imported') {
+          // A recipe imported from a link (spec 4.10): Undo takes back the adds (and a recipe it created).
+          setToast({
+            key: `import-${result.recipeId}-${Date.now()}`,
+            ...importedToast(result.recipeName, result.count),
+            actions: [
+              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              {
+                label: 'View recipe',
+                onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+              },
+            ],
+          });
+          return;
+        }
+        setSelection(null);
+        setViewModeState('recipe');
+        setDeviceSetting(viewModeKey(id), 'recipe');
         setToast({
-          key: `moved-${moved.itemId}-${Date.now()}`,
-          ...movedToast(moved),
-          itemId: moved.kind === 'combine' ? moved.targetItemId : undefined,
-          actions: [{ label: 'Undo', onPress: () => (undoMove(moved), setToast(null)) }],
-        });
-        return;
-      }
-      const result = takeRecipeAddResult(id);
-      if (!result) return;
-      if (result.kind === 'toList') {
-        // A recipe added from its screen (spec 4.4): items land where this view puts them; one Undo.
-        setToast({
-          key: `recipe-add-${result.recipeId}-${Date.now()}`,
-          ...addedRecipeToListToast(result.recipeName, result.count),
-          actions: [{ label: 'Undo', onPress: () => (undoRecipeAdd(result), setToast(null)) }],
-        });
-        return;
-      }
-      if (result.kind === 'imported') {
-        // A recipe imported from a link (spec 4.10): Undo takes back the adds (and a recipe it created).
-        setToast({
-          key: `import-${result.recipeId}-${Date.now()}`,
-          ...importedToast(result.recipeName, result.count),
+          key: `recipe-${result.recipeId}-${Date.now()}`,
+          ...addedToRecipeToast(result.count, result.recipeName),
           actions: [
-            { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
             {
               label: 'View recipe',
               onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
             },
           ],
         });
-        return;
-      }
-      setSelection(null);
-      setViewModeState('recipe');
-      setDeviceSetting(viewModeKey(id), 'recipe');
-      setToast({
-        key: `recipe-${result.recipeId}-${Date.now()}`,
-        ...addedToRecipeToast(result.count, result.recipeName),
-        actions: [
-          {
-            label: 'View recipe',
-            onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
-          },
-        ],
-      });
+      };
+      show();
+      return onRecipeAddResult(show);
     }, [id, openSectionOf]),
   );
   // Adds Siri queued while the app was closed (spec 4.9): one toast, on whichever list is showing.

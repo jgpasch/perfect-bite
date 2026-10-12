@@ -2,7 +2,7 @@
 // Recipes tab with Try again and Dismiss until one of them clears it.
 import { desc, eq } from 'drizzle-orm';
 
-import { db, failedImports, type FailedImport, type FailedImportReason } from '@/db';
+import { db, failedImports, type FailedImportReason } from '@/db';
 import { getDefaultListId } from '@/features/lists/lists';
 import { newId } from '@/lib/id';
 
@@ -49,23 +49,8 @@ export async function retryFailedImport(id: string, userId: string): Promise<Imp
   }
 }
 
-/** The card's heading: "Couldn't import 1 recipe". */
-export function failedImportsTitle(count: number): string {
-  return `Couldn't import ${count} ${count === 1 ? 'recipe' : 'recipes'}`;
-}
-
 /** A row's name: the page title, else the link's host without `www.`, else the link as shared. */
-export function failedImportName(row: Pick<FailedImport, 'url' | 'title'>): string {
-  const title = row.title?.trim();
-  if (title) return title;
-  try {
-    const host = new URL(row.url).hostname.replace(/^www\./, '');
-    if (host) return host;
-  } catch {
-    // Not a URL we can read: show it as it was shared.
-  }
-  return row.url;
-}
+export { importName as failedImportName } from './share-queue-status';
 
 /** Why it failed, in plain words. */
 export function failedImportReason(reason: FailedImportReason): string {

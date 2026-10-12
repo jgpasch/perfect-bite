@@ -21,7 +21,6 @@ import {
   failedImportName,
   failedImportReason,
   failedImportsQuery,
-  failedImportsTitle,
   recordFailedImport,
   retryFailedImport,
 } from '../failed-imports';
@@ -227,11 +226,6 @@ describe('retryFailedImport', () => {
 });
 
 describe('copy', () => {
-  test('the card title counts recipes', () => {
-    expect(failedImportsTitle(1)).toBe("Couldn't import 1 recipe");
-    expect(failedImportsTitle(3)).toBe("Couldn't import 3 recipes");
-  });
-
   test('a row shows the title, else the host without www, else the link', () => {
     expect(failedImportName({ url: TIKKA_URL, title: ' Tikka | Example ' })).toBe('Tikka | Example');
     expect(failedImportName({ url: TIKKA_URL, title: null })).toBe('example.com');

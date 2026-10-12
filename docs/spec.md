@@ -59,7 +59,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 | 10 | Multiple lists | 4.1 |
 | 11 | View a list flat or grouped by recipe | 4.6 |
 | 12 | "Hey Siri, add to The Perfect Bite" sends an ingredient to a list | 4.9 |
-| 13 | Notifications (someday) | 11.1 |
+| 13 | Notifications: in app now (recipe import), push someday | 4.11, 11.1 |
 | 14 | Import a recipe from a link (share sheet or in-app) onto a list | 4.10, 6.6 |
 
 ---
@@ -251,7 +251,7 @@ On a recipe page, the user picks a list and taps **Add**. The recipe is saved to
 
 **From inside the app**
 - **Add recipe from link…** in a list's menu imports into that list. **Import from link** on the Recipes tab asks for the list first, with the same default as the share sheet.
-- A small sheet has a URL field and a **Paste** button. The clipboard is read only when Paste is tapped, so iOS shows no paste prompt when the sheet opens. While it works the sheet shows "Reading recipe…", then closes on success.
+- A small sheet has a URL field and a **Paste** button. The clipboard is read only when Paste is tapped, so iOS shows no paste prompt when the sheet opens. While it works the sheet shows "Reading recipe…", with "You can close this. We'll let you know when it's ready." under it, then closes on success. Closing the sheet while it reads doesn't stop the import: its result arrives as an in-app notification (4.11, below).
 - **Device fallback.** Many recipe sites answer a server fetch with a bot check (Cloudflare's "Just a moment...", "Security Verification", Vercel Security Checkpoint, AllRecipes' JS-only "Simple Page"). When the server answers `fetch_failed` for a pasted link, the app loads the link in a hidden WebView, waits up to 20 s for the real page (a challenge page often reloads into it), captures the page's title, JSON-LD blocks and readable text with the same caps as the share extension, and imports again with that page (6.6). Nothing shows on screen. Only `fetch_failed` falls back, never "not a recipe", a rate limit or an invalid URL.
 
 **Which list.** The picker defaults to the list last opened on this device (`lastOpenedListId`, 4.1), then the user's default list (4.1), then the first list; archived and deleted lists don't count. If a queued share's list is gone or archived by the time it drains, it goes to the default list.
@@ -260,14 +260,31 @@ On a recipe page, the user picks a list and taps **Add**. The recipe is saved to
 
 **What goes on the list.** Every ingredient, at 1×, with no checklist step, as the recipe's contributions, exactly like 4.4 bulk add with Combine-silently duplicate handling: an open match Combines, a checked match is unchecked with its amounts replaced, and the same ingredient twice folds into one item. Household usage counts as a recipe add (4.2). Categories for new names come back with the import, so nothing shows "Sorting…" unless categorizing them failed (then 6.3's catch-up retries them as usual).
 
-**The toast.** On the list screen: "Added *Chicken tikka masala* · 12 items" for 5 seconds with **Undo** and **View recipe**. Undo removes every contribution the import added to the list (as bulk-add Undo does) and deletes the recipe if this import created it; a reused recipe stays. View recipe opens the recipe. When one drain imports several shares, a single toast says "Added 3 recipes".
+**The toast.** On the list screen: "Added *Chicken tikka masala* · 12 items" for 5 seconds with **Undo** and **View recipe**. Undo removes every contribution the import added to the list (as bulk-add Undo does) and deletes the recipe if this import created it; a reused recipe stays. View recipe opens the recipe. When one drain imports several shares, a single toast says "Added 3 recipes". If the drain finishes while the Recipes tab is showing, the toast shows there instead, above the tab bar: "Added *Chicken tikka masala* · 12 items on Groceries" with **Undo** and **Open list**, and the recipe's card is outlined in `primary` while it shows. Elsewhere there's no toast; the recipe is on the list and on the Recipes tab.
 
 **Not a recipe, or the import fails**
 - In the app, failures show inline in the sheet in plain words, and the sheet stays open: "That page doesn't look like a recipe" (anything that isn't a single recipe: an article, a page listing many recipes), "Couldn't reach that site" (the page couldn't be fetched or isn't HTML, on the server or the device), "This site blocked the import. Open it in Safari and tap Share → The Perfect Bite." (the device fallback never got past the bot check), "Try again in a minute" (rate limit or the service unavailable), "That doesn't look like a link" (an invalid URL) [Default], and "You're offline" [Default]. Nothing is written.
 - For a share: "not a recipe" is recorded as a **failed import** at once and the file deleted. Offline, signed-out, rate-limited and other temporary failures keep the file for the next drain; after 5 attempts (counted per envelope in device settings) it is recorded as a failed import and deleted. Offline or rate-limited, the drain stops there, so the shares after it wait without counting an attempt.
-- **Failed imports** are kept on the device only (`failed_imports`: url, title, reason, when; not synced). While there are any, the Recipes tab shows a card at the top, "Couldn't import 1 recipe", which expands to one row per import with its title (or host), the reason, **Try again** (imports it into the default list; success removes the row, another failure keeps it with the new reason) and **Dismiss**.
+- **Failed imports** are kept on the device only (`failed_imports`: url, title, reason, when; not synced).
+
+**The imports card.** While anything is importing, waiting in the share queue or failed, the Recipes tab shows one card at the top. Its heading says what matters most: failed imports first ("Couldn't import 1 recipe", with "1 more waiting" or "Importing 1 of 2…" under it), then an import running ("Importing 1 of 2…" over the recipe and its list), then shares waiting ("2 recipes waiting" over why: "You're offline. They'll import when you're back.", "The import service is busy. They'll import next time you open the app.", or "Something went wrong. They'll import next time you open the app."). Tapping it expands a row per share, in two labelled groups when there are both: **Couldn't import**, each with its title (or host), the reason, **Try again** (imports it into the default list; success removes the row, another failure keeps it with the new reason) and **Dismiss**; and **Waiting**, each with its title (or host) over "host · to *list* · tried twice" and **Remove** (deletes the share and its try count; the one importing shows a spinner instead and can't be removed). The Recipes tab's icon has a badge counting waiting shares and failed imports, hidden while a drain is running. The queue's state comes from the drain (`share-queue-status.ts`), read again from the App Group at each step; it is never stored.
+
+**When the sheet was closed while reading.** The import carries on, and its result is posted as a `recipeImport` notification (4.11) in place of the sheet's toast or inline error. Nothing waits on the list for later.
+- Success: the recipe's icon tile (`recipeHue`, fork and knife), title "Recipe added", body "Added *Chicken tikka masala* · 12 items to Groceries". Tapping it opens that list with the usual import toast (Undo, View recipe); if that list is already showing, the toast shows there.
+- Failure: a rose warning tile, title "Couldn't import recipe", body the sheet's plain-words reason (above). Tapping it reopens the sheet for the same list with the link filled in. The device fallback still runs first.
+- The share-queue drain keeps its list toast and posts no notification.
 
 **Offline.** A share always succeeds in the extension, online or not: the envelope waits in the App Group until the app is open, signed in and online, then imports. A signed-out app keeps it until after sign-in. The in-app sheet needs a connection; offline it says so and queues nothing.
+
+### 4.11 In-app notifications (req 13)
+
+A banner that drops in at the top of the screen, over whatever is showing (sheets too), to say that something the user started has finished while they were doing something else. This is the base each feature adds its own notifications to. Push notifications are separate and Later (11.1).
+
+- **Kinds.** A feature posts a notification with a `kind`, one per use case, so per-kind settings (11.1) can switch them off later without touching the features. v1 has one kind: `recipeImport` (4.10).
+- **The banner.** A `surface` card 8 pt below the top safe area and 16 pt from the sides, with radius `card` and the floating shadow in light mode. It holds an icon tile, a title (`headline`) and up to two lines of body (`footnote`, `inkSecondary`), with an optional part of the body in bold. Tapping the banner runs its action and dismisses it. Swiping it up dismisses it. It times out after 6 seconds (`motion.notificationTimeoutMs`). It slides down on arrival and up on leaving, and only fades under Reduce Motion. A success or warning haptic plays when it appears. VoiceOver announces "title. body", and the banner is a button whose hint says what tapping does.
+- **One at a time.** Notifications queue in the order they're posted, and the next one drops in when the one showing goes. Posting with the id of a notification that is already queued or showing replaces it in place, and a replaced banner that's showing restarts its timer.
+- **Only while the app is in the foreground.** The timer starts when the banner shows. A notification posted while the app is in the background waits until the app comes back. A banner showing when the app goes to the background stays up and restarts its timer when the app returns.
+- **Not kept.** Notifications live in memory only. There's no inbox, and nothing survives the app quitting or signing out (sign-out clears the queue).
 
 ---
 
@@ -637,6 +654,8 @@ src/
     categories/     CategoryPicker, ReorderSections
     households/     HouseholdsScreen, HouseholdDetail, InviteSheet, JoinHousehold, CopyRecipeSheet
     siri/           app-group-queue (drain), list-snapshot (writes lists.json)
+    notifications/  in-app banners (4.11): the queue, NotificationHost, per-kind content builders live
+                    with their feature (e.g. recipes/import-notifications)
     auth/
   domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver
   shared/           used by app AND Edge Functions: zod schemas, ingredient-normalizer,
@@ -766,7 +785,7 @@ Each milestone should end with a working app and passing tests.
 ## 11. Later
 
 ### 11.1 Notifications (req 13)
-Not in v1. Sketch, so v1 doesn't block it:
+Not in v1, apart from in-app banners (4.11), whose `kind`s these settings would extend. Sketch, so v1 doesn't block it:
 - **Delivery**: Expo Push (`expo-notifications`), which handles APNs. A `push_tokens (user_id, token, platform, updated_at)` table.
 - **Pipeline**: a trigger on `list_items` (inserts, and `checked_at` changes) writes to a `household_events` queue (pgmq, as stash uses Queues). A worker Edge Function, run by pg_cron, groups events per household and recipient over a short window and sends one push per group, never to the person who made the change.
 - **Candidate notifications**: "Alex added 6 items to Groceries"; "Alex is shopping" (first few checks on a list within a few minutes); later, a location reminder near a saved store (local, on device).
