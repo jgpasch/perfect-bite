@@ -29,6 +29,15 @@ describe('effectiveCategoryId', () => {
     expect(effectiveCategoryId(null, 'global', 'pending')).toBe('global');
   });
 
+  it('without categorize, shows pending and unknown ingredients under Other, keeping overrides and defaults', () => {
+    expect(effectiveCategoryId(null, null, 'pending', false)).toBe(OTHER_CATEGORY_ID);
+    expect(effectiveCategoryId(null, null, null, false)).toBe(OTHER_CATEGORY_ID);
+    expect(effectiveCategoryId(null, null, 'failed', false)).toBe(OTHER_CATEGORY_ID);
+    expect(effectiveCategoryId('mine', null, 'pending', false)).toBe('mine');
+    expect(effectiveCategoryId(null, 'global', 'pending', false)).toBe('global');
+    expect(effectiveCategoryId(null, null, 'pending', true)).toBe(SORTING_CATEGORY_ID);
+  });
+
   it('shows pending and unknown ingredients under Sorting', () => {
     expect(SORTING_CATEGORY_ID).toBe('sorting');
     expect(effectiveCategoryId(null, null, 'pending')).toBe(SORTING_CATEGORY_ID);

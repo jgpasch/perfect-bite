@@ -7,6 +7,8 @@ import { categories, db, householdCategoryOverrides, ingredients, userCategoryOr
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
 import { fingerprint } from '@/domain/fingerprint';
 import { positionBetween, positionForMove } from '@/domain/position';
+import { COUNT_KEY } from '@/domain/usual-unit';
+import { hasFeature } from '@/features/plans/features';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
@@ -63,13 +65,22 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /**
  * Records an ingredient name the catalog doesn't know yet as `pending`, so it can be sent for
  * categorization. Leaves an existing row (seed, categorized, pending or failed) alone. Returns
- * true when it added a row, so the caller can send that name to `categorizePending`.
+ * true when it added a row, so the caller can send that name to `categorizePending`. Without the
+ * plan's `categorize` (spec 4.12) the row gets the default unit `count`, since no answer will bring one.
  */
 export function ensureLocalIngredient(tx: Tx, normalizedName: string, displayName: string): boolean {
   return (
-    tx.insert(ingredients).values({ normalizedName, displayName, status: 'pending' }).onConflictDoNothing().run()
-      .changes > 0
+    tx
+      .insert(ingredients)
+      .values({ normalizedName, displayName, status: 'pending', defaultUnit: pendingDefaultUnit() })
+      .onConflictDoNothing()
+      .run().changes > 0
   );
+}
+
+/** The default unit for a new pending row: `count` without `categorize`, else none until it's categorized. */
+function pendingDefaultUnit(): string | null {
+  return hasFeature('categorize') ? null : COUNT_KEY;
 }
 
 /** The new pending names across several add results, once each, in order (one request per bulk add). */
@@ -83,8 +94,8 @@ export function collectPendingNames(results: readonly ({ pendingNames: readonly 
  */
 export function ensureMissingIngredients(): void {
   db.run(sql`
-    insert into ingredients (normalized_name, display_name, status)
-    select used.ingredient_name, min(used.display_name), 'pending'
+    insert into ingredients (normalized_name, display_name, status, default_unit)
+    select used.ingredient_name, min(used.display_name), 'pending', ${pendingDefaultUnit()}
     from (
       select ingredient_name, display_name from list_items where deleted_at is null
       union all

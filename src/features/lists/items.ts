@@ -710,11 +710,13 @@ export type ItemContribution = Amount & {
 
 /**
  * Groups `listItemsQuery` rows into items, unchecked (oldest first) then checked (most recent
- * first). `usualUnits` is `usualUnitsByKey` over `usualUnitsQuery`.
+ * first). `usualUnits` is `usualUnitsByKey` over `usualUnitsQuery`. `sorts`: whether the user's plan
+ * has `categorize`; without it, items waiting for an aisle show in Other (spec 4.12).
  */
 export function groupItems(
   rows: readonly ItemRow[],
   usualUnits: ReadonlyMap<string, Unit | null> = new Map(),
+  sorts = true,
 ): { unchecked: ItemView[]; checked: ItemView[] } {
   const byId = new Map<string, ItemView>();
   for (const row of rows) {
@@ -723,7 +725,7 @@ export function groupItems(
       item = {
         id: row.id,
         ingredientName: row.ingredientName,
-        categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId, row.ingredientStatus),
+        categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId, row.ingredientStatus, sorts),
         displayName: row.displayName,
         note: row.note,
         checkedAt: row.checkedAt,

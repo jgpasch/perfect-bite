@@ -31,6 +31,7 @@ import {
 import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
+import { useFeature } from '@/features/plans/features';
 import {
   contributionsQuery,
   deleteContribution,
@@ -84,6 +85,7 @@ export default function ItemEditSheet() {
   const [editingName, setEditingName] = useState(false);
   // The aisle picker shows the first few aisles (always with the current one) until Show all.
   const [aislesOpen, setAislesOpen] = useState(false);
+  const sorts = useFeature('categorize');
 
   if (!edit || !initial) return <Screen />;
 
@@ -95,9 +97,10 @@ export default function ItemEditSheet() {
   // What the number field shows: no number when the item has no amount, in the unit the menu ticks.
   const shown: Amount | null = steppable && { quantity: amount ? steppable.quantity : null, unit: steppable.unit };
 
-  // A pending ingredient's default is "Sorting..." until categorization returns (spec 4.3.1).
+  // A pending ingredient's default is "Sorting..." until categorization returns (spec 4.3.1), or
+  // Other when the plan has no `categorize` (4.12).
   const defaultId = current
-    ? effectiveCategoryId(null, current.defaultCategoryId, current.status)
+    ? effectiveCategoryId(null, current.defaultCategoryId, current.status, sorts)
     : OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.
   const selectedId =

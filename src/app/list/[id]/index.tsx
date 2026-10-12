@@ -104,6 +104,7 @@ import { listShareText } from '@/features/lists/share';
 import { onRecipeAddResult, startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
+import { useFeature } from '@/features/plans/features';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { importedToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { onShareImports } from '@/features/recipes/share-drain';
@@ -148,7 +149,9 @@ export default function ListScreen() {
   const { data: itemRows } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
-  const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
+  // Without `categorize`, nothing is waiting for an aisle: new names show in Other (spec 4.12).
+  const sorts = useFeature('categorize');
+  const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits, sorts), [itemRows, usualUnits, sorts]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
   // so a second tap can take it back.
   const [lingering, setLingering] = useState<ReadonlySet<string>>(new Set());

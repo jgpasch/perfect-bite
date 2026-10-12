@@ -17,9 +17,18 @@ import {
   userSettings,
 } from '@/db';
 import { setCategoryOverride } from '@/features/categories/categories';
+import { categorizePending, catchUpNames } from '@/features/categories/categorization';
 import { listItemsQuery } from '@/features/lists/items';
 import { ensureStarterData } from '@/features/lists/lists';
-import { onQuery, queries, queriesFor, resetSupabase, type RecordedQuery } from '@/test/fake-supabase';
+import {
+  makeSession,
+  onQuery,
+  queries,
+  queriesFor,
+  resetSupabase,
+  supabase,
+  type RecordedQuery,
+} from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxRows } from '@/test/outbox';
 
@@ -275,6 +284,19 @@ describe('first pull of a household', () => {
       displayName: 'Yuzu kosho',
       status: 'pending',
     });
+  });
+
+  test("a household-mate's unknown name, pulled by a realtime (scoped) pull, goes out with the next catch-up", async () => {
+    seedPulledList();
+    await pullNow();
+    put('list_items', remoteItem('i1', ts(2), { ingredient_name: 'yuzu kosho', display_name: 'Yuzu kosho' }));
+
+    await pullNow({ scope: { households: [H1] } });
+
+    expect(catchUpNames()).toEqual(['yuzu kosho']);
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null });
+    await categorizePending();
+    expect(supabase.functions.invoke).toHaveBeenCalledWith('categorize-ingredients', { body: { names: ['yuzu kosho'] } });
   });
 });
 
