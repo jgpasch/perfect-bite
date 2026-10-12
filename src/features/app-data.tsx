@@ -4,6 +4,7 @@ import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending } from '@/features/categories/categorization';
+import { startMyInvites } from '@/features/households/my-invites';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
@@ -69,6 +70,9 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   }, [userId]);
   // Realtime (spec 7.2): live changes while signed in and in the foreground.
   useEffect(() => (userId ? startRealtime(userId) : undefined), [userId]);
+  // Invites sent to the user's email (spec 4.7): fetched on sign-in, foreground and reconnect;
+  // cleared on sign-out.
+  useEffect(() => (userId ? startMyInvites() : undefined), [userId]);
   // Siri's list snapshot (spec 4.9): on launch and when lists, memberships or the default list
   // change; deleted on sign-out so Siri offers no lists.
   const signedOut = account.status === 'signedOut';

@@ -1,8 +1,9 @@
 import { Host, List, Section, Text as SwiftText } from '@expo/ui/swift-ui';
 import { deleteDisabled, environment } from '@expo/ui/swift-ui/modifiers';
 import { Link, router, Stack } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { listTileColors, siriMarkColors } from '@/components/appearance';
 import { PrimaryButton } from '@/components/button';
@@ -10,11 +11,21 @@ import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { Toast } from '@/components/toast';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { listHue } from '@/domain/aisle-color';
 import { getAccount } from '@/features/auth/account';
 import { householdsQuery } from '@/features/households/households';
+import { InviteCard } from '@/features/households/invite-card';
+import type { MyInvite } from '@/features/households/invites';
+import {
+  declineInvitePrompt,
+  declineMyInvite,
+  joinMyInvite,
+  useMyInvites,
+  type MyInviteResult,
+} from '@/features/households/my-invites';
 import { listsOverview, tileAccessibilityLabel, tileCount } from '@/features/lists/list-view';
 import {
   deleteList,
@@ -48,6 +59,49 @@ export default function ListsScreen() {
   const defaultListId = useMemo(() => (userId && data.length > 0 ? getDefaultListId(userId) : null), [userId, data]);
   const [reordering, setReordering] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  // Invites sent to the user's email (design R2b): a card each above the households.
+  const invites = useMyInvites();
+  const [busyInvite, setBusyInvite] = useState<{ id: string; action: 'join' | 'decline' } | null>(null);
+  const [toast, setToast] = useState<{ key: number; message: string } | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  const settle = (result: MyInviteResult) => {
+    setBusyInvite(null);
+    // A new key restarts the toast's timer when one is already showing.
+    if (!result.ok) setToast((t) => ({ key: (t?.key ?? 0) + 1, message: result.message }));
+  };
+  const join = (invite: MyInvite) => {
+    setBusyInvite({ id: invite.id, action: 'join' });
+    void joinMyInvite(invite).then(settle);
+  };
+  const decline = (invite: MyInvite) => {
+    const prompt = declineInvitePrompt(invite);
+    Alert.alert(prompt.title, prompt.message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Decline',
+        style: 'destructive',
+        onPress: () => {
+          setBusyInvite({ id: invite.id, action: 'decline' });
+          void declineMyInvite(invite).then(settle);
+        },
+      },
+    ]);
+  };
+  const inviteCards =
+    invites.length > 0 ? (
+      <View style={{ gap: spacing.sm + spacing.xxs, paddingTop: spacing.xs, paddingBottom: spacing.sm }}>
+        {invites.map((invite) => (
+          <InviteCard
+            key={invite.id}
+            invite={invite}
+            busy={busyInvite?.id === invite.id ? busyInvite.action : null}
+            onJoin={() => join(invite)}
+            onDecline={() => decline(invite)}
+          />
+        ))}
+      </View>
+    ) : null;
 
   const create = (householdId?: string) =>
     promptListName(null, '', (id) => router.push({ pathname: '/list/[id]', params: { id } }), householdId);
@@ -108,13 +162,14 @@ export default function ListsScreen() {
               : reorderRows(active)}
           </List>
         </Host>
-      ) : overview.kind === 'single' && active.length === 0 && archived.length === 0 ? (
+      ) : overview.kind === 'single' && active.length === 0 && archived.length === 0 && invites.length === 0 ? (
         <EmptyState
           message="No lists yet."
           action={<PrimaryButton label="New list" onPress={() => create(overview.householdId ?? undefined)} />}
         />
       ) : (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
+          {inviteCards}
           <ListsOverviewGrid
             overview={overview}
             renderTile={(l) => <ListTile key={l.id} list={l} isDefault={l.id === defaultListId} />}
@@ -126,6 +181,12 @@ export default function ListsScreen() {
           {showArchived ? <TileGrid cells={archived.map((l) => <ListTile key={l.id} list={l} isDefault={false} />)} /> : null}
         </ScrollView>
       )}
+      {toast ? (
+        // Above the tab bar: the bottom safe area here includes it.
+        <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
+          <Toast key={toast.key} message={toast.message} actions={[]} onDismiss={dismissToast} />
+        </SafeAreaView>
+      ) : null}
     </Screen>
   );
 }
@@ -246,5 +307,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   tile: { flex: 1, justifyContent: 'space-between', borderCurve: 'continuous' },
   tileName: { fontWeight: '600' },
+  toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
 });
 

@@ -226,6 +226,8 @@ export const Sizes = {
   focusRing: 2,
   /** a recipe chip's outline in the add bar's suggestion row */
   chipBorder: 1,
+  /** the `primary` outline of an invite card on the lists home */
+  inviteOutline: 2,
   /** the suggestion row on top of the keyboard, and its chips */
   keyboardRow: 44,
   keyboardChip: 32,
