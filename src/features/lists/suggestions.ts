@@ -34,11 +34,6 @@ export function getSuggestions(householdId: string, text: string, limit = 5): Su
   return out;
 }
 
-/** The autocomplete panel's caption: "YOU USUALLY BUY" when household history leads, else "SUGGESTIONS". */
-export function suggestionCaption(suggestions: readonly Pick<Suggestion, 'source'>[]): string {
-  return suggestions[0]?.source === 'history' ? 'YOU USUALLY BUY' : 'SUGGESTIONS';
-}
-
 /** The add text with its name replaced by a suggestion, keeping a typed amount: `2 lbs chi` → `2 lbs chicken thighs`. */
 export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key' | 'displayName'>): string {
   const { name } = parseQuantity(text);
@@ -47,7 +42,7 @@ export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key'
   return `${prefix}${suggestion.displayName}`;
 }
 
-/** A recipe row in the add bar's panel (spec 4.2): tapping it adds the whole recipe at 1×. */
+/** A recipe chip in a list's add bar (spec 4.2): tapping it adds the whole recipe at 1×. */
 export type RecipeSuggestion = { id: string; name: string; ingredientCount: number };
 
 /** Recipe rows shown above the item suggestions while typing. */

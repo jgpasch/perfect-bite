@@ -815,7 +815,6 @@ export default function ListScreen() {
         ) : (
           <ItemAddBar
             householdId={list.householdId}
-            listId={id}
             onAdd={add}
             onAddRecipe={addRecipe}
             onTextChange={setAddText}

@@ -17,12 +17,10 @@ type Props = {
   onSubmit: () => void;
   placeholder: string;
   accessibilityLabel: string;
-  /** Shown above the input, e.g. autocomplete suggestions. */
-  accessory?: ReactNode;
   /**
    * The keyboard's top row while the input is focused (an `InputAccessoryView` on iOS), e.g. suggestion chips. It
    * takes the place of iOS's QuickType bar, so autocorrect and spell check are off on this input. Elsewhere it's
-   * shown above the input like `accessory`.
+   * shown above the input.
    */
   keyboardRow?: ReactNode;
   /** Called when the input gains or loses focus. */
@@ -39,7 +37,6 @@ export function AddBar({
   onSubmit,
   placeholder,
   accessibilityLabel,
-  accessory,
   keyboardRow,
   onFocusChange,
 }: Props) {
@@ -61,7 +58,6 @@ export function AddBar({
         paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
         backgroundColor: colors.background,
       }}>
-      {accessory}
       {onKeyboard ? (
         <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
           {keyboardRow}
