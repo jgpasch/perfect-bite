@@ -18,9 +18,9 @@ type Props = {
   placeholder: string;
   accessibilityLabel: string;
   /**
-   * The keyboard's top row while the input is focused (an `InputAccessoryView` on iOS), e.g. suggestion chips. It
-   * takes the place of iOS's QuickType bar, so autocorrect and spell check are off on this input. Elsewhere it's
-   * shown above the input.
+   * The keyboard's top row once the input has text (an `InputAccessoryView` on iOS), e.g. suggestion chips. It
+   * takes the place of iOS's QuickType bar, so autocorrect and spell check are off while it shows; on an empty field
+   * the QuickType bar is back. Elsewhere it's shown above the input.
    */
   keyboardRow?: ReactNode;
   /** Called when the input gains or loses focus. */
@@ -49,6 +49,8 @@ export function AddBar({
   const inset = (sizes.bar - sizes.barButton) / 2;
   const keyboardRowId = useId();
   const onKeyboard = keyboardRow !== undefined && Platform.OS === 'ios';
+  // The row replaces the QuickType bar only once there's text; until then the system's suggestions show.
+  const rowShown = keyboardRow !== undefined && value !== '';
 
   return (
     <View
@@ -85,9 +87,9 @@ export function AddBar({
           // Names are stored as typed and shown in sentence case (spec 4.2), so don't capitalize.
           autoCapitalize="none"
           inputAccessoryViewID={onKeyboard ? keyboardRowId : undefined}
-          autoCorrect={keyboardRow === undefined}
-          spellCheck={keyboardRow === undefined}
-          autoComplete={keyboardRow === undefined ? undefined : 'off'}
+          autoCorrect={!rowShown}
+          spellCheck={!rowShown}
+          autoComplete={rowShown ? 'off' : undefined}
           placeholder={placeholder}
           placeholderTextColor={colors.inkSecondary}
           selectionColor={colors.primary}
@@ -117,11 +119,12 @@ export function AddBar({
       {/*
         After the input: on mount the native view looks up its TextInput by nativeID once and never again, so the
         input has to be in the window first. The bar often mounts into a screen that's already showing (after data
-        loads, leaving Select mode).
+        loads, leaving Select mode). So it stays mounted with an empty field, collapsed to an empty view (with no
+        children it unmounts), and the QuickType bar shows in its place.
       */}
       {onKeyboard ? (
         <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
-          {keyboardRow}
+          {rowShown ? keyboardRow : <View />}
         </InputAccessoryView>
       ) : null}
     </View>

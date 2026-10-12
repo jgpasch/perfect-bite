@@ -9,6 +9,7 @@ import {
   inviteSendTitle,
   inviteSheetError,
   inviteSheetReducer,
+  inviteSheetStartState,
   inviteSheetTitle,
   inviteSkipNote,
   type InviteSheetState,
@@ -199,5 +200,31 @@ describe('inviteSheetError', () => {
     expect(inviteSheetError(new InviteError('invalid-email', 'invalid email'), { email: 'x' })).toBe(
       "That doesn't look like an email address.",
     );
+  });
+});
+
+describe('inviteSheetStartState', () => {
+  const LINK = 'perfectbite://invite/abcdefghijklmnop';
+
+  it('opens on step 2 for Send again, with the email normalized', () => {
+    expect(inviteSheetStartState({ email: ' Sam.Lee@Gmail.com ', link: LINK })).toEqual({
+      step: 'send',
+      email: 'sam.lee@gmail.com',
+      link: LINK,
+    });
+  });
+
+  it('opens on an empty step 1 otherwise', () => {
+    expect(inviteSheetStartState({})).toBe(initialInviteSheetState);
+    expect(inviteSheetStartState({ email: 'sam@x.com' })).toBe(initialInviteSheetState);
+    expect(inviteSheetStartState({ link: LINK })).toBe(initialInviteSheetState);
+    expect(inviteSheetStartState({ email: 'sam@x.com', link: '  ' })).toBe(initialInviteSheetState);
+    expect(inviteSheetStartState({ email: 'not an email', link: LINK })).toBe(initialInviteSheetState);
+  });
+
+  it('goes Back from Send again to step 1 with the email kept, ready to submit', () => {
+    const back = inviteSheetReducer(inviteSheetStartState({ email: 'sam@x.com', link: LINK }), { type: 'back' });
+    expect(back).toEqual({ step: 'email', email: 'sam@x.com', submitting: false, error: null });
+    expect(canSubmitInvite(back)).toBe(true);
   });
 });

@@ -28,6 +28,10 @@ export function SettingsSection({ title, children }: { title: string; children: 
 
 type RowProps = {
   label: string;
+  /** A second line under the label (`footnote`, `inkSecondary`), e.g. who sent an invite. */
+  detail?: string;
+  /** What VoiceOver reads instead of the label, value and detail, e.g. to include a badge. */
+  accessibilityLabel?: string;
   /** Shown on the right in `inkSecondary`. */
   value?: string;
   /** A 32 pt tinted icon tile before the label. */
@@ -48,6 +52,8 @@ type RowProps = {
 /** A row in a settings card: optional icon tile, the label, then a value, trailing content and a chevron. */
 export function SettingsRow({
   label,
+  detail,
+  accessibilityLabel,
   value,
   icon,
   trailing,
@@ -62,9 +68,20 @@ export function SettingsRow({
   const content = (
     <>
       {icon ? <IconTile hue={icon.hue} name={icon.name} size={sizes.settingsIcon} /> : null}
-      <ThemedText variant="body" color={labelColor} style={styles.label}>
-        {label}
-      </ThemedText>
+      {detail ? (
+        <View style={styles.label}>
+          <ThemedText variant="body" color={labelColor}>
+            {label}
+          </ThemedText>
+          <ThemedText variant="footnote" color="inkSecondary">
+            {detail}
+          </ThemedText>
+        </View>
+      ) : (
+        <ThemedText variant="body" color={labelColor} style={styles.label}>
+          {label}
+        </ThemedText>
+      )}
       {value ? (
         <ThemedText variant="amount" color="inkSecondary" style={styles.value}>
           {value}
@@ -86,7 +103,7 @@ export function SettingsRow({
       borderBottomWidth: last ? 0 : 1,
     },
   ];
-  const a11yLabel = value ? `${label}, ${value}` : label;
+  const a11yLabel = accessibilityLabel ?? [label, detail, value].filter(Boolean).join(', ');
   if (!onPress) {
     return (
       <View accessible={!trailing} accessibilityLabel={trailing ? undefined : a11yLabel} style={rowStyle}>

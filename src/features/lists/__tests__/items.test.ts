@@ -748,8 +748,12 @@ describe('clearChecked and restoreItems', () => {
     const eggs = addItem(listId, 'eggs', USER)!;
     setItemChecked(milk.itemId, true, USER);
     setItemChecked(eggs.itemId, true, USER);
+    // Pin the clock so the delete and the clear can't land in the same millisecond.
+    jest.useFakeTimers({ now: new Date('2026-10-01T12:00:00Z') });
     deleteItem(eggs.itemId);
+    jest.setSystemTime(new Date('2026-10-01T12:00:05Z'));
     const cleared = clearChecked(listId);
+    jest.useRealTimers();
     expect(cleared.ids).toEqual([milk.itemId]);
     expect(restoreItems([milk.itemId, eggs.itemId], cleared.deletedAt)).toBe(1);
     expect(rows(view().checked)).toEqual(['milk']);

@@ -20,13 +20,13 @@ import {
   canSubmitInvite,
   INVITE_EMAIL_FOOTNOTE,
   INVITE_JOINING_LINE,
-  initialInviteSheetState,
   inviteChannelLabel,
   inviteChannels,
   inviteSendTitle,
   inviteSheetError,
   inviteSheetReducer,
   inviteSheetTitle,
+  inviteSheetStartState,
   inviteSkipNote,
   type InviteChannel,
 } from '@/features/households/invite-sheet';
@@ -46,14 +46,20 @@ const CHANNEL_ICONS: Record<InviteChannel, { name: IconName; hue: AisleHue }> = 
  * and, when the members have loaded, `inviter` (the caller's display name, for the Mail body). Step 1
  * asks for the invitee's email and creates the invite; step 2 offers Messages, Mail, Copy link and
  * More… to tell them. "Share a link instead" makes a link-only invite and opens the share sheet.
+ * "Send again" on a pending invite re-creates it first and passes `email` and `link`, opening step 2.
  */
 export default function HouseholdInviteSheet() {
-  const { household: householdId, inviter } = useLocalSearchParams<{ household: string; inviter?: string }>();
+  const {
+    household: householdId,
+    inviter,
+    email: resentEmail,
+    link: resentLink,
+  } = useLocalSearchParams<{ household: string; inviter?: string; email?: string; link?: string }>();
   const { colors, spacing, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   // A sheet is short-lived: read once rather than live.
   const [householdName] = useState(() => householdsQuery().all().find((h) => h.id === householdId)?.name ?? null);
-  const [state, dispatch] = useReducer(inviteSheetReducer, initialInviteSheetState);
+  const [state, dispatch] = useReducer(inviteSheetReducer, { email: resentEmail, link: resentLink }, inviteSheetStartState);
   const [sharing, setSharing] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 

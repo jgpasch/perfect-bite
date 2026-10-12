@@ -24,8 +24,8 @@ type Props = {
 
 /**
  * The persistent add bar at the bottom of a list or recipe, with its suggestions: a chip row (`SuggestionChips`) on
- * top of the keyboard, filled only while the field has text, with the household's recipes too when `onAddRecipe` is
- * set. Put it last in a KeyboardAvoidingView.
+ * top of the keyboard once the field has text (iOS's QuickType bar until then), with the household's recipes too
+ * when `onAddRecipe` is set. Put it last in a KeyboardAvoidingView.
  */
 export function ItemAddBar({
   householdId,
@@ -88,7 +88,7 @@ export function ItemAddBar({
       onFocusChange={onFocusChange}
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
-      // Always there, even with no chips, so the row and the field don't jump while typing.
+      // Stays while there's text, even with no chips, so the row and the field don't jump while typing.
       keyboardRow={
         <SuggestionChips
           chips={suggestionChips(text, { recipes: recipeMatches, suggestions })}

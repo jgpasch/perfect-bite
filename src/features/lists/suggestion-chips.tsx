@@ -20,8 +20,9 @@ type Props = {
 
 /**
  * The keyboard's top row on a list (spec 4.2), in place of iOS's QuickType bar: one scrolling row of 32 pt chips,
- * autocomplete while typing. Taps keep the keyboard up so several can be added in a row. The row keeps its height
- * when there are no chips, so the add field never jumps while typing.
+ * autocomplete while typing (on an empty field `AddBar` shows the QuickType bar instead). Taps keep the keyboard up so
+ * several can be added in a row. The row keeps its height when there are no chips, so the add field never jumps
+ * while typing.
  */
 export function SuggestionChips({ chips, typed, onPressItem, onPressRecipe, onRemove }: Props) {
   const { colors, spacing, sizes } = useTheme();

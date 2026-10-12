@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { avatarColors, householdBandColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -22,6 +22,15 @@ import {
   roleLabel,
   type HouseholdMember,
 } from '@/features/households/households';
+import { inviteSheetError } from '@/features/households/invite-sheet';
+import { createInvite, listHouseholdInvites, revokeInvite, type HouseholdInvite } from '@/features/households/invites';
+import {
+  pendingInviteAccessibilityLabel,
+  pendingInviteActions,
+  pendingInviteDetail,
+  pendingInviteErrorTitle,
+  pendingInviteTitle,
+} from '@/features/households/pending-invites';
 import { useTheme } from '@/hooks/use-theme';
 
 type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; members: HouseholdMember[] };
@@ -30,7 +39,10 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * A household and its members (spec 4.7, board 11), read-only: an amber band with the name, its
  * list and recipe counts and the members' avatars, then the Members card. Members come from the
  * server, so this needs a connection and a registered household; anything else shows the error
- * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`).
+ * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`). Under
+ * Members, the Invited section (design S4) lists the household's open invites, loaded with the
+ * members; it's hidden when there are none or they can't be fetched (offline). Tapping one offers
+ * Send again (email invites) and Cancel invite.
  * TODO(M7): rename, leave, delete and per-member actions.
  */
 export default function HouseholdScreen() {
@@ -43,6 +55,8 @@ export default function HouseholdScreen() {
   const band = householdBandColors(colors, aisles);
 
   const [state, setState] = useState<MembersState>({ status: 'loading' });
+  const [invites, setInvites] = useState<HouseholdInvite[]>([]);
+  const [busyInvite, setBusyInvite] = useState<string | null>(null);
   const request = useRef(0);
 
   const load = useCallback(() => {
@@ -52,8 +66,17 @@ export default function HouseholdScreen() {
     const done = (next: MembersState) => current === request.current && setState(next);
     if (!userId) {
       done({ status: 'error' });
+      setInvites([]);
       return;
     }
+    // Invites are extra: if they can't load (offline), the section just doesn't show.
+    listHouseholdInvites(id).then(
+      (list) => current === request.current && setInvites(list),
+      (err) => {
+        console.warn(`[households] couldn't load invites of ${id}`, err);
+        if (current === request.current) setInvites([]);
+      },
+    );
     fetchHouseholdMembers(id, userId).then(
       (members) => done({ status: 'ready', members }),
       (err) => {
@@ -63,9 +86,56 @@ export default function HouseholdScreen() {
     );
   }, [id, userId]);
 
-  const invite = () => {
-    const you = state.status === 'ready' ? state.members.find((m) => m.isYou)?.displayName : undefined;
-    router.push({ pathname: '/household-invite', params: { household: id, ...(you ? { inviter: you } : {}) } });
+  const you = state.status === 'ready' ? state.members.find((m) => m.isYou)?.displayName : undefined;
+  const invite = (resend?: { email: string; link: string }) => {
+    router.push({ pathname: '/household-invite', params: { household: id, ...(you ? { inviter: you } : {}), ...resend } });
+  };
+
+  // Send again makes a new link for the same email (revoking the old one), then opens the sheet's step 2.
+  const sendAgain = async (pending: HouseholdInvite) => {
+    const email = pending.email;
+    if (!email) return;
+    setBusyInvite(pending.id);
+    try {
+      const link = await createInvite(id, email);
+      invite({ email, link });
+    } catch (err) {
+      console.warn(`[households] couldn't re-create the invite ${pending.id}`, err);
+      Alert.alert(pendingInviteErrorTitle('send-again'), inviteSheetError(err, { email, householdName: household?.name }));
+    } finally {
+      setBusyInvite(null);
+    }
+  };
+
+  const revoke = async (pending: HouseholdInvite) => {
+    setBusyInvite(pending.id);
+    try {
+      await revokeInvite(pending.id);
+      setInvites((list) => list.filter((i) => i.id !== pending.id));
+    } catch (err) {
+      console.warn(`[households] couldn't revoke the invite ${pending.id}`, err);
+      Alert.alert(pendingInviteErrorTitle('revoke'), inviteSheetError(err, {}));
+    } finally {
+      setBusyInvite(null);
+    }
+  };
+
+  const inviteMenu = (pending: HouseholdInvite) => {
+    if (busyInvite) return;
+    const sheet = pendingInviteActions(pending);
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: pendingInviteTitle(pending),
+        options: sheet.options,
+        destructiveButtonIndex: sheet.destructiveButtonIndex,
+        cancelButtonIndex: sheet.cancelButtonIndex,
+      },
+      (index) => {
+        const action = sheet.actions[index];
+        if (action === 'send-again') void sendAgain(pending);
+        if (action === 'revoke') void revoke(pending);
+      },
+    );
   };
 
   useFocusEffect(
@@ -127,8 +197,31 @@ export default function HouseholdScreen() {
         )}
       </SettingsSection>
 
+      {state.status === 'ready' && invites.length > 0 ? (
+        <SettingsSection title="Invited">
+          {invites.map((pending, i) => (
+            <SettingsRow
+              key={pending.id}
+              label={pendingInviteTitle(pending)}
+              detail={pendingInviteDetail(pending)}
+              accessibilityLabel={pendingInviteAccessibilityLabel(pending)}
+              trailing={
+                busyInvite === pending.id ? (
+                  <ActivityIndicator color={colors.inkSecondary} />
+                ) : (
+                  <Badge label="Pending" tone="pending" />
+                )
+              }
+              chevron={false}
+              last={i === invites.length - 1}
+              onPress={() => inviteMenu(pending)}
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
+
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
-        <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={invite} />
+        <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={() => invite()} />
       </View>
     </Screen>
   );

@@ -17,6 +17,17 @@ export type InviteSheetAction =
 export const initialInviteSheetState: InviteSheetState = { step: 'email', email: '', submitting: false, error: null };
 
 /**
+ * Where the sheet opens. "Send again" on the household screen re-creates the invite first and passes
+ * its email and link, so the sheet opens on step 2 (Back still reaches step 1 with the email kept);
+ * anything else opens on an empty step 1.
+ */
+export function inviteSheetStartState(params: { email?: string | null; link?: string | null }): InviteSheetState {
+  const link = params.link?.trim();
+  if (link && isEmail(params.email)) return { step: 'send', email: normalizeEmail(params.email), link };
+  return initialInviteSheetState;
+}
+
+/**
  * Step 1 edits the email and submits it; `created` moves to step 2 with the invite's link, `failed`
  * shows the error under the field. `back` returns to step 1 with the email kept (submitting it again
  * re-invites, which revokes the earlier link). Actions that don't apply to the current step are ignored.
