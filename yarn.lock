@@ -6580,6 +6580,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-mail-composer@npm:~57.0.2":
+  version: 57.0.2
+  resolution: "expo-mail-composer@npm:57.0.2"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/3488be5bf1e775f49a6b5ac4e6d79b4a487e48b02ae7fc6761ea5a46699d40cf46c97e2a9521ba39935f9d79aff73edd17d49cefb44f2d057986af1b3116d0ae
+  languageName: node
+  linkType: hard
+
 "expo-modules-autolinking@npm:~57.0.14":
   version: 57.0.14
   resolution: "expo-modules-autolinking@npm:57.0.14"
@@ -6699,6 +6708,15 @@ __metadata:
   version: 57.0.3
   resolution: "expo-server@npm:57.0.3"
   checksum: 10c0/541d9b319ba513df718868c87a8d57e30161c3879b7d5b43f308923290ce5ee349a1b3469901c2f382984b6595f4cf6beaee9d870f5eb874c45ddc0a42a13e56
+  languageName: node
+  linkType: hard
+
+"expo-sms@npm:~57.0.2":
+  version: 57.0.2
+  resolution: "expo-sms@npm:57.0.2"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/7781eac4b4f3aef61844d4a25e462081fe172d5dc0be2b783b96e9a0e43f2e762441733f3076928ef373295f167af5a481eb23d194e439a9ddcf85e68d1d965c
   languageName: node
   linkType: hard
 
@@ -10198,8 +10216,10 @@ __metadata:
     expo-haptics: "npm:~57.0.3"
     expo-image: "npm:~57.0.5"
     expo-linking: "npm:~57.0.12"
+    expo-mail-composer: "npm:~57.0.2"
     expo-network: "npm:~57.0.2"
     expo-router: "npm:~57.0.25"
+    expo-sms: "npm:~57.0.2"
     expo-splash-screen: "npm:~57.0.9"
     expo-sqlite: "npm:~57.0.4"
     expo-status-bar: "npm:~57.0.1"

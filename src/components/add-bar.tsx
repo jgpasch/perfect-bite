@@ -58,13 +58,7 @@ export function AddBar({
         paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
         backgroundColor: colors.background,
       }}>
-      {onKeyboard ? (
-        <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
-          {keyboardRow}
-        </InputAccessoryView>
-      ) : (
-        keyboardRow
-      )}
+      {onKeyboard ? null : keyboardRow}
       <View
         style={[
           styles.field,
@@ -120,6 +114,16 @@ export function AddBar({
           <Icon name="plus" color="onPrimary" weight="bold" />
         </Pressable>
       </View>
+      {/*
+        After the input: on mount the native view looks up its TextInput by nativeID once and never again, so the
+        input has to be in the window first. The bar often mounts into a screen that's already showing (after data
+        loads, leaving Select mode).
+      */}
+      {onKeyboard ? (
+        <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
+          {keyboardRow}
+        </InputAccessoryView>
+      ) : null}
     </View>
   );
 }

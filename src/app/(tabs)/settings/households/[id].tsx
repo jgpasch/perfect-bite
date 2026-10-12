@@ -1,6 +1,6 @@
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Share, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { avatarColors, householdBandColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -22,9 +22,7 @@ import {
   roleLabel,
   type HouseholdMember,
 } from '@/features/households/households';
-import { createInvite, inviteShareMessage } from '@/features/households/invites';
 import { useTheme } from '@/hooks/use-theme';
-import { pushNow } from '@/sync/push';
 
 type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; members: HouseholdMember[] };
 
@@ -32,7 +30,7 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * A household and its members (spec 4.7, board 11), read-only: an amber band with the name, its
  * list and recipe counts and the members' avatars, then the Members card. Members come from the
  * server, so this needs a connection and a registered household; anything else shows the error
- * with Retry. "Invite someone" creates an invite and shares its link through the share sheet.
+ * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`).
  * TODO(M7): rename, leave, delete and per-member actions.
  */
 export default function HouseholdScreen() {
@@ -65,21 +63,9 @@ export default function HouseholdScreen() {
     );
   }, [id, userId]);
 
-  const [inviting, setInviting] = useState(false);
-  const invite = async () => {
-    if (!household) return;
-    setInviting(true);
-    try {
-      // A household made on this device has to reach the server before it can have invites.
-      await pushNow({ force: true });
-      const link = await createInvite(id);
-      await Share.share({ message: inviteShareMessage(household.name, link) });
-    } catch (err) {
-      console.warn(`[households] couldn't create an invite to ${id}`, err);
-      Alert.alert("Couldn't create an invite", 'Check your connection and try again.');
-    } finally {
-      setInviting(false);
-    }
+  const invite = () => {
+    const you = state.status === 'ready' ? state.members.find((m) => m.isYou)?.displayName : undefined;
+    router.push({ pathname: '/household-invite', params: { household: id, ...(you ? { inviter: you } : {}) } });
   };
 
   useFocusEffect(
@@ -142,12 +128,7 @@ export default function HouseholdScreen() {
       </SettingsSection>
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
-        <PrimaryButton
-          label={inviting ? 'Creating invite…' : 'Invite someone'}
-          icon="person.badge.plus"
-          disabled={inviting || !household}
-          onPress={invite}
-        />
+        <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={invite} />
       </View>
     </Screen>
   );

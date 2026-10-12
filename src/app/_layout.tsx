@@ -67,6 +67,11 @@ export default function RootLayout() {
                 <Stack.Screen name="category-order" options={{ title: '', presentation: 'modal' }} />
                 {/* An invite link (spec 4.7): signed out, the guard sends it to sign-in instead. */}
                 <Stack.Screen name="invite/[token]" options={{ title: '', presentation: 'modal' }} />
+                {/* Designs S2, S3: "Invite someone" from the household screen. */}
+                <Stack.Screen
+                  name="household-invite"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: 'Recipes' }} />
                 <Stack.Screen
                   name="recipe/[id]/add-to-list"
