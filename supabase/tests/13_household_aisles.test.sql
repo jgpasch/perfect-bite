@@ -171,12 +171,9 @@ select is(
     "hlc": "1760000000060-0000-sam1", "fields": { "category_id": "cccccccc-0000-7000-8000-00000000000a" } }] $$) -> 0 ->> 'code',
   '22023', 'Sam can''t point an override at household A''s aisle');
 
--- Leaving A: Jamie's membership is removed (as postgres) -----------------------------
-reset role;
-delete from public.household_members
-where household_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and user_id = '33333333-3333-3333-3333-333333333333';
-set local role authenticated;
+-- Jamie leaves A -----------------------------------------------------------------------
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
+do $$ begin perform public.leave_household('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'); end $$;
 
 select is_empty($$ select 1 from public.household_category_overrides $$, 'after leaving, Jamie can''t read the household''s overrides');
 select is_empty($$ select 1 from public.categories where household_id is not null $$, 'after leaving, Jamie loses its custom aisles');

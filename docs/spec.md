@@ -171,7 +171,7 @@ A small button under each list's title reads the current view ("As added ⌄") a
 **Principle: the household owns the data.** Every list and recipe belongs to one household. Users get access by being members, and lose it by leaving. No action ever moves data between households or hands it to a user; the only way data crosses households is an explicit copy (recipes, 4.5).
 
 **Membership**
-- Sign-up creates the user's **personal household** ("*John's household*", renameable) with a starter list.
+- Sign-up creates the user's **personal household** ("Personal", renameable) with a starter list.
 - A user can belong to any number of households (Q6). They must always belong to at least one.
 - Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Rename, Leave, and (owners only) Remove member, Make owner, Delete household.
 - The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user.
@@ -199,6 +199,7 @@ A small button under each list's title reads the current view ("As added ⌄") a
 - The last owner leaving promotes the member who joined earliest to owner.
 - The last member leaving deletes the household and its data, after a confirm that says so.
 - If the user is leaving their only household, a new empty personal household is created for them, so they always have one.
+- Server side: `leave_household(household_id)` (any member; `not a member` otherwise) and `remove_member(household_id, user_id)` (owners only, `not an owner` otherwise; not on yourself, who must leave instead) both clear the leaver's default list if it's in that household, run the leaving rules (`private.remove_member_from_household`, 4.12) and, if it was the leaver's only household, make them a new one with `private.create_personal_household`: "Personal", with them as owner, a "Groceries" list at position 1 as their default list (the same as the device's `ensureStarterData`). Both return `{ outcome: 'left' | 'promoted' | 'deleted', new_household_id }` (null when no household was made).
 - When access is lost (leave or removal), each of the user's devices removes that household's data from local storage on its next sync, and any queued outbox mutations for it are dropped.
 - **Delete household** (owners only): deletes it for every member, after a confirm naming how many members and lists are affected. Members left with no household get a new personal household.
 
