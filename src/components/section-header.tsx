@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { sectionHeaderLabel } from '@/components/appearance';
@@ -25,17 +27,36 @@ type Props = {
   count?: number;
   /** Reads the count to VoiceOver without showing it, e.g. on an open recipe card. */
   hideCount?: boolean;
-  /** Shown after the count, e.g. a recipe's actions button. It keeps its own tap and doesn't toggle. */
+  /** Shown after the count. It keeps its own tap and doesn't toggle. */
   trailing?: ReactNode;
+  /** A folding header's long-press, e.g. a recipe's menu (spec 4.6). */
+  onLongPress?: () => void;
+  /** VoiceOver actions on a folding header, standing in for what its long-press offers. */
+  actions?: { label: string; onPress: () => void }[];
   /** What VoiceOver reads instead of the title, e.g. for the Sorting… section. */
   accessibilityLabel?: string;
+  /** Swipe right to check every row in the section (spec 4.6). */
+  onSwipeCheck?: () => void;
+  /** Swipe left to remove the section, e.g. a recipe from the list (spec 4.6). */
+  onSwipeRemove?: () => void;
   /** Makes the header a button that folds the card's rows away (spec 4.6), with a chevron. Use `FoldingSection`. */
   onToggle?: () => void;
   collapsed?: boolean;
 };
 
-/** A card's section header: aisle dot, the name in the display face, and the count on the right. */
-export function SectionHeader({
+/**
+ * A card's section header: aisle dot, the name in the display face, and the count on the right.
+ * With `onSwipeCheck` or `onSwipeRemove` it swipes too.
+ */
+export function SectionHeader({ onSwipeCheck, onSwipeRemove, ...header }: Props) {
+  return (
+    <Swipe band={header.band} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
+      <HeaderBody {...header} />
+    </Swipe>
+  );
+}
+
+function HeaderBody({
   title,
   dotColor,
   band,
@@ -43,10 +64,12 @@ export function SectionHeader({
   count,
   hideCount = false,
   trailing,
+  onLongPress,
+  actions,
   accessibilityLabel,
   onToggle,
   collapsed = false,
-}: Props) {
+}: Omit<Props, 'onSwipeCheck' | 'onSwipeRemove'>) {
   const { spacing, sizes, rounded, opacity } = useTheme();
   const label = sectionHeaderLabel(accessibilityLabel ?? title, count);
   const { paddingTop, paddingBottom } = headerPadding(spacing, !!band);
@@ -96,7 +119,10 @@ export function SectionHeader({
         accessibilityRole="button"
         accessibilityState={{ expanded: !collapsed }}
         accessibilityLabel={label}
+        accessibilityActions={actions?.map((a) => ({ name: a.label, label: a.label }))}
+        onAccessibilityAction={(e) => actions?.find((a) => a.label === e.nativeEvent.actionName)?.onPress()}
         onPress={onToggle}
+        onLongPress={onLongPress}
         style={({ pressed }) => [
           styles.row,
           styles.toggle,
@@ -115,6 +141,62 @@ export function SectionHeader({
       </Pressable>
       {trailing}
     </View>
+  );
+}
+
+/**
+ * A header's swipes: right to check all (a `primary` panel with a check), left to remove (`danger`, a
+ * trash can). A full swipe does it, with a light haptic, and the header springs back. The header
+ * takes the card's ground (or its band) so it covers the panel.
+ */
+function Swipe({
+  band,
+  onCheck,
+  onRemove,
+  children,
+}: {
+  band?: { ground: string };
+  onCheck?: () => void;
+  onRemove?: () => void;
+  children: ReactNode;
+}) {
+  const { colors, spacing } = useTheme();
+  const ref = useRef<SwipeableMethods>(null);
+  if (!onCheck && !onRemove) return children;
+  return (
+    <ReanimatedSwipeable
+      ref={ref}
+      // Follows the finger, and only a swipe past half the row commits (the default threshold).
+      friction={1}
+      overshootLeft={false}
+      overshootRight={false}
+      childrenContainerStyle={{ backgroundColor: band?.ground ?? colors.surface }}
+      onSwipeableOpen={(direction) => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        ref.current?.close();
+        if (direction === SwipeDirection.RIGHT) onCheck?.();
+        else onRemove?.();
+      }}
+      renderLeftActions={
+        onCheck
+          ? () => (
+              <View style={[styles.action, styles.leading, { backgroundColor: colors.primary, paddingHorizontal: spacing.xl }]}>
+                <Icon name="checkmark" color="onPrimary" weight="bold" />
+              </View>
+            )
+          : undefined
+      }
+      renderRightActions={
+        onRemove
+          ? () => (
+              <View style={[styles.action, styles.trailing, { backgroundColor: colors.danger, paddingHorizontal: spacing.xl }]}>
+                <Icon name="trash" color="onPrimary" />
+              </View>
+            )
+          : undefined
+      }>
+      {children}
+    </ReanimatedSwipeable>
   );
 }
 
@@ -165,4 +247,7 @@ const styles = StyleSheet.create({
   toggle: { flex: 1 },
   title: { flex: 1 },
   count: { fontWeight: '600' },
+  action: { flex: 1, justifyContent: 'center' },
+  leading: { alignItems: 'flex-start' },
+  trailing: { alignItems: 'flex-end' },
 });

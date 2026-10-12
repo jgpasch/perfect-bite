@@ -347,6 +347,16 @@ export function clearedToast(count: number): { message: string } {
   return { message: `Cleared ${count} ${count === 1 ? 'item' : 'items'}` };
 }
 
+/** The toast after a section's Check all (spec 4.6): "Checked 3 items", with Undo. */
+export function checkedAllToast(count: number): { message: string } {
+  return { message: `Checked ${count} ${count === 1 ? 'item' : 'items'}` };
+}
+
+/** The toast after Remove recipe from list (spec 4.6): "Removed Tacos from the list", with Undo; the name in bold. */
+export function removedRecipeToast(recipeName: string): { message: string; emphasis: string } {
+  return { message: `Removed ${recipeName} from the list`, emphasis: recipeName };
+}
+
 /** The Checked header's Clear button and long-press action, for VoiceOver: "Clear 3 checked items". */
 export function clearCheckedLabel(count: number): string {
   return `Clear ${count} checked ${count === 1 ? 'item' : 'items'}`;

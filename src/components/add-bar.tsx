@@ -1,5 +1,5 @@
-import { useId, useState, type ReactNode } from 'react';
-import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { addBarButton } from '@/components/appearance';
@@ -17,12 +17,8 @@ type Props = {
   onSubmit: () => void;
   placeholder: string;
   accessibilityLabel: string;
-  /**
-   * The keyboard's top row once the input has text (an `InputAccessoryView` on iOS), e.g. suggestion chips. It
-   * takes the place of iOS's QuickType bar, so autocorrect and spell check are off while it shows; on an empty field
-   * the QuickType bar is back. Elsewhere it's shown above the input.
-   */
-  keyboardRow?: ReactNode;
+  /** Shown above the input, e.g. autocomplete suggestions. */
+  accessory?: ReactNode;
   /** Called when the input gains or loses focus. */
   onFocusChange?: (focused: boolean) => void;
 };
@@ -37,7 +33,7 @@ export function AddBar({
   onSubmit,
   placeholder,
   accessibilityLabel,
-  keyboardRow,
+  accessory,
   onFocusChange,
 }: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, typography, opacity } = useTheme();
@@ -47,10 +43,6 @@ export function AddBar({
   const button = addBarButton(value);
   const empty = button.disabled;
   const inset = (sizes.bar - sizes.barButton) / 2;
-  const keyboardRowId = useId();
-  const onKeyboard = keyboardRow !== undefined && Platform.OS === 'ios';
-  // The row replaces the QuickType bar only once there's text; until then the system's suggestions show.
-  const rowShown = keyboardRow !== undefined && value !== '';
 
   return (
     <View
@@ -60,7 +52,7 @@ export function AddBar({
         paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
         backgroundColor: colors.background,
       }}>
-      {onKeyboard ? null : keyboardRow}
+      {accessory}
       <View
         style={[
           styles.field,
@@ -86,10 +78,11 @@ export function AddBar({
           returnKeyType="done"
           // Names are stored as typed and shown in sentence case (spec 4.2), so don't capitalize.
           autoCapitalize="none"
-          inputAccessoryViewID={onKeyboard ? keyboardRowId : undefined}
-          autoCorrect={!rowShown}
-          spellCheck={!rowShown}
-          autoComplete={rowShown ? 'off' : undefined}
+          // Our suggestion chips do autocomplete, so iOS's QuickType bar is off, and autocorrect with it (it mangles
+          // ingredient names like "gochujang").
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
           placeholder={placeholder}
           placeholderTextColor={colors.inkSecondary}
           selectionColor={colors.primary}
@@ -116,17 +109,6 @@ export function AddBar({
           <Icon name="plus" color="onPrimary" weight="bold" />
         </Pressable>
       </View>
-      {/*
-        After the input: on mount the native view looks up its TextInput by nativeID once and never again, so the
-        input has to be in the window first. The bar often mounts into a screen that's already showing (after data
-        loads, leaving Select mode). So it stays mounted with an empty field, collapsed to an empty view (with no
-        children it unmounts), and the QuickType bar shows in its place.
-      */}
-      {onKeyboard ? (
-        <InputAccessoryView nativeID={keyboardRowId} backgroundColor={colors.keyboard}>
-          {rowShown ? keyboardRow : <View />}
-        </InputAccessoryView>
-      ) : null}
     </View>
   );
 }

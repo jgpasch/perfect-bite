@@ -32,9 +32,6 @@ const TEXT_PAIRS: [ColorToken, ColorToken][] = [
   // The list screen's green header: its title and the "7 to get · As added" line.
   ['onHeader', 'header'],
   ['onHeaderSecondary', 'header'],
-  // Suggestion chips on the keyboard row: the label and its typed part.
-  ['ink', 'keyboardChip'],
-  ['primary', 'keyboardChip'],
 ];
 
 describe('Palette', () => {
@@ -62,8 +59,6 @@ describe('Palette', () => {
       header: '#1F4D33',
       onHeader: '#FFFFFF',
       onHeaderSecondary: '#B7D2BF',
-      keyboard: '#D3D6DC',
-      keyboardChip: '#FFFFFF',
     });
   });
 

@@ -871,37 +871,81 @@ export function searchRecentItems(householdId: string, prefix: string, limit: nu
     .map((r) => ({ key: r.ingredientName, displayName: r.displayName }));
 }
 
-/** "Check all" in a recipe section (spec 4.6). */
-export function checkItems(itemIds: readonly string[], userId: string | null): void {
-  if (itemIds.length === 0) return;
-  updateRows(db, listItems, and(inArray(listItems.id, [...itemIds]), isNull(listItems.checkedAt)), {
-    checkedAt: new Date(),
-    checkedBy: userId,
-  });
+export type CheckedItems = { ids: string[]; checkedAt: Date };
+
+/** "Check all" on a section (spec 4.6): checks those of `itemIds` still open. Returns them for Undo. */
+export function checkItems(itemIds: readonly string[], userId: string | null): CheckedItems {
+  const checkedAt = new Date();
+  if (itemIds.length === 0) return { ids: [], checkedAt };
+  const where = and(inArray(listItems.id, [...itemIds]), liveItem, isNull(listItems.checkedAt));
+  return { ids: updateRows(db, listItems, where, { checkedAt, checkedBy: userId }).map((r) => r.id), checkedAt };
 }
 
 /**
- * "Remove recipe from list" (spec 4.6): removes that recipe's amounts from the list's items;
- * items left with no amounts are deleted.
+ * Check all's "Undo": unchecks the items `checkItems` checked at `checkedAt`. One checked or
+ * unchecked since (here or on another device) is left as it is.
  */
-export function removeRecipeFromList(listId: string, recipeId: string): void {
+export function uncheckItems({ ids, checkedAt }: CheckedItems): void {
+  if (ids.length === 0) return;
   db.transaction((tx) => {
-    const now = new Date();
+    const checked = tx
+      .select()
+      .from(listItems)
+      .where(and(inArray(listItems.id, ids), liveItem, eq(listItems.checkedAt, checkedAt)))
+      .all();
+    for (const item of checked) restoreItem(tx, item, false);
+  });
+}
+
+export type RemovedRecipe = { contributionIds: string[]; itemIds: string[]; deletedAt: Date };
+
+/**
+ * "Remove recipe from list" (spec 4.6): removes that recipe's amounts from the list's items;
+ * items left with no amounts are deleted. Returns what it removed, for Undo.
+ */
+export function removeRecipeFromList(listId: string, recipeId: string): RemovedRecipe {
+  const deletedAt = new Date();
+  return db.transaction((tx) => {
     const affected = tx
       .select({ itemId: listItemContributions.listItemId, id: listItemContributions.id })
       .from(listItemContributions)
       .innerJoin(listItems, eq(listItems.id, listItemContributions.listItemId))
       .where(and(eq(listItems.listId, listId), liveItem, eq(listItemContributions.recipeId, recipeId), liveContribution))
       .all();
-    if (affected.length === 0) return;
-    updateRows(tx, listItemContributions, inArray(listItemContributions.id, affected.map((a) => a.id)), {
-      deletedAt: now,
-    });
+    const removed: RemovedRecipe = { contributionIds: affected.map((a) => a.id), itemIds: [], deletedAt };
+    if (affected.length === 0) return removed;
+    updateRows(tx, listItemContributions, inArray(listItemContributions.id, removed.contributionIds), { deletedAt });
     for (const itemId of new Set(affected.map((a) => a.itemId))) {
       if (liveContributions(tx, itemId).length === 0) {
-        updateRows(tx, listItems, eq(listItems.id, itemId), { deletedAt: now });
+        updateRows(tx, listItems, eq(listItems.id, itemId), { deletedAt });
+        removed.itemIds.push(itemId);
       }
     }
+    return removed;
+  });
+}
+
+/**
+ * Remove recipe's "Undo": brings back the amounts and items `removeRecipeFromList` deleted at
+ * `deletedAt`, checked or not as they were. One deleted again since stays deleted; an item whose
+ * ingredient has been opened again since gets its amounts on that item.
+ */
+export function restoreRecipeOnList({ contributionIds, itemIds, deletedAt }: RemovedRecipe): void {
+  if (contributionIds.length === 0) return;
+  db.transaction((tx) => {
+    updateRows(
+      tx,
+      listItemContributions,
+      and(inArray(listItemContributions.id, contributionIds), eq(listItemContributions.deletedAt, deletedAt)),
+      { deletedAt: null },
+    );
+    if (itemIds.length === 0) return;
+    const removed = tx
+      .select()
+      .from(listItems)
+      .where(and(inArray(listItems.id, itemIds), eq(listItems.deletedAt, deletedAt)))
+      .all();
+    for (const item of removed) restoreItem(tx, item, item.checkedAt !== null);
   });
 }
 

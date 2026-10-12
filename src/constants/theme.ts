@@ -58,10 +58,6 @@ export const Palette = {
     onHeader: '#FFFFFF',
     /** "7 to get · As added" on the header. */
     onHeaderSecondary: '#B7D2BF',
-    /** The suggestion row on top of the keyboard, matching the system keyboard's ground. */
-    keyboard: '#D3D6DC',
-    /** A suggestion chip on the keyboard row. */
-    keyboardChip: '#FFFFFF',
   },
   dark: {
     background: '#111915',
@@ -86,8 +82,6 @@ export const Palette = {
     header: '#163A26',
     onHeader: '#FFFFFF',
     onHeaderSecondary: '#A9C8B3',
-    keyboard: '#252928',
-    keyboardChip: '#363B39',
   },
 } as const;
 
@@ -228,9 +222,6 @@ export const Sizes = {
   chipBorder: 1,
   /** the `primary` outline of an invite card on the lists home */
   inviteOutline: 2,
-  /** the suggestion row on top of the keyboard, and its chips */
-  keyboardRow: 44,
-  keyboardChip: 32,
   /** list tiles on the lists home (a minimum, so Dynamic Type can grow them) */
   tile: 132,
   /** the New list tile when it sits alone on its row */

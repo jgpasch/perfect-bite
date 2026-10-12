@@ -244,8 +244,8 @@ export function getIngredientCategory(
 }
 
 /**
- * The aisle each ingredient shows under in a household (its override, else the default), for the
- * autocomplete panel's dot and short name. Ingredients still sorting, or unknown, are left out.
+ * The aisle each ingredient shows under in a household (its override, else the default). Ingredients still sorting,
+ * or unknown, are left out.
  */
 export function ingredientAisles(
   householdId: string,

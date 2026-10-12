@@ -23,9 +23,9 @@ type Props = {
 };
 
 /**
- * The persistent add bar at the bottom of a list or recipe, with its suggestions: a chip row (`SuggestionChips`) on
- * top of the keyboard once the field has text (iOS's QuickType bar until then), with the household's recipes too
- * when `onAddRecipe` is set. Put it last in a KeyboardAvoidingView.
+ * The persistent add bar at the bottom of a list or recipe, with its suggestions: a chip row (`SuggestionChips`) docked
+ * above the field while something matches, with the household's recipes too when `onAddRecipe` is set. Put it last in a
+ * KeyboardAvoidingView, so the row grows the bar upward and the field stays put.
  */
 export function ItemAddBar({
   householdId,
@@ -80,6 +80,8 @@ export function ItemAddBar({
     setVersion((n) => n + 1);
   };
 
+  const chips = suggestionChips(text, { recipes: recipeMatches, suggestions });
+
   return (
     <AddBar
       value={text}
@@ -88,15 +90,16 @@ export function ItemAddBar({
       onFocusChange={onFocusChange}
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
-      // Stays while there's text, even with no chips, so the row and the field don't jump while typing.
-      keyboardRow={
-        <SuggestionChips
-          chips={suggestionChips(text, { recipes: recipeMatches, suggestions })}
-          typed={parseQuantity(text).name}
-          onPressItem={(chip) => add(chip.text)}
-          onPressRecipe={(chip) => addRecipe(chip.recipe)}
-          onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
-        />
+      accessory={
+        chips.length === 0 ? null : (
+          <SuggestionChips
+            chips={chips}
+            typed={parseQuantity(text).name}
+            onPressItem={(chip) => add(chip.text)}
+            onPressRecipe={(chip) => addRecipe(chip.recipe)}
+            onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
+          />
+        )
       }
     />
   );

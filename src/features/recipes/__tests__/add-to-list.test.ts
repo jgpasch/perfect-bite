@@ -11,7 +11,9 @@ import {
   groupItems,
   listItemsQuery,
   removeRecipeFromList,
+  restoreRecipeOnList,
   setItemChecked,
+  uncheckItems,
 } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
@@ -252,6 +254,30 @@ describe('By recipe actions (spec 4.6)', () => {
     addAll(tacos);
     removeRecipeFromList(listId, tacos);
     expect(rows()).toEqual(['2 limes']);
+  });
+
+  test('Undo of remove recipe brings back its amounts and items', () => {
+    addItem(listId, '2 limes', USER);
+    addAll(tacos);
+    const sections = () =>
+      groupByRecipe(groupItems(listItemsQuery(listId).all()).unchecked).map((s) => [s.name, s.entries.length]);
+    const before = [rows(), sections()];
+    restoreRecipeOnList(removeRecipeFromList(listId, tacos));
+    expect([rows(), sections()]).toEqual(before);
+  });
+
+  test('Undo of check all unchecks only what it checked', () => {
+    addItem(listId, 'milk', USER);
+    addAll(tacos);
+    const milk = listItemsQuery(listId).all().find((i) => i.displayName === 'milk')!;
+    checkItems([milk.id], USER);
+    const all = listItemsQuery(listId).all().map((i) => i.id);
+    const checked = checkItems(all, USER);
+    expect(checked.ids).toHaveLength(5);
+    expect(rows()).toEqual([]);
+    uncheckItems(checked);
+    expect(rows()).toHaveLength(5);
+    expect(groupItems(listItemsQuery(listId).all()).checked.map((i) => i.displayName)).toEqual(['milk']);
   });
 });
 

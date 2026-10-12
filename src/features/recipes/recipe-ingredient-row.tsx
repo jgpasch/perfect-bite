@@ -29,8 +29,8 @@ export function RecipeIngredientRow({ ingredient, dotColor, onEdit, onDelete }: 
   return (
     <Animated.View entering={entering} exiting={exiting} layout={layout}>
       <ReanimatedSwipeable
-        friction={2}
-        rightThreshold={sizes.rowMin}
+        // Follows the finger, and only a swipe past half the row commits (the default threshold).
+        friction={1}
         overshootRight={false}
         onSwipeableOpen={() => onDelete()}
         renderRightActions={() => (

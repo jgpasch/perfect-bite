@@ -73,9 +73,9 @@ export type SuggestionChip =
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
 /**
- * The chips on top of the keyboard for a list's add bar (spec 4.2), only while the field has text: matching recipes,
- * then autocomplete (household history, then the catalog), each adding the typed amount with its name. Empty when the
- * field is empty or there's nothing to offer, leaving the row blank.
+ * The chip row above the add bar (spec 4.2), only while the field has text: matching recipes, then autocomplete
+ * (household history, then the catalog), each adding the typed amount with its name. Empty when the field is empty or
+ * there's nothing to offer, so the row collapses.
  */
 export function suggestionChips(
   text: string,

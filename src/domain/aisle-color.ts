@@ -73,8 +73,3 @@ export function householdColor(householdId: string): AisleHue {
   return idHue(householdId);
 }
 
-/** An aisle's short name for tight spots, e.g. the autocomplete panel: "Meat & seafood" → "Meat". */
-export function shortAisleName(name: string): string {
-  const short = name.split(/\s*(?:&|,|\band\b)\s*/)[0].trim();
-  return short || name.trim();
-}

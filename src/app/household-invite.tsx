@@ -3,8 +3,7 @@ import * as MailComposer from 'expo-mail-composer';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import * as SMS from 'expo-sms';
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { ActivityIndicator, ScrollView, Share, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Share, StyleSheet, View } from 'react-native';
 
 import { avatarColors, prominentButtonTint } from '@/components/appearance';
 import { Button } from '@/components/button';
@@ -56,7 +55,6 @@ export default function HouseholdInviteSheet() {
     link: resentLink,
   } = useLocalSearchParams<{ household: string; inviter?: string; email?: string; link?: string }>();
   const { colors, spacing, scheme } = useTheme();
-  const insets = useSafeAreaInsets();
   // A sheet is short-lived: read once rather than live.
   const [householdName] = useState(() => householdsQuery().all().find((h) => h.id === householdId)?.name ?? null);
   const [state, dispatch] = useReducer(inviteSheetReducer, { email: resentEmail, link: resentLink }, inviteSheetStartState);
@@ -95,102 +93,94 @@ export default function HouseholdInviteSheet() {
   const busy = state.step === 'email' && (state.submitting || sharing);
   const error = state.step === 'email' ? (state.error ?? linkError) : null;
 
-  return (
-    <Screen>
-      {state.step === 'email' ? (
-        <>
-          <Stack.Toolbar placement="left">
-            <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
-          </Stack.Toolbar>
-          <Stack.Toolbar placement="right">
-            <Stack.Toolbar.View hidden={!state.submitting}>
-              <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Creating invite" />
-            </Stack.Toolbar.View>
-            <Stack.Toolbar.Button
-              hidden={state.submitting}
-              variant="done"
-              tintColor={prominentButtonTint(scheme, colors)}
-              disabled={!canSubmitInvite(state) || sharing}
-              onPress={submit}>
-              Next
-            </Stack.Toolbar.Button>
-          </Stack.Toolbar>
-        </>
-      ) : (
-        <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button icon="chevron.left" accessibilityLabel="Back" onPress={() => dispatch({ type: 'back' })} />
-        </Stack.Toolbar>
-      )}
+  if (state.step === 'send') {
+    return (
+      <SendStep
+        email={state.email}
+        link={state.link}
+        householdName={householdName}
+        inviter={inviter ?? null}
+        onBack={() => dispatch({ type: 'back' })}
+      />
+    );
+  }
 
-      {state.step === 'email' ? (
-        <ScrollView
-          style={styles.flex}
-          contentInsetAdjustmentBehavior="automatic"
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ gap: spacing.sm, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-          <View style={{ paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.xs, paddingBottom: spacing.sm }}>
-            <ThemedText variant="title" accessibilityRole="header">
-              {inviteSheetTitle(householdName)}
-            </ThemedText>
-            <ThemedText variant="footnote" color="inkSecondary">
-              {INVITE_JOINING_LINE}
-            </ThemedText>
-          </View>
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <TextField
-              value={state.email}
-              onChangeText={(email) => (dispatch({ type: 'edit', email }), setLinkError(null))}
-              placeholder="name@example.com"
-              accessibilityLabel="Their email"
-              accessibilityHint={INVITE_EMAIL_FOOTNOTE}
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              autoComplete="email"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-              returnKeyType="next"
-              editable={!busy}
-              onSubmitEditing={submit}
-            />
-          </View>
-          {error ? (
-            <ThemedText
-              variant="footnote"
-              color="danger"
-              accessibilityRole="alert"
-              accessibilityLiveRegion="polite"
-              style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-              {error}
-            </ThemedText>
-          ) : null}
-          <ThemedText
-            variant="footnote"
-            color="inkSecondary"
-            importantForAccessibility="no-hide-descendants"
-            accessibilityElementsHidden
-            style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-            {INVITE_EMAIL_FOOTNOTE}
-          </ThemedText>
-          <View style={[styles.start, { paddingHorizontal: spacing.lg, paddingTop: spacing.sm }]}>
-            <Button
-              label={sharing ? 'Creating link…' : "Don't know their email? Share a link instead"}
-              variant="plain"
-              color="inkSecondary"
-              disabled={busy}
-              onPress={shareLink}
-            />
-          </View>
-        </ScrollView>
-      ) : (
-        <SendStep
-          email={state.email}
-          link={state.link}
-          householdName={householdName}
-          inviter={inviter ?? null}
-          bottomInset={insets.bottom}
+  // The scroll view is the screen's root: in a form sheet, react-native-screens sizes a root scroll view
+  // to the sheet, but positions one nested in a plain view by the sheet's frame, off-screen on iOS 26.
+  return (
+    <Screen
+      scroll
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ gap: spacing.sm, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+      <Stack.Toolbar placement="left">
+        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+      </Stack.Toolbar>
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.View hidden={!state.submitting}>
+          <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Creating invite" />
+        </Stack.Toolbar.View>
+        <Stack.Toolbar.Button
+          hidden={state.submitting}
+          variant="done"
+          tintColor={prominentButtonTint(scheme, colors)}
+          disabled={!canSubmitInvite(state) || sharing}
+          onPress={submit}>
+          Next
+        </Stack.Toolbar.Button>
+      </Stack.Toolbar>
+      <View style={{ paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.xs, paddingBottom: spacing.sm }}>
+        <ThemedText variant="title" accessibilityRole="header">
+          {inviteSheetTitle(householdName)}
+        </ThemedText>
+        <ThemedText variant="footnote" color="inkSecondary">
+          {INVITE_JOINING_LINE}
+        </ThemedText>
+      </View>
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <TextField
+          value={state.email}
+          onChangeText={(email) => (dispatch({ type: 'edit', email }), setLinkError(null))}
+          placeholder="name@example.com"
+          accessibilityLabel="Their email"
+          accessibilityHint={INVITE_EMAIL_FOOTNOTE}
+          keyboardType="email-address"
+          textContentType="emailAddress"
+          autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoFocus
+          returnKeyType="next"
+          editable={!busy}
+          onSubmitEditing={submit}
         />
-      )}
+      </View>
+      {error ? (
+        <ThemedText
+          variant="footnote"
+          color="danger"
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+          {error}
+        </ThemedText>
+      ) : null}
+      <ThemedText
+        variant="footnote"
+        color="inkSecondary"
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+        style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+        {INVITE_EMAIL_FOOTNOTE}
+      </ThemedText>
+      <View style={[styles.start, { paddingHorizontal: spacing.lg, paddingTop: spacing.sm }]}>
+        <Button
+          label={sharing ? 'Creating link…' : "Don't know their email? Share a link instead"}
+          variant="plain"
+          color="inkSecondary"
+          disabled={busy}
+          onPress={shareLink}
+        />
+      </View>
     </Screen>
   );
 }
@@ -201,13 +191,13 @@ function SendStep({
   link,
   householdName,
   inviter,
-  bottomInset,
+  onBack,
 }: {
   email: string;
   link: string;
   householdName: string | null;
   inviter: string | null;
-  bottomInset: number;
+  onBack: () => void;
 }) {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
   const [available, setAvailable] = useState<{ sms: boolean | null; mail: boolean | null }>({ sms: null, mail: null });
@@ -255,69 +245,71 @@ function SendStep({
   const dismissToast = useCallback(() => setCopied(0), []);
   const channels = inviteChannels(available);
 
+  // A root scroll view, as on step 1; Done sits at its foot, pushed down by a spacer.
   return (
-    <>
-      <ScrollView
-        style={styles.flex}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-        <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-          {inviteSendTitle(email)}
-        </ThemedText>
+    <Screen
+      scroll
+      contentContainerStyle={{ flexGrow: 1, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+      <Stack.Toolbar placement="left">
+        <Stack.Toolbar.Button icon="chevron.left" accessibilityLabel="Back" onPress={onBack} />
+      </Stack.Toolbar>
+      <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+        {inviteSendTitle(email)}
+      </ThemedText>
+      <View
+        accessible
+        style={[styles.row, { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.md, gap: spacing.md }]}>
         <View
-          accessible
-          style={[styles.row, { paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.md, gap: spacing.md }]}>
-          <View
-            style={[
-              styles.avatar,
-              { width: sizes.iconWell, height: sizes.iconWell, borderRadius: rounded.full, backgroundColor: avatar.fill },
-            ]}>
-            <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: avatar.text }}>
-              {avatarInitial(email)}
-            </ThemedText>
-          </View>
-          <View style={styles.flex}>
-            <ThemedText variant="headline">{email}</ThemedText>
-            <ThemedText variant="footnote" color="inkSecondary">
-              Invite expires in 7 days
-            </ThemedText>
-          </View>
-        </View>
-        <SettingsSection title="Send it with">
-          {channels.map((channel, i) => (
-            <SettingsRow
-              key={channel}
-              label={inviteChannelLabel(channel)}
-              icon={CHANNEL_ICONS[channel]}
-              chevron={channel !== 'copy'}
-              last={i === channels.length - 1}
-              onPress={() => void send(channel)}
-            />
-          ))}
-        </SettingsSection>
-        <View
-          style={{
-            marginHorizontal: spacing.lg,
-            marginTop: spacing.md,
-            padding: spacing.md,
-            borderRadius: rounded.row,
-            borderCurve: 'continuous',
-            backgroundColor: colors.primarySoft,
-          }}>
-          <ThemedText variant="footnote" color="onPrimarySoft">
-            {inviteSkipNote(email)}
+          style={[
+            styles.avatar,
+            { width: sizes.iconWell, height: sizes.iconWell, borderRadius: rounded.full, backgroundColor: avatar.fill },
+          ]}>
+          <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: avatar.text }}>
+            {avatarInitial(email)}
           </ThemedText>
         </View>
-      </ScrollView>
+        <View style={styles.flex}>
+          <ThemedText variant="headline">{email}</ThemedText>
+          <ThemedText variant="footnote" color="inkSecondary">
+            Invite expires in 7 days
+          </ThemedText>
+        </View>
+      </View>
+      <SettingsSection title="Send it with">
+        {channels.map((channel, i) => (
+          <SettingsRow
+            key={channel}
+            label={inviteChannelLabel(channel)}
+            icon={CHANNEL_ICONS[channel]}
+            chevron={channel !== 'copy'}
+            last={i === channels.length - 1}
+            onPress={() => void send(channel)}
+          />
+        ))}
+      </SettingsSection>
+      <View
+        style={{
+          marginHorizontal: spacing.lg,
+          marginTop: spacing.md,
+          padding: spacing.md,
+          borderRadius: rounded.row,
+          borderCurve: 'continuous',
+          backgroundColor: colors.primarySoft,
+        }}>
+        <ThemedText variant="footnote" color="onPrimarySoft">
+          {inviteSkipNote(email)}
+        </ThemedText>
+      </View>
+      <View style={styles.flex} />
       {copied ? (
-        <View style={{ paddingBottom: spacing.sm }}>
+        <View style={{ paddingTop: spacing.md }}>
           <Toast key={copied} message="Link copied" actions={[]} onDismiss={dismissToast} />
         </View>
       ) : null}
-      <View style={{ alignItems: 'center', paddingTop: spacing.sm, paddingBottom: Math.max(bottomInset, spacing.lg) }}>
+      <View style={{ alignItems: 'center', paddingTop: spacing.sm }}>
         <Button label="Done" variant="plain" onPress={() => router.back()} />
       </View>
-    </>
+    </Screen>
   );
 }
 

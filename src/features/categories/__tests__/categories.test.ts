@@ -277,7 +277,7 @@ describe('autocomplete', () => {
   });
 });
 
-describe('ingredientAisles (autocomplete panel)', () => {
+describe('ingredientAisles', () => {
   test('gives each ingredient its default aisle', () => {
     const aisles = ingredientAisles(home, [key('chicken thighs'), key('chickpeas'), key('milk')]);
     expect(Object.fromEntries(aisles)).toEqual({

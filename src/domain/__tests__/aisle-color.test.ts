@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { AISLE_HUES, aisleColor, householdColor, listColorName, listHue, recipeHue, shortAisleName, type AisleHue } from '@/domain/aisle-color';
+import { AISLE_HUES, aisleColor, householdColor, listColorName, listHue, recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@/shared/seed/categories';
 
 describe('aisleColor', () => {
@@ -109,31 +109,6 @@ describe('recipeHue', () => {
 
   it('copes with long ids that overflow 32 bits', () => {
     expect(['green', 'blue', 'rose', 'amber']).toContain(recipeHue('x'.repeat(500)));
-  });
-});
-
-describe('shortAisleName', () => {
-  it.each([
-    ['Meat & Seafood', 'Meat'],
-    ['Dairy & Eggs', 'Dairy'],
-    ['Pantry & Dry Goods', 'Pantry'],
-    ['Canned & Jarred', 'Canned'],
-    ['Produce', 'Produce'],
-    ['Personal Care', 'Personal Care'],
-    ['Fruit and veg', 'Fruit'],
-    ['Oils, vinegars', 'Oils'],
-    ['  Frozen  ', 'Frozen'],
-  ])('%s → %s', (name, short) => {
-    expect(shortAisleName(name)).toBe(short);
-  });
-
-  it('keeps the whole name when nothing comes before the separator', () => {
-    expect(shortAisleName('& more')).toBe('& more');
-  });
-
-  it("doesn't split inside a word", () => {
-    expect(shortAisleName('Candy')).toBe('Candy');
-    expect(shortAisleName('Sandwiches')).toBe('Sandwiches');
   });
 });
 

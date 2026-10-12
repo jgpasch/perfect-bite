@@ -55,8 +55,10 @@ import {
   orderByAisle,
   removeRecipeFromList,
   restoreItems,
+  restoreRecipeOnList,
   setItemChecked,
   uncheckAll,
+  uncheckItems,
   undeleteItem,
   undoAdd,
   undoMove,
@@ -69,6 +71,7 @@ import {
   aisleSectionKey,
   alsoInHint,
   CHECK_LINGER_MS,
+  checkedAllToast,
   clearCheckedLabel,
   clearedToast,
   collapsedSectionsKey,
@@ -84,6 +87,7 @@ import {
   orderByNewest,
   readCollapsedSections,
   recipeSectionKey,
+  removedRecipeToast,
   siriAddedToast,
   toGetLabel,
   toggleCollapsedSection,
@@ -248,6 +252,19 @@ export default function ListScreen() {
   const addMode = adding && !selection;
   const query = addMode ? duplicateQuery(addText) : null;
   const typedName = parseQuantity(addText).name;
+  // Leaving add mode scrolls back to where it started: adds scroll to their section, which would leave the
+  // re-expanded title above the fold.
+  const scrollOffset = useRef(0);
+  const addModeOffset = useRef<number | null>(null);
+  useEffect(() => {
+    if (addMode) {
+      addModeOffset.current = scrollOffset.current;
+      return;
+    }
+    if (addModeOffset.current === null) return;
+    listRef.current?.scrollToOffset({ offset: addModeOffset.current, animated: true });
+    addModeOffset.current = null;
+  }, [addMode]);
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {
     setAdding(false);
@@ -444,15 +461,45 @@ export default function ListScreen() {
     ),
   );
 
-  const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {
-    if (!block.recipeId) return;
+  // Spec 4.6: Check all on a section (its header's swipe right, a recipe's menu), with Undo.
+  const checkAll = (itemIds: string[]) => {
+    const checked = checkItems(itemIds, userId);
+    if (checked.ids.length === 0) return;
+    setToast({
+      key: `checked-${checked.checkedAt.getTime()}`,
+      ...checkedAllToast(checked.ids.length),
+      actions: [{ label: 'Undo', onPress: () => (uncheckItems(checked), setToast(null)) }],
+    });
+  };
+
+  // Spec 4.6: Remove recipe from list (its header's swipe left, its menu), with Undo.
+  const removeRecipe = (recipeId: string, recipeName: string) => {
+    const removed = removeRecipeFromList(id, recipeId);
+    if (removed.contributionIds.length === 0) return;
+    setToast({
+      key: `removed-${recipeId}-${removed.deletedAt.getTime()}`,
+      ...removedRecipeToast(recipeName),
+      actions: [{ label: 'Undo', onPress: () => (restoreRecipeOnList(removed), setToast(null)) }],
+    });
+  };
+
+  // Spec 4.6: long-pressing a recipe's header (light haptic) opens its menu; VoiceOver gets the same as actions.
+  const recipeActions = (block: Extract<Block, { kind: 'recipe' }>) => {
     const recipeId = block.recipeId;
+    if (!recipeId) return [];
+    return [
+      { label: 'Check all', onPress: () => checkAll(block.itemIds) },
+      { label: 'Remove recipe from list', onPress: () => removeRecipe(recipeId, block.title) },
+    ];
+  };
+
+  const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {
+    const actions = recipeActions(block);
+    if (actions.length === 0) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: block.title, options: ['Check all', 'Remove recipe from list', 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
-      (index) => {
-        if (index === 0) checkItems(block.itemIds, userId);
-        if (index === 1) removeRecipeFromList(id, recipeId);
-      },
+      { title: block.title, options: [...actions.map((a) => a.label), 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
+      (index) => actions[index]?.onPress(),
     );
   };
 
@@ -590,19 +637,27 @@ export default function ListScreen() {
             band={aisleColors === 'header' ? aisleHeaderBand(block.slug, scheme) : undefined}
             count={block.entries.length}
             collapsed={block.collapsed}
-            onToggle={() => toggleSection('category', block.key)}>
+            onToggle={() => toggleSection('category', block.key)}
+            // Spec 4.6: swipe right to check the aisle off; no swipe to delete. VoiceOver gets it as an action.
+            onSwipeCheck={selection ? undefined : () => checkAll(block.entries.map((e) => e.item.id))}
+            actions={selection ? undefined : [{ label: 'Check all', onPress: () => checkAll(block.entries.map((e) => e.item.id)) }]}>
             {block.entries.map((e, i) => renderEntry(e, i, colors.surface, false, undefined, aisleColors === 'header'))}
           </FoldingSection>
         </Card>
       );
     }
     if (block.kind === 'recipe') {
+      const recipeId = block.recipeId;
       return (
         <Card>
           <FoldingSection
             title={block.title}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
-            trailing={block.recipeId ? <RecipeActionsButton name={block.title} onPress={() => recipeMenu(block)} /> : undefined}
+            onLongPress={block.recipeId ? () => recipeMenu(block) : undefined}
+            actions={recipeActions(block)}
+            // Spec 4.6: swipe right to check all, left to remove the recipe (not Other items).
+            onSwipeCheck={selection ? undefined : () => checkAll(block.itemIds)}
+            onSwipeRemove={selection || !recipeId ? undefined : () => removeRecipe(recipeId, block.title)}
             // The count shows while folded, so you can see what's hidden; VoiceOver always reads it.
             count={block.entries.length}
             hideCount={!block.collapsed}
@@ -790,6 +845,8 @@ export default function ListScreen() {
           // Add mode: scrolling or checking off rows keeps the keyboard up.
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
+          onScroll={(e) => (scrollOffset.current = e.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={16}
           contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
           ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
           renderItem={({ item: block }) => renderBlock(block)}
@@ -862,6 +919,9 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
   const { spacing } = useTheme();
   const { reduceMotion } = useMotion();
   const height = useSharedValue<number | null>(null);
+  // Once measured, the content is laid out apart from the shrinking box, so a re-layout while collapsed (the
+  // "8 to get" count changing) still measures its full height rather than the squeezed one.
+  const [measured, setMeasured] = useState(false);
   const progress = useSharedValue(collapsed ? 1 : 0);
   const target = collapsed ? 1 : 0;
   useEffect(() => {
@@ -883,7 +943,14 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
       pointerEvents={collapsed ? 'none' : 'auto'}
       accessibilityElementsHidden={collapsed}
       importantForAccessibility={collapsed ? 'no-hide-descendants' : 'auto'}>
-      <View onLayout={(e) => (height.value = e.nativeEvent.layout.height)}>{children}</View>
+      <View
+        style={measured ? styles.measured : null}
+        onLayout={(e) => {
+          height.value = e.nativeEvent.layout.height;
+          setMeasured(true);
+        }}>
+        {children}
+      </View>
     </Animated.View>
   );
 }
@@ -943,30 +1010,6 @@ function ClearCheckedButton({ count, onPress }: { count: number; onPress: () => 
   );
 }
 
-/** A recipe card's actions button (board 03): a 36 pt round button with a 44 pt hit area. */
-function RecipeActionsButton({ name, onPress }: { name: string; onPress: () => void }) {
-  const { colors, sizes, rounded, opacity } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${name} actions`}
-      onPress={onPress}
-      hitSlop={(sizes.minTapTarget - sizes.iconWell) / 2}
-      style={({ pressed }) => [
-        styles.round,
-        {
-          width: sizes.iconWell,
-          height: sizes.iconWell,
-          borderRadius: rounded.full,
-          backgroundColor: colors.background,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <Icon name="ellipsis" color="ink" />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
@@ -975,6 +1018,7 @@ const styles = StyleSheet.create({
   compactTitle: { alignItems: 'center', justifyContent: 'center' },
   // Clips the title while its height closes; the scale shrinks it toward its top.
   collapsing: { overflow: 'hidden', transformOrigin: 'top' },
+  measured: { position: 'absolute', top: 0, left: 0, right: 0 },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
   sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
 });

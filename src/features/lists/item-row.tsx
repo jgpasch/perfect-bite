@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
+import { useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
 
 import { itemNameColor, type CategoryColors } from '@/components/appearance';
@@ -52,7 +53,8 @@ type Props = {
 
 /**
  * A list item in a card (spec 4.2): tap the check to check it off, tap the rest of the row to open its
- * details, long-press to start selecting with it, swipe left to delete. While selecting, a tap
+ * details, long-press to start selecting with it, swipe right to check it off (or uncheck it) and left to
+ * delete. While selecting, a tap
  * anywhere on the row selects it.
  */
 export function ItemRow({
@@ -74,6 +76,7 @@ export function ItemRow({
 }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
+  const swipeable = useRef<SwipeableMethods>(null);
   const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
@@ -143,12 +146,23 @@ export function ItemRow({
     <Animated.View entering={entering} exiting={exiting} layout={layout}>
       <ReanimatedSwipeable
         enabled={!selecting}
-        friction={2}
-        rightThreshold={sizes.rowMin}
+        ref={swipeable}
+        // Follows the finger, and only a swipe past half the row commits (the default threshold).
+        friction={1}
+        overshootLeft={false}
         overshootRight={false}
-        onSwipeableOpen={() => onDelete()}
+        onSwipeableOpen={(direction) => {
+          if (direction === SwipeDirection.LEFT) return onDelete();
+          swipeable.current?.close();
+          onToggle();
+        }}
+        renderLeftActions={() => (
+          <View style={[styles.action, styles.leading, { backgroundColor: colors.primary, paddingHorizontal: spacing.xl }]}>
+            <Icon name={checked ? 'arrow.uturn.backward' : 'checkmark'} color="onPrimary" weight="bold" />
+          </View>
+        )}
         renderRightActions={() => (
-          <View style={[styles.action, { backgroundColor: colors.danger, paddingHorizontal: spacing.xl }]}>
+          <View style={[styles.action, styles.trailing, { backgroundColor: colors.danger, paddingHorizontal: spacing.xl }]}>
             <Icon name="trash" color="onPrimary" />
           </View>
         )}>
@@ -219,5 +233,7 @@ const styles = StyleSheet.create({
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
   checked: { textDecorationLine: 'line-through' },
-  action: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' },
+  action: { flex: 1, justifyContent: 'center' },
+  leading: { alignItems: 'flex-start' },
+  trailing: { alignItems: 'flex-end' },
 });
