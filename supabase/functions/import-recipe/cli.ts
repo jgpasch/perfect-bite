@@ -6,6 +6,7 @@
 import { SYSTEM_CATEGORIES, type ExtractedRecipe, type RecipeImportRequest, type RecipeImportResponse } from '@shared/index.ts';
 
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import type { Feature } from '../_shared/entitlements.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
 import { formatStats, MemoryStore } from '../categorize-ingredients/cli.ts';
@@ -125,7 +126,7 @@ export class MemoryRecipeStore implements RecipeImportStore {
   }
 
   /** No database, so no plans: every feature is granted. */
-  async requireFeature() {}
+  async requireFeature(_feature: Feature) {}
 }
 
 const SLUG_BY_ID = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.id, c.slug]));
