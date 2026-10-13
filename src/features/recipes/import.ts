@@ -3,7 +3,7 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { v5 } from 'uuid';
 
-import { db, lists, recipes } from '@/db';
+import { db, households, lists, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
 import { lostFeature } from '@/features/plans/load';
@@ -25,21 +25,29 @@ import { addParsedRecipeIngredients, deleteRecipe } from './recipes';
 /** The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe id. */
 export const IMPORT_ID_NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
 
-export type ImportRecipeInput = {
+/**
+ * Where an import goes: onto a list (the recipe is saved to its household), or into a household
+ * alone, saving the recipe and adding nothing to a list (a recipe-only share, spec 4.10).
+ */
+export type ImportTarget = { listId: string; householdId?: never } | { householdId: string; listId?: never };
+
+export type ImportRecipeInput = ImportTarget & {
   url: string;
-  listId: string;
   /** What Safari captured (spec 4.10), so the server needn't fetch. */
   page?: RecipeImportRequest['page'];
   /** A share envelope's id: a re-run after a crash reuses the recipe it created. */
   importId?: string;
 };
 
-export type ImportRecipeSuccess = {
+export type ImportRecipeSuccess<ListId extends string | null = string | null> = {
   ok: true;
   recipeId: string;
   recipeName: string;
-  listId: string;
-  /** Ingredients added to the list, for the toast ("· 12 items"). */
+  /** The list the ingredients went on; null for a recipe-only import. */
+  listId: ListId;
+  /** Whether this import created the recipe (false: it reused one with the same link). */
+  created: boolean;
+  /** Ingredients added to the list, for the toast ("· 12 items"); 0 for a recipe-only import. */
   added: number;
   /** How many of those were Combined into an item already open on the list. */
   combined: number;
@@ -58,7 +66,9 @@ export type ImportRecipeError =
   | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'not_entitled' }
   | { ok: false; error: 'failed'; reason?: 'invalid_url' | 'fetch_failed' };
 
-export type ImportRecipeResult = ImportRecipeSuccess | ImportRecipeError;
+export type ImportRecipeResult<ListId extends string | null = string | null> =
+  | ImportRecipeSuccess<ListId>
+  | ImportRecipeError;
 
 /** The recipe id an import id maps to. */
 export function recipeIdForImport(importId: string): string {
@@ -67,9 +77,13 @@ export function recipeIdForImport(importId: string): string {
 
 /**
  * Imports the recipe at `url` into `listId`'s household and adds every ingredient to the list at
- * 1×, as a bulk add with Combine (spec 4.4, 4.10). Never throws: errors come back as a result, and
- * an error writes nothing.
+ * 1×, as a bulk add with Combine (spec 4.4, 4.10). With `householdId` and no list, it saves the
+ * recipe to that household the same way (same reuse by link, same import id) and adds nothing to a
+ * list. Never throws: errors come back as a result, and an error writes nothing.
  */
+export async function importRecipe(input: ImportRecipeInput & { listId: string }): Promise<ImportRecipeResult<string>>;
+export async function importRecipe(input: ImportRecipeInput & { householdId: string }): Promise<ImportRecipeResult<null>>;
+export async function importRecipe(input: ImportRecipeInput): Promise<ImportRecipeResult>;
 export async function importRecipe(input: ImportRecipeInput): Promise<ImportRecipeResult> {
   if (canonicalRecipeUrl(input.url) === null) return { ok: false, error: 'failed', reason: 'invalid_url' };
   if (!isSupabaseConfigured) return { ok: false, error: 'offline' };
@@ -153,14 +167,23 @@ async function errorResult(error: unknown): Promise<ImportRecipeError> {
 }
 
 function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: string): ImportRecipeSuccess {
+  const listId = input.listId ?? null;
   const { recipeId, recipeName, created, results } = db.transaction((tx) => {
-    const list = tx.select({ householdId: lists.householdId }).from(lists).where(eq(lists.id, input.listId)).get();
-    if (!list) throw new Error(`No list ${input.listId}`);
+    let householdId: string;
+    if (listId) {
+      const list = tx.select({ householdId: lists.householdId }).from(lists).where(eq(lists.id, listId)).get();
+      if (!list) throw new Error(`No list ${listId}`);
+      householdId = list.householdId;
+    } else {
+      const household = tx.select({ id: households.id }).from(households).where(eq(households.id, input.householdId!)).get();
+      if (!household) throw new Error(`No household ${input.householdId}`);
+      householdId = household.id;
+    }
 
-    const existing = findRecipe(tx, list.householdId, imported.sourceUrl, input.importId);
+    const existing = findRecipe(tx, householdId, imported.sourceUrl, input.importId);
     let recipeId = existing?.id;
     if (!recipeId) {
-      recipeId = createImportedRecipe(tx, list.householdId, imported, input.importId);
+      recipeId = createImportedRecipe(tx, householdId, imported, input.importId);
       addParsedRecipeIngredients(
         recipeId,
         imported.ingredients.map((i) => ({
@@ -176,12 +199,15 @@ function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: 
       );
     }
 
-    const adds: BulkAdd[] = imported.ingredients.map((i) => ({
-      source: 'recipe',
-      recipeId,
-      parsed: { ingredientName: i.ingredientName, displayName: i.displayName, quantity: i.quantity, unit: i.unit },
-    }));
-    const results = addItemsBulk(input.listId, adds, userId, tx);
+    // A recipe-only import adds nothing to a list.
+    const adds: BulkAdd[] = listId
+      ? imported.ingredients.map((i) => ({
+          source: 'recipe',
+          recipeId,
+          parsed: { ingredientName: i.ingredientName, displayName: i.displayName, quantity: i.quantity, unit: i.unit },
+        }))
+      : [];
+    const results = listId ? addItemsBulk(listId, adds, userId, tx) : [];
 
     // After the adds, so every name has a local row to update.
     applyResults(categorizeResults(imported), tx);
@@ -194,7 +220,8 @@ function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: 
     ok: true,
     recipeId,
     recipeName,
-    listId: input.listId,
+    listId,
+    created,
     added: added.length,
     combined: added.filter((r) => r.kind === 'combine').length,
     undo: () =>

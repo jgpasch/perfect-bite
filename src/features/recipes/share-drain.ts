@@ -1,14 +1,17 @@
 // Imports the share queue (spec 4.10): recipes shared to the extension while the app was closed,
 // on launch, foreground, reconnect and sign-in, next to the Siri queue. Signed out, shares wait.
+import { eq } from 'drizzle-orm';
+
+import { db, households } from '@/db';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { getList } from '@/features/lists/lists';
 import { clearDeviceSetting, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { getAppGroupContainer, readPendingShares, type PendingShare } from '@/features/siri/app-group';
-import { siriTargetListId } from '@/features/siri/drain';
-import type { ShareEnvelope } from '@/shared';
+import { shareAddsToList, type ShareEnvelope } from '@/shared';
 
 import { recordFailedImport } from './failed-imports';
-import { importRecipe, type ImportRecipeError, type ImportRecipeSuccess } from './import';
+import { importRecipe, type ImportRecipeError, type ImportRecipeSuccess, type ImportTarget } from './import';
+import { recordedTarget, resolveImportTarget, type RequestedTarget } from './import-target';
 import {
   EMPTY_SHARE_QUEUE_STATUS,
   getShareQueueStatus,
@@ -31,6 +34,12 @@ export type FailedShare = {
   /** The page title Safari captured; other apps give none. */
   title: string | null;
   reason: ImportRecipeError['error'];
+  /**
+   * Where it was going, so Try again goes there too: a list and its household, or a household
+   * alone. Absent or null: the default list.
+   */
+  householdId?: string | null;
+  listId?: string | null;
 };
 
 export type ShareDrainOptions = {
@@ -56,22 +65,39 @@ function remove(item: PendingShare): void {
   }
 }
 
-function failedShare(envelope: ShareEnvelope, reason: FailedShare['reason']): FailedShare {
-  return { url: envelope.url, title: envelope.page?.title?.trim() || null, reason };
+function failedShare(envelope: ShareEnvelope, reason: FailedShare['reason'], target: ImportTarget): FailedShare {
+  return { url: envelope.url, title: envelope.page?.title?.trim() || null, reason, ...recordedTarget(target) };
 }
 
-/** The queue as the imports card shows it: readable shares, oldest first, with their list and tries. */
+/** What the share asked for: a list (null: the default), or recipe-only into a household. */
+function requestedTarget(envelope: ShareEnvelope): RequestedTarget {
+  return shareAddsToList(envelope)
+    ? { addToList: true, listId: envelope.listId }
+    : { addToList: false, householdId: envelope.householdId ?? null };
+}
+
+/** Where a share imports now (spec 4.10): falls back when its list or household is gone. */
+export function shareImportTarget(envelope: ShareEnvelope, userId: string): ImportTarget | null {
+  return resolveImportTarget(requestedTarget(envelope), userId);
+}
+
+function householdName(id: string): string | null {
+  return db.select({ name: households.name }).from(households).where(eq(households.id, id)).get()?.name ?? null;
+}
+
+/** The queue as the imports card shows it: readable shares, oldest first, with where they go and tries. */
 function queuedShares(items: PendingShare[], userId: string): QueuedShare[] {
   return items.flatMap((item) => {
     if (!item.ok) return [];
     const { envelope } = item;
-    const listId = siriTargetListId(envelope, userId);
+    const target = shareImportTarget(envelope, userId);
     return [
       {
         id: envelope.id,
         url: envelope.url,
         title: envelope.page?.title?.trim() || null,
-        listName: listId ? (getList(listId)?.name ?? null) : null,
+        listName: target?.listId ? (getList(target.listId)?.name ?? null) : null,
+        householdName: target?.householdId ? householdName(target.householdId) : null,
         attempts: getDeviceSetting(shareAttemptsKey(envelope.id), 0),
       },
     ];
@@ -123,10 +149,10 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
       const { envelope } = item;
       position += 1;
       if (removed.has(envelope.id)) continue;
-      const listId = siriTargetListId(envelope, userId);
-      if (!listId) break;
+      const target = shareImportTarget(envelope, userId);
+      if (!target) break;
       publishStatus(userId, pending, { id: envelope.id, position, total }, waitReason);
-      const imported = await importRecipe({ url: envelope.url, listId, page: envelope.page, importId: envelope.id });
+      const imported = await importRecipe({ ...target, url: envelope.url, page: envelope.page, importId: envelope.id });
       const key = shareAttemptsKey(envelope.id);
       if (imported.ok) {
         result.imported.push(imported);
@@ -138,7 +164,7 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
       const final = imported.error === 'not_a_recipe' || imported.error === 'not_entitled';
       const attempts = final ? MAX_SHARE_ATTEMPTS : getDeviceSetting(key, 0) + 1;
       if (attempts >= MAX_SHARE_ATTEMPTS) {
-        recordFailed(failedShare(envelope, imported.error));
+        recordFailed(failedShare(envelope, imported.error, target));
         result.failed += 1;
         clearDeviceSetting(key);
         remove(item);

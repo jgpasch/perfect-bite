@@ -21,12 +21,21 @@ enum SiriQueue {
     struct List: Codable {
       let id: String
       let name: String
+      /// Optional so a snapshot written by an older app still decodes. Siri doesn't use it.
+      var householdId: String?
       let householdName: String
+    }
+    struct Household: Codable {
+      let id: String
+      let name: String
     }
     var defaultListId: String?
     /// The list screen last opened in the app, or null. The share sheet's default list.
     var lastOpenedListId: String?
     var lists: [List]
+    /// Every household, in order, including any with no lists; the share sheet's Save to (spec 4.10).
+    /// Optional so a snapshot written by an older app still decodes. Siri doesn't use it.
+    var households: [Household]?
   }
 
   enum QueueError: Error {
@@ -73,7 +82,7 @@ enum SiriQueue {
       let url = try? container().appendingPathComponent("siri/lists.json"),
       let data = try? Data(contentsOf: url),
       let snapshot = try? JSONDecoder().decode(ListSnapshot.self, from: data)
-    else { return ListSnapshot(defaultListId: nil, lastOpenedListId: nil, lists: []) }
+    else { return ListSnapshot(defaultListId: nil, lastOpenedListId: nil, lists: [], households: []) }
     return snapshot
   }
 

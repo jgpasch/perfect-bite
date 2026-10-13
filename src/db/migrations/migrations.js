@@ -13,6 +13,7 @@ import m0008 from './0008_ingredient_default_unit.sql';
 import m0009 from './0009_failed_imports.sql';
 import m0010 from './0010_list_color.sql';
 import m0011 from './0011_household_aisles.sql';
+import m0012 from './0012_failed_import_target.sql';
 
   export default {
     journal,
@@ -28,7 +29,8 @@ m0007,
 m0008,
 m0009,
 m0010,
-m0011
+m0011,
+m0012
     }
   }
   

@@ -10,6 +10,7 @@ const success: ImportRecipeSuccess = {
   recipeId: 'r1',
   recipeName: 'Chicken tikka masala',
   listId: 'groceries',
+  created: true,
   added: 12,
   combined: 0,
   undo: () => {},

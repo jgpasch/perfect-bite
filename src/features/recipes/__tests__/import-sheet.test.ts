@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 
-import { importedOnRecipesToast, importedToast, importErrorMessage, urlFromText } from '../import-sheet';
+import { importedOnRecipesToast, importedToast, importErrorMessage, savedRecipeToast, urlFromText } from '../import-sheet';
 
 describe('urlFromText', () => {
   test('a plain link comes back as it is', () => {
@@ -95,5 +95,21 @@ describe('importedOnRecipesToast', () => {
       emphasis: 'Chicken tikka masala',
     });
     expect(importedOnRecipesToast('Toast', 1, null).message).toBe('Added Toast · 1 item');
+  });
+});
+
+describe('savedRecipeToast', () => {
+  test('a recipe-only import that created the recipe: "Saved …", the name in bold', () => {
+    expect(savedRecipeToast('Chicken tikka masala', true)).toEqual({
+      message: 'Saved Chicken tikka masala',
+      emphasis: 'Chicken tikka masala',
+    });
+  });
+
+  test('one that reused a recipe: "… is already in your recipes"', () => {
+    expect(savedRecipeToast('Chicken tikka masala', false)).toEqual({
+      message: 'Chicken tikka masala is already in your recipes',
+      emphasis: 'Chicken tikka masala',
+    });
   });
 });

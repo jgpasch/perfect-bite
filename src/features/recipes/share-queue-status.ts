@@ -11,8 +11,10 @@ export type QueuedShare = {
   url: string;
   /** The page title Safari captured; other apps give none. */
   title: string | null;
-  /** The list it will import into, or null when there's none to import into. */
+  /** The list it will import into, or null when there's none, or it's recipe-only. */
   listName: string | null;
+  /** The household a recipe-only share will be saved to; absent or null when it goes on a list. */
+  householdName?: string | null;
   /** Failed tries so far (spec 4.10: the fifth makes it a failed import). */
   attempts: number;
 };
@@ -86,10 +88,19 @@ export function waitReasonText(reason: ShareQueueStatus['waitReason']): string {
   }
 }
 
-/** A waiting row's second line: "bonappetit.com · to Groceries · tried twice". */
+/** Where a waiting share goes: its list, or its household when it's recipe-only. */
+function destination(share: QueuedShare): string | null {
+  return share.listName ?? share.householdName ?? null;
+}
+
+/**
+ * A waiting row's second line: "bonappetit.com · to Groceries · tried twice", or "to Smith home"
+ * for a recipe-only share.
+ */
 export function queuedShareDetail(share: QueuedShare): string {
   const parts = [importHost(share.url) ?? share.url];
-  if (share.listName) parts.push(`to ${share.listName}`);
+  const to = destination(share);
+  if (to) parts.push(`to ${to}`);
   if (share.attempts === 1) parts.push('tried once');
   else if (share.attempts === 2) parts.push('tried twice');
   else if (share.attempts > 2) parts.push(`tried ${share.attempts} times`);
@@ -117,7 +128,8 @@ export function importsCardHeading(failed: number, queue: ShareQueueStatus): Imp
   }
   if (importing) {
     const current = queued.find((s) => s.id === importing.id);
-    const subtitle = current ? [importName(current), current.listName && `to ${current.listName}`].filter(Boolean).join(' · ') : null;
+    const to = current && destination(current);
+    const subtitle = current ? [importName(current), to && `to ${to}`].filter(Boolean).join(' · ') : null;
     return { tone: 'importing', title: progress!, subtitle };
   }
   if (queued.length > 0) {

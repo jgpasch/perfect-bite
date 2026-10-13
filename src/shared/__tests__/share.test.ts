@@ -1,12 +1,14 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { MAX_JSON_LD_BLOCK_BYTES, MAX_JSON_LD_BLOCKS, MAX_PAGE_TEXT_BYTES } from '../schemas/recipe-import';
-import { ShareEnvelopeSchema } from '../schemas/share';
+import { ShareEnvelopeSchema, shareAddsToList } from '../schemas/share';
+import recipeOnly from './fixtures/share-envelope.recipe-only.json';
 import safari from './fixtures/share-envelope.safari.json';
 import urlOnly from './fixtures/share-envelope.url-only.json';
 
 // Contract test: the fixtures are JSON as targets/_shared/ShareQueue.swift encodes it (escaped
-// slashes, `listId: null` written explicitly, a nil `page` omitted). Update both sides together.
+// slashes, `listId: null` written explicitly, a nil `page` omitted). The URL-only fixture is as an
+// older extension wrote it, without `householdId` and `addToList`. Update both sides together.
 describe('ShareEnvelopeSchema', () => {
   it('accepts a Safari share with the captured page', () => {
     const envelope = ShareEnvelopeSchema.parse(safari);
@@ -23,6 +25,42 @@ describe('ShareEnvelopeSchema', () => {
     const envelope = ShareEnvelopeSchema.parse(urlOnly);
     expect(envelope.listId).toBeNull();
     expect(envelope).not.toHaveProperty('page');
+  });
+
+  it('a Safari share to a list carries its household and addToList: true', () => {
+    const envelope = ShareEnvelopeSchema.parse(safari);
+    expect(envelope.householdId).toBe('019a4c0f-0000-7000-8000-0000000000a1');
+    expect(envelope.addToList).toBe(true);
+    expect(shareAddsToList(envelope)).toBe(true);
+  });
+
+  it('accepts a recipe-only share: no list, a household, addToList: false', () => {
+    const envelope = ShareEnvelopeSchema.parse(recipeOnly);
+    expect(envelope.listId).toBeNull();
+    expect(envelope.householdId).toBe('019a4c0f-0000-7000-8000-0000000000b1');
+    expect(envelope.addToList).toBe(false);
+    expect(shareAddsToList(envelope)).toBe(false);
+    expect(envelope.page).toEqual({ title: 'Chicken Tikka Masala' });
+  });
+
+  it('an envelope from an older extension (no householdId or addToList) adds to a list', () => {
+    const envelope = ShareEnvelopeSchema.parse(urlOnly);
+    expect(envelope).not.toHaveProperty('householdId');
+    expect(envelope).not.toHaveProperty('addToList');
+    expect(shareAddsToList(envelope)).toBe(true);
+  });
+
+  it('rejects a recipe-only share with a list, and a household that is not a UUID', () => {
+    const result = ShareEnvelopeSchema.safeParse({ ...recipeOnly, listId: '019a4c10-0000-7000-8000-00000000c057' });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(['listId']);
+    expect(ShareEnvelopeSchema.safeParse({ ...recipeOnly, householdId: 'home' }).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse({ ...recipeOnly, addToList: 'no' }).success).toBe(false);
+  });
+
+  it('allows a null household (an older sheet that knew none)', () => {
+    expect(ShareEnvelopeSchema.parse({ ...urlOnly, householdId: null }).householdId).toBeNull();
+    expect(ShareEnvelopeSchema.parse({ ...recipeOnly, householdId: null }).addToList).toBe(false);
   });
 
   it('accepts a page with only some parts', () => {

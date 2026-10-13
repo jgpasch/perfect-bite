@@ -448,10 +448,13 @@ export function ListScreen({ id }: { id: string }) {
     ),
   );
   // Recipes shared to the extension (spec 4.10): one with Undo and View recipe, several as one toast.
+  // Recipe-only shares put nothing on a list, so they get no list toast.
   useFocusEffect(
     useCallback(
       () =>
-        onShareImports((imported) => {
+        onShareImports((all) => {
+          const imported = all.filter((result) => result.listId !== null);
+          if (imported.length === 0) return;
           if (imported.length > 1) {
             setToast({ key: `shared-${Date.now()}`, ...sharedImportsToast(imported.length), actions: [] });
             return;

@@ -3,12 +3,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { asc, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
-import { db, recipes } from '@/db';
+import { db, households, recipes } from '@/db';
 import { loadCatalogSeed } from '@/features/categories/categories';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
-import { createList, deleteList, ensureStarterData, getDefaultListId, setListArchived } from '@/features/lists/lists';
+import {
+  createList,
+  deleteList,
+  ensureStarterData,
+  getDefaultListId,
+  getList,
+  setListArchived,
+} from '@/features/lists/lists';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { SHARE_PENDING_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName, SYSTEM_CATEGORIES } from '@/shared';
@@ -96,6 +103,8 @@ function respond(byUrl: Record<string, RecipeImportResponse | { data: null; erro
 let root: string;
 let groceries: string;
 let costco: string;
+/** The starter household, where Groceries and Costco are. */
+let personal: string;
 let recordFailed: jest.Mock<(failed: FailedShare) => void>;
 
 beforeEach(() => {
@@ -105,6 +114,7 @@ beforeEach(() => {
   ensureStarterData(USER);
   groceries = getDefaultListId(USER)!;
   costco = createList('Costco');
+  personal = getList(groceries)!.householdId;
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });
   respond({ [TIKKA_URL]: TIKKA, [SOUP_URL]: SOUP });
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'share-drain-'));
@@ -121,7 +131,11 @@ afterEach(() => {
 });
 
 /** Writes a queued share as the extension does: `share/pending/<id>.json`. */
-function enqueue(id: string, url: string, extra: { listId?: string | null; page?: Record<string, unknown> } = {}): void {
+function enqueue(
+  id: string,
+  url: string,
+  extra: { listId?: string | null; householdId?: string | null; addToList?: boolean; page?: Record<string, unknown> } = {},
+): void {
   const envelope = {
     id,
     url,
@@ -254,7 +268,13 @@ describe('drainShareQueue', () => {
 
     expect(await drain()).toEqual({ imported: [], failed: 1 });
     expect(recordFailed).toHaveBeenCalledTimes(1);
-    expect(recordFailed).toHaveBeenCalledWith({ url: TIKKA_URL, title: 'Tikka | Example', reason: 'rate_limited' });
+    expect(recordFailed).toHaveBeenCalledWith({
+      url: TIKKA_URL,
+      title: 'Tikka | Example',
+      reason: 'rate_limited',
+      householdId: personal,
+      listId: costco,
+    });
     expect(queued()).toEqual([]);
     expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
     expect(invoke).toHaveBeenCalledTimes(MAX_SHARE_ATTEMPTS);
@@ -275,7 +295,13 @@ describe('drainShareQueue', () => {
     expect(result.failed).toBe(1);
     expect(result.imported.map((i) => i.recipeName)).toEqual(['Leek soup']);
     expect(recordFailed).toHaveBeenCalledTimes(1);
-    expect(recordFailed).toHaveBeenCalledWith({ url: TIKKA_URL, title: null, reason: 'not_a_recipe' });
+    expect(recordFailed).toHaveBeenCalledWith({
+      url: TIKKA_URL,
+      title: null,
+      reason: 'not_a_recipe',
+      householdId: personal,
+      listId: costco,
+    });
     expect(queued()).toEqual([]);
     expect(getDeviceSetting(shareAttemptsKey(E1), null)).toBeNull();
   });
@@ -288,8 +314,8 @@ describe('drainShareQueue', () => {
     setDeviceSetting(shareAttemptsKey(E2), 2);
     expect(await drain()).toEqual({ imported: [], failed: 2 });
     expect(recordFailed.mock.calls).toEqual([
-      [{ url: TIKKA_URL, title: 'Tikka', reason: 'not_entitled' }],
-      [{ url: SOUP_URL, title: null, reason: 'not_entitled' }],
+      [{ url: TIKKA_URL, title: 'Tikka', reason: 'not_entitled', householdId: personal, listId: costco }],
+      [{ url: SOUP_URL, title: null, reason: 'not_entitled', householdId: personal, listId: costco }],
     ]);
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(queued()).toEqual([]);
@@ -376,6 +402,118 @@ describe('drainShareQueue', () => {
   });
 });
 
+describe('recipe-only shares', () => {
+  const CABIN = '019a4c0f-0000-7000-8000-0000000000b1';
+  const recipeOnly = (householdId: string | null = CABIN) => ({ listId: null, householdId, addToList: false });
+  const recipesIn = (householdId: string) =>
+    db
+      .select({ id: recipes.id, name: recipes.name })
+      .from(recipes)
+      .where(and(eq(recipes.householdId, householdId), isNull(recipes.deletedAt)))
+      .all();
+
+  beforeEach(() => {
+    db.insert(households).values({ id: CABIN, name: 'Lake cabin' }).run();
+  });
+
+  test('saves the recipe to its household and adds nothing to any list', async () => {
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    const result = await drain();
+    expect(result.failed).toBe(0);
+    expect(result.imported).toHaveLength(1);
+    expect(result.imported[0]).toMatchObject({
+      ok: true,
+      recipeId: recipeIdForImport(E1),
+      recipeName: 'Chicken tikka masala',
+      listId: null,
+      created: true,
+      added: 0,
+      combined: 0,
+    });
+    expect(recipesIn(CABIN)).toEqual([{ id: recipeIdForImport(E1), name: 'Chicken tikka masala' }]);
+    expect(recipesIn(personal)).toEqual([]);
+    expect(rows(costco)).toEqual([]);
+    expect(rows(groceries)).toEqual([]);
+    expect(queued()).toEqual([]);
+  });
+
+  test('with its household gone (left or deleted), goes to the household of the default list', async () => {
+    db.delete(households).where(eq(households.id, CABIN)).run();
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    enqueue(E2, SOUP_URL, recipeOnly(null));
+    const result = await drain();
+    expect(result.imported.map((i) => [i.recipeName, i.listId])).toEqual([
+      ['Chicken tikka masala', null],
+      ['Leek soup', null],
+    ]);
+    expect(recipesIn(personal).map((r) => r.name).sort()).toEqual(['Chicken tikka masala', 'Leek soup']);
+    expect(rows(groceries)).toEqual([]);
+    expect(rows(costco)).toEqual([]);
+  });
+
+  test('with no household and no lists to fall back on, it waits', async () => {
+    db.delete(households).where(eq(households.id, CABIN)).run();
+    deleteList(costco);
+    deleteList(groceries);
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(queued()).toEqual([`${E1}.json`]);
+  });
+
+  test('a failure is recorded with its household and no list', async () => {
+    respond({ [TIKKA_URL]: httpError(422, 'not_a_recipe') });
+    enqueue(E1, TIKKA_URL, { ...recipeOnly(), page: { title: 'Tikka' } });
+    expect(await drain()).toEqual({ imported: [], failed: 1 });
+    expect(recordFailed.mock.calls).toEqual([
+      [{ url: TIKKA_URL, title: 'Tikka', reason: 'not_a_recipe', householdId: CABIN, listId: null }],
+    ]);
+  });
+
+  test('a failure whose household was gone is recorded with the household it fell back to', async () => {
+    db.delete(households).where(eq(households.id, CABIN)).run();
+    respond({ [TIKKA_URL]: httpError(422, 'not_a_recipe') });
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    await drain();
+    expect(recordFailed).toHaveBeenCalledWith(expect.objectContaining({ householdId: personal, listId: null }));
+  });
+
+  test('a list share is unchanged by the new fields, and an old envelope without them adds to its list', async () => {
+    enqueue(E1, TIKKA_URL, { listId: costco, householdId: personal, addToList: true });
+    enqueue(E2, SOUP_URL);
+    const result = await drain();
+    expect(result.imported.map((i) => i.listId)).toEqual([costco, costco]);
+    expect(rows(costco)).toEqual(['garlic', 'onion', 'leek']);
+  });
+
+  test('the queue shows the household it waits for', async () => {
+    respond({ [TIKKA_URL]: offline });
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    await drain();
+    const [share] = getShareQueueStatus().queued;
+    expect(share).toEqual({ id: E1, url: TIKKA_URL, title: null, listName: null, householdName: 'Lake cabin', attempts: 1 });
+    expect(queuedShareDetail(share)).toBe('example.com · to Lake cabin · tried once');
+  });
+
+  test('undo deletes the recipe the share created; a reused one stays', async () => {
+    enqueue(E1, TIKKA_URL, recipeOnly());
+    const first = (await drain()).imported[0];
+    first.undo();
+    expect(recipesIn(CABIN)).toEqual([]);
+
+    // The cabin already has the recipe (same canonical link): reused, and undo leaves it.
+    enqueue(E2, SOUP_URL, recipeOnly());
+    const soup = (await drain()).imported[0];
+    expect(soup.created).toBe(true);
+    enqueue(E3, 'https://www.example.com/soup/?utm_source=pin', recipeOnly());
+    respond({ 'https://www.example.com/soup/?utm_source=pin': SOUP });
+    const again = (await drain()).imported[0];
+    expect(again).toMatchObject({ recipeId: soup.recipeId, created: false, listId: null, added: 0 });
+    again.undo();
+    expect(recipesIn(CABIN)).toEqual([{ id: soup.recipeId, name: 'Leek soup' }]);
+  });
+});
+
 describe('runShareDrain', () => {
   test('tells listeners once with every import of the drain', async () => {
     const listener = jest.fn();
@@ -426,8 +564,8 @@ describe('queue status', () => {
     await drain();
     expect(getShareQueueStatus()).toEqual({
       queued: [
-        { id: E1, url: TIKKA_URL, title: 'Tikka | Example', listName: 'Costco', attempts: 1 },
-        { id: E2, url: SOUP_URL, title: null, listName: 'Groceries', attempts: 0 },
+        { id: E1, url: TIKKA_URL, title: 'Tikka | Example', listName: 'Costco', householdName: null, attempts: 1 },
+        { id: E2, url: SOUP_URL, title: null, listName: 'Groceries', householdName: null, attempts: 0 },
       ],
       importing: null,
       waitReason: 'offline',
@@ -544,6 +682,14 @@ describe('imports card copy', () => {
     expect(queuedShareDetail(share(E1, { attempts: 1, listName: null }))).toBe('bonappetit.com · tried once');
     expect(queuedShareDetail(share(E1, { attempts: 2 }))).toBe('bonappetit.com · to Groceries · tried twice');
     expect(queuedShareDetail(share(E1, { attempts: 4 }))).toBe('bonappetit.com · to Groceries · tried 4 times');
+  });
+
+  test('a recipe-only row and its import progress name the household', () => {
+    const recipeOnly = share(E1, { listName: null, householdName: 'Smith home' });
+    expect(queuedShareDetail(recipeOnly)).toBe('bonappetit.com · to Smith home');
+    expect(queuedShareDetail({ ...recipeOnly, attempts: 2 })).toBe('bonappetit.com · to Smith home · tried twice');
+    const queue = { queued: [recipeOnly], importing: { id: E1, position: 1, total: 1 }, waitReason: null };
+    expect(importsCardHeading(0, queue)?.subtitle).toBe('Chicken tikka masala · to Smith home');
   });
 
   test('the tab badge counts waiting shares and failed imports, not while importing', () => {

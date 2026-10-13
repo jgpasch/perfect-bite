@@ -6,6 +6,7 @@ import {
   deleteList,
   ensureStarterData,
   getDefaultListId,
+  getList,
   LAST_OPENED_LIST_KEY,
   setDefaultList,
   setLastOpenedList,
@@ -57,11 +58,22 @@ const ID = {
   cabinGroceries: '019a4c10-0000-7000-8000-00000000b001',
   party: '019a4c10-0000-7000-8000-00000000b002',
 };
+const HH = {
+  home: '019a4c0f-0000-7000-8000-0000000000a1',
+  cabin: '019a4c0f-0000-7000-8000-0000000000b1',
+  moms: '019a4c0f-0000-7000-8000-0000000000c1',
+};
 const FIXTURE: SnapshotListRow[] = [
-  { id: ID.groceries, name: 'Groceries', householdName: HOME, archivedAt: null },
-  { id: ID.cabinGroceries, name: 'Groceries', householdName: CABIN, archivedAt: null },
-  { id: ID.party, name: 'Party', householdName: CABIN, archivedAt: new Date('2026-10-01T00:00:00Z') },
-  { id: ID.costco, name: 'Costco', householdName: HOME, archivedAt: null },
+  { id: ID.groceries, name: 'Groceries', householdId: HH.home, householdName: HOME, archivedAt: null },
+  { id: ID.cabinGroceries, name: 'Groceries', householdId: HH.cabin, householdName: CABIN, archivedAt: null },
+  {
+    id: ID.party,
+    name: 'Party',
+    householdId: HH.cabin,
+    householdName: CABIN,
+    archivedAt: new Date('2026-10-01T00:00:00Z'),
+  },
+  { id: ID.costco, name: 'Costco', householdId: HH.home, householdName: HOME, archivedAt: null },
 ];
 
 describe('buildListSnapshot', () => {
@@ -70,10 +82,47 @@ describe('buildListSnapshot', () => {
       defaultListId: ID.cabinGroceries,
       lastOpenedListId: null,
       lists: [
-        { id: ID.groceries, name: 'Groceries', householdName: HOME },
-        { id: ID.cabinGroceries, name: 'Groceries', householdName: CABIN },
-        { id: ID.costco, name: 'Costco', householdName: HOME },
+        { id: ID.groceries, name: 'Groceries', householdId: HH.home, householdName: HOME },
+        { id: ID.cabinGroceries, name: 'Groceries', householdId: HH.cabin, householdName: CABIN },
+        { id: ID.costco, name: 'Costco', householdId: HH.home, householdName: HOME },
       ],
+      households: [
+        { id: HH.home, name: HOME },
+        { id: HH.cabin, name: CABIN },
+      ],
+    });
+  });
+
+  test('lists the households given, in their order, including one with no lists', () => {
+    const households = [
+      { id: HH.cabin, name: CABIN, createdAt: new Date('2026-01-01T00:00:00Z') },
+      { id: HH.moms, name: "Mom's", createdAt: new Date('2026-02-01T00:00:00Z') },
+      { id: HH.home, name: HOME, createdAt: new Date('2026-03-01T00:00:00Z') },
+    ];
+    const snapshot = buildListSnapshot(FIXTURE, ID.groceries, null, households);
+    expect(snapshot.households).toEqual([
+      { id: HH.cabin, name: CABIN },
+      { id: HH.moms, name: "Mom's" },
+      { id: HH.home, name: HOME },
+    ]);
+    expect(ListSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+  });
+
+  test('a household whose only list is archived is still offered', () => {
+    const partyOnly = FIXTURE.filter((l) => l.id === ID.party || l.householdId === HH.home);
+    const snapshot = buildListSnapshot(partyOnly, ID.groceries);
+    expect(snapshot.lists.map((l) => l.householdId)).toEqual([HH.home, HH.home]);
+    expect(snapshot.households).toEqual([
+      { id: HH.home, name: HOME },
+      { id: HH.cabin, name: CABIN },
+    ]);
+  });
+
+  test('households but no lists', () => {
+    expect(buildListSnapshot([], null, null, [{ id: HH.moms, name: "Mom's" }])).toEqual({
+      lastOpenedListId: null,
+      lists: [],
+      households: [{ id: HH.moms, name: "Mom's" }],
     });
   });
 
@@ -93,8 +142,8 @@ describe('buildListSnapshot', () => {
   });
 
   test('no lists', () => {
-    expect(buildListSnapshot([], null)).toEqual({ lastOpenedListId: null, lists: [] });
-    expect(buildListSnapshot([], ID.groceries, ID.groceries)).toEqual({ lastOpenedListId: null, lists: [] });
+    expect(buildListSnapshot([], null)).toEqual({ lastOpenedListId: null, lists: [], households: [] });
+    expect(buildListSnapshot([], ID.groceries, ID.groceries)).toEqual({ lastOpenedListId: null, lists: [], households: [] });
   });
 
   test('keeps the last opened list when it is offered', () => {
@@ -137,7 +186,7 @@ describe('siriListChoices', () => {
 
   test('nothing ticked without a default, and no rows without lists', () => {
     expect(siriListChoices(buildListSnapshot(FIXTURE, null)).some((c) => c.selected)).toBe(false);
-    expect(siriListChoices({ lastOpenedListId: null, lists: [] })).toEqual([]);
+    expect(siriListChoices({ lastOpenedListId: null, lists: [], households: [] })).toEqual([]);
   });
 });
 
@@ -155,15 +204,35 @@ describe('currentListSnapshot', () => {
     db.insert(households).values({ id: 'cabin', name: 'Lake cabin' }).run();
     const costco = createList('Costco');
     const cabin = createList('Cabin food', 'cabin');
+    const personal = getList(groceries)!.householdId;
     expect(currentListSnapshot(USER)).toEqual({
       defaultListId: groceries,
       lastOpenedListId: null,
       lists: [
-        { id: groceries, name: 'Groceries', householdName: 'Personal' },
-        { id: costco, name: 'Costco', householdName: 'Personal' },
-        { id: cabin, name: 'Cabin food', householdName: 'Lake cabin' },
+        { id: groceries, name: 'Groceries', householdId: personal, householdName: 'Personal' },
+        { id: costco, name: 'Costco', householdId: personal, householdName: 'Personal' },
+        { id: cabin, name: 'Cabin food', householdId: 'cabin', householdName: 'Lake cabin' },
+      ],
+      households: [
+        { id: personal, name: 'Personal' },
+        { id: 'cabin', name: 'Lake cabin' },
       ],
     });
+  });
+
+  test('offers every household, oldest first, including one with no live lists', () => {
+    const personal = getList(groceries)!.householdId;
+    db.insert(households).values({ id: 'moms', name: "Mom's", createdAt: new Date(Date.now() + 1000) }).run();
+    db.insert(households).values({ id: 'cabin', name: 'Lake cabin', createdAt: new Date(Date.now() + 2000) }).run();
+    const party = createList('Party', 'cabin');
+    setListArchived(party, true);
+    const snapshot = currentListSnapshot(USER);
+    expect(snapshot.lists.map((l) => l.id)).toEqual([groceries]);
+    expect(snapshot.households).toEqual([
+      { id: personal, name: 'Personal' },
+      { id: 'moms', name: "Mom's" },
+      { id: 'cabin', name: 'Lake cabin' },
+    ]);
   });
 
   test('follows the default list, archiving and deleting', () => {
@@ -175,10 +244,12 @@ describe('currentListSnapshot', () => {
     setListArchived(party, true);
     deleteList(costco);
     // The default falls back to the first remaining list, as getDefaultListId does.
+    const personal = getList(groceries)!.householdId;
     expect(currentListSnapshot(USER)).toEqual({
       defaultListId: groceries,
       lastOpenedListId: null,
-      lists: [{ id: groceries, name: 'Groceries', householdName: 'Personal' }],
+      lists: [{ id: groceries, name: 'Groceries', householdId: personal, householdName: 'Personal' }],
+      households: [{ id: personal, name: 'Personal' }],
     });
   });
 

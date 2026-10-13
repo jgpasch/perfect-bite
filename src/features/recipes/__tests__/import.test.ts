@@ -29,7 +29,13 @@ import {
   supabase,
 } from '@/test/fake-supabase';
 
-import { IMPORT_ID_NAMESPACE, importRecipe, recipeIdForImport, type ImportRecipeSuccess } from '../import';
+import {
+  IMPORT_ID_NAMESPACE,
+  importRecipe,
+  recipeIdForImport,
+  type ImportRecipeInput,
+  type ImportRecipeSuccess,
+} from '../import';
 import { setPageCapturer, type CapturedPage, type CaptureResult, type PageCapturer } from '../page-capture';
 import { addRecipeIngredient, createRecipe, updateRecipe } from '../recipes';
 
@@ -97,7 +103,9 @@ function respondWithError(status: number, body: unknown) {
 
 const signIn = () => supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });
 
-async function importOk(input: Partial<Parameters<typeof importRecipe>[0]> = {}): Promise<ImportRecipeSuccess> {
+async function importOk(
+  input: Partial<Omit<ImportRecipeInput, 'householdId'> & { listId: string }> = {},
+): Promise<ImportRecipeSuccess> {
   const result = await importRecipe({ url: URL_, listId, ...input });
   if (!result.ok) throw new Error(`import failed: ${JSON.stringify(result)}`);
   return result;
@@ -423,6 +431,138 @@ describe('undo', () => {
     result.undo();
     expect(rows()).toEqual([]);
     expect(liveRecipes()).toEqual([{ id: existing, name: 'Tikka', sourceUrl: CANONICAL, notes: 'Family favourite' }]);
+  });
+});
+
+describe('recipe-only (a household, no list)', () => {
+  const OTHER = 'household-2';
+  let home: string;
+  const recipeHousehold = (id: string) => db.select().from(recipes).where(eq(recipes.id, id)).get()?.householdId;
+  const recipeOnly = async (input: { importId?: string; url?: string } = {}) => {
+    const result = await importRecipe({ url: URL_, householdId: OTHER, ...input });
+    if (!result.ok) throw new Error(`import failed: ${JSON.stringify(result)}`);
+    return result;
+  };
+
+  beforeEach(() => {
+    home = db.select().from(households).get()!.id;
+    db.insert(households).values({ id: OTHER, name: 'Lake cabin' }).run();
+  });
+
+  test('creates the recipe in that household and adds nothing to any list', async () => {
+    addItem(listId, '1 lb chicken thighs', USER);
+    const listBefore = db.select().from(listItems).all();
+    const contributionsBefore = db.select().from(listItemContributions).all();
+    const usageBefore = db.select().from(ingredientUsage).all();
+
+    const result = await recipeOnly();
+    expect(result).toEqual({
+      ok: true,
+      recipeId: expect.any(String),
+      recipeName: 'Chicken tikka masala',
+      listId: null,
+      created: true,
+      added: 0,
+      combined: 0,
+      undo: expect.any(Function),
+    });
+    expect(recipeHousehold(result.recipeId)).toBe(OTHER);
+    expect(liveRecipes()).toEqual([
+      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+    ]);
+    expect(ingredientRows(result.recipeId).map((i) => i.displayName)).toEqual([
+      'chicken thighs',
+      'garlic',
+      'kasuri methi',
+      'zqx tikka paste',
+    ]);
+    expect(db.select().from(listItems).all()).toEqual(listBefore);
+    expect(db.select().from(listItemContributions).all()).toEqual(contributionsBefore);
+    expect(db.select().from(ingredientUsage).all()).toEqual(usageBefore);
+    expect(rows()).toEqual(['1 lb chicken thighs']);
+  });
+
+  test('categories still land locally, so nothing is pending', async () => {
+    await recipeOnly();
+    const catalog = (name: string) =>
+      db
+        .select({ status: ingredients.status, categoryId: ingredients.defaultCategoryId })
+        .from(ingredients)
+        .where(eq(ingredients.normalizedName, name))
+        .get();
+    expect(catalog('kasuri methi')).toEqual({ status: 'categorized', categoryId: category('spices') });
+    expect(catalog('zqx tikka paste')).toEqual({ status: 'failed', categoryId: OTHER_CATEGORY_ID });
+    expect(db.select().from(ingredients).where(eq(ingredients.status, 'pending')).all()).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('reuses the household’s recipe with the same canonical URL and leaves it as it is', async () => {
+    const existing = createRecipe('Mum’s tikka');
+    updateRecipe(existing, { name: 'Mum’s tikka', notes: '', sourceUrl: 'https://example.com/tikka/' });
+    db.update(recipes).set({ householdId: OTHER }).where(eq(recipes.id, existing)).run();
+    const result = await recipeOnly();
+    expect(result).toMatchObject({ recipeId: existing, recipeName: 'Mum’s tikka', created: false, listId: null, added: 0 });
+    expect(liveRecipes()).toEqual([
+      { id: existing, name: 'Mum’s tikka', sourceUrl: 'https://example.com/tikka/', notes: null },
+    ]);
+  });
+
+  test('a recipe with the same URL in another household doesn’t count', async () => {
+    const elsewhere = createRecipe('Tikka at home');
+    updateRecipe(elsewhere, { name: 'Tikka at home', notes: '', sourceUrl: CANONICAL });
+    expect(recipeHousehold(elsewhere)).toBe(home);
+    const result = await recipeOnly();
+    expect(result.created).toBe(true);
+    expect(result.recipeId).not.toBe(elsewhere);
+    expect(recipeHousehold(result.recipeId)).toBe(OTHER);
+  });
+
+  test('is idempotent by import id', async () => {
+    const first = await recipeOnly({ importId: 'envelope-1' });
+    expect(first.recipeId).toBe(recipeIdForImport('envelope-1'));
+    respond({ ...TIKKA, sourceUrl: 'https://example.com/tikka-v2' });
+    const second = await recipeOnly({ importId: 'envelope-1' });
+    expect(second).toMatchObject({ recipeId: first.recipeId, created: false, added: 0 });
+    expect(liveRecipes()).toHaveLength(1);
+    expect(ingredientRows(first.recipeId)).toHaveLength(4);
+  });
+
+  test('undo deletes the recipe this import created', async () => {
+    const result = await recipeOnly();
+    result.undo();
+    expect(liveRecipes()).toEqual([]);
+    expect(db.select().from(recipes).where(eq(recipes.id, result.recipeId)).get()?.deletedAt).not.toBeNull();
+  });
+
+  test('undo keeps a reused recipe', async () => {
+    const existing = createRecipe('Tikka');
+    updateRecipe(existing, { name: 'Tikka', notes: 'Family favourite', sourceUrl: CANONICAL });
+    db.update(recipes).set({ householdId: OTHER }).where(eq(recipes.id, existing)).run();
+    const result = await recipeOnly();
+    result.undo();
+    expect(liveRecipes()).toEqual([{ id: existing, name: 'Tikka', sourceUrl: CANONICAL, notes: 'Family favourite' }]);
+  });
+
+  test('a household that doesn’t exist fails and writes nothing', async () => {
+    const before = snapshot();
+    expect(await importRecipe({ url: URL_, householdId: 'household-gone' })).toEqual({ ok: false, error: 'failed' });
+    expect(snapshot()).toEqual(before);
+  });
+
+  test('errors come back as for a list import, writing nothing', async () => {
+    const before = snapshot();
+    respondWithError(422, { error: 'not_a_recipe' });
+    expect(await importRecipe({ url: URL_, householdId: OTHER })).toEqual({ ok: false, error: 'not_a_recipe' });
+    expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('created', () => {
+  test('is true for a new recipe and false for a reused one, on a list too', async () => {
+    const first = await importOk();
+    expect(first.created).toBe(true);
+    const second = await importOk();
+    expect(second).toMatchObject({ recipeId: first.recipeId, created: false, listId });
   });
 });
 

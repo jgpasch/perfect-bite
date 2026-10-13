@@ -85,6 +85,13 @@
       "when": 1791774484814,
       "tag": "0011_household_aisles",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791862513891,
+      "tag": "0012_failed_import_target",
+      "breakpoints": true
     }
   ]
 }

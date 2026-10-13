@@ -15,23 +15,30 @@ enum ShareQueue {
 
     let id: String
     let url: String
-    /// Null (written explicitly, not omitted): the default list.
+    /// Null (written explicitly, not omitted): the default list, or no list when `addToList` is false.
     let listId: String?
+    /// The household picked in the sheet, where a recipe-only share is saved. Null when unknown.
+    let householdId: String?
+    /// False: save the recipe only, adding nothing to a list. Nil (left out): true, as before.
+    let addToList: Bool?
     var page: Page?
     let createdAt: String
     let appVersion: String
     let source: String
 
     enum CodingKeys: String, CodingKey {
-      case id, url, listId, page, createdAt, appVersion, source
+      case id, url, listId, householdId, addToList, page, createdAt, appVersion, source
     }
 
-    // JSONEncoder omits nil optionals; the schema wants `listId: null`, and `page` left out.
+    // JSONEncoder omits nil optionals; the schema wants `listId` and `householdId` as null, and
+    // `page` left out.
     func encode(to encoder: Encoder) throws {
       var c = encoder.container(keyedBy: CodingKeys.self)
       try c.encode(id, forKey: .id)
       try c.encode(url, forKey: .url)
       try c.encode(listId, forKey: .listId)
+      try c.encode(householdId, forKey: .householdId)
+      try c.encodeIfPresent(addToList, forKey: .addToList)
       try c.encodeIfPresent(page, forKey: .page)
       try c.encode(createdAt, forKey: .createdAt)
       try c.encode(appVersion, forKey: .appVersion)
@@ -95,13 +102,17 @@ enum ShareQueue {
     return scheme == "http" || scheme == "https"
   }
 
-  static func makeEnvelope(url: URL, listId: String?, page: Envelope.Page?) -> Envelope {
+  /// With `addToList` false the recipe goes to `householdId` alone, and `listId` is dropped.
+  static func makeEnvelope(
+    url: URL, listId: String?, householdId: String?, addToList: Bool = true, page: Envelope.Page?
+  ) -> Envelope {
     let formatter = ISO8601DateFormatter()
     formatter.timeZone = .current
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     return Envelope(
-      id: SiriQueue.uuidV7(), url: url.absoluteString, listId: listId, page: page,
+      id: SiriQueue.uuidV7(), url: url.absoluteString, listId: addToList ? listId : nil,
+      householdId: householdId, addToList: addToList, page: page,
       createdAt: formatter.string(from: Date()), appVersion: version, source: "share")
   }
 

@@ -1,9 +1,11 @@
-// The list snapshot Siri reads (spec 4.9): every list across the user's households, plus the
-// default list. Written on launch and whenever lists, memberships or the default list change.
+// The list snapshot Siri and the share extension read (spec 4.9, 4.10): every list across the user's
+// households, every household, and the default list. Written on launch and whenever lists,
+// memberships or the default list change.
+import { asc } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { addDatabaseChangeListener } from 'expo-sqlite';
 
-import { households, lists, userSettings } from '@/db';
+import { db, households, lists, userSettings } from '@/db';
 import { getDefaultListId, LAST_OPENED_LIST_KEY, listsWithCountsQuery, setLastOpenedList } from '@/features/lists/lists';
 import { getDeviceSetting } from '@/features/settings/device-settings';
 import type { ListSnapshot } from '@/shared';
@@ -13,24 +15,37 @@ import { clearListSnapshot, getAppGroupContainer, writeListSnapshot } from './ap
 export type SnapshotListRow = {
   id: string;
   name: string;
+  householdId: string;
   householdName: string;
   archivedAt: Date | null;
 };
 
+export type SnapshotHouseholdRow = { id: string; name: string };
+
 /**
- * The snapshot for `rows` (live lists in the user's order). Archived lists are left out, as Siri
- * can't add to them; `defaultListId` and `lastOpenedListId` are kept only if that list is offered.
+ * The snapshot for `rows` (live lists in the user's order) and `householdRows` (every household, in
+ * order, including any with no lists; when not given, the households of `rows`). Archived lists are
+ * left out, as Siri can't add to them; `defaultListId` and `lastOpenedListId` are kept only if that
+ * list is offered.
  */
 export function buildListSnapshot(
   rows: readonly SnapshotListRow[],
   defaultListId: string | null,
   lastOpenedListId: string | null = null,
+  householdRows?: readonly SnapshotHouseholdRow[],
 ): ListSnapshot {
   const offered = rows
     .filter((l) => !l.archivedAt)
-    .map(({ id, name, householdName }) => ({ id, name, householdName }));
+    .map(({ id, name, householdId, householdName }) => ({ id, name, householdId, householdName }));
   const isOffered = (id: string | null): id is string => !!id && offered.some((l) => l.id === id);
-  const snapshot: ListSnapshot = { lastOpenedListId: isOffered(lastOpenedListId) ? lastOpenedListId : null, lists: offered };
+  const households = (householdRows ?? rows.map((l) => ({ id: l.householdId, name: l.householdName })))
+    .filter((h, i, all) => all.findIndex((o) => o.id === h.id) === i)
+    .map(({ id, name }) => ({ id, name }));
+  const snapshot: ListSnapshot = {
+    lastOpenedListId: isOffered(lastOpenedListId) ? lastOpenedListId : null,
+    lists: offered,
+    households,
+  };
   if (isOffered(defaultListId)) snapshot.defaultListId = defaultListId;
   return snapshot;
 }
@@ -57,6 +72,12 @@ export function currentListSnapshot(userId: string): ListSnapshot {
     listsWithCountsQuery().all(),
     getDefaultListId(userId),
     getDeviceSetting<string | null>(LAST_OPENED_LIST_KEY, null),
+    // Oldest first, as the Households screen lists them.
+    db
+      .select({ id: households.id, name: households.name })
+      .from(households)
+      .orderBy(asc(households.createdAt), asc(households.id))
+      .all(),
   );
 }
 

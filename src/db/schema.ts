@@ -319,6 +319,13 @@ export const failedImports = sqliteTable('failed_imports', {
   /** The page title Safari captured; null when the share had none. */
   title: text('title'),
   reason: text('reason').$type<FailedImportReason>().notNull(),
+  /**
+   * Where the share was going (spec 4.10), so Try again goes there too: a list (and its household),
+   * or a household alone for a recipe-only share. Both null on rows recorded before targets were
+   * kept, which retry into the default list. No foreign keys: the household or list may be gone.
+   */
+  householdId: text('household_id'),
+  listId: text('list_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

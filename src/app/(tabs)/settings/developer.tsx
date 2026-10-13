@@ -21,9 +21,20 @@ const TEST_LISTS = {
   defaultListId: '019a4c10-0000-7000-8000-00000000a001',
   lastOpenedListId: null,
   lists: [
-    { id: '019a4c10-0000-7000-8000-00000000a001', name: 'Groceries', householdName: 'Test home' },
-    { id: '019a4c10-0000-7000-8000-00000000c057', name: 'Costco', householdName: 'Test home' },
+    {
+      id: '019a4c10-0000-7000-8000-00000000a001',
+      name: 'Groceries',
+      householdId: '019a4c0f-0000-7000-8000-0000000000a1',
+      householdName: 'Test home',
+    },
+    {
+      id: '019a4c10-0000-7000-8000-00000000c057',
+      name: 'Costco',
+      householdId: '019a4c0f-0000-7000-8000-0000000000a1',
+      householdName: 'Test home',
+    },
   ],
+  households: [{ id: '019a4c0f-0000-7000-8000-0000000000a1', name: 'Test home' }],
 };
 
 /**

@@ -119,7 +119,7 @@ final class ShareModel: ObservableObject {
 
   func add() {
     guard let url, let list = selectedList else { return }
-    let envelope = ShareQueue.makeEnvelope(url: url, listId: list.id, page: page)
+    let envelope = ShareQueue.makeEnvelope(url: url, listId: list.id, householdId: list.householdId, page: page)
     do {
       try ShareQueue.enqueue(envelope)
       SiriQueue.log(

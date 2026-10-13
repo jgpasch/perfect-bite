@@ -139,13 +139,15 @@ describe('getAppGroupContainer', () => {
 
 describe('list snapshot', () => {
   const GROCERIES = '019a4c10-0000-7000-8000-00000000a001';
+  const HOME = '019a4c0f-0000-7000-8000-0000000000a1';
   const snapshot = {
     defaultListId: GROCERIES,
     lastOpenedListId: COSTCO,
     lists: [
-      { id: GROCERIES, name: 'Groceries', householdName: 'Smith home' },
-      { id: COSTCO, name: 'Costco', householdName: 'Smith home' },
+      { id: GROCERIES, name: 'Groceries', householdId: HOME, householdName: 'Smith home' },
+      { id: COSTCO, name: 'Costco', householdId: HOME, householdName: 'Smith home' },
     ],
+    households: [{ id: HOME, name: 'Smith home' }],
   };
   const listsFile = () => path.join(root, LISTS_FILE);
   const readLists = () => JSON.parse(fs.readFileSync(listsFile(), 'utf8'));
@@ -162,8 +164,13 @@ describe('list snapshot', () => {
 
   test('replaces the whole file on the next write', () => {
     writeListSnapshot(snapshot);
-    writeListSnapshot({ lastOpenedListId: null, lists: [{ id: COSTCO, name: 'Costco', householdName: 'Smith home' }] });
-    expect(readLists()).toEqual({ lastOpenedListId: null, lists: [{ id: COSTCO, name: 'Costco', householdName: 'Smith home' }] });
+    const next = {
+      lastOpenedListId: null,
+      lists: [{ id: COSTCO, name: 'Costco', householdId: HOME, householdName: 'Smith home' }],
+      households: [{ id: HOME, name: 'Smith home' }],
+    };
+    writeListSnapshot(next);
+    expect(readLists()).toEqual(next);
   });
 
   test('writes alongside a queue the intent already made', () => {
@@ -181,7 +188,13 @@ describe('list snapshot', () => {
 
   test('an invalid snapshot throws and leaves the previous file alone', () => {
     writeListSnapshot(snapshot);
-    expect(() => writeListSnapshot({ lastOpenedListId: null, lists: [{ id: 'not-a-uuid', name: 'x', householdName: 'y' }] })).toThrow();
+    expect(() =>
+      writeListSnapshot({
+        lastOpenedListId: null,
+        lists: [{ id: 'not-a-uuid', name: 'x', householdId: HOME, householdName: 'y' }],
+        households: [{ id: HOME, name: 'y' }],
+      }),
+    ).toThrow();
     expect(readLists()).toEqual(snapshot);
   });
 

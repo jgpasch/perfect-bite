@@ -76,6 +76,17 @@ export function importedOnRecipesToast(
   return listName ? { ...toast, message: `${toast.message} on ${listName}` } : toast;
 }
 
+/**
+ * The Recipes tab's toast for one recipe-only share: "Saved Chicken tikka masala", or "Chicken tikka
+ * masala is already in your recipes" when the import reused one with the same link.
+ */
+export function savedRecipeToast(recipeName: string, created: boolean): { message: string; emphasis: string } {
+  return {
+    message: created ? `Saved ${recipeName}` : `${recipeName} is already in your recipes`,
+    emphasis: recipeName,
+  };
+}
+
 /** The list screen's toast when one share-queue drain imported several recipes: "Added 3 recipes". */
 export function sharedImportsToast(count: number): { message: string } {
   return { message: `Added ${count} ${count === 1 ? 'recipe' : 'recipes'}` };

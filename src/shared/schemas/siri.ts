@@ -29,8 +29,14 @@ export const ListSnapshotSchema = z.object({
     z.object({
       id: z.uuid(),
       name: z.string(),
+      householdId: z.uuid(),
       householdName: z.string(),
     }),
   ),
+  /**
+   * Every household the user belongs to, in order, including any with no live lists, so the share
+   * sheet can save a recipe to one (spec 4.10). Siri ignores it.
+   */
+  households: z.array(z.object({ id: z.uuid(), name: z.string() })),
 });
 export type ListSnapshot = z.infer<typeof ListSnapshotSchema>;

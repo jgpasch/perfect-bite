@@ -18,7 +18,7 @@ import { openList } from '@/features/lists/current-list';
 import { getList } from '@/features/lists/lists';
 import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
-import { importedOnRecipesToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
@@ -82,15 +82,33 @@ export default function RecipesScreen() {
             return;
           }
           const [result] = imported;
+          const viewRecipe = {
+            label: 'View recipe',
+            onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+          };
+          if (result.listId === null) {
+            // Recipe-only: saved, or already here; Undo only takes back a recipe this share created.
+            setToast({
+              key: `shared-${result.recipeId}-${Date.now()}`,
+              recipeId: result.recipeId,
+              ...savedRecipeToast(result.recipeName, result.created),
+              actions: [
+                ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
+                viewRecipe,
+              ],
+            });
+            return;
+          }
+          const listId = result.listId;
           setToast({
             key: `shared-${result.recipeId}-${Date.now()}`,
             recipeId: result.recipeId,
-            ...importedOnRecipesToast(result.recipeName, result.added, getList(result.listId)?.name ?? null),
+            ...importedOnRecipesToast(result.recipeName, result.added, getList(listId)?.name ?? null),
             actions: [
               { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
               {
                 label: 'Open list',
-                onPress: () => (setToast(null), openList(result.listId)),
+                onPress: () => (setToast(null), openList(listId)),
               },
             ],
           });

@@ -818,4 +818,20 @@ describe('toasts from elsewhere', () => {
     expect(text()).toContain('Added 2 recipes');
     expect(text()).not.toContain('Dal');
   });
+
+  test('recipe-only shares show no list toast, and don’t count toward the summary', () => {
+    const undo = jest.fn();
+    render();
+    const recipeOnly = { recipeId: 'r3', recipeName: 'Tikka', listId: null, created: true, added: 0, undo };
+    act(() => mockShareListeners.forEach((l) => l([recipeOnly])));
+    expect(text()).not.toContain('Tikka');
+    expect(text()).not.toContain('Added');
+
+    act(() =>
+      mockShareListeners.forEach((l) => l([recipeOnly, { recipeId: 'r1', recipeName: 'Dal', listId: 'l1', added: 3, undo }])),
+    );
+    expect(text()).toContain('Dal');
+    expect(text()).not.toContain('Added 2 recipes');
+    expect(text()).not.toContain('Tikka');
+  });
 });

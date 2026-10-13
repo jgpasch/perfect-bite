@@ -3,12 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
-import { db, failedImports, lists, outbox, recipes } from '@/db';
+import { db, failedImports, households, lists, outbox, recipes } from '@/db';
 import { loadCatalogSeed } from '@/features/categories/categories';
 import { listItemsQuery } from '@/features/lists/items';
-import { createList, deleteList, ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { createList, deleteList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { SHARE_PENDING_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
@@ -224,6 +224,96 @@ describe('retryFailedImport', () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(liveRecipes()).toEqual([{ name: 'Chicken tikka masala' }]);
     expect(rows()).toEqual([]);
+  });
+
+  describe('where it goes', () => {
+    const CABIN = '019a4c0f-0000-7000-8000-0000000000b1';
+    let personal: string;
+    const recipesIn = (householdId: string) =>
+      db
+        .select({ name: recipes.name })
+        .from(recipes)
+        .where(and(eq(recipes.householdId, householdId), isNull(recipes.deletedAt)))
+        .all();
+
+    beforeEach(() => {
+      personal = getList(groceries)!.householdId;
+      db.insert(households).values({ id: CABIN, name: 'Lake cabin' }).run();
+    });
+
+    test('stores the household and list it was going to', () => {
+      recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed', householdId: CABIN, listId: null });
+      recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed', householdId: personal, listId: costco });
+      recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed' });
+      expect(rows().map((r) => [r.householdId, r.listId])).toEqual([
+        [null, null],
+        [personal, costco],
+        [CABIN, null],
+      ]);
+    });
+
+    test('a recipe-only failure stays recipe-only: saved to its household, nothing on a list', async () => {
+      const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'rate_limited', householdId: CABIN, listId: null });
+      const result = await retryFailedImport(id, USER);
+      expect(result).toMatchObject({ ok: true, listId: null, added: 0, created: true });
+      expect(recipesIn(CABIN)).toEqual([{ name: 'Chicken tikka masala' }]);
+      expect(recipesIn(personal)).toEqual([]);
+      expect(itemNames(groceries)).toEqual([]);
+      expect(itemNames(costco)).toEqual([]);
+      expect(rows()).toEqual([]);
+    });
+
+    test('a recipe-only failure whose household is gone goes to the default list’s household', async () => {
+      const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'rate_limited', householdId: CABIN, listId: null });
+      db.delete(households).where(eq(households.id, CABIN)).run();
+      expect(await retryFailedImport(id, USER)).toMatchObject({ ok: true, listId: null, added: 0 });
+      expect(recipesIn(personal)).toEqual([{ name: 'Chicken tikka masala' }]);
+      expect(itemNames(groceries)).toEqual([]);
+    });
+
+    test('a list failure goes back onto the same list', async () => {
+      const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed', householdId: personal, listId: costco });
+      expect(await retryFailedImport(id, USER)).toMatchObject({ ok: true, listId: costco, added: 2 });
+      expect(itemNames(costco)).toEqual(['garlic', 'onion']);
+      expect(itemNames(groceries)).toEqual([]);
+    });
+
+    test('a list failure whose list is gone goes to the default list', async () => {
+      const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed', householdId: personal, listId: costco });
+      deleteList(costco);
+      expect(await retryFailedImport(id, USER)).toMatchObject({ ok: true, listId: groceries });
+      expect(itemNames(groceries)).toEqual(['garlic', 'onion']);
+    });
+
+    test('a recipe-only share that fails in the drain retries recipe-only', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'failed-imports-'));
+      try {
+        fs.mkdirSync(path.join(root, SHARE_PENDING_DIR), { recursive: true });
+        setAppGroupRoot(root);
+        const envelope = {
+          id: '019a4c2e-7d3b-7a10-8f2e-3b9d1c0e5a71',
+          url: TIKKA_URL,
+          listId: null,
+          householdId: CABIN,
+          addToList: false,
+          createdAt: '2026-10-12T08:30:11.204-05:00',
+          appVersion: '1.1.0',
+          source: 'share',
+        };
+        fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, `${envelope.id}.json`), JSON.stringify(envelope));
+        invoke.mockResolvedValueOnce(httpError(422, 'not_a_recipe'));
+        expect((await drainShareQueue(USER)).failed).toBe(1);
+        const [row] = rows();
+        expect([row.householdId, row.listId, row.reason]).toEqual([CABIN, null, 'not_a_recipe']);
+
+        expect(await retryFailedImport(row.id, USER)).toMatchObject({ ok: true, listId: null, added: 0 });
+        expect(recipesIn(CABIN)).toEqual([{ name: 'Chicken tikka masala' }]);
+        expect(itemNames(groceries)).toEqual([]);
+        expect(itemNames(costco)).toEqual([]);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   test('a retry after a failed one runs again', async () => {

@@ -187,6 +187,7 @@ const success = (over: Partial<ImportRecipeSuccess> = {}): ImportRecipeSuccess =
   recipeId: 'recipe-1',
   recipeName: 'Chicken tikka masala',
   listId: groceries,
+  created: true,
   added: 12,
   combined: 0,
   undo: jest.fn(),
@@ -482,6 +483,39 @@ describe('RecipesScreen', () => {
     press(byA11y(root, 'Undo'));
     expect(undo).toHaveBeenCalledTimes(1);
     expect(allByA11y(root, 'Undo')).toHaveLength(0);
+  });
+
+  test('a recipe-only share: "Saved …" with Undo and View recipe, its card outlined', () => {
+    const tacos = createRecipe('Tacos');
+    const undo = jest.fn();
+    const root = render(<RecipesScreen />);
+    act(() =>
+      mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: true, added: 0, undo })]),
+    );
+    expect(texts(root).join(' ')).toContain('Saved Tacos');
+    expect(texts(root).join(' ')).not.toContain('items');
+    expect(allByA11y(root, 'Open list')).toHaveLength(0);
+    const highlighted = root.root.findAll((n) => typeof n.type !== 'string' && n.props.highlighted === true);
+    expect(highlighted.map((n) => n.props.recipe.id)).toEqual([tacos]);
+
+    press(byA11y(root, 'View recipe'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: tacos } });
+    expect(allByA11y(root, 'Undo')).toHaveLength(0);
+
+    act(() =>
+      mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: true, added: 0, undo })]),
+    );
+    press(byA11y(root, 'Undo'));
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  test('a recipe-only share that reused a recipe: "already in your recipes", no Undo', () => {
+    const tacos = createRecipe('Tacos');
+    const root = render(<RecipesScreen />);
+    act(() => mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: false, added: 0 })]));
+    expect(texts(root).join(' ')).toContain('Tacos is already in your recipes');
+    expect(allByA11y(root, 'Undo')).toHaveLength(0);
+    expect(allByA11y(root, 'View recipe')).toHaveLength(1);
   });
 
   test('several shared at once: "Added 3 recipes" without actions', () => {
