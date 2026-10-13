@@ -178,13 +178,13 @@ A small button under each list's title reads the current view ("As added ⌄") a
 **Membership**
 - Sign-up creates the user's **personal household** ("Personal", renameable) with a starter list.
 - A user can belong to any number of households (Q6). They must always belong to at least one.
-- Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Rename, Leave, and (owners only) Remove member, Make owner, Delete household.
+- Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Leave, and (owners only) Rename, Remove member, Make owner, Delete household.
 - The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user.
 
 **Roles** (Q1)
 - `owner` or `member`. A household can have several owners and always has at least one.
 - Everyone has equal edit rights over the household's lists and recipes (create, edit, check, delete).
-- Owners additionally manage the household: rename it, remove members, make another member an owner, and delete the household.
+- Owners additionally manage the household: rename it (`rename_household`: trimmed, not blank, at most 50 characters; other members' devices get the new name through the usual pull or realtime update), remove members, make another member an owner, and delete the household.
 - Any member can invite (Q16).
 
 **Invites**
