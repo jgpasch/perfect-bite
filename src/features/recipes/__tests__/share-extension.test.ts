@@ -11,6 +11,8 @@ import {
   RecipeImportPageSchema,
 } from '@/shared/schemas/recipe-import';
 
+import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle, shareSavedMessage } from '../save-choice';
+
 jest.mock('@/global.css', () => ({}));
 
 // The share extension (spec 4.10) is Swift and can't run here; these check the parts that can:
@@ -164,6 +166,23 @@ describe('share-recipe target', () => {
       NSExtensionActivationSupportsWebURLWithMaxCount: 1,
       NSExtensionActivationSupportsWebPageWithMaxCount: 1,
     });
+  });
+
+  test("the sheet's copy and envelope rule match save-choice.ts", () => {
+    const swift = readFileSync(join(TARGET_DIR, 'ShareChoice.swift'), 'utf8');
+    const view = readFileSync(join(TARGET_DIR, 'ShareViewController.swift'), 'utf8');
+    expect(swift).toContain(`"${saveButtonTitle(false, null)}"`);
+    expect(saveButtonTitle(true, 'X')).toBe('Save & add to X');
+    expect(swift).toContain('"Save & add to \\(listName ?? "list")"');
+    expect(swift).toContain(`"${shareSavedMessage(true)}"`);
+    expect(swift).toContain(`"${shareSavedMessage(false)}"`);
+    expect(swift).toContain(`static let noListsMessage = "${NO_LISTS_IN_HOUSEHOLD}"`);
+    expect(swift).toContain('let on = addToList && listId != nil');
+    expect(swift).toContain('static let path = "share/prefs.json"');
+    // Set up shows with no households, not with no lists.
+    expect(view).toContain('} else if model.households.isEmpty {\n      Message(text: "Open The Perfect Bite once to set up")');
+    expect(view).toContain('"Also add ingredients to a list"');
+    expect(view).toContain('"Adds the recipe\'s ingredients to the chosen list"');
   });
 
   test("the sheet's colours match the theme in both schemes", () => {

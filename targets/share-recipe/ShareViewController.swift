@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Spec 4.10: Share → The Perfect Bite. Picks a list and queues a share envelope for the app to import.
+/// Spec 4.10: Share → The Perfect Bite. Picks a household, and optionally a list, and queues a share
+/// envelope for the app to import.
 /// No network call and no React Native in here (extension memory limits).
 @objc(ShareViewController)
 final class ShareViewController: UIViewController {
@@ -29,48 +30,53 @@ final class ShareViewController: UIViewController {
 
 @MainActor
 final class ShareModel: ObservableObject {
-  struct Household: Identifiable {
-    let name: String
-    let lists: [SiriQueue.ListSnapshot.List]
-    var id: String { name }
-  }
-
   @Published var url: URL?
   @Published var page: ShareQueue.Envelope.Page?
+  /// The household the recipe is saved to (spec 4.10). Changing it resets the list to that
+  /// household's default.
+  @Published var householdId: String? {
+    didSet {
+      if householdId != oldValue { selectedListId = ShareChoice.defaultListId(snapshot, in: householdId) }
+    }
+  }
+  /// Also add ingredients to a list. Remembered on this device; off the first time.
+  @Published var addToList: Bool {
+    didSet { if addToList != oldValue { SharePrefs.saveAddToList(addToList) } }
+  }
   @Published var selectedListId: String?
   @Published var loading = true
-  @Published var added = false
+  /// Set once saved: whether the share went to a list, for the confirmation's wording.
+  @Published var saved: Bool?
   @Published var error: String?
-  let snapshot = SiriQueue.loadLists()
+  let snapshot: SiriQueue.ListSnapshot
+  let households: [ShareChoice.Household]
   var onDone: () -> Void = {}
   var onCancel: () -> Void = {}
 
   init() {
-    selectedListId = Self.defaultListId(snapshot)
+    let snapshot = SiriQueue.loadLists()
+    let householdId = ShareChoice.defaultHouseholdId(snapshot)
+    self.snapshot = snapshot
+    households = ShareChoice.households(snapshot)
+    addToList = SharePrefs.loadAddToList()
+    self.householdId = householdId
+    selectedListId = ShareChoice.defaultListId(snapshot, in: householdId)
   }
 
-  /// Last opened list, then the default list, then the first (spec 4.10). The snapshot only holds
-  /// lists that aren't archived or deleted.
-  static func defaultListId(_ snapshot: SiriQueue.ListSnapshot) -> String? {
-    let ids = Set(snapshot.lists.map(\.id))
-    if let id = snapshot.lastOpenedListId, ids.contains(id) { return id }
-    if let id = snapshot.defaultListId, ids.contains(id) { return id }
-    return snapshot.lists.first?.id
-  }
+  /// The chosen household's lists, in snapshot order.
+  var lists: [SiriQueue.ListSnapshot.List] { ShareChoice.lists(snapshot, in: householdId) }
 
-  /// Lists grouped by household, in snapshot order.
-  var households: [Household] {
-    var order: [String] = []
-    var groups: [String: [SiriQueue.ListSnapshot.List]] = [:]
-    for list in snapshot.lists {
-      if groups[list.householdName] == nil { order.append(list.householdName) }
-      groups[list.householdName, default: []].append(list)
-    }
-    return order.map { Household(name: $0, lists: groups[$0] ?? []) }
-  }
+  var hasLists: Bool { !lists.isEmpty }
+
+  /// The switch as shown: off, and disabled, when the household has no lists.
+  var addsToList: Bool { addToList && hasLists }
 
   var selectedList: SiriQueue.ListSnapshot.List? {
-    snapshot.lists.first { $0.id == selectedListId }
+    lists.first { $0.id == selectedListId }
+  }
+
+  var buttonTitle: String {
+    ShareChoice.buttonTitle(addToList: addsToList, listName: selectedList?.name)
   }
 
   /// The host without `www.`.
@@ -81,7 +87,9 @@ final class ShareModel: ObservableObject {
 
   var displayTitle: String { page?.title ?? host ?? "" }
 
-  var canAdd: Bool { !loading && !added && url != nil && selectedList != nil }
+  var canSave: Bool {
+    !loading && saved == nil && url != nil && householdId != nil && (!addsToList || selectedList != nil)
+  }
 
   /// Safari's web page first (it carries the page), then a web URL, then the first URL in text.
   func load(_ providers: [NSItemProvider]) async {
@@ -98,7 +106,8 @@ final class ShareModel: ObservableObject {
         if let text = item as? String { url = ShareQueue.firstWebURL(in: text) }
       }
     }
-    SiriQueue.log("share open url=\(url != nil) page=\(page != nil) lists=\(snapshot.lists.count)")
+    SiriQueue.log(
+      "share open url=\(url != nil) page=\(page != nil) households=\(households.count) lists=\(snapshot.lists.count)")
     loading = false
   }
 
@@ -117,14 +126,19 @@ final class ShareModel: ObservableObject {
       text: results["text"] as? String)
   }
 
-  func add() {
-    guard let url, let list = selectedList else { return }
-    let envelope = ShareQueue.makeEnvelope(url: url, listId: list.id, householdId: list.householdId, page: page)
+  func save() {
+    guard let url, canSave else { return }
+    let target = ShareChoice.envelopeTarget(
+      householdId: householdId, addToList: addsToList, listId: selectedList?.id)
+    let envelope = ShareQueue.makeEnvelope(
+      url: url, listId: target.listId, householdId: target.householdId, addToList: target.addToList,
+      page: page)
     do {
       try ShareQueue.enqueue(envelope)
       SiriQueue.log(
-        "share ok id=\(envelope.id) list=\(list.id) jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0)")
-      added = true
+        "share ok id=\(envelope.id) household=\(target.householdId ?? "-") list=\(target.listId ?? "-") "
+          + "jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0)")
+      saved = target.addToList
       Task {
         try? await Task.sleep(for: .seconds(1.2))
         onDone()
@@ -174,8 +188,8 @@ struct ShareView: View {
     NavigationStack {
       ZStack {
         Pantry.background.ignoresSafeArea()
-        if model.added {
-          AddedView()
+        if let addedToList = model.saved {
+          SavedView(text: ShareChoice.savedMessage(addToList: addedToList))
         } else {
           content
         }
@@ -183,7 +197,7 @@ struct ShareView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", action: model.onCancel).foregroundStyle(Pantry.ink).disabled(model.added)
+          Button("Cancel", action: model.onCancel).foregroundStyle(Pantry.ink).disabled(model.saved != nil)
         }
       }
     }
@@ -193,7 +207,7 @@ struct ShareView: View {
   @ViewBuilder private var content: some View {
     if model.loading {
       ProgressView()
-    } else if model.snapshot.lists.isEmpty {
+    } else if model.households.isEmpty {
       Message(text: "Open The Perfect Bite once to set up")
     } else if model.url == nil {
       Message(text: "There's no link here to import.")
@@ -202,16 +216,28 @@ struct ShareView: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             PageHeader(title: model.displayTitle, host: model.host ?? "")
-            ForEach(model.households) { household in
-              SectionLabel(text: household.name)
+            if model.households.count > 1 {
+              SectionLabel(text: "Save to")
               Card {
-                ForEach(Array(household.lists.enumerated()), id: \.element.id) { index, list in
+                ForEach(Array(model.households.enumerated()), id: \.element.id) { index, household in
                   if index > 0 { Pantry.border.frame(height: 1) }
-                  ListRow(name: list.name, selected: list.id == model.selectedListId) {
+                  ChoiceRow(name: household.name, selected: household.id == model.householdId) {
+                    model.householdId = household.id
+                  }
+                }
+              }
+            }
+            AddToListRow(model: model)
+            if model.addsToList {
+              Card {
+                ForEach(Array(model.lists.enumerated()), id: \.element.id) { index, list in
+                  if index > 0 { Pantry.border.frame(height: 1) }
+                  ChoiceRow(name: list.name, selected: list.id == model.selectedListId) {
                     model.selectedListId = list.id
                   }
                 }
               }
+              .padding(.top, 12)
             }
           }
           .padding(.bottom, 16)
@@ -219,15 +245,15 @@ struct ShareView: View {
         if let error = model.error {
           Text(error).font(.footnote).foregroundStyle(Pantry.danger).padding(.horizontal, 16)
         }
-        Button(action: model.add) {
-          Text("Add to \(model.selectedList?.name ?? "list")")
+        Button(action: model.save) {
+          Text(model.buttonTitle)
             .font(.headline)
             .lineLimit(1)
             .frame(maxWidth: .infinity, minHeight: Pantry.cta)
             .foregroundStyle(Pantry.onPrimary)
             .background(Pantry.primary, in: Capsule())
         }
-        .disabled(!model.canAdd)
+        .disabled(!model.canSave)
         .padding(16)
       }
     }
@@ -275,8 +301,40 @@ private struct Card<Content: View>: View {
   }
 }
 
-/// A list with a round check, filled when it's the one the recipe goes to.
-private struct ListRow: View {
+/// "Also add ingredients to a list" with its switch; disabled, with why under it, when the household
+/// has no lists.
+private struct AddToListRow: View {
+  @ObservedObject var model: ShareModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Card {
+        Toggle(isOn: Binding(get: { model.addsToList }, set: { model.addToList = $0 })) {
+          Text("Also add ingredients to a list").font(.body.weight(.medium)).foregroundStyle(Pantry.ink)
+        }
+        .tint(Pantry.primary)
+        .disabled(!model.hasLists)
+        .padding(.horizontal, 16)
+        .frame(minHeight: Pantry.cardRowMin)
+        .accessibilityHint(
+          model.hasLists
+            ? "Adds the recipe's ingredients to the chosen list" : ShareChoice.noListsMessage)
+      }
+      if !model.hasLists {
+        Text(ShareChoice.noListsMessage)
+          .font(.footnote)
+          .foregroundStyle(Pantry.inkSecondary)
+          .padding(.horizontal, 32)
+          .padding(.top, 8)
+          .accessibilityHidden(true)
+      }
+    }
+    .padding(.top, 16)
+  }
+}
+
+/// A household or list with a round check, filled when it's the one the recipe goes to.
+private struct ChoiceRow: View {
   let name: String
   let selected: Bool
   let action: () -> Void
@@ -317,7 +375,9 @@ private struct Message: View {
   }
 }
 
-private struct AddedView: View {
+private struct SavedView: View {
+  let text: String
+
   var body: some View {
     VStack(spacing: 16) {
       Image(systemName: "checkmark")
@@ -325,7 +385,7 @@ private struct AddedView: View {
         .foregroundStyle(Pantry.onPrimarySoft)
         .frame(width: 56, height: 56)
         .background(Pantry.primarySoft, in: Circle())
-      Text("Added. It'll be on your list when you open The Perfect Bite.")
+      Text(text)
         .font(.body.weight(.medium))
         .foregroundStyle(Pantry.ink)
         .multilineTextAlignment(.center)

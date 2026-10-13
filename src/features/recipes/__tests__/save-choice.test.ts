@@ -1,0 +1,138 @@
+import { describe, expect, test } from '@jest/globals';
+
+import { ShareEnvelopeSchema } from '@/shared/schemas/share';
+
+import {
+  type ChoiceLists,
+  defaultHouseholdId,
+  defaultListIdIn,
+  householdLists,
+  saveButtonTitle,
+  shareEnvelopeTarget,
+  shareSavedMessage,
+} from '../save-choice';
+
+const HOME = '11111111-1111-4111-8111-111111111111';
+const CABIN = '22222222-2222-4222-8222-222222222222';
+const EMPTY = '33333333-3333-4333-8333-333333333333';
+const GROCERIES = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const COSTCO = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const CABIN_LIST = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const CABIN_SNACKS = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+const lists = [
+  { id: GROCERIES, householdId: HOME },
+  { id: COSTCO, householdId: HOME },
+  { id: CABIN_LIST, householdId: CABIN },
+  { id: CABIN_SNACKS, householdId: CABIN },
+];
+const households = [{ id: HOME }, { id: CABIN }, { id: EMPTY }];
+
+const choices = (over: Partial<ChoiceLists> = {}): ChoiceLists => ({
+  lastOpenedListId: null,
+  defaultListId: null,
+  lists,
+  households,
+  ...over,
+});
+
+describe('defaultHouseholdId', () => {
+  test("is the last opened list's household", () => {
+    expect(defaultHouseholdId(choices({ lastOpenedListId: CABIN_SNACKS, defaultListId: GROCERIES }))).toBe(CABIN);
+  });
+
+  test("falls back to the default list's household when the last opened list is gone", () => {
+    const gone = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    expect(defaultHouseholdId(choices({ lastOpenedListId: gone, defaultListId: CABIN_LIST }))).toBe(CABIN);
+    expect(defaultHouseholdId(choices({ defaultListId: CABIN_LIST }))).toBe(CABIN);
+  });
+
+  test("falls back to the first list's household", () => {
+    expect(defaultHouseholdId(choices())).toBe(HOME);
+    expect(defaultHouseholdId(choices({ lists: [{ id: CABIN_LIST, householdId: CABIN }] }))).toBe(CABIN);
+  });
+
+  test('with no lists, is the first household', () => {
+    expect(defaultHouseholdId(choices({ lists: [], households: [{ id: EMPTY }, { id: HOME }] }))).toBe(EMPTY);
+  });
+
+  test("ignores a list whose household isn't in the snapshot", () => {
+    expect(defaultHouseholdId(choices({ lastOpenedListId: CABIN_LIST, households: [{ id: HOME }] }))).toBe(HOME);
+  });
+
+  test('is null with no households', () => {
+    expect(defaultHouseholdId(choices({ lists: [], households: [] }))).toBeNull();
+  });
+});
+
+describe('defaultListIdIn', () => {
+  test('is the last opened list when it is in the household', () => {
+    expect(defaultListIdIn(choices({ lastOpenedListId: COSTCO, defaultListId: GROCERIES }), HOME)).toBe(COSTCO);
+  });
+
+  test("skips a last opened or default list in another household, taking the household's first", () => {
+    expect(defaultListIdIn(choices({ lastOpenedListId: COSTCO, defaultListId: GROCERIES }), CABIN)).toBe(CABIN_LIST);
+  });
+
+  test('then the default list when it is in the household', () => {
+    expect(defaultListIdIn(choices({ lastOpenedListId: COSTCO, defaultListId: CABIN_SNACKS }), CABIN)).toBe(
+      CABIN_SNACKS,
+    );
+  });
+
+  test("is null for a household with no lists, or no household", () => {
+    expect(defaultListIdIn(choices({ lastOpenedListId: COSTCO }), EMPTY)).toBeNull();
+    expect(defaultListIdIn(choices(), null)).toBeNull();
+  });
+
+  test('householdLists keeps only that household, in order', () => {
+    expect(householdLists(lists, CABIN).map((l) => l.id)).toEqual([CABIN_LIST, CABIN_SNACKS]);
+    expect(householdLists(lists, EMPTY)).toEqual([]);
+  });
+});
+
+describe('saveButtonTitle', () => {
+  test('reads Save recipe with the list off, whatever list is picked', () => {
+    expect(saveButtonTitle(false, 'Groceries')).toBe('Save recipe');
+    expect(saveButtonTitle(false, null)).toBe('Save recipe');
+  });
+
+  test('names the list with it on', () => {
+    expect(saveButtonTitle(true, 'Costco')).toBe('Save & add to Costco');
+    expect(saveButtonTitle(true, null)).toBe('Save & add to list');
+  });
+});
+
+describe('shareSavedMessage', () => {
+  test('says the recipe is saved with the list off, and keeps the list wording with it on', () => {
+    expect(shareSavedMessage(false)).toBe("Saved. It'll be in your recipes when you open The Perfect Bite.");
+    expect(shareSavedMessage(true)).toBe("Added. It'll be on your list when you open The Perfect Bite.");
+  });
+});
+
+describe('shareEnvelopeTarget', () => {
+  const envelope = (target: ReturnType<typeof shareEnvelopeTarget>) => ({
+    id: '019a0000-0000-7000-8000-000000000000',
+    url: 'https://example.com/tikka',
+    createdAt: '2026-10-12T09:00:00.000-07:00',
+    appVersion: '1.0.0',
+    source: 'share',
+    ...target,
+  });
+
+  test('switch off: the household, addToList false and no list, even with one picked', () => {
+    const target = shareEnvelopeTarget(CABIN, false, CABIN_LIST);
+    expect(target).toEqual({ householdId: CABIN, addToList: false, listId: null });
+    expect(ShareEnvelopeSchema.safeParse(envelope(target)).success).toBe(true);
+  });
+
+  test('switch on: the household, addToList true and the list', () => {
+    const target = shareEnvelopeTarget(CABIN, true, CABIN_SNACKS);
+    expect(target).toEqual({ householdId: CABIN, addToList: true, listId: CABIN_SNACKS });
+    expect(ShareEnvelopeSchema.safeParse(envelope(target)).success).toBe(true);
+  });
+
+  test('switch on with no list (a household with no lists) saves the recipe only', () => {
+    expect(shareEnvelopeTarget(EMPTY, true, null)).toEqual({ householdId: EMPTY, addToList: false, listId: null });
+  });
+});
