@@ -63,3 +63,40 @@ export function shareEnvelopeTarget(
   const on = addToList && listId !== null;
   return { householdId, addToList: on, listId: on ? listId : null };
 }
+
+/**
+ * Where the in-app import sheet opens (spec 4.10): from the Recipes tab (household by the default
+ * rule, the switch as last left on this device), from a list's menu (that list's household, the
+ * switch on with that list), or reopened by a failure's notification (the same choices as before).
+ */
+export type SheetEntry =
+  | { from: 'recipes'; rememberedAddToList: boolean }
+  | { from: 'list'; listId: string }
+  | { from: 'retry'; householdId: string | null; addToList: boolean; listId: string | null };
+
+export type SaveChoice = { householdId: string | null; addToList: boolean; listId: string | null };
+
+/**
+ * The sheet's starting choice for `entry`. A list or household that's gone by then falls back to
+ * the default rule, and a list outside the chosen household gives that household's default list.
+ */
+export function initialSaveChoice(choices: ChoiceLists, entry: SheetEntry): SaveChoice {
+  if (entry.from === 'list') {
+    const list = choices.lists.find((l) => l.id === entry.listId);
+    if (list) return { householdId: list.householdId, addToList: true, listId: list.id };
+    const householdId = defaultHouseholdId(choices);
+    return { householdId, addToList: true, listId: defaultListIdIn(choices, householdId) };
+  }
+  const retry = entry.from === 'retry' ? entry : null;
+  const householdId =
+    retry && choices.households.some((h) => h.id === retry.householdId) ? retry.householdId : defaultHouseholdId(choices);
+  const kept = retry ? choices.lists.find((l) => l.id === retry.listId && l.householdId === householdId)?.id : undefined;
+  return {
+    householdId,
+    addToList: retry ? retry.addToList : entry.from === 'recipes' && entry.rememberedAddToList,
+    listId: kept ?? defaultListIdIn(choices, householdId),
+  };
+}
+
+/** The device setting remembering the in-app sheet's switch (the share extension keeps its own). */
+export const IMPORT_ADD_TO_LIST_KEY = 'importAddToList';

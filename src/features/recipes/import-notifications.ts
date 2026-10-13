@@ -25,6 +25,21 @@ export function importedNotification(result: ImportRecipeSuccess, listName: stri
   };
 }
 
+/** A recipe-only import: "Recipe saved" · "Saved Chicken tikka masala to Smith home", the name in bold. */
+export function savedNotification(result: ImportRecipeSuccess, householdName: string): Content {
+  return {
+    id: `recipe-import-${result.recipeId}`,
+    kind: 'recipeImport',
+    icon: 'fork.knife',
+    hue: recipeHue(result.recipeId),
+    tone: 'success',
+    title: 'Recipe saved',
+    body: `Saved ${result.recipeName} to ${householdName}`,
+    emphasis: result.recipeName,
+    hint: 'Opens the recipe',
+  };
+}
+
 /** "Couldn't import recipe" with the sheet's plain-words reason. Keyed by link, so a retry replaces it. */
 export function importFailedNotification(error: ImportRecipeError, url: string): Content {
   return {

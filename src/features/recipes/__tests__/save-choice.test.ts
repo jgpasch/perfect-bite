@@ -7,6 +7,7 @@ import {
   defaultHouseholdId,
   defaultListIdIn,
   householdLists,
+  initialSaveChoice,
   saveButtonTitle,
   shareEnvelopeTarget,
   shareSavedMessage,
@@ -134,5 +135,92 @@ describe('shareEnvelopeTarget', () => {
 
   test('switch on with no list (a household with no lists) saves the recipe only', () => {
     expect(shareEnvelopeTarget(EMPTY, true, null)).toEqual({ householdId: EMPTY, addToList: false, listId: null });
+  });
+});
+
+describe('initialSaveChoice', () => {
+  describe('from the Recipes tab', () => {
+    test('the default household and its default list, the switch as remembered (off)', () => {
+      expect(initialSaveChoice(choices({ lastOpenedListId: CABIN_SNACKS }), { from: 'recipes', rememberedAddToList: false })).toEqual({
+        householdId: CABIN,
+        addToList: false,
+        listId: CABIN_SNACKS,
+      });
+    });
+
+    test('the switch as remembered (on)', () => {
+      expect(initialSaveChoice(choices(), { from: 'recipes', rememberedAddToList: true })).toEqual({
+        householdId: HOME,
+        addToList: true,
+        listId: GROCERIES,
+      });
+    });
+
+    test('with no lists: the first household, no list', () => {
+      expect(initialSaveChoice(choices({ lists: [] }), { from: 'recipes', rememberedAddToList: true })).toEqual({
+        householdId: HOME,
+        addToList: true,
+        listId: null,
+      });
+    });
+
+    test('with no households: nothing to choose', () => {
+      expect(initialSaveChoice(choices({ lists: [], households: [] }), { from: 'recipes', rememberedAddToList: false })).toEqual({
+        householdId: null,
+        addToList: false,
+        listId: null,
+      });
+    });
+  });
+
+  describe("from a list's menu", () => {
+    test("that list's household, the switch on with that list, whatever was last opened", () => {
+      expect(initialSaveChoice(choices({ lastOpenedListId: GROCERIES }), { from: 'list', listId: CABIN_SNACKS })).toEqual({
+        householdId: CABIN,
+        addToList: true,
+        listId: CABIN_SNACKS,
+      });
+    });
+
+    test('a list that is gone falls back to the default rule, switch still on', () => {
+      expect(initialSaveChoice(choices({ defaultListId: COSTCO }), { from: 'list', listId: 'gone' })).toEqual({
+        householdId: HOME,
+        addToList: true,
+        listId: COSTCO,
+      });
+    });
+  });
+
+  describe('reopened by a failure', () => {
+    test('the same household, switch and list', () => {
+      expect(
+        initialSaveChoice(choices({ lastOpenedListId: GROCERIES }), {
+          from: 'retry',
+          householdId: CABIN,
+          addToList: true,
+          listId: CABIN_SNACKS,
+        }),
+      ).toEqual({ householdId: CABIN, addToList: true, listId: CABIN_SNACKS });
+    });
+
+    test('recipe-only into a household with no lists stays recipe-only there', () => {
+      expect(initialSaveChoice(choices(), { from: 'retry', householdId: EMPTY, addToList: false, listId: null })).toEqual({
+        householdId: EMPTY,
+        addToList: false,
+        listId: null,
+      });
+    });
+
+    test("a household that's gone falls back to the default household", () => {
+      expect(
+        initialSaveChoice(choices({ lastOpenedListId: CABIN_LIST }), { from: 'retry', householdId: 'gone', addToList: false, listId: null }),
+      ).toEqual({ householdId: CABIN, addToList: false, listId: CABIN_LIST });
+    });
+
+    test("a list that's gone, or outside the household, gives the household's default list", () => {
+      const retry = { from: 'retry', householdId: CABIN, addToList: true } as const;
+      expect(initialSaveChoice(choices(), { ...retry, listId: 'gone' }).listId).toBe(CABIN_LIST);
+      expect(initialSaveChoice(choices(), { ...retry, listId: GROCERIES }).listId).toBe(CABIN_LIST);
+    });
   });
 });

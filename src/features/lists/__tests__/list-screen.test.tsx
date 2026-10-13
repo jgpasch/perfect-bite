@@ -788,6 +788,22 @@ describe('toasts from elsewhere', () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'r9' } });
   });
 
+  test('a recipe saved from this list without adding to it: "Saved", Undo only when created', () => {
+    const undo = jest.fn();
+    setRecipeAddResult({ kind: 'saved', listId, recipeId: 'r9', recipeName: 'Dal', created: true, undo });
+    render();
+    expect(text()).toContain('Saved Dal');
+    tapToast('Undo');
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(text()).not.toContain('Saved Dal');
+    // Reused: it was already in the recipes, so there's nothing to undo.
+    act(() => setRecipeAddResult({ kind: 'saved', listId, recipeId: 'r9', recipeName: 'Dal', created: false, undo }));
+    expect(text()).toContain('Dal is already in your recipes');
+    expect(() => hostByLabel('Undo')).toThrow();
+    tapToast('View recipe');
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'r9' } });
+  });
+
   test('a result for another list is left for that list', () => {
     setRecipeAddResult({ kind: 'toRecipe', listId: 'other', recipeId: 'r1', recipeName: 'Pancakes', count: 1 });
     render();

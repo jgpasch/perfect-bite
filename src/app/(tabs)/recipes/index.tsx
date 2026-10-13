@@ -29,6 +29,7 @@ import {
   recipesQuery,
   type RecipeSummary,
 } from '@/features/recipes/recipes';
+import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useTheme } from '@/hooks/use-theme';
@@ -56,7 +57,7 @@ export default function RecipesScreen() {
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
-  // Spec 4.10: the sheet asks for the list.
+  // Spec 4.10: the sheet asks for the household, and a list if the user wants one.
   const importFromLink = () => router.push('/import-recipe');
   // Spec 4.12: recipe import is a plus feature; without it neither button shows.
   const canImport = useFeature('recipe_import');
@@ -70,6 +71,30 @@ export default function RecipesScreen() {
         </View>
       }
     />
+  );
+
+  // A recipe saved without a list from the import sheet (spec 4.10): taken on focus, and while showing.
+  useFocusEffect(
+    useCallback(() => {
+      const show = () => {
+        const result = takeSavedRecipeResult();
+        if (!result) return;
+        setToast({
+          key: `saved-${result.recipeId}-${Date.now()}`,
+          recipeId: result.recipeId,
+          ...savedRecipeToast(result.recipeName, result.created),
+          actions: [
+            ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
+            {
+              label: 'View recipe',
+              onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+            },
+          ],
+        });
+      };
+      show();
+      return onSavedRecipeResult(show);
+    }, []),
   );
 
   // Recipes shared to the extension (spec 4.10), when the drain finishes while this tab shows.

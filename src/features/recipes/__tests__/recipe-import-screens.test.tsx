@@ -16,7 +16,7 @@ import {
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { setFeatures } from '@/features/plans/features';
-import { getDeviceSetting } from '@/features/settings/device-settings';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
 import ImportRecipeSheet from '@/app/import-recipe';
@@ -26,6 +26,8 @@ import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from 
 import { ImportsCard } from '../imports-card';
 import { addRecipeIngredient, createRecipe, getRecipe } from '../recipes';
 import { failedImportsQuery, recordFailedImport } from '../failed-imports';
+import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
+import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
 import { EMPTY_SHARE_QUEUE_STATUS, setShareQueueStatus, type ShareQueueStatus } from '../share-queue-status';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -125,6 +127,8 @@ beforeEach(() => {
   mockClipboard.mockReset();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   setFeatures(['categorize', 'recipe_import']);
+  takeRecipeAddResult(groceries);
+  takeSavedRecipeResult();
 });
 
 afterEach(() => {
@@ -202,48 +206,125 @@ describe('ImportRecipeSheet', () => {
     root.root.findAll((n) => typeof n.type !== 'string' && n.props.selected === true && !!n.props.label).map((n) => n.props.label);
   const listName = (id: string) => db.select().from(lists).all().find((l) => l.id === id)!.name;
 
-  test('with no lists it renders nothing', () => {
-    db.update(lists).set({ archivedAt: new Date() }).run();
+  const toggle = (root: ReactTestRenderer) =>
+    root.root.find(
+      (n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Also add ingredients to a list' && 'onValueChange' in n.props,
+    );
+  const setSwitch = (root: ReactTestRenderer, on: boolean) => act(() => toggle(root).props.onValueChange(on));
+  const personal = () => db.select().from(households).all().find((h) => h.name === 'Personal')!.id;
+  const remembered = () =>getDeviceSetting<boolean | null>(IMPORT_ADD_TO_LIST_KEY, null);
+  const addLake = () => {
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    return createList('Cabin', 'lake');
+  };
+
+  test('with no households it renders nothing', () => {
+    resetDb();
     const root = render(<ImportRecipeSheet />);
     expect(texts(root)).toEqual([]);
   });
 
-  test('from the Recipes tab it asks for the list, starting on the last opened one', () => {
+  test('a household with no lists can still save the recipe; the switch is off and disabled', async () => {
+    db.update(lists).set({ archivedAt: new Date() }).run();
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, true);
+    mockImport.mockResolvedValue(success({ listId: null, added: 0 }));
+    const root = render(<ImportRecipeSheet />);
+    expect(texts(root)).toContain('This household has no lists');
+    expect(toggle(root).props.value).toBe(false);
+    expect(toggle(root).props.disabled).toBe(true);
+    expect(toggle(root).props.accessibilityHint).toBe('This household has no lists');
+    type(root, 'https://example.com/tikka');
+    await pressAsync(byLabel(root, 'Save recipe'));
+    expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', householdId: personal() });
+  });
+
+  test('from the Recipes tab the switch starts off: no list picker, "Save recipe"', () => {
+    const root = render(<ImportRecipeSheet />);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Add recipe from link', 'Also add ingredients to a list', 'Link']));
+    // One household: no household picker.
+    expect(texts(root)).not.toContain('Save to');
+    expect(texts(root)).not.toContain('List');
+    expect(toggle(root).props.value).toBe(false);
+    expect(toggle(root).props.disabled).toBe(false);
+    expect(toggle(root).props.accessibilityHint).toBe("Adds the recipe's ingredients to the chosen list");
+    expect(selectedPills(root)).toEqual([]);
+    expect(byLabel(root, 'Save recipe')).toBeDefined();
+  });
+
+  test('turning the switch on shows the lists, starting on the last opened one, and names it on the button', () => {
     const party = createList('Party');
     setLastOpenedList(party);
     const root = render(<ImportRecipeSheet />);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Add recipe from link', 'To', 'Link']));
+    setSwitch(root, true);
+    expect(texts(root)).toContain('List');
     expect(selectedPills(root)).toEqual(['Party']);
+    expect(byLabel(root, 'Save & add to Party')).toBeDefined();
     press(byLabel(root, listName(groceries)));
     expect(selectedPills(root)).toEqual([listName(groceries)]);
-  });
-
-  test('with several households, each gets its own "To ·" group', () => {
-    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
-    createList('Cabin', 'lake');
-    const root = render(<ImportRecipeSheet />);
-    expect(texts(root)).toEqual(expect.arrayContaining(['To · Lake house']));
-    expect(texts(root).filter((t) => t.startsWith('To · '))).toHaveLength(2);
-  });
-
-  test("from a list's menu there's no list picker", () => {
-    mockParams.list = groceries;
-    const root = render(<ImportRecipeSheet />);
-    expect(texts(root)).not.toContain('To');
+    expect(byLabel(root, `Save & add to ${listName(groceries)}`)).toBeDefined();
+    setSwitch(root, false);
     expect(selectedPills(root)).toEqual([]);
+    expect(byLabel(root, 'Save recipe')).toBeDefined();
   });
 
-  test('Add recipe is disabled until there is text', () => {
+  test('the Recipes tab remembers the switch on this device', () => {
+    expect(remembered()).toBeNull();
+    const first = render(<ImportRecipeSheet />);
+    setSwitch(first, true);
+    expect(remembered()).toBe(true);
+    act(() => first.unmount());
+    const second = render(<ImportRecipeSheet />);
+    expect(toggle(second).props.value).toBe(true);
+    setSwitch(second, false);
+    expect(remembered()).toBe(false);
+  });
+
+  test('with several households: Save to defaults to the last opened list\'s household; changing it resets the list', () => {
+    const cabin = addLake();
+    const dock = createList('Dock', 'lake');
+    setLastOpenedList(dock);
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, true);
     const root = render(<ImportRecipeSheet />);
-    expect(byLabel(root, 'Add recipe').props.disabled).toBe(true);
+    expect(texts(root)).toContain('Save to');
+    expect(selectedPills(root)).toEqual(['Lake house', 'Dock']);
+    // Only that household's lists.
+    expect(allByLabel(root, listName(groceries))).toHaveLength(0);
+    press(byLabel(root, 'Personal'));
+    expect(selectedPills(root)).toEqual(['Personal', listName(groceries)]);
+    expect(allByLabel(root, 'Cabin')).toHaveLength(0);
+    // Back to Lake house: its default by the same rule, the last opened list.
+    press(byLabel(root, 'Lake house'));
+    expect(selectedPills(root)).toEqual(['Lake house', 'Dock']);
+    expect(cabin).toBeTruthy();
+  });
+
+  test("from a list's menu: that list's household, the switch on with that list chosen", () => {
+    const cabin = addLake();
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, false);
+    mockParams.list = cabin;
+    const root = render(<ImportRecipeSheet />);
+    expect(toggle(root).props.value).toBe(true);
+    expect(selectedPills(root)).toEqual(['Lake house', 'Cabin']);
+    expect(byLabel(root, 'Save & add to Cabin')).toBeDefined();
+    // Turning it off here isn't remembered for the Recipes tab.
+    setSwitch(root, false);
+    expect(byLabel(root, 'Save recipe')).toBeDefined();
+    expect(remembered()).toBe(false);
+    setSwitch(root, true);
+    expect(remembered()).toBe(false);
+  });
+
+  test('Save is disabled until there is text', () => {
+    const root = render(<ImportRecipeSheet />);
+    expect(byLabel(root, 'Save recipe').props.disabled).toBe(true);
     type(root, 'https://example.com/tikka');
-    expect(byLabel(root, 'Add recipe').props.disabled).toBe(false);
+    expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
   });
 
   test('text that is not a link shows the error without importing; typing clears it', async () => {
     const root = render(<ImportRecipeSheet />);
     type(root, 'chicken tikka');
-    await pressAsync(byLabel(root, 'Add recipe'));
+    await pressAsync(byLabel(root, 'Save recipe'));
     expect(mockImport).not.toHaveBeenCalled();
     expect(texts(root)).toContain("That doesn't look like a link");
     type(root, 'https://example.com');
@@ -270,10 +351,11 @@ describe('ImportRecipeSheet', () => {
     const pending = deferred<ImportRecipeResult>();
     mockImport.mockReturnValue(pending.promise);
     const root = render(<ImportRecipeSheet />);
+    setSwitch(root, true);
     press(byLabel(root, 'Party'));
     type(root, 'https://example.com/tikka');
     act(() => {
-      void byLabel(root, 'Add recipe').props.onPress();
+      void byLabel(root, 'Save & add to Party').props.onPress();
     });
     expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', listId: party });
     expect(texts(root)).toContain("You can close this. We'll let you know when it's ready.");
@@ -281,6 +363,7 @@ describe('ImportRecipeSheet', () => {
     expect(byLabel(root, 'Paste').props.disabled).toBe(true);
     expect(field(root).props.editable).toBe(false);
     expect(byLabel(root, 'Party').props.disabled).toBe(true);
+    expect(toggle(root).props.disabled).toBe(true);
     // A second submit while reading does nothing.
     await act(async () => {
       await field(root).props.onSubmitEditing();
@@ -309,10 +392,59 @@ describe('ImportRecipeSheet', () => {
     mockImport.mockResolvedValue(success());
     const root = render(<ImportRecipeSheet />);
     type(root, 'https://example.com/tikka');
-    await pressAsync(byLabel(root, 'Add recipe'));
+    await pressAsync(byLabel(root, `Save & add to ${listName(groceries)}`));
+    expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', listId: groceries });
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  test('switch off from the Recipes tab: imports recipe-only, leaves lists alone, toast on the Recipes tab', async () => {
+    setLastOpenedList(groceries);
+    const undo = jest.fn();
+    const result = success({ listId: null, added: 0, undo });
+    mockImport.mockResolvedValue(result);
+    const root = render(<ImportRecipeSheet />);
+    type(root, 'https://example.com/tikka');
+    await pressAsync(byLabel(root, 'Save recipe'));
+    expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', householdId: personal() });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    // No list opened and no list toast.
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(takeRecipeAddResult(groceries)).toBeNull();
+    expect(takeSavedRecipeResult()).toEqual({ recipeId: 'recipe-1', recipeName: 'Chicken tikka masala', created: true, undo });
+  });
+
+  test("switch off from a list's menu: recipe-only, and the toast shows on that list", async () => {
+    const cabin = addLake();
+    mockParams.list = cabin;
+    mockImport.mockResolvedValue(success({ listId: null, added: 0, created: false }));
+    const root = render(<ImportRecipeSheet />);
+    setSwitch(root, false);
+    type(root, 'https://example.com/tikka');
+    await pressAsync(byLabel(root, 'Save recipe'));
+    expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', householdId: 'lake' });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(takeSavedRecipeResult()).toBeNull();
+    expect(takeRecipeAddResult(cabin)).toMatchObject({
+      kind: 'saved',
+      listId: cabin,
+      recipeId: 'recipe-1',
+      recipeName: 'Chicken tikka masala',
+      created: false,
+    });
+  });
+
+  test('a list from another household, after switching household, imports onto that list', async () => {
+    const cabin = addLake();
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, true);
+    mockImport.mockResolvedValue(success({ listId: cabin }));
+    const root = render(<ImportRecipeSheet />);
+    press(byLabel(root, 'Lake house'));
+    type(root, 'https://example.com/tikka');
+    await pressAsync(byLabel(root, 'Save & add to Cabin'));
+    expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', listId: cabin });
   });
 
   test.each([
@@ -324,10 +456,11 @@ describe('ImportRecipeSheet', () => {
     mockImport.mockResolvedValue(result);
     const root = render(<ImportRecipeSheet />);
     type(root, 'https://example.com/tikka');
-    await pressAsync(byLabel(root, 'Add recipe'));
+    await pressAsync(byLabel(root, 'Save recipe'));
     expect(texts(root)).toContain(message);
-    expect(byLabel(root, 'Add recipe').props.disabled).toBe(false);
+    expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
     expect(mockBack).not.toHaveBeenCalled();
+    expect(takeSavedRecipeResult()).toBeNull();
   });
 
   test('closed while reading, success comes as a notification that opens the list with its toast', async () => {
@@ -336,9 +469,11 @@ describe('ImportRecipeSheet', () => {
     const pending = deferred<ImportRecipeResult>();
     mockImport.mockReturnValue(pending.promise);
     const root = render(<ImportRecipeSheet />);
+    setSwitch(root, true);
+    press(byLabel(root, listName(groceries)));
     type(root, 'https://example.com/tikka');
     act(() => {
-      void byLabel(root, 'Add recipe').props.onPress();
+      void byLabel(root, `Save & add to ${listName(groceries)}`).props.onPress();
     });
     act(() => root.unmount());
     tree = null;
@@ -355,13 +490,36 @@ describe('ImportRecipeSheet', () => {
     expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala' });
   });
 
-  test('closed while reading, a failure comes as a notification that reopens the sheet', async () => {
+  test('closed while reading, a recipe-only success says "Recipe saved" and opens the recipe', async () => {
+    addLake();
+    const pending = deferred<ImportRecipeResult>();
+    mockImport.mockReturnValue(pending.promise);
+    const root = render(<ImportRecipeSheet />);
+    press(byLabel(root, 'Lake house'));
+    type(root, 'https://example.com/tikka');
+    act(() => {
+      void byLabel(root, 'Save recipe').props.onPress();
+    });
+    act(() => root.unmount());
+    tree = null;
+    await act(async () => pending.resolve(success({ listId: null, added: 0 })));
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(takeSavedRecipeResult()).toBeNull();
+    const notification = mockNotify.mock.calls[0][0] as { title: string; body: string; emphasis: string; onPress: () => void };
+    expect(notification.title).toBe('Recipe saved');
+    expect(notification.body).toBe('Saved Chicken tikka masala to Lake house');
+    expect(notification.emphasis).toBe('Chicken tikka masala');
+    notification.onPress();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'recipe-1' } });
+  });
+
+  test('closed while reading, a failure comes as a notification that reopens the sheet with the same choices', async () => {
     const pending = deferred<ImportRecipeResult>();
     mockImport.mockReturnValue(pending.promise);
     const root = render(<ImportRecipeSheet />);
     type(root, 'https://example.com/tikka');
     act(() => {
-      void byLabel(root, 'Add recipe').props.onPress();
+      void byLabel(root, 'Save recipe').props.onPress();
     });
     act(() => root.unmount());
     tree = null;
@@ -371,18 +529,49 @@ describe('ImportRecipeSheet', () => {
     notification.onPress();
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/import-recipe',
-      params: { to: groceries, url: 'https://example.com/tikka' },
+      params: { household: personal(), add: '0', url: 'https://example.com/tikka' },
     });
   });
 
-  test('reopened from that notification, the link is filled and the list chosen, picker still shown', () => {
-    const party = createList('Party');
-    mockParams.to = party;
-    mockParams.url = 'https://example.com/tikka';
+  test('a failure with the switch on reopens onto the same household and list', async () => {
+    const cabin = addLake();
+    mockParams.list = cabin;
+    const pending = deferred<ImportRecipeResult>();
+    mockImport.mockReturnValue(pending.promise);
+    const root = render(<ImportRecipeSheet />);
+    type(root, 'https://example.com/tikka');
+    act(() => {
+      void byLabel(root, 'Save & add to Cabin').props.onPress();
+    });
+    act(() => root.unmount());
+    tree = null;
+    await act(async () => pending.resolve({ ok: false, error: 'not_a_recipe' }));
+    (mockNotify.mock.calls[0][0] as { onPress: () => void }).onPress();
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/import-recipe',
+      params: { household: 'lake', add: '1', to: cabin, url: 'https://example.com/tikka' },
+    });
+  });
+
+  test('reopened from that notification: the link, household, switch and list are as they were', () => {
+    addLake();
+    const dock = createList('Dock', 'lake');
+    // The Recipes tab's remembered state doesn't apply to a retry.
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, false);
+    Object.assign(mockParams, { household: 'lake', add: '1', to: dock, url: 'https://example.com/tikka' });
     const root = render(<ImportRecipeSheet />);
     expect(field(root).props.value).toBe('https://example.com/tikka');
-    expect(selectedPills(root)).toEqual(['Party']);
-    expect(texts(root)).toContain('To');
+    expect(toggle(root).props.value).toBe(true);
+    expect(selectedPills(root)).toEqual(['Lake house', 'Dock']);
+    expect(byLabel(root, 'Save & add to Dock')).toBeDefined();
+  });
+
+  test('reopened recipe-only into a household that is gone: the default household, switch still off', () => {
+    setDeviceSetting(IMPORT_ADD_TO_LIST_KEY, true);
+    Object.assign(mockParams, { household: 'gone', add: '0', url: 'https://example.com/tikka' });
+    const root = render(<ImportRecipeSheet />);
+    expect(toggle(root).props.value).toBe(false);
+    expect(byLabel(root, 'Save recipe')).toBeDefined();
   });
 
   test('Cancel closes the sheet', () => {
@@ -516,6 +705,31 @@ describe('RecipesScreen', () => {
     expect(texts(root).join(' ')).toContain('Tacos is already in your recipes');
     expect(allByA11y(root, 'Undo')).toHaveLength(0);
     expect(allByA11y(root, 'View recipe')).toHaveLength(1);
+  });
+
+  test('a recipe saved from the import sheet shows on return: "Saved …", Undo, View recipe, card outlined', () => {
+    const tacos = createRecipe('Tacos');
+    const undo = jest.fn();
+    setSavedRecipeResult({ recipeId: tacos, recipeName: 'Tacos', created: true, undo });
+    const root = render(<RecipesScreen />);
+    expect(texts(root).join(' ')).toContain('Saved Tacos');
+    const highlighted = root.root.findAll((n) => typeof n.type !== 'string' && n.props.highlighted === true);
+    expect(highlighted.map((n) => n.props.recipe.id)).toEqual([tacos]);
+    // Taken once: it's gone for the next focus.
+    expect(takeSavedRecipeResult()).toBeNull();
+    press(byA11y(root, 'Undo'));
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(texts(root).join(' ')).not.toContain('Saved Tacos');
+  });
+
+  test('a reused recipe saved from the sheet while the tab shows: "already in your recipes", no Undo', () => {
+    const tacos = createRecipe('Tacos');
+    const root = render(<RecipesScreen />);
+    act(() => setSavedRecipeResult({ recipeId: tacos, recipeName: 'Tacos', created: false, undo: jest.fn() }));
+    expect(texts(root).join(' ')).toContain('Tacos is already in your recipes');
+    expect(allByA11y(root, 'Undo')).toHaveLength(0);
+    press(byA11y(root, 'View recipe'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: tacos } });
   });
 
   test('several shared at once: "Added 3 recipes" without actions', () => {

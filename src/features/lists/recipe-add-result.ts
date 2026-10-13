@@ -2,14 +2,17 @@
 // closes, and the list screen takes it when it gains focus to show the toast. Add to recipe (spec
 // 4.5) also leaves Select mode and switches to By recipe ("Added 3 items to Tacos"); a recipe added
 // to the list (spec 4.4) shows "Added Tacos · 8 items" with Undo; a recipe imported from a link (spec
-// 4.10) shows the same with Undo and View recipe.
+// 4.10) shows the same with Undo and View recipe; one saved without adding to the list shows "Saved
+// Tacos" with View recipe (and Undo if it created the recipe).
 
 import type { AddItemResult } from '@/features/lists/items';
 
 export type RecipeAddResult =
   | { kind: 'toRecipe'; listId: string; recipeId: string; recipeName: string; count: number }
   | { kind: 'toList'; listId: string; recipeId: string; recipeName: string; count: number; results: (AddItemResult | null)[] }
-  | { kind: 'imported'; listId: string; recipeId: string; recipeName: string; count: number; undo: () => void };
+  | { kind: 'imported'; listId: string; recipeId: string; recipeName: string; count: number; undo: () => void }
+  /** Saved recipe-only from this list's menu (spec 4.10): the list is unchanged; Undo only if created. */
+  | { kind: 'saved'; listId: string; recipeId: string; recipeName: string; created: boolean; undo: () => void };
 
 let pending: RecipeAddResult | null = null;
 const listeners = new Set<() => void>();

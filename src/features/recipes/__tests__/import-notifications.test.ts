@@ -3,7 +3,7 @@ import { describe, expect, test } from '@jest/globals';
 import { recipeHue } from '@/domain/aisle-color';
 
 import type { ImportRecipeSuccess } from '../import';
-import { importedNotification, importFailedNotification } from '../import-notifications';
+import { importedNotification, importFailedNotification, savedNotification } from '../import-notifications';
 
 const success: ImportRecipeSuccess = {
   ok: true,
@@ -34,6 +34,29 @@ describe('importedNotification', () => {
     expect(importedNotification({ ...success, added: 1 }, 'Groceries').body).toBe(
       'Added Chicken tikka masala · 1 item to Groceries',
     );
+  });
+});
+
+describe('savedNotification', () => {
+  test('a recipe-only import names the recipe and the household, the name in bold, and opens the recipe', () => {
+    const n = savedNotification({ ...success, listId: null, added: 0 }, 'Smith home');
+    expect(n).toEqual({
+      id: 'recipe-import-r1',
+      kind: 'recipeImport',
+      icon: 'fork.knife',
+      hue: recipeHue('r1'),
+      tone: 'success',
+      title: 'Recipe saved',
+      body: 'Saved Chicken tikka masala to Smith home',
+      emphasis: 'Chicken tikka masala',
+      hint: 'Opens the recipe',
+    });
+  });
+
+  test('a reused recipe says the same, with no item count', () => {
+    const n = savedNotification({ ...success, listId: null, added: 0, created: false }, 'Personal');
+    expect(n.body).toBe('Saved Chicken tikka masala to Personal');
+    expect(n.body).not.toContain('item');
   });
 });
 

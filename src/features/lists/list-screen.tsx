@@ -108,7 +108,7 @@ import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { useFeature } from '@/features/plans/features';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
-import { importedToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getAisleColorStyle, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
@@ -411,6 +411,21 @@ export function ListScreen({ id }: { id: string }) {
             ...importedToast(result.recipeName, result.count),
             actions: [
               { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              {
+                label: 'View recipe',
+                onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
+              },
+            ],
+          });
+          return;
+        }
+        if (result.kind === 'saved') {
+          // Saved from this list's menu without adding to it (spec 4.10): Undo only takes back a recipe it created.
+          setToast({
+            key: `saved-${result.recipeId}-${Date.now()}`,
+            ...savedRecipeToast(result.recipeName, result.created),
+            actions: [
+              ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
               {
                 label: 'View recipe',
                 onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
