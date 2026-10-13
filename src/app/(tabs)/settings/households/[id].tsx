@@ -23,16 +23,19 @@ import {
   LEAVE_HINT,
   leaveConfirmation,
   leaveHousehold,
-  MEMBER_ACTIONS_HINT,
+  memberActionsSheet,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
   removeMember,
   removeMemberConfirmation,
-  removeMemberSheet,
   RENAME_HINT,
   renameHousehold,
+  roleAfter,
+  roleChangeConfirmation,
   roleLabel,
+  setMemberRole,
   type HouseholdMember,
+  type RoleChange,
 } from '@/features/households/households';
 import { inviteSheetError } from '@/features/households/invite-sheet';
 import { promptHouseholdName } from '@/features/households/prompt-household-name';
@@ -55,14 +58,16 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`). Under
  * Members, the Invited section (design S4) lists the household's open invites, loaded with the
  * members; it's hidden when there are none or they can't be fetched (offline). Tapping one offers
- * Send again (email invites) and Cancel invite. Owners tap another member's row to remove them;
- * everyone can Leave household (the bottom row), after a confirm worded for their case. Leaving
+ * Send again (email invites) and Cancel invite. Owners tap another member's row to make them an
+ * owner (or, for another owner, a member again) or remove them, and their own row to step down
+ * while another owner remains (`memberActionsSheet`); a role change reloads the members, and
+ * stepping down hides the owner-only controls at once. Everyone can Leave household (the bottom row), after a confirm worded for their case. Leaving
  * pulls, which drops the household from this device (and brings down the new personal household,
  * if the server made one), then goes back to Settings. The list screen is a root-stack screen above
  * the tabs, so no list of this household can be open under this one. Owners get a pencil beside
  * the name that asks for a new one (`rename_household`); the local row and the list snapshot take
  * it at once, and other members' devices get it on their next sync.
- * TODO(M7): make owner and delete household.
+ * TODO(M7): delete household.
  */
 export default function HouseholdScreen() {
   const { colors, aisles, spacing, sizes } = useTheme();
@@ -177,17 +182,57 @@ export default function HouseholdScreen() {
     }
   };
 
+  const changeRole = async (member: HouseholdMember, change: RoleChange) => {
+    setBusyMember(member.userId);
+    try {
+      const role = roleAfter(change);
+      await setMemberRole(id, member.userId, role);
+      // Show the new role at once (stepping down hides the owner-only controls), then reload.
+      setState((prev) =>
+        prev.status === 'ready'
+          ? { status: 'ready', members: prev.members.map((m) => (m.userId === member.userId ? { ...m, role } : m)) }
+          : prev,
+      );
+      load();
+    } catch (err) {
+      console.warn(`[households] couldn't change the role of ${member.userId} in ${id}`, err);
+      const alert = householdActionAlert(change, err, { householdName, memberName: member.displayName });
+      Alert.alert(alert.title, alert.message);
+    } finally {
+      setBusyMember(null);
+    }
+  };
+
   const memberMenu = (member: HouseholdMember) => {
     if (busyMember || leaving) return;
-    const sheet = removeMemberSheet(householdName);
+    const sheet = memberActionsSheet(member, members, householdName);
+    if (!sheet) return;
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: member.displayName, ...sheet },
+      {
+        title: member.displayName,
+        options: sheet.options,
+        destructiveButtonIndex: sheet.destructiveButtonIndex,
+        cancelButtonIndex: sheet.cancelButtonIndex,
+      },
       (index) => {
-        if (index !== sheet.destructiveButtonIndex) return;
-        const confirm = removeMemberConfirmation(member.displayName, householdName);
+        const action = sheet.actions[index];
+        if (!action) return;
+        if (action === 'remove') {
+          const confirm = removeMemberConfirmation(member.displayName, householdName);
+          Alert.alert(confirm.title, confirm.message, [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Remove', style: 'destructive', onPress: () => void remove(member) },
+          ]);
+          return;
+        }
+        const confirm = roleChangeConfirmation(action, member.displayName);
         Alert.alert(confirm.title, confirm.message, [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Remove', style: 'destructive', onPress: () => void remove(member) },
+          {
+            text: confirm.confirmLabel,
+            style: confirm.destructive ? 'destructive' : 'default',
+            onPress: () => void changeRole(member, action),
+          },
         ]);
       },
     );
@@ -291,14 +336,14 @@ export default function HouseholdScreen() {
           </View>
         ) : (
           state.members.map((m, i) => {
-            const actionable = isOwner && !m.isYou;
+            const sheet = memberActionsSheet(m, state.members, householdName);
             return (
               <SettingsRow
                 key={m.userId}
                 label={memberLabel(m)}
                 value={m.role === 'owner' ? undefined : roleLabel(m.role)}
-                accessibilityLabel={actionable ? `${memberLabel(m)}, ${roleLabel(m.role)}` : undefined}
-                accessibilityHint={actionable ? MEMBER_ACTIONS_HINT : undefined}
+                accessibilityLabel={sheet ? `${memberLabel(m)}, ${roleLabel(m.role)}` : undefined}
+                accessibilityHint={sheet?.hint}
                 trailing={
                   busyMember === m.userId ? (
                     <ActivityIndicator color={colors.inkSecondary} />
@@ -308,7 +353,7 @@ export default function HouseholdScreen() {
                 }
                 chevron={false}
                 last={i === state.members.length - 1}
-                onPress={actionable ? () => memberMenu(m) : undefined}
+                onPress={sheet ? () => memberMenu(m) : undefined}
               />
             );
           })

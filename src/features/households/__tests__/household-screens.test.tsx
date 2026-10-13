@@ -13,7 +13,7 @@ import HouseholdInviteSheet from '@/app/household-invite';
 import JoinHouseholdScreen from '@/app/invite/[token]';
 import HouseholdScreen from '@/app/(tabs)/settings/households/[id]';
 
-import type { HouseholdMember } from '../households';
+import { HouseholdActionError, type HouseholdMember } from '../households';
 import { InviteRow } from '../invite-row';
 import { InviteError, type AcceptedInvite, type HouseholdInvite, type InvitePreview, type MyInvite } from '../invites';
 
@@ -57,12 +57,14 @@ const mockFetchMembers = jest.fn<Fn<[string, string], Promise<HouseholdMember[]>
 const mockLeave = jest.fn<Fn<[string], Promise<unknown>>>();
 const mockRemoveMember = jest.fn<Fn<[string, string], Promise<void>>>();
 const mockRename = jest.fn<Fn<[string, string, (string | null)?], Promise<void>>>();
+const mockSetRole = jest.fn<Fn<[string, string, string], Promise<void>>>();
 jest.mock('@/features/households/households', () => ({
   ...(jest.requireActual('@/features/households/households') as object),
   fetchHouseholdMembers: (...args: [string, string]) => mockFetchMembers(...args),
   leaveHousehold: (id: string) => mockLeave(id),
   removeMember: (...args: [string, string]) => mockRemoveMember(...args),
   renameHousehold: (...args: [string, string, (string | null)?]) => mockRename(...args),
+  setMemberRole: (...args: [string, string, string]) => mockSetRole(...args),
 }));
 const mockPushNow = jest.fn<Fn<[unknown], Promise<unknown>>>();
 jest.mock('@/sync/push', () => ({ pushNow: (options: unknown) => mockPushNow(options) }));
@@ -146,6 +148,7 @@ beforeEach(() => {
     mockLeave,
     mockRemoveMember,
     mockRename,
+    mockSetRole,
     mockPushNow,
     mockPullNow,
     mockSmsAvailable,
@@ -397,14 +400,14 @@ describe('HouseholdScreen', () => {
       const root = await render(<HouseholdScreen />);
       expect(byLabel(root, 'John (You)').props.onPress).toBeUndefined();
       const sam = byLabel(root, 'Sam');
-      expect(sam.props.accessibilityHint).toBe('Shows the option to remove this member.');
+      expect(sam.props.accessibilityHint).toBe('Make owner or remove.');
       await pressAsync(sam);
       const [options, callback] = sheet.mock.calls[0];
-      expect(options).toMatchObject({ title: 'Sam', options: ['Remove from Smith home', 'Cancel'] });
+      expect(options).toMatchObject({ title: 'Sam', options: ['Make owner', 'Remove from Smith home', 'Cancel'] });
       // Cancel does nothing.
-      act(() => callback(1));
+      act(() => callback(2));
       expect(alert).not.toHaveBeenCalled();
-      act(() => callback(0));
+      act(() => callback(1));
       const [title, message, buttons] = alert.mock.calls[0];
       expect([title, message]).toEqual(['Remove Sam?', "They'll lose access to Smith home's lists and recipes."]);
       await act(async () => (buttons as AlertButton[]).find((b) => b.text === 'Remove')!.onPress!());
@@ -419,10 +422,157 @@ describe('HouseholdScreen', () => {
       const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       const root = await render(<HouseholdScreen />);
       await pressAsync(byLabel(root, 'Sam'));
-      act(() => sheet.mock.calls[0][1](0));
+      act(() => sheet.mock.calls[0][1](1));
       await act(async () => (alert.mock.calls[0][2] as AlertButton[])[1].onPress!());
       expect(alert).toHaveBeenCalledTimes(2);
       expect(texts(root)).toContain('Sam');
+    });
+
+    describe('roles', () => {
+      const ANN = member({ userId: 'ann', displayName: 'Ann', role: 'owner', joinedAt: '2025-06-01T00:00:00Z' });
+      const sheetSpy = () => jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+      const alertSpy = () => jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const confirmButton = (alert: ReturnType<typeof alertSpy>, call: number, text: string) =>
+        (alert.mock.calls[call][2] as AlertButton[]).find((b) => b.text === text)!;
+
+      test('Make owner confirms, calls set_member_role and reloads with the new badge', async () => {
+        mockFetchMembers
+          .mockResolvedValueOnce([ME_OWNER, SAM])
+          .mockResolvedValueOnce([ME_OWNER, { ...SAM, role: 'owner' }]);
+        mockSetRole.mockResolvedValue();
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Invite someone', 'Leave household']);
+        await pressAsync(byLabel(root, 'Sam'));
+        expect(sheet.mock.calls[0][0]).toEqual({
+          title: 'Sam',
+          options: ['Make owner', 'Remove from Smith home', 'Cancel'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 2,
+        });
+        act(() => sheet.mock.calls[0][1](0));
+        const [title, message, buttons] = alert.mock.calls[0];
+        expect([title, message]).toEqual(['Make Sam an owner?', 'Owners can rename the household, remove members and delete it.']);
+        expect((buttons as AlertButton[]).map((b) => [b.text, b.style])).toEqual([
+          ['Cancel', 'cancel'],
+          ['Make owner', 'default'],
+        ]);
+        await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
+        expect(mockSetRole).toHaveBeenCalledWith(HOME, 'sam', 'owner');
+        expect(mockFetchMembers).toHaveBeenCalledTimes(2);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Invite someone', 'Leave household']);
+        // Sam is now another owner: the sheet offers Remove as owner.
+        expect(byLabel(root, 'Sam').props.accessibilityHint).toBe('Remove as owner or remove.');
+        expect(alert).toHaveBeenCalledTimes(1);
+      });
+
+      test('Cancel on the confirm changes nothing', async () => {
+        mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        await pressAsync(byLabel(root, 'Sam'));
+        act(() => sheet.mock.calls[0][1](0));
+        expect(confirmButton(alert, 0, 'Cancel').onPress).toBeUndefined();
+        expect(mockSetRole).not.toHaveBeenCalled();
+      });
+
+      test('Remove as owner on another owner makes them a member', async () => {
+        mockFetchMembers.mockResolvedValueOnce([ME_OWNER, ANN, SAM]).mockResolvedValueOnce([ME_OWNER, { ...ANN, role: 'member' }, SAM]);
+        mockSetRole.mockResolvedValue();
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        await pressAsync(byLabel(root, 'Ann'));
+        expect(sheet.mock.calls[0][0]).toMatchObject({ title: 'Ann', options: ['Remove as owner', 'Remove from Smith home', 'Cancel'] });
+        act(() => sheet.mock.calls[0][1](0));
+        expect(alert.mock.calls[0].slice(0, 2)).toEqual(['Remove Ann as owner?', "They'll stay a member."]);
+        expect(confirmButton(alert, 0, 'Remove as owner').style).toBe('destructive');
+        await act(async () => confirmButton(alert, 0, 'Remove as owner').onPress!());
+        expect(mockSetRole).toHaveBeenCalledWith(HOME, 'ann', 'member');
+        expect(byLabel(root, 'Ann').props.accessibilityHint).toBe('Make owner or remove.');
+      });
+
+      test('your own row: Step down with a second owner, which hides the owner controls at once', async () => {
+        const reload = deferred<HouseholdMember[]>();
+        mockFetchMembers.mockResolvedValueOnce([ME_OWNER, ANN, SAM]).mockReturnValueOnce(reload.promise);
+        mockSetRole.mockResolvedValue();
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        expect(hasA11y(root, 'Rename household')).toBe(true);
+        const me = byLabel(root, 'John (You)');
+        expect(me.props.accessibilityHint).toBe('Step down as owner.');
+        await pressAsync(me);
+        expect(sheet.mock.calls[0][0]).toEqual({
+          title: 'John',
+          options: ['Step down as owner', 'Cancel'],
+          destructiveButtonIndex: undefined,
+          cancelButtonIndex: 1,
+        });
+        // Cancel in the sheet does nothing.
+        act(() => sheet.mock.calls[0][1](1));
+        expect(alert).not.toHaveBeenCalled();
+        act(() => sheet.mock.calls[0][1](0));
+        expect(alert.mock.calls[0].slice(0, 2)).toEqual([
+          'Step down as owner?',
+          "You'll stay a member. Only owners can rename, remove members or delete the household.",
+        ]);
+        await act(async () => confirmButton(alert, 0, 'Step down').onPress!());
+        expect(mockSetRole).toHaveBeenCalledWith(HOME, USER, 'member');
+        // Before the reload answers: no pencil, and no member rows to tap.
+        expect(hasA11y(root, 'Rename household')).toBe(false);
+        for (const label of ['John (You)', 'Ann', 'Sam']) expect(byLabel(root, label).props.onPress).toBeUndefined();
+        await act(async () => reload.resolve([ANN, { ...ME_OWNER, role: 'member' }, SAM]));
+        expect(hasA11y(root, 'Rename household')).toBe(false);
+        expect(byLabel(root, 'John (You)').props.onPress).toBeUndefined();
+      });
+
+      test("your own row isn't actionable when you're the only owner", async () => {
+        mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+        const root = await render(<HouseholdScreen />);
+        const me = byLabel(root, 'John (You)');
+        expect(me.props.onPress).toBeUndefined();
+        expect(me.props.accessibilityHint).toBeUndefined();
+      });
+
+      test("last owner from the server says the household needs one, and changes nothing", async () => {
+        mockFetchMembers.mockResolvedValue([ME_OWNER, ANN]);
+        mockSetRole.mockRejectedValue(new HouseholdActionError('last-owner', 'last owner'));
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        await pressAsync(byLabel(root, 'John (You)'));
+        act(() => sheet.mock.calls[0][1](0));
+        await act(async () => confirmButton(alert, 0, 'Step down').onPress!());
+        expect(alert.mock.calls[1].slice(0, 2)).toEqual(["Couldn't step down as owner", 'Smith home needs at least one owner.']);
+        expect(mockFetchMembers).toHaveBeenCalledTimes(1);
+        expect(hasA11y(root, 'Rename household')).toBe(true);
+        expect(texts(root)).toEqual(expect.arrayContaining(['John (You)', 'Owner', 'Ann']));
+      });
+
+      test("offline says so and changes nothing", async () => {
+        mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+        mockSetRole.mockRejectedValue(new HouseholdActionError('offline', 'offline'));
+        const sheet = sheetSpy();
+        const alert = alertSpy();
+        const root = await render(<HouseholdScreen />);
+        await pressAsync(byLabel(root, 'Sam'));
+        act(() => sheet.mock.calls[0][1](0));
+        await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
+        expect(alert.mock.calls[1].slice(0, 2)).toEqual(["You're offline", 'Connect to the internet and try again.']);
+        expect(texts(root)).toEqual(expect.arrayContaining(['Sam', 'Member']));
+      });
+
+      test('a non-owner sees no member menus, even with several owners', async () => {
+        mockFetchMembers.mockResolvedValue([ANN, member({ userId: 'bo', displayName: 'Bo', role: 'owner' }), member({ userId: USER, displayName: 'John', isYou: true }), SAM]);
+        const root = await render(<HouseholdScreen />);
+        for (const label of ['Ann', 'Bo', 'John (You)', 'Sam']) {
+          expect(byLabel(root, label).props.onPress).toBeUndefined();
+          expect(byLabel(root, label).props.accessibilityHint).toBeUndefined();
+        }
+      });
     });
 
     test("a member can't act on other members", async () => {

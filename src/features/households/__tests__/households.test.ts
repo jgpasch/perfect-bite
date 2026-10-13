@@ -16,13 +16,17 @@ import {
   householdsWithCountsQuery,
   leaveConfirmation,
   leaveHousehold,
+  memberActionsSheet,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
   removeMember,
   removeMemberConfirmation,
   removeMemberSheet,
   renameHousehold,
+  roleAfter,
+  roleChangeConfirmation,
   roleLabel,
+  setMemberRole,
   toHouseholdActionError,
   type HouseholdMember,
 } from '../households';
@@ -402,6 +406,161 @@ describe('remove member texts', () => {
       title: 'Remove this member?',
       message: "They'll lose access to this household's lists and recipes.",
     });
+  });
+});
+
+describe('member action sheets (spec 4.7)', () => {
+  const m = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId'>): HouseholdMember => ({
+    displayName: over.userId,
+    avatarUrl: null,
+    role: 'member',
+    joinedAt: '2026-01-01T00:00:00Z',
+    isYou: false,
+    ...over,
+  });
+  const meOwner = m({ userId: 'me', role: 'owner', isYou: true });
+  const meMember = m({ userId: 'me', isYou: true });
+  const sam = m({ userId: 'sam' });
+  const ann = m({ userId: 'ann', role: 'owner' });
+
+  test("an owner on a member's row: Make owner, Remove, Cancel", () => {
+    expect(memberActionsSheet(sam, [meOwner, sam], 'Cabin')).toEqual({
+      options: ['Make owner', 'Remove from Cabin', 'Cancel'],
+      actions: ['make-owner', 'remove'],
+      destructiveButtonIndex: 1,
+      cancelButtonIndex: 2,
+      hint: 'Make owner or remove.',
+    });
+  });
+
+  test("an owner on another owner's row: Remove as owner, Remove, Cancel", () => {
+    expect(memberActionsSheet(ann, [meOwner, ann, sam], ' ')).toEqual({
+      options: ['Remove as owner', 'Remove from this household', 'Cancel'],
+      actions: ['remove-owner', 'remove'],
+      destructiveButtonIndex: 1,
+      cancelButtonIndex: 2,
+      hint: 'Remove as owner or remove.',
+    });
+  });
+
+  test('your own row with a second owner: Step down, Cancel', () => {
+    expect(memberActionsSheet(meOwner, [meOwner, ann, sam], 'Cabin')).toEqual({
+      options: ['Step down as owner', 'Cancel'],
+      actions: ['step-down'],
+      cancelButtonIndex: 1,
+      hint: 'Step down as owner.',
+    });
+  });
+
+  test("your own row as the only owner: no sheet, even with other members", () => {
+    expect(memberActionsSheet(meOwner, [meOwner, sam], 'Cabin')).toBeNull();
+    expect(memberActionsSheet(meOwner, [meOwner], 'Cabin')).toBeNull();
+  });
+
+  test('a non-owner sees no sheet on any row', () => {
+    const members = [ann, meMember, sam];
+    for (const target of members) expect(memberActionsSheet(target, members, 'Cabin')).toBeNull();
+  });
+
+  test('no members loaded: no sheet', () => {
+    expect(memberActionsSheet(sam, [], 'Cabin')).toBeNull();
+  });
+
+  test('each confirmation', () => {
+    expect(roleChangeConfirmation('make-owner', 'Sam')).toEqual({
+      title: 'Make Sam an owner?',
+      message: 'Owners can rename the household, remove members and delete it.',
+      confirmLabel: 'Make owner',
+      destructive: false,
+    });
+    expect(roleChangeConfirmation('remove-owner', 'Ann')).toEqual({
+      title: 'Remove Ann as owner?',
+      message: "They'll stay a member.",
+      confirmLabel: 'Remove as owner',
+      destructive: true,
+    });
+    expect(roleChangeConfirmation('step-down', 'John')).toEqual({
+      title: 'Step down as owner?',
+      message: "You'll stay a member. Only owners can rename, remove members or delete the household.",
+      confirmLabel: 'Step down',
+      destructive: true,
+    });
+    expect(roleChangeConfirmation('make-owner', '  ').title).toBe('Make this member an owner?');
+  });
+
+  test('roleAfter', () => {
+    expect(roleAfter('make-owner')).toBe('owner');
+    expect(roleAfter('remove-owner')).toBe('member');
+    expect(roleAfter('step-down')).toBe('member');
+  });
+});
+
+describe('role change alerts', () => {
+  const names = { householdName: 'Cabin', memberName: 'Sam' };
+
+  test('last owner says the household needs one', () => {
+    expect(toHouseholdActionError({ message: 'last owner', code: 'P0001' }).kind).toBe('last-owner');
+    expect(householdActionAlert('step-down', { message: 'last owner' }, names)).toEqual({
+      title: "Couldn't step down as owner",
+      message: 'Cabin needs at least one owner.',
+    });
+    expect(householdActionAlert('remove-owner', { message: 'last owner' }, { memberName: 'Ann' })).toEqual({
+      title: "Couldn't remove Ann as owner",
+      message: 'This household needs at least one owner.',
+    });
+  });
+
+  test('titles and messages per kind', () => {
+    expect(householdActionAlert('make-owner', { message: 'boom' }, names)).toEqual({
+      title: "Couldn't make Sam an owner",
+      message: 'Something went wrong. Try again.',
+    });
+    expect(householdActionAlert('make-owner', { message: 'not a member' }, names).message).toBe("They're no longer in Cabin.");
+    expect(householdActionAlert('step-down', { message: 'not a member' }, names).message).toBe("You're no longer in Cabin.");
+    expect(householdActionAlert('make-owner', { message: 'not an owner' }, names).message).toBe(
+      'Only owners can change who is an owner.',
+    );
+    expect(householdActionAlert('make-owner', { message: 'invalid role' }, names).message).toBe('Something went wrong. Try again.');
+    expect(householdActionAlert('remove-owner', new HouseholdActionError('offline', ''), names)).toEqual({
+      title: "You're offline",
+      message: 'Connect to the internet and try again.',
+    });
+  });
+});
+
+describe('setMemberRole', () => {
+  test('calls set_member_role with the household, user and role, and does not pull', async () => {
+    respondToRpc('set_member_role', { data: null });
+    await expect(setMemberRole('h1', 'u2', 'owner')).resolves.toBeUndefined();
+    await setMemberRole('h1', 'u1', 'member');
+    expect(rpcCalls).toEqual([
+      { fn: 'set_member_role', args: { p_household_id: 'h1', p_user_id: 'u2', p_role: 'owner' } },
+      { fn: 'set_member_role', args: { p_household_id: 'h1', p_user_id: 'u1', p_role: 'member' } },
+    ]);
+    expect(mockPull.calls).toEqual([]);
+  });
+
+  test('last owner is thrown typed', async () => {
+    respondToRpc('set_member_role', { error: { message: 'last owner', code: 'P0001' } });
+    const result = setMemberRole('h1', 'u1', 'member');
+    await expect(result).rejects.toBeInstanceOf(HouseholdActionError);
+    await expect(result).rejects.toMatchObject({ kind: 'last-owner' });
+  });
+
+  test('not an owner is thrown typed', async () => {
+    respondToRpc('set_member_role', { error: { message: 'not an owner', code: '42501' } });
+    await expect(setMemberRole('h1', 'u2', 'owner')).rejects.toMatchObject({ kind: 'not-owner' });
+  });
+
+  test('offline: says so without asking the server', async () => {
+    mockNetwork.state = { isConnected: false, isInternetReachable: false };
+    await expect(setMemberRole('h1', 'u2', 'owner')).rejects.toMatchObject({ kind: 'offline' });
+    expect(rpcCalls).toEqual([]);
+  });
+
+  test('a rejected call maps to offline', async () => {
+    supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
+    await expect(setMemberRole('h1', 'u2', 'owner')).rejects.toMatchObject({ kind: 'offline' });
   });
 });
 

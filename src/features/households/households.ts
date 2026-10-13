@@ -1,7 +1,8 @@
 // Households (spec 4.7, 5). A household is created locally (ensureStarterData) through the outbox,
 // and the push sends it to the server with `create_household` (src/sync/push.ts). Members are
-// fetched online for the Households screen, which also leaves a household and removes members
-// through the server (`leave_household`, `remove_member`, `rename_household`).
+// fetched online for the Households screen, which also leaves a household, removes members and
+// changes roles through the server (`leave_household`, `remove_member`, `rename_household`,
+// `set_member_role`).
 import { asc, eq, sql } from 'drizzle-orm';
 import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
@@ -109,9 +110,19 @@ export function roleLabel(role: HouseholdMember['role']): string {
 
 // --- Leaving and removal (spec 4.7) ---------------------------------------------------------
 
-export type HouseholdActionErrorKind = 'offline' | 'not-member' | 'not-owner' | 'blank' | 'too-long' | 'failed';
+export type HouseholdActionErrorKind =
+  | 'offline'
+  | 'not-member'
+  | 'not-owner'
+  | 'last-owner'
+  | 'blank'
+  | 'too-long'
+  | 'failed';
 
-/** A failed `leave_household`, `remove_member` or `rename_household`, with what went wrong for the alert. */
+/**
+ * A failed `leave_household`, `remove_member`, `rename_household` or `set_member_role`, with what
+ * went wrong for the alert.
+ */
 export class HouseholdActionError extends Error {
   constructor(
     readonly kind: HouseholdActionErrorKind,
@@ -129,6 +140,7 @@ export function toHouseholdActionError(error: unknown): HouseholdActionError {
   const message = typeof raw === 'string' ? raw : '';
   if (message.includes('not an owner')) return new HouseholdActionError('not-owner', message);
   if (message.includes('not a member')) return new HouseholdActionError('not-member', message);
+  if (message.includes('last owner')) return new HouseholdActionError('last-owner', message);
   if (message.includes('household name cannot be blank')) return new HouseholdActionError('blank', message);
   if (message.includes('household name is too long')) return new HouseholdActionError('too-long', message);
   if (/network request failed|failed to fetch|network error/i.test(message)) {
@@ -137,29 +149,44 @@ export function toHouseholdActionError(error: unknown): HouseholdActionError {
   return new HouseholdActionError('failed', message || 'Request failed');
 }
 
-/** The alert for a failed leave, removal or rename. Nothing changed, so it only says why. */
+/** A role change from a member row's action sheet (4.7). */
+export type RoleChange = 'make-owner' | 'remove-owner' | 'step-down';
+
+/** The alert for a failed leave, removal, rename or role change. Nothing changed, so it only says why. */
 export function householdActionAlert(
-  action: 'leave' | 'remove' | 'rename',
+  action: 'leave' | 'remove' | 'rename' | RoleChange,
   error: unknown,
   names: { householdName?: string | null; memberName?: string | null } = {},
 ): { title: string; message: string } {
   const { kind } = toHouseholdActionError(error);
   const household = names.householdName?.trim() || 'this household';
+  const memberName = names.memberName?.trim() || 'them';
   if (kind === 'offline') return { title: "You're offline", message: 'Connect to the internet and try again.' };
-  const title =
-    action === 'leave'
-      ? `Couldn't leave ${household}`
-      : action === 'rename'
-        ? `Couldn't rename ${household}`
-        : `Couldn't remove ${names.memberName?.trim() || 'them'}`;
+  const titles: Record<typeof action, string> = {
+    leave: `Couldn't leave ${household}`,
+    rename: `Couldn't rename ${household}`,
+    remove: `Couldn't remove ${memberName}`,
+    'make-owner': `Couldn't make ${memberName} an owner`,
+    'remove-owner': `Couldn't remove ${memberName} as owner`,
+    'step-down': "Couldn't step down as owner",
+  };
+  const title = titles[action];
+  const aboutThem = action === 'remove' || action === 'make-owner' || action === 'remove-owner';
   switch (kind) {
     case 'not-member':
+      return { title, message: aboutThem ? `They're no longer in ${household}.` : `You're no longer in ${household}.` };
+    case 'not-owner':
       return {
         title,
-        message: action === 'remove' ? `They're no longer in ${household}.` : `You're no longer in ${household}.`,
+        message:
+          action === 'rename'
+            ? 'Only owners can rename a household.'
+            : action === 'remove'
+              ? 'Only owners can remove members.'
+              : 'Only owners can change who is an owner.',
       };
-    case 'not-owner':
-      return { title, message: action === 'rename' ? 'Only owners can rename a household.' : 'Only owners can remove members.' };
+    case 'last-owner':
+      return { title, message: `${names.householdName?.trim() || 'This household'} needs at least one owner.` };
     case 'blank':
       return { title, message: 'Enter a name.' };
     case 'too-long':
@@ -214,6 +241,17 @@ export async function leaveHousehold(householdId: string): Promise<LeaveOutcome>
 export async function removeMember(householdId: string, userId: string): Promise<void> {
   await assertOnline();
   await callRpc('remove_member', { p_household_id: householdId, p_user_id: userId });
+}
+
+/**
+ * Makes a member an owner, or an owner a member again (`set_member_role`, owners only; yourself
+ * included while another owner remains). The caller reloads the members. Throws a
+ * `HouseholdActionError` (offline before asking the server; `last-owner` when the household would
+ * be left with none, e.g. two owners stepping each other down at once).
+ */
+export async function setMemberRole(householdId: string, userId: string, role: HouseholdMember['role']): Promise<void> {
+  await assertOnline();
+  await callRpc('set_member_role', { p_household_id: householdId, p_user_id: userId, p_role: role });
 }
 
 /** The longest household name `rename_household` accepts, in characters. */
@@ -314,7 +352,76 @@ export function removeMemberConfirmation(memberName: string, householdName: stri
   };
 }
 
-/** VoiceOver hints for the rows that act (4.7). */
+export type MemberAction = RoleChange | 'remove';
+
+export type MemberActionsSheet = {
+  options: string[];
+  /** What each option does, by index; Cancel has none. */
+  actions: MemberAction[];
+  destructiveButtonIndex?: number;
+  cancelButtonIndex: number;
+  /** The row's VoiceOver hint: what tapping it offers. */
+  hint: string;
+};
+
+/**
+ * The action sheet a member row opens (4.7), or null when tapping it does nothing. Only owners get
+ * one. Another member's row: Make owner (Remove as owner, for another owner), then Remove from
+ * <household>, then Cancel. Your own row: Step down as owner while another owner remains, and
+ * nothing otherwise (a household always has an owner).
+ */
+export function memberActionsSheet(
+  member: HouseholdMember,
+  members: HouseholdMember[],
+  householdName: string,
+): MemberActionsSheet | null {
+  if (!members.some((m) => m.isYou && m.role === 'owner')) return null;
+  if (member.isYou) {
+    if (!members.some((m) => !m.isYou && m.role === 'owner')) return null;
+    return { options: ['Step down as owner', 'Cancel'], actions: ['step-down'], cancelButtonIndex: 1, hint: 'Step down as owner.' };
+  }
+  const remove = removeMemberSheet(householdName);
+  const owner = member.role === 'owner';
+  return {
+    options: [owner ? 'Remove as owner' : 'Make owner', ...remove.options],
+    actions: [owner ? 'remove-owner' : 'make-owner', 'remove'],
+    destructiveButtonIndex: remove.destructiveButtonIndex + 1,
+    cancelButtonIndex: remove.cancelButtonIndex + 1,
+    hint: owner ? 'Remove as owner or remove.' : 'Make owner or remove.',
+  };
+}
+
+/** The confirm after choosing a role change on a member's row (4.7). */
+export function roleChangeConfirmation(
+  change: RoleChange,
+  memberName: string,
+): { title: string; message: string; confirmLabel: string; destructive: boolean } {
+  const name = memberName.trim() || 'this member';
+  switch (change) {
+    case 'make-owner':
+      return {
+        title: `Make ${name} an owner?`,
+        message: 'Owners can rename the household, remove members and delete it.',
+        confirmLabel: 'Make owner',
+        destructive: false,
+      };
+    case 'remove-owner':
+      return { title: `Remove ${name} as owner?`, message: "They'll stay a member.", confirmLabel: 'Remove as owner', destructive: true };
+    case 'step-down':
+      return {
+        title: 'Step down as owner?',
+        message: "You'll stay a member. Only owners can rename, remove members or delete the household.",
+        confirmLabel: 'Step down',
+        destructive: true,
+      };
+  }
+}
+
+/** The role someone has after a role change. */
+export function roleAfter(change: RoleChange): HouseholdMember['role'] {
+  return change === 'make-owner' ? 'owner' : 'member';
+}
+
+/** VoiceOver hints for the rows that act (4.7); a member row's comes from `memberActionsSheet`. */
 export const LEAVE_HINT = 'Asks to confirm, then leaves this household.';
-export const MEMBER_ACTIONS_HINT = 'Shows the option to remove this member.';
 export const RENAME_HINT = 'Asks for a new name.';
