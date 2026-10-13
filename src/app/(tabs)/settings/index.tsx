@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
 import { avatarColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -14,6 +14,17 @@ import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { signOut, useAccountState } from '@/features/auth/account';
+import {
+  DELETE_ACCOUNT_FAILED,
+  DELETE_ACCOUNT_OFFLINE,
+  DELETE_ACCOUNT_SECOND_CONFIRM,
+  DELETING_ACCOUNT,
+  DeleteAccountError,
+  deleteAccount,
+  deleteAccountConfirmation,
+  householdsForDeletion,
+  isOffline,
+} from '@/features/auth/delete-account';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
@@ -22,7 +33,7 @@ import { getAisleColorStyle, setKeepScreenOn } from '@/features/settings/device-
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 
-/** Settings (board 10): the account card, Shopping and Households cards, then Sign out and the version. */
+/** Settings (board 10): the account card, Shopping and Households cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
   const account = useAccountState();
@@ -42,6 +53,7 @@ export default function SettingsScreen() {
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
+  const [deleting, setDeleting] = useState(false);
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -142,25 +154,90 @@ export default function SettingsScreen() {
           </SettingsSection>
         ) : null}
 
-        <View style={[styles.row, styles.between, { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl }]}>
+        <View style={[styles.start, { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl, gap: spacing.sm }]}>
           <Button
             label="Sign out"
             variant="plain"
             color="danger"
             onPress={() => signOut().catch((err) => console.warn('[settings] sign out failed', err))}
           />
+          <Button
+            label="Delete account"
+            variant="plain"
+            color="danger"
+            accessibilityHint="Deletes your account and data. Asks you first."
+            disabled={deleting}
+            onPress={() => {
+              if (userId) void confirmDeleteAccount(userId, () => setDeleting(true), () => setDeleting(false));
+            }}
+          />
           <ThemedText variant="footnote" color="inkSecondary">
             Version {version}
           </ThemedText>
         </View>
       </ScrollView>
+      <DeletingOverlay visible={deleting} />
     </Screen>
+  );
+}
+
+/**
+ * Delete account (spec 4.8): offline it only says so; online it asks twice, then deletes behind
+ * `onStart`'s overlay. Success lands on sign-in; a failure says nothing was deleted.
+ */
+async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: () => void) {
+  if (await isOffline()) {
+    Alert.alert(DELETE_ACCOUNT_OFFLINE.title, DELETE_ACCOUNT_OFFLINE.message);
+    return;
+  }
+  const first = deleteAccountConfirmation(await householdsForDeletion(userId));
+  const run = async () => {
+    onStart();
+    try {
+      await deleteAccount();
+    } catch (err) {
+      onEnd();
+      const alert =
+        err instanceof DeleteAccountError && err.kind === 'offline' ? DELETE_ACCOUNT_OFFLINE : DELETE_ACCOUNT_FAILED;
+      Alert.alert(alert.title, alert.message);
+    }
+  };
+  Alert.alert(first.title, first.message, [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Delete account',
+      style: 'destructive',
+      onPress: () =>
+        Alert.alert(DELETE_ACCOUNT_SECOND_CONFIRM.title, DELETE_ACCOUNT_SECOND_CONFIRM.message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => void run() },
+        ]),
+    },
+  ]);
+}
+
+/** Full screen while the account is deleted; it can't be dismissed. */
+function DeletingOverlay({ visible }: { visible: boolean }) {
+  const { colors, spacing } = useTheme();
+  useEffect(() => {
+    if (visible) AccessibilityInfo.announceForAccessibility('Deleting your account');
+  }, [visible]);
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={() => {}}>
+      <View
+        accessibilityViewIsModal
+        style={[styles.overlay, { backgroundColor: colors.background, gap: spacing.md, padding: spacing.xl }]}>
+        <ActivityIndicator color={colors.inkSecondary} />
+        <ThemedText variant="headline">{DELETING_ACCOUNT}</ThemedText>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  between: { justifyContent: 'space-between' },
+  start: { alignItems: 'flex-start' },
+  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   avatar: { alignItems: 'center', justifyContent: 'center' },
 });

@@ -3,7 +3,7 @@
 // read back from it.
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { ReactElement } from 'react';
-import { Switch } from 'react-native';
+import { AccessibilityInfo, Alert, Modal, Switch } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households } from '@/db';
@@ -48,6 +48,19 @@ jest.mock('@/features/auth/account', () => ({
   useAccountState: () => mockAccount.state,
   getAccount: () => (mockAccount.state.status === 'ready' ? mockAccount.state.account : null),
   signOut: () => mockSignOut(),
+}));
+
+// Delete account's server work is tested in delete-account.test.ts; here only the screen's flow.
+const mockDelete = {
+  offline: false,
+  households: null as unknown,
+  run: jest.fn<() => Promise<void>>(),
+};
+jest.mock('@/features/auth/delete-account', () => ({
+  ...jest.requireActual<object>('@/features/auth/delete-account'),
+  isOffline: async () => mockDelete.offline,
+  householdsForDeletion: async () => mockDelete.households,
+  deleteAccount: () => mockDelete.run(),
 }));
 
 const synced: SyncStatus = {
@@ -244,6 +257,100 @@ describe('Settings', () => {
     click(button(root, 'Sign out'));
     await act(async () => {});
     expect(warn).toHaveBeenCalledWith('[settings] sign out failed', expect.any(Error));
+  });
+});
+
+describe('Delete account', () => {
+  type AlertButton = { text: string; style?: string; onPress?: () => void };
+  let alert: jest.SpiedFunction<typeof Alert.alert>;
+  const alertCall = (i: number) => {
+    const [title, message, buttons] = alert.mock.calls[i] as [string, string, AlertButton[] | undefined];
+    return { title, message, buttons };
+  };
+  const press = async (i: number, text: string) => {
+    await act(async () => alertCall(i).buttons!.find((b) => b.text === text)!.onPress!());
+  };
+  const tapDelete = async (root: ReactTestRenderer) => {
+    click(button(root, 'Delete account'));
+    await act(async () => {});
+  };
+
+  beforeEach(() => {
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    mockDelete.offline = false;
+    mockDelete.households = [{ name: 'Personal', listCount: 1, recipeCount: 0, memberCount: 1 }];
+    mockDelete.run.mockReset();
+    mockDelete.run.mockImplementation(() => Promise.resolve());
+  });
+
+  it('is a danger button under Sign out, with the version under it, and a hint', () => {
+    const root = render(<SettingsScreen />);
+    const del = button(root, 'Delete account');
+    expect(del.props.accessibilityHint).toBe('Deletes your account and data. Asks you first.');
+    expect(textOf(root)).toMatch(/Sign out\s+Delete account\s+Version\s+1\.2\.3$/);
+  });
+
+  it('offline, says so and does nothing else', async () => {
+    mockDelete.offline = true;
+    await tapDelete(render(<SettingsScreen />));
+    expect(alert.mock.calls).toEqual([["You're offline", 'Connect to the internet to delete your account.']]);
+    expect(mockDelete.run).not.toHaveBeenCalled();
+  });
+
+  it('asks twice, then deletes behind the overlay', async () => {
+    const pending: { resolve?: () => void } = {};
+    mockDelete.run.mockImplementation(() => new Promise<void>((resolve) => (pending.resolve = resolve)));
+    const root = render(<SettingsScreen />);
+    await tapDelete(root);
+    expect(alertCall(0).title).toBe('Delete your account?');
+    expect(alertCall(0).message).toContain("Personal and its 1 list and 0 recipes will be deleted, because you're its only member.");
+    expect(alertCall(0).buttons!.map((b) => [b.text, b.style])).toEqual([
+      ['Cancel', 'cancel'],
+      ['Delete account', 'destructive'],
+    ]);
+    await press(0, 'Delete account');
+    expect(mockDelete.run).not.toHaveBeenCalled();
+    expect(alertCall(1).title).toBe('Are you sure?');
+    expect(alertCall(1).message).toBe('Your account will be deleted now.');
+    expect(alertCall(1).buttons!.map((b) => [b.text, b.style])).toEqual([
+      ['Cancel', 'cancel'],
+      ['Delete', 'destructive'],
+    ]);
+    await press(1, 'Delete');
+    expect(mockDelete.run).toHaveBeenCalledTimes(1);
+    expect(root.root.findByType(Modal).props.visible).toBe(true);
+    expect(textOf(root)).toContain('Deleting your account…');
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith('Deleting your account');
+    await act(async () => pending.resolve!());
+  });
+
+  it('words the confirm without household lines when members could not be fetched', async () => {
+    mockDelete.households = null;
+    await tapDelete(render(<SettingsScreen />));
+    expect(alertCall(0).message).toBe(
+      "This can't be undone. Your account, your aisle order and your settings will be deleted.",
+    );
+  });
+
+  it('a failure hides the overlay and says nothing was deleted', async () => {
+    mockDelete.run.mockImplementation(() => Promise.reject(new Error('boom')));
+    const root = render(<SettingsScreen />);
+    await tapDelete(root);
+    await press(0, 'Delete account');
+    await press(1, 'Delete');
+    expect(alertCall(2)).toEqual({
+      title: "Couldn't delete your account",
+      message: 'Nothing was deleted. Try again later.',
+      buttons: undefined,
+    });
+    expect(root.root.findByType(Modal).props.visible).toBe(false);
+  });
+
+  it('Cancel deletes nothing', async () => {
+    await tapDelete(render(<SettingsScreen />));
+    expect(alertCall(0).buttons!.find((b) => b.text === 'Cancel')!.onPress).toBeUndefined();
+    expect(mockDelete.run).not.toHaveBeenCalled();
   });
 });
 

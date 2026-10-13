@@ -107,3 +107,12 @@ export async function signOut(): Promise<void> {
   if (error) throw error;
   await signOutOfGoogle().catch(() => {});
 }
+
+/**
+ * Signs out of this device only, after the account was deleted (spec 4.8): the server session is
+ * already gone, so the server's answer is ignored and this never throws.
+ */
+export async function signOutLocally(): Promise<void> {
+  await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+  await signOutOfGoogle().catch(() => {});
+}

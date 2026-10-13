@@ -12,6 +12,30 @@ jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }) }));
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native');
+  const builder: object = new Proxy({}, { get: () => () => builder });
+  return {
+    __esModule: true,
+    default: { View },
+    FadeIn: builder,
+    FadeInDown: builder,
+    FadeOut: builder,
+    LinearTransition: builder,
+    useReducedMotion: () => false,
+  };
+});
+
+// Set by a successful Delete account; the screen takes it once.
+const mockDeleted = { notice: false };
+jest.mock('@/features/auth/delete-account', () => ({
+  ACCOUNT_DELETED_TOAST: 'Your account was deleted.',
+  takeAccountDeletedNotice: () => {
+    const notice = mockDeleted.notice;
+    mockDeleted.notice = false;
+    return notice;
+  },
+}));
 
 const mockGoogle = { configured: false };
 jest.mock('@/lib/google-sign-in', () => ({
@@ -41,6 +65,7 @@ let tree: ReactTestRenderer | null = null;
 beforeEach(() => {
   mockGoogle.configured = false;
   mockAccount.state = { status: 'signedOut' };
+  mockDeleted.notice = false;
   Object.values(mockAuth).forEach((fn) => fn.mockClear());
 });
 
@@ -133,6 +158,25 @@ describe('the sign-in screen', () => {
     await act(async () => {});
     const error = root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityLiveRegion === 'polite');
     expect(error.props.children).toBe('Network error');
+  });
+
+  it('after Delete account, says the account was deleted, once, and the toast times out', () => {
+    jest.useFakeTimers();
+    try {
+      mockDeleted.notice = true;
+      const root = render();
+      expect(textOf(root)).toContain('Your account was deleted.');
+      act(() => jest.advanceTimersByTime(10_000));
+      expect(textOf(root)).not.toContain('Your account was deleted.');
+      act(() => tree?.unmount());
+      expect(textOf(render())).not.toContain('Your account was deleted.');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows no toast on an ordinary sign-in screen', () => {
+    expect(textOf(render())).not.toContain('Your account was deleted.');
   });
 
   describe('the email code (dev builds)', () => {

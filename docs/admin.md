@@ -109,6 +109,8 @@ Save these in the SQL Editor. Always fill in the note.
 
 ### Delete a user
 
+Users can delete their own account in the app (Settings → Delete account), which runs `public.delete_account()` and records an `admin.admin_actions` row with `action = 'delete_account'` and no email or name. Use `admin.delete_user` only for a support request, e.g. someone who can no longer sign in.
+
 Leaves each of the user's households by the app's rules: a household where they're the only member is deleted with all its lists and recipes; where they're the last owner, the member who joined earliest becomes the owner; otherwise they just leave and the household keeps its data. Then it deletes the account, with their profile, settings and aisle order. Items, check-offs and invites they made in shared households stay, with no name on them. It returns what happened to each household and records it in `admin.admin_actions`.
 
 ```sql

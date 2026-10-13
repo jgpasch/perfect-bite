@@ -1,12 +1,13 @@
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { signInColors } from '@/components/appearance';
 import { Button, SurfaceButton } from '@/components/button';
 import { TextField } from '@/components/text-field';
+import { Toast } from '@/components/toast';
 import { ThemedText } from '@/components/themed-text';
 import {
   devPasswordSignIn,
@@ -16,6 +17,7 @@ import {
   useAccountState,
   verifyEmailCode,
 } from '@/features/auth/account';
+import { ACCOUNT_DELETED_TOAST, takeAccountDeletedNotice } from '@/features/auth/delete-account';
 import { signInHeroSize, signInOverflows } from '@/features/auth/sign-in-layout';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { isGoogleConfigured } from '@/lib/google-sign-in';
@@ -38,6 +40,9 @@ export default function SignInScreen() {
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Arriving here from Delete account (spec 4.8): say it worked, once.
+  const [deletedNotice, setDeletedNotice] = useState(takeAccountDeletedNotice);
+  const dismissNotice = useCallback(() => setDeletedNotice(false), []);
 
   const scrollRef = useRef<ScrollView>(null);
   const [frameHeight, setFrameHeight] = useState(0);
@@ -179,6 +184,11 @@ export default function SignInScreen() {
           </View>
         )}
       </ScrollView>
+      {deletedNotice ? (
+        <View style={[styles.notice, { top: insets.top + spacing.sm }]}>
+          <Toast message={ACCOUNT_DELETED_TOAST} actions={[]} onDismiss={dismissNotice} />
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -215,4 +225,5 @@ const styles = StyleSheet.create({
   grow: { flexGrow: 1 },
   centre: { alignItems: 'center', justifyContent: 'center' },
   center: { textAlign: 'center' },
+  notice: { position: 'absolute', left: 0, right: 0 },
 });
