@@ -2,6 +2,7 @@
 // add bar, view button and section header are host stand-ins, so the test reads the props the screen gives
 // them and calls their callbacks as a tap, swipe or add would.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync } from 'expo-keep-awake';
 import { ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
@@ -30,7 +31,7 @@ jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('@/components/icon-tile', () => ({ IconTile: () => null }));
-jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: { Light: 'light' } }));
+jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), selectionAsync: jest.fn(), ImpactFeedbackStyle: { Light: 'light' } }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('react-native-reanimated', () => {
@@ -468,6 +469,104 @@ describe('checking off', () => {
     expect(sections().map((s) => s.props.title)).toEqual(['Produce']);
     tapToast('Undo');
     expect(sections().map((s) => s.props.title)).toEqual(['Produce', 'Dairy & Eggs']);
+  });
+});
+
+describe('the check-off haptic (spec 4.1)', () => {
+  const tick = () => jest.mocked(Haptics.selectionAsync);
+  const impact = () => jest.mocked(Haptics.impactAsync);
+  beforeEach(() => {
+    tick().mockClear();
+    impact().mockClear();
+  });
+
+  test('checking an item (tap or swipe, both the row\'s onToggle) plays one tick and no impact', () => {
+    put('milk');
+    put('eggs');
+    render();
+    act(() => row('milk').props.onToggle());
+    expect(tick()).toHaveBeenCalledTimes(1);
+    act(() => row('eggs').props.onToggle());
+    expect(tick()).toHaveBeenCalledTimes(2);
+    expect(impact()).not.toHaveBeenCalled();
+  });
+
+  test('unchecking plays nothing, whether a lingering row or one in Checked', () => {
+    const { itemId } = put('milk')!;
+    put('eggs');
+    setItemChecked(itemId, true, USER);
+    render();
+    press(pressable('Checked, 1 item'));
+    act(() => row('milk').props.onToggle());
+    refresh();
+    expect(row('milk').props.item.checkedAt).toBeNull();
+    expect(tick()).not.toHaveBeenCalled();
+    // Checked, then taken back while it lingers: the check ticks, the take-back doesn't.
+    act(() => row('eggs').props.onToggle());
+    act(() => row('eggs').props.onToggle());
+    expect(row('eggs').props.item.checkedAt).toBeNull();
+    expect(tick()).toHaveBeenCalledTimes(1);
+  });
+
+  test('a tap in Select mode selects without a tick', () => {
+    put('milk');
+    put('eggs');
+    render();
+    act(() => row('milk').props.onSelect());
+    act(() => row('eggs').props.onToggle());
+    act(() => row('milk').props.onToggle());
+    expect(text()).toContain('1 selected');
+    expect(row('milk').props.item.checkedAt).toBeNull();
+    expect(tick()).not.toHaveBeenCalled();
+  });
+
+  test('a header swipe\'s Check all ticks once, however many items it checks; its Undo doesn\'t', () => {
+    put('milk');
+    put('eggs');
+    put('bananas');
+    render();
+    setView('category');
+    act(() => section('Dairy & Eggs').props.onSwipeCheck());
+    expect(text()).toContain('Checked 2 items');
+    expect(tick()).toHaveBeenCalledTimes(1);
+    expect(impact()).not.toHaveBeenCalled();
+    tapToast('Undo');
+    expect(tick()).toHaveBeenCalledTimes(1);
+  });
+
+  test('Check all from a recipe\'s menu: the long-press impact, then one tick', () => {
+    const recipeId = createRecipe('Tacos', getList(listId)!.householdId);
+    addRecipeIngredient(recipeId, 'tortillas');
+    addRecipeIngredient(recipeId, 'limes');
+    addWholeRecipeToList(listId, recipeId, USER);
+    jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((_options, callback) => callback(0));
+    render();
+    setView('recipe');
+    act(() => section('Tacos').props.onLongPress());
+    expect(text()).toContain('Checked 2 items');
+    expect(impact()).toHaveBeenCalledTimes(1);
+    expect(tick()).toHaveBeenCalledTimes(1);
+  });
+
+  test('Check all as an aisle header\'s VoiceOver action ticks once too', () => {
+    put('milk');
+    put('eggs');
+    render();
+    setView('category');
+    const actions = section('Dairy & Eggs').props.actions as { label: string; onPress: () => void }[];
+    act(() => actions.find((a) => a.label === 'Check all')!.onPress());
+    expect(text()).toContain('Checked 2 items');
+    expect(tick()).toHaveBeenCalledTimes(1);
+  });
+
+  test('Uncheck all plays no tick', () => {
+    const { itemId } = put('milk')!;
+    setItemChecked(itemId, true, USER);
+    render();
+    press(pressable('Uncheck all'));
+    refresh();
+    expect(rowNames()).toEqual(['milk']);
+    expect(tick()).not.toHaveBeenCalled();
   });
 });
 

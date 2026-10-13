@@ -148,7 +148,8 @@ function HeaderBody({
 
 /**
  * A header's swipes: right to check all (a `primary` panel with a check), left to remove (`danger`, a
- * trash can). A full swipe does it, with a light haptic, and the header springs back. The header
+ * trash can). A full swipe does it and the header springs back; removing plays a light haptic, and
+ * checking leaves the haptic to `onCheck` (the check-off tick, spec 4.1). The header
  * takes the card's ground (or its band) so it covers the panel.
  */
 function Swipe({
@@ -176,10 +177,11 @@ function Swipe({
       overshootRight={false}
       childrenContainerStyle={{ backgroundColor: band?.ground ?? ground ?? colors.surface }}
       onSwipeableOpen={(direction) => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         ref.current?.close();
-        if (direction === SwipeDirection.RIGHT) onCheck?.();
-        else onRemove?.();
+        // Checking plays its own tick (spec 4.1), from `onCheck`, so it isn't doubled here.
+        if (direction === SwipeDirection.RIGHT) return onCheck?.();
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onRemove?.();
       }}
       renderLeftActions={
         onCheck

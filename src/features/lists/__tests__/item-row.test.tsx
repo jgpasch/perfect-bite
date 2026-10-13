@@ -1,6 +1,7 @@
 // The list item row (spec 4.2, 4.5): tap the check to toggle, tap the row to edit, long-press to select,
 // swipe right to check and left to delete; in Select mode a tap anywhere selects.
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import * as Haptics from 'expo-haptics';
 import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -9,7 +10,7 @@ import type { ItemView } from '../items';
 
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
-jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: { Light: 'light' } }));
+jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), selectionAsync: jest.fn(), ImpactFeedbackStyle: { Light: 'light' } }));
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
   const builder: object = new Proxy({}, { get: () => () => builder });
@@ -124,6 +125,17 @@ describe('ItemRow', () => {
     act(() => swipeable(tree).props.onSwipeableOpen('left'));
     expect(h.onDelete).toHaveBeenCalledTimes(1);
     expect(h.onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  test('a tap or swipe to check plays no haptic of its own: the screen\'s onToggle plays the tick (spec 4.1)', () => {
+    jest.mocked(Haptics.selectionAsync).mockClear();
+    jest.mocked(Haptics.impactAsync).mockClear();
+    const tree = render();
+    act(() => byLabel(tree, 'Check off Limes').props.onClick());
+    act(() => swipeable(tree).props.onSwipeableOpen('right'));
+    expect(h.onToggle).toHaveBeenCalledTimes(2);
+    expect(Haptics.selectionAsync).not.toHaveBeenCalled();
+    expect(Haptics.impactAsync).not.toHaveBeenCalled();
   });
 
   test('long-press starts selecting with this item', () => {

@@ -142,6 +142,14 @@ type Block =
   | { kind: 'checked'; key: string; count: number; entries: Entry[] };
 
 /**
+ * Spec 4.1: checking off (one item, or Check all once) plays a light tick, a selection haptic rather
+ * than an impact's thud. The only place it's played, so the row, its swipe and Check all can't drift apart.
+ */
+function checkHaptic() {
+  void Haptics.selectionAsync();
+}
+
+/**
  * A list (spec 4.1), the List tab's root: the green header with the list's name, which opens the
  * Your lists sheet, then its rows and the add bar.
  */
@@ -192,6 +200,7 @@ export function ListScreen({ id }: { id: string }) {
     const checking = item.checkedAt === null;
     setItemChecked(item.id, checking, userId);
     if (!checking) return stopLingering(item.id);
+    checkHaptic();
     setLingering((prev) => new Set(prev).add(item.id));
     lingerTimers.current.set(item.id, setTimeout(() => stopLingering(item.id), CHECK_LINGER_MS));
   };
@@ -517,6 +526,7 @@ export function ListScreen({ id }: { id: string }) {
   const checkAll = (itemIds: string[]) => {
     const checked = checkItems(itemIds, userId);
     if (checked.ids.length === 0) return;
+    checkHaptic();
     setToast({
       key: `checked-${checked.checkedAt.getTime()}`,
       ...checkedAllToast(checked.ids.length),
