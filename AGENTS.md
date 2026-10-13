@@ -2,6 +2,8 @@ This is an Expo/React Native mobile application. Prioritize mobile-first pattern
 
 The product and technical spec is [`docs/spec.md`](docs/spec.md); its build order is §10. Read the relevant sections before starting a milestone.
 
+Parked and future work lives in [`future/`](future/README.md), one `<feature>-tasks.md` per feature. Ralph works only `tasks.md`.
+
 ## Supabase
 
 Local ports are 553xx, not the CLI defaults (543xx), so this project and stash can run at the same time. Migrations live in `supabase/migrations/`, pgTAP tests in `supabase/tests/` (`supabase test db`). Serve Edge Functions with `supabase functions serve --env-file supabase/functions/.env`.

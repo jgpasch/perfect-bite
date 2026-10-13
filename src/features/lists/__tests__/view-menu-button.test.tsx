@@ -19,12 +19,15 @@ jest.mock('@expo/ui/swift-ui', () => {
     Menu: ({ label, children, ...props }: { label?: unknown; children?: unknown }) =>
       createElement('SwiftMenu', props, label, children),
     RNHostView: host('RNHostView'),
+    Section: host('SwiftSection'),
+    Button: host('SwiftButton'),
     Toggle: host('SwiftToggle'),
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   accessibilityLabel: (value: string) => ({ accessibilityLabel: value }),
   accessibilityHint: (value: string) => ({ accessibilityHint: value }),
+  disabled: (value: boolean) => ({ disabled: value }),
 }));
 
 function render(value: 'newest' | 'category' | 'recipe') {
@@ -86,5 +89,25 @@ describe('ViewMenuButton', () => {
     expect(onChange).toHaveBeenCalledWith('category');
     act(() => toggles[0].props.onIsOnChange(false));
     expect(onChange).toHaveBeenLastCalledWith('newest');
+  });
+
+  test('with fold actions, Collapse all and Expand all follow the views in their own group', () => {
+    const fold = { canCollapse: true, canExpand: false, onCollapseAll: jest.fn(), onExpandAll: jest.fn() };
+    let tree!: ReactTestRenderer;
+    act(() => {
+      tree = create(<ViewMenuButton value="category" onChange={() => {}} fold={fold} />);
+    });
+    const buttons = tree.root.find((n) => n.type === ('SwiftSection' as never)).findAll((n) => n.type === ('SwiftButton' as never));
+    expect(buttons.map((b) => [b.props.label, b.props.modifiers])).toEqual([
+      ['Collapse all', [{ disabled: false }]],
+      ['Expand all', [{ disabled: true }]],
+    ]);
+    act(() => buttons[0].props.onPress());
+    expect(fold.onCollapseAll).toHaveBeenCalled();
+  });
+
+  test('without them, no second group', () => {
+    const { tree } = render('newest');
+    expect(tree.root.findAll((n) => n.type === ('SwiftSection' as never))).toHaveLength(0);
   });
 });

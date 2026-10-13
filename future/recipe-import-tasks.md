@@ -1,0 +1,10 @@
+# Recipe import: later
+
+<!-- Status: ideas, not tasks yet. -->
+
+- **Extension calls `import-recipe` itself**, using the scoped device token from `docs/spikes.md` §2 option C (built for Siri in M8). The sheet could then show the recipe name and ingredients before you tap Add, and household members would see it without the sharer opening the app (needs M5 sync, or the function writing household rows directly the way `siri-add` will). Shares the device-token work with "Siri straight to the server" in [siri-tasks.md](siri-tasks.md).
+- **Servings multiplier and per-ingredient checkboxes in the share sheet** ("I already have salt"), like Add to list (4.5).
+- **From a photo or screenshot.** Take a picture or share a screenshot; a vision model reads the recipe name and ingredients. Reuses the recipe-import pipeline (schemas, `ExtractedRecipe`, categorize-in-the-same-request, failed imports); the new parts are an image input to the share extension (activation rule for images, downscale and cap before upload) and an in-app "From photo…" using the camera/photo picker, plus an `extract-recipe-image` AI task with its own caps, rate limits and kill switch. Images are never stored after extraction.
+- **From video pages** (TikTok/Reels captions).
+- **Skip pantry staples** (water, salt, pepper) when adding to the list, perhaps as a per-household "always have" list.
+- **Send a recipe URL from a laptop or other device.** Chosen approach: the same share extension, running on Apple Silicon Macs. Spike first: confirm an iPhone-only app and its share extension install and appear in macOS Safari's share sheet ("Designed for iPhone"; or set `supportsTablet: true` for "Designed for iPad", which also means checking every screen at iPad sizes), whether the App Group queue and the extension work there, and how TestFlight distributes it to a Mac. Installing on a Mac stays optional. Alternatives if the spike fails: a household email-in address, a small signed-in web page to paste links into, or a browser extension/bookmarklet.

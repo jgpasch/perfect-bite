@@ -3,10 +3,10 @@
 // them and calls their callbacks as a tap, swipe or add would.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { StatusBar } from 'expo-status-bar';
-import { ActionSheetIOS, Alert, Share, StyleSheet, type ActionSheetIOSOptions } from 'react-native';
+import { ActionSheetIOS, Share, StyleSheet, type ActionSheetIOSOptions } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { categories, db, ingredients, lists, userSettings } from '@/db';
+import { categories, db, ingredients } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
@@ -229,6 +229,9 @@ const add = (value: string) => {
   act(() => addBar().props.onAdd(value));
   refresh();
 };
+const fold = () => all('ViewMenuButton')[0].props.fold as
+  | { canCollapse: boolean; canExpand: boolean; onCollapseAll: () => void; onExpandAll: () => void }
+  | undefined;
 const setView = (mode: string) => act(() => all('ViewMenuButton')[0].props.onChange(mode));
 
 describe('the list', () => {
@@ -756,12 +759,13 @@ describe('folding sections', () => {
     expect(rowNames()).toEqual(['milk']);
     expect(getDeviceSetting(collapsedSectionsKey(listId, 'category'), [])).toEqual([`c-${cat('produce')}`]);
 
-    press(menuAction('Collapse all'));
+    // In the view button's menu.
+    act(() => fold()!.onCollapseAll());
     expect(rows()).toHaveLength(0);
-    expect(menuAction('Collapse all').props.disabled).toBe(true);
-    press(menuAction('Expand all'));
+    expect(fold()!.canCollapse).toBe(false);
+    act(() => fold()!.onExpandAll());
     expect(rowNames()).toEqual(['bananas', 'milk']);
-    expect(menuAction('Expand all').props.disabled).toBe(true);
+    expect(fold()!.canExpand).toBe(false);
   });
 
   test('an add into a folded section opens it', () => {
@@ -775,101 +779,87 @@ describe('folding sections', () => {
 
   test('As added has no Collapse all', () => {
     render();
-    expect(all('ToolbarMenuAction').map((n) => n.props.children)).not.toContain('Collapse all');
+    expect(fold()).toBeUndefined();
   });
 });
 
 describe('the list menu', () => {
-  test('Uncheck all and Clear are disabled with nothing checked; Select items with nothing to get', () => {
+  test('Select items, Share list, then Edit list… in its own group', () => {
     render();
-    expect(menuAction('Uncheck all').props.disabled).toBe(true);
-    expect(menuAction('Clear checked items').props.disabled).toBe(true);
+    const groups = all('ToolbarMenu').filter((m) => m.props.inline);
+    expect(groups.map((g) => g.findAll((n) => n.type === ('ToolbarMenuAction' as never)).map((n) => n.props.children))).toEqual([
+      ['Select items', 'Share list'],
+      ['Edit list…'],
+    ]);
+    expect(all('ToolbarMenuAction')).toHaveLength(3);
+  });
+
+  test('Select items is disabled with nothing to get', () => {
+    render();
     expect(menuAction('Select items').props.disabled).toBe(true);
+  });
+
+  test('Share list shares what is left to get', () => {
+    put('2 milk');
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    render();
+    press(menuAction('Share list'));
+    expect(share).toHaveBeenCalledWith({ message: expect.stringContaining('2 Milk') });
+    expect(share.mock.calls[0][0]).toEqual({ message: expect.stringContaining('Groceries') });
+  });
+
+  test('Edit list… opens the Edit list sheet', () => {
+    render();
+    press(menuAction('Edit list…'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/list/[id]/edit', params: { id: listId } });
+  });
+});
+
+describe('the Checked header', () => {
+  test('reads "Checked · N" with Uncheck all and Clear', () => {
+    const a = put('milk')!;
+    const b = put('eggs')!;
+    setItemChecked(a.itemId, true, USER);
+    setItemChecked(b.itemId, true, USER);
+    render();
+    expect(lines()).toContain('Checked · 2');
+    expect(pressable('Uncheck all')).toBeDefined();
+    expect(pressable('Clear 2 checked items')).toBeDefined();
+  });
+
+  test('is not there with nothing checked', () => {
+    put('milk');
+    render();
+    expect(text()).not.toContain('Checked');
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Uncheck all')).toHaveLength(0);
   });
 
   test('Uncheck all puts every checked item back', () => {
     const a = put('milk')!;
     setItemChecked(a.itemId, true, USER);
     render();
-    press(menuAction('Uncheck all'));
+    press(pressable('Uncheck all'));
     refresh();
     expect(rowNames()).toEqual(['milk']);
+    expect(text()).not.toContain('Checked');
   });
+});
 
-  test('Clear checked items, with Undo', () => {
-    const a = put('milk')!;
-    setItemChecked(a.itemId, true, USER);
+describe('Reorder aisles', () => {
+  test('By aisle ends with Reorder aisles, which opens the aisle order', () => {
+    put('milk');
     render();
-    press(menuAction('Clear checked items'));
-    expect(text()).toContain('Cleared 1 item');
-  });
-
-  test('Share as text shares what is left to get', () => {
-    put('2 milk');
-    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
-    render();
-    press(menuAction('Share as text'));
-    expect(share).toHaveBeenCalledWith({ message: expect.stringContaining('2 Milk') });
-    expect(share.mock.calls[0][0]).toEqual({ message: expect.stringContaining('Groceries') });
-  });
-
-  test('Reorder sections opens the aisle order', () => {
-    render();
-    press(menuAction('Reorder sections'));
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Reorder aisles')).toHaveLength(0);
+    setView('category');
+    press(pressable('Reorder aisles'));
     expect(mockPush).toHaveBeenCalledWith('/category-order');
   });
 
-  test('Rename prompts with the current name and renames', () => {
-    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation((_title, _message, buttons) => {
-      const save = (buttons as { text: string; onPress: (v: string) => void }[]).find((b) => b.text === 'Save')!;
-      save.onPress('Costco');
-    });
+  test('By recipe has none', () => {
+    put('milk');
     render();
-    press(menuAction('Rename'));
-    expect(prompt.mock.calls[0][0]).toBe('Rename list');
-    expect(prompt.mock.calls[0][4]).toBe('Groceries');
-    refresh();
-    expect(lines()).toContain('Costco');
-    expect(pressable('Costco, switch list')).toBeDefined();
-  });
-
-  test('Colour ticks the current one and sets it', () => {
-    render();
-    const colours = () =>
-      all('ToolbarMenu')
-        .find((m) => m.props.icon === 'paintpalette')!
-        .findAll((n) => n.type === ('ToolbarMenuAction' as never));
-    expect(colours().filter((c) => c.props.isOn)).toHaveLength(1);
-    expect(colours()[0].props.isOn).toBe(true);
-    press(colours()[2]);
-    refresh();
-    expect(getList(listId)!.color).not.toBeNull();
-    expect(colours()[2].props.isOn).toBe(true);
-  });
-
-  test('Make default for Siri sets it', () => {
-    const other = createList('Costco');
-    shownId = other;
-    render();
-    press(menuAction('Make default for Siri'));
-    expect(db.select().from(userSettings).get()!.defaultListId).toBe(other);
-  });
-
-  test('Delete list asks first, then deletes, leaving the List tab to move on', () => {
-    let buttons: { text: string; onPress?: () => void }[] = [];
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, b) => {
-      buttons = b as typeof buttons;
-    });
-    render();
-    press(menuAction('Delete list'));
-    expect(alert.mock.calls[0][0]).toBe('Delete “Groceries”?');
-    expect(getList(listId)).toBeDefined();
-    act(() => buttons.find((b) => b.text === 'Delete')!.onPress!());
-    expect(getList(listId)).toBeUndefined();
-    // The tab shows the next list by itself: no going back from the tab's root.
-    expect(mockBack).not.toHaveBeenCalled();
-    expect(mockPush).not.toHaveBeenCalled();
-    expect(db.select().from(lists).all()).toHaveLength(1);
+    setView('recipe');
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Reorder aisles')).toHaveLength(0);
   });
 });
 

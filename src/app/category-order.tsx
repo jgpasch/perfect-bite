@@ -17,7 +17,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 /**
  * "Aisle order" (spec 4.3.3, board 12): the user's category order, used on every list. Opened from
- * a list's menu or from Settings.
+ * Settings (Store aisle order) or from the end of a list in By aisle (Reorder aisles).
  */
 export default function CategoryOrderScreen() {
   const { spacing, colors, scheme } = useTheme();

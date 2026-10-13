@@ -29,7 +29,7 @@ export default function SettingsScreen() {
   const email = account.status === 'ready' ? account.account.email : undefined;
   const version = Constants.expoConfig?.version ?? '—';
   const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households]);
-  // userSettings: so "Siri adds to" follows "Make default for Siri".
+  // userSettings: so "Siri adds to" follows a list's "Default list for Siri".
   const { data: listRows } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
   const siriList = useMemo(() => {
     const id = userId && listRows.length > 0 ? getDefaultListId(userId) : null;
@@ -82,7 +82,7 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/siri')}
           />
           <SettingsRow
-            label="Aisle order"
+            label="Store aisle order"
             icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
             onPress={() => router.push('/category-order')}
           />

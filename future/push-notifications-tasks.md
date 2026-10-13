@@ -1,6 +1,6 @@
-# Backup tasks
+# Push notifications
 
-<!-- Tasks set aside for later. Move a section back into tasks.md to have Ralph work on it. -->
+<!-- Status: ready. Written as Ralph tasks; move the section into tasks.md to start it. Spec: 11.1. -->
 
 ## Push notifications
 

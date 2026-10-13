@@ -65,6 +65,11 @@ export default function RootLayout() {
                     sheetGrabberVisible: true,
                   }}
                 />
+                {/* From the list's ⋯ menu: Cancel, "Edit list", Done. */}
+                <Stack.Screen
+                  name="list/[id]/edit"
+                  options={{ title: 'Edit list', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
                 <Stack.Screen
                   name="list/[id]/add-to-recipe"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.6, 1], sheetGrabberVisible: true }}

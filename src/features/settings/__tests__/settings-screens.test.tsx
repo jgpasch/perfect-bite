@@ -155,7 +155,7 @@ describe('Settings', () => {
     const root = render(<SettingsScreen />);
     expect(headers(root)).toEqual(expect.arrayContaining(['Shopping', 'Households']));
     button(root, 'Siri adds to, Groceries');
-    button(root, 'Aisle order');
+    button(root, 'Store aisle order');
     button(root, 'Aisle colours, Whole row');
     button(root, 'Sync status, Synced');
   });
@@ -163,7 +163,7 @@ describe('Settings', () => {
   it('opens each Shopping screen', () => {
     const root = render(<SettingsScreen />);
     click(button(root, /^Siri adds to/));
-    click(button(root, 'Aisle order'));
+    click(button(root, 'Store aisle order'));
     click(button(root, /^Aisle colours/));
     click(button(root, /^Sync status/));
     expect(mockPush.mock.calls).toEqual([

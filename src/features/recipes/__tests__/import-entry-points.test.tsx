@@ -1,5 +1,5 @@
-// Recipe import needs plus (spec 4.12): without `recipe_import`, the list menu's "Add recipe from
-// link…" and both of the Recipes tab's "Import from link" buttons are hidden.
+// Recipe import needs plus (spec 4.12): without `recipe_import`, both of the Recipes tab's "Import from
+// link" buttons are hidden. The list menu no longer offers it at all; the Recipes tab is the way in.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -114,25 +114,14 @@ describe('the list menu', () => {
   const menuTitles = (root: ReactTestRenderer) =>
     byType(root, 'ToolbarMenuAction').map((n) => n.props.children as string);
 
-  test('plus offers "Add recipe from link…", which opens the sheet for this list', () => {
-    const root = render(() => <ListScreen id={listId} />, PLUS);
-    expect(menuTitles(root)).toContain('Add recipe from link…');
-    const action = byType(root, 'ToolbarMenuAction').find((n) => n.props.children === 'Add recipe from link…')!;
-    press(action);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { list: listId } });
-  });
-
-  test('without recipe_import it is hidden and the rest of the menu stays', () => {
-    const root = render(() => <ListScreen id={listId} />, STANDARD);
-    expect(menuTitles(root)).not.toContain('Add recipe from link…');
-    expect(menuTitles(root)).toEqual(expect.arrayContaining(['Select items', 'Share as text', 'Uncheck all']));
-  });
-
-  test('losing recipe_import while the list shows hides it', () => {
-    const root = render(() => <ListScreen id={listId} />, PLUS);
-    expect(menuTitles(root)).toContain('Add recipe from link…');
-    act(() => setFeatures(STANDARD));
-    expect(menuTitles(root)).not.toContain('Add recipe from link…');
+  test('has no "Add recipe from link…", with or without plus', () => {
+    for (const features of [PLUS, STANDARD]) {
+      const root = render(() => <ListScreen id={listId} />, features);
+      expect(menuTitles(root)).not.toContain('Add recipe from link…');
+      expect(menuTitles(root)).toEqual(['Select items', 'Share list', 'Edit list…']);
+      act(() => root.unmount());
+      tree = null;
+    }
   });
 });
 

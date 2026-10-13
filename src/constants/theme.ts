@@ -227,6 +227,8 @@ export const Sizes = {
   inviteDotRing: 2,
   /** a list's colour dot in the Your lists sheet */
   listDot: 12,
+  /** a colour swatch in the Edit list sheet; the chosen one is ringed (`focusRing`) a ring's width out */
+  swatch: 32,
   /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */
   iconWell: 36,
   /** the item's icon tile beside its name at the top of the item sheet */

@@ -1,5 +1,5 @@
-import { Host, Menu, RNHostView, Toggle } from '@expo/ui/swift-ui';
-import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
+import { Button, Host, Menu, RNHostView, Section, Toggle } from '@expo/ui/swift-ui';
+import { accessibilityHint, accessibilityLabel, disabled } from '@expo/ui/swift-ui/modifiers';
 import { StyleSheet, View } from 'react-native';
 
 import { listHeaderColors } from '@/components/appearance';
@@ -14,11 +14,23 @@ import {
 } from '@/features/lists/list-view';
 import { useTheme } from '@/hooks/use-theme';
 
+/** Collapse all / Expand all, for the views with sections. */
+export type FoldActions = { canCollapse: boolean; canExpand: boolean; onCollapseAll: () => void; onExpandAll: () => void };
+
 /**
  * The list screen's view button (spec 4.6): a small white-wash pill on the green header reading the
- * current view, "As added ⌄", that opens a native menu of the views, the current one ticked.
+ * current view, "As added ⌄", that opens a native menu of the views, the current one ticked. In By aisle
+ * and By recipe, Collapse all and Expand all follow in their own group.
  */
-export function ViewMenuButton({ value, onChange }: { value: ListViewMode; onChange: (mode: ListViewMode) => void }) {
+export function ViewMenuButton({
+  value,
+  onChange,
+  fold,
+}: {
+  value: ListViewMode;
+  onChange: (mode: ListViewMode) => void;
+  fold?: FoldActions;
+}) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();
   const look = listHeaderColors(colors).viewButton;
   // The pill is shorter than a tap target, so its face is padded to 44 pt and the same padding taken
@@ -64,6 +76,22 @@ export function ViewMenuButton({ value, onChange }: { value: ListViewMode; onCha
               onIsOnChange={() => onChange(mode.value)}
             />
           ))}
+          {fold ? (
+            <Section>
+              <Button
+                label="Collapse all"
+                systemImage="rectangle.compress.vertical"
+                onPress={fold.onCollapseAll}
+                modifiers={[disabled(!fold.canCollapse)]}
+              />
+              <Button
+                label="Expand all"
+                systemImage="rectangle.expand.vertical"
+                onPress={fold.onExpandAll}
+                modifiers={[disabled(!fold.canExpand)]}
+              />
+            </Section>
+          ) : null}
         </Menu>
       </Host>
     </View>

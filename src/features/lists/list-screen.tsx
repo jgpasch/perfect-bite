@@ -5,7 +5,6 @@ import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActionSheetIOS,
-  Alert,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -19,7 +18,7 @@ import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTim
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { aisleHeaderBand, categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
-import { PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
@@ -31,7 +30,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { LIST_HUES, aisleColor, listColorName, listHue, recipeHue } from '@/domain/aisle-color';
+import { aisleColor, recipeHue } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -101,8 +100,7 @@ import {
   type ListViewMode,
   type SectionedViewMode,
 } from '@/features/lists/list-view';
-import { deleteList, listQuery, setDefaultList, setListColor } from '@/features/lists/lists';
-import { promptListName } from '@/features/lists/prompt-list-name';
+import { listQuery } from '@/features/lists/lists';
 import { takeMoveResult } from '@/features/lists/move-result';
 import { ViewMenuButton } from '@/features/lists/view-menu-button';
 import { listShareText } from '@/features/lists/share';
@@ -168,8 +166,6 @@ export function ListScreen({ id }: { id: string }) {
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   // Without `categorize`, nothing is waiting for an aisle: new names show in Other (spec 4.12).
   const sorts = useFeature('categorize');
-  // Spec 4.12: recipe import is a plus feature; without it the menu doesn't offer it.
-  const canImport = useFeature('recipe_import');
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits, sorts), [itemRows, usualUnits, sorts]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
   // so a second tap can take it back.
@@ -735,7 +731,9 @@ export function ListScreen({ id }: { id: string }) {
     }
     return (
       <View>
-        <View style={[styles.row, { paddingRight: spacing.lg + spacing.xs - spacing.sm }]}>
+        {/* "Checked · 2" folds the section; Uncheck all and Clear sit at its trailing end (the long-press
+            menu offers the same). */}
+        <View style={[styles.row, { paddingRight: spacing.lg, gap: spacing.sm }]}>
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ expanded: showChecked }}
@@ -748,38 +746,23 @@ export function ListScreen({ id }: { id: string }) {
               {
                 minHeight: sizes.minTapTarget,
                 paddingLeft: spacing.lg + spacing.xs,
-                paddingRight: spacing.sm,
                 gap: spacing.sm,
                 opacity: pressed ? opacity.pressed : 1,
               },
             ]}>
-            <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.flex}>
-              Checked ({block.count})
+            <ThemedText variant="sectionLabel" color="inkSecondary" numberOfLines={1} style={styles.shrink}>
+              Checked · {block.count}
             </ThemedText>
             <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
           </Pressable>
-          <ClearCheckedButton count={block.count} onPress={clear} />
+          <Button label="Uncheck all" variant="plain" onPress={() => uncheckAll(id)} />
+          <Button label="Clear" accessibilityLabel={clearCheckedLabel(block.count)} variant="plain" onPress={clear} />
         </View>
         {block.entries.length > 0 ? (
           <Card>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
         ) : null}
       </View>
     );
-  };
-
-  const confirmDelete = () => {
-    if (!list) return;
-    Alert.alert(`Delete “${list.name}”?`, 'Its items are deleted too.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          // The List tab moves on to the next list by itself.
-          deleteList(id);
-        },
-      },
-    ]);
   };
 
   // Loading (a few ms), or just deleted on the way back.
@@ -815,61 +798,20 @@ export function ListScreen({ id }: { id: string }) {
           tintColor={header.viewButton.fill}
           accessibilityLabel="List actions"
           hidden={!!selection}>
-          <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
-            Select items
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
-            Share as text
-          </Stack.Toolbar.MenuAction>
-          {canImport ? (
-            <Stack.Toolbar.MenuAction icon="link" onPress={() => router.push({ pathname: '/import-recipe', params: { list: id } })}>
-              Add recipe from link…
+          {/* Two inline groups, so the native menu draws a divider between them. */}
+          <Stack.Toolbar.Menu inline>
+            <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
+              Select items
             </Stack.Toolbar.MenuAction>
-          ) : null}
-          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={checked.length === 0} onPress={() => uncheckAll(id)}>
-            Uncheck all
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction icon="xmark.circle" disabled={checked.length === 0} onPress={clear}>
-            Clear checked items
-          </Stack.Toolbar.MenuAction>
-          {sectionMode ? (
-            <Stack.Toolbar.MenuAction
-              icon="rectangle.compress.vertical"
-              disabled={foldableKeys.length === 0 || foldedCount === foldableKeys.length}
-              onPress={() => saveCollapsed(sectionMode, foldableKeys)}>
-              Collapse all
+            <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
+              Share list
             </Stack.Toolbar.MenuAction>
-          ) : null}
-          {sectionMode ? (
-            <Stack.Toolbar.MenuAction
-              icon="rectangle.expand.vertical"
-              disabled={foldedCount === 0}
-              onPress={() => saveCollapsed(sectionMode, [])}>
-              Expand all
-            </Stack.Toolbar.MenuAction>
-          ) : null}
-          <Stack.Toolbar.MenuAction icon="arrow.up.arrow.down" onPress={() => router.push('/category-order')}>
-            Reorder sections
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptListName(list.id, list.name)}>
-            Rename
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.Menu icon="paintpalette">
-            <Stack.Toolbar.Label>Colour</Stack.Toolbar.Label>
-            {[null, ...LIST_HUES].map((hue) => (
-              <Stack.Toolbar.MenuAction key={hue ?? 'default'} isOn={listHue(list.color) === hue} onPress={() => setListColor(id, hue)}>
-                {listColorName(hue)}
-              </Stack.Toolbar.MenuAction>
-            ))}
           </Stack.Toolbar.Menu>
-          {userId ? (
-            <Stack.Toolbar.MenuAction icon="mic" onPress={() => setDefaultList(userId, id)}>
-              Make default for Siri
+          <Stack.Toolbar.Menu inline>
+            <Stack.Toolbar.MenuAction icon="pencil" onPress={() => router.push({ pathname: '/list/[id]/edit', params: { id } })}>
+              Edit list…
             </Stack.Toolbar.MenuAction>
-          ) : null}
-          <Stack.Toolbar.MenuAction icon="trash" destructive onPress={confirmDelete}>
-            Delete list
-          </Stack.Toolbar.MenuAction>
+          </Stack.Toolbar.Menu>
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
 
@@ -895,7 +837,20 @@ export function ListScreen({ id }: { id: string }) {
                         {toGetLabel(unchecked.length)}
                       </ThemedText>
                     ) : null}
-                    <ViewMenuButton value={viewMode} onChange={setViewMode} />
+                    <ViewMenuButton
+                      value={viewMode}
+                      onChange={setViewMode}
+                      fold={
+                        sectionMode
+                          ? {
+                              canCollapse: foldableKeys.length > 0 && foldedCount < foldableKeys.length,
+                              canExpand: foldedCount > 0,
+                              onCollapseAll: () => saveCollapsed(sectionMode, foldableKeys),
+                              onExpandAll: () => saveCollapsed(sectionMode, []),
+                            }
+                          : undefined
+                      }
+                    />
                   </View>
                 </CollapsingHeader>
                 <View style={{ height: rounded.card }} />
@@ -914,6 +869,14 @@ export function ListScreen({ id }: { id: string }) {
                 ]}
               />
             </View>
+          }
+          // By aisle: a way to the aisle order after the last section (also in Settings).
+          ListFooterComponent={
+            viewMode === 'category' && blocks.some((b) => b.kind === 'aisle') ? (
+              <View style={[styles.row, styles.center, { paddingTop: spacing.md }]}>
+                <Button label="Reorder aisles" variant="plain" onPress={() => router.push('/category-order')} />
+              </View>
+            ) : null
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
           // Add mode: scrolling or checking off rows keeps the keyboard up.
@@ -1112,41 +1075,14 @@ function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: 
   );
 }
 
-/** The Checked header's Clear: a small soft destructive pill with a 44 pt hit area. */
-function ClearCheckedButton({ count, onPress }: { count: number; onPress: () => void }) {
-  const { colors, sizes, spacing, rounded, opacity } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={clearCheckedLabel(count)}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.round,
-        { minHeight: sizes.minTapTarget, paddingHorizontal: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
-      ]}>
-      <View
-        style={{
-          backgroundColor: colors.dangerSoft,
-          borderRadius: rounded.full,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.xs,
-        }}>
-        <ThemedText variant="sectionLabel" color="danger">
-          Clear
-        </ThemedText>
-      </View>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
+  center: { justifyContent: 'center' },
   title: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
   shrink: { flexShrink: 1 },
   inviteDot: { position: 'absolute' },
-  round: { alignItems: 'center', justifyContent: 'center' },
   compactTitle: { alignItems: 'center', justifyContent: 'center' },
   // Clips the title while its height closes; the scale shrinks it toward its top.
   collapsing: { overflow: 'hidden', transformOrigin: 'top' },
