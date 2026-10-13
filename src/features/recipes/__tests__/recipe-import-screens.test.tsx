@@ -24,7 +24,7 @@ import RecipesScreen from '@/app/(tabs)/recipes/index';
 
 import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
 import { ImportsCard } from '../imports-card';
-import { addRecipeIngredient, createRecipe, getRecipe, updateRecipe } from '../recipes';
+import { addRecipeIngredient, createRecipe, deleteRecipeIngredient, getRecipe, updateRecipe } from '../recipes';
 import { failedImportsQuery, recordFailedImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
@@ -690,6 +690,60 @@ describe('RecipesScreen', () => {
       expect(mockOpenLink).toHaveBeenCalledTimes(1);
       expect(mockOpenLink).toHaveBeenCalledWith('https://www.example.com/tacos#step-2');
       expect(mockPush).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a card's Add to a list", () => {
+    const menuOf = (root: ReactTestRenderer, recipeId: string) => {
+      const card = byType(root, 'Link').find((l) => l.props.href.params.id === recipeId)!;
+      return card.findAll((n) => n.type === ('LinkMenuAction' as never));
+    };
+    const titles = (root: ReactTestRenderer, recipeId: string) => menuOf(root, recipeId).map((a) => a.props.title);
+
+    test('no ingredients: no Add to a list', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
+    });
+
+    test('with ingredients: Add to a list first, with the cart symbol', () => {
+      const tacos = createRecipe('Tacos');
+      addRecipeIngredient(tacos, '8 tortillas');
+      const soup = createRecipe('Soup');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Rename', 'Delete']);
+      // Only the recipe with ingredients has it.
+      expect(titles(root, soup)).toEqual(['Rename', 'Delete']);
+      const add = menuOf(root, tacos)[0];
+      expect(add.props.icon).toBe('cart');
+      expect(add.props.destructive).toBeUndefined();
+    });
+
+    test('with ingredients and a link: Add to a list, Visit recipe on web, Rename, Delete', () => {
+      const tacos = createRecipe('Tacos');
+      addRecipeIngredient(tacos, 'salsa');
+      updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://example.com/tacos' });
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Visit recipe on web', 'Rename', 'Delete']);
+    });
+
+    test("choosing it pushes the add-to-list sheet with the recipe's id, and nothing else", () => {
+      const tacos = createRecipe('Tacos');
+      addRecipeIngredient(tacos, '8 tortillas');
+      updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://example.com/tacos' });
+      const root = render(<RecipesScreen />);
+      act(() => menuOf(root, tacos)[0].props.onPress());
+      expect(mockPush).toHaveBeenCalledTimes(1);
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos } });
+      expect(mockOpenLink).not.toHaveBeenCalled();
+    });
+
+    test('a removed ingredient does not count: with none left, no Add to a list', () => {
+      const tacos = createRecipe('Tacos');
+      const ingredient = addRecipeIngredient(tacos, 'salsa')!;
+      deleteRecipeIngredient(ingredient.id);
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
     });
   });
 

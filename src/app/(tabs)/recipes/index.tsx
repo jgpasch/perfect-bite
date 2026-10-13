@@ -263,6 +263,14 @@ function RecipeCard({
         </Pressable>
       </Link.Trigger>
       <Link.Menu>
+        {/* The recipe screen's Add to a list sheet (spec 4.5); left out, as that button is disabled, with no ingredients. */}
+        {recipe.ingredientCount > 0 ? (
+          <Link.MenuAction
+            title="Add to a list"
+            icon="cart"
+            onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id } })}
+          />
+        ) : null}
         {link ? <Link.MenuAction title="Visit recipe on web" icon="safari" onPress={() => void openRecipeLink(link)} /> : null}
         <Link.MenuAction title="Rename" icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title="Delete" icon="trash" destructive onPress={confirmDelete} />
