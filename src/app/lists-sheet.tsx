@@ -169,7 +169,7 @@ export default function ListsSheet() {
           </List>
         </Host>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+        <ScrollView style={styles.flex} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           <ThemedText variant="sheetTitle" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.sm }}>
             Your lists
           </ThemedText>

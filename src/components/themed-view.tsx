@@ -41,8 +41,10 @@ export function Screen({
       </ScrollView>
     );
   }
+  // Not collapsable: if Fabric flattens this view, a formSheet's ScrollView lands beside a full-height
+  // sibling, which react-native-screens (iOS 26+) takes for a header and sizes the ScrollView to zero.
   return (
-    <View style={[{ flex: 1, backgroundColor: colors.background }, style]} {...rest}>
+    <View collapsable={false} style={[{ flex: 1, backgroundColor: colors.background }, style]} {...rest}>
       {children}
     </View>
   );

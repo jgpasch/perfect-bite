@@ -17,6 +17,9 @@
         ]
       },
       "appleTeamId": "4537GH756L",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "INAlternativeAppNames": [
           {
