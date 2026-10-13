@@ -216,6 +216,17 @@ export function householdBandColors(colors: ThemeColors, aisles: Aisles): { fill
   return { fill: aisles.amber.soft, text: colors.ink, secondary: colors.pending };
 }
 
+/** How much `surface` the recipe band's tag pills lay over the band's soft tint. */
+export const RECIPE_TAG_WASH = 0.55;
+
+/**
+ * A tag pill in the recipe band (spec 4.14): a translucent `surface` wash over the band's `soft`
+ * tint, the facet in `inkSecondary` over the value in `ink`. The "+ Tags" pill is `Pill dashed`.
+ */
+export function recipeTagPillColors(hue: AisleHue, colors: ThemeColors, aisles: Aisles): { fill: string; facet: string; text: string } {
+  return { fill: mix(colors.surface, aisles[hue].soft, RECIPE_TAG_WASH), facet: colors.inkSecondary, text: colors.ink };
+}
+
 /**
  * A row on the Aisle order screen (board 12): `surface` with the aisle's dot and an `inkTertiary`
  * grip. The row being dragged gets an outline in its aisle's `dot` colour and an `ink` grip.

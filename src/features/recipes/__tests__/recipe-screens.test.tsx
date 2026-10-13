@@ -7,19 +7,23 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { eq } from 'drizzle-orm';
 
-import { db, households, lists } from '@/db';
+import { Pill } from '@/components/pill';
+import { db, households, lists, outbox, recipes } from '@/db';
 import { resolveCurrentListId } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { insertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
 
 import AddRecipeToListSheet from '@/app/recipe/[id]/add-to-list';
 import RecipeScreen from '@/app/recipe/[id]/index';
+import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 
 import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
+import { IMPORT_TAGS_NOTE } from '../recipe-tag-row';
 import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery, updateRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -451,6 +455,192 @@ describe('RecipeScreen', () => {
       act11y('remove');
       expect(getRecipe(tacos)!.sourceUrl).toBeNull();
     });
+  });
+});
+
+/** Sets the recipe's tag columns directly, as an import (or a pull) would leave them. */
+const setTags = (fields: { tags: RecipeTags | null; tagsEdited?: boolean; totalMinutes?: number | null }) =>
+  db
+    .update(recipes)
+    .set({ tags: fields.tags, tagsEdited: fields.tagsEdited ?? false, totalMinutes: fields.totalMinutes ?? null })
+    .where(eq(recipes.id, tacos))
+    .run();
+const outboxRecipeUpdates = () =>
+  db
+    .select()
+    .from(outbox)
+    .all()
+    .map((r) => r.mutation)
+    // An insert sends every column, `household_id` included; an update only what changed.
+    .filter((m) => m.table === 'recipes' && m.id === tacos && !('household_id' in m.fields));
+
+describe('RecipeScreen tags', () => {
+  /** The tag pills' VoiceOver labels in order, then the dashed pill's. */
+  const tagRow = (root: ReactTestRenderer) =>
+    root.root
+      .findAll(
+        (n) =>
+          // The pressables themselves, not the Pill around the dashed one.
+          typeof n.type !== 'string' &&
+          n.type !== Pill &&
+          typeof n.props.onPress === 'function' &&
+          (/^(Meal|Cuisine|Protein|Diet|Method|Time): /.test(n.props.accessibilityLabel ?? '') ||
+            ['Edit tags', 'Add tags'].includes(n.props.accessibilityLabel)),
+      )
+      .map((n) => n.props.accessibilityLabel);
+
+  test('a new, untagged recipe shows only the dashed Add tags pill and no note', () => {
+    const root = render(<RecipeScreen />);
+    expect(tagRow(root)).toEqual(['Add tags']);
+    expect(byLabel(root, 'Add tags').props.dashed).toBe(true);
+    expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
+  });
+
+  test('imported tags: facet over value in facet order, then the time, then + Tags, and the note', () => {
+    setTags({ tags: { ...emptyRecipeTags(), protein: ['beef'], meal: ['dinner'], cuisine: ['mexican', 'brunchy'] }, totalMinutes: 75 });
+    const root = render(<RecipeScreen />);
+    expect(tagRow(root)).toEqual(['Meal: Dinner', 'Cuisine: Mexican', 'Protein: Beef', 'Time: Over 1 hour', 'Edit tags']);
+    expect(byLabel(root, '+ Tags').props.dashed).toBe(true);
+    expect(texts(root)).toEqual(
+      expect.arrayContaining(['Meal', 'Dinner', 'Cuisine', 'Mexican', 'Protein', 'Beef', 'Time', 'Over 1 hour', IMPORT_TAGS_NOTE]),
+    );
+    expect(texts(root)).not.toContain('brunchy');
+  });
+
+  test('the note goes once a person has edited the tags', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, tagsEdited: true });
+    const root = render(<RecipeScreen />);
+    expect(tagRow(root)).toEqual(['Meal: Dinner', 'Edit tags']);
+    expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
+  });
+
+  test('an import that found no tags or time shows Add tags and no note', () => {
+    setTags({ tags: emptyRecipeTags() });
+    const root = render(<RecipeScreen />);
+    expect(tagRow(root)).toEqual(['Add tags']);
+    expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
+  });
+
+  test('any pill opens the Tags sheet', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 20 });
+    const root = render(<RecipeScreen />);
+    for (const label of ['Meal: Dinner', 'Time: Under 30 min', 'Edit tags']) press(byA11y(root, label));
+    expect(mockPush).toHaveBeenCalledTimes(3);
+    for (const call of mockPush.mock.calls) expect(call[0]).toEqual({ pathname: '/recipe/[id]/tags', params: { id: tacos } });
+  });
+});
+
+describe('RecipeTagsSheet', () => {
+  const pill = (root: ReactTestRenderer, label: string) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.label === label && n.props.accessibilityRole === 'togglebutton');
+  const selected = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'togglebutton' && n.props.selected === true)
+      .map((n) => n.props.label);
+  const field = (root: ReactTestRenderer, label: string) =>
+    root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === label);
+  const toolbar = (root: ReactTestRenderer, title: string) =>
+    byType(root, 'ToolbarButton').find((n) => n.props.children === title)!;
+
+  test('a missing recipe renders an empty screen', () => {
+    mockParams.id = 'nope';
+    const root = render(<RecipeTagsSheet />);
+    expect(texts(root)).toEqual([]);
+  });
+
+  test('a group per facet with toggle pills, then Total time; starts from the stored tags and time', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'], protein: ['beef'] }, totalMinutes: 80 });
+    const root = render(<RecipeTagsSheet />);
+    const t = texts(root);
+    expect(['Meal', 'Cuisine', 'Protein', 'Diet', 'Method', 'Total time'].map((h) => t.indexOf(h))).toEqual(
+      [...['Meal', 'Cuisine', 'Protein', 'Diet', 'Method', 'Total time'].map((h) => t.indexOf(h))].sort((a, b) => a - b),
+    );
+    expect(t).toContain('Instant Pot');
+    expect(selected(root)).toEqual(['Dinner', 'Beef']);
+    expect(pill(root, 'Dinner').props.accessibilityState).toEqual({ checked: true });
+    expect(pill(root, 'Lunch').props.accessibilityState).toEqual({ checked: false });
+    expect(field(root, 'Hours').props.value).toBe('1');
+    expect(field(root, 'Minutes').props.value).toBe('20');
+  });
+
+  test('a facet at its maximum disables its other pills and says why; deselecting frees them', () => {
+    const root = render(<RecipeTagsSheet />);
+    expect(texts(root)).not.toContain('Pick up to 2');
+    press(pill(root, 'Dinner'));
+    press(pill(root, 'Lunch'));
+    expect(selected(root)).toEqual(['Lunch', 'Dinner']);
+    expect(texts(root).filter((s) => s === 'Pick up to 2')).toHaveLength(1);
+    expect(pill(root, 'Snack').props.disabled).toBe(true);
+    expect(pill(root, 'Snack').props.accessibilityHint).toBe('Meal is full. Pick up to 2.');
+    expect(pill(root, 'Dinner').props.disabled).toBe(false);
+    expect(pill(root, 'Mexican').props.disabled).toBe(false);
+    press(pill(root, 'Snack')); // ignored even if it fires
+    expect(selected(root)).toEqual(['Lunch', 'Dinner']);
+    press(pill(root, 'Lunch'));
+    expect(pill(root, 'Snack').props.disabled).toBe(false);
+    expect(pill(root, 'Snack').props.accessibilityHint).toBeUndefined();
+    expect(texts(root)).not.toContain('Pick up to 2');
+  });
+
+  test('protein takes three', () => {
+    const root = render(<RecipeTagsSheet />);
+    for (const p of ['Chicken', 'Beef', 'Pork']) press(pill(root, p));
+    expect(pill(root, 'Fish').props.disabled).toBe(true);
+    expect(texts(root)).toContain('Pick up to 3');
+  });
+
+  test('Save writes the tags, the time and tagsEdited in one update, and closes', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner', 'brunchy'] }, totalMinutes: 30 });
+    const root = render(<RecipeTagsSheet />);
+    press(pill(root, 'Mexican'));
+    press(pill(root, 'Dinner'));
+    act(() => field(root, 'Hours').props.onChangeText('1'));
+    act(() => field(root, 'Minutes').props.onChangeText('15'));
+    act(() => toolbar(root, 'Save').props.onPress());
+    const saved = { meal: ['brunchy'], cuisine: ['mexican'], protein: [], diet: [], method: [] };
+    expect(getRecipe(tacos)).toMatchObject({ tags: saved, tagsEdited: true, totalMinutes: 75 });
+    const updates = outboxRecipeUpdates();
+    expect(updates).toHaveLength(1);
+    expect(updates[0].fields).toEqual(expect.objectContaining({ tags: saved, tags_edited: true, total_minutes: 75 }));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('saving an untagged recipe with nothing picked tags it as empty', () => {
+    const root = render(<RecipeTagsSheet />);
+    act(() => toolbar(root, 'Save').props.onPress());
+    expect(getRecipe(tacos)).toMatchObject({ tags: emptyRecipeTags(), tagsEdited: true, totalMinutes: null });
+  });
+
+  test('Clear empties the time, and Save removes it', () => {
+    setTags({ tags: emptyRecipeTags(), totalMinutes: 45 });
+    const root = render(<RecipeTagsSheet />);
+    press(byA11y(root, 'Clear total time'));
+    expect(field(root, 'Minutes').props.value).toBe('');
+    expect(queryA11y(root, 'Clear total time')).toHaveLength(0);
+    act(() => toolbar(root, 'Save').props.onPress());
+    expect(getRecipe(tacos)!.totalMinutes).toBeNull();
+  });
+
+  test('a time over 48 hours disables Save and says so', () => {
+    const root = render(<RecipeTagsSheet />);
+    act(() => field(root, 'Hours').props.onChangeText('49'));
+    expect(toolbar(root, 'Save').props.disabled).toBe(true);
+    expect(texts(root)).toContain('Up to 48 hours');
+    act(() => toolbar(root, 'Save').props.onPress());
+    expect(getRecipe(tacos)!.tagsEdited).toBe(false);
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  test('Cancel writes nothing', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 30 });
+    const before = getRecipe(tacos);
+    const root = render(<RecipeTagsSheet />);
+    press(pill(root, 'Lunch'));
+    act(() => field(root, 'Minutes').props.onChangeText('50'));
+    act(() => toolbar(root, 'Cancel').props.onPress());
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(getRecipe(tacos)).toEqual(before);
+    expect(outboxRecipeUpdates()).toHaveLength(0);
   });
 });
 

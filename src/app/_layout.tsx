@@ -83,6 +83,11 @@ export default function RootLayout() {
                   name="recipe/[id]/add-to-list"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.14: the recipe's tags and total time. */}
+                <Stack.Screen
+                  name="recipe/[id]/tags"
+                  options={{ title: 'Tags', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 {/* Spec 4.10: a small sheet; from the Recipes tab it also picks the list. */}
                 <Stack.Screen
                   name="import-recipe"

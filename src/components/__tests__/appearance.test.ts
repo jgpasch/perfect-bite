@@ -19,6 +19,8 @@ import {
   pillColors,
   pillLook,
   prominentButtonTint,
+  RECIPE_TAG_WASH,
+  recipeTagPillColors,
   sectionHeaderLabel,
   segmentColors,
   toastAnnouncement,
@@ -667,5 +669,23 @@ describe('checkAppearance with an aisle ring', () => {
     expect(checkAppearance('off', Palette.light, AisleColors.light, ring).border).toBe(ring);
     expect(checkAppearance('pending', Palette.light, AisleColors.light, ring)).toMatchObject({ border: ring, borderStyle: 'dashed' });
     expect(checkAppearance('on', Palette.light, AisleColors.light, ring).border).toBe(Palette.light.primary);
+  });
+});
+
+describe('recipeTagPillColors', () => {
+  it('washes surface over the band tint, facet in inkSecondary and value in ink', () => {
+    expect(recipeTagPillColors('rose', Palette.light, AisleColors.light)).toEqual({
+      fill: mix(Palette.light.surface, AisleColors.light.rose.soft, RECIPE_TAG_WASH),
+      facet: Palette.light.inkSecondary,
+      text: Palette.light.ink,
+    });
+  });
+
+  it.each(SCHEMES)('keeps both lines readable on every hue in %s mode', (scheme) => {
+    for (const hue of Object.keys(AisleColors[scheme]) as (keyof (typeof AisleColors)['light'])[]) {
+      const look = recipeTagPillColors(hue, Palette[scheme], AisleColors[scheme]);
+      expect(contrastRatio(look.text, look.fill)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(look.facet, look.fill)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

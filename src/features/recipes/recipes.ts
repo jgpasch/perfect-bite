@@ -7,6 +7,7 @@ import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
+import { RecipeTagsSchema, type RecipeTags } from '@/shared/recipe-tags';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
 
@@ -122,6 +123,18 @@ export function updateRecipe(id: string, edit: RecipeEdit): void {
     name: cleanName(edit.name),
     notes: edit.notes.trim() || null,
     sourceUrl: edit.sourceUrl.trim() || null,
+  });
+}
+
+/**
+ * Saves the Tags sheet (spec 4.14): the tags, the total time and `tagsEdited` in one update, so the
+ * "Tagged when you imported it" note goes. `tags` is the whole stored value, unknown slugs included.
+ */
+export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: number | null): void {
+  updateRows(db, recipes, eq(recipes.id, id), {
+    tags: RecipeTagsSchema.parse(tags),
+    totalMinutes,
+    tagsEdited: true,
   });
 }
 

@@ -27,6 +27,7 @@ import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
+import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
   addRecipeIngredient,
   deleteRecipe,
@@ -174,7 +175,7 @@ export default function RecipeScreen() {
 }
 
 /**
- * The header band in the recipe's soft tint: its name, source link and notes. The notes are edited
+ * The header band in the recipe's soft tint: its name, source link, tags and notes. The notes are edited
  * in place and saved when the field loses focus; the link row is RecipeLinkRow.
  */
 function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
@@ -202,6 +203,11 @@ function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
         {recipe.name}
       </ThemedText>
       <RecipeLinkRow value={sourceUrl} hue={hue} onSave={saveLink} />
+      <RecipeTagRow
+        recipe={recipe}
+        hue={hue}
+        onEdit={() => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id } })}
+      />
       <TextInput
         value={notes}
         onChangeText={setNotes}
