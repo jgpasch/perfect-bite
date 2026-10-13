@@ -1,8 +1,8 @@
 // The wire shape of one outbox entry (spec 7.1): a field-level patch, as `apply_mutations` takes it.
 // Kept free of imports so the schema can use the type.
 
-/** A JSON value as it goes over the wire: dates are ISO strings. */
-export type WireValue = string | number | boolean | null;
+/** A JSON value as it goes over the wire: dates are ISO strings, `jsonb` columns (e.g. `recipes.tags`) JSON. */
+export type WireValue = string | number | boolean | null | WireValue[] | { [key: string]: WireValue };
 
 export type Mutation = {
   /** The Postgres table, e.g. 'list_items'. */

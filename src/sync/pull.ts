@@ -192,7 +192,17 @@ function fromWire(column: SQLiteColumn, value: unknown): unknown {
   return value;
 }
 
-const comparable = (value: unknown) => (value instanceof Date ? value.getTime() : (value ?? null));
+/** JSON with object keys sorted: Postgres reorders `jsonb` keys, so the same tags compare equal. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+const comparable = (value: unknown) =>
+  value instanceof Date ? value.getTime() : value !== null && typeof value === 'object' ? canonicalJson(value) : (value ?? null);
 
 /** The LWW rule (7.3) for one field of a row both sides have. */
 export function remoteFieldWins(remoteHlc: string | undefined, localHlc: string | undefined, pendingLocally: boolean): boolean {

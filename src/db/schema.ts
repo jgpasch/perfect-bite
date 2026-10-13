@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import type { Unit } from '../shared/quantity-parser';
+import type { RecipeTags } from '../shared/recipe-tags';
 import type { Mutation } from '../sync/mutation';
 
 /** Each synced field's HLC from its last write (spec 7.3), kept by `src/sync/mutate.ts`. */
@@ -158,6 +159,13 @@ export const recipes = sqliteTable(
     name: text('name').notNull(),
     notes: text('notes'),
     sourceUrl: text('source_url'),
+    /** Spec 4.14. Null = never tagged. Slugs this app doesn't know are kept. */
+    tags: text('tags', { mode: 'json' }).$type<RecipeTags>(),
+    /** A person has edited the tags (hides "Tagged when you imported it"). */
+    tagsEdited: integer('tags_edited', { mode: 'boolean' }).notNull().default(false),
+    totalMinutes: integer('total_minutes'),
+    /** Set by the server to whoever inserted it; never sent (spec 5). */
+    addedBy: text('added_by'),
     deletedAt,
     ...timestamps,
   },

@@ -13,6 +13,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  recipes,
   userCategoryOrder,
   userSettings,
 } from '@/db';
@@ -661,6 +662,133 @@ describe('counters and usage', () => {
     await pullNow();
 
     expect(db.select().from(ingredientUnitUsage).get()!.lastUsedAt).toEqual(new Date(ts(40)));
+  });
+});
+
+describe('recipe tags (spec 4.14)', () => {
+  const TAGS = { meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: ['one-pot'] };
+  const RECIPE_CLOCK = {
+    household_id: OLD,
+    name: OLD,
+    notes: OLD,
+    source_url: OLD,
+    tags: OLD,
+    tags_edited: OLD,
+    total_minutes: OLD,
+    deleted_at: OLD,
+  };
+  const remoteRecipe = (updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
+    id: 'r1',
+    household_id: H1,
+    name: 'Tacos',
+    notes: null,
+    source_url: 'https://example.com/tacos',
+    tags: TAGS,
+    tags_edited: false,
+    total_minutes: 45,
+    added_by: 'u2',
+    deleted_at: null,
+    field_clock: RECIPE_CLOCK,
+    created_at: ts(0),
+    updated_at: updated,
+    ...extra,
+  });
+  const recipeRow = () => db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!;
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('recipes', remoteRecipe(ts(2)));
+    await pullNow();
+  });
+
+  test('a pull applies tags, tags_edited, total_minutes and added_by', () => {
+    expect(recipeRow()).toMatchObject({
+      tags: TAGS,
+      tagsEdited: false,
+      totalMinutes: 45,
+      addedBy: 'u2',
+      updatedAt: new Date(ts(2)),
+    });
+  });
+
+  test('an untagged recipe pulls as null tags, unedited, no time and no added_by', async () => {
+    put('recipes', {
+      ...remoteRecipe(ts(3), { tags: null, total_minutes: null, added_by: null }),
+      id: 'r2',
+    });
+
+    await pullNow();
+
+    expect(db.select().from(recipes).where(eq(recipes.id, 'r2')).get()).toMatchObject({
+      tags: null,
+      tagsEdited: false,
+      totalMinutes: null,
+      addedBy: null,
+    });
+  });
+
+  test('a newer remote tags edit replaces the whole value and its clock', async () => {
+    const edited = { meal: ['lunch'], cuisine: [], protein: [], diet: ['vegetarian'], method: [] };
+    server.recipes = [
+      remoteRecipe(ts(10), {
+        tags: edited,
+        tags_edited: true,
+        total_minutes: 20,
+        field_clock: { ...RECIPE_CLOCK, tags: NEW, tags_edited: NEW, total_minutes: NEW },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ tags: edited, tagsEdited: true, totalMinutes: 20, updatedAt: new Date(ts(10)) });
+    expect(recipeRow().fieldClock).toMatchObject({ tags: NEW, tags_edited: NEW, total_minutes: NEW, name: OLD });
+  });
+
+  test('a local unpushed tags edit beats an older remote one', async () => {
+    const mine = { meal: ['snack'], cuisine: [], protein: [], diet: [], method: [] };
+    updateRows(db, recipes, eq(recipes.id, 'r1'), { tags: mine, tagsEdited: true });
+    server.recipes = [
+      remoteRecipe(ts(10), {
+        tags: { ...TAGS, meal: ['lunch'] },
+        field_clock: { ...RECIPE_CLOCK, tags: '1500000000000-0000-remote' },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ tags: mine, tagsEdited: true });
+    expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ tags: mine, tags_edited: true }]);
+  });
+
+  test('the same tags with their keys in another order (as jsonb returns them) are no change', async () => {
+    // Postgres orders jsonb keys by length, then bytes.
+    const reordered = { diet: [], meal: ['dinner'], method: ['one-pot'], cuisine: ['mexican'], protein: ['beef'] };
+    server.recipes = [remoteRecipe(ts(10), { tags: reordered })];
+
+    await pullNow();
+
+    // Nothing was written, so the row keeps its first pull's updated_at.
+    expect(recipeRow().updatedAt).toEqual(new Date(ts(2)));
+    expect(recipeRow().tags).toEqual(TAGS);
+  });
+
+  test('a different tags value with the same keys is a change', async () => {
+    server.recipes = [
+      remoteRecipe(ts(10), { tags: { ...TAGS, protein: ['pork'] }, field_clock: { ...RECIPE_CLOCK, tags: NEW } }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow().tags).toEqual({ ...TAGS, protein: ['pork'] });
+    expect(recipeRow().updatedAt).toEqual(new Date(ts(10)));
+  });
+
+  test('a changed added_by from the server applies (it has no clock)', async () => {
+    server.recipes = [remoteRecipe(ts(10), { added_by: null })];
+
+    await pullNow();
+
+    expect(recipeRow().addedBy).toBeNull();
   });
 });
 

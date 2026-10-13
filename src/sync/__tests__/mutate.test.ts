@@ -11,6 +11,7 @@ import {
   ingredientUsage,
   ingredients,
   lists,
+  recipes,
   userCategoryOrder,
   userSettings,
 } from '@/db';
@@ -241,4 +242,58 @@ test('the device id is stable', () => {
 test('deleteRows only enqueues rows it removed', () => {
   expect(deleteRows(db, userCategoryOrder, eq(userCategoryOrder.userId, 'nobody'))).toBe(0);
   expect(outboxRows()).toEqual([]);
+});
+
+test('a recipe insert sends its tags, tags_edited and total_minutes but never added_by (spec 4.14)', () => {
+  addHousehold();
+  const tags = { meal: ['dinner'], cuisine: [], protein: ['beef'], diet: [], method: ['grill'] };
+  const row = insertRow(db, recipes, {
+    id: 'r1',
+    householdId: H,
+    name: 'Burgers',
+    tags,
+    totalMinutes: 40,
+    addedBy: 'u-local',
+    createdAt: AT,
+  });
+
+  expect(row).toMatchObject({ tags, tagsEdited: false, totalMinutes: 40, addedBy: 'u-local' });
+  const mutation = outboxMutations().at(-1)!;
+  expect(mutation.fields).toEqual({
+    household_id: H,
+    name: 'Burgers',
+    notes: null,
+    source_url: null,
+    tags,
+    tags_edited: false,
+    total_minutes: 40,
+    deleted_at: null,
+    created_at: AT.toISOString(),
+  });
+  expect(db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!.fieldClock).not.toHaveProperty('added_by');
+});
+
+test('an untagged recipe insert sends null tags and time', () => {
+  addHousehold();
+  insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup' });
+
+  expect(outboxMutations().at(-1)!.fields).toMatchObject({ tags: null, tags_edited: false, total_minutes: null });
+});
+
+test("a recipe tags update sends exactly the tag fields; added_by can't be patched", () => {
+  addHousehold();
+  insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup' });
+  const tags = { meal: ['lunch'], cuisine: [], protein: [], diet: ['vegan'], method: [] };
+
+  updateRows(db, recipes, eq(recipes.id, 'r1'), { tags, tagsEdited: true, totalMinutes: null });
+
+  expect(outboxPatches().at(-1)).toEqual({
+    table: 'recipes',
+    id: 'r1',
+    fields: { tags, tags_edited: true, total_minutes: null },
+  });
+  expect(db.select().from(recipes).where(eq(recipes.id, 'r1')).get()).toMatchObject({ tags, tagsEdited: true });
+  expect(() => updateRows(db, recipes, eq(recipes.id, 'r1'), { addedBy: 'someone' })).toThrow(
+    "recipes.addedBy can't be patched",
+  );
 });

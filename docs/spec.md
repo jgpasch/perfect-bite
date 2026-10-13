@@ -61,6 +61,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 | 12 | "Hey Siri, add to The Perfect Bite" sends an ingredient to a list | 4.9 |
 | 13 | Notifications: in app now (recipe import), push someday | 4.11, 11.1 |
 | 14 | Import a recipe from a link (share sheet or in-app) onto a list | 4.10, 6.6 |
+| 15 | Recipes are tagged by meal, cuisine, protein, diet, method and time, and the Recipes tab can be searched and filtered by them | 4.14, 5 |
 
 ---
 
@@ -319,7 +320,7 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 **`admin.delete_user(p_user_id, p_note)`**: account deletion (4.8).
 - Raises `user not found` for an unknown id, changing nothing.
 - For each of the user's households (in their household order) it runs the leaving rules, `private.remove_member_from_household` (4.7): the last member leaving deletes the household and its data (`deleted`); the last owner leaving promotes the member who joined earliest (`promoted`); otherwise the user just leaves (`left`). The helper doesn't create a personal household; that's for callers whose user goes on using the app (`leave_household`, `remove_member`).
-- Then it deletes the `auth.users` row, which cascades their memberships, profile, aisle order and settings. Rows they made in households that remain (items added or checked, contributions, invites) stay, with `added_by`, `checked_by`, `created_by` and `used_by` set to null.
+- Then it deletes the `auth.users` row, which cascades their memberships, profile, aisle order and settings. Rows they made in households that remain (items added or checked, contributions, recipes, invites) stay, with `added_by`, `checked_by`, `created_by` and `used_by` set to null.
 - Its audit row has `action` `delete_user`, the user's id, the note, and `details`: the email, the display name and, per household, its id, name and outcome (with `promoted_user_id` for `promoted`). It returns the same `details`.
 
 **Plans and features.** A feature is a text key; a plan is a named set of features (`plans`, `plan_features`, `user_plans`, 5).
@@ -331,6 +332,22 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 - **In the app.** A store in `src/features/plans/` holds the user's features: `features.ts` (`useFeature(feature)` for screens, `hasFeature(feature)` for other code) and `load.ts`, which calls `my_features()` after sign-in and on each foreground and reconnect while signed in and online, keeps the last answer in device settings (with the user's id) so an offline launch has it, and clears both on sign-out. Until the first answer it assumes the default plan (standard), so nothing hides or stops by mistake. A function's `not_entitled` answer drops that feature from the store at once and reloads it. Without `categorize` the app sends nothing to `categorize-ingredients` (4.3.1, 6.3); when the store gains it (a plan change), the catch-up runs right away so names left pending are sent. Without `recipe_import` the app hides recipe import's entry points: **Add recipe from link…** in a list's menu and both **Import from link** buttons on the Recipes tab (the empty state's and the toolbar's). An import answered `not_entitled` fails with "Recipe import isn't included in your plan." (4.10).
 - Edge Functions enforce entitlements; the app only hides or skips what isn't enabled. Each function checks its feature first, before the rate limit or any database, fetch or LLM work, through `requireFeature(admin, userId, feature, householdId?)` (`supabase/functions/_shared/entitlements.ts`, which calls `has_feature` and throws `NotEntitledError`), and answers **403** with the usual error body, `{ error: 'not_entitled', message }`: `categorize-ingredients` checks `categorize` (6.1) and `import-recipe` checks `recipe_import` (6.6). An import's inline categorizing isn't checked again, since `recipe_import` implies `categorize`. Neither request carries a household, so neither passes one yet.
 - Local dev: `supabase/seed.sql` puts the dev user on plus, so manual testing against local Supabase has every feature. The `yarn ai:*` scripts (CLI and evals) run the handlers against in-memory stores with no database, and those stores grant every feature.
+
+### 4.14 Recipe tags and filtering
+
+Recipes are tagged so the Recipes tab stays usable at 50+ recipes (req 15). (4.13 is kept for push notifications.)
+
+- **The tags.** A fixed list, never free-form, in `src/shared/recipe-tags.ts`, used by the app, the `import-recipe` Edge Function and the Zod schemas. Each value has a slug (stored) and a label (shown). The facets in display order, with how many a recipe may have:
+  - Meal, up to 2: breakfast, lunch, dinner, side, dessert, snack, drink.
+  - Cuisine, up to 2: american, mexican, latin-american, caribbean, italian, french, spanish, greek, mediterranean, middle-eastern, indian, chinese, japanese, korean, thai, vietnamese, african.
+  - Protein, up to 3: chicken, turkey, beef, pork, lamb, fish, shellfish, eggs, tofu-tempeh ("Tofu & tempeh"), beans-lentils ("Beans & lentils").
+  - Diet, up to 2: vegetarian, vegan. No gluten-free, dairy-free or nut-free: a wrong guess could hurt someone with an allergy.
+  - Method, up to 2: pressure-cooker (label "Instant Pot"), slow-cooker, sheet-pan, one-pot, grill, air-fryer, no-cook.
+- **Time** isn't a tag. `timeBucket(total_minutes)` gives Under 30 min (under 30), Under 1 hour (30 to 60) or Over 1 hour (over 60); a recipe with no time has no bucket.
+- **Regions.** Each cuisine maps to a region (american, latin, european, middle-eastern, asian, african) in the same file, for the Later "by category" view (11.5). Nothing uses it yet.
+- **Values the app doesn't know.** `RecipeTagsSchema` keeps the five facets (a missing one becomes empty), drops any other key and keeps every slug. `knownTags()` drops slugs the app doesn't know, for display only; saves write the stored value. So a value added later doesn't break older apps, and they don't erase it.
+- **Data** (5): `tags` (null = never tagged), `tags_edited` (set by the first edit by a person; hides "Tagged when you imported it"), `total_minutes` (1 to 2880) and `added_by` (set by the server to whoever inserted the recipe; recipes from before this have none). The first three are field-level last-writer-wins like the other recipe fields, the whole `tags` value as one field (7.1, 7.3).
+- **Where tags come from.** An import saves the tags and time the extraction returned. An import that reuses an existing recipe (same canonical URL, 4.10) leaves it untouched, so the AI never overwrites tags a person edited. Recipes made by hand (New recipe, from list items) start untagged. Copy to household keeps tags and time. Existing recipes stay untagged until a member tags them.
 
 ---
 
@@ -428,9 +445,15 @@ create table recipes (
   name         text not null,
   notes        text,
   source_url   text,
+  tags          jsonb,                           -- 4.14; null = never tagged
+  tags_edited   boolean not null default false,  -- a person has edited the tags
+  total_minutes int check (total_minutes between 1 and 2880),
+  added_by      uuid references auth.users on delete set null,  -- the server sets it on insert
   deleted_at   timestamptz,
   field_clock  jsonb not null default '{}'
 );
+-- recipes_tags_shape: tags may only have the keys meal, cuisine, protein, diet and method, each an
+-- array of strings. The values aren't checked, so adding one needs no migration.
 
 create table list_items (
   id              uuid primary key,
@@ -686,6 +709,7 @@ This is the hardest part of the project. Stash only syncs append-only captures p
   - Wire format: `'<wall clock ms, 13 digits>-<counter, 4 hex digits>-<device id>'` (device id: letters, digits, `_` or `-`, up to 64), e.g. `1760000000000-0000-3f9a…`. Fixed widths make plain text comparison order it by time, then counter, then device.
 - The usage tables and `household_category_overrides` have composite keys, so their mutations name the row with `key` (`{ household_id, ingredient_name[, unit_key] }`) instead of `id`; the usage tables and send `use_count` changes as `counters: { use_count: <delta> }`, which add up across devices instead of last-writer-wins. `ingredient_unit_usage.last_used_at` merges as the later of both sides.
 - `fields` may not include the row key, `updated_at`, `field_clock` or `merged_into` (server-owned). `household_id` and `created_at` take effect on insert only; a row can't move to another household.
+- `recipes.added_by` is the server's: `apply_mutations` sets it to the caller on insert (with no field clock) and ignores a client value on insert and update, so the app never sends it. `tags`, `tags_edited` and `total_minutes` are last-writer-wins like the other recipe fields, the whole `tags` value as one field (4.14). `jsonb` values such as `tags` go over the wire as JSON, and pull compares them by content, not key order, since Postgres reorders `jsonb` keys.
 - **Client side** (`src/sync/`): `hlc.ts` is the pure clock; `clock.ts` keeps the device id and last HLC in device settings, written in the same transaction as each write, so the clock stays monotonic across launches. Every write to household data (households, lists, items, contributions, recipes, recipe ingredients, usage, custom categories, category overrides) and to the per-user tables (category order, settings) goes through `mutate.ts` (`insertRow`, `updateRows`, `upsertRow`, `deleteRows`), which writes the row, its local `field_clock` (each field's HLC from its last write) and one outbox mutation per row in one transaction. An insert sends every column but the key, counters, server-owned ones and ones the server doesn't take from clients (a custom category's `slug` and `default_rank`, an override's `created_at`); an update sends exactly the fields it set. The local `outbox` table keeps each mutation in wire shape plus its `household_id` (null for per-user rows), so a lost membership can drop its mutations (7.2).
   - Custom categories (`categories` with a `household_id`: insert with `household_id` and `name`, then renames) and `household_category_overrides` (`category_id` only; Reset to default sends `category_id: null` rather than deleting) are household data and go through `apply_mutations` with field-level LWW, like lists.
   - Per-user tables aren't in `apply_mutations`; their mutations use the same shape (`key: { user_id, ... }`), and the order table, which hard-deletes, sends `delete: true` instead of a `deleted_at` field. `households` isn't in `apply_mutations` either (it changes through the household functions, 4.7). Push (`src/sync/push.ts`) sends these one at a time in their place in the queue: per-user rows as direct writes (upsert by key, or delete; RLS keeps them to the user's own rows, so last push wins rather than HLC), and a new household through `create_household`. Other household changes aren't synced yet and are recorded as rejected.

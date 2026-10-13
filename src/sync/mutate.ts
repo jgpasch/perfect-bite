@@ -44,7 +44,8 @@ const SPECS = new Map<SQLiteTable, Spec>([
   [lists, { key: ['id'], household: true }],
   [listItems, { key: ['id'], household: true }],
   [listItemContributions, { key: ['id'], household: true }],
-  [recipes, { key: ['id'], household: true }],
+  // The server sets added_by to whoever inserted it.
+  [recipes, { key: ['id'], household: true, unsent: ['addedBy'] }],
   [recipeIngredients, { key: ['id'], household: true }],
   [ingredientUsage, { key: ['householdId', 'ingredientName'], counters: ['useCount'], household: true }],
   [ingredientUnitUsage, { key: ['householdId', 'ingredientName', 'unitKey'], counters: ['useCount'], household: true }],

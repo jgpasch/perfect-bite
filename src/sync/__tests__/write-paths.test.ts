@@ -399,7 +399,18 @@ describe('recipes', () => {
       {
         table: 'recipes',
         id,
-        fields: { household_id: householdId, name: 'Tacos', notes: null, source_url: null, deleted_at: null, created_at: ISO },
+        // A recipe made by hand starts untagged (spec 4.14).
+        fields: {
+          household_id: householdId,
+          name: 'Tacos',
+          notes: null,
+          source_url: null,
+          tags: null,
+          tags_edited: false,
+          total_minutes: null,
+          deleted_at: null,
+          created_at: ISO,
+        },
       },
       { table: 'recipes', id, fields: { name: 'Fish tacos', notes: null, source_url: 'https://example.com' } },
       { table: 'recipes', id, fields: { deleted_at: ISO } },
