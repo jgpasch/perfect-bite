@@ -21,21 +21,24 @@ import { useTheme } from '@/hooks/use-theme';
 export function ViewMenuButton({ value, onChange }: { value: ListViewMode; onChange: (mode: ListViewMode) => void }) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();
   const look = listHeaderColors(colors).viewButton;
-  // The pill is shorter than a tap target, so its face is padded to 44 pt and the padding taken back
-  // from the layout, keeping the pill where it would sit.
+  // The pill is shorter than a tap target, so its face is padded to 44 pt and the same padding taken
+  // back from the layout: the row then lays out the pill itself and centres it on the "N to get"
+  // text. The padding is fixed rather than a 44 pt minimum, so it still matches when Dynamic Type
+  // makes the pill taller. Don't pin this view to the row's top (`alignSelf`): it only lined up with
+  // the text while the row was exactly as tall as the pill.
   const inset = (sizes.minTapTarget - sizes.viewButton) / 2;
   return (
-    <View style={[styles.start, { marginVertical: -inset }]}>
+    <View style={{ marginVertical: -inset }}>
       <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
         <Menu
           label={
             <RNHostView matchContents>
-              <View style={[styles.start, { minHeight: sizes.minTapTarget, justifyContent: 'center' }]}>
+              <View style={[styles.start, { paddingVertical: inset }]}>
                 <View
                   style={[
                     styles.pill,
                     {
-                      height: sizes.viewButton,
+                      minHeight: sizes.viewButton,
                       borderRadius: rounded.full,
                       paddingLeft: spacing.md,
                       paddingRight: spacing.md - spacing.xxs,

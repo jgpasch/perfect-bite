@@ -1,6 +1,7 @@
 // The list's view button (spec 4.6): reads the current view and opens a menu of the three, the current one ticked.
 import { describe, expect, jest, test } from '@jest/globals';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { StyleSheet } from 'react-native';
+import { act, create, type ReactTestRenderer,type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ViewMenuButton } from '../view-menu-button';
 
@@ -54,6 +55,29 @@ describe('ViewMenuButton', () => {
       ['By aisle', false],
       ['By recipe', true],
     ]);
+  });
+
+  test('the pill lays out at its own height, centred in the row, with a 44 pt tap area', () => {
+    const { tree } = render('newest');
+    const first = (node: ReactTestRendererJSON) => node.children![0] as ReactTestRendererJSON;
+    // View > Host > Menu > RNHostView > face (the 44 pt tap area) > pill.
+    const root = tree.toJSON() as ReactTestRendererJSON;
+    const label = first(first(first(root)));
+    expect(label.type).toBe('RNHostView');
+    const outer = StyleSheet.flatten(root.props.style);
+    // Not pinned to the row's top, so the row's `alignItems: 'center'` lines it up with "N to get".
+    expect(outer.alignSelf).toBeUndefined();
+    expect(outer.marginVertical).toBe(-6);
+    const face = first(label);
+    const faceStyle = StyleSheet.flatten(face.props.style);
+    expect(faceStyle.paddingVertical).toBe(6);
+    expect(faceStyle.minHeight).toBeUndefined();
+    const pill = StyleSheet.flatten(first(face).props.style);
+    expect(pill.minHeight).toBe(32);
+    expect(pill.height).toBeUndefined();
+    // Tap area: the pill plus the padding on both sides; layout: that minus the margin taken back.
+    expect(pill.minHeight + 2 * faceStyle.paddingVertical).toBe(44);
+    expect(pill.minHeight + 2 * faceStyle.paddingVertical + 2 * outer.marginVertical).toBe(32);
   });
 
   test('picking a view reports it', () => {
