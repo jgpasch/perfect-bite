@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 
 import { avatarColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -15,9 +15,10 @@ import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { signOut, useAccountState } from '@/features/auth/account';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
+import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
-import { getAisleColorStyle } from '@/features/settings/device-settings';
+import { getAisleColorStyle, setKeepScreenOn } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -40,6 +41,7 @@ export default function SettingsScreen() {
   // A device setting: read again on coming back from its screen.
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
+  const keepScreenOn = useKeepScreenOnSetting();
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -91,6 +93,20 @@ export default function SettingsScreen() {
             value={aisleColorStyleLabel(aisleColors)}
             icon={{ name: 'paintpalette', hue: 'rose' }}
             onPress={() => router.push('/settings/aisle-colors')}
+          />
+          <SettingsRow
+            label="Keep screen on"
+            detail="While a list has items to get"
+            icon={{ name: 'sun.max', hue: 'amber' }}
+            trailing={
+              <Switch
+                value={keepScreenOn}
+                onValueChange={setKeepScreenOn}
+                trackColor={{ true: colors.primary }}
+                accessibilityLabel="Keep screen on"
+                accessibilityHint="Stops the screen locking while a list has items to get"
+              />
+            }
           />
           <SettingsRow
             label="Sync status"

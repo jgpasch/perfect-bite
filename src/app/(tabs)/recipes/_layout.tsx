@@ -14,6 +14,8 @@ export default function RecipesStackLayout() {
         options={{
           title: 'Recipes',
           headerLargeTitleEnabled: true,
+          // A header background colour hides the large title on iOS 26+; the screen's own background shows through.
+          headerStyle: { backgroundColor: 'transparent' },
           // The native large title, set in the display face (board 05).
           headerLargeTitleStyle: { color: colors.ink, fontFamily, fontSize, fontWeight },
         }}

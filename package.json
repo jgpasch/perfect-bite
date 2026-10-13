@@ -20,6 +20,7 @@
     "expo-glass-effect": "~57.0.4",
     "expo-haptics": "~57.0.3",
     "expo-image": "~57.0.5",
+    "expo-keep-awake": "~57.0.2",
     "expo-linking": "~57.0.12",
     "expo-mail-composer": "~57.0.2",
     "expo-network": "~57.0.2",
@@ -70,7 +71,7 @@
     "ai:check-seed": "deno run --allow-env --allow-net --allow-read --allow-write=supabase/functions/categorize-ingredients/eval/results --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/check-seed.ts",
     "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",
     "ai:tags": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/suggest-recipe-tags/cli.ts",
-    "ai:eval:recipe":"deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
+    "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
     "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts"
   },
   "private": true,

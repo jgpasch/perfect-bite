@@ -10215,6 +10215,7 @@ __metadata:
     expo-glass-effect: "npm:~57.0.4"
     expo-haptics: "npm:~57.0.3"
     expo-image: "npm:~57.0.5"
+    expo-keep-awake: "npm:~57.0.2"
     expo-linking: "npm:~57.0.12"
     expo-mail-composer: "npm:~57.0.2"
     expo-network: "npm:~57.0.2"

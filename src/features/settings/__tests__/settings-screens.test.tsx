@@ -3,6 +3,7 @@
 // read back from it.
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { ReactElement } from 'react';
+import { Switch } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households } from '@/db';
@@ -18,7 +19,7 @@ import DeveloperScreen from '@/app/(tabs)/settings/developer';
 import SiriDefaultListScreen from '@/app/(tabs)/settings/siri';
 import SyncStatusScreen from '@/app/(tabs)/settings/sync';
 
-import { getAisleColorStyle, getItemRowStyle, setAisleColorStyle } from '../device-settings';
+import { getAisleColorStyle, getItemRowStyle, getKeepScreenOn, setAisleColorStyle, setKeepScreenOn } from '../device-settings';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -199,6 +200,26 @@ describe('Settings', () => {
     setAisleColorStyle('header');
     act(() => tree?.unmount());
     button(render(<SettingsScreen />), 'Aisle colours, Header only');
+  });
+
+  it('Keep screen on is a switch, on by default, that turns the device setting off and on', () => {
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).toContain('Keep screen on While a list has items to get');
+    const toggle = () => root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Keep screen on');
+    expect(toggle().props.accessibilityHint).toBe('Stops the screen locking while a list has items to get');
+    expect(toggle().props.value).toBe(true);
+    act(() => toggle().props.onValueChange(false));
+    expect(getKeepScreenOn()).toBe(false);
+    expect(toggle().props.value).toBe(false);
+    act(() => toggle().props.onValueChange(true));
+    expect(getKeepScreenOn()).toBe(true);
+    expect(toggle().props.value).toBe(true);
+  });
+
+  it('Keep screen on shows off when it was turned off before', () => {
+    setKeepScreenOn(false);
+    const root = render(<SettingsScreen />);
+    expect(root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Keep screen on').props.value).toBe(false);
   });
 
   it('follows the Siri default list', () => {

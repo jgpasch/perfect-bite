@@ -45,3 +45,22 @@ export function getItemRowStyle(): ItemRowStyle {
 export function setItemRowStyle(style: ItemRowStyle): void {
   setDeviceSetting(ITEM_ROW_STYLE_KEY, style);
 }
+
+/** Settings > Shopping > Keep screen on (spec 4.1): on unless turned off on this device. */
+export const KEEP_SCREEN_ON_KEY = 'list.keepScreenOn';
+const keepScreenOnListeners = new Set<() => void>();
+
+export function getKeepScreenOn(): boolean {
+  return getDeviceSetting<unknown>(KEEP_SCREEN_ON_KEY, true) !== false;
+}
+
+export function setKeepScreenOn(on: boolean): void {
+  setDeviceSetting(KEEP_SCREEN_ON_KEY, on);
+  keepScreenOnListeners.forEach((listener) => listener());
+}
+
+/** Calls `listener` whenever Keep screen on is changed, so an open list follows it at once. */
+export function onKeepScreenOnChange(listener: () => void): () => void {
+  keepScreenOnListeners.add(listener);
+  return () => void keepScreenOnListeners.delete(listener);
+}

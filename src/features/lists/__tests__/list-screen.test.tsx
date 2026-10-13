@@ -3,7 +3,8 @@
 // them and calls their callbacks as a tap, swipe or add would.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { StatusBar } from 'expo-status-bar';
-import { ActionSheetIOS, Share, StyleSheet, type ActionSheetIOSOptions } from 'react-native';
+import { activateKeepAwakeAsync } from 'expo-keep-awake';
+import { ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { categories, db, ingredients } from '@/db';
@@ -11,7 +12,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
-import { getDeviceSetting, setAisleColorStyle, setItemRowStyle } from '@/features/settings/device-settings';
+import { getDeviceSetting, setAisleColorStyle, setItemRowStyle, setKeepScreenOn } from '@/features/settings/device-settings';
 import type { MyInvite } from '@/features/households/invites';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { SYSTEM_CATEGORIES } from '@/shared';
@@ -49,6 +50,12 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+// The keep-awake tags held right now; the screen stays on while there's any.
+const mockAwake = new Set<string>();
+jest.mock('expo-keep-awake', () => ({
+  activateKeepAwakeAsync: jest.fn((tag: string) => (mockAwake.add(tag), Promise.resolve())),
+  deactivateKeepAwake: jest.fn((tag: string) => (mockAwake.delete(tag), Promise.resolve())),
+}));
 // Live queries read once per render from the test database.
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
@@ -971,5 +978,105 @@ describe('toasts from elsewhere', () => {
     expect(text()).toContain('Dal');
     expect(text()).not.toContain('Added 2 recipes');
     expect(text()).not.toContain('Tikka');
+  });
+});
+
+describe('keeping the screen on (spec 4.1)', () => {
+  const appStateListeners = new Set<(state: AppStateStatus) => void>();
+  beforeEach(() => {
+    mockAwake.clear();
+    jest.mocked(activateKeepAwakeAsync).mockClear();
+    appStateListeners.clear();
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
+      appStateListeners.add(listener as (state: AppStateStatus) => void);
+      return { remove: () => void appStateListeners.delete(listener as (state: AppStateStatus) => void) } as never;
+    });
+  });
+  const appGoes = (state: AppStateStatus) => act(() => appStateListeners.forEach((l) => l(state)));
+  const awake = () => mockAwake.size > 0;
+
+  test('a list with unchecked items keeps it on, under a tag for this list', () => {
+    put('milk');
+    render();
+    expect(awake()).toBe(true);
+    expect([...mockAwake][0]).toMatch(new RegExp(`^list:${listId}:`));
+  });
+
+  test('an empty list, or one with everything checked, does not', () => {
+    render();
+    expect(awake()).toBe(false);
+    act(() => tree!.unmount());
+    tree = null;
+    const { itemId } = put('milk')!;
+    setItemChecked(itemId, true, USER);
+    render();
+    expect(awake()).toBe(false);
+    expect(activateKeepAwakeAsync).not.toHaveBeenCalled();
+  });
+
+  test('checking off the last item lets it lock; adding one keeps it on again', () => {
+    put('milk');
+    render();
+    act(() => row('milk').props.onToggle());
+    expect(awake()).toBe(false);
+    add('eggs');
+    expect(awake()).toBe(true);
+  });
+
+  test("stays on over this list's sheets and Your lists, and lets go elsewhere", () => {
+    put('milk');
+    render();
+    mockPath.current = `/list/${listId}/item/x`;
+    refresh();
+    expect(awake()).toBe(true);
+    mockPath.current = '/lists-sheet';
+    refresh();
+    expect(awake()).toBe(true);
+    mockPath.current = '/recipes';
+    refresh();
+    expect(awake()).toBe(false);
+    mockPath.current = '/import-recipe';
+    refresh();
+    expect(awake()).toBe(false);
+    mockPath.current = '/list/other/item/x';
+    refresh();
+    expect(awake()).toBe(false);
+    mockPath.current = '/lists';
+    refresh();
+    expect(awake()).toBe(true);
+  });
+
+  test('lets go in the background and takes it again in the foreground', () => {
+    put('milk');
+    render();
+    appGoes('background');
+    expect(awake()).toBe(false);
+    appGoes('active');
+    expect(awake()).toBe(true);
+  });
+
+  test('lets go when the screen goes away', () => {
+    put('milk');
+    render();
+    act(() => tree!.unmount());
+    tree = null;
+    expect(awake()).toBe(false);
+  });
+
+  test('with the setting off from the start, never keeps it on', () => {
+    setKeepScreenOn(false);
+    put('milk');
+    render();
+    expect(awake()).toBe(false);
+    expect(activateKeepAwakeAsync).not.toHaveBeenCalled();
+  });
+
+  test('switching the setting off while the list is open lets go at once, and on takes it again', () => {
+    put('milk');
+    render();
+    act(() => setKeepScreenOn(false));
+    expect(awake()).toBe(false);
+    act(() => setKeepScreenOn(true));
+    expect(awake()).toBe(true);
   });
 });
