@@ -157,7 +157,7 @@ export function setLastOpenedList(listId: string): void {
   setDeviceSetting(LAST_OPENED_LIST_KEY, listId);
 }
 
-/** The list a cold launch opens, or null for the Lists home. Archived lists don't count. */
+/** The list a cold launch opens, or null when there are none. Archived lists don't count. */
 export function getLaunchListId(userId: string): string | null {
   const open = db
     .select({ id: lists.id })

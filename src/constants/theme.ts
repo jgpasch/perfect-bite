@@ -121,17 +121,13 @@ const tight = (size: number) => Math.round(size * -0.025 * 100) / 100;
 export const Typography = {
   /** The app's name on the sign-in screen. */
   hero: { fontFamily: Fonts.display, fontSize: 48, fontWeight: '800', lineHeight: 50, letterSpacing: tight(48) },
-  /** Tab roots: "Your lists", "Settings". */
+  /** Tab roots: "Recipes", "Settings". */
   largeTitle: { fontFamily: Fonts.display, fontSize: 40, fontWeight: '800', lineHeight: 44, letterSpacing: tight(40) },
   /** Pushed screens: a list's name, "Aisle order". */
   screenTitle: { fontFamily: Fonts.display, fontSize: 36, fontWeight: '800', lineHeight: 40, letterSpacing: tight(36) },
   /** Sheet titles: the item's name. */
   sheetTitle: { fontFamily: Fonts.display, fontSize: 30, fontWeight: '800', lineHeight: 34, letterSpacing: tight(30) },
   title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
-  /** The item-to-get count on a list tile. */
-  tileCount: { fontFamily: Fonts.display, fontSize: 34, fontWeight: '800', lineHeight: 36, letterSpacing: tight(34) },
-  /** A household's name over its tiles on the Lists home, when there is more than one. */
-  householdName: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '700', lineHeight: 24 },
   /** The letter in a round avatar (account card, household members). */
   initial: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   /** Card section headers: aisle or recipe name. */
@@ -178,8 +174,6 @@ export const Rounded = {
   segment: 11,
   /** cards */
   card: 22,
-  /** list tiles */
-  tile: 22,
   /** sheets */
   sheet: 28,
   /** pills, round checks, round icon buttons, primary CTAs */
@@ -220,15 +214,13 @@ export const Sizes = {
   focusRing: 2,
   /** a recipe chip's outline in the add bar's suggestion row */
   chipBorder: 1,
-  /** the `primary` outline of an invite card on the lists home */
-  inviteOutline: 2,
-  /** list tiles on the lists home (a minimum, so Dynamic Type can grow them) */
-  tile: 132,
-  /** the New list tile when it sits alone on its row */
-  tileCompact: 56,
-  /** the colour bar before a household's name on the Lists home */
-  householdBar: 22,
-  householdBarWidth: 4,
+  /** the round chevron after the list's name in its header, which opens the Your lists sheet */
+  switcherChevron: 30,
+  /** the dot on that chevron while an invite is waiting, and its ring in the header colour */
+  inviteDot: 10,
+  inviteDotRing: 2,
+  /** a list's colour dot in the Your lists sheet */
+  listDot: 12,
   /** a recipe's tinted icon tile in a section header, and round actions buttons in a card header */
   iconWell: 36,
   /** the item's icon tile beside its name at the top of the item sheet */

@@ -26,18 +26,17 @@ import {
   groupListsByHousehold,
   householdHeaderLabel,
   listsOverview,
-  newListTileIsCompact,
   itemRowLabel,
   launchListId,
+  listRowAccessibilityLabel,
+  listRowCount,
   LIST_VIEW_MODES,
   VIEW_BUTTON_HINT,
   viewButtonAccessibilityLabel,
   viewModeLabel,
   orderByNewest,
-  pairs,
   SORTING_LABEL,
-  tileAccessibilityLabel,
-  tileCount,
+  switcherAccessibilityLabel,
   toGetLabel,
   toggleActionLabel,
   viewModeKey,
@@ -77,45 +76,46 @@ describe('groupListsByHousehold', () => {
   });
 });
 
-describe('pairs', () => {
-  it('puts cells two to a row', () => {
-    expect(pairs([1, 2, 3, 4])).toEqual([
-      [1, 2],
-      [3, 4],
-    ]);
-  });
-
-  it('leaves an odd last cell alone in its row', () => {
-    expect(pairs(['a', 'b', 'c'])).toEqual([['a', 'b'], ['c']]);
-    expect(pairs(['new'])).toEqual([['new']]);
-  });
-
-  it('is empty with no cells', () => {
-    expect(pairs([])).toEqual([]);
-  });
-});
-
-describe('tileCount', () => {
+describe('listRowCount', () => {
   it('shows the count of items to get', () => {
-    expect(tileCount(12)).toEqual({ kind: 'count', text: '12' });
-    expect(tileCount(1)).toEqual({ kind: 'count', text: '1' });
+    expect(listRowCount(12)).toBe('12');
+    expect(listRowCount(1)).toBe('1');
   });
 
-  it('says All done at zero', () => {
-    expect(tileCount(0)).toEqual({ kind: 'done', text: 'All done' });
+  it('says Done at zero', () => {
+    expect(listRowCount(0)).toBe('Done');
   });
 });
 
-describe('tileAccessibilityLabel', () => {
+describe('listRowAccessibilityLabel', () => {
   it('reads the name and how many items are left', () => {
-    expect(tileAccessibilityLabel('Costco', 5)).toBe('Costco, 5 items to get');
-    expect(tileAccessibilityLabel('Costco', 1)).toBe('Costco, 1 item to get');
-    expect(tileAccessibilityLabel('Hardware store', 0)).toBe('Hardware store, all done');
+    expect(listRowAccessibilityLabel('Costco', 5)).toBe('Costco, 5 items to get');
+    expect(listRowAccessibilityLabel('Costco', 1)).toBe('Costco, 1 item to get');
+    expect(listRowAccessibilityLabel('Hardware store', 0)).toBe('Hardware store, all done');
   });
 
-  it('says which list is Siri’s and which are archived', () => {
-    expect(tileAccessibilityLabel('Groceries', 12, { isDefault: true })).toBe('Groceries, 12 items to get, Siri list');
-    expect(tileAccessibilityLabel('Old', 0, { archived: true })).toBe('Old, all done, archived');
+  it('says which list is Siri’s, which are archived and which is current', () => {
+    expect(listRowAccessibilityLabel('Groceries', 12, { isDefault: true })).toBe('Groceries, 12 items to get, Siri list');
+    expect(listRowAccessibilityLabel('Old', 0, { archived: true })).toBe('Old, all done, archived');
+    expect(listRowAccessibilityLabel('HEB', 3, { current: true })).toBe('HEB, 3 items to get, current');
+    expect(listRowAccessibilityLabel('Groceries', 12, { isDefault: true, current: true })).toBe(
+      'Groceries, 12 items to get, Siri list, current',
+    );
+  });
+
+  it('leaves out flags that are false', () => {
+    expect(listRowAccessibilityLabel('HEB', 2, { isDefault: false, archived: false, current: false })).toBe('HEB, 2 items to get');
+  });
+});
+
+describe('switcherAccessibilityLabel', () => {
+  it('reads the list name and that it switches lists', () => {
+    expect(switcherAccessibilityLabel('Groceries', 0)).toBe('Groceries, switch list');
+  });
+
+  it('adds the waiting invites', () => {
+    expect(switcherAccessibilityLabel('Groceries', 1)).toBe('Groceries, switch list, 1 invite waiting');
+    expect(switcherAccessibilityLabel('Groceries', 3)).toBe('Groceries, switch list, 3 invites waiting');
   });
 });
 
@@ -557,14 +557,5 @@ describe('householdHeaderLabel', () => {
     expect(householdHeaderLabel('test fam', 2)).toBe('test fam, 2 members');
     expect(householdHeaderLabel('Solo', 1)).toBe('Solo, 1 member');
     expect(householdHeaderLabel('test fam')).toBe('test fam');
-  });
-});
-
-describe('newListTileIsCompact', () => {
-  it('is short when it starts a row on its own', () => {
-    expect(newListTileIsCompact(0)).toBe(true);
-    expect(newListTileIsCompact(1)).toBe(false);
-    expect(newListTileIsCompact(2)).toBe(true);
-    expect(newListTileIsCompact(3)).toBe(false);
   });
 });

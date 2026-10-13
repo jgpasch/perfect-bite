@@ -15,16 +15,15 @@ import {
   checkAppearance,
   checkState,
   itemNameColor,
-  listTileColors,
+  listRowLook,
   pillColors,
   pillLook,
   prominentButtonTint,
   sectionHeaderLabel,
   segmentColors,
-  siriMarkColors,
   toastAnnouncement,
 } from '@/components/appearance';
-import { AisleColors, Opacity, Palette, Sizes, Spacing, type ColorScheme } from '@/constants/theme';
+import { AisleColors, Palette, Sizes, Spacing, type ColorScheme } from '@/constants/theme';
 import { contrastRatio, mix } from '@/domain/contrast';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 
@@ -295,80 +294,59 @@ describe('the other primitives’ text pairs', () => {
   });
 });
 
-describe('listTileColors', () => {
+describe('listRowLook', () => {
   const HUES = ['green', 'blue', 'rose', 'amber', 'grey'] as const;
 
-  it('fills the Siri default list primary while its colour is Default', () => {
-    expect(listTileColors(true, null, Palette.light, AisleColors.light)).toEqual({
-      fill: Palette.light.primary,
-      text: 'onPrimary',
-      secondary: 'onPrimary',
-      mark: 'onPrimary',
-    });
-  });
-
-  it('makes other Default lists surface cards', () => {
-    expect(listTileColors(false, null, Palette.dark, AisleColors.dark)).toEqual({
-      fill: Palette.dark.surface,
+  it('is a surface row with ink text when not current', () => {
+    expect(listRowLook(false, false, 'blue', Palette.light, AisleColors.light)).toEqual({
+      fill: '#FFFFFF',
       text: 'ink',
       secondary: 'inkSecondary',
-      mark: 'ink',
+      dot: AisleColors.light.blue.dot,
+      ring: null,
     });
   });
 
-  it('fills a coloured list with its hue’s soft tint and ink text, default or not', () => {
-    const rose = { fill: AisleColors.light.rose.soft, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
-    expect(listTileColors(false, 'rose', Palette.light, AisleColors.light)).toEqual(rose);
-    // The Siri list gives up its primary fill, and its mark switches to ink.
-    expect(listTileColors(true, 'rose', Palette.light, AisleColors.light)).toEqual(rose);
-    expect(listTileColors(true, 'grey', Palette.dark, AisleColors.dark).fill).toBe(AisleColors.dark.grey.soft);
+  it('tints the current row primarySoft with onPrimarySoft text', () => {
+    expect(listRowLook(true, false, 'rose', Palette.light, AisleColors.light)).toEqual({
+      fill: '#DDEFE2',
+      text: 'onPrimarySoft',
+      secondary: 'onPrimarySoft',
+      dot: AisleColors.light.rose.dot,
+      ring: null,
+    });
+    expect(listRowLook(true, false, null, Palette.dark, AisleColors.dark).fill).toBe(Palette.dark.primarySoft);
   });
 
-  it.each(SCHEMES)('keeps the tile text at 4.5:1 or better for every colour in %s mode', (scheme) => {
+  it('gives the Siri default list a primary dot while its colour is Default', () => {
+    expect(listRowLook(false, true, null, Palette.light, AisleColors.light)).toMatchObject({ dot: Palette.light.primary, ring: null });
+    expect(listRowLook(true, true, null, Palette.dark, AisleColors.dark)).toMatchObject({ dot: Palette.dark.primary, ring: null });
+  });
+
+  it('lets a coloured Siri list keep its hue dot', () => {
+    expect(listRowLook(false, true, 'amber', Palette.light, AisleColors.light)).toMatchObject({
+      dot: AisleColors.light.amber.dot,
+      ring: null,
+    });
+  });
+
+  it('draws a hollow controlBorder ring for a Default list that is not the Siri list', () => {
+    expect(listRowLook(false, false, null, Palette.light, AisleColors.light)).toMatchObject({ dot: null, ring: '#B9C4BC' });
+    expect(listRowLook(true, false, null, Palette.dark, AisleColors.dark)).toMatchObject({
+      dot: null,
+      ring: Palette.dark.controlBorder,
+    });
+  });
+
+  it.each(SCHEMES)('keeps the row text at 4.5:1 or better, current or not, in %s mode', (scheme) => {
     const c = Palette[scheme];
-    for (const isDefault of [true, false]) {
+    for (const current of [true, false]) {
       for (const hue of [null, ...HUES]) {
-        const { fill, text, secondary } = listTileColors(isDefault, hue, c, AisleColors[scheme]);
+        const { fill, text, secondary } = listRowLook(current, false, hue, c, AisleColors[scheme]);
         expect(contrastRatio(c[text], fill)).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(c[secondary], fill)).toBeGreaterThanOrEqual(4.5);
       }
     }
-  });
-
-  it.each(SCHEMES)('keeps "Siri" at 4.5:1 or better on every colour of the default tile in %s mode', (scheme) => {
-    const c = Palette[scheme];
-    for (const hue of [null, ...HUES]) {
-      const { fill, mark } = listTileColors(true, hue, c, AisleColors[scheme]);
-      const { text } = siriMarkColors(c, Opacity.tint, mark);
-      expect(contrastRatio(text, mix(c[mark], fill, Opacity.tint))).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  it.each(SCHEMES)('sets the tiles apart from the ground in %s mode', (scheme) => {
-    // The Siri tile is a solid block; the white tiles read as cards on the pale ground.
-    expect(contrastRatio(Palette[scheme].primary, Palette[scheme].background)).toBeGreaterThanOrEqual(3);
-  });
-});
-
-describe('siriMarkColors', () => {
-  it('is onPrimary on a faint onPrimary wash', () => {
-    // 0.12 × 255 = 30.6 → 31 → 1f.
-    expect(siriMarkColors(Palette.light, 0.12)).toEqual({ fill: '#FFFFFF1f', text: '#FFFFFF' });
-    expect(siriMarkColors(Palette.dark, 0.12)).toEqual({ fill: '#0E1F141f', text: '#0E1F14' });
-  });
-
-  it('takes another text colour, e.g. ink on a coloured tile', () => {
-    expect(siriMarkColors(Palette.light, 0.12, 'ink')).toEqual({
-      fill: `${Palette.light.ink}1f`,
-      text: Palette.light.ink,
-    });
-  });
-
-  it.each(SCHEMES)('keeps "Siri" at 4.5:1 or better over the Siri tile in %s mode', (scheme) => {
-    const c = Palette[scheme];
-    const { text } = siriMarkColors(c, Opacity.tint);
-    const shown = mix(c.onPrimary, c.primary, Opacity.tint);
-    expect(contrastRatio(text, shown)).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -384,8 +362,8 @@ describe('itemNameColor', () => {
 });
 
 describe('sizes', () => {
-  it('has the lists home and card header sizes', () => {
-    expect(Sizes).toMatchObject({ tile: 132, iconWell: 36 });
+  it('has the card header and Your lists sheet sizes', () => {
+    expect(Sizes).toMatchObject({ iconWell: 36, switcherChevron: 30, inviteDot: 10, inviteDotRing: 2, listDot: 12 });
     // The recipe actions button reaches 44 pt with hit slop.
     expect((Sizes.minTapTarget - Sizes.iconWell) / 2).toBe(4);
   });

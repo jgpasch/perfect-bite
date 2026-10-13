@@ -68,7 +68,7 @@ export function recipeHue(recipeId: string): AisleHue {
   return idHue(recipeId);
 }
 
-/** A household's colour (its section bar on the Lists home), from its id; there is no column for it. */
+/** A household's colour (an invite's avatar), from its id; there is no column for it. */
 export function householdColor(householdId: string): AisleHue {
   return idHue(householdId);
 }

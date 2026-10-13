@@ -14,6 +14,7 @@ import { Screen } from '@/components/themed-view';
 import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
+import { openList } from '@/features/lists/current-list';
 import { getList } from '@/features/lists/lists';
 import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
@@ -89,7 +90,7 @@ export default function RecipesScreen() {
               { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
               {
                 label: 'Open list',
-                onPress: () => (setToast(null), router.push({ pathname: '/list/[id]', params: { id: result.listId } })),
+                onPress: () => (setToast(null), openList(result.listId)),
               },
             ],
           });

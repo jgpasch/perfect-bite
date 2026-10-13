@@ -11,6 +11,7 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { getAccount } from '@/features/auth/account';
+import { openList } from '@/features/lists/current-list';
 import { groupListsByHousehold } from '@/features/lists/list-view';
 import { getLaunchListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
@@ -101,7 +102,7 @@ export default function ImportRecipeSheet() {
         // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
         onPress: () => {
           setRecipeAddResult(added);
-          router.navigate({ pathname: '/list/[id]', params: { id: result.listId } });
+          openList(result.listId);
         },
       });
       return;
@@ -109,7 +110,7 @@ export default function ImportRecipeSheet() {
     setRecipeAddResult(added);
     router.back();
     // From that list's menu, the list is underneath already.
-    if (result.listId !== fromList) router.push({ pathname: '/list/[id]', params: { id: result.listId } });
+    if (result.listId !== fromList) openList(result.listId);
   };
 
   if (!listId) return <Screen />;

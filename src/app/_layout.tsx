@@ -15,7 +15,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 export { ErrorBoundary } from 'expo-router';
 
-// A deep link straight to a list (or Siri, later) still gets the tabs underneath to go back to.
+// A deep link (to a recipe, an invite) still gets the tabs underneath to go back to.
 export const unstable_settings = { initialRouteName: '(tabs)' };
 
 SplashScreen.preventAutoHideAsync();
@@ -48,7 +48,13 @@ export default function RootLayout() {
             <Stack screenOptions={screenOptions}>
               <Stack.Protected guard={ready}>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Lists' }} />
-                <Stack.Screen name="list/[id]/index" options={{ title: '' }} />
+                {/* A link to a list makes it current and shows the List tab (spec 4.1). */}
+                <Stack.Screen name="list/[id]/index" options={{ headerShown: false, animation: 'none' }} />
+                {/* Boards G, H: opened from the list's name. */}
+                <Stack.Screen
+                  name="lists-sheet"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
                 <Stack.Screen
                   name="list/[id]/item/[itemId]"
                   options={{

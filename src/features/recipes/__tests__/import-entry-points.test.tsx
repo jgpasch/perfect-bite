@@ -7,7 +7,7 @@ import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { setFeatures, type Feature } from '@/features/plans/features';
 import { resetDb } from '@/test/db';
 
-import ListScreen from '@/app/list/[id]/index';
+import { ListScreen } from '@/features/lists/list-screen';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
 
 import { createRecipe } from '../recipes';
@@ -45,7 +45,7 @@ jest.mock('@/features/lists/view-menu-button', () => ({ ViewMenuButton: () => nu
 jest.mock('@/features/lists/add-bar', () => ({ ItemAddBar: () => null }));
 jest.mock('@/features/lists/item-row', () => ({ ItemRow: () => null }));
 
-const mockParams: { id?: string } = {};
+let listId: string;
 const mockPush = jest.fn();
 // Toolbar items render as host elements so the test can find them by type.
 jest.mock('expo-router', () => {
@@ -71,8 +71,7 @@ jest.mock('expo-router', () => {
     Stack: { Screen: () => null, Title: passThrough(), Toolbar },
     router: { push: (...args: unknown[]) => mockPush(...args), back: () => {} },
     useFocusEffect: () => {},
-    useLocalSearchParams: () => mockParams,
-    usePathname: () => `/list/${mockParams.id}`,
+    usePathname: () => '/lists',
   };
 });
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
@@ -88,7 +87,7 @@ let tree: ReactTestRenderer | null = null;
 beforeEach(() => {
   resetDb();
   ensureStarterData(USER);
-  mockParams.id = getDefaultListId(USER)!;
+  listId = getDefaultListId(USER)!;
   mockPush.mockClear();
 });
 
@@ -115,21 +114,21 @@ describe('the list menu', () => {
     byType(root, 'ToolbarMenuAction').map((n) => n.props.children as string);
 
   test('plus offers "Add recipe from link…", which opens the sheet for this list', () => {
-    const root = render(() => <ListScreen />, PLUS);
+    const root = render(() => <ListScreen id={listId} />, PLUS);
     expect(menuTitles(root)).toContain('Add recipe from link…');
     const action = byType(root, 'ToolbarMenuAction').find((n) => n.props.children === 'Add recipe from link…')!;
     press(action);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { list: mockParams.id } });
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { list: listId } });
   });
 
   test('without recipe_import it is hidden and the rest of the menu stays', () => {
-    const root = render(() => <ListScreen />, STANDARD);
+    const root = render(() => <ListScreen id={listId} />, STANDARD);
     expect(menuTitles(root)).not.toContain('Add recipe from link…');
     expect(menuTitles(root)).toEqual(expect.arrayContaining(['Select items', 'Share as text', 'Uncheck all']));
   });
 
   test('losing recipe_import while the list shows hides it', () => {
-    const root = render(() => <ListScreen />, PLUS);
+    const root = render(() => <ListScreen id={listId} />, PLUS);
     expect(menuTitles(root)).toContain('Add recipe from link…');
     act(() => setFeatures(STANDARD));
     expect(menuTitles(root)).not.toContain('Add recipe from link…');

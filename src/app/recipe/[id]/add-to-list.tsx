@@ -12,6 +12,7 @@ import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
+import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
 import { addRecipeToList, buildRecipeAdds, replaceRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
@@ -60,7 +61,7 @@ export default function AddRecipeToListSheet() {
     setRecipeAddResult({ kind: 'toList', listId, recipeId: id, recipeName: recipe.name, count: added.count, results: added.results });
     router.back();
     // Opened from that list's toast, the list is underneath already.
-    if (listId !== fromList) router.push({ pathname: '/list/[id]', params: { id: listId } });
+    if (listId !== fromList) openList(listId);
   };
 
   const toggle = <T,>(set: Set<T>, value: T) => {

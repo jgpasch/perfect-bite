@@ -4,7 +4,7 @@
  */
 
 import type { IconName } from '@/components/icon';
-import { AisleColors as AisleTokens, Palette, Rounded, Spacing, withAlpha, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
+import { AisleColors as AisleTokens, Palette, Rounded, Spacing, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
 import { aisleColor, type AisleHue } from '@/domain/aisle-color';
 import { contrastRatio, mix } from '@/domain/contrast';
 import type { CategorySlug } from '@/shared/seed/categories';
@@ -170,28 +170,26 @@ export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles
   }
 }
 
-export type ListTileLook = {
-  fill: string;
-  text: ColorToken;
-  secondary: ColorToken;
-  /** The text colour the Siri mark is built from (`siriMarkColors`). */
-  mark: ColorToken;
-};
-
 /**
- * A list tile (spec 4.1): a coloured list fills with its hue's `soft` tint, with `ink` text. A Default
- * one is a `surface` card, except the Siri default list, which is filled `primary`.
+ * A list's row in the Your lists sheet (spec 4.1, board G). The dot is the list's hue; a Default list
+ * gets a hollow `controlBorder` ring, except the Siri default list, whose dot is `primary`. The current
+ * list's row is tinted `primarySoft` with `onPrimarySoft` text.
  */
-export function listTileColors(isDefault: boolean, hue: AisleHue | null, colors: ThemeColors, aisles: Aisles): ListTileLook {
-  if (hue) return { fill: aisles[hue].soft, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
-  return isDefault
-    ? { fill: colors.primary, text: 'onPrimary', secondary: 'onPrimary', mark: 'onPrimary' }
-    : { fill: colors.surface, text: 'ink', secondary: 'inkSecondary', mark: 'ink' };
-}
-
-/** The small "Siri" mark on the default list's tile: `text` (the tile's `mark`) on a faint wash of itself. */
-export function siriMarkColors(colors: ThemeColors, tint: number, text: ColorToken = 'onPrimary'): { fill: string; text: string } {
-  return { fill: withAlpha(colors[text], tint), text: colors[text] };
+export function listRowLook(
+  current: boolean,
+  isDefault: boolean,
+  hue: AisleHue | null,
+  colors: ThemeColors,
+  aisles: Aisles,
+): { fill: string; text: ColorToken; secondary: ColorToken; dot: string | null; ring: string | null } {
+  const dot = hue ? aisles[hue].dot : isDefault ? colors.primary : null;
+  return {
+    fill: current ? colors.primarySoft : colors.surface,
+    text: current ? 'onPrimarySoft' : 'ink',
+    secondary: current ? 'onPrimarySoft' : 'inkSecondary',
+    dot,
+    ring: dot ? null : colors.controlBorder,
+  };
 }
 
 /**

@@ -6,7 +6,18 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 
 import { setAppGroupRoot } from '@/test/fake-file-system';
 
-import { PENDING_DIR, readPendingShares, readPendingSiriAdds, SHARE_PENDING_DIR } from '../app-group';
+import {
+  clearListSnapshot,
+  getAppGroupContainer,
+  LISTS_FILE,
+  LOG_FILE,
+  PENDING_DIR,
+  readNativeLog,
+  readPendingShares,
+  readPendingSiriAdds,
+  SHARE_PENDING_DIR,
+  writeListSnapshot,
+} from '../app-group';
 
 jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
 
@@ -115,5 +126,90 @@ describe('readPendingShares', () => {
   test('throws without the App Group, as the Siri queue does', () => {
     setAppGroupRoot(null);
     expect(() => readPendingShares()).toThrow(/App Group/);
+  });
+});
+
+describe('getAppGroupContainer', () => {
+  test('is the shared container, or undefined without the App Group (Expo Go)', () => {
+    expect((getAppGroupContainer() as unknown as { path: string } | undefined)?.path).toBe(root);
+    setAppGroupRoot(null);
+    expect(getAppGroupContainer()).toBeUndefined();
+  });
+});
+
+describe('list snapshot', () => {
+  const GROCERIES = '019a4c10-0000-7000-8000-00000000a001';
+  const snapshot = {
+    defaultListId: GROCERIES,
+    lastOpenedListId: COSTCO,
+    lists: [
+      { id: GROCERIES, name: 'Groceries', householdName: 'Smith home' },
+      { id: COSTCO, name: 'Costco', householdName: 'Smith home' },
+    ],
+  };
+  const listsFile = () => path.join(root, LISTS_FILE);
+  const readLists = () => JSON.parse(fs.readFileSync(listsFile(), 'utf8'));
+
+  test('lives at siri/lists.json, where the intent reads it', () => {
+    expect(LISTS_FILE).toBe('siri/lists.json');
+  });
+
+  test('writes lists.json, creating the siri directory on first write', () => {
+    expect(fs.existsSync(path.join(root, 'siri'))).toBe(false);
+    writeListSnapshot(snapshot);
+    expect(readLists()).toEqual(snapshot);
+  });
+
+  test('replaces the whole file on the next write', () => {
+    writeListSnapshot(snapshot);
+    writeListSnapshot({ lastOpenedListId: null, lists: [{ id: COSTCO, name: 'Costco', householdName: 'Smith home' }] });
+    expect(readLists()).toEqual({ lastOpenedListId: null, lists: [{ id: COSTCO, name: 'Costco', householdName: 'Smith home' }] });
+  });
+
+  test('writes alongside a queue the intent already made', () => {
+    fs.mkdirSync(path.join(root, PENDING_DIR), { recursive: true });
+    fs.writeFileSync(path.join(root, PENDING_DIR, `${S1}.json`), '{}');
+    writeListSnapshot(snapshot);
+    expect(readLists()).toEqual(snapshot);
+    expect(fs.readdirSync(path.join(root, PENDING_DIR))).toEqual([`${S1}.json`]);
+  });
+
+  test('strips unknown fields so the Swift decoder only sees the contract', () => {
+    writeListSnapshot({ ...snapshot, extra: 'nope' } as typeof snapshot);
+    expect(readLists()).not.toHaveProperty('extra');
+  });
+
+  test('an invalid snapshot throws and leaves the previous file alone', () => {
+    writeListSnapshot(snapshot);
+    expect(() => writeListSnapshot({ lastOpenedListId: null, lists: [{ id: 'not-a-uuid', name: 'x', householdName: 'y' }] })).toThrow();
+    expect(readLists()).toEqual(snapshot);
+  });
+
+  test('writing throws without the App Group', () => {
+    setAppGroupRoot(null);
+    expect(() => writeListSnapshot(snapshot)).toThrow(/App Group/);
+  });
+
+  test('clearing deletes lists.json, and is a no-op when there is none or no App Group', () => {
+    writeListSnapshot(snapshot);
+    clearListSnapshot();
+    expect(fs.existsSync(listsFile())).toBe(false);
+    expect(() => clearListSnapshot()).not.toThrow();
+    setAppGroupRoot(null);
+    expect(() => clearListSnapshot()).not.toThrow();
+  });
+});
+
+describe('readNativeLog', () => {
+  test('reads logs/native.log', () => {
+    fs.mkdirSync(path.dirname(path.join(root, LOG_FILE)), { recursive: true });
+    fs.writeFileSync(path.join(root, LOG_FILE), 'siri: queued 019a\n');
+    expect(readNativeLog()).toBe('siri: queued 019a\n');
+  });
+
+  test('is empty with no log yet, or without the App Group', () => {
+    expect(readNativeLog()).toBe('');
+    setAppGroupRoot(null);
+    expect(readNativeLog()).toBe('');
   });
 });

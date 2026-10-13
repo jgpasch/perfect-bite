@@ -5,6 +5,7 @@ import { respondToRpc, resetSupabase, rpcCalls, rpcCallsFor, supabase } from '@/
 import { InviteError, type InviteErrorKind, type MyInvite } from '../invites';
 import {
   clearMyInvites,
+  declineInviteLabel,
   declineInvitePrompt,
   declineMyInvite,
   getMyInvites,
@@ -287,5 +288,11 @@ describe("the card's text", () => {
       title: 'Decline the invite to Cabin?',
       message: 'They can send a new one.',
     });
+  });
+
+  test('the Decline button names the household for VoiceOver', () => {
+    expect(declineInviteLabel(INVITE)).toBe('Decline invite to Smith household');
+    expect(declineInviteLabel({ ...INVITE2, householdName: '  Cabin ' })).toBe('Decline invite to Cabin');
+    expect(declineInviteLabel({ ...INVITE2, householdName: '  ' })).toBe('Decline invite to a household');
   });
 });

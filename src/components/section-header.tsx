@@ -2,10 +2,10 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, type SharedValue } from 'react-native-reanimated';
 
 import { sectionHeaderLabel } from '@/components/appearance';
-import { Collapsible } from '@/components/collapsible';
+import { Collapsible, useFold } from '@/components/collapsible';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Motion, type Spacing } from '@/constants/theme';
@@ -207,18 +207,31 @@ type FoldingSectionProps = Omit<Props, 'onToggle' | 'collapsed'> & {
 };
 
 /** A card's foldable section (spec 4.6): its header, then its rows, which spring open and folded. */
-export function FoldingSection({ collapsed, children, ...header }: FoldingSectionProps) {
+export function FoldingSection({ collapsed, children, onSwipeCheck, onSwipeRemove, ...header }: FoldingSectionProps) {
   const { spacing } = useTheme();
   const { paddingTop, paddingBottom } = headerPadding(spacing, !!header.band);
+  const progress = useFold(!collapsed);
   return (
     <>
-      <SectionHeader {...header} collapsed={collapsed} />
-      {/* A folded card is just its header, so it sits in the middle. */}
-      <Collapsible open={!collapsed} closedHeight={paddingTop - paddingBottom}>
+      <Swipe band={header.band} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
+        <HeaderBody {...header} collapsed={collapsed} />
+        {/* A folded card is just its header, so it sits in the middle. The extra room is part of the
+            header, so a swipe's panel fills the folded card. */}
+        <FoldGap height={paddingTop - paddingBottom} open={!collapsed} progress={progress} />
+      </Swipe>
+      <Collapsible open={!collapsed} progress={progress}>
         {children}
       </Collapsible>
     </>
   );
+}
+
+/** The room under a folded header, which closes as the rows open beneath it. */
+function FoldGap({ height, open, progress }: { height: number; open: boolean; progress: SharedValue<number> }) {
+  const { reduceMotion } = useMotion();
+  // Under Reduce Motion the rows' height snaps, so this does too.
+  const style = useAnimatedStyle(() => ({ height: height * (1 - (reduceMotion ? (open ? 1 : 0) : progress.value)) }));
+  return <Animated.View style={style} />;
 }
 
 /** A band is padded evenly, so it is the whole card when folded; a plain header sits closer to its rows. */

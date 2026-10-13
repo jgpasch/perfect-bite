@@ -31,6 +31,7 @@ import {
 import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
+import { openList } from '@/features/lists/current-list';
 import { useFeature } from '@/features/plans/features';
 import {
   contributionsQuery,
@@ -220,7 +221,7 @@ export default function ItemEditSheet() {
         try {
           setMoveResult(moveItemToList(itemId, target.id));
           router.back();
-          router.push({ pathname: '/list/[id]', params: { id: target.id } });
+          openList(target.id);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
         }

@@ -15,7 +15,7 @@ export default function TabsLayout() {
   return (
     <NativeTabs tintColor={colors.primary} iconColor={{ selected: colors.primary }}>
       <NativeTabs.Trigger name="lists">
-        <NativeTabs.Trigger.Label>Lists</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>List</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="checklist" />
       </NativeTabs.Trigger>
 

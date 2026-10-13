@@ -1,5 +1,5 @@
 // Invites waiting in the app (spec 4.7, design R2b): the open invites sent to the signed-in user's
-// email, shown as cards on the Lists home. Fetched after sign-in, on each foreground and on
+// email, shown at the top of the Your lists sheet. Fetched after sign-in, on each foreground and on
 // reconnect, kept in memory only (nothing in SQLite) and cleared on sign-out.
 import { useSyncExternalStore } from 'react';
 
@@ -141,6 +141,11 @@ export function inviteCardTitle(invite: MyInvite): string {
 
 function householdLabel(invite: MyInvite): string {
   return invite.householdName.trim() || 'a household';
+}
+
+/** The Decline button's VoiceOver label: "Decline invite to Smith household". */
+export function declineInviteLabel(invite: MyInvite): string {
+  return `Decline invite to ${householdLabel(invite)}`;
 }
 
 /** "to Smith household · 2 members". */

@@ -1,11 +1,11 @@
-// What the Pantry lists home and list screen show (boards 01–03). Pure, so it can be tested
+// What the list screen and the Your lists sheet show (boards 02–03, E, G). Pure, so it can be tested
 // without rendering.
 
 import type { IconName } from '@/components/icon';
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
 import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
 
-// --- Lists home ----------------------------------------------------------------------------
+// --- Your lists sheet ------------------------------------------------------------------------
 
 export type HouseholdGroup<L> = { householdId: string; name: string; lists: L[] };
 
@@ -26,9 +26,9 @@ export function groupListsByHousehold<L extends { householdId: string; household
 }
 
 /**
- * What the Lists home shows. With one household there is no household UI: just its lists. With more,
- * one section per household, always open, even when it has no lists yet (it still gets a New list
- * tile). The primary household comes first, then the rest by name.
+ * What the Your lists sheet shows. With one household there is no household UI: just its lists. With
+ * more, one group per household, even when it has no lists yet. The primary household comes first,
+ * then the rest by name.
  */
 export type ListsOverview<L> =
   | { kind: 'single'; householdId: string | null; lists: L[] }
@@ -59,40 +59,35 @@ export function householdHeaderLabel(name: string, memberCount?: number): string
   return memberCount === undefined ? name : `${name}, ${memberCount} ${memberCount === 1 ? 'member' : 'members'}`;
 }
 
-/** A household's New list tile is the short one when it would sit alone on a new row. */
-export function newListTileIsCompact(listCount: number): boolean {
-  return listCount % 2 === 0;
+/** A list's count in the Your lists sheet: the items to get, or "Done" when there are none. */
+export function listRowCount(count: number): string {
+  return count > 0 ? String(count) : 'Done';
 }
 
-/** Grid cells two to a row; the last row may have one. */
-export function pairs<T>(cells: readonly T[]): T[][] {
-  const rows: T[][] = [];
-  for (let i = 0; i < cells.length; i += 2) rows.push(cells.slice(i, i + 2));
-  return rows;
-}
-
-/** A tile's headline: the count of items to get, or "All done" when there are none. */
-export function tileCount(count: number): { kind: 'count'; text: string } | { kind: 'done'; text: string } {
-  return count > 0 ? { kind: 'count', text: String(count) } : { kind: 'done', text: 'All done' };
-}
-
-/** What VoiceOver reads for a list tile: "Groceries, 12 items to get, Siri list". */
-export function tileAccessibilityLabel(
+/** What VoiceOver reads for a list in the Your lists sheet: "Groceries, 12 items to get, Siri list, current". */
+export function listRowAccessibilityLabel(
   name: string,
   count: number,
-  { isDefault = false, archived = false }: { isDefault?: boolean; archived?: boolean } = {},
+  { isDefault = false, archived = false, current = false }: { isDefault?: boolean; archived?: boolean; current?: boolean } = {},
 ): string {
   const parts = [name, count > 0 ? `${count} ${count === 1 ? 'item' : 'items'} to get` : 'all done'];
   if (isDefault) parts.push('Siri list');
   if (archived) parts.push('archived');
+  if (current) parts.push('current');
   return parts.join(', ');
+}
+
+/** What VoiceOver reads for the list's name in its header, which opens the Your lists sheet. */
+export function switcherAccessibilityLabel(name: string, invites: number): string {
+  if (invites === 0) return `${name}, switch list`;
+  return `${name}, switch list, ${invites} ${invites === 1 ? 'invite' : 'invites'} waiting`;
 }
 
 // --- Launch --------------------------------------------------------------------------------
 
 /**
  * The list a cold launch opens (spec 4.1): the last one opened, else the default list, else the
- * first list. Only ids still in `lists` (the open lists, in order) count; null means the Lists home.
+ * first list. Only ids still in `lists` (the open lists, in order) count; null when there are none.
  */
 export function launchListId(
   lastOpenedId: string | null,

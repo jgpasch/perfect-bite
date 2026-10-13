@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import { db, ingredients, listItemContributions, listItems } from '@/db';
 import { usualUnitsByKey } from '@/domain/usual-unit';
@@ -11,11 +12,11 @@ import { categorizePending } from '@/features/categories/categorization';
 import { addItem, groupItems, listItemsQuery, setItemChecked, usualUnitsQuery } from '@/features/lists/items';
 import { siriAddedToast } from '@/features/lists/list-view';
 import { createList, deleteList, ensureStarterData, getDefaultListId, setListArchived } from '@/features/lists/lists';
-import { resetDb } from '@/test/db';
+import { resetDb, sqlite } from '@/test/db';
 import { setAppGroupRoot } from '@/test/fake-file-system';
 
-import { PENDING_DIR, readPendingSiriAdds } from '../app-group';
-import { drainSiriQueue, onSiriAdds, runSiriDrain, siriAddIds, siriTargetListId } from '../drain';
+import { PENDING_DIR, readPendingSiriAdds, type PendingSiriAdd } from '../app-group';
+import { drainSiriQueue, onSiriAdds, runSiriDrain, siriAddIds, siriTargetListId, startSiriDrain } from '../drain';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
@@ -224,6 +225,135 @@ describe('drainSiriQueue', () => {
 
     expect(drainSiriQueue(USER).pendingNames).toEqual(['dragon fruit']);
     expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'dragon fruit')).get()?.status).toBe('pending');
+  });
+});
+
+describe('drainSiriQueue failures', () => {
+  /** Makes every insert into list_item_contributions fail, as a full disk would. */
+  function failWrites(): () => void {
+    sqlite.exec(`CREATE TEMP TRIGGER fail_contributions BEFORE INSERT ON list_item_contributions
+      BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`);
+    return () => sqlite.exec('DROP TRIGGER fail_contributions');
+  }
+
+  test('a failed write stops the drain; that add and the rest stay queued for next time', () => {
+    enqueue(E1, 'eggs');
+    enqueue(E2, 'milk');
+    enqueue(E3, 'bread');
+
+    const heal = failWrites();
+    let first: ReturnType<typeof drainSiriQueue>;
+    try {
+      first = drainSiriQueue(USER);
+    } finally {
+      heal();
+    }
+
+    expect(first).toEqual({ added: 0, pendingNames: [] });
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`, `${E3}.json`]);
+    expect(jest.mocked(console.warn).mock.calls.map((c) => c[0])).toEqual(['[siri] applying a queued add failed']);
+    expect(rows(groceries)).toEqual([]);
+
+    expect(drainSiriQueue(USER).added).toBe(3);
+    expect(queued()).toEqual([]);
+    expect(rows(groceries).sort()).toEqual(['bread', 'eggs', 'milk']);
+  });
+
+  test('an add whose file cannot be deleted is applied once, and the leftover file is a no-op next drain', () => {
+    enqueue(E1, 'milk');
+    const undeletable = (): PendingSiriAdd[] =>
+      readPendingSiriAdds().map((p) => {
+        const file = Object.create(p.file) as typeof p.file;
+        file.delete = () => {
+          throw new Error('EPERM');
+        };
+        return { ...p, file };
+      });
+
+    expect(drainSiriQueue(USER, undeletable).added).toBe(1);
+    expect(console.warn).toHaveBeenCalledWith('[siri] deleting a queued add failed', `${E1}.json`, expect.any(Error));
+    expect(queued()).toEqual([`${E1}.json`]);
+
+    expect(drainSiriQueue(USER)).toEqual({ added: 0, pendingNames: [] });
+    expect(queued()).toEqual([]);
+    expect(rows(groceries)).toEqual(['milk']);
+  });
+
+  test('a queue that cannot be read is logged, and the next drain still runs', () => {
+    enqueue(E1, 'milk');
+
+    const result = drainSiriQueue(USER, () => {
+      throw new Error('App Group is not available');
+    });
+
+    expect(result).toEqual({ added: 0, pendingNames: [] });
+    expect(console.warn).toHaveBeenCalledWith('[siri] reading the queue failed', expect.any(Error));
+    expect(drainSiriQueue(USER).added).toBe(1);
+  });
+
+  test('keeps what it applied before a later failure', () => {
+    enqueue(E1, 'dragon fruit');
+    enqueue(E2, 'milk');
+    // Writes start failing once the drain reaches E2, after E1 went through.
+    const lazily = (): PendingSiriAdd[] => {
+      const [a, b] = readPendingSiriAdds();
+      return [
+        a,
+        new Proxy(b, {
+          get(target, key) {
+            if (key === 'ok') {
+              sqlite.exec(`CREATE TEMP TRIGGER IF NOT EXISTS fail_second BEFORE INSERT ON list_item_contributions
+                BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`);
+            }
+            return Reflect.get(target, key);
+          },
+        }),
+      ];
+    };
+
+    let result: ReturnType<typeof drainSiriQueue>;
+    try {
+      result = drainSiriQueue(USER, lazily);
+    } finally {
+      sqlite.exec('DROP TRIGGER IF EXISTS fail_second');
+    }
+
+    expect(result).toEqual({ added: 1, pendingNames: ['dragon fruit'] });
+    expect(queued()).toEqual([`${E2}.json`]);
+  });
+});
+
+describe('startSiriDrain', () => {
+  let onChange: ((next: AppStateStatus) => void) | undefined;
+  const remove = jest.fn();
+
+  beforeEach(() => {
+    onChange = undefined;
+    remove.mockClear();
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
+      onChange = listener as (next: AppStateStatus) => void;
+      return { remove } as ReturnType<typeof AppState.addEventListener>;
+    });
+  });
+
+  test('drains now, then on each return to the foreground only', () => {
+    enqueue(E1, 'eggs');
+    const stop = startSiriDrain(USER);
+    expect(rows(groceries)).toEqual(['eggs']);
+
+    enqueue(E2, 'milk');
+    onChange!('background');
+    expect(queued()).toEqual([`${E2}.json`]);
+    onChange!('active');
+    expect(queued()).toEqual([]);
+    expect(rows(groceries)).toEqual(['eggs', 'milk']);
+
+    enqueue(E3, 'bread');
+    onChange!('active'); // already active: not a return to the foreground
+    expect(queued()).toEqual([`${E3}.json`]);
+
+    stop();
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 });
 
