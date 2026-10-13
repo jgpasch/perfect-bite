@@ -19,7 +19,7 @@ import { normalizeIngredientName, SEED_INGREDIENTS, seedEntries, SYSTEM_CATEGORI
 
 /** Changes whenever the bundled seed does (names, categories or units), so an app update re-applies it. */
 const SEED_FINGERPRINT = fingerprint([SYSTEM_CATEGORIES, SEED_INGREDIENTS]);
-const SEED_KEY = 'catalog.seedFingerprint';
+export const SEED_KEY = 'catalog.seedFingerprint';
 
 /**
  * Loads the bundled system categories and seed ingredients (spec 6.2) into the local catalog.

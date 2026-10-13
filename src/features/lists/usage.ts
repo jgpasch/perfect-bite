@@ -87,7 +87,7 @@ export function hideFromSuggestions(householdId: string, ingredientName: string,
   updateRows(db, ingredientUsage, row(householdId, ingredientName), { hiddenAt: at });
 }
 
-const BACKFILL_KEY = 'usage.backfilled';
+export const BACKFILL_KEY = 'usage.backfilled';
 
 /**
  * One-time step at app start: builds history from data written before `ingredient_usage`
@@ -143,7 +143,7 @@ export function backfillUsage(): void {
   setDeviceSetting(BACKFILL_KEY, true);
 }
 
-const UNITS_BACKFILL_KEY = 'usage.unitsBackfilled';
+export const UNITS_BACKFILL_KEY = 'usage.unitsBackfilled';
 
 /**
  * One-time step at app start, after `backfillUsage`: builds unit history from data written before

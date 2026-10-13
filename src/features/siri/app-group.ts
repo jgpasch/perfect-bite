@@ -90,6 +90,20 @@ export function clearListSnapshot(): void {
   if (file.exists) file.delete();
 }
 
+/**
+ * Deletes every file in the Siri and share queues, `.tmp` writes too (account deletion, spec 4.8):
+ * their envelopes are the user's words. Does nothing without the App Group.
+ */
+export function emptyQueues(): void {
+  const root = getAppGroupContainer();
+  if (!root) return;
+  for (const dir of [PENDING_DIR, SHARE_PENDING_DIR]) {
+    const pending = new Directory(root, dir);
+    if (!pending.exists) continue;
+    for (const entry of pending.list()) if (entry instanceof File) entry.delete();
+  }
+}
+
 export function readNativeLog(): string {
   const root = getAppGroupContainer();
   if (!root) return '';
