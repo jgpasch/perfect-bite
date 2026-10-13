@@ -850,6 +850,39 @@ describe('the Checked header', () => {
     expect(rowNames()).toEqual(['milk']);
     expect(text()).not.toContain('Checked');
   });
+
+  test('Uncheck all shows "Unchecked N items", and Undo checks them again', () => {
+    const a = put('milk')!;
+    const b = put('eggs')!;
+    put('bread');
+    setItemChecked(a.itemId, true, USER);
+    setItemChecked(b.itemId, true, USER);
+    render();
+    press(pressable('Uncheck all'));
+    refresh();
+    expect(text()).toContain('Unchecked 2 items');
+    expect(text()).not.toContain('Checked · ');
+    tapToast('Undo');
+    refresh();
+    expect(lines()).toContain('Checked · 2');
+    expect(rowNames()).toEqual(['bread']);
+    expect(text()).not.toContain('Unchecked');
+  });
+
+  test("the long-press menu's Uncheck all shows the toast too, and its Undo works", () => {
+    const a = put('milk')!;
+    setItemChecked(a.itemId, true, USER);
+    jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((_options, callback) => callback(1));
+    render();
+    act(() => pressable('Checked, 1 item').props.onLongPress());
+    refresh();
+    expect(text()).toContain('Unchecked 1 item');
+    expect(rowNames()).toEqual(['milk']);
+    tapToast('Undo');
+    refresh();
+    expect(pressable('Checked, 1 item')).toBeDefined();
+    expect(text()).not.toContain('Unchecked');
+  });
 });
 
 describe('Reorder aisles', () => {

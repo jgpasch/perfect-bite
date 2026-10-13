@@ -57,6 +57,7 @@ import {
   listItemsQuery,
   listRecipeLinksQuery,
   orderByAisle,
+  recheckItems,
   removeRecipeFromList,
   restoreItems,
   restoreRecipeOnList,
@@ -96,6 +97,7 @@ import {
   switcherAccessibilityLabel,
   toGetLabel,
   toggleCollapsedSection,
+  uncheckedAllToast,
   viewModeKey,
   withLingering,
   type ListViewMode,
@@ -622,13 +624,24 @@ export function ListScreen({ id }: { id: string }) {
     });
   }, [id]);
 
+  // Spec 4.6: no confirmation either; Undo checks those items again as they were.
+  const uncheck = useCallback(() => {
+    const unchecked = uncheckAll(id);
+    if (unchecked.length === 0) return;
+    setToast({
+      key: `unchecked-${unchecked[0].id}-${Date.now()}`,
+      ...uncheckedAllToast(unchecked.length),
+      actions: [{ label: 'Undo', onPress: () => (recheckItems(unchecked), setToast(null)) }],
+    });
+  }, [id]);
+
   const checkedMenu = (count: number) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     ActionSheetIOS.showActionSheetWithOptions(
       { options: [clearCheckedLabel(count), 'Uncheck all', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
       (index) => {
         if (index === 0) clear();
-        if (index === 1) uncheckAll(id);
+        if (index === 1) uncheck();
       },
     );
   };
@@ -759,7 +772,7 @@ export function ListScreen({ id }: { id: string }) {
             </ThemedText>
             <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
           </Pressable>
-          <Button label="Uncheck all" variant="plain" onPress={() => uncheckAll(id)} />
+          <Button label="Uncheck all" variant="plain" onPress={uncheck} />
           <Button label="Clear" accessibilityLabel={clearCheckedLabel(block.count)} variant="plain" onPress={clear} />
         </View>
         {block.entries.length > 0 ? (

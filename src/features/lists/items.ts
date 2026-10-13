@@ -402,17 +402,21 @@ export function addItemsBulk(
 /**
  * Makes an item live and unchecked (or live and checked, for undoing a delete of a checked
  * item). If the same ingredient is already open on the list, the item's amounts move onto that
- * one instead, since a list holds one open item per ingredient.
+ * one instead, since a list holds one open item per ingredient. Returns that item and the amounts
+ * moved onto it, if it merged.
  */
-function restoreItem(tx: Tx, item: ListItem, checked: boolean): void {
+function restoreItem(tx: Tx, item: ListItem, checked: boolean): Merged | undefined {
   if (!checked) {
     const open = findOpenItem(tx, item.listId, item.ingredientName, item.id);
     if (open) {
-      updateRows(tx, listItemContributions, and(eq(listItemContributions.listItemId, item.id), liveContribution), {
-        listItemId: open.id,
-      });
+      const moved = updateRows(
+        tx,
+        listItemContributions,
+        and(eq(listItemContributions.listItemId, item.id), liveContribution),
+        { listItemId: open.id },
+      );
       updateRows(tx, listItems, eq(listItems.id, item.id), { deletedAt: item.deletedAt ?? new Date() });
-      return;
+      return { itemId: open.id, contributionIds: moved.map((c) => c.id) };
     }
   }
   updateRows(tx, listItems, eq(listItems.id, item.id), {
@@ -421,6 +425,9 @@ function restoreItem(tx: Tx, item: ListItem, checked: boolean): void {
     checkedBy: checked ? item.checkedBy : null,
   });
 }
+
+/** An item `restoreItem` folded into the open item of its ingredient: that item, and the amounts it moved there. */
+type Merged = { itemId: string; contributionIds: string[] };
 
 export function setItemChecked(itemId: string, checked: boolean, userId: string | null): void {
   db.transaction((tx) => {
@@ -478,16 +485,100 @@ export function restoreItems(ids: readonly string[], deletedAt: Date): number {
   });
 }
 
-/** "Uncheck all". */
-export function uncheckAll(listId: string): void {
-  db.transaction((tx) => {
+/** One item "Uncheck all" unchecked, for its toast's Undo (`recheckItems`). */
+export type UncheckedItem = {
+  id: string;
+  checkedAt: Date;
+  checkedBy: string | null;
+  /** The row's field clock just after, so Undo can tell it has changed since (here or in a pull). */
+  clock: ListItem['fieldClock'];
+  /** Set when it merged into an open item of the same ingredient (the row deleted, its amounts moved). */
+  merged?: Merged;
+};
+
+/**
+ * "Uncheck all" (spec 4.6): unchecks every checked item on the list, oldest check first. One whose
+ * ingredient is already open merges into that item. Returns what it did, for Undo.
+ */
+export function uncheckAll(listId: string): UncheckedItem[] {
+  return db.transaction((tx) => {
     const checked = tx
       .select()
       .from(listItems)
       .where(and(eq(listItems.listId, listId), liveItem, isNotNull(listItems.checkedAt)))
       .orderBy(asc(listItems.checkedAt))
       .all();
-    for (const item of checked) restoreItem(tx, item, false);
+    if (checked.length === 0) return [];
+    const merged = new Map(checked.map((item) => [item.id, restoreItem(tx, item, false)]));
+    const clocks = new Map(
+      tx
+        .select({ id: listItems.id, fieldClock: listItems.fieldClock })
+        .from(listItems)
+        .where(inArray(listItems.id, [...merged.keys()]))
+        .all()
+        .map((r) => [r.id, r.fieldClock]),
+    );
+    return checked.map((item) => ({
+      id: item.id,
+      checkedAt: item.checkedAt!,
+      checkedBy: item.checkedBy,
+      clock: clocks.get(item.id) ?? {},
+      ...(merged.get(item.id) ? { merged: merged.get(item.id) } : {}),
+    }));
+  });
+}
+
+const sameClock = (a: ListItem['fieldClock'], b: ListItem['fieldClock']) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Uncheck all's "Undo": checks the items again with their own check times and checkers, and splits
+ * merged ones back out (the row back, checked, with its amounts; the open item keeps what it had).
+ * One changed since (checked, unchecked, edited or deleted, here or on another device), or a merged
+ * one whose amounts have moved or gone since, is left as it is. Returns how many came back.
+ */
+export function recheckItems(unchecked: readonly UncheckedItem[]): number {
+  if (unchecked.length === 0) return 0;
+  return db.transaction((tx) => {
+    const rowsById = new Map(
+      tx
+        .select()
+        .from(listItems)
+        .where(inArray(listItems.id, unchecked.map((u) => u.id)))
+        .all()
+        .map((r) => [r.id, r]),
+    );
+    let count = 0;
+    // Split merged items out first: the item one merged into may be another in this batch, still open.
+    const ordered = [...unchecked.filter((u) => u.merged), ...unchecked.filter((u) => !u.merged)];
+    for (const u of ordered) {
+      const row = rowsById.get(u.id);
+      if (!row || !sameClock(row.fieldClock, u.clock)) continue;
+      const restore = { deletedAt: null, checkedAt: u.checkedAt, checkedBy: u.checkedBy };
+      if (u.merged) {
+        if (row.deletedAt === null) continue;
+        const { itemId, contributionIds } = u.merged;
+        const stillThere = tx
+          .select({ id: listItemContributions.id })
+          .from(listItemContributions)
+          .where(
+            and(
+              inArray(listItemContributions.id, contributionIds),
+              eq(listItemContributions.listItemId, itemId),
+              liveContribution,
+            ),
+          )
+          .all();
+        if (stillThere.length !== contributionIds.length) continue;
+        if (contributionIds.length > 0) {
+          updateRows(tx, listItemContributions, inArray(listItemContributions.id, contributionIds), { listItemId: u.id });
+        }
+      } else if (row.deletedAt !== null || row.checkedAt !== null) {
+        continue;
+      }
+      updateRows(tx, listItems, eq(listItems.id, u.id), restore);
+      count++;
+    }
+    return count;
   });
 }
 

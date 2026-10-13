@@ -363,6 +363,11 @@ export function checkedAllToast(count: number): { message: string } {
   return { message: `Checked ${count} ${count === 1 ? 'item' : 'items'}` };
 }
 
+/** The toast after the Checked section's Uncheck all (spec 4.6): "Unchecked 6 items", with Undo. */
+export function uncheckedAllToast(count: number): { message: string } {
+  return { message: `Unchecked ${count} ${count === 1 ? 'item' : 'items'}` };
+}
+
 /** The toast after Remove recipe from list (spec 4.6): "Removed Tacos from the list", with Undo; the name in bold. */
 export function removedRecipeToast(recipeName: string): { message: string; emphasis: string } {
   return { message: `Removed ${recipeName} from the list`, emphasis: recipeName };

@@ -19,6 +19,7 @@ import {
   checkOffLabel,
   clearCheckedLabel,
   clearedToast,
+  uncheckedAllToast,
   compactHeaderSubtitle,
   deletedToast,
   duplicateQuery,
@@ -424,6 +425,12 @@ describe('clearedToast and clearCheckedLabel', () => {
     expect(clearCheckedLabel(3)).toBe('Clear 3 checked items');
     expect(clearCheckedLabel(1)).toBe('Clear 1 checked item');
     expect(clearCheckedLabel(12)).toBe('Clear 12 checked items');
+  });
+
+  it('counts the items Uncheck all unchecked, singular for one', () => {
+    expect(uncheckedAllToast(6)).toEqual({ message: 'Unchecked 6 items' });
+    expect(uncheckedAllToast(1)).toEqual({ message: 'Unchecked 1 item' });
+    expect(uncheckedAllToast(2)).toEqual({ message: 'Unchecked 2 items' });
   });
 });
 

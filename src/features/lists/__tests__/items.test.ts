@@ -27,6 +27,7 @@ import {
   groupItems,
   listItemsQuery,
   orderByAisle,
+  recheckItems,
   restoreItems,
   searchRecentItems,
   setItemAmount,
@@ -781,6 +782,160 @@ describe('clearChecked and restoreItems', () => {
     uncheckAll(listId);
     expect(view().unchecked).toHaveLength(1);
     expect(view().unchecked[0].amounts).toHaveLength(2);
+  });
+});
+
+describe('uncheckAll and recheckItems', () => {
+  const itemRow = (id: string) => db.select().from(listItems).where(eq(listItems.id, id)).get()!;
+  const liveContributionIds = (id: string) =>
+    db
+      .select({ id: listItemContributions.id })
+      .from(listItemContributions)
+      .where(and(eq(listItemContributions.listItemId, id), isNull(listItemContributions.deletedAt)))
+      .all()
+      .map((c) => c.id)
+      .sort();
+  const checkAt = (itemId: string, at: string, by: string) => {
+    jest.useFakeTimers({ now: new Date(at) });
+    setItemChecked(itemId, true, by);
+    jest.useRealTimers();
+  };
+
+  test('returns the items it unchecked with their check times and checkers, oldest first', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    addItem(listId, 'bread', USER);
+    checkAt(eggs.itemId, '2026-10-01T12:00:00Z', 'user-2');
+    checkAt(milk.itemId, '2026-10-01T12:05:00Z', USER);
+
+    const unchecked = uncheckAll(listId);
+    expect(unchecked.map(({ id, checkedAt, checkedBy, merged }) => ({ id, checkedAt, checkedBy, merged }))).toEqual([
+      { id: eggs.itemId, checkedAt: new Date('2026-10-01T12:00:00Z'), checkedBy: 'user-2', merged: undefined },
+      { id: milk.itemId, checkedAt: new Date('2026-10-01T12:05:00Z'), checkedBy: USER, merged: undefined },
+    ]);
+    expect(itemRow(milk.itemId).checkedAt).toBeNull();
+    expect(view().checked).toEqual([]);
+  });
+
+  test('nothing checked returns nothing, and rechecking nothing does nothing', () => {
+    addItem(listId, 'bread', USER);
+    expect(uncheckAll(listId)).toEqual([]);
+    expect(recheckItems([])).toBe(0);
+    expect(rows(view().unchecked)).toEqual(['bread']);
+  });
+
+  test('recheck restores checkedAt and checkedBy exactly', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    checkAt(milk.itemId, '2026-10-01T12:00:00Z', USER);
+    checkAt(eggs.itemId, '2026-10-01T12:05:00Z', 'user-2');
+
+    expect(recheckItems(uncheckAll(listId))).toBe(2);
+    expect(itemRow(milk.itemId)).toMatchObject({ checkedAt: new Date('2026-10-01T12:00:00Z'), checkedBy: USER, deletedAt: null });
+    expect(itemRow(eggs.itemId)).toMatchObject({ checkedAt: new Date('2026-10-01T12:05:00Z'), checkedBy: 'user-2' });
+    expect(view().unchecked).toEqual([]);
+  });
+
+  test('an item merged into an open duplicate is split back out, and the open item keeps what it had', () => {
+    const old = addItem(listId, '2 gal milk', USER)!;
+    checkAt(old.itemId, '2026-10-01T12:00:00Z', 'user-2');
+    // Adding milk would reopen the checked one, so make the open duplicate by renaming.
+    const fresh = addItem(listId, 'oat milk', USER)!;
+    updateItem(fresh.itemId, { name: 'milk', amount: '1 gal', note: '' });
+    const oldAmounts = liveContributionIds(old.itemId);
+    const openAmounts = liveContributionIds(fresh.itemId);
+    expect(oldAmounts).toHaveLength(1);
+
+    const unchecked = uncheckAll(listId);
+    expect(unchecked).toHaveLength(1);
+    expect(unchecked[0].merged).toEqual({ itemId: fresh.itemId, contributionIds: oldAmounts });
+    expect(rows(view().unchecked)).toEqual(['3 gal milk']);
+    expect(itemRow(old.itemId).deletedAt).not.toBeNull();
+
+    expect(recheckItems(unchecked)).toBe(1);
+    expect(itemRow(old.itemId)).toMatchObject({ deletedAt: null, checkedAt: new Date('2026-10-01T12:00:00Z'), checkedBy: 'user-2' });
+    expect(liveContributionIds(old.itemId)).toEqual(oldAmounts);
+    expect(liveContributionIds(fresh.itemId)).toEqual(openAmounts);
+    expect(rows(view().unchecked)).toEqual(['1 gal milk']);
+    expect(rows(view().checked)).toEqual(['2 gal milk']);
+  });
+
+  test('two checked copies of one ingredient both come back, the second split from the first', () => {
+    const first = addItem(listId, '1 milk', USER)!;
+    checkAt(first.itemId, '2026-10-01T12:00:00Z', USER);
+    const second = addItem(listId, '2 oat milk', USER)!;
+    updateItem(second.itemId, { name: 'milk', amount: '2', note: '' });
+    checkAt(second.itemId, '2026-10-01T12:05:00Z', 'user-2');
+
+    const unchecked = uncheckAll(listId);
+    expect(unchecked.map((u) => u.merged?.itemId)).toEqual([undefined, first.itemId]);
+    expect(recheckItems(unchecked)).toBe(2);
+    expect(itemRow(first.itemId)).toMatchObject({ checkedAt: new Date('2026-10-01T12:00:00Z'), checkedBy: USER });
+    expect(itemRow(second.itemId)).toMatchObject({ deletedAt: null, checkedAt: new Date('2026-10-01T12:05:00Z') });
+    expect(rows(view().checked).sort()).toEqual(['1 milk', '2 milk']);
+    expect(view().unchecked).toEqual([]);
+  });
+
+  test('an item checked, edited or deleted here since is left as it is', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    const bread = addItem(listId, 'bread', USER)!;
+    const jam = addItem(listId, 'jam', USER)!;
+    for (const item of [milk, eggs, bread, jam]) checkAt(item.itemId, '2026-10-01T12:00:00Z', 'user-2');
+    const unchecked = uncheckAll(listId);
+    setItemChecked(milk.itemId, true, USER);
+    const milkChecked = itemRow(milk.itemId).checkedAt;
+    updateItem(eggs.itemId, { name: 'eggs', amount: '6', note: '' });
+    deleteItem(bread.itemId);
+
+    expect(recheckItems(unchecked)).toBe(1);
+    expect(itemRow(milk.itemId)).toMatchObject({ checkedAt: milkChecked, checkedBy: USER });
+    expect(itemRow(eggs.itemId).checkedAt).toBeNull();
+    expect(itemRow(bread.itemId)).toMatchObject({ checkedAt: null });
+    expect(itemRow(bread.itemId).deletedAt).not.toBeNull();
+    expect(itemRow(jam.itemId).checkedAt).toEqual(new Date('2026-10-01T12:00:00Z'));
+  });
+
+  test('an item changed on another device since (a pull) is left as it is', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    checkAt(milk.itemId, '2026-10-01T12:00:00Z', USER);
+    checkAt(eggs.itemId, '2026-10-01T12:00:00Z', USER);
+    const unchecked = uncheckAll(listId);
+    // A pull writes straight to SQLite: another device renamed milk, and deleted eggs.
+    db.update(listItems)
+      .set({ note: 'whole', fieldClock: { ...itemRow(milk.itemId).fieldClock, note: 'zzz-remote' } })
+      .where(eq(listItems.id, milk.itemId))
+      .run();
+    db.update(listItems).set({ deletedAt: new Date() }).where(eq(listItems.id, eggs.itemId)).run();
+
+    expect(recheckItems(unchecked)).toBe(0);
+    expect(itemRow(milk.itemId).checkedAt).toBeNull();
+    expect(itemRow(eggs.itemId).checkedAt).toBeNull();
+  });
+
+  test("a merged item whose amounts were edited on the open item since isn't split back out", () => {
+    const old = addItem(listId, '2 gal milk', USER)!;
+    checkAt(old.itemId, '2026-10-01T12:00:00Z', USER);
+    const fresh = addItem(listId, 'oat milk', USER)!;
+    updateItem(fresh.itemId, { name: 'milk', amount: '1 gal', note: '' });
+    const unchecked = uncheckAll(listId);
+    expect(unchecked[0].merged).toBeDefined();
+    updateItem(fresh.itemId, { name: 'milk', amount: '5 gal', note: '' });
+
+    expect(recheckItems(unchecked)).toBe(0);
+    expect(itemRow(old.itemId).deletedAt).not.toBeNull();
+    expect(rows(view().unchecked)).toEqual(['5 gal milk']);
+    expect(view().checked).toEqual([]);
+  });
+
+  test('a second Undo does nothing more', () => {
+    const milk = addItem(listId, 'milk', USER)!;
+    checkAt(milk.itemId, '2026-10-01T12:00:00Z', USER);
+    const unchecked = uncheckAll(listId);
+    expect(recheckItems(unchecked)).toBe(1);
+    expect(recheckItems(unchecked)).toBe(0);
+    expect(itemRow(milk.itemId).checkedAt).toEqual(new Date('2026-10-01T12:00:00Z'));
   });
 });
 
