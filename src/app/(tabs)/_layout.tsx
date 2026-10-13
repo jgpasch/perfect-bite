@@ -22,7 +22,8 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="recipes">
         <NativeTabs.Trigger.Label>Recipes</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="book" />
-        <NativeTabs.Trigger.Badge hidden={imports === 0}>{String(imports)}</NativeTabs.Trigger.Badge>
+        {/* Render conditionally: `hidden` is ignored whenever the badge has text, so "0" would show. */}
+        {imports > 0 && <NativeTabs.Trigger.Badge>{String(imports)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

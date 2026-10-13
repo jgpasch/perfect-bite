@@ -97,15 +97,21 @@ export type ThemeColors = Record<ColorToken, string>;
 export const AisleColors = {
   light: {
     green: { dot: '#2E6B45', soft: '#DDEFE2', strong: '#2E6B45' },
+    teal: { dot: '#2A8C84', soft: '#DCEFEC', strong: '#1F6E68' },
     blue: { dot: '#3E7BB8', soft: '#DFEAF6', strong: '#2F6396' },
+    plum: { dot: '#8A5BB0', soft: '#ECE3F5', strong: '#6E4594' },
     rose: { dot: '#C2556B', soft: '#F7E1E6', strong: '#A33D53' },
+    orange: { dot: '#D0703A', soft: '#FAE4D6', strong: '#A04A1C' },
     amber: { dot: '#C98A1E', soft: '#F6EBD4', strong: '#8A5C0C' },
     grey: { dot: '#7C877F', soft: '#EEF3EC', strong: '#55635A' },
   },
   dark: {
     green: { dot: '#6FBF8A', soft: '#1E3A28', strong: '#6FBF8A' },
+    teal: { dot: '#5FC4B8', soft: '#163633', strong: '#5FC4B8' },
     blue: { dot: '#7AAEE0', soft: '#1B2D3F', strong: '#7AAEE0' },
+    plum: { dot: '#B996E0', soft: '#2E2240', strong: '#B996E0' },
     rose: { dot: '#E58A9C', soft: '#3B1E26', strong: '#E58A9C' },
+    orange: { dot: '#EE9762', soft: '#3A2416', strong: '#EE9762' },
     amber: { dot: '#E3AE4E', soft: '#33290F', strong: '#E3AE4E' },
     grey: { dot: '#8E9A91', soft: '#26302A', strong: '#8E9A91' },
   },

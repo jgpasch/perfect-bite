@@ -3,26 +3,29 @@
 
 import type { CategorySlug } from '@/shared/seed/categories';
 
-export type AisleHue = 'green' | 'blue' | 'rose' | 'amber' | 'grey';
+export type AisleHue = 'green' | 'teal' | 'blue' | 'plum' | 'rose' | 'orange' | 'amber' | 'grey';
 
-/** Every aisle hue, in the order pickers show them. The server's `lists.color` check allows exactly these. */
-export const AISLE_HUES: readonly AisleHue[] = ['green', 'blue', 'rose', 'amber', 'grey'];
+/** The hues a list can take, in the order the Colour menu shows them. The server's `lists.color` check allows exactly these. */
+export type ListHue = Extract<AisleHue, 'green' | 'blue' | 'rose' | 'amber' | 'grey'>;
+export const LIST_HUES: readonly ListHue[] = ['green', 'blue', 'rose', 'amber', 'grey'];
 
 /**
  * A list's stored colour as a hue, or null for Default (spec 4.1). Anything else, e.g. a hue a newer
  * app version added, reads as Default.
  */
-export function listHue(color: string | null | undefined): AisleHue | null {
-  return color != null && (AISLE_HUES as readonly string[]).includes(color) ? (color as AisleHue) : null;
+export function listHue(color: string | null | undefined): ListHue | null {
+  return color != null && (LIST_HUES as readonly string[]).includes(color) ? (color as ListHue) : null;
 }
 
-const HUE_NAMES: Record<AisleHue, string> = { green: 'Green', blue: 'Blue', rose: 'Rose', amber: 'Amber', grey: 'Grey' };
+const HUE_NAMES: Record<ListHue, string> = { green: 'Green', blue: 'Blue', rose: 'Rose', amber: 'Amber', grey: 'Grey' };
 
 /** A list colour's name in the Colour menu: the hue's name, or "Default" for none. */
-export function listColorName(hue: AisleHue | null): string {
+export function listColorName(hue: ListHue | null): string {
   return hue === null ? 'Default' : HUE_NAMES[hue];
 }
 
+// Neighbouring aisles in the default store order mostly get different hues, so the centre-store run
+// (pantry, canned, pasta, spices) doesn't read as one long block of amber.
 const HUES: Record<CategorySlug, AisleHue> = {
   produce: 'green',
   bakery: 'amber',
@@ -30,17 +33,17 @@ const HUES: Record<CategorySlug, AisleHue> = {
   deli: 'rose',
   'meat-seafood': 'rose',
   'dairy-eggs': 'blue',
-  frozen: 'blue',
+  frozen: 'teal',
   pantry: 'amber',
-  'canned-jarred': 'amber',
+  'canned-jarred': 'orange',
   'pasta-grains': 'amber',
   baking: 'amber',
-  spices: 'amber',
-  condiments: 'amber',
-  snacks: 'amber',
-  beverages: 'blue',
+  spices: 'orange',
+  condiments: 'orange',
+  snacks: 'plum',
+  beverages: 'plum',
   breakfast: 'amber',
-  household: 'green',
+  household: 'teal',
   'personal-care': 'blue',
   baby: 'blue',
   pet: 'green',

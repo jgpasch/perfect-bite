@@ -70,19 +70,22 @@ Checked text pairs (≥ 4.5:1, both schemes): `ink` and `inkSecondary` on `backg
 
 ## Aisle colours (`aisles.*`)
 
-Each hue has a `dot` (section dots, the aisle-order dots, list colour dots), a `soft` tint (icon wells, a just-added row flash in that aisle, household header bands) and a `strong` shade for fills that carry `onPrimary` text (the selected aisle pill). In light mode most dots are under 4.5:1 with white text (blue 4.4, rose 4.4, grey 3.7, amber 2.9), so `strong` is a deeper shade there (green `#2E6B45`, blue `#2F6396`, rose `#A33D53`, amber `#8A5C0C`, grey `#55635A`); in dark mode it equals the dot, with dark `onPrimary` text.
+Each hue has a `dot` (section dots, the aisle-order dots, list colour dots), a `soft` tint (icon wells, a just-added row flash in that aisle, household header bands) and a `strong` shade for fills that carry `onPrimary` text (the selected aisle pill). In light mode most dots are under 4.5:1 with white text (blue 4.4, rose 4.4, grey 3.7, amber 2.9), so `strong` is a deeper shade there (green `#2E6B45`, teal `#1F6E68`, blue `#2F6396`, plum `#6E4594`, rose `#A33D53`, orange `#A04A1C`, amber `#8A5C0C`, grey `#55635A`); in dark mode it equals the dot, with dark `onPrimary` text.
 
 | Hue | Light dot / soft | Aisles |
 | --- | --- | --- |
-| green | `#2E6B45` / `#DDEFE2` | produce, household, pet |
-| blue | `#3E7BB8` / `#DFEAF6` | dairy-eggs, frozen, beverages, personal-care, baby |
+| green | `#2E6B45` / `#DDEFE2` | produce, pet |
+| teal | `#2A8C84` / `#DCEFEC` | frozen, household |
+| blue | `#3E7BB8` / `#DFEAF6` | dairy-eggs, personal-care, baby |
+| plum | `#8A5BB0` / `#ECE3F5` | snacks, beverages |
 | rose | `#C2556B` / `#F7E1E6` | meat-seafood, deli |
-| amber | `#C98A1E` / `#F6EBD4` | bakery, pantry, canned-jarred, pasta-grains, baking, spices, condiments, snacks, breakfast |
+| orange | `#D0703A` / `#FAE4D6` | canned-jarred, spices, condiments |
+| amber | `#C98A1E` / `#F6EBD4` | bakery, pantry, pasta-grains, baking, breakfast |
 | grey | `#7C877F` / `#EEF3EC` | other, and any slug the app doesn't know (custom aisles) |
 
 Item rows use `categoryColors(slug, scheme)` (`appearance.ts`), which returns `{ ring, tint, text }`: the `dot` as the check's ring, the `dot` at 10% (light) or 16% (dark) over `surface` as the row's tint, and the `strong` shade for the amount (`inkSecondary` where even that is under 4.5:1, i.e. dark grey). Sorting… and unknown slugs get grey. Use it for any new per-item category UI.
 
-The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`, then read `aisles[hue].dot` or `.soft`. Never colour an aisle by its position, so an aisle keeps its colour when the store order changes. A dot is decoration: the aisle's name is always shown next to it, so colour is never the only signal.
+The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`, then read `aisles[hue].dot` or `.soft`. Never colour an aisle by its position, so an aisle keeps its colour when the store order changes. Lists take only green, blue, rose, amber and grey (`LIST_HUES`, the `lists.color` check); teal, plum and orange are aisle-only. A dot is decoration: the aisle's name is always shown next to it, so colour is never the only signal.
 
 ## Spacing, radius and sizes
 

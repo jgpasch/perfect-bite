@@ -1,12 +1,12 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { AISLE_HUES, aisleColor, householdColor, listColorName, listHue, recipeHue, type AisleHue } from '@/domain/aisle-color';
+import { LIST_HUES, aisleColor, householdColor, listColorName, listHue, recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { SYSTEM_CATEGORIES, type CategorySlug } from '@/shared/seed/categories';
 
 describe('aisleColor', () => {
   it('gives every seed category a hue', () => {
     for (const { slug } of SYSTEM_CATEGORIES) {
-      expect(['green', 'blue', 'rose', 'amber', 'grey']).toContain(aisleColor(slug));
+      expect(['green', 'teal', 'blue', 'plum', 'rose', 'orange', 'amber', 'grey']).toContain(aisleColor(slug));
     }
   });
 
@@ -20,18 +20,18 @@ describe('aisleColor', () => {
     ['meat-seafood', 'rose'],
     ['deli', 'rose'],
     ['dairy-eggs', 'blue'],
-    ['frozen', 'blue'],
-    ['beverages', 'blue'],
+    ['frozen', 'teal'],
+    ['beverages', 'plum'],
     ['bakery', 'amber'],
     ['pantry', 'amber'],
-    ['canned-jarred', 'amber'],
+    ['canned-jarred', 'orange'],
     ['pasta-grains', 'amber'],
     ['baking', 'amber'],
-    ['spices', 'amber'],
-    ['condiments', 'amber'],
-    ['snacks', 'amber'],
+    ['spices', 'orange'],
+    ['condiments', 'orange'],
+    ['snacks', 'plum'],
     ['breakfast', 'amber'],
-    ['household', 'green'],
+    ['household', 'teal'],
     ['personal-care', 'blue'],
     ['baby', 'blue'],
     ['pet', 'green'],
@@ -54,8 +54,8 @@ describe('aisleColor', () => {
 });
 
 describe('listHue', () => {
-  it('knows the five aisle hues, in picker order', () => {
-    expect(AISLE_HUES).toEqual(['green', 'blue', 'rose', 'amber', 'grey']);
+  it('knows the five list hues, in picker order', () => {
+    expect(LIST_HUES).toEqual(['green', 'blue', 'rose', 'amber', 'grey']);
   });
 
   it.each(['green', 'blue', 'rose', 'amber', 'grey'] as const)('reads %s as itself', (hue) => {
@@ -73,11 +73,19 @@ describe('listHue', () => {
       expect(listHue(color)).toBeNull();
     },
   );
+
+  it.each(['teal', 'plum', 'orange'])('reads aisle-only hue %s as Default, since lists.color does not allow it', (color) => {
+    expect(listHue(color)).toBeNull();
+  });
+
+  it('reads aisle-only hues as Default, since lists.color does not allow them', () => {
+    expect(listHue('teal')).toBeNull();
+  });
 });
 
 describe('listColorName', () => {
   it('names Default and each hue for the Colour menu', () => {
-    expect([null, ...AISLE_HUES].map(listColorName)).toEqual(['Default', 'Green', 'Blue', 'Rose', 'Amber', 'Grey']);
+    expect([null, ...LIST_HUES].map(listColorName)).toEqual(['Default', 'Green', 'Blue', 'Rose', 'Amber', 'Grey']);
   });
 });
 

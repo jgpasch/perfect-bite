@@ -100,8 +100,11 @@ describe('AisleColors', () => {
   it('has the Pantry light values', () => {
     expect(AisleColors.light).toEqual({
       green: { dot: '#2E6B45', soft: '#DDEFE2', strong: '#2E6B45' },
+      teal: { dot: '#2A8C84', soft: '#DCEFEC', strong: '#1F6E68' },
       blue: { dot: '#3E7BB8', soft: '#DFEAF6', strong: '#2F6396' },
+      plum: { dot: '#8A5BB0', soft: '#ECE3F5', strong: '#6E4594' },
       rose: { dot: '#C2556B', soft: '#F7E1E6', strong: '#A33D53' },
+      orange: { dot: '#D0703A', soft: '#FAE4D6', strong: '#A04A1C' },
       amber: { dot: '#C98A1E', soft: '#F6EBD4', strong: '#8A5C0C' },
       grey: { dot: '#7C877F', soft: '#EEF3EC', strong: '#55635A' },
     });

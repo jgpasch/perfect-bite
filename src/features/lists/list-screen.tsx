@@ -30,7 +30,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { AISLE_HUES, aisleColor, listColorName, listHue, recipeHue } from '@/domain/aisle-color';
+import { LIST_HUES, aisleColor, listColorName, listHue, recipeHue } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -789,7 +789,7 @@ export function ListScreen({ id }: { id: string }) {
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.Menu icon="paintpalette">
             <Stack.Toolbar.Label>Colour</Stack.Toolbar.Label>
-            {[null, ...AISLE_HUES].map((hue) => (
+            {[null, ...LIST_HUES].map((hue) => (
               <Stack.Toolbar.MenuAction key={hue ?? 'default'} isOn={listHue(list.color) === hue} onPress={() => setListColor(id, hue)}>
                 {listColorName(hue)}
               </Stack.Toolbar.MenuAction>
