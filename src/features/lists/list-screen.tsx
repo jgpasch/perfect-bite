@@ -121,7 +121,6 @@ import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
-import { parseQuantity } from '@/shared';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
 
@@ -294,7 +293,6 @@ export function ListScreen({ id }: { id: string }) {
   const [addText, setAddText] = useState('');
   const addMode = adding && !selection;
   const query = addMode ? duplicateQuery(addText) : null;
-  const typedName = parseQuantity(addText).name;
   // Leaving add mode scrolls back to where it started: adds scroll to their section, which would leave the
   // re-expanded title above the fold.
   const scrollOffset = useRef(0);
@@ -678,7 +676,7 @@ export function ListScreen({ id }: { id: string }) {
         // as do rows under a coloured aisle header.
         look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
         tile={tile}
-        alreadyOnList={isAlreadyOnList(item, query) ? { typed: typedName } : undefined}
+        alreadyOnList={query !== null && isAlreadyOnList(item, query) ? { query } : undefined}
         first={index === 0}
         sorting={sorting}
         amountText={entry.amountText}

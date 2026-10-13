@@ -602,7 +602,10 @@ describe('adding', () => {
     expect(hostByLabel('Groceries, 2 to get · As added')).toBeDefined();
     // The big switcher title leaves the header's left slot while the compact one stands in.
     expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Groceries, switch list')).toHaveLength(0);
-    expect(row('milk').props.alreadyOnList).toEqual({ typed: 'mil' });
+    // Part of a word marks nothing; the whole word does.
+    expect(row('milk').props.alreadyOnList).toBeUndefined();
+    act(() => addBar().props.onTextChange('2 Milk'));
+    expect(row('milk').props.alreadyOnList).toEqual({ query: 'milk' });
     expect(row('eggs').props.alreadyOnList).toBeUndefined();
     act(() => addBar().props.onFocusChange(false));
     expect(row('milk').props.alreadyOnList).toBeUndefined();

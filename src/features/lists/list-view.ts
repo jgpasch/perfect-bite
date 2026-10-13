@@ -4,7 +4,8 @@
 import type { ItemRowStyle } from '@/components/appearance';
 import type { IconName } from '@/components/icon';
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
-import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
+import type { MatchParts } from '@/domain/text-match';
+import { displayItemName, normalizeIngredientName, parseQuantity, singularize } from '@/shared';
 
 // --- Your lists sheet ------------------------------------------------------------------------
 
@@ -150,9 +151,43 @@ export function duplicateQuery(text: string): string | null {
 /** Shown in place of the amount on an item that matches the add text. */
 export const ALREADY_ON_LIST_LABEL = 'already on list';
 
-/** An unchecked item whose key starts with or contains the typed key is already on the list. */
+/**
+ * Where the typed key's words start as a run of whole words in `words`, or -1. The run's last word is compared
+ * singularized, as the key's last word is: `egg` is in `eggs benedict`.
+ */
+function wordRunIndex(words: readonly string[], query: string): number {
+  const q = query.split(' ');
+  const last = q.length - 1;
+  for (let i = 0; i + last < words.length; i++) {
+    if (q.every((word, j) => (j === last ? singularize(words[i + j]) === word : words[i + j] === word))) return i;
+  }
+  return -1;
+}
+
+/**
+ * An unchecked item whose key is the typed key, or has it as a run of whole words, is already on the list:
+ * `cumin` marks Cumin and Ground cumin, `cum` marks nothing, `pea` marks Peas but not Peanut butter.
+ */
 export function isAlreadyOnList(item: { ingredientName: string; checkedAt: Date | null }, query: string | null): boolean {
-  return query !== null && item.checkedAt === null && item.ingredientName.includes(query);
+  return query !== null && item.checkedAt === null && wordRunIndex(item.ingredientName.split(' '), query) !== -1;
+}
+
+/**
+ * The row's name split around the words the typed key matched, for the green highlight: `chicken` in
+ * `Chicken Thighs` → `Chicken`, `pea` in `Peas` → `Peas`. Null when the name has no such run.
+ */
+export function alreadyOnListParts(name: string, query: string): MatchParts | null {
+  const tokens = [...name.matchAll(/[\p{L}\p{N}'’]+/gu)]
+    .map((m) => ({ start: m.index, end: m.index + m[0].length, word: m[0].toLowerCase().normalize('NFC').replace(/['’]/g, '') }))
+    .filter((t) => t.word);
+  const i = wordRunIndex(
+    tokens.map((t) => t.word),
+    query,
+  );
+  if (i === -1) return null;
+  const start = tokens[i].start;
+  const end = tokens[i + query.split(' ').length - 1].end;
+  return { before: name.slice(0, start), match: name.slice(start, end), after: name.slice(end) };
 }
 
 /** Where the device setting for a list's view mode lives. Saved choices from before As added still read. */

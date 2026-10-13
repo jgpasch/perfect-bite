@@ -23,6 +23,7 @@ import {
   compactHeaderSubtitle,
   deletedToast,
   duplicateQuery,
+  alreadyOnListParts,
   isAlreadyOnList,
   DEFAULT_LIST_VIEW_MODE,
   groupListsByHousehold,
@@ -43,6 +44,7 @@ import {
   toggleActionLabel,
   viewModeKey,
 } from '../list-view';
+import { normalizeIngredientName } from '@/shared';
 
 const list = (id: string, householdId: string, householdName: string) => ({ id, householdId, householdName });
 
@@ -502,13 +504,76 @@ describe('add mode', () => {
     expect(duplicateQuery('  ')).toBeNull();
   });
 
-  it('highlights unchecked items whose name starts with or contains the typed text', () => {
-    const broth = { ingredientName: 'chicken broth', checkedAt: null };
-    expect(isAlreadyOnList(broth, duplicateQuery('chi'))).toBe(true);
-    expect(isAlreadyOnList(broth, duplicateQuery('broth'))).toBe(true);
-    expect(isAlreadyOnList(broth, duplicateQuery('tuna'))).toBe(false);
-    expect(isAlreadyOnList(broth, null)).toBe(false);
-    expect(isAlreadyOnList({ ...broth, checkedAt: new Date() }, duplicateQuery('chi'))).toBe(false);
+  describe('already on list: whole words only (spec 4.2)', () => {
+    // As the list stores them: the item's key, normalized from its name.
+    const on = (name: string, typed: string, checkedAt: Date | null = null) =>
+      isAlreadyOnList({ ingredientName: normalizeIngredientName(name), checkedAt }, duplicateQuery(typed));
+
+    it('marks an item whose name is the typed name, or has it as whole words', () => {
+      expect(on('Cumin', 'cumin')).toBe(true);
+      expect(on('Ground cumin', 'cumin')).toBe(true);
+      expect(on('Chicken thighs', 'chicken')).toBe(true);
+      expect(on('Chicken thighs', 'chicken thighs')).toBe(true);
+      expect(on('Chicken broth', 'broth')).toBe(true);
+      expect(on('Chicken broth', '2 cups Chicken Broth')).toBe(true);
+    });
+
+    it('marks nothing for part of a word', () => {
+      expect(on('Cumin', 'cum')).toBe(false);
+      expect(on('Cumin', 'cumi')).toBe(false);
+      expect(on('Ground cumin', 'cum')).toBe(false);
+      expect(on('Cucumber', 'cum')).toBe(false);
+      expect(on('Chicken thighs', 'chicken th')).toBe(false);
+      expect(on('Chicken thighs', 'chi')).toBe(false);
+      expect(on('Licorice', 'rice')).toBe(false);
+    });
+
+    it('lines up plurals because both sides are normalized', () => {
+      expect(on('Peas', 'pea')).toBe(true);
+      expect(on('Peanut butter', 'pea')).toBe(false);
+      expect(on('Egg', 'eggs')).toBe(true);
+      expect(on('Eggs', 'egg')).toBe(true);
+      expect(on('Eggs benedict', 'eggs')).toBe(true);
+    });
+
+    it('needs the words in order and next to each other', () => {
+      expect(on('Chicken thighs', 'thigh chicken')).toBe(false);
+      expect(on('Chicken thighs', 'chicken thighs boneless')).toBe(false);
+      expect(on('Red wine vinegar', 'red vinegar')).toBe(false);
+      expect(on('Red wine vinegar', 'wine vinegar')).toBe(true);
+    });
+
+    it('never marks a checked item, and nothing without a query', () => {
+      expect(on('Cumin', 'cumin', new Date())).toBe(false);
+      expect(on('Ground cumin', 'cumin', new Date())).toBe(false);
+      expect(on('Cumin', 'c')).toBe(false);
+      expect(isAlreadyOnList({ ingredientName: 'cumin', checkedAt: null }, null)).toBe(false);
+    });
+
+    it('highlights the matched word(s) of the name', () => {
+      expect(alreadyOnListParts('Ground cumin', 'cumin')).toEqual({ before: 'Ground ', match: 'cumin', after: '' });
+      expect(alreadyOnListParts('Chicken Thighs', 'chicken')).toEqual({ before: '', match: 'Chicken', after: ' Thighs' });
+      expect(alreadyOnListParts('Chicken Thighs', 'chicken thigh')).toEqual({ before: '', match: 'Chicken Thighs', after: '' });
+      expect(alreadyOnListParts('Peas', 'pea')).toEqual({ before: '', match: 'Peas', after: '' });
+      expect(alreadyOnListParts('Egg', 'egg')).toEqual({ before: '', match: 'Egg', after: '' });
+      expect(alreadyOnListParts('Red wine vinegar', 'wine vinegar')).toEqual({
+        before: 'Red ',
+        match: 'wine vinegar',
+        after: '',
+      });
+    });
+
+    it('highlights through punctuation in the name as the key ignores it', () => {
+      expect(alreadyOnListParts('Half-and-half', 'half and half')).toEqual({ before: '', match: 'Half-and-half', after: '' });
+      expect(alreadyOnListParts("Za'atar, ground", 'zaatar')).toEqual({ before: '', match: "Za'atar", after: ', ground' });
+    });
+
+    it('highlights nothing for part of a word or a name without the words', () => {
+      expect(alreadyOnListParts('Licorice', 'rice')).toBeNull();
+      expect(alreadyOnListParts('Peanut butter', 'pea')).toBeNull();
+      expect(alreadyOnListParts('Milk', 'eggs')).toBeNull();
+      expect(alreadyOnListParts('', 'milk')).toBeNull();
+    });
   });
 });
 

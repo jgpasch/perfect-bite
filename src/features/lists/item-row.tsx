@@ -8,13 +8,12 @@ import { itemNameColor, type CategoryColors } from '@/components/appearance';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { matchParts } from '@/domain/text-match';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { displayItemName } from '@/shared';
 
 import type { ItemView } from './items';
-import { ALREADY_ON_LIST_LABEL, checkOffLabel, itemRowLabel, SORTING_LABEL, toggleActionLabel } from './list-view';
+import { ALREADY_ON_LIST_LABEL, alreadyOnListParts, checkOffLabel, itemRowLabel, SORTING_LABEL, toggleActionLabel } from './list-view';
 
 type Props = {
   item: ItemView;
@@ -34,10 +33,11 @@ type Props = {
    */
   tile?: boolean;
   /**
-   * Add mode: the item matches what's being typed (`isAlreadyOnList`). A `primarySoft` tint, the typed part of
-   * the name in `onPrimarySoft`, and "already on list" in place of the amount.
+   * Add mode: the item matches what's being typed (`isAlreadyOnList`, with the typed key as `query`). A
+   * `primarySoft` tint, the matched word(s) of the name in `onPrimarySoft`, and "already on list" in place of the
+   * amount.
    */
-  alreadyOnList?: { typed: string };
+  alreadyOnList?: { query: string };
   /** The first row in its card has no hairline above it. */
   first?: boolean;
   /** "Sorting…": waiting for an aisle. A dashed amber check and a "Sorting…" label. */
@@ -95,7 +95,7 @@ export function ItemRow({
   ]
     .filter(Boolean)
     .join(', ');
-  const match = alreadyOnList ? matchParts(name, alreadyOnList.typed) : null;
+  const match = alreadyOnList ? alreadyOnListParts(name, alreadyOnList.query) : null;
 
   const rowStyle = [
     styles.row,

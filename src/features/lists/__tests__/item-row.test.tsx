@@ -78,6 +78,11 @@ const byLabel = (tree: ReactTestRenderer, label: string) => {
 const pressable = (tree: ReactTestRenderer, label: string) =>
   tree.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && 'onPress' in n.props);
 const text = (tree: ReactTestRenderer) => JSON.stringify(tree.toJSON());
+// The name's matched part, set in `onPrimarySoft` (the "already on list" label is the amount, not the name).
+const highlighted = (tree: ReactTestRenderer) =>
+  tree.root
+    .findAll((n) => typeof n.type !== 'string' && n.props.variant === 'headline' && n.props.color === 'onPrimarySoft')
+    .map((n) => n.props.children);
 const swipeable = (tree: ReactTestRenderer) => tree.root.findByType('Swipeable' as never);
 
 describe('ItemRow', () => {
@@ -204,11 +209,18 @@ describe('ItemRow', () => {
     byLabel(tree, 'Limes, 3, Produce');
   });
 
-  test('add mode: a match says "already on list" in place of the amount and highlights the typed part', () => {
-    const tree = render({ alreadyOnList: { typed: 'lim' } });
+  test('add mode: a match says "already on list" in place of the amount and highlights the matched word', () => {
+    const tree = render({ alreadyOnList: { query: 'lime' } });
     byLabel(tree, 'Limes, 3, already on list');
     expect(text(tree)).toContain('already on list');
     expect(text(tree)).not.toContain('"3"');
-    expect(text(tree)).toContain('"Lim"');
+    expect(highlighted(tree)).toEqual(['Limes']);
+  });
+
+  test('add mode: a match whose words the name lacks still says "already on list", with no highlight', () => {
+    const tree = render({ alreadyOnList: { query: 'key lime' } });
+    byLabel(tree, 'Limes, 3, already on list');
+    expect(text(tree)).toContain('"Limes"');
+    expect(highlighted(tree)).toEqual([]);
   });
 });
