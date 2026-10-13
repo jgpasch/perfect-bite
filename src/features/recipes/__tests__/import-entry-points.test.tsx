@@ -69,7 +69,7 @@ jest.mock('expo-router', () => {
   const Link = Object.assign(passThrough(), { Trigger: passThrough(), Menu: () => null, MenuAction: () => null });
   return {
     Link,
-    Stack: { Screen: () => null, Title: passThrough(), Toolbar },
+    Stack: { Screen: () => null, Title: passThrough(), Toolbar, SearchBar: () => null },
     router: { push: (...args: unknown[]) => mockPush(...args), back: () => {} },
     useFocusEffect: () => {},
     usePathname: () => '/lists',

@@ -1,6 +1,7 @@
 // What the list screen and the Your lists sheet show (boards 02–03, E, G). Pure, so it can be tested
 // without rendering.
 
+import type { ItemRowStyle } from '@/components/appearance';
 import type { IconName } from '@/components/icon';
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
 import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
@@ -181,6 +182,21 @@ export function readAisleColorStyle(saved: unknown): AisleColorStyle {
 /** The choice's label, for the Settings row. */
 export function aisleColorStyleLabel(style: AisleColorStyle): string {
   return AISLE_COLOR_STYLES.find((s) => s.value === style)?.label ?? '';
+}
+
+export const ITEM_ROW_STYLE_KEY = 'list.itemRowStyle';
+
+export const DEFAULT_ITEM_ROW_STYLE: ItemRowStyle = 'bands';
+
+/** The choices on Settings > Aisle colours > Item rows, in order. */
+export const ITEM_ROW_STYLES: readonly { value: ItemRowStyle; label: string }[] = [
+  { value: 'bands', label: 'Colour bands' },
+  { value: 'tiles', label: 'White tiles' },
+];
+
+/** The saved item row style, read defensively: anything unknown is the default. */
+export function readItemRowStyle(saved: unknown): ItemRowStyle {
+  return ITEM_ROW_STYLES.some((s) => s.value === saved) ? (saved as ItemRowStyle) : DEFAULT_ITEM_ROW_STYLE;
 }
 
 /** The view modes with sections that fold away (spec 4.6); As added has none. */

@@ -34,9 +34,14 @@ export function ingredientCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'ingredient' : 'ingredients'}`;
 }
 
-/** What VoiceOver reads for a recipe card: "Chicken tacos, 9 ingredients, on Groceries". */
-export function recipeCardLabel(name: string, count: number, onList?: string | null): string {
-  return [name, ingredientCountLabel(count), onList ? `on ${onList}` : null].filter(Boolean).join(', ');
+/**
+ * What VoiceOver reads for a recipe card: "Chicken tacos, 9 ingredients, on Groceries". A card a
+ * search matched only through an ingredient reads that instead of the count: "Tacos, has chicken thighs".
+ */
+export function recipeCardLabel(name: string, count: number, onList?: string | null, ingredientMatch?: string | null): string {
+  return [name, ingredientMatch ? `has ${ingredientMatch}` : ingredientCountLabel(count), onList ? `on ${onList}` : null]
+    .filter(Boolean)
+    .join(', ');
 }
 
 /** A servings multiplier's pill: "½×", "1×", "2×". */

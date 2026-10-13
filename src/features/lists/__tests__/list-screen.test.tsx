@@ -11,7 +11,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
-import { getDeviceSetting, setAisleColorStyle } from '@/features/settings/device-settings';
+import { getDeviceSetting, setAisleColorStyle, setItemRowStyle } from '@/features/settings/device-settings';
 import type { MyInvite } from '@/features/households/invites';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { SYSTEM_CATEGORIES } from '@/shared';
@@ -356,6 +356,25 @@ describe('the list', () => {
     setView('category');
     expect(section('Dairy & Eggs').props.band).toBeUndefined();
     expect(row('milk').props.look).toBeDefined();
+  });
+
+  test('Item rows "tiles" makes rows white tiles with a pill behind the amount', () => {
+    put('milk');
+    setItemRowStyle('tiles');
+    render();
+    setView('category');
+    expect(row('milk').props.tile).toBe(true);
+    expect(row('milk').props.look.pill).toBeDefined();
+  });
+
+  test('tiles give way to plain rows under a coloured aisle header', () => {
+    put('milk');
+    setItemRowStyle('tiles');
+    setAisleColorStyle('header');
+    render();
+    setView('category');
+    expect(row('milk').props.tile).toBe(false);
+    expect(row('milk').props.look).toBeUndefined();
   });
 });
 

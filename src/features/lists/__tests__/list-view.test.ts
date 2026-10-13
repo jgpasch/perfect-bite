@@ -13,6 +13,7 @@ import {
   aisleColorStyleLabel,
   alsoInHint,
   readAisleColorStyle,
+  readItemRowStyle,
   fromRecipesHint,
   withLingering,
   checkOffLabel,
@@ -501,6 +502,18 @@ describe('add mode', () => {
     expect(isAlreadyOnList(broth, duplicateQuery('tuna'))).toBe(false);
     expect(isAlreadyOnList(broth, null)).toBe(false);
     expect(isAlreadyOnList({ ...broth, checkedAt: new Date() }, duplicateQuery('chi'))).toBe(false);
+  });
+});
+
+describe('readItemRowStyle', () => {
+  it('reads a saved choice', () => {
+    expect(readItemRowStyle('tiles')).toBe('tiles');
+    expect(readItemRowStyle('bands')).toBe('bands');
+  });
+
+  it('is the colour bands default for nothing saved or anything unknown', () => {
+    expect(readItemRowStyle(null)).toBe('bands');
+    expect(readItemRowStyle('stripes')).toBe('bands');
   });
 });
 

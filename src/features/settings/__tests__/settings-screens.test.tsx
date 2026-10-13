@@ -18,7 +18,7 @@ import DeveloperScreen from '@/app/(tabs)/settings/developer';
 import SiriDefaultListScreen from '@/app/(tabs)/settings/siri';
 import SyncStatusScreen from '@/app/(tabs)/settings/sync';
 
-import { getAisleColorStyle, setAisleColorStyle } from '../device-settings';
+import { getAisleColorStyle, getItemRowStyle, setAisleColorStyle } from '../device-settings';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -241,6 +241,15 @@ describe('Aisle colours', () => {
     expect(button(root, 'Whole row').props.accessibilityState).toEqual(expect.objectContaining({ selected: false }));
     click(button(root, 'Whole row'));
     expect(getAisleColorStyle()).toBe('rows');
+  });
+
+  it('saves the item row style on this device, Colour bands by default', () => {
+    const root = render(<AisleColorsScreen />);
+    expect(button(root, 'Colour bands').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    click(button(root, 'White tiles'));
+    expect(getItemRowStyle()).toBe('tiles');
+    expect(button(root, 'White tiles').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    expect(button(root, 'Colour bands').props.accessibilityState).toEqual(expect.objectContaining({ selected: false }));
   });
 
   it('opens on a choice saved earlier', () => {

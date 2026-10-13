@@ -592,49 +592,54 @@ describe('aisleHeaderBand', () => {
 
 describe('categoryColors', () => {
   const SLUGS = [...SYSTEM_CATEGORIES.map((c) => c.slug), 'my-corner-shop', null];
+  const STYLES = ['bands', 'tiles'] as const;
 
-  it('tints rows close to the light-mode targets', () => {
-    // Targets from the restyle brief; the tint is the aisle dot at 10% over white.
-    expect(categoryColors('produce', 'light')).toEqual({ ring: '#2E6B45', tint: '#EAF0EC', text: '#2E6B45' });
-    expect(categoryColors('dairy-eggs', 'light').tint).toBe('#ECF2F8');
-    expect(categoryColors('meat-seafood', 'light').tint).toBe('#F9EEF0');
-    expect(categoryColors('bakery', 'light').tint).toBe('#FAF3E9');
+  it('fills colour bands with the aisle soft, and white tiles with surface and a soft amount pill', () => {
+    expect(categoryColors('produce', 'light')).toEqual({
+      ring: '#2E6B45',
+      checkFill: '#FFFFFF',
+      tint: AisleColors.light.green.soft,
+      text: AisleColors.light.green.strong,
+    });
+    expect(categoryColors('meat-seafood', 'light', 'tiles')).toEqual({
+      ring: AisleColors.light.rose.dot,
+      checkFill: '#FFFFFF',
+      tint: '#FFFFFF',
+      text: AisleColors.light.rose.strong,
+      pill: AisleColors.light.rose.soft,
+    });
+    expect(categoryColors('bakery', 'dark', 'tiles').tint).toBe(Palette.dark.surface);
   });
 
   it('is neutral grey for Sorting… (no slug) and custom aisles', () => {
-    expect(categoryColors(undefined, 'light')).toEqual(categoryColors('other', 'light'));
-    expect(categoryColors('my-corner-shop', 'dark')).toEqual(categoryColors('other', 'dark'));
-    expect(categoryColors(null, 'light').ring).toBe(AisleColors.light.grey.dot);
-    expect(categoryColors(null, 'dark').text).toBe(Palette.dark.inkSecondary);
+    for (const style of STYLES) {
+      expect(categoryColors(undefined, 'light', style)).toEqual(categoryColors('other', 'light', style));
+      expect(categoryColors('my-corner-shop', 'dark', style)).toEqual(categoryColors('other', 'dark', style));
+      expect(categoryColors(null, 'light', style).ring).toBe(AisleColors.light.grey.dot);
+    }
   });
 
   it('uses the full aisle colour for the ring', () => {
     expect(categoryColors('dairy-eggs', 'light').ring).toBe(AisleColors.light.blue.dot);
-    expect(categoryColors('dairy-eggs', 'dark').ring).toBe(AisleColors.dark.blue.dot);
+    expect(categoryColors('dairy-eggs', 'dark', 'tiles').ring).toBe(AisleColors.dark.blue.dot);
   });
 
   describe.each(SCHEMES)('%s scheme', (scheme) => {
     const colors = Palette[scheme];
 
-    it.each(SLUGS)('keeps every text on the %s tint at 4.5:1 or better', (slug) => {
-      const { tint, text } = categoryColors(slug, scheme);
-      for (const fg of [colors.ink, colors.inkSecondary, colors.pending, text]) {
-        expect(contrastRatio(fg, tint)).toBeGreaterThanOrEqual(4.5);
+    it.each(SLUGS)('keeps every text on the %s row at 4.5:1 or better', (slug) => {
+      for (const style of STYLES) {
+        const { tint, text, pill } = categoryColors(slug, scheme, style);
+        for (const fg of [colors.ink, colors.inkSecondary, colors.pending]) {
+          expect(contrastRatio(fg, tint)).toBeGreaterThanOrEqual(4.5);
+        }
+        expect(contrastRatio(text, pill ?? tint)).toBeGreaterThanOrEqual(4.5);
       }
     });
 
-    it('keeps tints faint: closer to the card than to the aisle colour', () => {
+    it('makes white tiles stand apart from the screen ground', () => {
       for (const slug of SLUGS) {
-        const { tint, ring } = categoryColors(slug, scheme);
-        expect(contrastRatio(tint, colors.surface)).toBeLessThan(contrastRatio(tint, ring));
-        expect(contrastRatio(tint, colors.surface)).toBeLessThan(scheme === 'light' ? 1.2 : 1.45);
-      }
-    });
-
-    it('keeps dark tints dark, never pastel', () => {
-      for (const slug of SLUGS) {
-        const { tint } = categoryColors(slug, scheme);
-        if (scheme === 'dark') expect(contrastRatio(tint, '#000000')).toBeLessThan(2);
+        expect(categoryColors(slug, scheme, 'tiles').tint).not.toBe(colors.background);
       }
     });
   });

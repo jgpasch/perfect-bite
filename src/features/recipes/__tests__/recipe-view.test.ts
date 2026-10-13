@@ -133,6 +133,12 @@ describe('labels', () => {
     expect(recipeCardLabel('Dal', 1, '')).toBe('Dal, 1 ingredient');
   });
 
+  test('a card matched only through an ingredient reads it in place of the count', () => {
+    expect(recipeCardLabel('Tacos', 9, 'Groceries', 'chicken thighs')).toBe('Tacos, has chicken thighs, on Groceries');
+    expect(recipeCardLabel('Tacos', 9, null, 'chicken thighs')).toBe('Tacos, has chicken thighs');
+    expect(recipeCardLabel('Tacos', 9, null, null)).toBe('Tacos, 9 ingredients');
+  });
+
   test('servings use ½ for a half and × after the number', () => {
     expect([0.5, 1, 2, 3].map(servingsLabel)).toEqual(['½×', '1×', '2×', '3×']);
   });

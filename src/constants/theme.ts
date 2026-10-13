@@ -143,6 +143,8 @@ export const Typography = {
   /** The sign-in tagline. */
   lead: { fontFamily: Fonts.body, fontSize: 18, fontWeight: '400', lineHeight: 25 },
   body: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
+  /** An unchecked item's name on the list screen. */
+  itemName: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '600', lineHeight: 22 },
   callout: { fontFamily: Fonts.body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
   /** Quantities and values at the end of a row. */
   amount: { fontFamily: Fonts.body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
@@ -282,6 +284,8 @@ export const Shadows = {
   floating: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 6, shadowOpacity: Opacity.shadow },
   /** The add bar's input. */
   soft: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 14, shadowOpacity: 0.08 },
+  /** An item tile on the list screen (the White tiles row style). */
+  tile: { shadowOffset: { width: 0, height: 1 }, shadowRadius: 3, shadowOpacity: 0.1 },
   /** A row being dragged on the Aisle order screen. */
   lifted: { shadowOffset: { width: 0, height: 14 }, shadowRadius: 30, shadowOpacity: 0.22 },
 } as const;

@@ -23,41 +23,63 @@ export type CheckAppearance = {
 
 /**
  * The round check: a `controlBorder` ring when off, filled `primary` with a tick when on, dashed amber while
- * sorting. `ring` replaces the off and sorting ring colour, e.g. an item row's aisle colour (`categoryColors`).
+ * sorting. `ring` replaces the off and sorting ring colour, e.g. an item row's aisle colour (`categoryColors`), and
+ * `fill` the off and sorting inside, e.g. `surface` so the check stands out on a coloured row.
  */
-export function checkAppearance(state: CheckState, colors: ThemeColors, aisles: Aisles, ring?: string): CheckAppearance {
+export function checkAppearance(
+  state: CheckState,
+  colors: ThemeColors,
+  aisles: Aisles,
+  ring?: string,
+  fill = 'transparent',
+): CheckAppearance {
   switch (state) {
     case 'on':
       return { fill: colors.primary, border: colors.primary, borderStyle: 'solid', tick: 'onPrimary' };
     case 'pending':
-      return { fill: 'transparent', border: ring ?? aisles.amber.dot, borderStyle: 'dashed', tick: null };
+      return { fill, border: ring ?? aisles.amber.dot, borderStyle: 'dashed', tick: null };
     default:
-      return { fill: 'transparent', border: ring ?? colors.controlBorder, borderStyle: 'solid', tick: null };
+      return { fill, border: ring ?? colors.controlBorder, borderStyle: 'solid', tick: null };
   }
 }
 
-/** How much of the aisle colour an unchecked row's tint takes: faint in light mode, a little more on dark. */
-export const CATEGORY_TINT: Record<ColorScheme, number> = { light: 0.1, dark: 0.16 };
+/**
+ * How unchecked item rows on the list screen carry their aisle colour (Settings > Aisle colours > Item rows):
+ * `bands` fills each row with its aisle's `soft`, 2 pt apart in the card; `tiles` makes each row a white
+ * tile, 4 pt apart on the screen's ground, with the colour in the check's ring and a pill behind the amount.
+ */
+export type ItemRowStyle = 'bands' | 'tiles';
 
 export type CategoryColors = {
   /** The round check's ring. */
   ring: string;
-  /** The row's ground: the aisle colour faintly over `surface`. Opaque, so it covers a swipe action. */
+  /** The inside of the round check while it's off, so it stands out on the row. */
+  checkFill: string;
+  /** The row's ground: the aisle's `soft` (bands) or `surface` (tiles). Opaque, so it covers a swipe action. */
   tint: string;
-  /** The amount at the end of the row: the aisle colour, deepened (`strong`) where the dot is too pale for text. */
+  /** The amount at the end of the row: the aisle's `strong`, or a neutral where that's under 4.5:1. */
   text: string;
+  /** Tiles: the pill behind the amount, the aisle's `soft`. */
+  pill?: string;
 };
 
 /**
  * An aisle's colours on an unchecked item row (and any other category UI), by its slug. Unknown slugs, custom
  * aisles and items still Sorting… (no slug) get the neutral grey.
  */
-export function categoryColors(slug: string | null | undefined, scheme: ColorScheme): CategoryColors {
+export function categoryColors(
+  slug: string | null | undefined,
+  scheme: ColorScheme,
+  style: ItemRowStyle = 'bands',
+): CategoryColors {
   const hue = AisleTokens[scheme][aisleColor(slug)];
-  const tint = mix(hue.dot, Palette[scheme].surface, CATEGORY_TINT[scheme]);
-  // Dark grey's dot is under 4.5:1 on its own tint; the neutral amount falls back to `inkSecondary`.
-  const text = contrastRatio(hue.strong, tint) >= 4.5 ? hue.strong : Palette[scheme].inkSecondary;
-  return { ring: hue.dot, tint, text };
+  const { surface, ink, inkSecondary } = Palette[scheme];
+  // Dark grey's `strong` is under 4.5:1 on its own `soft`; the neutral amount falls back to an ink.
+  const strongOnSoft = contrastRatio(hue.strong, hue.soft) >= 4.5;
+  if (style === 'tiles') {
+    return { ring: hue.dot, checkFill: surface, tint: surface, text: strongOnSoft ? hue.strong : ink, pill: hue.soft };
+  }
+  return { ring: hue.dot, checkFill: surface, tint: hue.soft, text: strongOnSoft ? hue.strong : inkSecondary };
 }
 
 /**

@@ -23,8 +23,10 @@ import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
+import { NO_RECIPES_MATCH, recipeSearchPlaceholder, searchRecipes } from '@/features/recipes/recipe-search';
 import {
   deleteRecipe,
+  recipeIngredientNamesQuery,
   RECIPES_TAB_TABLES,
   recipesOnListsQuery,
   recipesQuery,
@@ -40,6 +42,7 @@ export default function RecipesScreen() {
   const { spacing, scheme, colors } = useTheme();
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
+  const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
   const { data: failed } = useLiveQueryOn(failedImportsQuery(), [failedImports]);
   const queue = useShareQueueStatus();
   const showImports = importsCardHeading(failed.length, queue) !== null;
@@ -54,7 +57,17 @@ export default function RecipesScreen() {
     null,
   );
   const dismissToast = useCallback(() => setToast(null), []);
-  const groups = useMemo(() => groupRecipesByHousehold(data), [data]);
+  // Spec 4.14: kept only while the screen is mounted, never saved.
+  const [query, setQuery] = useState('');
+  const searching = query.trim() !== '';
+  // A household with no matches has no group, so it's hidden.
+  const groups = useMemo(
+    () =>
+      groupRecipesByHousehold(
+        searchRecipes(data, ingredientNames, query).map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
+      ),
+    [data, ingredientNames, query],
+  );
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
@@ -157,6 +170,17 @@ export default function RecipesScreen() {
           onPress={create}
         />
       </Stack.Toolbar>
+      {data.length > 0 ? (
+        <Stack.SearchBar
+          placeholder={recipeSearchPlaceholder(data.length)}
+          hideWhenScrolling={false}
+          // Results update live under the field, so they aren't dimmed while it has focus.
+          obscureBackground={false}
+          autoCapitalize="none"
+          onChangeText={(e) => setQuery(e.nativeEvent.text)}
+          onCancelButtonPress={() => setQuery('')}
+        />
+      ) : null}
       {data.length === 0 && !showImports ? (
         empty
       ) : (
@@ -170,6 +194,14 @@ export default function RecipesScreen() {
             </View>
           ) : null}
           {data.length === 0 ? empty : null}
+          {data.length > 0 && searching && groups.length === 0 ? (
+            <ThemedText
+              variant="callout"
+              color="inkSecondary"
+              style={{ textAlign: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
+              {NO_RECIPES_MATCH}
+            </ThemedText>
+          ) : null}
           {groups.map((group, i) => (
             <View key={group.householdId}>
               <ThemedText
@@ -188,6 +220,7 @@ export default function RecipesScreen() {
                   <RecipeCard
                     key={r.id}
                     recipe={r}
+                    ingredientMatch={r.ingredientMatch}
                     onList={onList.get(r.id) ?? null}
                     highlighted={toast?.recipeId === r.id}
                   />
@@ -209,10 +242,13 @@ export default function RecipesScreen() {
 
 function RecipeCard({
   recipe,
+  ingredientMatch,
   onList,
   highlighted,
 }: {
   recipe: RecipeSummary;
+  /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the count. */
+  ingredientMatch: string | null;
   onList: string | null;
   /** Just imported: outlined in `primary` while the toast shows. */
   highlighted: boolean;
@@ -230,7 +266,7 @@ function RecipeCard({
   return (
     <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
       <Link.Trigger>
-        <Pressable accessibilityRole="button" accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList)}>
+        <Pressable accessibilityRole="button" accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList, ingredientMatch)}>
           {/* Layout lives on a View: Link's trigger replaces the Pressable's style. */}
           <View
             style={[
@@ -249,9 +285,18 @@ function RecipeCard({
               <ThemedText variant="headline" numberOfLines={2}>
                 {recipe.name}
               </ThemedText>
-              <ThemedText variant="footnote" color="inkSecondary">
-                {ingredientCountLabel(recipe.ingredientCount)}
-              </ThemedText>
+              {ingredientMatch ? (
+                <ThemedText variant="footnote" color="inkSecondary">
+                  Has{' '}
+                  <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
+                    {ingredientMatch}
+                  </ThemedText>
+                </ThemedText>
+              ) : (
+                <ThemedText variant="footnote" color="inkSecondary">
+                  {ingredientCountLabel(recipe.ingredientCount)}
+                </ThemedText>
+              )}
             </View>
             {onList ? (
               // Badge pins itself to the top; the wrapper centres it in the row.
@@ -281,6 +326,7 @@ function RecipeCard({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  match: { fontWeight: '700' },
   grow: { flexGrow: 1 },
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },

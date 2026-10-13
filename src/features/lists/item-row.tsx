@@ -23,10 +23,16 @@ type Props = {
   /** Set while the toast for an add that merged into this item shows (spec 4.4): its aisle's soft tint. */
   tint?: string;
   /**
-   * Unchecked rows: the item's aisle colours (`categoryColors`): a faint tint for the row, the check's ring and
-   * the amount. Rows are then 2 pt apart in the card's ground instead of a hairline. Checked rows leave it out.
+   * Unchecked rows: the item's aisle colours (`categoryColors`): the row's ground, the check's ring and fill, and
+   * the amount (on a pill for tiles). Rows are then 2 pt apart in the card's ground instead of a hairline, and the
+   * name is bolder. Checked rows leave it out.
    */
   look?: CategoryColors;
+  /**
+   * The White tiles row style: the row is a rounded tile, 4 pt below the one before it, with a soft shadow in
+   * light mode. The card it's in takes the screen's ground.
+   */
+  tile?: boolean;
   /**
    * Add mode: the item matches what's being typed (`isAlreadyOnList`). A `primarySoft` tint, the typed part of
    * the name in `onPrimarySoft`, and "already on list" in place of the amount.
@@ -62,6 +68,7 @@ export function ItemRow({
   background,
   tint,
   look,
+  tile = false,
   alreadyOnList,
   first,
   sorting = false,
@@ -74,7 +81,7 @@ export function ItemRow({
   onEdit,
   onSelect,
 }: Props) {
-  const { colors, spacing, sizes, opacity } = useTheme();
+  const { colors, spacing, sizes, rounded, shadows, scheme, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const swipeable = useRef<SwipeableMethods>(null);
   const selecting = selected !== undefined;
@@ -97,16 +104,32 @@ export function ItemRow({
       paddingLeft: spacing.lg,
       gap: spacing.md,
       backgroundColor: alreadyOnList ? colors.primarySoft : tint ?? look?.tint ?? background,
-      borderTopWidth: first ? 0 : look ? spacing.xxs : StyleSheet.hairlineWidth,
+      borderTopWidth: first || tile ? 0 : look ? spacing.xxs : StyleSheet.hairlineWidth,
       borderTopColor: look ? background : colors.border,
     },
   ];
+  // A tile's corners clip the swipe panels behind it; its shadow sits outside that clip.
+  const tileFrame = tile
+    ? [
+        { marginTop: first ? 0 : spacing.xs, borderRadius: rounded.row, borderCurve: 'continuous' as const },
+        scheme === 'light' ? { ...shadows.tile, shadowColor: colors.ink } : null,
+      ]
+    : undefined;
+  const tileClip = tile ? { borderRadius: rounded.row, borderCurve: 'continuous' as const, overflow: 'hidden' as const } : undefined;
+  const amount = (
+    <ThemedText variant="amount" color="inkSecondary" style={look ? { color: look.text } : undefined}>
+      {amountText}
+    </ThemedText>
+  );
 
   // Name, second line, amount: everything but the check.
   const content = (
     <>
       <View style={styles.text}>
-        <ThemedText variant="body" color={itemNameColor(checked)} style={checked ? styles.checked : undefined}>
+        <ThemedText
+          variant={look && !checked ? 'itemName' : 'body'}
+          color={itemNameColor(checked)}
+          style={checked ? styles.checked : undefined}>
           {match ? (
             <>
               {match.before}
@@ -130,9 +153,19 @@ export function ItemRow({
           {ALREADY_ON_LIST_LABEL}
         </ThemedText>
       ) : amountText ? (
-        <ThemedText variant="amount" color="inkSecondary" style={look ? { color: look.text } : undefined}>
-          {amountText}
-        </ThemedText>
+        look?.pill ? (
+          <View
+            style={{
+              backgroundColor: look.pill,
+              borderRadius: rounded.full,
+              paddingVertical: spacing.xs,
+              paddingHorizontal: spacing.sm + spacing.xxs,
+            }}>
+            {amount}
+          </View>
+        ) : (
+          amount
+        )
       ) : null}
       {sorting && !checked ? (
         <ThemedText variant="sectionLabel" color="pending">
@@ -143,9 +176,10 @@ export function ItemRow({
   );
 
   return (
-    <Animated.View entering={entering} exiting={exiting} layout={layout}>
+    <Animated.View entering={entering} exiting={exiting} layout={layout} style={tileFrame}>
       <ReanimatedSwipeable
         enabled={!selecting}
+        containerStyle={tileClip}
         ref={swipeable}
         // Follows the finger, and only a swipe past half the row commits (the default threshold).
         friction={1}
@@ -177,12 +211,12 @@ export function ItemRow({
               rowStyle,
               { paddingRight: spacing.lg, paddingVertical: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
             ]}>
-            <CheckCircle checked={on} pending={sorting} ring={look?.ring} />
+            <CheckCircle checked={on} pending={sorting} ring={look?.ring} fill={look?.checkFill} />
             <View style={[styles.body, { gap: spacing.md }]}>{content}</View>
           </Pressable>
         ) : (
           <View style={rowStyle}>
-            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
+            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} fill={look?.checkFill} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
             <Pressable
               onPress={onEdit}
               onLongPress={

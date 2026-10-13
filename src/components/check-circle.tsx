@@ -10,6 +10,8 @@ type Props = {
   pending?: boolean;
   /** The ring's colour when not checked, e.g. the item's aisle colour. Defaults to `controlBorder` (dashed amber while sorting). */
   ring?: string;
+  /** The inside when not checked, e.g. `surface` on a coloured row. Defaults to clear. */
+  fill?: string;
   /**
    * Makes the check its own checkbox, with a 44 pt hit area. Leave it out when the whole row is the tap target: the
    * row then carries `accessibilityRole="checkbox"` and the checked state, and the check is decorative.
@@ -19,9 +21,9 @@ type Props = {
 };
 
 /** The 24 pt round check. */
-export function CheckCircle({ checked, pending, ring, onPress, accessibilityLabel }: Props) {
+export function CheckCircle({ checked, pending, ring, fill, onPress, accessibilityLabel }: Props) {
   const { colors, aisles, sizes, rounded, opacity } = useTheme();
-  const look = checkAppearance(checkState(checked, pending), colors, aisles, ring);
+  const look = checkAppearance(checkState(checked, pending), colors, aisles, ring, fill);
 
   const circle = (
     <View

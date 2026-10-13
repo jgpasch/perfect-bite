@@ -5,7 +5,7 @@ import { Alert, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, lists, recipes } from '@/db';
+import { db, households, lists, recipeIngredients, recipes } from '@/db';
 import { addItemsBulk } from '@/features/lists/items';
 import {
   createList,
@@ -24,7 +24,7 @@ import RecipesScreen from '@/app/(tabs)/recipes/index';
 
 import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
 import { ImportsCard } from '../imports-card';
-import { addRecipeIngredient, createRecipe, deleteRecipeIngredient, getRecipe, updateRecipe } from '../recipes';
+import { addRecipeIngredient, createRecipe, deleteRecipe, deleteRecipeIngredient, getRecipe, updateRecipe } from '../recipes';
 import { failedImportsQuery, recordFailedImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
@@ -103,7 +103,7 @@ jest.mock('expo-router', () => {
   });
   return {
     Link,
-    Stack: { Screen: () => null, Toolbar },
+    Stack: { Screen: () => null, Toolbar, SearchBar: host('SearchBar') },
     router: {
       push: (...args: unknown[]) => mockPush(...args),
       back: () => mockBack(),
@@ -854,6 +854,118 @@ describe('RecipesScreen', () => {
   test('without imports there is no card', () => {
     const root = render(<RecipesScreen />);
     expect(root.root.findAll((n) => n.type === ImportsCard)).toHaveLength(0);
+  });
+});
+
+describe('RecipesScreen search', () => {
+  const searchBar = (root: ReactTestRenderer) => byType(root, 'SearchBar')[0];
+  const search = (root: ReactTestRenderer, text: string) =>
+    act(() => searchBar(root).props.onChangeText({ nativeEvent: { text } }));
+  const headers = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header')
+      .map((n) => n.props.children as string);
+  const cardLabels = (root: ReactTestRenderer) =>
+    byType(root, 'Link').map((l) => l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string);
+
+  let tacos: string;
+  let soup: string;
+  beforeEach(() => {
+    tacos = createRecipe('Weeknight tacos');
+    addRecipeIngredient(tacos, '8 tortillas');
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    soup = createRecipe('Crème soup');
+    addRecipeIngredient(soup, 'leeks');
+    addRecipeIngredient(soup, '1 jalapeño');
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili' }).run();
+  });
+
+  test('a native search bar with the recipe count, and none without recipes', () => {
+    const root = render(<RecipesScreen />);
+    expect(searchBar(root).props.placeholder).toBe('Search 3 recipes');
+    act(() => tree!.unmount());
+    resetDb();
+    ensureStarterData(USER);
+    const empty = render(<RecipesScreen />);
+    expect(byType(empty, 'SearchBar')).toHaveLength(0);
+  });
+
+  test('matches names; households with no matches are hidden', () => {
+    const root = render(<RecipesScreen />);
+    search(root, 'taco');
+    expect(cardLabels(root)).toEqual(['Weeknight tacos, 2 ingredients']);
+    expect(headers(root)).toEqual(['Personal']);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Weeknight tacos', '2 ingredients']));
+    expect(texts(root)).not.toContain('Campfire chili');
+
+    search(root, 'chili');
+    expect(headers(root)).toEqual(['Lake house']);
+    expect(cardLabels(root)).toEqual(['Campfire chili, 0 ingredients']);
+  });
+
+  test('an ingredient-only match shows "Has" with the ingredient in 700, in place of the count', () => {
+    const root = render(<RecipesScreen />);
+    search(root, 'THIGH');
+    expect(cardLabels(root)).toEqual(['Weeknight tacos, has chicken thighs']);
+    expect(texts(root)).toContain('Has chicken thighs');
+    expect(texts(root)).not.toContain('2 ingredients');
+    const bold = root.root.findAll(
+      (n) => String(n.type) === 'Text' && n.props.children === 'chicken thighs' && JSON.stringify(n.props.style).includes('"fontWeight":"700"'),
+    );
+    expect(bold).toHaveLength(1);
+  });
+
+  test('a name match shows the count even when an ingredient matches too', () => {
+    const tortillaSoup = createRecipe('Tortilla soup');
+    addRecipeIngredient(tortillaSoup, 'tortillas');
+    const root = render(<RecipesScreen />);
+    search(root, 'tortilla');
+    expect(cardLabels(root).sort()).toEqual(['Tortilla soup, 1 ingredient', 'Weeknight tacos, has tortillas']);
+  });
+
+  test('ignores case and accents', () => {
+    const root = render(<RecipesScreen />);
+    search(root, 'CREME');
+    expect(cardLabels(root)).toEqual(['Crème soup, 2 ingredients']);
+    search(root, 'Jalapeno');
+    expect(cardLabels(root)).toEqual(['Crème soup, has jalapeño']);
+  });
+
+  test('no results: "No recipes match"; clearing the search shows every recipe again', () => {
+    const root = render(<RecipesScreen />);
+    expect(texts(root)).not.toContain('No recipes match');
+    search(root, 'lasagne');
+    expect(cardLabels(root)).toEqual([]);
+    expect(headers(root)).toEqual([]);
+    expect(texts(root)).toContain('No recipes match');
+    expect(texts(root)).not.toContain('No recipes yet.');
+
+    act(() => searchBar(root).props.onCancelButtonPress());
+    expect(texts(root)).not.toContain('No recipes match');
+    expect(cardLabels(root)).toHaveLength(3);
+  });
+
+  test("a deleted recipe or ingredient doesn't match", () => {
+    const leeks = db.select().from(recipeIngredients).all().find((i) => i.displayName === 'leeks')!;
+    deleteRecipeIngredient(leeks.id);
+    const root = render(<RecipesScreen />);
+    search(root, 'leek');
+    expect(texts(root)).toContain('No recipes match');
+
+    act(() => deleteRecipe(tacos));
+    search(root, 'tortilla');
+    expect(cardLabels(root)).toEqual([]);
+    expect(texts(root)).toContain('No recipes match');
+  });
+
+  test('the imports card stays at the top while searching', () => {
+    recordFailedImport({ url: 'https://example.com/a', title: 'Pho', reason: 'not_a_recipe' });
+    const root = render(<RecipesScreen />);
+    search(root, 'lasagne');
+    expect(root.root.findAll((n) => n.type === ImportsCard)).toHaveLength(1);
+    const all = texts(root);
+    expect(all.indexOf("Couldn't import 1 recipe")).toBeLessThan(all.indexOf('No recipes match'));
   });
 });
 

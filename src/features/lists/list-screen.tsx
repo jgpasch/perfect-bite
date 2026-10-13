@@ -115,7 +115,7 @@ import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
-import { getAisleColorStyle, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { getAisleColorStyle, getDeviceSetting, getItemRowStyle, setDeviceSetting } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
@@ -226,7 +226,17 @@ export function ListScreen({ id }: { id: string }) {
   // Settings > Aisle colours: By aisle tints each row (the default) or only the aisle's header. Read on
   // focus, since it's changed on the Settings tab.
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
-  useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
+  // Settings > Aisle colours > Item rows: colour bands (the default) or white tiles.
+  const [rowStyle, setRowStyle] = useState(getItemRowStyle);
+  useFocusEffect(
+    useCallback(() => {
+      setAisleColors(getAisleColorStyle());
+      setRowStyle(getItemRowStyle());
+    }, []),
+  );
+  // White tiles: a card whose rows take their aisle colours is just its tiles on the screen's ground.
+  const tiles = rowStyle === 'tiles';
+  const tintedGround = tiles ? colors.background : colors.surface;
   // Spec 4.6: sections folded away in By aisle and By recipe, remembered per list and mode on this device.
   // The device setting is the source of truth; this state mirrors it so the list re-renders.
   const readCollapsed = useCallback(
@@ -632,6 +642,7 @@ export function ListScreen({ id }: { id: string }) {
     sorting = false,
     aisle?: { name: string },
     plain = false,
+    tile = false,
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     return (
@@ -642,7 +653,8 @@ export function ListScreen({ id }: { id: string }) {
         tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
         // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
         // as do rows under a coloured aisle header.
-        look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme) : undefined}
+        look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
+        tile={tile}
         alreadyOnList={isAlreadyOnList(item, query) ? { typed: typedName } : undefined}
         first={index === 0}
         sorting={sorting}
@@ -661,36 +673,39 @@ export function ListScreen({ id }: { id: string }) {
   // As added and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
   const renderEntryWithAisle = (e: Entry, i: number) => {
     const categoryId = e.item.categoryId;
-    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' });
+    return renderEntry(e, i, tintedGround, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' }, false, tiles);
   };
 
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
+      return <Card background={tiles ? 'background' : undefined}>{block.entries.map(renderEntryWithAisle)}</Card>;
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
         return (
-          <Card>
-            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, true))}
+          <Card background={tiles ? 'background' : undefined}>
+            {block.entries.map((e, i) => renderEntry(e, i, tintedGround, true, undefined, false, tiles))}
           </Card>
         );
       }
+      const plain = aisleColors === 'header';
+      const tiled = tiles && !plain;
       return (
-        <Card>
+        <Card background={tiled ? 'background' : undefined}>
           <FoldingSection
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
+            ground={tiled ? colors.background : undefined}
             dotColor={aisles[aisleColor(block.slug)].dot}
-            band={aisleColors === 'header' ? aisleHeaderBand(block.slug, scheme) : undefined}
+            band={plain ? aisleHeaderBand(block.slug, scheme) : undefined}
             count={block.entries.length}
             collapsed={block.collapsed}
             onToggle={() => toggleSection('category', block.key)}
             // Spec 4.6: swipe right to check the aisle off; no swipe to delete. VoiceOver gets it as an action.
             onSwipeCheck={selection ? undefined : () => checkAll(block.entries.map((e) => e.item.id))}
             actions={selection ? undefined : [{ label: 'Check all', onPress: () => checkAll(block.entries.map((e) => e.item.id)) }]}>
-            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, false, undefined, aisleColors === 'header'))}
+            {block.entries.map((e, i) => renderEntry(e, i, tiled ? colors.background : colors.surface, false, undefined, plain, tiled))}
           </FoldingSection>
         </Card>
       );
@@ -698,9 +713,10 @@ export function ListScreen({ id }: { id: string }) {
     if (block.kind === 'recipe') {
       const recipeId = block.recipeId;
       return (
-        <Card>
+        <Card background={tiles ? 'background' : undefined}>
           <FoldingSection
             title={block.title}
+            ground={tiles ? colors.background : undefined}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
             onLongPress={block.recipeId ? () => recipeMenu(block) : undefined}
             actions={recipeActions(block)}

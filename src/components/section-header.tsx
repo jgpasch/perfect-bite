@@ -21,6 +21,8 @@ type Props = {
    * (`aisleHeaderBand`). The name, count and chevron take its `text`.
    */
   band?: { ground: string; text: string };
+  /** The card's ground behind a header with no band, so a swipe's panel stays covered. Defaults to `surface`. */
+  ground?: string;
   /** Shown in place of the dot, e.g. a recipe's icon well. */
   leading?: ReactNode;
   /** The count on the right. */
@@ -50,7 +52,7 @@ type Props = {
  */
 export function SectionHeader({ onSwipeCheck, onSwipeRemove, ...header }: Props) {
   return (
-    <Swipe band={header.band} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
+    <Swipe band={header.band} ground={header.ground} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
       <HeaderBody {...header} />
     </Swipe>
   );
@@ -151,11 +153,13 @@ function HeaderBody({
  */
 function Swipe({
   band,
+  ground,
   onCheck,
   onRemove,
   children,
 }: {
   band?: { ground: string };
+  ground?: string;
   onCheck?: () => void;
   onRemove?: () => void;
   children: ReactNode;
@@ -170,7 +174,7 @@ function Swipe({
       friction={1}
       overshootLeft={false}
       overshootRight={false}
-      childrenContainerStyle={{ backgroundColor: band?.ground ?? colors.surface }}
+      childrenContainerStyle={{ backgroundColor: band?.ground ?? ground ?? colors.surface }}
       onSwipeableOpen={(direction) => {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         ref.current?.close();
@@ -213,7 +217,7 @@ export function FoldingSection({ collapsed, children, onSwipeCheck, onSwipeRemov
   const progress = useFold(!collapsed);
   return (
     <>
-      <Swipe band={header.band} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
+      <Swipe band={header.band} ground={header.ground} onCheck={onSwipeCheck} onRemove={onSwipeRemove}>
         <HeaderBody {...header} collapsed={collapsed} />
         {/* A folded card is just its header, so it sits in the middle. The extra room is part of the
             header, so a swipe's panel fills the folded card. */}

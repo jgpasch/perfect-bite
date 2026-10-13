@@ -6,7 +6,15 @@ import { createList, deleteList, ensureStarterData, getDefaultListId, setListArc
 import { resetDb } from '@/test/db';
 
 import { groupRecipesByHousehold, onListByRecipe } from '../recipe-view';
-import { addRecipeIngredient, createRecipe, deleteRecipe, recipesOnListsQuery, recipesQuery } from '../recipes';
+import {
+  addRecipeIngredient,
+  createRecipe,
+  deleteRecipe,
+  deleteRecipeIngredient,
+  recipeIngredientNamesQuery,
+  recipesOnListsQuery,
+  recipesQuery,
+} from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -116,5 +124,29 @@ describe('recipesOnListsQuery ("On Groceries" badge)', () => {
         { recipeId: tacos, listName: 'Costco', addedAt: at(2) },
       ]).get(tacos),
     ).toBe('Costco');
+  });
+});
+
+describe('recipeIngredientNamesQuery', () => {
+  test('live ingredients of live recipes, in recipe order; deleted ones and deleted recipes left out', () => {
+    const tacos = createRecipe('Tacos');
+    addRecipeIngredient(tacos, '8 tortillas');
+    const thighs = addRecipeIngredient(tacos, '2 lb chicken thighs')!;
+    addRecipeIngredient(tacos, 'salsa');
+    const soup = createRecipe('Soup');
+    addRecipeIngredient(soup, 'leeks');
+    expect(
+      recipeIngredientNamesQuery()
+        .all()
+        .filter((r) => r.recipeId === tacos)
+        .map((r) => r.displayName),
+    ).toEqual(['tortillas', 'chicken thighs', 'salsa']);
+
+    deleteRecipeIngredient(thighs.id);
+    deleteRecipe(soup);
+    expect(recipeIngredientNamesQuery().all()).toEqual([
+      { recipeId: tacos, displayName: 'tortillas' },
+      { recipeId: tacos, displayName: 'salsa' },
+    ]);
   });
 });

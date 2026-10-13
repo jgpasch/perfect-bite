@@ -1,7 +1,14 @@
 import { eq } from 'drizzle-orm';
 
+import type { ItemRowStyle } from '@/components/appearance';
 import { db, deviceSettings } from '@/db';
-import { AISLE_COLORS_KEY, readAisleColorStyle, type AisleColorStyle } from '@/features/lists/list-view';
+import {
+  AISLE_COLORS_KEY,
+  ITEM_ROW_STYLE_KEY,
+  readAisleColorStyle,
+  readItemRowStyle,
+  type AisleColorStyle,
+} from '@/features/lists/list-view';
 
 /** Reads a per-device setting (spec 4.6), or `fallback` if it was never set. */
 export function getDeviceSetting<T>(key: string, fallback: T): T {
@@ -28,4 +35,13 @@ export function getAisleColorStyle(): AisleColorStyle {
 
 export function setAisleColorStyle(style: AisleColorStyle): void {
   setDeviceSetting(AISLE_COLORS_KEY, style);
+}
+
+/** Settings > Aisle colours > Item rows on this device. */
+export function getItemRowStyle(): ItemRowStyle {
+  return readItemRowStyle(getDeviceSetting<unknown>(ITEM_ROW_STYLE_KEY, null));
+}
+
+export function setItemRowStyle(style: ItemRowStyle): void {
+  setDeviceSetting(ITEM_ROW_STYLE_KEY, style);
 }

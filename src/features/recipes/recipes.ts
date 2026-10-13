@@ -64,7 +64,17 @@ export function recipesOnListsQuery() {
     .where(and(isNotNull(listItemContributions.recipeId), isNull(listItemContributions.deletedAt)));
 }
 
-/** Tables the recipes tab reads (`recipesQuery`, `recipesOnListsQuery`), for `useLiveQueryOn`. */
+/** The live ingredients of live recipes, in recipe order, for the Recipes tab's search (spec 4.14). */
+export function recipeIngredientNamesQuery() {
+  return db
+    .select({ recipeId: recipeIngredients.recipeId, displayName: recipeIngredients.displayName })
+    .from(recipeIngredients)
+    .innerJoin(recipes, and(eq(recipes.id, recipeIngredients.recipeId), liveRecipe))
+    .where(liveIngredient)
+    .orderBy(asc(recipeIngredients.recipeId), asc(recipeIngredients.position));
+}
+
+/** Tables the recipes tab reads (`recipesQuery`, `recipesOnListsQuery`, `recipeIngredientNamesQuery`), for `useLiveQueryOn`. */
 export const RECIPES_TAB_TABLES = [recipes, recipeIngredients, households, listItemContributions, listItems, lists];
 
 /**
