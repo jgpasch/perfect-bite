@@ -72,16 +72,23 @@ export type SuggestionChip =
   | { kind: 'recipe'; key: string; recipe: RecipeSuggestion }
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
+/** A usual item (`usualItems`), offered while a list's add field is empty. */
+export type UsualItem = { key: string; displayName: string };
+
 /**
- * The chip row above the add bar (spec 4.2), only while the field has text: matching recipes, then autocomplete
- * (household history, then the catalog), each adding the typed amount with its name. Empty when the field is empty or
- * there's nothing to offer, so the row collapses.
+ * The chip row above the add bar (spec 4.2). While the field is empty (whitespace counts), the usual items, each adding
+ * its name; with text, matching recipes, then autocomplete (household history, then the catalog), each adding the typed
+ * amount with its name. Empty when there's nothing to offer, so the row collapses.
  */
 export function suggestionChips(
   text: string,
-  sources: { recipes: readonly RecipeSuggestion[]; suggestions: readonly Suggestion[] },
+  sources: { recipes: readonly RecipeSuggestion[]; suggestions: readonly Suggestion[]; usual?: readonly UsualItem[] },
 ): SuggestionChip[] {
-  if (!text.trim()) return [];
+  if (!text.trim()) {
+    return (sources.usual ?? []).map(
+      (u): SuggestionChip => ({ kind: 'item', key: u.key, label: displayItemName(u.displayName), text: u.displayName, removable: true }),
+    );
+  }
   return [
     ...sources.recipes.map((r): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r })),
     ...sources.suggestions.map(

@@ -936,6 +936,7 @@ export function ListScreen({ id }: { id: string }) {
         ) : (
           <ItemAddBar
             householdId={list.householdId}
+            listId={id}
             onAdd={add}
             onAddRecipe={addRecipe}
             onTextChange={setAddText}

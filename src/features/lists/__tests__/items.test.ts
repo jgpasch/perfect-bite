@@ -39,6 +39,7 @@ import {
   undoAdd,
   undoAdds,
   updateItem,
+  usualItems,
   usualUnitsQuery,
 } from '../items';
 import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
@@ -567,6 +568,81 @@ describe('searchRecentItems (spec 4.2)', () => {
     seed('milk', 'milk', 1, daysAgo(1));
     expect(search('m_lk')).toEqual([]);
     expect(search('mi%')).toEqual([{ key: 'milk', displayName: 'milk' }]);
+  });
+});
+
+describe('usualItems (spec 4.2)', () => {
+  const NOW = new Date('2026-10-09T12:00:00Z');
+  const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
+  const householdId = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+  const seed = (
+    ingredientName: string,
+    displayName: string,
+    useCount: number,
+    lastUsedAt: Date,
+    extra: { hiddenAt?: Date; householdId?: string } = {},
+  ) =>
+    db
+      .insert(ingredientUsage)
+      .values({ householdId: extra.householdId ?? householdId(), ingredientName, displayName, useCount, lastUsedAt, hiddenAt: extra.hiddenAt ?? null })
+      .run();
+  const usual = (limit?: number, id = listId) => usualItems(householdId(), id, limit, NOW);
+
+  test('returns key and display name, highest frecency first', () => {
+    seed('egg', 'Eggs', 10, daysAgo(90));
+    seed('milk', 'milk', 3, daysAgo(7));
+    seed('banana', 'bananas', 2, daysAgo(0));
+    expect(usual()).toEqual([
+      { key: 'milk', displayName: 'milk' },
+      { key: 'banana', displayName: 'bananas' },
+      { key: 'egg', displayName: 'Eggs' },
+    ]);
+  });
+
+  test('leaves out one-offs and hidden rows', () => {
+    seed('milk', 'milk', 2, daysAgo(1));
+    seed('saffron', 'saffron', 1, daysAgo(0));
+    seed('egg', 'eggs', 9, daysAgo(1), { hiddenAt: daysAgo(0) });
+    expect(usual().map((u) => u.key)).toEqual(['milk']);
+  });
+
+  test('leaves out what is unchecked on the list, keeps what is checked there', () => {
+    seed('milk', 'milk', 5, daysAgo(1));
+    seed('egg', 'eggs', 4, daysAgo(1));
+    seed('banana', 'bananas', 3, daysAgo(1));
+    addItem(listId, 'milk', USER);
+    setItemChecked(addItem(listId, 'eggs', USER)!.itemId, true, USER);
+    expect(usual().map((u) => u.key)).toEqual(['egg', 'banana']);
+  });
+
+  test("another list's items and deleted items don't leave anything out", () => {
+    seed('milk', 'milk', 5, daysAgo(1));
+    seed('egg', 'eggs', 4, daysAgo(1));
+    const other = createList('Costco', householdId());
+    addItem(other, 'milk', USER);
+    deleteItem(addItem(listId, 'eggs', USER)!.itemId);
+    expect(usual().map((u) => u.key)).toEqual(['milk', 'egg']);
+    expect(usual(undefined, other).map((u) => u.key)).toEqual(['egg']);
+  });
+
+  test("only reads the given household's rows", () => {
+    db.insert(households).values({ id: 'other', name: 'Other' }).run();
+    seed('milk', 'milk', 5, daysAgo(1), { householdId: 'other' });
+    seed('egg', 'eggs', 2, daysAgo(1));
+    expect(usual().map((u) => u.key)).toEqual(['egg']);
+    expect(usualItems('other', listId, 12, NOW).map((u) => u.key)).toEqual(['milk']);
+  });
+
+  test('applies the limit after ranking, 12 by default', () => {
+    for (let i = 0; i < 14; i++) seed(`item ${i}`, `item ${i}`, 2 + i, daysAgo(1));
+    expect(usual()).toHaveLength(12);
+    expect(usual()[0].key).toBe('item 13');
+    expect(usual(2).map((u) => u.key)).toEqual(['item 13', 'item 12']);
+    expect(usual(0)).toEqual([]);
+  });
+
+  test('a new household has nothing usual', () => {
+    expect(usual()).toEqual([]);
   });
 });
 

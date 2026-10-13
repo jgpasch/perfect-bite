@@ -241,6 +241,8 @@ describe('RecipeScreen', () => {
     const bar = byType(root, 'ItemAddBar')[0];
     expect(bar.props.placeholder).toBe('Add 2 cups flour…');
     expect(bar.props.householdId).toBe(getRecipe(tacos)!.householdId);
+    // No list, so no usual-item chips when the field is empty (spec 4.2).
+    expect(bar.props.listId).toBeUndefined();
     act(() => bar.props.onAdd('2 cups flour'));
     const [row] = recipeIngredientsQuery(tacos).all();
     expect([row.quantity, row.unit, row.ingredientName]).toEqual([2, 'cup', 'flour']);

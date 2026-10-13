@@ -4,6 +4,7 @@ import {
   frecency,
   rankHistory,
   rankRecipes,
+  rankUsual,
   type HistoryRow,
   type RecipeRow,
   type RecipeUse,
@@ -38,6 +39,46 @@ describe('frecency', () => {
 
   it('is 0 for a count of 0', () => {
     expect(frecency(usage('milk', 0, 1), now)).toBe(0);
+  });
+});
+
+describe('rankUsual', () => {
+  it('orders by frecency: 3 uses last week (about 2.5) before 10 uses 90 days ago (1.25)', () => {
+    const rows = [usage('eggs', 10, 90), usage('milk', 3, 7)];
+    expect(frecency(rows[0], now)).toBe(1.25);
+    expect(frecency(rows[1], now)).toBeCloseTo(2.55, 2);
+    expect(names(rankUsual(rows, now))).toEqual(['milk', 'eggs']);
+  });
+
+  it('at equal frecency puts the most recently used first', () => {
+    // 4 uses 30 days ago and 2 uses today both score 2.
+    const rows = [usage('flour', 4, 30), usage('butter', 2, 0)];
+    expect(names(rankUsual(rows, now))).toEqual(['butter', 'flour']);
+  });
+
+  it('at equal frecency and recency orders by display name', () => {
+    const rows = [usage('limes', 2, 1), usage('apples', 2, 1), usage('Kale', 2, 1)];
+    expect(names(rankUsual(rows, now))).toEqual(['Kale', 'apples', 'limes']);
+  });
+
+  it('drops hidden rows and counts under 2', () => {
+    const rows = [
+      usage('milk', 2, 1),
+      usage('saffron', 1, 0),
+      usage('nothing', 0, 0),
+      usage('eggs', 9, 0, { hiddenAt: daysAgo(0) }),
+    ];
+    expect(names(rankUsual(rows, now))).toEqual(['milk']);
+  });
+
+  it('returns nothing for no rows', () => {
+    expect(rankUsual([], now)).toEqual([]);
+  });
+
+  it('keeps the input untouched', () => {
+    const rows = [usage('eggs', 2, 9), usage('milk', 3, 0)];
+    rankUsual(rows, now);
+    expect(names(rows)).toEqual(['eggs', 'milk']);
   });
 });
 

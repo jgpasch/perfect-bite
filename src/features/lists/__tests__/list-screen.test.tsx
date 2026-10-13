@@ -254,6 +254,8 @@ describe('the list', () => {
     render();
     expect(text()).toContain('Nothing on this list yet. Add an item below.');
     expect(addBar().props.placeholder).toBeTruthy();
+    // The list's id, so its empty field offers the usual items (spec 4.2).
+    expect(addBar().props.listId).toBe(listId);
     expect(lines()).toContain('Groceries');
     expect(text()).not.toContain('to get');
   });

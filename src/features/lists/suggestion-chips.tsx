@@ -16,21 +16,30 @@ type Props = {
   onPressRecipe: (chip: Extract<SuggestionChip, { kind: 'recipe' }>) => void;
   /** Long press on a household history chip: "Remove from suggestions". */
   onRemove: (chip: Extract<SuggestionChip, { kind: 'item' }>) => void;
+  /** VoiceOver's name for the row. */
+  accessibilityLabel?: string;
 };
 
 /**
- * One scrolling row of 40 pt chips docked above a list's add bar (spec 4.2): autocomplete while typing, nothing
- * while the field is empty. Taps keep the keyboard up so several can be added in a row. Render nothing
+ * One scrolling row of 40 pt chips docked above a list's add bar (spec 4.2): autocomplete while typing, the usual
+ * items while a list's field is empty. Taps keep the keyboard up so several can be added in a row. Render nothing
  * when there are no chips, so the list gets the space.
  */
-export function SuggestionChips({ chips, typed, onPressItem, onPressRecipe, onRemove }: Props) {
+export function SuggestionChips({
+  chips,
+  typed,
+  onPressItem,
+  onPressRecipe,
+  onRemove,
+  accessibilityLabel = 'Suggestions',
+}: Props) {
   const { spacing } = useTheme();
   return (
     <ScrollView
       horizontal
       keyboardShouldPersistTaps="always"
       showsHorizontalScrollIndicator={false}
-      accessibilityLabel="Suggestions"
+      accessibilityLabel={accessibilityLabel}
       // Edge to edge under the add bar's side padding, so chips scroll off the screen's edge.
       style={{ marginHorizontal: -spacing.lg, marginBottom: spacing.sm }}
       contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>

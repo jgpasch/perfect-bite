@@ -2,14 +2,22 @@ import { useMemo, useState } from 'react';
 import { ActionSheetIOS } from 'react-native';
 
 import { AddBar } from '@/components/add-bar';
+import { ingredientUsage, listItems } from '@/db';
+import { useLiveQueryOn } from '@/db/live-query';
 import { displayItemName, parseQuantity } from '@/shared';
 
+import { openItemKeysQuery, usualItems } from './items';
 import { getRecipeSuggestions, getSuggestions, suggestionChips, type RecipeSuggestion } from './suggestions';
 import { SuggestionChips } from './suggestion-chips';
 import { hideFromSuggestions } from './usage';
 
+/** Watched for the usual items: the list's items, and the household's history as it syncs. */
+const USUAL_QUERY_TABLES = [listItems, ingredientUsage];
+
 type Props = {
   householdId: string;
+  /** On a list, its id: the empty focused field then offers the household's usual items (spec 4.2). */
+  listId?: string;
   /** Adds the text; return keeps the keyboard up for the next one (spec 4.2). */
   onAdd: (text: string) => void;
   /** On a list, the household's recipes are offered too, and picking one calls this (spec 4.2). */
@@ -24,11 +32,13 @@ type Props = {
 
 /**
  * The persistent add bar at the bottom of a list or recipe, with its suggestions: a chip row (`SuggestionChips`) docked
- * above the field while something matches, with the household's recipes too when `onAddRecipe` is set. Put it last in a
- * KeyboardAvoidingView, so the row grows the bar upward and the field stays put.
+ * above the field while something matches, with the household's recipes too when `onAddRecipe` is set, and the usual
+ * items while a list's field is focused and empty. Put it last in a KeyboardAvoidingView, so the row grows the bar
+ * upward and the field stays put.
  */
 export function ItemAddBar({
   householdId,
+  listId,
   onAdd,
   onAddRecipe,
   onTextChange,
@@ -37,8 +47,17 @@ export function ItemAddBar({
   accessibilityLabel,
 }: Props) {
   const [text, setTextState] = useState('');
+  const [focused, setFocused] = useState(false);
   // Bumped after "Remove from suggestions" and after adding an item or a recipe, so suggestions are read again.
   const [version, setVersion] = useState(0);
+  // The list's open items, so the usual chips follow it: an Undo or a sync brings a chip back.
+  const { data: openItems } = useLiveQueryOn(openItemKeysQuery(listId ?? ''), USUAL_QUERY_TABLES, [listId]);
+  const showUsual = listId !== undefined && focused && !text.trim();
+  const usual = useMemo(
+    () => (showUsual && listId !== undefined ? usualItems(householdId, listId) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- version and openItems only force a re-read
+    [showUsual, householdId, listId, version, openItems],
+  );
   const setText = (value: string) => {
     setTextState(value);
     onTextChange?.(value);
@@ -80,14 +99,17 @@ export function ItemAddBar({
     setVersion((n) => n + 1);
   };
 
-  const chips = suggestionChips(text, { recipes: recipeMatches, suggestions });
+  const chips = suggestionChips(text, { recipes: recipeMatches, suggestions, usual });
 
   return (
     <AddBar
       value={text}
       onChangeText={setText}
       onSubmit={() => add(text)}
-      onFocusChange={onFocusChange}
+      onFocusChange={(value) => {
+        setFocused(value);
+        onFocusChange?.(value);
+      }}
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
       accessory={
@@ -95,6 +117,7 @@ export function ItemAddBar({
           <SuggestionChips
             chips={chips}
             typed={parseQuantity(text).name}
+            accessibilityLabel={text.trim() ? 'Suggestions' : 'Usual items'}
             onPressItem={(chip) => add(chip.text)}
             onPressRecipe={(chip) => addRecipe(chip.recipe)}
             onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}

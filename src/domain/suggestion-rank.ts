@@ -51,6 +51,25 @@ export function rankHistory<T extends HistoryRow>(rows: readonly T[], query: str
     .map((m) => m.row);
 }
 
+/** A household history row needs this many uses to count as usual: a one-off isn't. */
+export const USUAL_MIN_USES = 2;
+
+/**
+ * The household's usual items, for the chip row of an empty add field (spec 4.2): visible rows used at least twice,
+ * highest frecency first, then the most recently used, then by display name.
+ */
+export function rankUsual<T extends HistoryRow>(rows: readonly T[], now: Date): T[] {
+  return rows
+    .flatMap((row) => (row.hiddenAt === null && row.useCount >= USUAL_MIN_USES ? [{ row, score: frecency(row, now) }] : []))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.row.lastUsedAt.getTime() - a.row.lastUsedAt.getTime() ||
+        (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
+    )
+    .map((m) => m.row);
+}
+
 /** A recipe as the add bar sees it (spec 4.2), with its number of live ingredients. */
 export type RecipeRow = { id: string; name: string; householdId: string; ingredientCount: number; updatedAt: Date };
 

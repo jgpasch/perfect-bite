@@ -7,7 +7,7 @@ import { addRecipeToList, buildRecipeAdds } from '@/features/recipes/add-to-list
 import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { resetDb } from '@/test/db';
 
-import { addItem } from '../items';
+import { addItem, setItemChecked, usualItems } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
 import {
   applySuggestion,
@@ -354,5 +354,37 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
   test('nothing to offer: no chips, so the row collapses', () => {
     expect(suggestionChips('zz', { recipes: [], suggestions: [] })).toEqual([]);
     expect(suggestionChips('', { recipes: [], suggestions: [] })).toEqual([]);
+  });
+
+  describe('usual items (the empty field on a list)', () => {
+    const usual = [
+      { key: 'milk', displayName: 'milk' },
+      { key: 'iphone charger', displayName: 'iPhone charger' },
+    ];
+    const withUsual = { ...sources, usual };
+
+    test('with the field empty or blank: only the usual chips, adding their name, removable', () => {
+      const expected = [
+        { kind: 'item', key: 'milk', label: 'Milk', text: 'milk', removable: true },
+        { kind: 'item', key: 'iphone charger', label: 'iPhone charger', text: 'iPhone charger', removable: true },
+      ];
+      expect(suggestionChips('', withUsual)).toEqual(expected);
+      expect(suggestionChips('   ', withUsual)).toEqual(expected);
+    });
+
+    test('with text: autocomplete as before, no usual chips', () => {
+      expect(suggestionChips('2 lbs chi', withUsual)).toEqual(suggestionChips('2 lbs chi', sources));
+      expect(suggestionChips('mi', { recipes: [], suggestions: [], usual })).toEqual([]);
+    });
+
+    test('nothing usual: no chips', () => {
+      expect(suggestionChips('', { ...sources, usual: [] })).toEqual([]);
+    });
+
+    test('on a real household: items added twice and checked off show when the field is empty', () => {
+      for (const name of ['milk', 'eggs', 'eggs', 'milk', 'saffron']) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
+      const chips = suggestionChips('', { recipes: [], suggestions: [], usual: usualItems(householdId, listId) });
+      expect(chips.map((c) => (c.kind === 'item' ? c.label : c.key)).sort()).toEqual(['Eggs', 'Milk']);
+    });
   });
 });
