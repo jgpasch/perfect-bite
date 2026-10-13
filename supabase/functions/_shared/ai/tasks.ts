@@ -15,13 +15,15 @@ import {
   UNIT_KEYS,
   type CategorySlug,
   type ExtractedRecipe,
+  type RecipeTags,
   type Unit,
 } from '@shared/index.ts';
 import { z } from 'zod';
 
-import { mockCategorizeModel, mockRecipeModel } from './mock-model.ts';
+import { mockCategorizeModel, mockRecipeModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v2.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v2.ts';
+import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
 export const AI_OFF = 'off';
@@ -185,6 +187,26 @@ function totalMinutes(n: number | null): number | null {
   return minutes >= MIN_TOTAL_MINUTES && minutes <= MAX_TOTAL_MINUTES ? minutes : null;
 }
 
+/**
+ * What the suggest-recipe-tags model may answer: any strings per facet, so one made-up slug costs
+ * only its facet. Run it through `cleanSuggestedTags`.
+ */
+export const SuggestTagsOutputSchema = ExtractRecipeOutputSchema.shape.tags;
+export type SuggestTagsOutput = z.infer<typeof SuggestTagsOutputSchema>;
+
+/** The tags with extract-recipe's rules (`ExtractedRecipeTagsSchema`): a facet with an unknown slug is `[]`, one over its maximum is cut. */
+export function cleanSuggestedTags(raw: SuggestTagsOutput): RecipeTags {
+  return ExtractedRecipeTagsSchema.parse(raw);
+}
+
+/** Five short lists of slugs: a fixed budget, whatever the recipe's size (spec 6.7: call limits). */
+export const TAGS_MAX_OUTPUT_TOKENS = 400;
+
+/** `AI_MODEL_TAGS`, else extract-recipe's model, so tagging follows it unless set on its own. */
+function tagsModel(): string | null {
+  return env('AI_MODEL_TAGS') ?? env('AI_MODEL_RECIPE');
+}
+
 export const aiTasks = {
   /** Shelf category and default unit for 1..100 normalized ingredient names in one call. */
   categorize: {
@@ -220,6 +242,25 @@ export const aiTasks = {
     providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_RECIPE', RECIPE_THINKING)),
     /** What `AI_MODEL_RECIPE=mock` runs. */
     mock: mockRecipeModel,
+  },
+  /**
+   * Tags for a recipe made by hand, from its name, notes and ingredients (spec 6.7). Run the
+   * output through `cleanSuggestedTags` before using it.
+   */
+  suggestRecipeTags: {
+    /** `AI_MODEL_TAGS`, defaulting to `AI_MODEL_RECIPE`. */
+    model: tagsModel,
+    /** `AI_MODEL_TAGS_FALLBACK`; while the model follows `AI_MODEL_RECIPE`, so does its fallback. */
+    fallbackModel: () => env('AI_MODEL_TAGS_FALLBACK') ?? (env('AI_MODEL_TAGS') ? null : env('AI_MODEL_RECIPE_FALLBACK')),
+    promptVersion: SUGGEST_RECIPE_TAGS_PROMPT_VERSION,
+    output: SuggestTagsOutputSchema,
+    temperature: 0,
+    /** A small call: a short prompt and five short lists. */
+    timeoutMs: 15_000,
+    maxOutputTokens: () => TAGS_MAX_OUTPUT_TOKENS,
+    providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_TAGS', RECIPE_THINKING)),
+    /** What `AI_MODEL_TAGS=mock` runs. */
+    mock: mockTagsModel,
   },
 } as const;
 

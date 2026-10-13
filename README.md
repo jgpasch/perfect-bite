@@ -236,7 +236,7 @@ cd supabase/functions/categorize-ingredients
 deno test --allow-env --allow-read --allow-sys    # or: yarn dlx deno test ...
 ```
 
-`supabase/functions/import-recipe` runs the same way from its own folder.
+`supabase/functions/import-recipe` and `supabase/functions/suggest-recipe-tags` run the same way from their own folders.
 
 `supabase/functions/_shared/fetch-page.test.ts` has no import map, so run it from `_shared/`: `deno test --allow-read fetch-page.test.ts`.
 
@@ -287,6 +287,16 @@ yarn ai:eval:recipe --model anthropic:claude-haiku-5-5
 ```
 
 It runs the 20 saved pages in `supabase/functions/import-recipe/eval/fixtures/` (12 with JSON-LD, 4 without, 2 non-recipes, 2 with injection text; sources in its `SOURCES.md`) through the same `importRecipe()`, as client-sent pages, so nothing is fetched and categorize isn't called. Each page is scored against `eval/expected.json`: `is_recipe`, the name, precision and recall on normalized ingredient keys (`also` lists other names that count; `optional` ingredients don't count against recall or precision), and unit and quantity accuracy on the matched ingredients (`alternatives` lists other amounts that count). It prints a row per page, the totals, whether the injection pages were unaffected, and every miss. It uses the real model, so it costs tokens: it isn't part of CI or `deno test` (those test the eval's own logic with the mock). `--model mock` runs but its score means nothing.
+
+To try a tag suggestion by hand (spec 6.7), give a recipe name and its ingredients. It runs the function's own `suggestRecipeTags()` against an in-memory store with no plans or limits, using `AI_MODEL_TAGS` (or `AI_MODEL_RECIPE` when that's unset):
+
+```bash
+yarn ai:tags "Chicken tikka" --ingredient "2 lb chicken thighs, skinless" --ingredient "1 cup yogurt"
+yarn ai:tags --notes "Weeknight" --model mock "Tofu bowl"
+yarn ai:tags --dry-run "Toast"                           # print the prompt; no call
+```
+
+It prints each call like `ai:categorize`, then the tags and totals. `--quiet`, `--raw` and `--json` work as for the other scripts. It exits 1 when the suggestion fails (AI off or failing) and 2 on bad usage.
 
 ### Adding an LLM task
 

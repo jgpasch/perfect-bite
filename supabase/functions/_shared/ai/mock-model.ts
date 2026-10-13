@@ -5,7 +5,7 @@ import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { MOCK_MODEL_ID } from './registry.ts';
-import type { CategorizeOutput, ExtractRecipeOutput } from './tasks.ts';
+import type { CategorizeOutput, ExtractRecipeOutput, SuggestTagsOutput } from './tasks.ts';
 
 /** First match wins, so more specific rules come first. Anything unmatched is pantry. */
 const KEYWORD_RULES: [CategorySlug, string[]][] = [
@@ -112,6 +112,60 @@ export function pageFromPrompt(prompt: string): MockRecipePage {
   }
 }
 
+/** The recipe the suggest-recipe-tags prompt carries (`buildSuggestRecipeTagsPrompt`). */
+export type MockTagsRecipe = { name: string; ingredients: string[] };
+
+/** Per facet, slug and the words that suggest it. Every match counts; the schema caps the facet. */
+const TAG_RULES: { facet: keyof SuggestTagsOutput; slug: string; words: RegExp }[] = [
+  { facet: 'meal', slug: 'breakfast', words: /\b(pancakes?|waffles?|oatmeal|granola)\b/ },
+  { facet: 'meal', slug: 'dessert', words: /\b(cakes?|cookies?|brownies?|pie|cheesecake)\b/ },
+  { facet: 'cuisine', slug: 'mexican', words: /\b(tacos?|enchiladas?|salsa|burritos?)\b/ },
+  { facet: 'cuisine', slug: 'italian', words: /\b(pasta|spaghetti|risotto|lasagna)\b/ },
+  { facet: 'cuisine', slug: 'indian', words: /\b(curry|masala|dal|tikka)\b/ },
+  { facet: 'protein', slug: 'chicken', words: /\bchicken\b/ },
+  { facet: 'protein', slug: 'beef', words: /\b(beef|steak)\b/ },
+  { facet: 'protein', slug: 'pork', words: /\b(pork|bacon)\b/ },
+  { facet: 'protein', slug: 'fish', words: /\b(salmon|cod|tuna|fish)\b/ },
+  { facet: 'protein', slug: 'shellfish', words: /\b(shrimp|prawns?|crab|scallops?)\b/ },
+  { facet: 'protein', slug: 'eggs', words: /\beggs?\b/ },
+  { facet: 'protein', slug: 'tofu-tempeh', words: /\b(tofu|tempeh)\b/ },
+  { facet: 'protein', slug: 'beans-lentils', words: /\b(beans?|lentils?|chickpeas?)\b/ },
+  { facet: 'method', slug: 'slow-cooker', words: /\b(slow cooker|crock ?pot)\b/ },
+  { facet: 'method', slug: 'pressure-cooker', words: /\b(instant pot|pressure cooker)\b/ },
+  { facet: 'method', slug: 'sheet-pan', words: /\bsheet pan\b/ },
+];
+
+/**
+ * `AI_MODEL_TAGS=mock` (spec 6.7): tags from words in the name and ingredient lines ("chicken" →
+ * protein chicken, "tofu" → tofu-tempeh, "cake" → meal dessert), in rule order. Never a diet: a
+ * wrong one would matter.
+ */
+export function mockSuggestTags(recipe: MockTagsRecipe): SuggestTagsOutput {
+  const text = [recipe.name, ...recipe.ingredients].join('\n').toLowerCase();
+  const tags: SuggestTagsOutput = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+  for (const rule of TAG_RULES) if (rule.words.test(text)) tags[rule.facet].push(rule.slug);
+  return tags;
+}
+
+/** The recipe is the first JSON object in the user prompt; anything else is an empty recipe. */
+export function tagsRecipeFromPrompt(prompt: string): MockTagsRecipe {
+  const start = prompt.indexOf('{');
+  const end = prompt.lastIndexOf('}');
+  const empty: MockTagsRecipe = { name: '', ingredients: [] };
+  if (start < 0 || end < start) return empty;
+  try {
+    const parsed: unknown = JSON.parse(prompt.slice(start, end + 1));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return empty;
+    const { name, ingredients } = parsed as Record<string, unknown>;
+    return {
+      name: typeof name === 'string' ? name : '',
+      ingredients: Array.isArray(ingredients) ? ingredients.filter((l): l is string => typeof l === 'string') : [],
+    };
+  } catch {
+    return empty;
+  }
+}
+
 /** A mock model that answers each call with `answer(user prompt text)`. */
 function mockModel(answer: (prompt: string) => unknown): LanguageModel {
   return new MockLanguageModelV4({
@@ -144,4 +198,8 @@ export function mockCategorizeModel(): LanguageModel {
 
 export function mockRecipeModel(): LanguageModel {
   return mockModel((prompt) => mockExtractRecipe(pageFromPrompt(prompt)));
+}
+
+export function mockTagsModel(): LanguageModel {
+  return mockModel((prompt) => mockSuggestTags(tagsRecipeFromPrompt(prompt)));
 }

@@ -50,6 +50,10 @@ yarn ai:recipe <url>                 # fetch a recipe page, extract it and categ
 yarn ai:recipe --file page.html      # a saved page instead, sent as the client's page (no fetch)
 yarn ai:recipe --model mock --categorize-model mock --file page.html  # fake models
 yarn ai:recipe --quiet|--raw|--json <url>                             # as for ai:categorize
+
+yarn ai:tags "Chicken tikka" --ingredient "2 lb chicken thighs, skinless" --ingredient "1 cup yogurt"
+yarn ai:tags --notes "Weeknight" --model mock "Tofu bowl"             # notes; fake model
+yarn ai:tags --quiet|--raw|--dry-run|--json "<name>"                  # as for ai:categorize
 ```
 
 ### What each call prints
@@ -74,7 +78,7 @@ latency:        4,284 ms
 
 Warnings from the provider and errors get their own sections. If the main model fails and a fallback is set, the fallback prints as call #2. `--raw` adds two more sections: the exact JSON body sent to the provider (generation config and the JSON schema the model was held to) and the provider's raw reply.
 
-After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error. `ai:recipe` prints the recipe's name, servings, source and ingredient table, then totals per task; it exits 1 when the import fails (not a recipe, fetch failed, AI off or failing).
+After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error. `ai:recipe` prints the recipe's name, servings, source and ingredient table, then totals per task; it exits 1 when the import fails (not a recipe, fetch failed, AI off or failing). `ai:tags` (spec 6.7) prints the suggested tags (`tags: Cuisine: Indian · Protein: Chicken`, or `-` when nothing fit) and the totals; it uses `AI_MODEL_TAGS`, else `AI_MODEL_RECIPE`, and exits 1 when the suggestion fails (AI off or failing).
 
 ### Evaluating a prompt or model change
 

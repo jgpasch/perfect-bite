@@ -53,7 +53,7 @@ Rows with `deleted_at` set are soft-deleted (kept for sync) and don't show in th
 
 ### Read Edge Function logs
 
-Edge Functions → pick the function (`categorize-ingredients`, `import-recipe`) → Logs for its console output, or Invocations for each request's status and duration.
+Edge Functions → pick the function (`categorize-ingredients`, `import-recipe`, `suggest-recipe-tags`) → Logs for its console output, or Invocations for each request's status and duration.
 
 ### Read the AI calls
 
@@ -70,7 +70,7 @@ Add `instructions, prompt, response_text, output` to see exactly what was sent a
 
 ### Change a user's plan
 
-A user's plan decides which AI features they get (spec 4.12): **base** (none), **standard** (categorizing new ingredients; the default) and **plus** (also recipe import). A user with no `user_plans` row is on the default plan.
+A user's plan decides which AI features they get (spec 4.12): **base** (none), **standard** (categorizing new ingredients; the default) and **plus** (also recipe import and AI tag suggestions). A user with no `user_plans` row is on the default plan.
 
 1. Find their id in Authentication → Users.
 2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`base`, `standard` or `plus`), or edit `plan_id` on their existing row. `assigned_at` updates itself.

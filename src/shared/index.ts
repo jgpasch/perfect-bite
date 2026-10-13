@@ -7,5 +7,6 @@ export * from './recipe-tags.ts';
 export * from './schemas/recipe-import.ts';
 export * from './schemas/share.ts';
 export * from './schemas/siri.ts';
+export * from './schemas/suggest-recipe-tags.ts';
 export * from './seed/categories.ts';
 export * from './seed/ingredients.ts';
