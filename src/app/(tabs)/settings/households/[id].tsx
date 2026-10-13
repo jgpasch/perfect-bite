@@ -1,11 +1,12 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActionSheetIOS, ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { avatarColors, householdBandColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
+import { Icon } from '@/components/icon';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -28,10 +29,13 @@ import {
   removeMember,
   removeMemberConfirmation,
   removeMemberSheet,
+  RENAME_HINT,
+  renameHousehold,
   roleLabel,
   type HouseholdMember,
 } from '@/features/households/households';
 import { inviteSheetError } from '@/features/households/invite-sheet';
+import { promptHouseholdName } from '@/features/households/prompt-household-name';
 import { createInvite, listHouseholdInvites, revokeInvite, type HouseholdInvite } from '@/features/households/invites';
 import {
   pendingInviteAccessibilityLabel,
@@ -55,11 +59,13 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * everyone can Leave household (the bottom row), after a confirm worded for their case. Leaving
  * pulls, which drops the household from this device (and brings down the new personal household,
  * if the server made one), then goes back to Settings. The list screen is a root-stack screen above
- * the tabs, so no list of this household can be open under this one.
- * TODO(M7): rename, make owner and delete household.
+ * the tabs, so no list of this household can be open under this one. Owners get a pencil beside
+ * the name that asks for a new one (`rename_household`); the local row and the list snapshot take
+ * it at once, and other members' devices get it on their next sync.
+ * TODO(M7): make owner and delete household.
  */
 export default function HouseholdScreen() {
-  const { colors, aisles, spacing } = useTheme();
+  const { colors, aisles, spacing, sizes } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : null;
@@ -187,6 +193,16 @@ export default function HouseholdScreen() {
     );
   };
 
+  const rename = async (name: string) => {
+    try {
+      await renameHousehold(id, name, userId);
+    } catch (err) {
+      console.warn(`[households] couldn't rename ${id}`, err);
+      const alert = householdActionAlert('rename', err, { householdName });
+      Alert.alert(alert.title, alert.message);
+    }
+  };
+
   const leave = async () => {
     setLeaving(true);
     try {
@@ -235,9 +251,21 @@ export default function HouseholdScreen() {
           gap: spacing.lg + spacing.xxs,
         }}>
         <View style={{ gap: spacing.xs }}>
-          <ThemedText variant="screenTitle" accessibilityRole="header" style={{ color: band.text }}>
-            {household?.name ?? ''}
-          </ThemedText>
+          <View style={[styles.titleRow, { gap: spacing.sm }]}>
+            <ThemedText variant="screenTitle" accessibilityRole="header" style={[styles.title, { color: band.text }]}>
+              {household?.name ?? ''}
+            </ThemedText>
+            {isOwner && household ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Rename household"
+                accessibilityHint={RENAME_HINT}
+                hitSlop={(sizes.minTapTarget - sizes.iconSmall) / 2}
+                onPress={() => promptHouseholdName(householdName, (name) => void rename(name))}>
+                <Icon name="pencil" tint={band.text} size={sizes.iconSmall} weight="semibold" />
+              </Pressable>
+            ) : null}
+          </View>
           {household ? (
             <ThemedText variant="amount" style={{ color: band.secondary }}>
               {householdCountsLabel(household.listCount, household.recipeCount)}
@@ -367,5 +395,7 @@ function Avatars({ members, ring }: { members: HouseholdMember[]; ring: string }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
+  titleRow: { flexDirection: 'row', alignItems: 'center' },
+  title: { flexShrink: 1 },
   avatar: { alignItems: 'center', justifyContent: 'center' },
 });

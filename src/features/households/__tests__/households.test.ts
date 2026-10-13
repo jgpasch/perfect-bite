@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 
 import { db, households, lists, recipes } from '@/db';
 import { resetDb } from '@/test/db';
@@ -20,6 +21,7 @@ import {
   removeMember,
   removeMemberConfirmation,
   removeMemberSheet,
+  renameHousehold,
   roleLabel,
   toHouseholdActionError,
   type HouseholdMember,
@@ -27,6 +29,17 @@ import {
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+
+// What the list snapshot would say each time it's rewritten (the App Group isn't there in tests).
+const mockSnapshots: { userId: string; households: { id: string; name: string }[] }[] = [];
+jest.mock('@/features/siri/list-snapshot', () => {
+  const actual = jest.requireActual('@/features/siri/list-snapshot') as typeof import('@/features/siri/list-snapshot');
+  return {
+    ...actual,
+    syncListSnapshot: (userId: string) =>
+      mockSnapshots.push({ userId, households: actual.currentListSnapshot(userId).households }),
+  };
+});
 
 const mockNetwork: { state: { isConnected: boolean; isInternetReachable: boolean | null } | Error } = {
   state: { isConnected: true, isInternetReachable: true },
@@ -57,6 +70,7 @@ beforeEach(() => {
   mockNetwork.state = { isConnected: true, isInternetReachable: true };
   mockPull.calls = [];
   mockPull.rpcCountAtPull = [];
+  mockSnapshots.length = 0;
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   db.insert(households).values({ id: 'h1', name: 'Personal', createdAt: new Date('2026-10-01T00:00:00Z') }).run();
 });
@@ -399,6 +413,8 @@ describe('toHouseholdActionError and householdActionAlert', () => {
     ['Failed to fetch', 'offline'],
     ['cannot remove yourself; use leave_household', 'failed'],
     ['not authenticated', 'failed'],
+    ['household name cannot be blank', 'blank'],
+    ['household name is too long', 'too-long'],
   ])('%s maps to %s', (message, kind) => {
     const error = toHouseholdActionError({ message });
     expect(error).toBeInstanceOf(HouseholdActionError);
@@ -528,5 +544,131 @@ describe('removeMember', () => {
     mockNetwork.state = { isConnected: false, isInternetReachable: null };
     await expect(removeMember('h1', 'u2')).rejects.toMatchObject({ kind: 'offline' });
     expect(rpcCalls).toEqual([]);
+  });
+});
+
+describe('renameHousehold', () => {
+  const localNames = () => db.select({ id: households.id, name: households.name }).from(households).all();
+
+  test('calls rename_household with the trimmed name, updates the local row and rewrites the snapshot', async () => {
+    db.insert(households).values({ id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') }).run();
+    const before = db.select().from(households).where(eq(households.id, 'h1')).get()!;
+    respondToRpc('rename_household', { data: null });
+    await expect(renameHousehold('h1', '  Smith home  ', 'u1')).resolves.toBeUndefined();
+    expect(rpcCalls).toEqual([{ fn: 'rename_household', args: { p_household_id: 'h1', p_name: 'Smith home' } }]);
+    expect(localNames()).toEqual([
+      { id: 'h1', name: 'Smith home' },
+      { id: 'h2', name: 'Work' },
+    ]);
+    const after = db.select().from(households).where(eq(households.id, 'h1')).get()!;
+    expect(after.updatedAt.getTime()).toBeGreaterThanOrEqual(before.updatedAt.getTime());
+    expect(mockSnapshots).toEqual([
+      {
+        userId: 'u1',
+        households: [
+          { id: 'h1', name: 'Smith home' },
+          { id: 'h2', name: 'Work' },
+        ],
+      },
+    ]);
+    // Nothing else: no pull, the row is already right.
+    expect(mockPull.calls).toEqual([]);
+  });
+
+  test('the snapshot carries the new household name on its lists', async () => {
+    db.insert(lists).values({ id: 'l1', householdId: 'h1', name: 'Groceries', position: 1 }).run();
+    respondToRpc('rename_household', { data: null });
+    await renameHousehold('h1', 'Cabin', 'u1');
+    const { currentListSnapshot } = jest.requireActual(
+      '@/features/siri/list-snapshot',
+    ) as typeof import('@/features/siri/list-snapshot');
+    expect(currentListSnapshot('u1').lists.map((l) => [l.id, l.householdName])).toEqual([['l1', 'Cabin']]);
+  });
+
+  test('without a user it renames but leaves the snapshot alone', async () => {
+    respondToRpc('rename_household', { data: null });
+    await renameHousehold('h1', 'Cabin', null);
+    expect(localNames()).toEqual([{ id: 'h1', name: 'Cabin' }]);
+    expect(mockSnapshots).toEqual([]);
+  });
+
+  test.each(['', '   ', '\n\t'])('a blank name (%j) throws without asking the server', async (name) => {
+    await expect(renameHousehold('h1', name, 'u1')).rejects.toMatchObject({ kind: 'blank' });
+    expect(rpcCalls).toEqual([]);
+    expect(localNames()).toEqual([{ id: 'h1', name: 'Personal' }]);
+    expect(mockSnapshots).toEqual([]);
+  });
+
+  test('50 characters is fine; 51 throws too-long without asking the server', async () => {
+    await expect(renameHousehold('h1', 'x'.repeat(51), 'u1')).rejects.toMatchObject({ kind: 'too-long' });
+    expect(rpcCalls).toEqual([]);
+    respondToRpc('rename_household', { data: null });
+    await renameHousehold('h1', ` ${'x'.repeat(50)} `, 'u1');
+    expect(rpcCalls).toHaveLength(1);
+    expect(localNames()).toEqual([{ id: 'h1', name: 'x'.repeat(50) }]);
+  });
+
+  test('counts characters, not UTF-16 units, as the server does', async () => {
+    respondToRpc('rename_household', { data: null });
+    const name = '🍕'.repeat(50); // 100 UTF-16 units, 50 characters
+    await renameHousehold('h1', name, 'u1');
+    expect(localNames()).toEqual([{ id: 'h1', name }]);
+  });
+
+  test.each([
+    ['not an owner', 'not-owner'],
+    ['not a member', 'not-member'],
+    ['household name is too long', 'too-long'],
+    ['household name cannot be blank', 'blank'],
+    ['boom', 'failed'],
+  ])('a server error %j is thrown as %s and changes nothing', async (message, kind) => {
+    respondToRpc('rename_household', { error: { message, code: '42501' } });
+    const result = renameHousehold('h1', 'Cabin', 'u1');
+    await expect(result).rejects.toBeInstanceOf(HouseholdActionError);
+    await expect(result).rejects.toMatchObject({ kind });
+    expect(localNames()).toEqual([{ id: 'h1', name: 'Personal' }]);
+    expect(mockSnapshots).toEqual([]);
+  });
+
+  test('offline: says so without asking the server and changes nothing', async () => {
+    mockNetwork.state = { isConnected: false, isInternetReachable: false };
+    await expect(renameHousehold('h1', 'Cabin', 'u1')).rejects.toMatchObject({ kind: 'offline' });
+    expect(rpcCalls).toEqual([]);
+    expect(localNames()).toEqual([{ id: 'h1', name: 'Personal' }]);
+    expect(mockSnapshots).toEqual([]);
+  });
+
+  test('a rejected call (lost connection mid-call) maps to offline and changes nothing', async () => {
+    supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
+    await expect(renameHousehold('h1', 'Cabin', 'u1')).rejects.toMatchObject({ kind: 'offline' });
+    expect(localNames()).toEqual([{ id: 'h1', name: 'Personal' }]);
+  });
+
+  test('the rename alerts', () => {
+    const names = { householdName: 'Cabin' };
+    expect(householdActionAlert('rename', new HouseholdActionError('offline', ''), names)).toEqual({
+      title: "You're offline",
+      message: 'Connect to the internet and try again.',
+    });
+    expect(householdActionAlert('rename', { message: 'not an owner' }, names)).toEqual({
+      title: "Couldn't rename Cabin",
+      message: 'Only owners can rename a household.',
+    });
+    expect(householdActionAlert('rename', { message: 'not a member' }, names)).toEqual({
+      title: "Couldn't rename Cabin",
+      message: "You're no longer in Cabin.",
+    });
+    expect(householdActionAlert('rename', { message: 'household name is too long' }, names)).toEqual({
+      title: "Couldn't rename Cabin",
+      message: 'Use a shorter name (up to 50 characters).',
+    });
+    expect(householdActionAlert('rename', { message: 'household name cannot be blank' }, names)).toEqual({
+      title: "Couldn't rename Cabin",
+      message: 'Enter a name.',
+    });
+    expect(householdActionAlert('rename', { message: 'boom' }, {})).toEqual({
+      title: "Couldn't rename this household",
+      message: 'Something went wrong. Try again.',
+    });
   });
 });

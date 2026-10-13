@@ -1,12 +1,13 @@
 // Households (spec 4.7, 5). A household is created locally (ensureStarterData) through the outbox,
 // and the push sends it to the server with `create_household` (src/sync/push.ts). Members are
 // fetched online for the Households screen, which also leaves a household and removes members
-// through the server (`leave_household`, `remove_member`).
-import { asc, sql } from 'drizzle-orm';
+// through the server (`leave_household`, `remove_member`, `rename_household`).
+import { asc, eq, sql } from 'drizzle-orm';
 import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
 import { db, households, lists, recipes } from '@/db';
 import { isOnline } from '@/features/categories/catch-up';
+import { syncListSnapshot } from '@/features/siri/list-snapshot';
 import { supabase } from '@/lib/supabase';
 import { pullNow } from '@/sync/pull';
 
@@ -108,9 +109,9 @@ export function roleLabel(role: HouseholdMember['role']): string {
 
 // --- Leaving and removal (spec 4.7) ---------------------------------------------------------
 
-export type HouseholdActionErrorKind = 'offline' | 'not-member' | 'not-owner' | 'failed';
+export type HouseholdActionErrorKind = 'offline' | 'not-member' | 'not-owner' | 'blank' | 'too-long' | 'failed';
 
-/** A failed `leave_household` or `remove_member`, with what went wrong for the alert. */
+/** A failed `leave_household`, `remove_member` or `rename_household`, with what went wrong for the alert. */
 export class HouseholdActionError extends Error {
   constructor(
     readonly kind: HouseholdActionErrorKind,
@@ -121,37 +122,48 @@ export class HouseholdActionError extends Error {
   }
 }
 
-/** Maps a server error to a `HouseholdActionError` by the messages the two functions raise. */
+/** Maps a server error to a `HouseholdActionError` by the messages the functions raise. */
 export function toHouseholdActionError(error: unknown): HouseholdActionError {
   if (error instanceof HouseholdActionError) return error;
   const raw = (error as { message?: unknown } | null)?.message;
   const message = typeof raw === 'string' ? raw : '';
   if (message.includes('not an owner')) return new HouseholdActionError('not-owner', message);
   if (message.includes('not a member')) return new HouseholdActionError('not-member', message);
+  if (message.includes('household name cannot be blank')) return new HouseholdActionError('blank', message);
+  if (message.includes('household name is too long')) return new HouseholdActionError('too-long', message);
   if (/network request failed|failed to fetch|network error/i.test(message)) {
     return new HouseholdActionError('offline', message);
   }
   return new HouseholdActionError('failed', message || 'Request failed');
 }
 
-/** The alert for a failed leave or removal. Nothing changed, so it only says why. */
+/** The alert for a failed leave, removal or rename. Nothing changed, so it only says why. */
 export function householdActionAlert(
-  action: 'leave' | 'remove',
+  action: 'leave' | 'remove' | 'rename',
   error: unknown,
   names: { householdName?: string | null; memberName?: string | null } = {},
 ): { title: string; message: string } {
   const { kind } = toHouseholdActionError(error);
   const household = names.householdName?.trim() || 'this household';
   if (kind === 'offline') return { title: "You're offline", message: 'Connect to the internet and try again.' };
-  const title = action === 'leave' ? `Couldn't leave ${household}` : `Couldn't remove ${names.memberName?.trim() || 'them'}`;
+  const title =
+    action === 'leave'
+      ? `Couldn't leave ${household}`
+      : action === 'rename'
+        ? `Couldn't rename ${household}`
+        : `Couldn't remove ${names.memberName?.trim() || 'them'}`;
   switch (kind) {
     case 'not-member':
       return {
         title,
-        message: action === 'leave' ? `You're no longer in ${household}.` : `They're no longer in ${household}.`,
+        message: action === 'remove' ? `They're no longer in ${household}.` : `You're no longer in ${household}.`,
       };
     case 'not-owner':
-      return { title, message: 'Only owners can remove members.' };
+      return { title, message: action === 'rename' ? 'Only owners can rename a household.' : 'Only owners can remove members.' };
+    case 'blank':
+      return { title, message: 'Enter a name.' };
+    case 'too-long':
+      return { title, message: `Use a shorter name (up to ${HOUSEHOLD_NAME_MAX} characters).` };
     default:
       return { title, message: 'Something went wrong. Try again.' };
   }
@@ -202,6 +214,27 @@ export async function leaveHousehold(householdId: string): Promise<LeaveOutcome>
 export async function removeMember(householdId: string, userId: string): Promise<void> {
   await assertOnline();
   await callRpc('remove_member', { p_household_id: householdId, p_user_id: userId });
+}
+
+/** The longest household name `rename_household` accepts, in characters. */
+export const HOUSEHOLD_NAME_MAX = 50;
+
+/**
+ * Renames a household (`rename_household`, owners only). The name is trimmed; a blank one, or one
+ * over `HOUSEHOLD_NAME_MAX` characters, throws without asking the server. On success the local row
+ * takes the new name at once (households aren't in the outbox; the next pull agrees with the
+ * server) and, given the user, the list snapshot is rewritten for Siri and the share sheet. Throws a
+ * `HouseholdActionError` (offline before asking the server); a failure changes nothing locally.
+ */
+export async function renameHousehold(householdId: string, name: string, userId?: string | null): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new HouseholdActionError('blank', 'household name cannot be blank');
+  // Postgres counts characters, not UTF-16 units.
+  if ([...trimmed].length > HOUSEHOLD_NAME_MAX) throw new HouseholdActionError('too-long', 'household name is too long');
+  await assertOnline();
+  await callRpc('rename_household', { p_household_id: householdId, p_name: trimmed });
+  db.update(households).set({ name: trimmed, updatedAt: new Date() }).where(eq(households.id, householdId)).run();
+  if (userId) syncListSnapshot(userId);
 }
 
 /**
@@ -284,3 +317,4 @@ export function removeMemberConfirmation(memberName: string, householdName: stri
 /** VoiceOver hints for the rows that act (4.7). */
 export const LEAVE_HINT = 'Asks to confirm, then leaves this household.';
 export const MEMBER_ACTIONS_HINT = 'Shows the option to remove this member.';
+export const RENAME_HINT = 'Asks for a new name.';

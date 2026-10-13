@@ -80,7 +80,7 @@ select throws_ok($$ select public.rename_household('aaaaaaaa-0000-0000-0000-0000
   '42501', 'not authenticated', 'renaming needs a signed-in user');
 
 reset role;
-select results_eq($$ select id, name from public.households order by id $$,
+select results_eq($$ select id, name from public.households where id::text like 'aaaaaaaa-%' order by id $$,
   $$ values ('aaaaaaaa-0000-0000-0000-00000000000a'::uuid, repeat('b', 50)), ('aaaaaaaa-0000-0000-0000-00000000000d'::uuid, 'Sam''s household') $$,
   'the refused calls changed no names');
 

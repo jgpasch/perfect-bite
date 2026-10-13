@@ -56,11 +56,13 @@ jest.mock('@/features/households/invites', () => ({
 const mockFetchMembers = jest.fn<Fn<[string, string], Promise<HouseholdMember[]>>>();
 const mockLeave = jest.fn<Fn<[string], Promise<unknown>>>();
 const mockRemoveMember = jest.fn<Fn<[string, string], Promise<void>>>();
+const mockRename = jest.fn<Fn<[string, string, (string | null)?], Promise<void>>>();
 jest.mock('@/features/households/households', () => ({
   ...(jest.requireActual('@/features/households/households') as object),
   fetchHouseholdMembers: (...args: [string, string]) => mockFetchMembers(...args),
   leaveHousehold: (id: string) => mockLeave(id),
   removeMember: (...args: [string, string]) => mockRemoveMember(...args),
+  renameHousehold: (...args: [string, string, (string | null)?]) => mockRename(...args),
 }));
 const mockPushNow = jest.fn<Fn<[unknown], Promise<unknown>>>();
 jest.mock('@/sync/push', () => ({ pushNow: (options: unknown) => mockPushNow(options) }));
@@ -143,6 +145,7 @@ beforeEach(() => {
     mockFetchMembers,
     mockLeave,
     mockRemoveMember,
+    mockRename,
     mockPushNow,
     mockPullNow,
     mockSmsAvailable,
@@ -466,6 +469,93 @@ describe('HouseholdScreen', () => {
       expect(alert).toHaveBeenCalledTimes(2);
       expect(mockRouter.back).not.toHaveBeenCalled();
       expect(hasA11y(root, 'Leaving')).toBe(false);
+    });
+  });
+
+  describe('Rename household', () => {
+    const pencils = (root: ReactTestRenderer) =>
+      root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Rename household' && n.props.onPress);
+    /** Taps the pencil and returns the prompt's arguments. */
+    const openPrompt = async (root: ReactTestRenderer) => {
+      const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+      await pressAsync(pencils(root)[0]);
+      expect(prompt).toHaveBeenCalledTimes(1);
+      return prompt.mock.calls[0];
+    };
+    const save = async (args: unknown[], text: string) => {
+      const save = (args[2] as AlertButton[]).find((b) => b.text === 'Save')!;
+      await act(async () => (save.onPress as (t?: string) => void)(text));
+    };
+
+    test('an owner sees the pencil, labelled for VoiceOver', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      const root = await render(<HouseholdScreen />);
+      const [pencil] = pencils(root);
+      expect(pencil.props.accessibilityRole).toBe('button');
+      expect(pencil.props.accessibilityHint).toBe('Asks for a new name.');
+      // 12 pt icon padded to a 44 pt tap area.
+      expect(pencil.props.hitSlop).toBe(16);
+    });
+
+    test('a plain member does not, nor anyone before the members load', async () => {
+      const members = deferred<HouseholdMember[]>();
+      mockFetchMembers.mockReturnValue(members.promise);
+      const root = await render(<HouseholdScreen />);
+      expect(pencils(root)).toHaveLength(0);
+      await act(async () =>
+        members.resolve([member({ userId: USER, displayName: 'John', isYou: true }), member({ userId: 'ann', displayName: 'Ann', role: 'owner' })]),
+      );
+      expect(pencils(root)).toHaveLength(0);
+    });
+
+    test('the prompt is titled, prefilled with the name, and has Cancel and Save', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      const root = await render(<HouseholdScreen />);
+      const [title, message, buttons, type, value] = await openPrompt(root);
+      expect(title).toBe('Rename household');
+      expect(message).toBeUndefined();
+      expect((buttons as AlertButton[]).map((b) => [b.text, b.style])).toEqual([
+        ['Cancel', 'cancel'],
+        ['Save', undefined],
+      ]);
+      expect(type).toBe('plain-text');
+      expect(value).toBe('Smith home');
+    });
+
+    test('Save renames with the trimmed name and the user', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      mockRename.mockResolvedValue();
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await save(await openPrompt(root), '  Cabin ');
+      expect(mockRename).toHaveBeenCalledWith(HOME, 'Cabin', USER);
+      expect(alert).not.toHaveBeenCalled();
+    });
+
+    test.each(['', '   ', undefined])('a blank name (%j) is ignored', async (text) => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      const root = await render(<HouseholdScreen />);
+      await save(await openPrompt(root), text as string);
+      expect(mockRename).not.toHaveBeenCalled();
+    });
+
+    test('offline says so', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      const { HouseholdActionError } = jest.requireActual('../households') as typeof import('../households');
+      mockRename.mockRejectedValue(new HouseholdActionError('offline', 'offline'));
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await save(await openPrompt(root), 'Cabin');
+      expect(alert).toHaveBeenCalledWith("You're offline", 'Connect to the internet and try again.');
+    });
+
+    test('a failure alerts with the reason', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      mockRename.mockRejectedValue({ message: 'household name is too long' });
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await save(await openPrompt(root), 'Cabin');
+      expect(alert).toHaveBeenCalledWith("Couldn't rename Smith home", 'Use a shorter name (up to 50 characters).');
     });
   });
 });
