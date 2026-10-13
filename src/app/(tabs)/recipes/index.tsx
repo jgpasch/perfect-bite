@@ -21,6 +21,7 @@ import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
+import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
 import {
   deleteRecipe,
@@ -217,6 +218,8 @@ function RecipeCard({
   highlighted: boolean;
 }) {
   const { colors, spacing, sizes, rounded } = useTheme();
+  // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
+  const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
 
   const confirmDelete = () =>
     Alert.alert(`Delete “${recipe.name}”?`, 'Items already on your lists stay there.', [
@@ -260,6 +263,7 @@ function RecipeCard({
         </Pressable>
       </Link.Trigger>
       <Link.Menu>
+        {link ? <Link.MenuAction title="Visit recipe on web" icon="safari" onPress={() => void openRecipeLink(link)} /> : null}
         <Link.MenuAction title="Rename" icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title="Delete" icon="trash" destructive onPress={confirmDelete} />
       </Link.Menu>

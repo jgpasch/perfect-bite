@@ -651,6 +651,22 @@ export function listItemsQuery(listId: string) {
     .orderBy(asc(listItems.createdAt), asc(listItems.id), asc(listItemContributions.createdAt));
 }
 
+/**
+ * The link of each live recipe with an amount on the list, for the By recipe view's Visit recipe on
+ * web (spec 4.6). A deleted recipe has none. Kept apart from `listItemsQuery`, which reads per amount.
+ */
+export function listRecipeLinksQuery(listId: string) {
+  return db
+    .selectDistinct({ id: recipes.id, sourceUrl: recipes.sourceUrl })
+    .from(listItemContributions)
+    .innerJoin(listItems, and(eq(listItems.id, listItemContributions.listItemId), liveItem))
+    .innerJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
+    .where(and(eq(listItems.listId, listId), liveContribution, isNotNull(recipes.sourceUrl)));
+}
+
+/** Tables `listRecipeLinksQuery` reads, for `useLiveQueryOn`. */
+export const LIST_RECIPE_LINKS_QUERY_TABLES = [listItems, listItemContributions, recipes];
+
 /** Tables `listItemsQuery` reads, for `useLiveQueryOn`. */
 export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, householdCategoryOverrides, recipes];
 

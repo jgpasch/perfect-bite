@@ -3,13 +3,13 @@
 // them and calls their callbacks as a tap, swipe or add would.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { StatusBar } from 'expo-status-bar';
-import { ActionSheetIOS, Alert, Share, StyleSheet } from 'react-native';
+import { ActionSheetIOS, Alert, Share, StyleSheet, type ActionSheetIOSOptions } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { categories, db, ingredients, lists, userSettings } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
-import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
+import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import { getDeviceSetting, setAisleColorStyle } from '@/features/settings/device-settings';
 import type { MyInvite } from '@/features/households/invites';
@@ -58,6 +58,11 @@ jest.mock('@/features/categories/categorization', () => ({
   categorizePending: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@/features/siri/list-snapshot', () => ({ recordListOpened: jest.fn() }));
+const mockOpenLink = jest.fn((_url: string) => Promise.resolve(true));
+jest.mock('@/features/recipes/recipe-link', () => ({
+  ...jest.requireActual<object>('@/features/recipes/recipe-link'),
+  openRecipeLink: (url: string) => mockOpenLink(url),
+}));
 // Siri and share-extension drains: the test plays their listeners.
 const mockSiriListeners = new Set<(count: number) => void>();
 jest.mock('@/features/siri/drain', () => ({
@@ -165,6 +170,7 @@ beforeEach(() => {
   mockInvites.current = [];
   mockPush.mockClear();
   mockBack.mockClear();
+  mockOpenLink.mockClear();
   jest.mocked(categorizePending).mockClear();
 });
 
@@ -610,6 +616,108 @@ describe('By recipe', () => {
     act(() => section('Tacos').props.onLongPress());
     expect(text()).toContain('Checked 2 items');
     expect(sections().map((s) => s.props.title)).toEqual(['Other items']);
+  });
+
+  describe('Visit recipe on web', () => {
+    /** Opens Tacos's menu and returns what it showed, choosing `choose` (a label) if given. */
+    function openMenu(choose?: string) {
+      let shown: ActionSheetIOSOptions | null = null;
+      jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((options, callback) => {
+        shown = options;
+        callback(choose === undefined ? options.cancelButtonIndex! : options.options.indexOf(choose));
+      });
+      act(() => section('Tacos').props.onLongPress());
+      return shown!;
+    }
+    const withLink = (url: string) => {
+      const recipeId = withTacos();
+      updateRecipe(recipeId, { name: 'Tacos', notes: '', sourceUrl: url });
+      return recipeId;
+    };
+    const labels = () => (section('Tacos').props.actions as { label: string }[]).map((a) => a.label);
+
+    test('a recipe with no link has no Visit; Remove stays red and Cancel cancels', () => {
+      withTacos();
+      render();
+      setView('recipe');
+      expect(labels()).toEqual(['Check all', 'Remove recipe from list']);
+      const shown = openMenu();
+      expect(shown.options).toEqual(['Check all', 'Remove recipe from list', 'Cancel']);
+      expect(shown.destructiveButtonIndex).toBe(1);
+      expect(shown.cancelButtonIndex).toBe(2);
+      // Cancel did nothing.
+      expect(sections().map((s) => s.props.title)).toEqual(['Tacos', 'Other items']);
+      expect(text()).not.toContain('Checked');
+    });
+
+    test('plain text in the link field is not a link', () => {
+      withLink('grandma’s card');
+      render();
+      setView('recipe');
+      expect(labels()).toEqual(['Check all', 'Remove recipe from list']);
+      expect(openMenu().options).toEqual(['Check all', 'Remove recipe from list', 'Cancel']);
+    });
+
+    test('a link adds Visit between Check all and Remove; it opens the link', () => {
+      withLink('https://cooking.example.com/tacos?x=1');
+      render();
+      setView('recipe');
+      expect(labels()).toEqual(['Check all', 'Visit recipe on web', 'Remove recipe from list']);
+      const shown = openMenu('Visit recipe on web');
+      expect(shown.options).toEqual(['Check all', 'Visit recipe on web', 'Remove recipe from list', 'Cancel']);
+      expect(shown.destructiveButtonIndex).toBe(2);
+      expect(shown.cancelButtonIndex).toBe(3);
+      expect(mockOpenLink).toHaveBeenCalledTimes(1);
+      expect(mockOpenLink).toHaveBeenCalledWith('https://cooking.example.com/tacos?x=1');
+      // Nothing on the list changed.
+      expect(sections().map((s) => s.props.title)).toEqual(['Tacos', 'Other items']);
+    });
+
+    test('with a link, Cancel cancels and Remove still removes', () => {
+      withLink('https://example.com/tacos');
+      render();
+      setView('recipe');
+      openMenu();
+      expect(mockOpenLink).not.toHaveBeenCalled();
+      expect(sections().map((s) => s.props.title)).toEqual(['Tacos', 'Other items']);
+      openMenu('Remove recipe from list');
+      expect(text()).toContain('Removed Tacos from the list');
+      expect(sections().map((s) => s.props.title)).toEqual(['Other items']);
+    });
+
+    test("VoiceOver's actions include Visit, and it opens the link", () => {
+      withLink('https://example.com/tacos');
+      render();
+      setView('recipe');
+      const visit = (section('Tacos').props.actions as { label: string; onPress: () => void }[]).find(
+        (a) => a.label === 'Visit recipe on web',
+      )!;
+      act(() => visit.onPress());
+      expect(mockOpenLink).toHaveBeenCalledWith('https://example.com/tacos');
+    });
+
+    test('each recipe gets its own link', () => {
+      withLink('https://example.com/tacos');
+      const soup = createRecipe('Soup', getList(listId)!.householdId);
+      addRecipeIngredient(soup, 'leeks');
+      addWholeRecipeToList(listId, soup, USER);
+      render();
+      setView('recipe');
+      expect((section('Soup').props.actions as { label: string }[]).map((a) => a.label)).toEqual([
+        'Check all',
+        'Remove recipe from list',
+      ]);
+      expect(labels()).toContain('Visit recipe on web');
+    });
+
+    test('a deleted recipe has no link', () => {
+      const recipeId = withLink('https://example.com/tacos');
+      deleteRecipe(recipeId);
+      render();
+      setView('recipe');
+      const visits = sections().flatMap((s) => ((s.props.actions ?? []) as { label: string }[]).map((a) => a.label));
+      expect(visits).not.toContain('Visit recipe on web');
+    });
   });
 });
 

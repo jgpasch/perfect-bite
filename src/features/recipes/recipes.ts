@@ -22,7 +22,7 @@ function currentHouseholdId(): string {
   return row.id;
 }
 
-/** Live recipes, most recently updated first, each with its household and ingredient count. */
+/** Live recipes, most recently updated first, each with its household, link and ingredient count. */
 export function recipesQuery() {
   return db
     .select({
@@ -30,6 +30,7 @@ export function recipesQuery() {
       name: recipes.name,
       householdId: recipes.householdId,
       householdName: households.name,
+      sourceUrl: recipes.sourceUrl,
       updatedAt: recipes.updatedAt,
       ingredientCount: sql<number>`count(${recipeIngredients.id})`,
     })

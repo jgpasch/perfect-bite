@@ -52,7 +52,9 @@ import {
   deleteItem,
   groupItems,
   LIST_ITEMS_QUERY_TABLES,
+  LIST_RECIPE_LINKS_QUERY_TABLES,
   listItemsQuery,
+  listRecipeLinksQuery,
   orderByAisle,
   removeRecipeFromList,
   restoreItems,
@@ -109,6 +111,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { useFeature } from '@/features/plans/features';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import { getAisleColorStyle, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
@@ -155,6 +158,12 @@ export function ListScreen({ id }: { id: string }) {
   const list = listRows[0];
   const { data: itemRows } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
+  const { data: recipeLinkRows } = useLiveQueryOn(listRecipeLinksQuery(id), LIST_RECIPE_LINKS_QUERY_TABLES, [id]);
+  // Only links that open (spec 4.5): plain text in a recipe's link field gets no Visit recipe on web.
+  const recipeLinks = useMemo(
+    () => new Map(recipeLinkRows.flatMap((r) => (r.sourceUrl && recipeLinkUrl(r.sourceUrl) ? [[r.id, r.sourceUrl] as const] : []))),
+    [recipeLinkRows],
+  );
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   // Without `categorize`, nothing is waiting for an aisle: new names show in Other (spec 4.12).
   const sorts = useFeature('categorize');
@@ -514,12 +523,16 @@ export function ListScreen({ id }: { id: string }) {
   };
 
   // Spec 4.6: long-pressing a recipe's header (light haptic) opens its menu; VoiceOver gets the same as actions.
-  const recipeActions = (block: Extract<Block, { kind: 'recipe' }>) => {
+  const recipeActions = (
+    block: Extract<Block, { kind: 'recipe' }>,
+  ): { label: string; onPress: () => void; destructive?: boolean }[] => {
     const recipeId = block.recipeId;
     if (!recipeId) return [];
+    const link = recipeLinks.get(recipeId);
     return [
       { label: 'Check all', onPress: () => checkAll(block.itemIds) },
-      { label: 'Remove recipe from list', onPress: () => removeRecipe(recipeId, block.title) },
+      ...(link ? [{ label: 'Visit recipe on web', onPress: () => void openRecipeLink(link) }] : []),
+      { label: 'Remove recipe from list', destructive: true, onPress: () => removeRecipe(recipeId, block.title) },
     ];
   };
 
@@ -528,7 +541,12 @@ export function ListScreen({ id }: { id: string }) {
     if (actions.length === 0) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: block.title, options: [...actions.map((a) => a.label), 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
+      {
+        title: block.title,
+        options: [...actions.map((a) => a.label), 'Cancel'],
+        destructiveButtonIndex: actions.findIndex((a) => a.destructive),
+        cancelButtonIndex: actions.length,
+      },
       (index) => actions[index]?.onPress(),
     );
   };

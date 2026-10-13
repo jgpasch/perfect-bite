@@ -24,7 +24,7 @@ import RecipesScreen from '@/app/(tabs)/recipes/index';
 
 import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
 import { ImportsCard } from '../imports-card';
-import { addRecipeIngredient, createRecipe, getRecipe } from '../recipes';
+import { addRecipeIngredient, createRecipe, getRecipe, updateRecipe } from '../recipes';
 import { failedImportsQuery, recordFailedImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
@@ -60,6 +60,11 @@ jest.mock('@/features/recipes/import', () => ({
 }));
 const mockClipboard = jest.fn<() => Promise<string>>();
 jest.mock('expo-clipboard', () => ({ getStringAsync: () => mockClipboard() }));
+const mockOpenLink = jest.fn((_url: string) => Promise.resolve(true));
+jest.mock('@/features/recipes/recipe-link', () => ({
+  ...(jest.requireActual('@/features/recipes/recipe-link') as object),
+  openRecipeLink: (url: string) => mockOpenLink(url),
+}));
 const mockNotify = jest.fn();
 jest.mock('@/features/notifications/notifications', () => ({ notify: (n: unknown) => mockNotify(n) }));
 
@@ -122,7 +127,7 @@ beforeEach(() => {
   ensureStarterData(USER);
   groceries = getDefaultListId(USER)!;
   for (const k of Object.keys(mockParams)) delete mockParams[k];
-  for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare]) fn.mockClear();
+  for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink]) fn.mockClear();
   mockImport.mockReset();
   mockClipboard.mockReset();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
@@ -648,6 +653,44 @@ describe('RecipesScreen', () => {
     expect(title).toBe('Delete “Tacos”?');
     act(() => (buttons as AlertButton[]).find((b) => b.text === 'Delete')!.onPress!());
     expect(getRecipe(tacos)).toBeUndefined();
+  });
+
+  describe("a card's Visit recipe on web", () => {
+    const menuOf = (root: ReactTestRenderer, recipeId: string) => {
+      const card = byType(root, 'Link').find((l) => l.props.href.params.id === recipeId)!;
+      return card.findAll((n) => n.type === ('LinkMenuAction' as never));
+    };
+    const titles = (root: ReactTestRenderer, recipeId: string) => menuOf(root, recipeId).map((a) => a.props.title);
+
+    test('no link: Rename and Delete only', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
+    });
+
+    test('plain text in the link field: no Visit', () => {
+      const tacos = createRecipe('Tacos');
+      updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'from the back of the box' });
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
+    });
+
+    test('a link: Visit first, with the Safari symbol, and it opens the link', () => {
+      const tacos = createRecipe('Tacos');
+      const soup = createRecipe('Soup');
+      updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://www.example.com/tacos#step-2' });
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Visit recipe on web', 'Rename', 'Delete']);
+      // Only the card with a link has it.
+      expect(titles(root, soup)).toEqual(['Rename', 'Delete']);
+      const visit = menuOf(root, tacos)[0];
+      expect(visit.props.icon).toBe('safari');
+      expect(visit.props.destructive).toBeUndefined();
+      act(() => visit.props.onPress());
+      expect(mockOpenLink).toHaveBeenCalledTimes(1);
+      expect(mockOpenLink).toHaveBeenCalledWith('https://www.example.com/tacos#step-2');
+      expect(mockPush).not.toHaveBeenCalled();
+    });
   });
 
   test('a recipe shared while the tab shows: a toast with Undo and Open list, its card outlined', () => {
