@@ -1,18 +1,20 @@
 // The recipe screen and its "Add to a list" sheet (spec 4.5, boards 06 and 07), rendered against the
 // in-memory database: ingredients, edit/delete/undo, the menu, and choosing list, servings and ingredients.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { Alert, type AlertButton } from 'react-native';
+import { AccessibilityInfo, Alert, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { eq } from 'drizzle-orm';
 
+import { Button } from '@/components/button';
 import { Pill } from '@/components/pill';
 import { db, households, lists, outbox, recipes } from '@/db';
 import { resolveCurrentListId } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { insertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
@@ -24,6 +26,7 @@ import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
 import { IMPORT_TAGS_NOTE } from '../recipe-tag-row';
+import { NOTHING_SUGGESTED_NOTE, SUGGESTED_NOTE, type SuggestTagsResult } from '../suggest-tags';
 import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery, updateRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -119,6 +122,12 @@ jest.mock('expo-linking', () => ({ openURL: (url: string) => mockOpenURL(url) })
 const mockCopy = jest.fn((_text: string) => Promise.resolve(true));
 jest.mock('expo-clipboard', () => ({ setStringAsync: (text: string) => mockCopy(text) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
+// The server call; the messages and notes stay real.
+const mockSuggest = jest.fn((_recipeId: string): Promise<SuggestTagsResult> => new Promise(() => {}));
+jest.mock('@/features/recipes/suggest-tags', () => ({
+  ...jest.requireActual<object>('@/features/recipes/suggest-tags'),
+  suggestRecipeTags: (recipeId: string) => mockSuggest(recipeId),
+}));
 
 const USER = 'user-1';
 let tree: ReactTestRenderer | null = null;
@@ -138,6 +147,9 @@ beforeEach(() => {
   mockCategorize.mockClear();
   mockOpenURL.mockClear();
   mockCopy.mockClear();
+  mockSuggest.mockReset();
+  mockSuggest.mockImplementation(() => new Promise(() => {}));
+  setFeatures(DEFAULT_FEATURES);
 });
 
 afterEach(() => {
@@ -528,6 +540,62 @@ describe('RecipeScreen tags', () => {
     expect(mockPush).toHaveBeenCalledTimes(3);
     for (const call of mockPush.mock.calls) expect(call[0]).toEqual({ pathname: '/recipe/[id]/tags', params: { id: tacos } });
   });
+
+  describe('Suggest tags pill', () => {
+    const suggestPills = (root: ReactTestRenderer) =>
+      root.root.findAll((n) => n.type === Pill && n.props.label === 'Suggest tags');
+
+    test('an untagged recipe with ingredients and the feature: a dashed sparkles pill after Add tags', () => {
+      setFeatures(['categorize', 'recipe_tags']);
+      addRecipeIngredient(tacos, '1 lb ground beef');
+      const root = render(<RecipeScreen />);
+      const [suggest] = suggestPills(root);
+      expect(suggest.props).toMatchObject({ dashed: true, icon: 'sparkles', accessibilityHint: 'Opens the tags, with AI suggestions.' });
+      const labels = root.root.findAll((n) => n.type === Pill && n.props.dashed).map((n) => n.props.label);
+      expect(labels).toEqual(['Add tags', 'Suggest tags']);
+      press(suggest);
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/tags', params: { id: tacos, suggest: '1' } });
+      expect(mockSuggest).not.toHaveBeenCalled();
+    });
+
+    test('an import that found nothing counts as untagged', () => {
+      setFeatures(['recipe_tags']);
+      setTags({ tags: emptyRecipeTags() });
+      addRecipeIngredient(tacos, 'cilantro');
+      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(1);
+    });
+
+    test('not for a tagged recipe, one with only a time, one without ingredients, or without the feature', () => {
+      setFeatures(['recipe_tags']);
+      addRecipeIngredient(tacos, 'cilantro');
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
+      act(() => tree?.unmount());
+
+      setTags({ tags: null, totalMinutes: 20 });
+      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
+      act(() => tree?.unmount());
+
+      setTags({ tags: null });
+      setFeatures(['categorize']);
+      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
+      act(() => tree?.unmount());
+
+      setFeatures(['recipe_tags']);
+      const bare = createRecipe('Toast');
+      mockParams.id = bare;
+      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
+    });
+
+    test('the pill goes when the plan loses the feature', () => {
+      setFeatures(['recipe_tags']);
+      addRecipeIngredient(tacos, 'cilantro');
+      const root = render(<RecipeScreen />);
+      expect(suggestPills(root)).toHaveLength(1);
+      act(() => setFeatures(['categorize']));
+      expect(suggestPills(root)).toHaveLength(0);
+    });
+  });
 });
 
 describe('RecipeTagsSheet', () => {
@@ -641,6 +709,201 @@ describe('RecipeTagsSheet', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(getRecipe(tacos)).toEqual(before);
     expect(outboxRecipeUpdates()).toHaveLength(0);
+  });
+
+  describe('Suggest tags', () => {
+    let announce: jest.SpiedFunction<typeof AccessibilityInfo.announceForAccessibility>;
+    beforeEach(() => {
+      setFeatures(['categorize', 'recipe_tags']);
+      addRecipeIngredient(tacos, '1 lb ground beef');
+      announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      announce.mockClear(); // React Native's preset already mocks it, so earlier tests' calls linger
+    });
+
+    const suggestButton = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === Button && n.props.icon === 'sparkles');
+    /** A call that answers when the test says so. */
+    const deferred = () => {
+      let resolve!: (r: SuggestTagsResult) => void;
+      mockSuggest.mockImplementation(() => new Promise<SuggestTagsResult>((r) => (resolve = r)));
+      return (r: SuggestTagsResult) => act(async () => resolve(r));
+    };
+    const answer = (r: SuggestTagsResult) => mockSuggest.mockImplementation(() => Promise.resolve(r));
+    const tap = (root: ReactTestRenderer) => act(async () => suggestButton(root)[0].props.onPress());
+
+    test('without the feature there is no button', () => {
+      setFeatures(['categorize']);
+      const root = render(<RecipeTagsSheet />);
+      expect(suggestButton(root)).toHaveLength(0);
+      expect(texts(root)).not.toContain('Suggest tags');
+    });
+
+    test('with it, a secondary Suggest tags button above the first facet, with its VoiceOver hint', () => {
+      const root = render(<RecipeTagsSheet />);
+      const [button] = suggestButton(root);
+      expect(button.props).toMatchObject({
+        label: 'Suggest tags',
+        accessibilityLabel: 'Suggest tags',
+        accessibilityHint: 'Picks tags for this recipe with AI. Nothing is saved until you tap Save.',
+        disabled: false,
+        loading: false,
+      });
+      expect(button.props.variant).toBeUndefined(); // secondary is the default
+      const t = texts(root);
+      expect(t.indexOf('Suggest tags')).toBeLessThan(t.indexOf('Meal'));
+    });
+
+    test('while it runs: Suggesting…, disabled, with a spinner, and the pills still work', async () => {
+      const resolve = deferred();
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      expect(mockSuggest).toHaveBeenCalledWith(tacos);
+      const [button] = suggestButton(root);
+      expect(button.props).toMatchObject({ label: 'Suggesting…', accessibilityLabel: 'Suggesting tags', disabled: true, loading: true });
+      expect(root.root.findAll((n) => String(n.type) === 'ActivityIndicator')).toHaveLength(1);
+      press(pill(root, 'Lunch'));
+      expect(selected(root)).toEqual(['Lunch']);
+      await resolve({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      expect(suggestButton(root)[0].props).toMatchObject({ label: 'Suggest again', disabled: false, loading: false });
+    });
+
+    test('a suggestion replaces the picks, keeps unknown slugs, leaves the time, and writes nothing', async () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['lunch', 'brunchy'], cuisine: ['thai'], diet: ['vegan'] }, totalMinutes: 50 });
+      const before = getRecipe(tacos);
+      answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'] } });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      expect(selected(root)).toEqual(['Dinner', 'Mexican', 'Beef']);
+      expect(field(root, 'Minutes').props.value).toBe('50');
+      expect(texts(root)).toContain(SUGGESTED_NOTE);
+      const note = root.root.find((n) => typeof n.type !== 'string' && n.props.children === SUGGESTED_NOTE);
+      expect(note.props).toMatchObject({ variant: 'footnote', color: 'inkSecondary' });
+      expect(announce).toHaveBeenCalledWith('Tags suggested');
+      expect(getRecipe(tacos)).toEqual(before);
+      expect(outboxRecipeUpdates()).toHaveLength(0);
+
+      // Save keeps the unknown slug it carried over.
+      act(() => toolbar(root, 'Save').props.onPress());
+      expect(getRecipe(tacos)!.tags).toEqual({ meal: ['dinner', 'brunchy'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: [] });
+    });
+
+    test('nothing fit: the picks stay and it says so', async () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      answer({ ok: true, tags: emptyRecipeTags() });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      expect(selected(root)).toEqual(['Dinner']);
+      expect(texts(root)).toContain(NOTHING_SUGGESTED_NOTE);
+      expect(texts(root)).not.toContain(SUGGESTED_NOTE);
+      expect(announce).toHaveBeenCalledWith(NOTHING_SUGGESTED_NOTE);
+      expect(suggestButton(root)[0].props.label).toBe('Suggest again');
+    });
+
+    test('an error shows its message inline in danger, with no alert, and the button goes back', async () => {
+      const alert = jest.spyOn(Alert, 'alert');
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      answer({ ok: false, error: 'rate-limited' });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      const message = "That's a lot of suggestions. Try again in a minute.";
+      const line = root.root.find((n) => typeof n.type !== 'string' && n.props.children === message);
+      expect(line.props).toMatchObject({ variant: 'footnote', color: 'danger' });
+      expect(announce).toHaveBeenCalledWith(message);
+      expect(alert).not.toHaveBeenCalled();
+      expect(selected(root)).toEqual(['Dinner']);
+      expect(suggestButton(root)[0].props).toMatchObject({ label: 'Suggest tags', disabled: false, loading: false });
+
+      answer({ ok: false, error: 'offline' });
+      await tap(root);
+      expect(texts(root)).toContain("You're offline. Try again when you're connected.");
+      expect(texts(root)).not.toContain(message);
+    });
+
+    test('Suggest again replaces the last suggestion', async () => {
+      answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['lunch'], method: ['grill'] } });
+      await tap(root);
+      expect(mockSuggest).toHaveBeenCalledTimes(2);
+      expect(selected(root)).toEqual(['Lunch', 'Grill']);
+    });
+
+    test('Cancel after a suggestion writes nothing', async () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['lunch'] }, totalMinutes: 30 });
+      const before = getRecipe(tacos);
+      answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      act(() => toolbar(root, 'Cancel').props.onPress());
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(getRecipe(tacos)).toEqual(before);
+      expect(outboxRecipeUpdates()).toHaveLength(0);
+    });
+
+    test('Save writes the suggested tags with tagsEdited, so the import note never shows', async () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['lunch'] }, totalMinutes: 30 });
+      answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'], protein: ['beef'] } });
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      press(pill(root, 'Mexican'));
+      act(() => toolbar(root, 'Save').props.onPress());
+      const saved = { meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: [] };
+      expect(getRecipe(tacos)).toMatchObject({ tags: saved, tagsEdited: true, totalMinutes: 30 });
+      const updates = outboxRecipeUpdates();
+      expect(updates).toHaveLength(1);
+      expect(updates[0].fields).toEqual(expect.objectContaining({ tags: saved, tags_edited: true, total_minutes: 30 }));
+      act(() => tree?.unmount());
+      expect(texts(render(<RecipeScreen />))).not.toContain(IMPORT_TAGS_NOTE);
+    });
+
+    test('Cancel during the call drops the answer and writes nothing', async () => {
+      const before = getRecipe(tacos);
+      const resolve = deferred();
+      const root = render(<RecipeTagsSheet />);
+      await tap(root);
+      act(() => toolbar(root, 'Cancel').props.onPress());
+      await resolve({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      expect(selected(root)).toEqual([]);
+      expect(texts(root)).not.toContain(SUGGESTED_NOTE);
+      expect(announce).not.toHaveBeenCalled();
+      expect(getRecipe(tacos)).toEqual(before);
+      expect(outboxRecipeUpdates()).toHaveLength(0);
+    });
+
+    test('no ingredients: the button is disabled and says why, and nothing is called', async () => {
+      const bare = createRecipe('Toast');
+      mockParams.id = bare;
+      mockParams.suggest = '1';
+      const root = render(<RecipeTagsSheet />);
+      expect(suggestButton(root)[0].props.disabled).toBe(true);
+      const line = root.root.find(
+        (n) => typeof n.type !== 'string' && n.props.children === "Add some ingredients first, so there's something to go on.",
+      );
+      expect(line.props).toMatchObject({ variant: 'footnote', color: 'inkSecondary' });
+      expect(mockSuggest).not.toHaveBeenCalled();
+    });
+
+    test('suggest=1 starts the call as the sheet opens, once', async () => {
+      mockParams.suggest = '1';
+      const resolve = deferred();
+      const root = render(<RecipeTagsSheet />);
+      expect(mockSuggest).toHaveBeenCalledTimes(1);
+      expect(mockSuggest).toHaveBeenCalledWith(tacos);
+      expect(suggestButton(root)[0].props.label).toBe('Suggesting…');
+      await resolve({ ok: true, tags: { ...emptyRecipeTags(), cuisine: ['mexican'] } });
+      expect(selected(root)).toEqual(['Mexican']);
+      press(pill(root, 'Lunch'));
+      expect(mockSuggest).toHaveBeenCalledTimes(1);
+    });
+
+    test('without suggest=1, or without the feature, opening calls nothing', () => {
+      render(<RecipeTagsSheet />);
+      act(() => tree?.unmount());
+      setFeatures(['categorize']);
+      mockParams.suggest = '1';
+      render(<RecipeTagsSheet />);
+      expect(mockSuggest).not.toHaveBeenCalled();
+    });
   });
 });
 

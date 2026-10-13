@@ -37,6 +37,10 @@ export const SUGGEST_TAGS_MESSAGES: Record<SuggestTagsError, string> = {
   failed: "Couldn't suggest tags right now. Try again later.",
 };
 
+/** The Tags sheet's line under Suggest tags once a suggestion comes back, and when nothing fit. */
+export const SUGGESTED_NOTE = 'Suggested by AI. Check them, then Save.';
+export const NOTHING_SUGGESTED_NOTE = 'No tags clearly fit this recipe.';
+
 export function suggestTagsMessage(error: SuggestTagsError): string {
   return SUGGEST_TAGS_MESSAGES[error];
 }

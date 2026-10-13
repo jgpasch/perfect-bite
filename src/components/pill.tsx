@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, type PressableProps } from 'react-native';
 
 import { pillLook } from '@/components/appearance';
+import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
@@ -14,6 +15,8 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   dashed?: boolean;
   /** Fill the selected pill in `primary` instead of ink (the Recipes tab's active Filters pill). */
   primary?: boolean;
+  /** A leading SF Symbol in the label's colour (the recipe band's "Suggest tags"). */
+  icon?: IconName;
 };
 
 /** A 40 pt choice pill: `surface` when off, an ink (or aisle) fill with light text when on. */
@@ -23,6 +26,7 @@ export function Pill({
   hue,
   dashed = false,
   primary = false,
+  icon,
   disabled,
   accessibilityState,
   ...rest
@@ -41,6 +45,7 @@ export function Pill({
         {
           minHeight: sizes.pill,
           paddingHorizontal: spacing.md + spacing.xxs,
+          gap: spacing.xs,
           borderRadius: rounded.full,
           backgroundColor: look.fill,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
@@ -48,6 +53,7 @@ export function Pill({
         look.border ? { borderWidth: sizes.checkBorder, borderStyle: 'dashed', borderColor: look.border } : null,
       ]}
       {...rest}>
+      {icon ? <Icon name={icon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
       <ThemedText variant="amount" style={[{ color: look.text }, selected ? styles.selected : undefined]}>
         {label}
       </ThemedText>
@@ -56,6 +62,6 @@ export function Pill({
 }
 
 const styles = StyleSheet.create({
-  pill: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
+  pill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   selected: { fontWeight: '700' },
 });

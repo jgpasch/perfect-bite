@@ -3,6 +3,7 @@ import { describe, expect, test } from '@jest/globals';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import {
+  applySuggestedTags,
   facetAtMax,
   facetLimitLabel,
   parseTotalTime,
@@ -107,6 +108,48 @@ describe('toggleTag and facetAtMax', () => {
   test('facetLimitLabel', () => {
     expect(facetLimitLabel(2)).toBe('Pick up to 2');
     expect(facetLimitLabel(3)).toBe('Pick up to 3');
+  });
+});
+
+describe('applySuggestedTags', () => {
+  test('the suggestion replaces every facet’s known picks, emptying the ones it left out', () => {
+    const current = tags({ meal: ['lunch'], cuisine: ['thai'], diet: ['vegan'], method: ['grill'] });
+    expect(applySuggestedTags(current, tags({ meal: ['dinner'], protein: ['beef', 'chicken'] }))).toEqual({
+      meal: ['dinner'],
+      cuisine: [],
+      protein: ['chicken', 'beef'],
+      diet: [],
+      method: [],
+    });
+  });
+
+  test('keeps the current picks’ unknown slugs after the suggested values', () => {
+    const current = tags({ meal: ['brunch', 'lunch'], method: ['sous-vide'] });
+    expect(applySuggestedTags(current, tags({ meal: ['dinner'], cuisine: ['mexican'] }))).toEqual({
+      meal: ['dinner', 'brunch'],
+      cuisine: ['mexican'],
+      protein: [],
+      diet: [],
+      method: ['sous-vide'],
+    });
+  });
+
+  test('drops suggested slugs it doesn’t know and caps each facet at its maximum', () => {
+    const suggested = tags({ meal: ['dinner', 'lunch', 'snack', 'feast'], protein: ['beef', 'pork', 'fish', 'chicken'] });
+    const out = applySuggestedTags(emptyRecipeTags(), suggested)!;
+    expect(out.meal).toEqual(['lunch', 'dinner']);
+    expect(out.protein).toEqual(['chicken', 'beef', 'pork']);
+  });
+
+  test('a suggestion with no known value is null, so the picks stay', () => {
+    expect(applySuggestedTags(tags({ meal: ['dinner'] }), emptyRecipeTags())).toBeNull();
+    expect(applySuggestedTags(tags({ meal: ['dinner'] }), tags({ meal: ['feast'] }))).toBeNull();
+  });
+
+  test('doesn’t change the tags it was given', () => {
+    const current = tags({ meal: ['lunch'] });
+    applySuggestedTags(current, tags({ meal: ['dinner'] }));
+    expect(current).toEqual(tags({ meal: ['lunch'] }));
   });
 });
 

@@ -78,6 +78,22 @@ export function facetLimitLabel(max: number): string {
   return `Pick up to ${max}`;
 }
 
+/**
+ * The sheet's picks after an AI suggestion (spec 4.14): each facet becomes the suggestion's known
+ * values (in facet order, capped at its maximum), plus any slug this app doesn't know from the
+ * current picks, so Save keeps it. Null when the suggestion has no known value: the picks stay.
+ */
+export function applySuggestedTags(current: RecipeTags, suggested: RecipeTags): RecipeTags | null {
+  const known = knownTags(suggested)!;
+  if (RECIPE_TAG_FACETS.every((f) => known[f.key].length === 0)) return null;
+  const out = { ...current };
+  for (const facet of RECIPE_TAG_FACETS) {
+    const unknown = current[facet.key].filter((slug) => !recipeTagLabel(facet.key, slug));
+    out[facet.key] = [...known[facet.key].slice(0, facet.max), ...unknown];
+  }
+  return out;
+}
+
 /** The Total time row's fields for a stored time: 80 → hours "1", minutes "20"; none → both empty. */
 export function splitTotalMinutes(totalMinutes: number | null): { hours: string; minutes: string } {
   if (totalMinutes == null) return { hours: '', minutes: '' };

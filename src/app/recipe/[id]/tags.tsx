@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Button } from '@/components/button';
@@ -8,29 +8,81 @@ import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { useFeature } from '@/features/plans/features';
 import {
+  applySuggestedTags,
   facetAtMax,
   facetLimitLabel,
   parseTotalTime,
   splitTotalMinutes,
   toggleTag,
 } from '@/features/recipes/recipe-tags-view';
-import { getRecipe, updateRecipeTags } from '@/features/recipes/recipes';
+import { getRecipe, recipeIngredientsQuery, updateRecipeTags } from '@/features/recipes/recipes';
+import {
+  NOTHING_SUGGESTED_NOTE,
+  suggestRecipeTags,
+  SUGGESTED_NOTE,
+  suggestTagsMessage,
+} from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
 import { emptyRecipeTags, RECIPE_TAG_FACETS, RecipeTagsSchema } from '@/shared/recipe-tags';
+
+type Suggestion =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'done'; note: string }
+  | { status: 'error'; message: string };
 
 /**
  * The Tags sheet (spec 4.14): one group of toggle pills per facet, capped at its maximum, then the
  * total time. Save writes the tags, the time and `tagsEdited` in one update; Cancel writes nothing.
+ * With `recipe_tags`, Suggest tags fills the picks from the AI (never the time); nothing is saved
+ * until Save. `suggest=1` (the recipe band's pill) starts it as the sheet opens.
  */
 export default function RecipeTagsSheet() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, suggest } = useLocalSearchParams<{ id: string; suggest?: string }>();
   const { colors, spacing, scheme } = useTheme();
+  const canSuggest = useFeature('recipe_tags');
 
   // A sheet is short-lived: read once rather than live. The stored tags, unknown slugs included, so Save keeps them.
   const [recipe] = useState(() => getRecipe(id));
+  const [hasIngredients] = useState(() => recipeIngredientsQuery(id).all().length > 0);
   const [tags, setTags] = useState(() => RecipeTagsSchema.safeParse(recipe?.tags).data ?? emptyRecipeTags());
   const [time, setTime] = useState(() => splitTotalMinutes(recipe?.totalMinutes ?? null));
+  const [suggestion, setSuggestion] = useState<Suggestion>({ status: 'idle' });
+  // Bumped by each call, Cancel and unmount: an answer for an older number is dropped.
+  const run = useRef(0);
+
+  const startSuggest = async () => {
+    const mine = ++run.current;
+    setSuggestion({ status: 'loading' });
+    const result = await suggestRecipeTags(id);
+    if (mine !== run.current) return;
+    if (!result.ok) {
+      const message = suggestTagsMessage(result.error);
+      setSuggestion({ status: 'error', message });
+      AccessibilityInfo.announceForAccessibility(message);
+      return;
+    }
+    const fits = applySuggestedTags(emptyRecipeTags(), result.tags) !== null;
+    if (fits) setTags((current) => applySuggestedTags(current, result.tags) ?? current);
+    setSuggestion({ status: 'done', note: fits ? SUGGESTED_NOTE : NOTHING_SUGGESTED_NOTE });
+    AccessibilityInfo.announceForAccessibility(fits ? 'Tags suggested' : NOTHING_SUGGESTED_NOTE);
+  };
+
+  // Opened from the recipe band's Suggest tags: start once, as the sheet opens.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current || suggest !== '1' || !recipe || !canSuggest || !hasIngredients) return;
+    autoStarted.current = true;
+    void startSuggest();
+  });
+  useEffect(
+    () => () => {
+      run.current++;
+    },
+    [],
+  );
 
   if (!recipe) return <Screen />;
 
@@ -40,7 +92,19 @@ export default function RecipeTagsSheet() {
     updateRecipeTags(recipe.id, tags, parsedTime.totalMinutes);
     router.back();
   };
+  const cancel = () => {
+    run.current++;
+    router.back();
+  };
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
+  const loading = suggestion.status === 'loading';
+  const suggestLine = !hasIngredients
+    ? { text: suggestTagsMessage('no-ingredients'), color: 'inkSecondary' as const }
+    : suggestion.status === 'done'
+      ? { text: suggestion.note, color: 'inkSecondary' as const }
+      : suggestion.status === 'error'
+        ? { text: suggestion.message, color: 'danger' as const }
+        : null;
 
   return (
     <Screen
@@ -48,7 +112,7 @@ export default function RecipeTagsSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={cancel}>Cancel</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
@@ -59,6 +123,27 @@ export default function RecipeTagsSheet() {
           Save
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
+
+      {canSuggest ? (
+        <View style={{ gap: spacing.sm }}>
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <Button
+              icon="sparkles"
+              loading={loading}
+              disabled={loading || !hasIngredients}
+              label={loading ? 'Suggesting…' : suggestion.status === 'done' ? 'Suggest again' : 'Suggest tags'}
+              accessibilityLabel={loading ? 'Suggesting tags' : 'Suggest tags'}
+              accessibilityHint="Picks tags for this recipe with AI. Nothing is saved until you tap Save."
+              onPress={() => void startSuggest()}
+            />
+          </View>
+          {suggestLine ? (
+            <ThemedText variant="footnote" color={suggestLine.color} style={inset}>
+              {suggestLine.text}
+            </ThemedText>
+          ) : null}
+        </View>
+      ) : null}
 
       {RECIPE_TAG_FACETS.map((facet) => {
         const full = facetAtMax(tags, facet.key);

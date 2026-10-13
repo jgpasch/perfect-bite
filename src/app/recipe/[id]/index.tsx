@@ -23,6 +23,7 @@ import { formatAmount } from '@/domain/quantity-display';
 import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
+import { useFeature } from '@/features/plans/features';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
@@ -119,7 +120,7 @@ export default function RecipeScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          <RecipeBand recipe={recipe} hue={hue} />
+          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} />
           <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }}>
             <PrimaryButton
               label="Add to a list"
@@ -178,8 +179,9 @@ export default function RecipeScreen() {
  * The header band in the recipe's soft tint: its name, source link, tags and notes. The notes are edited
  * in place and saved when the field loses focus; the link row is RecipeLinkRow.
  */
-function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
+function RecipeBand({ recipe, hue, hasIngredients }: { recipe: Recipe; hue: AisleHue; hasIngredients: boolean }) {
   const { colors, aisles, spacing, typography, sizes } = useTheme();
+  const canSuggest = useFeature('recipe_tags') && hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
   const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
   const save = () => updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl });
@@ -207,6 +209,11 @@ function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
         recipe={recipe}
         hue={hue}
         onEdit={() => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id } })}
+        onSuggest={
+          canSuggest
+            ? () => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id, suggest: '1' } })
+            : undefined
+        }
       />
       <TextInput
         value={notes}

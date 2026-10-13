@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, type PressableProps } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, type PressableProps } from 'react-native';
 
 import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -95,20 +95,24 @@ export function SoftDangerButton({ label, disabled, ...rest }: Props) {
 /**
  * Secondary actions: secondary = muted surface; plain = text-only link. Use `PrimaryButton` for the main action.
  * `color` overrides the text colour: `danger` for Sign out, `onPrimary` for a link on a `primary` ground.
+ * An optional leading SF Symbol; `loading` swaps it for a spinner (pass `disabled` too while it runs).
  */
 export function Button({
   label,
   variant = 'secondary',
   color,
+  icon,
+  loading = false,
   disabled,
   ...rest
-}: Props & { variant?: 'secondary' | 'plain'; color?: ColorToken }) {
+}: Props & { variant?: 'secondary' | 'plain'; color?: ColorToken; icon?: IconName; loading?: boolean }) {
   const { colors, spacing, rounded, sizes, opacity } = useTheme();
+  const textColor = color ?? (variant === 'secondary' ? 'ink' : 'primary');
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, busy: loading }}
       disabled={disabled}
       style={({ pressed }) => [
         styles.button,
@@ -116,13 +120,19 @@ export function Button({
           minHeight: sizes.minTapTarget,
           minWidth: sizes.minTapTarget,
           paddingHorizontal: variant === 'plain' ? spacing.xs : spacing.lg,
+          gap: spacing.sm,
           borderRadius: rounded.md,
           backgroundColor: variant === 'secondary' ? colors.surfaceMuted : 'transparent',
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}
       {...rest}>
-      <ThemedText variant="headline" color={color ?? (variant === 'secondary' ? 'ink' : 'primary')}>
+      {loading ? (
+        <ActivityIndicator color={colors[textColor]} />
+      ) : icon ? (
+        <Icon name={icon} color={textColor} weight="semibold" />
+      ) : null}
+      <ThemedText variant="headline" color={textColor}>
         {label}
       </ThemedText>
     </Pressable>
