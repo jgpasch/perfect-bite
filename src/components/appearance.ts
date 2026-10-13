@@ -223,12 +223,14 @@ export function listRowLook(
 
 /**
  * The sign-in screen (board 09): `onHeader` text on the `header` green, the same dark green as the
- * launch screen behind it, and an `onHeader` button with `header` text, so it reads in both schemes.
+ * launch screen behind it, "Perfect" in the cloche's `gold`, and an `onHeader` button with `header`
+ * text, so it reads in both schemes.
  */
 export function signInColors(colors: ThemeColors) {
   return {
     ground: colors.header,
     text: colors.onHeader,
+    accent: colors.gold,
     button: colors.onHeader,
     buttonText: colors.header,
   };

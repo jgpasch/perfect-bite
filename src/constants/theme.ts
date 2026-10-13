@@ -56,6 +56,8 @@ export const Palette = {
     /** The list screen's forest-green header, behind the status bar. */
     header: '#1F4D33',
     onHeader: '#FFFFFF',
+    /** The cloche's gold, for "Perfect" in the sign-in title on the header green. */
+    gold: '#E9BC5A',
     /** "7 to get · As added" on the header. */
     onHeaderSecondary: '#B7D2BF',
   },
@@ -81,6 +83,7 @@ export const Palette = {
     onToast: '#111915',
     header: '#163A26',
     onHeader: '#FFFFFF',
+    gold: '#E9BC5A',
     onHeaderSecondary: '#A9C8B3',
   },
 } as const;
@@ -246,8 +249,8 @@ export const Sizes = {
   /** household member avatars (overlapping) and the ring that separates them */
   avatar: 48,
   avatarRing: 3,
-  /** the cloche on the sign-in screen, at its largest */
-  signInHero: 200,
+  /** the cloche on the sign-in screen, at its largest (its glow spreads past this) */
+  signInHero: 270,
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
   aisleRow: 52,
   grip: 20,

@@ -484,6 +484,7 @@ describe('signInColors', () => {
     expect(signInColors(Palette.light)).toEqual({
       ground: '#1F4D33',
       text: '#FFFFFF',
+      accent: '#E9BC5A',
       button: '#FFFFFF',
       buttonText: '#1F4D33',
     });
@@ -492,6 +493,7 @@ describe('signInColors', () => {
   it.each(SCHEMES)('keeps the text and the button readable in %s mode', (scheme) => {
     const look = signInColors(Palette[scheme]);
     expect(contrastRatio(look.text, look.ground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(look.accent, look.ground)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(look.buttonText, look.button)).toBeGreaterThanOrEqual(4.5);
     // The button and the "Use a different email" link sit on the ground.
     expect(contrastRatio(look.button, look.ground)).toBeGreaterThanOrEqual(3);

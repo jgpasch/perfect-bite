@@ -58,6 +58,7 @@ describe('Palette', () => {
       onToast: '#FFFFFF',
       header: '#1F4D33',
       onHeader: '#FFFFFF',
+      gold: '#E9BC5A',
       onHeaderSecondary: '#B7D2BF',
     });
   });

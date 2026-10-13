@@ -120,7 +120,8 @@ describe('the sign-in screen', () => {
   it('names the app in a header', () => {
     const root = render();
     const header = root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'header');
-    expect(header.props.children).toBe('The Perfect Bite');
+    expect(header.props.accessibilityLabel).toBe('The Perfect Bite');
+    expect(textOf(root)).toContain('Perfect');
   });
 
   it('without a backend, explains the setup and offers no way in', () => {
@@ -271,7 +272,7 @@ describe('the sign-in screen', () => {
       const root = await toCodeStep();
       click(button(root, 'Use a different email'));
       expect(field(root, 'Email').props.value).toBe('jo@example.com');
-      expect(textOf(root)).toContain('sorted by aisle');
+      expect(textOf(root)).toContain('the perfect bite');
     });
 
     it('Google is offered only on the email step', async () => {

@@ -25,7 +25,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 /**
  * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and the gold cloche
- * in the space between, on the header green the launch screen also uses (spec 4.8). Dev builds also get
+ * in a warm glow in the space between, on the header green the launch screen also uses (spec 4.8). Dev builds also get
  * the email + 6-digit code stub; local Supabase delivers the code to Inbucket
  * (http://127.0.0.1:55324).
  */
@@ -103,14 +103,14 @@ export default function SignInScreen() {
           },
         ]}>
         <View style={{ gap: spacing.md }}>
-          <ThemedText variant="hero" accessibilityRole="header" style={{ color: look.text }}>
-            The Perfect Bite
+          <ThemedText variant="hero" accessibilityRole="header" accessibilityLabel="The Perfect Bite" style={{ color: look.text }}>
+            The <ThemedText variant="hero" style={{ color: look.accent }}>Perfect</ThemedText> Bite
           </ThemedText>
           <ThemedText variant="lead" style={{ color: look.text }}>
             {account.status === 'unconfigured'
               ? 'Backend not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local, then restart the dev server.'
               : step === 'email'
-                ? 'Your household’s shopping list, sorted by aisle and shared in real time.'
+                ? 'The shopping list app that helps you get the perfect bite.'
                 : `Enter the 6-digit code sent to ${email.trim()}.`}
           </ThemedText>
         </View>
@@ -195,7 +195,8 @@ export default function SignInScreen() {
 
 /**
  * The gold cloche, centred in the space the title and the field leave. It shrinks to fit, and goes
- * once it'd be under half size. Decorative.
+ * once it'd be under half size. Its image carries a soft warm glow and shadow that spread
+ * `HERO_GLOW` times past the cloche, faintly over the text around it. Decorative.
  */
 function Hero() {
   const { sizes } = useTheme();
@@ -208,17 +209,25 @@ function Hero() {
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       style={styles.fill}
+      pointerEvents="none"
       onLayout={(e) => setSpace(e.nativeEvent.layout.height)}>
       {size > 0 ? (
         <View style={[StyleSheet.absoluteFill, styles.centre]}>
-          <Image source={CLOCHE} style={{ width: size, height: size }} contentFit="contain" accessible={false} />
+          <Image
+            source={CLOCHE}
+            style={{ width: size * HERO_GLOW, height: size * HERO_GLOW }}
+            contentFit="contain"
+            accessible={false}
+          />
         </View>
       ) : null}
     </View>
   );
 }
 
-const CLOCHE = require('../../assets/images/splash-cloche.png');
+const CLOCHE = require('../../assets/images/sign-in-cloche.png');
+/** sign-in-cloche.png is the 1024 pt cloche artwork drawn at 810 px on a 1296 px canvas. */
+const HERO_GLOW = 1296 / 810;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
