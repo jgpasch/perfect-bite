@@ -125,15 +125,22 @@ export type PillLook = { fill: string; text: string; border: string | null };
 
 /**
  * A pill's colours. Off: `surface` with `ink`. On: the ink fill, or with a `hue` (the item sheet's
- * aisle picker) that aisle's `strong` fill, both with light text. Dashed ("+ New"): no fill, a
+ * aisle picker) that aisle's `strong` fill, both with light text; `primary` (the Recipes tab's
+ * active Filters pill) is `primary` with `onPrimary`. Dashed ("+ New"): no fill, a
  * `controlBorder` outline and `inkSecondary` text.
  */
 export function pillLook(
-  { selected = false, hue, dashed = false }: { selected?: boolean; hue?: AisleHue; dashed?: boolean },
+  {
+    selected = false,
+    hue,
+    dashed = false,
+    primary = false,
+  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean },
   colors: ThemeColors,
   aisles: Aisles,
 ): PillLook {
   if (dashed) return { fill: 'transparent', text: colors.inkSecondary, border: colors.controlBorder };
+  if (selected && primary) return { fill: colors.primary, text: colors.onPrimary, border: null };
   if (selected && hue) return { fill: aisles[hue].strong, text: colors.onPrimary, border: null };
   const look = pillColors(selected);
   return { fill: colors[look.fill], text: colors[look.text], border: null };

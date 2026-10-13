@@ -20,11 +20,24 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 import { resetDb } from '@/test/db';
 
 import ImportRecipeSheet from '@/app/import-recipe';
+import { Pill } from '@/components/pill';
+import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
+import { emptyRecipeTags } from '@/shared/recipe-tags';
 
 import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
 import { ImportsCard } from '../imports-card';
-import { addRecipeIngredient, createRecipe, deleteRecipe, deleteRecipeIngredient, getRecipe, updateRecipe } from '../recipes';
+import { getRecipeFilters, setRecipeFilters } from '../recipe-filter-store';
+import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
+import {
+  addRecipeIngredient,
+  createRecipe,
+  deleteRecipe,
+  deleteRecipeIngredient,
+  getRecipe,
+  updateRecipe,
+  updateRecipeTags,
+} from '../recipes';
 import { failedImportsQuery, recordFailedImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
@@ -966,6 +979,231 @@ describe('RecipesScreen search', () => {
     expect(root.root.findAll((n) => n.type === ImportsCard)).toHaveLength(1);
     const all = texts(root);
     expect(all.indexOf("Couldn't import 1 recipe")).toBeLessThan(all.indexOf('No recipes match'));
+  });
+});
+
+describe('RecipesScreen filters', () => {
+  const searchBar = (root: ReactTestRenderer) => byType(root, 'SearchBar')[0];
+  const search = (root: ReactTestRenderer, text: string) =>
+    act(() => searchBar(root).props.onChangeText({ nativeEvent: { text } }));
+  const cardNames = (root: ReactTestRenderer) =>
+    byType(root, 'Link').map((l) => (l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string).split(',')[0]);
+  const filtersPill = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Opens the filters.');
+  const chipLabels = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => typeof n.type !== 'string' && /^Remove .* filter$/.test(n.props.accessibilityLabel ?? '') && n.props.onPress)
+      .map((n) => n.props.accessibilityLabel as string);
+  /** The sheet's toggle pills, as "Facet heading" → labels. */
+  const sheetGroups = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header')
+      .map((n) => n.props.children as string);
+  const toggle = (root: ReactTestRenderer, label: string) =>
+    press(root.root.find((n) => typeof n.type !== 'string' && n.props.label === label && n.props.accessibilityRole === 'togglebutton'));
+  const cta = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && /^Show \d+ recipes?$/.test(n.props.label ?? '') && n.props.onPress);
+
+  beforeEach(() => {
+    setRecipeFilters(noRecipeFilters());
+    const tacos = createRecipe('Tacos');
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    updateRecipeTags(tacos, { ...emptyRecipeTags(), meal: ['dinner'], cuisine: ['mexican'], protein: ['chicken'] }, 25);
+    const pancakes = createRecipe('Pancakes');
+    updateRecipeTags(pancakes, { ...emptyRecipeTags(), meal: ['breakfast'] }, 40);
+    db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+    db.insert(recipes)
+      .values({ id: 'curry', householdId: 'lake', name: 'Curry', tags: { ...emptyRecipeTags(), meal: ['dinner'], cuisine: ['indian'] }, totalMinutes: 90 })
+      .run();
+    createRecipe('Grandma soup');
+  });
+  afterEach(() => setRecipeFilters(noRecipeFilters()));
+
+  test('the Filters pill opens the sheet with the search text', () => {
+    const root = render(<RecipesScreen />);
+    expect(filtersPill(root).props.label).toBe('Filters');
+    expect(filtersPill(root).props.accessibilityLabel).toBe('Filters');
+    expect(filtersPill(root).props.selected).toBe(false);
+    search(root, 'taco');
+    press(filtersPill(root));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipes/filter', params: { q: 'taco' } });
+  });
+
+  test('no Filters pill without recipes', () => {
+    resetDb();
+    ensureStarterData(USER);
+    const root = render(<RecipesScreen />);
+    expect(root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Opens the filters.')).toHaveLength(0);
+  });
+
+  test('OR within a facet, AND across facets; the pill counts and chips show', () => {
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'));
+    const root = render(<RecipesScreen />);
+    expect(cardNames(root).sort()).toEqual(['Curry', 'Tacos']);
+    expect(filtersPill(root).props.label).toBe('Filters · 1');
+    expect(filtersPill(root).props.accessibilityLabel).toBe('Filters, 1 active');
+    expect(filtersPill(root).props.selected).toBe(true);
+    expect(filtersPill(root).props.primary).toBe(true);
+
+    act(() => setRecipeFilters(toggleRecipeFilter(getRecipeFilters(), 'meal', 'breakfast')));
+    expect(cardNames(root).sort()).toEqual(['Curry', 'Pancakes', 'Tacos']);
+    act(() => setRecipeFilters(toggleRecipeFilter(getRecipeFilters(), 'cuisine', 'indian')));
+    expect(cardNames(root)).toEqual(['Curry']);
+    expect(chipLabels(root)).toEqual(['Remove Breakfast filter', 'Remove Dinner filter', 'Remove Indian filter']);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Filters · 3', 'Breakfast', 'Dinner', 'Indian']));
+  });
+
+  test('time buckets filter by total time', () => {
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'time', 'under-60'));
+    const root = render(<RecipesScreen />);
+    expect(cardNames(root)).toEqual(['Pancakes']);
+    expect(chipLabels(root)).toEqual(['Remove Under 1 hour filter']);
+  });
+
+  test('filters AND with the search', () => {
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'));
+    const root = render(<RecipesScreen />);
+    search(root, 'thigh');
+    expect(cardNames(root)).toEqual(['Tacos']);
+    expect(texts(root)).toContain('Has chicken thighs');
+    search(root, 'pancake');
+    expect(cardNames(root)).toEqual([]);
+  });
+
+  test('tapping a chip removes only its value', () => {
+    setRecipeFilters(toggleRecipeFilter(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'), 'cuisine', 'indian'));
+    const root = render(<RecipesScreen />);
+    expect(cardNames(root)).toEqual(['Curry']);
+    press(byA11y(root, 'Remove Indian filter'));
+    expect(chipLabels(root)).toEqual(['Remove Dinner filter']);
+    expect(cardNames(root).sort()).toEqual(['Curry', 'Tacos']);
+    expect(getRecipeFilters().tags.meal).toEqual(['dinner']);
+    expect(getRecipeFilters().tags.cuisine).toEqual([]);
+  });
+
+  test('untagged recipes hidden by filters get a footer that shows only them, with an Untagged chip', () => {
+    const root = render(<RecipesScreen />);
+    expect(texts(root).some((t) => t.includes('without tags'))).toBe(false);
+    act(() => setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'breakfast')));
+    const footer = root.root.find(
+      (n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityHint === 'Clears the filters and shows only recipes without tags.',
+    );
+    expect(texts(root)).toContain("1 recipe without tags isn't shown");
+
+    press(footer);
+    expect(cardNames(root)).toEqual(['Grandma soup']);
+    expect(chipLabels(root)).toEqual(['Remove Untagged filter']);
+    expect(texts(root)).not.toContain("1 recipe without tags isn't shown");
+    expect(filtersPill(root).props.label).toBe('Filters · 1');
+
+    press(byA11y(root, 'Remove Untagged filter'));
+    expect(cardNames(root)).toHaveLength(4);
+    expect(chipLabels(root)).toEqual([]);
+  });
+
+  test('the untagged footer counts only recipes the search found', () => {
+    createRecipe('Plain soup');
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'));
+    const root = render(<RecipesScreen />);
+    expect(texts(root)).toContain("2 recipes without tags aren't shown");
+    search(root, 'plain');
+    expect(texts(root)).toContain("1 recipe without tags isn't shown");
+    search(root, 'curry');
+    expect(texts(root).some((t) => t.includes('without tags'))).toBe(false);
+  });
+
+  test('no match: "No recipes match" with Clear filters, which clears them', () => {
+    setRecipeFilters(toggleRecipeFilter(toggleRecipeFilter(noRecipeFilters(), 'meal', 'breakfast'), 'cuisine', 'indian'));
+    const root = render(<RecipesScreen />);
+    expect(cardNames(root)).toEqual([]);
+    expect(texts(root)).toContain('No recipes match');
+    press(byLabel(root, 'Clear filters'));
+    expect(getRecipeFilters()).toEqual(noRecipeFilters());
+    expect(cardNames(root)).toHaveLength(4);
+    expect(texts(root)).not.toContain('No recipes match');
+  });
+
+  test('searching alone with no match has no Clear filters button', () => {
+    const root = render(<RecipesScreen />);
+    search(root, 'lasagne');
+    expect(texts(root)).toContain('No recipes match');
+    expect(allByLabel(root, 'Clear filters')).toHaveLength(0);
+  });
+
+  test('filters are kept across the tab unmounting (the app session)', () => {
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'));
+    render(<RecipesScreen />);
+    act(() => tree!.unmount());
+    const again = render(<RecipesScreen />);
+    expect(chipLabels(again)).toEqual(['Remove Dinner filter']);
+    expect(cardNames(again).sort()).toEqual(['Curry', 'Tacos']);
+  });
+
+  describe('the sheet', () => {
+    test('shows only values some recipe has, in facet order, then Time; untagged-only facets are hidden', () => {
+      const root = render(<RecipeFilterSheet />);
+      expect(sheetGroups(root)).toEqual(['Meal', 'Cuisine', 'Protein', 'Time']);
+      const toggles = root.root
+        .findAll((n) => n.type === Pill && n.props.accessibilityRole === 'togglebutton')
+        .map((n) => n.props.label as string);
+      expect(toggles).toEqual(['Breakfast', 'Dinner', 'Mexican', 'Indian', 'Chicken', 'Under 30 min', 'Under 1 hour', 'Over 1 hour']);
+      expect(cta(root).props.label).toBe('Show 4 recipes');
+    });
+
+    test('the count updates live and pills are toggle buttons with their state', () => {
+      const root = render(<RecipeFilterSheet />);
+      toggle(root, 'Dinner');
+      expect(cta(root).props.label).toBe('Show 2 recipes');
+      const dinner = root.root.find((n) => typeof n.type !== 'string' && n.props.label === 'Dinner' && n.props.accessibilityRole === 'togglebutton');
+      expect(dinner.props.accessibilityState).toEqual({ checked: true });
+      toggle(root, 'Mexican');
+      expect(cta(root).props.label).toBe('Show 1 recipe');
+      toggle(root, 'Over 1 hour');
+      expect(cta(root).props.label).toBe('Show 0 recipes');
+      toggle(root, 'Over 1 hour');
+      toggle(root, 'Mexican');
+      toggle(root, 'Breakfast');
+      expect(cta(root).props.label).toBe('Show 3 recipes');
+      expect(getRecipeFilters().tags.meal).toEqual(['dinner', 'breakfast']);
+    });
+
+    test('the count includes the search text it was opened with', () => {
+      mockParams.q = 'soup';
+      const root = render(<RecipeFilterSheet />);
+      expect(cta(root).props.label).toBe('Show 1 recipe');
+      toggle(root, 'Dinner');
+      expect(cta(root).props.label).toBe('Show 0 recipes');
+    });
+
+    test('Show N recipes closes the sheet and keeps the filters', () => {
+      const root = render(<RecipeFilterSheet />);
+      toggle(root, 'Breakfast');
+      press(cta(root));
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(getRecipeFilters().tags.meal).toEqual(['breakfast']);
+    });
+
+    test('Clear empties the filters; it is disabled with none', () => {
+      const root = render(<RecipeFilterSheet />);
+      const clear = () => root.root.find((n) => String(n.type) === 'ToolbarButton' && n.props.accessibilityLabel === 'Clear filters');
+      expect(clear().props.disabled).toBe(true);
+      toggle(root, 'Dinner');
+      toggle(root, 'Under 30 min');
+      expect(clear().props.disabled).toBe(false);
+      act(() => clear().props.onPress());
+      expect(getRecipeFilters()).toEqual(noRecipeFilters());
+      expect(cta(root).props.label).toBe('Show 4 recipes');
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    test('with no tagged recipes it says so', () => {
+      resetDb();
+      ensureStarterData(USER);
+      createRecipe('Grandma soup');
+      const root = render(<RecipeFilterSheet />);
+      expect(sheetGroups(root)).toEqual([]);
+      expect(texts(root)).toEqual(['No recipes have tags yet.', 'Show 1 recipe']);
+    });
   });
 });
 

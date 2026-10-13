@@ -18,6 +18,11 @@ export default function RecipesStackLayout() {
           headerLargeTitleStyle: { color: colors.ink, fontFamily, fontSize, fontWeight },
         }}
       />
+      {/* Spec 4.14, mockup C: the tab's filters. */}
+      <Stack.Screen
+        name="filter"
+        options={{ title: 'Filters', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+      />
     </Stack>
   );
 }

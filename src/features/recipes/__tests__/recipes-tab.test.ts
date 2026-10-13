@@ -14,6 +14,7 @@ import {
   recipeIngredientNamesQuery,
   recipesOnListsQuery,
   recipesQuery,
+  updateRecipeTags,
 } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -56,6 +57,17 @@ describe('recipesQuery households (board 05)', () => {
       ['Lake house', ['Campfire chili']],
       ['Personal', ['Tacos']],
     ]);
+  });
+
+  test("each recipe carries its tags and total time for the tab's filters (spec 4.14)", () => {
+    const tacos = createRecipe('Tacos');
+    updateRecipeTags(tacos, { meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25);
+    createRecipe('Plain');
+    const rows = Object.fromEntries(recipesQuery().all().map((r) => [r.name, [r.tags, r.totalMinutes]]));
+    expect(rows).toEqual({
+      Tacos: [{ meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25],
+      Plain: [null, null],
+    });
   });
 });
 

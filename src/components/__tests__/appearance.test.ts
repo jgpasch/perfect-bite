@@ -135,6 +135,20 @@ describe('pillLook', () => {
     expect(pillLook({ selected: true }, colors, aisles)).toEqual({ fill: '#1D2A22', text: '#FFFFFF', border: null });
   });
 
+  it('fills a selected primary pill (the active Filters pill) with primary and onPrimary text', () => {
+    expect(pillLook({ selected: true, primary: true }, colors, aisles)).toEqual({ fill: '#2E6B45', text: '#FFFFFF', border: null });
+    expect(pillLook({ selected: true, primary: true }, Palette.dark, AisleColors.dark)).toEqual({
+      fill: Palette.dark.primary,
+      text: Palette.dark.onPrimary,
+      border: null,
+    });
+    // Off, it's a plain pill.
+    expect(pillLook({ primary: true }, colors, aisles)).toEqual(pillLook({}, colors, aisles));
+    for (const scheme of ['light', 'dark'] as const) {
+      expect(contrastRatio(Palette[scheme].onPrimary, Palette[scheme].primary)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('fills a selected aisle pill with its strong shade and onPrimary text', () => {
     expect(pillLook({ selected: true, hue: 'blue' }, colors, aisles)).toEqual({
       fill: '#2F6396',

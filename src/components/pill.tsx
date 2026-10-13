@@ -12,12 +12,23 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   hue?: AisleHue;
   /** A dashed "+ New" outline. */
   dashed?: boolean;
+  /** Fill the selected pill in `primary` instead of ink (the Recipes tab's active Filters pill). */
+  primary?: boolean;
 };
 
 /** A 40 pt choice pill: `surface` when off, an ink (or aisle) fill with light text when on. */
-export function Pill({ label, selected = false, hue, dashed = false, disabled, accessibilityState, ...rest }: Props) {
+export function Pill({
+  label,
+  selected = false,
+  hue,
+  dashed = false,
+  primary = false,
+  disabled,
+  accessibilityState,
+  ...rest
+}: Props) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
-  const look = pillLook({ selected, hue, dashed }, colors, aisles);
+  const look = pillLook({ selected, hue, dashed, primary }, colors, aisles);
   return (
     <Pressable
       accessibilityRole="button"

@@ -23,6 +23,17 @@ import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
+import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
+import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
+import {
+  activeFilterCount,
+  isUntaggedRecipe,
+  matchesRecipeFilters,
+  noRecipeFilters,
+  removeFilterChip,
+  untaggedFootnote,
+  untaggedOnlyFilters,
+} from '@/features/recipes/recipe-filters';
 import { NO_RECIPES_MATCH, recipeSearchPlaceholder, searchRecipes } from '@/features/recipes/recipe-search';
 import {
   deleteRecipe,
@@ -39,7 +50,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 /** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
 export default function RecipesScreen() {
-  const { spacing, scheme, colors } = useTheme();
+  const { spacing, scheme, colors, sizes } = useTheme();
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
@@ -60,19 +71,30 @@ export default function RecipesScreen() {
   // Spec 4.14: kept only while the screen is mounted, never saved.
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
+  // Spec 4.14: kept for the app session, AND with the search.
+  const filters = useRecipeFilters();
+  const filtering = activeFilterCount(filters) > 0;
+  const searched = useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
   // A household with no matches has no group, so it's hidden.
   const groups = useMemo(
     () =>
       groupRecipesByHousehold(
-        searchRecipes(data, ingredientNames, query).map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
+        searched
+          .filter(({ recipe }) => matchesRecipeFilters(recipe, filters))
+          .map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
       ),
-    [data, ingredientNames, query],
+    [searched, filters],
   );
+  // Recipes the search found that tag filters hide for having no tags (none with Untagged on).
+  const untaggedHidden =
+    filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
   // Spec 4.10: the sheet asks for the household, and a list if the user wants one.
   const importFromLink = () => router.push('/import-recipe');
+  // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
+  const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
   // Spec 4.12: recipe import is a plus feature; without it neither button shows.
   const canImport = useFeature('recipe_import');
   const empty = (
@@ -194,13 +216,22 @@ export default function RecipesScreen() {
             </View>
           ) : null}
           {data.length === 0 ? empty : null}
-          {data.length > 0 && searching && groups.length === 0 ? (
-            <ThemedText
-              variant="callout"
-              color="inkSecondary"
-              style={{ textAlign: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
-              {NO_RECIPES_MATCH}
-            </ThemedText>
+          {data.length > 0 ? (
+            <RecipeFilterBar
+              filters={filters}
+              onOpen={openFilters}
+              onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
+            />
+          ) : null}
+          {data.length > 0 && (searching || filtering) && groups.length === 0 ? (
+            <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
+              <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
+                {NO_RECIPES_MATCH}
+              </ThemedText>
+              {filtering ? (
+                <Button label="Clear filters" variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
+              ) : null}
+            </View>
           ) : null}
           {groups.map((group, i) => (
             <View key={group.householdId}>
@@ -228,6 +259,17 @@ export default function RecipesScreen() {
               </View>
             </View>
           ))}
+          {untaggedHidden > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Clears the filters and shows only recipes without tags."
+              onPress={() => setRecipeFilters(untaggedOnlyFilters())}
+              style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+              <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
+                {untaggedFootnote(untaggedHidden)}
+              </ThemedText>
+            </Pressable>
+          ) : null}
         </ScrollView>
       )}
       {toast ? (
@@ -327,6 +369,7 @@ function RecipeCard({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   match: { fontWeight: '700' },
+  center: { textAlign: 'center' },
   grow: { flexGrow: 1 },
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
