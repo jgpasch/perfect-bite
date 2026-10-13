@@ -1,5 +1,4 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -26,6 +25,8 @@ import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
+import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
+import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
 import {
   addRecipeIngredient,
   deleteRecipe,
@@ -173,14 +174,19 @@ export default function RecipeScreen() {
 }
 
 /**
- * The header band in the recipe's soft tint: its name, source link and notes. The link and notes
- * are edited in place and saved when the field loses focus.
+ * The header band in the recipe's soft tint: its name, source link and notes. The notes are edited
+ * in place and saved when the field loses focus; the link row is RecipeLinkRow.
  */
 function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
   const { colors, aisles, spacing, typography, sizes } = useTheme();
   const [notes, setNotes] = useState(recipe.notes ?? '');
   const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
   const save = () => updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl });
+  const saveLink = (text: string) => {
+    const link = normalizeRecipeLink(text);
+    setSourceUrl(link);
+    updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl: link });
+  };
   const tint = aisles[hue];
 
   return (
@@ -195,23 +201,7 @@ function RecipeBand({ recipe, hue }: { recipe: Recipe; hue: AisleHue }) {
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>
-      <View style={[styles.row, { gap: spacing.xs + spacing.xxs, minHeight: sizes.minTapTarget }]}>
-        <SymbolView name="link" size={sizes.icon} tintColor={tint.strong} weight="bold" accessible={false} />
-
-        <TextInput
-          value={sourceUrl}
-          onChangeText={setSourceUrl}
-          onEndEditing={save}
-          placeholder="Add a link to the recipe"
-          placeholderTextColor={colors.inkSecondary}
-          selectionColor={tint.strong}
-          accessibilityLabel="Link to the recipe"
-          keyboardType="url"
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[typography.amount, styles.flex, { color: tint.strong }]}
-        />
-      </View>
+      <RecipeLinkRow value={sourceUrl} hue={hue} onSave={saveLink} />
       <TextInput
         value={notes}
         onChangeText={setNotes}

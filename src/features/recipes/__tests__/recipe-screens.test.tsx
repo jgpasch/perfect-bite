@@ -19,7 +19,7 @@ import RecipeScreen from '@/app/recipe/[id]/index';
 
 import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
-import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery } from '../recipes';
+import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery, updateRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -92,6 +92,27 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
+// SwiftUI views as host elements, so the link's context menu items can be found and pressed.
+jest.mock('@expo/ui/swift-ui', () => {
+  const { createElement } = require('react');
+  const host = (type: string) =>
+    function Host({ children, ...props }: { children?: unknown }) {
+      return createElement(type, props, children);
+    };
+  return {
+    Host: host('SwiftHost'),
+    RNHostView: host('RNHostView'),
+    Button: host('SwiftButton'),
+    ContextMenu: Object.assign(host('SwiftContextMenu'), {
+      Items: host('SwiftContextMenuItems'),
+      Trigger: host('SwiftContextMenuTrigger'),
+    }),
+  };
+});
+const mockOpenURL = jest.fn((_url: string) => Promise.resolve(true));
+jest.mock('expo-linking', () => ({ openURL: (url: string) => mockOpenURL(url) }));
+const mockCopy = jest.fn((_text: string) => Promise.resolve(true));
+jest.mock('expo-clipboard', () => ({ setStringAsync: (text: string) => mockCopy(text) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
 
 const USER = 'user-1';
@@ -110,6 +131,8 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockBack.mockClear();
   mockCategorize.mockClear();
+  mockOpenURL.mockClear();
+  mockCopy.mockClear();
 });
 
 afterEach(() => {
@@ -156,6 +179,10 @@ const byA11y = (root: ReactTestRenderer, label: string) =>
 const queryA11y = (root: ReactTestRenderer, label: string) =>
   root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function');
 const press = (n: ReactTestInstance) => act(() => n.props.onPress());
+const linkField = (root: ReactTestRenderer) =>
+  root.root.findAll((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Link to the recipe')[0];
+const linkButton = (root: ReactTestRenderer) =>
+  root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'link' && typeof n.props.onPress === 'function')[0];
 const menuAction = (root: ReactTestRenderer, title: string) =>
   byType(root, 'ToolbarMenuAction').find((n) => n.props.children === title)!;
 
@@ -276,14 +303,153 @@ describe('RecipeScreen', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  test('editing the link and notes saves them when the field loses focus', () => {
+  test('editing the link and notes saves them when each field loses focus', () => {
     const root = render(<RecipeScreen />);
-    const link = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Link to the recipe');
+    const link = linkField(root)!;
     const notes = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Notes');
     act(() => link.props.onChangeText('https://example.com/tacos'));
+    act(() => link.props.onEndEditing());
     act(() => notes.props.onChangeText('  Double the salsa  '));
     act(() => notes.props.onEndEditing());
     expect(getRecipe(tacos)).toMatchObject({ sourceUrl: 'https://example.com/tacos', notes: 'Double the salsa', name: 'Tacos' });
+  });
+
+  describe('the link', () => {
+    const withLink = (url: string) => updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: url });
+    const pencil = (root: ReactTestRenderer) => queryA11y(root, 'Edit link');
+    const menuItem = (root: ReactTestRenderer, label: string) =>
+      byType(root, 'SwiftButton').find((n) => n.props.label === label)!;
+
+    test('no link: the empty field, no button or pencil', () => {
+      const root = render(<RecipeScreen />);
+      const field = linkField(root)!;
+      expect(field.props.placeholder).toBe('Add a link to the recipe');
+      expect(field.props.value).toBe('');
+      expect(field.props.autoFocus).toBe(false);
+      expect(linkButton(root)).toBeUndefined();
+      expect(pencil(root)).toHaveLength(0);
+    });
+
+    test('a link shows host then path as a link button, with VoiceOver label, hint and actions', () => {
+      withLink('https://www.seriouseats.com/the-best-tacos');
+      const root = render(<RecipeScreen />);
+      expect(linkField(root)).toBeUndefined();
+      const link = linkButton(root)!;
+      expect(link.props.accessibilityRole).toBe('link');
+      expect(link.props.accessibilityLabel).toBe('Recipe link, seriouseats.com');
+      expect(link.props.accessibilityHint).toBe('Opens the recipe in Safari');
+      expect(link.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual([
+        'Open',
+        'Copy link',
+        'Edit link',
+        'Remove link',
+      ]);
+      expect(texts(root)).toContain('seriouseats.com/the-best-tacos');
+      const line = link.findAll((n) => String(n.type) === 'Text')[0];
+      expect([line.props.numberOfLines, line.props.ellipsizeMode]).toEqual([1, 'middle']);
+      expect(pencil(root)).toHaveLength(1);
+    });
+
+    test('tapping the link opens Safari with the stored URL', () => {
+      withLink('https://www.seriouseats.com/the-best-tacos?serves=4');
+      const root = render(<RecipeScreen />);
+      press(linkButton(root)!);
+      expect(mockOpenURL).toHaveBeenCalledWith('https://www.seriouseats.com/the-best-tacos?serves=4');
+    });
+
+    test('the pencil switches to the focused field holding the full URL; ending editing saves', () => {
+      withLink('https://example.com/tacos');
+      const root = render(<RecipeScreen />);
+      press(pencil(root)[0]);
+      const field = linkField(root)!;
+      expect(field.props.value).toBe('https://example.com/tacos');
+      expect(field.props.autoFocus).toBe(true);
+      expect(pencil(root)).toHaveLength(0);
+      act(() => field.props.onChangeText('  example.com/fish-tacos '));
+      act(() => field.props.onEndEditing());
+      expect(getRecipe(tacos)!.sourceUrl).toBe('https://example.com/fish-tacos');
+      expect(linkField(root)).toBeUndefined();
+      expect(linkButton(root)!.props.accessibilityLabel).toBe('Recipe link, example.com');
+      press(linkButton(root)!);
+      expect(mockOpenURL).toHaveBeenCalledWith('https://example.com/fish-tacos');
+    });
+
+    test('typing into the empty field saves with https:// added and shows the button', () => {
+      const root = render(<RecipeScreen />);
+      const field = linkField(root)!;
+      act(() => field.props.onFocus());
+      act(() => field.props.onChangeText('seriouseats.com/tacos'));
+      act(() => field.props.onEndEditing());
+      expect(getRecipe(tacos)!.sourceUrl).toBe('https://seriouseats.com/tacos');
+      expect(linkButton(root)!.props.accessibilityLabel).toBe('Recipe link, seriouseats.com');
+    });
+
+    test('clearing the field removes the link', () => {
+      withLink('https://example.com/tacos');
+      const root = render(<RecipeScreen />);
+      press(pencil(root)[0]);
+      act(() => linkField(root)!.props.onChangeText('   '));
+      act(() => linkField(root)!.props.onEndEditing());
+      expect(getRecipe(tacos)!.sourceUrl).toBeNull();
+      expect(linkField(root)!.props.value).toBe('');
+      expect(pencil(root)).toHaveLength(0);
+    });
+
+    test('text that is not a link is kept as typed and shown as plain text; tapping it edits', () => {
+      const root = render(<RecipeScreen />);
+      act(() => linkField(root)!.props.onChangeText('  Grandma’s card  '));
+      act(() => linkField(root)!.props.onEndEditing());
+      expect(getRecipe(tacos)!.sourceUrl).toBe('Grandma’s card');
+      expect(linkButton(root)).toBeUndefined();
+      expect(byType(root, 'SwiftContextMenu')).toHaveLength(0);
+      const plain = byA11y(root, 'Recipe link, Grandma’s card');
+      expect(plain.props.accessibilityRole).toBe('button');
+      expect(texts(root)).toContain('Grandma’s card');
+      press(plain);
+      expect(linkField(root)!.props.value).toBe('Grandma’s card');
+      expect(mockOpenURL).not.toHaveBeenCalled();
+    });
+
+    test('the context menu: Open, Copy link, Edit link, and Remove link (destructive) in order', () => {
+      withLink('https://example.com/tacos');
+      const root = render(<RecipeScreen />);
+      expect(byType(root, 'SwiftButton').map((n) => [n.props.label, n.props.role])).toEqual([
+        ['Open', undefined],
+        ['Copy link', undefined],
+        ['Edit link', undefined],
+        ['Remove link', 'destructive'],
+      ]);
+      act(() => menuItem(root, 'Open').props.onPress());
+      expect(mockOpenURL).toHaveBeenCalledWith('https://example.com/tacos');
+      act(() => menuItem(root, 'Copy link').props.onPress());
+      expect(mockCopy).toHaveBeenCalledWith('https://example.com/tacos');
+      act(() => menuItem(root, 'Edit link').props.onPress());
+      expect(linkField(root)!.props.value).toBe('https://example.com/tacos');
+    });
+
+    test('Remove link clears it with no confirm', () => {
+      withLink('https://example.com/tacos');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipeScreen />);
+      act(() => menuItem(root, 'Remove link').props.onPress());
+      expect(alert).not.toHaveBeenCalled();
+      expect(getRecipe(tacos)!.sourceUrl).toBeNull();
+      expect(linkButton(root)).toBeUndefined();
+      expect(linkField(root)!.props.value).toBe('');
+    });
+
+    test('the VoiceOver actions do the same as the menu', () => {
+      withLink('https://example.com/tacos');
+      const root = render(<RecipeScreen />);
+      const act11y = (name: string) =>
+        act(() => linkButton(root)!.props.onAccessibilityAction({ nativeEvent: { actionName: name } }));
+      act11y('open');
+      expect(mockOpenURL).toHaveBeenCalledWith('https://example.com/tacos');
+      act11y('copy');
+      expect(mockCopy).toHaveBeenCalledWith('https://example.com/tacos');
+      act11y('remove');
+      expect(getRecipe(tacos)!.sourceUrl).toBeNull();
+    });
   });
 });
 
