@@ -35,15 +35,16 @@ export default function AddRecipeToListSheet() {
   // A sheet is short-lived: read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
   const [ingredients] = useState(() => recipeIngredientsQuery(id).all());
-  // M7: only lists in the recipe's household are offered.
+  // Spec 4.5: only open lists in the recipe's household are offered.
   const [lists] = useState(() =>
     listsWithCountsQuery()
       .all()
-      .filter((l) => l.archivedAt === null),
+      .filter((l) => l.archivedAt === null && l.householdId === recipe?.householdId),
   );
-  const [listId, setListId] = useState(
-    () => lists.find((l) => l.id === fromList)?.id ?? (userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null,
-  );
+  const [listId, setListId] = useState(() => {
+    const offered = (listId: string | null | undefined) => lists.find((l) => l.id === listId)?.id;
+    return offered(fromList) ?? offered(userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null;
+  });
   const [selected, setSelected] = useState(() => new Set(ingredients.map((i) => i.id)));
   const [servings, setServings] = useState(1);
 

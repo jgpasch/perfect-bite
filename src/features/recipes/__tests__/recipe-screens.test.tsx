@@ -7,11 +7,12 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { eq } from 'drizzle-orm';
 
-import { db, lists } from '@/db';
+import { db, households, lists } from '@/db';
 import { resolveCurrentListId } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { insertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
 
 import AddRecipeToListSheet from '@/app/recipe/[id]/add-to-list';
@@ -561,6 +562,22 @@ describe('AddRecipeToListSheet', () => {
     db.update(lists).set({ archivedAt: new Date() }).where(eq(lists.id, old)).run();
     const root = render(<AddRecipeToListSheet />);
     expect(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'Old')).toHaveLength(0);
+  });
+
+  test("only lists in the recipe's household are offered, even when the Siri default is elsewhere", () => {
+    insertRow(db, households, { id: 'h-cabin', name: 'Cabin' });
+    const cabinGroceries = createList('Groceries', 'h-cabin');
+    db.update(lists).set({ position: 0 }).where(eq(lists.id, cabinGroceries)).run();
+    const cabinTacos = createRecipe('Cabin tacos', 'h-cabin');
+    addRecipeIngredient(cabinTacos, 'salsa');
+    mockParams.id = cabinTacos;
+    const root = render(<AddRecipeToListSheet />);
+    const pills = root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'Groceries' && !!n.props.onPress);
+    expect(pills).toHaveLength(1);
+    expect(selectedPills(root)).toEqual(['Groceries', '1×']);
+    press(byLabel(root, 'Add 1 to Groceries'));
+    expect(listRows(cabinGroceries)).toEqual(['salsa']);
+    expect(listRows(groceries)).toEqual([]);
   });
 
   test('from Adjust, the add replaces the earlier one', () => {

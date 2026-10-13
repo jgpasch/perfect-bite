@@ -63,6 +63,7 @@ jest.mock('expo-router', () => {
     Button: host('ToolbarButton'),
     Label: host('ToolbarLabel'),
     Menu: host('ToolbarMenu'),
+    View: passThrough(),
     MenuAction: host('ToolbarMenuAction'),
   });
   const Link = Object.assign(passThrough(), { Trigger: passThrough(), Menu: () => null, MenuAction: () => null });
