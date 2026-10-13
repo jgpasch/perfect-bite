@@ -129,6 +129,38 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "bundleIdentifier": "com.jgp.perfectbite.share",
+                  "targetName": "ShareRecipe",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.jgp.perfectbite"
+                    ]
+                  }
+                },
+                {
+                  "bundleIdentifier": "com.jgp.perfectbite.addintent",
+                  "targetName": "AddIntent",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.jgp.perfectbite"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "eb79b313-81d7-46ca-a28b-2666db613c67"
+      }
     }
   }
 }
