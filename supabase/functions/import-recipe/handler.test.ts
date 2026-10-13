@@ -4,7 +4,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v1.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v2.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage } from '../_shared/fetch-page.ts';
@@ -233,6 +233,9 @@ const PASTA_RESPONSE: RecipeImportResponse = {
     { ingredientName: 'olive oil', displayName: 'olive oil', quantity: 2, unit: 'tbsp', note: '', categoryId: cat('pantry'), status: 'categorized' },
     { ingredientName: 'salt', displayName: 'Salt', quantity: null, unit: null, note: 'to taste', categoryId: cat('spices'), status: 'categorized' },
   ],
+  // The mock never tags, and the page gives no time.
+  tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
+  totalMinutes: null,
 };
 
 // --- JSON-LD and text -----------------------------------------------------------------------------
@@ -281,6 +284,8 @@ test('text fallback: no JSON-LD sends the page text and takes the name from the 
       { ingredientName: 'lemon', displayName: 'lemons', quantity: 2, unit: null, note: 'juiced', categoryId: cat('produce'), status: 'categorized' },
       { ingredientName: 'egg', displayName: 'eggs', quantity: 3, unit: null, note: '', categoryId: cat('dairy-eggs'), status: 'categorized' },
     ],
+    tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
+    totalMinutes: null,
   });
   assertEquals(calls('extractRecipe'), 1);
   assertEquals(calls('categorize'), 1);
@@ -329,6 +334,94 @@ test('the output caps apply: long names are dropped, unknown units go to the not
     ['thyme', 2, null, 'sprig, fresh'],
     ['garlic', 2, 'clove', 'minced'],
   ]);
+});
+
+// --- Tags and time (spec 4.14) ------------------------------------------------------------------------
+
+const TAGS = { meal: ['dinner'], cuisine: ['italian'], protein: [], diet: ['vegetarian'], method: ['one-pot'] };
+
+test('v2: the model’s tags come back in the response and are cached with the extraction', async () => {
+  const { post, store } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
+  const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+  assertEquals(body.tags, TAGS);
+  assertEquals(store.saves[0].result.tags, TAGS);
+});
+
+test('v2: a slug that isn’t in the list drops only its facet, and the import still succeeds', async () => {
+  const { post } = setup({
+    model: editedModel((a) => ({ ...a, tags: { ...TAGS, cuisine: ['italian', 'tuscan'], diet: ['keto'] } })),
+  });
+  const res = await post({ url: PASTA_URL });
+  assertEquals(res.status, 200);
+  const body: RecipeImportResponse = await res.json();
+  assertEquals(body.tags, { ...TAGS, cuisine: [], diet: [] });
+  assertEquals(body.ingredients.length, 4);
+});
+
+test('v2: a facet over its maximum is capped', async () => {
+  const { post } = setup({
+    model: editedModel((a) => ({ ...a, tags: { ...TAGS, meal: ['lunch', 'dinner', 'side'], protein: ['chicken', 'beef', 'pork', 'lamb'] } })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+  assertEquals(body.tags?.meal, ['lunch', 'dinner']);
+  assertEquals(body.tags?.protein, ['chicken', 'beef', 'pork']);
+});
+
+const timedJsonLd = (time: Record<string, string>) => JSON.stringify({ ...JSON.parse(PASTA_JSON_LD), ...time });
+
+test('v2: the JSON-LD time beats the model’s', async () => {
+  const { post } = setup({ model: editedModel((a) => ({ ...a, total_minutes: 90 })) });
+  const totalTime: RecipeImportResponse = await (await post({ url: PASTA_URL, page: { jsonLd: [timedJsonLd({ totalTime: 'PT40M' })] } })).json();
+  assertEquals(totalTime.totalMinutes, 40);
+  const prepCook: RecipeImportResponse = await (
+    await post({ url: PASTA_URL, page: { jsonLd: [timedJsonLd({ prepTime: 'PT10M', cookTime: 'PT1H' })] } })
+  ).json();
+  assertEquals(prepCook.totalMinutes, 70);
+});
+
+test('v2: with no usable JSON-LD time the model’s is used; the mock gives none', async () => {
+  const model = setup({ model: editedModel((a) => ({ ...a, total_minutes: 90 })) });
+  // Client pages first: a server import would be cached and served to them.
+  const garbage: RecipeImportResponse = await (
+    await model.post({ url: PASTA_URL, page: { jsonLd: [timedJsonLd({ totalTime: '40 minutes' })] } })
+  ).json();
+  assertEquals(garbage.totalMinutes, 90);
+  const noTime: RecipeImportResponse = await (await model.post({ url: PASTA_URL })).json();
+  assertEquals(noTime.totalMinutes, 90);
+  assertEquals(model.calls('extractRecipe'), 2);
+  const text: RecipeImportResponse = await (await model.post({ url: BARS_URL })).json();
+  assertEquals(text.totalMinutes, 90, 'page text has no JSON-LD time');
+
+  const mock = setup();
+  const jsonLdOnly: RecipeImportResponse = await (await mock.post({ url: PASTA_URL, page: { jsonLd: [timedJsonLd({ totalTime: 'PT25M' })] } })).json();
+  assertEquals(jsonLdOnly.totalMinutes, 25, 'the mock returns the JSON-LD time');
+  assertEquals((await (await mock.post({ url: BARS_URL })).json()).totalMinutes, null);
+});
+
+test('v2: a model time out of range is null', async () => {
+  for (const minutes of [0, -5, 3000]) {
+    const { post } = setup({ model: editedModel((a) => ({ ...a, total_minutes: minutes })) });
+    assertEquals(((await (await post({ url: PASTA_URL })).json()) as RecipeImportResponse).totalMinutes, null, String(minutes));
+  }
+});
+
+test('v2: the cache key is the v2 prompt version; a cached v1 result (no tags) is not served', async () => {
+  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v2');
+  const { post, store, calls } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, {
+    result: { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] },
+    is_recipe: true,
+    created_at: new Date(NOW).toISOString(),
+  });
+  const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+  assertEquals([body.name, body.tags], ['Garlic Pasta', TAGS]);
+  assertEquals(calls('extractRecipe'), 1);
+  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v2']]);
+
+  // A cached v2 result is served with its tags and time, with no call.
+  const again: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+  assertEquals(again.tags, TAGS);
+  assertEquals(calls('extractRecipe'), 1);
 });
 
 // --- Cache ------------------------------------------------------------------------------------------

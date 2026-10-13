@@ -145,18 +145,21 @@ describe('RecipeImportRequestSchema', () => {
 
 describe('ExtractedRecipeSchema', () => {
   const ingredient = { name: 'garlic', quantity: 2, unit: 'clove', note: 'minced' };
-  const recipe = { is_recipe: true, name: 'Pad Thai', servings: 4, ingredients: [ingredient] };
+  const tags = { meal: ['dinner'], cuisine: ['thai'], protein: ['shellfish', 'eggs'], diet: [], method: ['one-pot'] };
+  const recipe = { is_recipe: true, name: 'Pad Thai', servings: 4, ingredients: [ingredient], tags, total_minutes: 30 };
 
   it('accepts a recipe', () => {
     expect(ExtractedRecipeSchema.parse(recipe)).toEqual(recipe);
   });
 
-  it('accepts a non-recipe answer and null quantity, unit and servings', () => {
+  it('accepts a non-recipe answer and null quantity, unit, servings and time', () => {
     const answer = {
       is_recipe: false,
       name: '',
       servings: null,
       ingredients: [{ name: 'salt', quantity: null, unit: null, note: 'to taste' }],
+      tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
+      total_minutes: null,
     };
     expect(ExtractedRecipeSchema.parse(answer)).toEqual(answer);
   });
@@ -194,6 +197,52 @@ describe('ExtractedRecipeSchema', () => {
   it('rejects missing fields', () => {
     expect(ExtractedRecipeSchema.safeParse({ ...recipe, is_recipe: undefined }).success).toBe(false);
     expect(ExtractedRecipeSchema.safeParse({ ...recipe, ingredients: [{ name: 'garlic' }] }).success).toBe(false);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, total_minutes: undefined }).success).toBe(false);
+  });
+
+  describe('tags', () => {
+    const parseTags = (t: unknown) => ExtractedRecipeSchema.parse({ ...recipe, tags: t }).tags;
+    const empty = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+
+    it('a slug the list doesn’t have empties only its facet', () => {
+      expect(parseTags({ ...tags, cuisine: ['thai', 'fusion'] })).toEqual({ ...tags, cuisine: [] });
+      // A real slug in the wrong facet is unknown there.
+      expect(parseTags({ ...tags, meal: ['dinner', 'chicken'] })).toEqual({ ...tags, meal: [] });
+    });
+
+    it('a facet that isn’t an array of strings, or is missing, is empty', () => {
+      expect(parseTags({ ...tags, protein: 'shellfish' })).toEqual({ ...tags, protein: [] });
+      expect(parseTags({ ...tags, protein: [1, 2] })).toEqual({ ...tags, protein: [] });
+      expect(parseTags({ ...tags, protein: null })).toEqual({ ...tags, protein: [] });
+      expect(parseTags({ meal: ['lunch'] })).toEqual({ ...empty, meal: ['lunch'] });
+    });
+
+    it('a facet over its maximum is cut to its first values', () => {
+      expect(parseTags({ ...tags, meal: ['lunch', 'dinner', 'side'] }).meal).toEqual(['lunch', 'dinner']);
+      expect(parseTags({ ...tags, protein: ['chicken', 'beef', 'pork', 'fish'] }).protein).toEqual([
+        'chicken',
+        'beef',
+        'pork',
+      ]);
+      expect(parseTags({ ...tags, protein: ['chicken', 'beef', 'pork'] }).protein).toEqual(['chicken', 'beef', 'pork']);
+    });
+
+    it('drops repeats before the cap', () => {
+      expect(parseTags({ ...tags, meal: ['dinner', 'dinner', 'lunch'] }).meal).toEqual(['dinner', 'lunch']);
+    });
+
+    it('drops other keys, and anything but an object is every facet empty', () => {
+      expect(parseTags({ ...tags, allergens: ['nuts'] })).toEqual(tags);
+      expect(parseTags(null)).toEqual(empty);
+      expect(parseTags(['dinner'])).toEqual(empty);
+      expect(parseTags(undefined)).toEqual(empty);
+    });
+  });
+
+  it('total_minutes is whole minutes from 1 to 2880, or null', () => {
+    const minutes = (m: unknown) => ExtractedRecipeSchema.safeParse({ ...recipe, total_minutes: m }).success;
+    expect([1, 2880, null].map(minutes)).toEqual([true, true, true]);
+    expect([0, 2881, 12.5, -5, '30'].map(minutes)).toEqual([false, false, false, false, false]);
   });
 });
 
@@ -207,7 +256,38 @@ describe('RecipeImportResponseSchema', () => {
     categoryId: '019a4c10-0000-7000-8000-00000000ca01',
     status: 'categorized',
   };
-  const response = { name: 'Pad Thai', sourceUrl: 'https://example.com/pad-thai', servings: 4, ingredients: [ingredient] };
+  const tags = { meal: ['dinner'], cuisine: ['thai'], protein: [], diet: [], method: [] };
+  const response = {
+    name: 'Pad Thai',
+    sourceUrl: 'https://example.com/pad-thai',
+    servings: 4,
+    ingredients: [ingredient],
+    tags,
+    totalMinutes: 30,
+  };
+
+  it('carries tags (unknown slugs kept, as stored) and the time', () => {
+    const newer = { ...tags, cuisine: ['thai', 'peruvian'] };
+    expect(RecipeImportResponseSchema.parse({ ...response, tags: newer })).toMatchObject({ tags: newer, totalMinutes: 30 });
+  });
+
+  it('missing or unreadable tags and time are null (an older server), and the rest still parses', () => {
+    const { tags: _t, totalMinutes: _m, ...older } = response;
+    expect(RecipeImportResponseSchema.parse(older)).toEqual({ ...older, tags: null, totalMinutes: null });
+    expect(RecipeImportResponseSchema.parse({ ...response, tags: 'dinner', totalMinutes: 0 })).toEqual({
+      ...response,
+      tags: null,
+      totalMinutes: null,
+    });
+    expect(RecipeImportResponseSchema.parse({ ...response, totalMinutes: 2881 }).totalMinutes).toBeNull();
+    expect(RecipeImportResponseSchema.parse({ ...response, tags: { meal: ['lunch'] } }).tags).toEqual({
+      meal: ['lunch'],
+      cuisine: [],
+      protein: [],
+      diet: [],
+      method: [],
+    });
+  });
 
   it('accepts a response, including a pending ingredient with no category', () => {
     expect(RecipeImportResponseSchema.parse(response)).toEqual(response);

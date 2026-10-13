@@ -115,6 +115,7 @@ jest.mock('expo-router', () => {
     Button: host('ToolbarButton'),
     Label: host('ToolbarLabel'),
     Menu: host('ToolbarMenu'),
+    View: passThrough(),
     MenuAction: host('ToolbarMenuAction'),
   });
   return {
@@ -250,12 +251,14 @@ describe('the list', () => {
     put('milk');
     render();
     const switcher = pressable('Groceries, switch list');
-    expect(switcher.props.accessibilityHint).toBe('Shows your lists');
+    expect(switcher.props.accessibilityHint).toBe('Shows your other lists');
     expect(switcher.props.accessibilityRole).toBe('button');
     expect(inviteDots(switcher)).toHaveLength(0);
     // The count and the view button sit under it.
     expect(text()).toContain('1 to get');
     expect(all('ViewMenuButton')).toHaveLength(1);
+    // One line: a long name truncates so the chevron and ⋯ stay in view.
+    expect(switcher.find((n) => n.props.variant === 'screenTitle').props.numberOfLines).toBe(1);
     press(switcher);
     expect(mockPush).toHaveBeenCalledWith('/lists-sheet');
   });
@@ -467,6 +470,8 @@ describe('adding', () => {
     act(() => addBar().props.onFocusChange(true));
     act(() => addBar().props.onTextChange('2 mil'));
     expect(hostByLabel('Groceries, 2 to get · As added')).toBeDefined();
+    // The big switcher title leaves the header's left slot while the compact one stands in.
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Groceries, switch list')).toHaveLength(0);
     expect(row('milk').props.alreadyOnList).toEqual({ typed: 'mil' });
     expect(row('eggs').props.alreadyOnList).toBeUndefined();
     act(() => addBar().props.onFocusChange(false));

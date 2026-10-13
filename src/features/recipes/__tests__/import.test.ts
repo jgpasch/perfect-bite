@@ -77,6 +77,8 @@ const TIKKA: RecipeImportResponse = {
     ingredient('kasuri methi', 1, 'tbsp', '', category('spices')),
     ingredient('zqx tikka paste', null, null, 'to taste', null, 'failed'),
   ],
+  tags: { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] },
+  totalMinutes: 50,
 };
 
 let listId: string;
@@ -118,6 +120,13 @@ const liveRecipes = () =>
     .where(isNull(recipes.deletedAt))
     .orderBy(asc(recipes.name))
     .all();
+
+const recipeTags = (id: string) =>
+  db
+    .select({ tags: recipes.tags, tagsEdited: recipes.tagsEdited, totalMinutes: recipes.totalMinutes })
+    .from(recipes)
+    .where(eq(recipes.id, id))
+    .get();
 
 const ingredientRows = (recipeId: string) =>
   db
@@ -235,6 +244,32 @@ describe('a new recipe', () => {
     expect(liveRecipes()).toEqual([{ id: result.recipeId, name: 'example.com', sourceUrl: CANONICAL, notes: null }]);
   });
 
+  test('saves the tags and time on the recipe it creates, and sends them', async () => {
+    const result = await importOk();
+    expect(recipeTags(result.recipeId)).toEqual({ tags: TIKKA.tags, tagsEdited: false, totalMinutes: 50 });
+    const insert = db
+      .select()
+      .from(outbox)
+      .all()
+      .map((r) => r.mutation)
+      .find((m) => m.table === 'recipes' && m.id === result.recipeId)!;
+    expect(insert.fields).toMatchObject({ tags: TIKKA.tags, tags_edited: false, total_minutes: 50 });
+  });
+
+  test('a response with no tags or time (an older server) creates an untagged recipe', async () => {
+    const { tags: _tags, totalMinutes: _minutes, ...older } = TIKKA;
+    respond(older);
+    const result = await importOk();
+    expect(recipeTags(result.recipeId)).toEqual({ tags: null, tagsEdited: false, totalMinutes: null });
+  });
+
+  test('empty facets are saved as tagged (the model found nothing), not as untagged', async () => {
+    const none = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+    respond({ ...TIKKA, tags: none, totalMinutes: null });
+    const result = await importOk();
+    expect(recipeTags(result.recipeId)).toEqual({ tags: none, tagsEdited: false, totalMinutes: null });
+  });
+
   test('saves in one top-level transaction, and undoes in one', async () => {
     // expo-sqlite can't nest `db.transaction` (it would BEGIN twice); the rest must go through `tx`.
     const transaction = jest.spyOn(db, 'transaction');
@@ -288,6 +323,28 @@ describe('an existing recipe with the same URL', () => {
     expect(contributionsFor(itemFor('garlic')!.id)).toEqual([
       { source: 'recipe', recipeId: existing, quantity: 4, unit: 'clove' },
     ]);
+  });
+
+  test('keeps its own tags and time; the import’s aren’t written', async () => {
+    const own = { meal: ['lunch'], cuisine: [], protein: ['chicken'], diet: [], method: ['grill'] };
+    db.update(recipes).set({ tags: own, tagsEdited: true, totalMinutes: 25 }).where(eq(recipes.id, existing)).run();
+    const before = db.select().from(outbox).all().length;
+    const result = await importOk();
+    expect(result.recipeId).toBe(existing);
+    expect(recipeTags(existing)).toEqual({ tags: own, tagsEdited: true, totalMinutes: 25 });
+    const recipeMutations = db
+      .select()
+      .from(outbox)
+      .all()
+      .slice(before)
+      .filter((r) => r.mutation.table === 'recipes');
+    expect(recipeMutations).toEqual([]);
+  });
+
+  test('an untagged existing recipe stays untagged', async () => {
+    const result = await importOk();
+    expect(result.recipeId).toBe(existing);
+    expect(recipeTags(existing)).toEqual({ tags: null, tagsEdited: false, totalMinutes: null });
   });
 
   test('a recipe in another household doesn’t count', async () => {

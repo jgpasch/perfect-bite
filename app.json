@@ -4,13 +4,17 @@
     "slug": "perfect-bite",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon/icon-light.png",
     "scheme": "perfectbite",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.jgp.perfectbite",
       "supportsTablet": false,
-      "icon": "./assets/expo.icon",
+      "icon": {
+        "light": "./assets/icon/icon-light.png",
+        "dark": "./assets/icon/icon-dark.png",
+        "tinted": "./assets/icon/icon-tinted.png"
+      },
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.jgp.perfectbite"

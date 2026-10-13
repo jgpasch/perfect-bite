@@ -1,11 +1,41 @@
 // Spec 6.6 step 5. Reads a schema.org Recipe out of a page's JSON-LD blocks, so most imports
 // hand the LLM clean ingredient lines instead of page text. Keep it pure (runs under Deno too).
+import { MAX_TOTAL_MINUTES, MIN_TOTAL_MINUTES } from './recipe-tags.ts';
 
 export type JsonLdRecipe = {
   name: string | null;
   ingredientLines: string[];
   servings: number | null;
+  /** `totalTime`, else `prepTime` + `cookTime`, in minutes (spec 4.14); null when none is usable. */
+  totalMinutes: number | null;
 };
+
+const DURATION = /^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i;
+
+/**
+ * An ISO 8601 duration as whole minutes: `PT45M` → 45, `PT1H20M` → 80, `P0DT2H30M` → 150.
+ * Days, hours, minutes and seconds only (years, months and weeks aren't recipe times). Anything
+ * else, or a duration of no time at all, is null.
+ */
+export function parseIsoDuration(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null;
+  const match = DURATION.exec(raw.trim());
+  if (!match || match.slice(1).every((part) => part === undefined)) return null;
+  const [days, hours, minutes, seconds] = match.slice(1).map((part) => (part === undefined ? 0 : Number(part)));
+  const total = Math.round(days * 1440 + hours * 60 + minutes + seconds / 60);
+  return total > 0 ? total : null;
+}
+
+/** The recipe's time within `recipes.total_minutes` bounds: `totalTime`, else prep + cook. */
+function readTotalMinutes(node: Record<string, unknown>): number | null {
+  let minutes = parseIsoDuration(node.totalTime);
+  if (minutes === null) {
+    const prep = parseIsoDuration(node.prepTime);
+    const cook = parseIsoDuration(node.cookTime);
+    minutes = prep === null && cook === null ? null : (prep ?? 0) + (cook ?? 0);
+  }
+  return minutes !== null && minutes >= MIN_TOTAL_MINUTES && minutes <= MAX_TOTAL_MINUTES ? minutes : null;
+}
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
@@ -118,7 +148,12 @@ export function findRecipe(jsonLdBlocks: string[]): JsonLdRecipe | null {
       if (!isRecipeNode(node)) continue;
       const ingredientLines = readIngredientLines(node);
       if (ingredientLines.length === 0) continue;
-      return { name: readName(node.name), ingredientLines, servings: readServings(node.recipeYield) };
+      return {
+        name: readName(node.name),
+        ingredientLines,
+        servings: readServings(node.recipeYield),
+        totalMinutes: readTotalMinutes(node),
+      };
     }
   }
   return null;

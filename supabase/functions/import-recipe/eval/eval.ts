@@ -1,10 +1,19 @@
 // `yarn ai:eval:recipe`: the recipe-import eval (spec §6.6). Runs every saved page in fixtures/
 // through the function's own importRecipe(), with the same readPage, findRecipe, prompt, validation
 // and cleanup, as the page a client sent, so nothing is fetched. Scores each page against
-// expected.json: is_recipe, the name, precision and recall on normalized ingredient keys, and unit
-// and quantity accuracy on the matched ones, then prints every miss. Categorize isn't called. It
-// costs real tokens, so it isn't part of CI or `deno test`.
-import { normalizeIngredientName, UNITS, type RecipeImportResponse } from '@shared/index.ts';
+// expected.json: is_recipe, the name, precision and recall on normalized ingredient keys, unit
+// and quantity accuracy on the matched ones, and per-facet precision and recall on tags (spec
+// 4.14), then prints every miss. Categorize isn't called. It costs real tokens, so it isn't part of
+// CI or `deno test`.
+import {
+  normalizeIngredientName,
+  RECIPE_TAG_FACETS,
+  recipeTagLabel,
+  UNITS,
+  type RecipeImportResponse,
+  type RecipeTagFacetKey,
+  type RecipeTags,
+} from '@shared/index.ts';
 import { z } from 'zod';
 
 import { AI_OFF } from '../../_shared/ai/tasks.ts';
@@ -17,7 +26,7 @@ import { ImportRecipeError, importRecipe } from '../handler.ts';
 export const USAGE = `Usage: yarn ai:eval:recipe [options]
 
 Runs every page in eval/fixtures/ against the configured model and prints precision, recall, unit
-and quantity accuracy per page, and every miss.
+and quantity accuracy per page, tag precision and recall per facet, and every miss.
 
 Options:
   --model <provider:model|mock>  Use this model instead of AI_MODEL_RECIPE
@@ -42,6 +51,18 @@ const ExpectedIngredientSchema = z.object({
 });
 export type ExpectedIngredient = z.infer<typeof ExpectedIngredientSchema>;
 
+/** Slugs per facet; a facet left out has none. */
+const ExpectedTagsSchema = z
+  .object({
+    meal: z.array(z.string()).optional(),
+    cuisine: z.array(z.string()).optional(),
+    protein: z.array(z.string()).optional(),
+    diet: z.array(z.string()).optional(),
+    method: z.array(z.string()).optional(),
+  })
+  .strict();
+export type ExpectedTags = z.infer<typeof ExpectedTagsSchema>;
+
 const ExpectedPageSchema = z.object({
   file: z.string().regex(/^[a-z0-9-]+\.html$/),
   url: z.url(),
@@ -51,6 +72,10 @@ const ExpectedPageSchema = z.object({
   ingredients: z.array(ExpectedIngredientSchema),
   /** Text that must not appear in the returned name, ingredient names or notes. */
   forbidden: z.array(z.string().min(1)).optional(),
+  /** The tags that clearly apply, needed for recall. A page without it isn't scored on tags. */
+  tags: ExpectedTagsSchema.optional(),
+  /** Tags that fairly apply too: not needed for recall, and not a precision miss when they come back. */
+  optional_tags: ExpectedTagsSchema.optional(),
 });
 export type ExpectedPage = z.infer<typeof ExpectedPageSchema>;
 
@@ -84,6 +109,21 @@ export function parseExpected(json: unknown): ExpectedPage[] {
         throw new EvalUsageError(`expected.json: ${p.file}: "${i.name}" has a name that is empty after normalizing`);
       }
     }
+    if (!p.is_recipe && (p.tags || p.optional_tags)) {
+      throw new EvalUsageError(`expected.json: ${p.file} is not a recipe but has tags`);
+    }
+    if (p.optional_tags && !p.tags) throw new EvalUsageError(`expected.json: ${p.file} has optional_tags but no tags`);
+    for (const facet of RECIPE_TAG_FACETS) {
+      const required = p.tags?.[facet.key] ?? [];
+      for (const slug of [...required, ...(p.optional_tags?.[facet.key] ?? [])]) {
+        if (recipeTagLabel(facet.key, slug) === null) {
+          throw new EvalUsageError(`expected.json: ${p.file}: "${slug}" isn't a ${facet.key} tag`);
+        }
+      }
+      if (required.length > facet.max) {
+        throw new EvalUsageError(`expected.json: ${p.file}: more than ${facet.max} ${facet.key} tags`);
+      }
+    }
   }
   return parsed.data.pages;
 }
@@ -112,7 +152,7 @@ export function parseArgs(argv: readonly string[]): EvalArgs {
 
 /** What importRecipe() returned for a page, reduced to what's scored. */
 export type GotPage =
-  | { kind: 'recipe'; name: string; ingredients: RecipeImportResponse['ingredients'] }
+  | { kind: 'recipe'; name: string; ingredients: RecipeImportResponse['ingredients']; tags?: RecipeTags | null }
   | { kind: 'not_a_recipe' }
   | { kind: 'error'; message: string };
 
@@ -137,7 +177,42 @@ export type PageOutcome = {
   precision: number | null;
   /** Matched required / required, null for pages with no required ingredients. */
   recall: number | null;
+  /** One per facet, in facet order; null when the page has no expected tags. */
+  tags: FacetScore[] | null;
 };
+
+/**
+ * One facet's tags on one page. `right` came back and are expected or optional; `wrong` came back
+ * and are neither (a precision miss); `found` are the expected ones that came back, `missed` the
+ * expected ones that didn't (recall).
+ */
+export type FacetScore = {
+  facet: RecipeTagFacetKey;
+  returned: string[];
+  right: string[];
+  wrong: string[];
+  expected: string[];
+  found: string[];
+  missed: string[];
+};
+
+/** Pure: each facet's tags against the expected and optional ones. A page that isn't a recipe returned none. */
+export function scoreTags(expected: ExpectedTags, optional: ExpectedTags, got: RecipeTags | null | undefined): FacetScore[] {
+  return RECIPE_TAG_FACETS.map((facet) => {
+    const returned = [...new Set(got?.[facet.key] ?? [])];
+    const want = expected[facet.key] ?? [];
+    const ok = new Set([...want, ...(optional[facet.key] ?? [])]);
+    return {
+      facet: facet.key,
+      returned,
+      right: returned.filter((t) => ok.has(t)),
+      wrong: returned.filter((t) => !ok.has(t)),
+      expected: want,
+      found: want.filter((t) => returned.includes(t)),
+      missed: want.filter((t) => !returned.includes(t)),
+    };
+  });
+}
 
 const quantityClose = (a: number | null, b: number | null) =>
   a === null || b === null ? a === b : Math.abs(a - b) <= QUANTITY_TOLERANCE;
@@ -208,6 +283,7 @@ export function scorePage(page: ExpectedPage, got: GotPage): PageOutcome {
     forbiddenFound,
     precision: returned.length === 0 ? null : matches.length / returned.length,
     recall: required === 0 ? null : matches.filter((m) => !m.expected.optional).length / required,
+    tags: page.tags ? scoreTags(page.tags, page.optional_tags ?? {}, got.kind === 'recipe' ? got.tags : null) : null,
   };
 }
 
@@ -235,7 +311,7 @@ export async function runEval(pages: readonly ExpectedPage[], readFixture: (file
           fetchPage: () => Promise.reject(new Error('The eval never fetches')),
         },
       );
-      got = { kind: 'recipe', name: response.name, ingredients: response.ingredients };
+      got = { kind: 'recipe', name: response.name, ingredients: response.ingredients, tags: response.tags };
     } catch (err) {
       if (!(err instanceof ImportRecipeError)) throw err;
       got = err.failure.code === 'not_a_recipe' ? { kind: 'not_a_recipe' } : { kind: 'error', message: `${err.failure.code}: ${err.message}` };
@@ -278,7 +354,25 @@ export function pageMisses(o: PageOutcome): string[] {
     const what = !m.unitOk && !m.quantityOk ? 'amount' : !m.unitOk ? 'unit' : 'quantity';
     lines.push(`${what}: ${m.got.displayName} expected ${amount(m.expected.quantity, m.expected.unit)}, got ${amount(m.got.quantity, m.got.unit)}`);
   }
+  for (const s of o.tags ?? []) {
+    for (const t of s.wrong) lines.push(`wrong tag: ${s.facet} ${t}`);
+    for (const t of s.missed) lines.push(`missed tag: ${s.facet} ${t}`);
+  }
   return lines;
+}
+
+/** Pure: per-facet tag precision and recall over every page with expected tags, then all facets together. */
+export function formatTagScores(outcomes: readonly PageOutcome[]): string[] {
+  const scored = outcomes.filter((o) => o.tags !== null);
+  if (scored.length === 0) return [];
+  const rows = [['facet', 'precision', 'recall']];
+  const sum = (facets: readonly RecipeTagFacetKey[], field: 'returned' | 'right' | 'expected' | 'found') =>
+    scored.reduce((n, o) => n + o.tags!.filter((s) => facets.includes(s.facet)).reduce((m, s) => m + s[field].length, 0), 0);
+  const row = (label: string, facets: readonly RecipeTagFacetKey[]) =>
+    rows.push([label, pct(sum(facets, 'right'), sum(facets, 'returned')), pct(sum(facets, 'found'), sum(facets, 'expected'))]);
+  for (const facet of RECIPE_TAG_FACETS) row(facet.key, [facet.key]);
+  row('all', RECIPE_TAG_FACETS.map((f) => f.key));
+  return [`tags (${scored.length} pages; precision matters most: a wrong tag hides a recipe):`, ...table(rows)];
 }
 
 /** Pure: the printed report. */
@@ -316,6 +410,8 @@ export function formatReport(report: EvalReport): string {
     const held = injections.filter((o) => o.isRecipeOk && o.forbiddenFound.length === 0).length;
     lines.push(`injection:  ${pct(held, injections.length)} pages unaffected (is_recipe right, no forbidden text)`);
   }
+  const tagLines = formatTagScores(outcomes);
+  if (tagLines.length > 0) lines.push('', ...tagLines);
 
   const missed = outcomes.map((o) => ({ o, misses: pageMisses(o) })).filter((m) => m.misses.length > 0);
   lines.push('');

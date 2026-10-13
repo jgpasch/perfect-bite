@@ -2,6 +2,7 @@
 // fake store, a fake fetch and MockLanguageModelV4. index.ts wires the real store.
 import {
   canonicalRecipeUrl,
+  emptyRecipeTags,
   ExtractedRecipeSchema,
   findRecipe,
   MAX_RECIPE_NAME_LENGTH,
@@ -13,7 +14,7 @@ import {
 } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v1.ts';
+import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v2.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
@@ -96,7 +97,9 @@ function fetchFailure(err: FetchPageError): ImportRecipeError {
  */
 async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   const jsonLd = findRecipe(page.jsonLd);
-  if (!jsonLd && !page.text.trim()) return { is_recipe: false, name: '', servings: null, ingredients: [] };
+  if (!jsonLd && !page.text.trim()) {
+    return { is_recipe: false, name: '', servings: null, ingredients: [], tags: emptyRecipeTags(), total_minutes: null };
+  }
   const input = jsonLd
     ? { title: jsonLd.name ?? page.title, ingredientLines: jsonLd.ingredientLines }
     : { title: page.title, text: page.text };
@@ -114,12 +117,13 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   }
   const recipe = cleanExtractedRecipe(output);
   if (!recipe.is_recipe) return recipe;
-  // JSON-LD's own name and yield are what the site published; the model's fill the gaps.
+  // JSON-LD's own name, yield and time are what the site published; the model's fill the gaps.
   const fallbackName = (jsonLd?.name ?? page.title ?? '').replace(/\s+/g, ' ').trim();
   return {
     ...recipe,
     name: recipe.name || truncateText(fallbackName, MAX_RECIPE_NAME_LENGTH).trimEnd(),
     servings: jsonLd?.servings ?? recipe.servings,
+    total_minutes: jsonLd?.totalMinutes ?? recipe.total_minutes,
   };
 }
 
@@ -203,5 +207,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
       categoryId: categories[l.key]?.category_id ?? null,
       status: categories[l.key]?.status ?? 'pending',
     })),
+    tags: recipe.tags,
+    totalMinutes: recipe.total_minutes,
   };
 }

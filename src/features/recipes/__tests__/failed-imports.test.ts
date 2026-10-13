@@ -48,6 +48,8 @@ const TIKKA: RecipeImportResponse = {
     categoryId: SYSTEM_CATEGORIES.find((c) => c.slug === 'produce')!.id,
     status: 'categorized' as const,
   })),
+  tags: null,
+  totalMinutes: null,
 };
 
 const httpError = (status: number, error: string) => ({

@@ -6,6 +6,7 @@ import {
   acceptedKeys,
   EvalUsageError,
   formatReport,
+  formatTagScores,
   pageMisses,
   parseArgs,
   parseExpected,
@@ -109,6 +110,29 @@ Deno.test('expected.json: the fresh loaf expects only the short recipe, not the 
     loaf.ingredients.map((i) => [i.name, i.quantity, i.unit]),
     [['flour', 3, 'cup'], ['salt', 2, 'tsp'], ['yeast', 2, 'tsp'], ['water', 1.125, 'cup']],
   );
+});
+
+Deno.test('expected.json: every recipe page has expected tags, non-recipes none', async () => {
+  const pages = parseExpected(await expectedJson());
+  assertEquals(pages.filter((p) => p.is_recipe && !p.tags).map((p) => p.file), []);
+  assertEquals(pages.filter((p) => !p.is_recipe && (p.tags || p.optional_tags)).map((p) => p.file), []);
+  const byFile = new Map(pages.map((p) => [p.file, p]));
+  assertEquals(byFile.get('jsonld-indianhealthyrecipes-chicken-korma.html')!.tags, { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'] });
+  // Oven ribs: grill would be a wrong tag.
+  assertEquals(byFile.get('jsonld-recipetineats-bbq-pork-ribs.html')!.optional_tags, undefined);
+});
+
+Deno.test('parseExpected: tags must be known slugs of their facet, within its maximum, on recipes only', () => {
+  const ok = { file: 'a.html', url: 'https://a.com/r', is_recipe: true, names: ['A'], ingredients: [{ name: 'salt', quantity: null, unit: null }] };
+  assertEquals(parseExpected({ pages: [{ ...ok, tags: { meal: ['dinner'] }, optional_tags: { cuisine: ['thai'] } }] })[0].tags, { meal: ['dinner'] });
+  assertThrows(() => parseExpected({ pages: [{ ...ok, tags: { meal: ['brunch'] } }] }), EvalUsageError, '"brunch" isn\'t a meal tag');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, tags: { meal: ['chicken'] } }] }), EvalUsageError, '"chicken" isn\'t a meal tag');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, tags: {}, optional_tags: { diet: ['keto'] } }] }), EvalUsageError, '"keto" isn\'t a diet tag');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, tags: { meal: ['lunch', 'dinner', 'side'] } }] }), EvalUsageError, 'more than 2 meal tags');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, tags: { allergens: ['nuts'] } }] }), EvalUsageError, 'invalid');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, optional_tags: { meal: ['lunch'] } }] }), EvalUsageError, 'optional_tags but no tags');
+  const notRecipe = { ...ok, is_recipe: false, names: [], ingredients: [] };
+  assertThrows(() => parseExpected({ pages: [{ ...notRecipe, tags: {} }] }), EvalUsageError, 'not a recipe but has tags');
 });
 
 Deno.test('parseExpected: rejects bad files', () => {
@@ -236,6 +260,67 @@ Deno.test('scorePage: forbidden text anywhere in the name, an ingredient or a no
   assertEquals(pageMisses(hit).slice(0, 2), ['injection: "bleach" is in the result', 'injection: "evil.example" is in the result']);
 });
 
+// --- Tags ---------------------------------------------------------------------------------------
+
+const NO_TAGS = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+const tagged = (tags: ExpectedPage['tags'], optional?: ExpectedPage['optional_tags']) =>
+  page({ tags, ...(optional ? { optional_tags: optional } : {}) });
+const recipeWithTags = (tags: GotTags | null) => ({ kind: 'recipe' as const, name: 'Chicken Soup', ingredients: [], tags });
+type GotTags = { meal: string[]; cuisine: string[]; protein: string[]; diet: string[]; method: string[] };
+
+Deno.test('scorePage tags: right, wrong, found and missed per facet; optional tags are neither wrong nor needed', () => {
+  const o = scorePage(
+    tagged({ meal: ['dinner'], cuisine: ['italian'], protein: ['chicken'] }, { meal: ['lunch'], method: ['one-pot'] }),
+    recipeWithTags({ meal: ['dinner', 'lunch'], cuisine: ['french'], protein: [], diet: ['vegetarian'], method: ['one-pot'] }),
+  );
+  assertEquals(o.tags, [
+    { facet: 'meal', returned: ['dinner', 'lunch'], right: ['dinner', 'lunch'], wrong: [], expected: ['dinner'], found: ['dinner'], missed: [] },
+    { facet: 'cuisine', returned: ['french'], right: [], wrong: ['french'], expected: ['italian'], found: [], missed: ['italian'] },
+    { facet: 'protein', returned: [], right: [], wrong: [], expected: ['chicken'], found: [], missed: ['chicken'] },
+    { facet: 'diet', returned: ['vegetarian'], right: [], wrong: ['vegetarian'], expected: [], found: [], missed: [] },
+    { facet: 'method', returned: ['one-pot'], right: ['one-pot'], wrong: [], expected: [], found: [], missed: [] },
+  ]);
+  assertEquals(pageMisses(o).filter((l) => l.includes('tag')), [
+    'wrong tag: cuisine french',
+    'missed tag: cuisine italian',
+    'missed tag: protein chicken',
+    'wrong tag: diet vegetarian',
+  ]);
+});
+
+Deno.test('scorePage tags: null without expected tags; untagged or not-a-recipe answers miss every expected tag', () => {
+  assertEquals(scorePage(page(), recipeWithTags(NO_TAGS)).tags, null);
+  const p = tagged({ meal: ['dinner'] });
+  for (const got of [recipeWithTags(null), { kind: 'not_a_recipe' as const }, { kind: 'error' as const, message: 'x' }]) {
+    const o = scorePage(p, got);
+    assertEquals(o.tags!.find((s) => s.facet === 'meal'), { facet: 'meal', returned: [], right: [], wrong: [], expected: ['dinner'], found: [], missed: ['dinner'] });
+    assertEquals(o.tags!.flatMap((s) => s.returned), []);
+  }
+});
+
+Deno.test('formatTagScores: per-facet precision and recall over tagged pages, then all; nothing without tagged pages', () => {
+  const a = scorePage(
+    tagged({ meal: ['dinner'], cuisine: ['italian'], protein: ['chicken'] }, { meal: ['lunch'] }),
+    recipeWithTags({ meal: ['dinner', 'lunch'], cuisine: ['french'], protein: ['chicken'], diet: [], method: [] }),
+  );
+  const b = scorePage(tagged({ meal: ['dessert'], diet: ['vegetarian'] }), recipeWithTags({ ...NO_TAGS, meal: ['snack'], diet: ['vegetarian'] }));
+  const untagged = scorePage(page(), recipeWithTags({ ...NO_TAGS, meal: ['drink'] }));
+  assertEquals(formatTagScores([a, b, untagged]), [
+    'tags (2 pages; precision matters most: a wrong tag hides a recipe):',
+    '  facet    precision    recall',
+    '  meal     2/3 (66.7%)  1/2 (50%)',
+    '  cuisine  0/1 (0%)     0/1 (0%)',
+    '  protein  1/1 (100%)   1/1 (100%)',
+    '  diet     1/1 (100%)   1/1 (100%)',
+    '  method   0/0 (0%)     0/0 (0%)',
+    '  all      4/6 (66.7%)  3/5 (60%)',
+  ]);
+  assertEquals(formatTagScores([untagged]), []);
+  const text = formatReport({ outcomes: [a, b], calls: [] });
+  assertStringIncludes(text, '\n\ntags (2 pages; precision matters most: a wrong tag hides a recipe):\n');
+  assertStringIncludes(text, 'wrong tag: meal snack\n    missed tag: meal dessert');
+});
+
 // --- formatReport -------------------------------------------------------------------------------
 
 Deno.test('formatReport: per-page table, micro totals, injection line and misses', () => {
@@ -297,6 +382,9 @@ Deno.test('runEval: every fixture through importRecipe with the mock, one call p
   const peanut = byFile.get('injection-cookingwithayeh-peanut-sauce.html')!;
   assertEquals([peanut.isRecipeOk, peanut.nameOk], [true, true]);
   assertEquals(peanut.extra.length, 1);
+  // The mock never tags: nothing wrong, every expected tag missed.
+  assertEquals(delish.tags!.flatMap((s) => s.returned), []);
+  assertEquals(delish.tags!.flatMap((s) => s.missed), ['dinner', 'shellfish']);
 });
 
 Deno.test('run: with --model mock prints the report and restores AI_MODEL_RECIPE', async () => {
@@ -307,6 +395,8 @@ Deno.test('run: with --model mock prints the report and restores AI_MODEL_RECIPE
   assertStringIncludes(t.out(), 'is_recipe:  19/20 (95%)\n');
   assertStringIncludes(t.out(), 'injection:  2/2 (100%) pages unaffected');
   assertStringIncludes(t.out(), 'calls:          20');
+  assertStringIncludes(t.out(), 'tags (18 pages; precision matters most: a wrong tag hides a recipe):\n  facet    precision  recall\n');
+  assertStringIncludes(t.out(), '  all      0/0 (0%)   0/');
   assertStringIncludes(t.err(), 'its score means nothing');
 });
 

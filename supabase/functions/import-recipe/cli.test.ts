@@ -8,6 +8,7 @@ import {
   CliUsageError,
   formatCallStats,
   formatRecipe,
+  formatTags,
   MemoryRecipeStore,
   parseArgs,
   placeholderUrl,
@@ -101,7 +102,14 @@ Deno.test('MemoryRecipeStore: no limits, cache keyed by URL and prompt version, 
     assertEquals(await store.requireFeature(feature), undefined, `${feature} is granted`);
   }
   assertEquals(await store.getCached('https://a.com/r', 'v1'), null);
-  const recipe = { is_recipe: true, name: 'Soup', servings: 2, ingredients: [] };
+  const recipe = {
+    is_recipe: true,
+    name: 'Soup',
+    servings: 2,
+    ingredients: [],
+    tags: { meal: ['lunch'], cuisine: [], protein: [], diet: [], method: [] },
+    total_minutes: 30,
+  };
   await store.saveCached('https://a.com/r', 'v1', recipe);
   const row = await store.getCached('https://a.com/r', 'v1');
   assertEquals(row?.result, recipe);
@@ -121,12 +129,16 @@ Deno.test('formatRecipe: header, rounded quantities, dashes for blanks, slug or 
       { ingredientName: 'brown sugar', displayName: 'brown sugar', quantity: 1 / 3, unit: 'cup', note: '', categoryId: cat('baking'), status: 'categorized' },
       { ingredientName: 'salt', displayName: 'Salt', quantity: null, unit: null, note: 'to taste', categoryId: null, status: 'pending' },
     ],
+    tags: null,
+    totalMinutes: null,
   };
   assertEquals(
     formatRecipe(response),
     [
       'name:     Soup',
       'servings: -',
+      'time:     -',
+      'tags:     -',
       'source:   https://a.com/r',
       '',
       'name         quantity  unit  note      category',
@@ -135,6 +147,15 @@ Deno.test('formatRecipe: header, rounded quantities, dashes for blanks, slug or 
     ].join('\n'),
   );
   assertStringIncludes(formatRecipe({ ...response, ingredients: [] }), 'No ingredients.');
+});
+
+Deno.test('formatRecipe and formatTags: time in minutes, tags by facet label in facet order', () => {
+  const tags = { meal: ['dinner'], cuisine: ['peruvian'], protein: ['chicken', 'beans-lentils'], diet: [], method: ['pressure-cooker'] };
+  assertEquals(formatTags(tags), 'Meal: Dinner · Cuisine: peruvian · Protein: Chicken · Protein: Beans & lentils · Method: Instant Pot');
+  assertEquals(formatTags({ meal: [], cuisine: [], protein: [], diet: [], method: [] }), '-');
+  assertEquals(formatTags(null), '-');
+  const out = formatRecipe({ name: 'Stew', sourceUrl: 'https://a.com/s', servings: 4, ingredients: [], tags, totalMinutes: 95 });
+  assertStringIncludes(out, 'servings: 4\ntime:     95 min\ntags:     Meal: Dinner · Cuisine: peruvian');
 });
 
 Deno.test('formatCallStats: one block per task, or none', () => {
@@ -154,7 +175,11 @@ Deno.test('run: --file with the mock models prints the recipe and categories, fe
     run(['--quiet', '--file', DELISH, '--model', 'mock', '--categorize-model', 'mock'], t.cliIo));
   assertEquals(code, 0, t.err());
   const out = t.out();
-  assertStringIncludes(out, 'name:     Lemony Shrimp and Asparagus Spaghetti\nservings: 4\nsource:   https://file.invalid/jsonld-delish-shrimp-asparagus-spaghetti.html');
+  // The mock doesn't tag; the time is the page's JSON-LD totalTime.
+  assertStringIncludes(
+    out,
+    'name:     Lemony Shrimp and Asparagus Spaghetti\nservings: 4\ntime:     25 min\ntags:     -\nsource:   https://file.invalid/jsonld-delish-shrimp-asparagus-spaghetti.html',
+  );
   assertMatch(out, /^spaghetti +12 +oz +- +pasta-grains$/m);
   assertMatch(out, /^garlic +3 +clove +minced +pantry$/m);
   assertMatch(out, /^kosher salt +- +- +- +spices$/m);
@@ -170,6 +195,8 @@ Deno.test('run: --json prints only the response on stdout, with the given URL ca
   const response = JSON.parse(t.out()) as RecipeImportResponse;
   assertEquals(response.sourceUrl, 'https://delish.com/x');
   assertEquals(response.servings, 4);
+  assertEquals(response.totalMinutes, 25);
+  assertEquals(response.tags, { meal: [], cuisine: [], protein: [], diet: [], method: [] });
   assertEquals(response.ingredients.length, 11);
   assertEquals(response.ingredients[0], {
     ingredientName: 'spaghetti',

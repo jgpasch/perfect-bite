@@ -363,7 +363,7 @@ describe('itemNameColor', () => {
 
 describe('sizes', () => {
   it('has the card header and Your lists sheet sizes', () => {
-    expect(Sizes).toMatchObject({ iconWell: 36, switcherChevron: 30, inviteDot: 10, inviteDotRing: 2, listDot: 12 });
+    expect(Sizes).toMatchObject({ iconWell: 36, inviteDot: 10, inviteDotRing: 2, listDot: 12 });
     // The recipe actions button reaches 44 pt with hit slop.
     expect((Sizes.minTapTarget - Sizes.iconWell) / 2).toBe(4);
   });

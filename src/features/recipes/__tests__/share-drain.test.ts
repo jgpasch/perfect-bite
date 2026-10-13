@@ -76,6 +76,8 @@ const recipeFor = (name: string, sourceUrl: string, ...names: string[]): RecipeI
     categoryId: category('produce'),
     status: 'categorized',
   })),
+  tags: null,
+  totalMinutes: null,
 });
 const TIKKA = recipeFor('Chicken tikka masala', TIKKA_URL, 'garlic', 'onion');
 const SOUP = recipeFor('Leek soup', SOUP_URL, 'leek');

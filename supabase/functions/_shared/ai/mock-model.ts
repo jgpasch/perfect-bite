@@ -75,9 +75,11 @@ const AMOUNT_LINE = /^\s*[\d½⅓⅔¼¾⅛]/;
 /**
  * `AI_MODEL_RECIPE=mock` (spec §6.6): the shared quantity parser over each ingredient line (from
  * page text, each line that starts with an amount). Lines ending in `:` are headings and are
- * dropped; anything after the first comma is the note. No ingredients means not a recipe.
+ * dropped; anything after the first comma is the note. No ingredients means not a recipe. It
+ * never tags and gives no time, so an import shows the JSON-LD time (the handler's) or none.
  */
 export function mockExtractRecipe(page: MockRecipePage): ExtractRecipeOutput {
+  const tags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
   const lines = page.ingredient_lines ?? (page.text ?? '').split('\n').filter((line) => AMOUNT_LINE.test(line));
   const ingredients = lines
     .filter((line) => !/:\s*$/.test(line))
@@ -86,8 +88,8 @@ export function mockExtractRecipe(page: MockRecipePage): ExtractRecipeOutput {
       const [name, ...rest] = parsed.name.split(',');
       return { name: name.trim(), quantity: parsed.quantity, unit: parsed.unit, note: rest.join(',').trim() };
     });
-  if (ingredients.length === 0) return { is_recipe: false, name: '', servings: null, ingredients: [] };
-  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients };
+  if (ingredients.length === 0) return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null };
+  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients, tags, total_minutes: null };
 }
 
 /** The page is the first JSON object in the user prompt; anything else is an empty page. */

@@ -220,8 +220,6 @@ export const Sizes = {
   focusRing: 2,
   /** a recipe chip's outline in the add bar's suggestion row */
   chipBorder: 1,
-  /** the round chevron after the list's name in its header, which opens the Your lists sheet */
-  switcherChevron: 30,
   /** the dot on that chevron while an invite is waiting, and its ring in the header colour */
   inviteDot: 10,
   inviteDotRing: 2,

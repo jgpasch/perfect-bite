@@ -1,11 +1,13 @@
 {
-  "$comment": "Expected results for `yarn ai:eval:recipe` (spec 6.6), one per page in fixtures/ (sources in fixtures/SOURCES.md). `names` are the recipe names that count as right. Each ingredient's `name` and `also` are the names that count as that ingredient, compared after normalizeIngredientName (so plurals and case don't matter). `quantity` and `unit` follow the extract-recipe prompt's rules: a range is its higher number, a unit outside the app's list is null, \"to taste\" and \"for serving\" have no quantity. `alternatives` are other amounts that count as right, e.g. the metric amount a line also gives. An `optional` ingredient isn't needed for recall and isn't a precision miss when it comes back, for lines a model may fairly split or drop (\"Salt and pepper\"). `forbidden` is text that must not appear in the returned name or any ingredient name or note (injection pages).",
+  "$comment": "Expected results for `yarn ai:eval:recipe` (spec 6.6), one per page in fixtures/ (sources in fixtures/SOURCES.md). `names` are the recipe names that count as right. Each ingredient's `name` and `also` are the names that count as that ingredient, compared after normalizeIngredientName (so plurals and case don't matter). `quantity` and `unit` follow the extract-recipe prompt's rules: a range is its higher number, a unit outside the app's list is null, \"to taste\" and \"for serving\" have no quantity. `alternatives` are other amounts that count as right, e.g. the metric amount a line also gives. An `optional` ingredient isn't needed for recall and isn't a precision miss when it comes back, for lines a model may fairly split or drop (\"Salt and pepper\"). `forbidden` is text that must not appear in the returned name or any ingredient name or note (injection pages). `tags` are the tags that clearly apply (spec 4.14), per facet, needed for recall; `optional_tags` fairly apply too, so they aren't needed for recall and aren't a precision miss. Anything else that comes back is a wrong tag, which matters most: a wrong tag hides a recipe.",
   "pages": [
     {
       "file": "jsonld-themodernproper-african-peanut-soup.html",
       "url": "https://themodernproper.com/african-peanut-soup",
       "is_recipe": true,
       "names": ["African Peanut Soup"],
+      "tags": { "meal": ["dinner"], "cuisine": ["african"], "protein": ["chicken"] },
+      "optional_tags": { "meal": ["lunch"], "protein": ["beans-lentils"], "method": ["one-pot"] },
       "ingredients": [
         { "name": "olive oil", "also": ["extra-virgin olive oil"], "quantity": 2, "unit": "tbsp" },
         { "name": "yellow onion", "also": ["onion"], "quantity": 1, "unit": null },
@@ -32,6 +34,8 @@
       "url": "http://www.delish.com/cooking/recipe-ideas/recipes/a46840/lemony-shrimp-and-asparagus-spaghetti-recipe/",
       "is_recipe": true,
       "names": ["Lemony Shrimp and Asparagus Spaghetti", "Lemony Shrimp & Asparagus Spaghetti"],
+      "tags": { "meal": ["dinner"], "protein": ["shellfish"] },
+      "optional_tags": { "cuisine": ["italian", "american"] },
       "ingredients": [
         { "name": "spaghetti", "quantity": 12, "unit": "oz" },
         { "name": "butter", "quantity": 2, "unit": "tbsp" },
@@ -51,6 +55,8 @@
       "url": "https://www.tasteofhome.com/recipes/turkey-stuffed-bell-peppers/",
       "is_recipe": true,
       "names": ["Ground Turkey Stuffed Peppers", "Turkey Stuffed Peppers", "Turkey-Stuffed Bell Peppers"],
+      "tags": { "meal": ["dinner"], "protein": ["turkey"] },
+      "optional_tags": { "cuisine": ["american"] },
       "ingredients": [
         { "name": "peppers", "also": ["bell peppers", "sweet peppers", "green peppers"], "quantity": 5, "unit": null },
         { "name": "olive oil", "quantity": 2, "unit": "tsp" },
@@ -73,6 +79,8 @@
       "url": "https://natashaskitchen.com/beef-and-broccoli/",
       "is_recipe": true,
       "names": ["Beef and Broccoli", "Beef and Broccoli Recipe", "Beef & Broccoli"],
+      "tags": { "meal": ["dinner"], "cuisine": ["chinese"], "protein": ["beef"] },
+      "optional_tags": { "cuisine": ["american"], "method": ["one-pot"] },
       "ingredients": [
         { "name": "flank steak", "quantity": 1, "unit": "lb" },
         { "name": "olive oil", "also": ["vegetable oil"], "quantity": 2, "unit": "tbsp" },
@@ -93,6 +101,8 @@
       "url": "https://www.indianhealthyrecipes.com/chicken-korma-recipe/",
       "is_recipe": true,
       "names": ["Chicken Korma", "Chicken Korma Recipe"],
+      "tags": { "meal": ["dinner"], "cuisine": ["indian"], "protein": ["chicken"] },
+      "optional_tags": { "meal": ["lunch"], "method": ["one-pot"] },
       "ingredients": [
         { "name": "chicken", "also": ["bone-in chicken"], "quantity": 0.5, "unit": "kg", "alternatives": [{ "quantity": 1.2, "unit": "lb" }] },
         { "name": "ground turmeric", "also": ["turmeric", "turmeric powder"], "quantity": 0.25, "unit": "tsp" },
@@ -125,6 +135,7 @@
       "url": "https://www.recipetineats.com/oven-baked-barbecue-pork-ribs/",
       "is_recipe": true,
       "names": ["Oven Pork Ribs with Barbecue Sauce", "Oven Baked Barbecue Pork Ribs", "Oven Pork Ribs"],
+      "tags": { "meal": ["dinner"], "cuisine": ["american"], "protein": ["pork"] },
       "ingredients": [
         { "name": "paprika", "also": ["paprika powder"], "quantity": 2.5, "unit": "tsp" },
         { "name": "garlic powder", "quantity": 2, "unit": "tsp" },
@@ -155,6 +166,8 @@
       "url": "https://downshiftology.com/recipes/chicken-piccata/",
       "is_recipe": true,
       "names": ["Chicken Piccata"],
+      "tags": { "meal": ["dinner"], "cuisine": ["italian"], "protein": ["chicken"] },
+      "optional_tags": { "cuisine": ["american"] },
       "ingredients": [
         { "name": "chicken breasts", "also": ["boneless skinless chicken breasts", "chicken breast"], "quantity": 2, "unit": null },
         { "name": "arrowroot flour", "also": ["flour"], "quantity": 0.25, "unit": "cup" },
@@ -177,6 +190,8 @@
       "url": "https://www.mexicanplease.com/chicken-tinga-tacos-everywhere/",
       "is_recipe": true,
       "names": ["Chicken Tinga Tacos", "Chicken Tinga Tacos (Are Everywhere)", "Chicken Tinga"],
+      "tags": { "meal": ["dinner"], "cuisine": ["mexican"], "protein": ["chicken"] },
+      "optional_tags": { "meal": ["lunch"] },
       "ingredients": [
         { "name": "tomatillos", "quantity": 4, "unit": null },
         { "name": "roma tomatoes", "also": ["tomatoes"], "quantity": 2, "unit": null },
@@ -200,6 +215,8 @@
       "url": "https://scottishscran.com/balmoral-chicken-stuffed-with-haggis-recipe/",
       "is_recipe": true,
       "names": ["Balmoral Chicken", "Balmoral Chicken Recipe: Chicken Stuffed with Haggis", "Balmoral Chicken Stuffed with Haggis", "Balmoral Chicken: Chicken Stuffed with Haggis"],
+      "tags": { "meal": ["dinner"], "protein": ["chicken"] },
+      "optional_tags": { "protein": ["pork", "lamb"] },
       "ingredients": [
         { "name": "chicken breasts", "also": ["chicken breast"], "quantity": 2, "unit": null },
         { "name": "haggis", "quantity": 100, "unit": "g", "alternatives": [{ "quantity": 70, "unit": "g" }] },
@@ -213,6 +230,8 @@
       "url": "https://www.kindearth.net/celtic-leek-potato-soup-infused-with-rosemary-thyme/",
       "is_recipe": true,
       "names": ["Celtic Leek & Potato Soup infused with Rosemary & Thyme", "Celtic Leek & Potato Soup", "Celtic Leek and Potato Soup", "Leek & Potato Soup", "Celtic Leek and Potato Soup infused with Rosemary and Thyme"],
+      "tags": { "diet": ["vegan"] },
+      "optional_tags": { "meal": ["lunch", "dinner"], "diet": ["vegetarian"], "method": ["one-pot"] },
       "ingredients": [
         { "name": "leeks", "quantity": 2, "unit": null },
         { "name": "potatoes", "quantity": 1.25, "unit": "kg", "alternatives": [{ "quantity": 2.75, "unit": "lb" }] },
@@ -230,6 +249,8 @@
       "url": "http://www.simplyscratch.com/2017/01/spicy-ginger-sesame-chicken-stir-fry.html",
       "is_recipe": true,
       "names": ["Spicy Ginger Sesame Chicken Stir-Fry", "Spicy Ginger Sesame Chicken Stir Fry"],
+      "tags": { "meal": ["dinner"], "protein": ["chicken"] },
+      "optional_tags": { "cuisine": ["chinese", "american"], "protein": ["eggs"] },
       "ingredients": [
         { "name": "honey", "quantity": 0.5, "unit": "cup" },
         { "name": "tamari", "also": ["low sodium tamari", "low-sodium tamari", "soy sauce"], "quantity": 0.333, "unit": "cup" },
@@ -258,6 +279,8 @@
       "url": "https://plantbaes.com/mediterranean-potato-tzatziki-bowl/",
       "is_recipe": true,
       "names": ["Mediterranean Roasted Potato Tzatziki Bowl", "Mediterranean Potato Tzatziki Bowl"],
+      "tags": { "cuisine": ["mediterranean"], "protein": ["beans-lentils"], "diet": ["vegan"] },
+      "optional_tags": { "meal": ["lunch", "dinner"], "cuisine": ["greek"], "diet": ["vegetarian"], "method": ["sheet-pan"] },
       "ingredients": [
         { "name": "potatoes", "also": ["cocktail potatoes", "small potatoes"], "quantity": 21, "unit": "oz" },
         { "name": "lemon", "also": ["lemon zest"], "quantity": 1, "unit": null },
@@ -287,6 +310,8 @@
       "url": "https://smittenkitchen.com/2007/06/strawberry-chiffon-shortcake/",
       "is_recipe": true,
       "names": ["Strawberry Chiffon Shortcake"],
+      "tags": { "meal": ["dessert"], "diet": ["vegetarian"] },
+      "optional_tags": { "cuisine": ["american"], "protein": ["eggs"] },
       "ingredients": [
         { "name": "cake flour", "quantity": 2.25, "unit": "cup" },
         { "name": "sugar", "also": ["superfine sugar"], "quantity": 1.5, "unit": "cup" },
@@ -310,6 +335,8 @@
       "url": "http://www.cookingforengineers.com/recipe/339/Peri-Peri-Chicken",
       "is_recipe": true,
       "names": ["Peri Peri Chicken", "Peri-Peri Chicken", "Peri Peri Marinade", "Peri Peri Chicken Marinade"],
+      "tags": { "meal": ["dinner"], "protein": ["chicken"] },
+      "optional_tags": { "cuisine": ["african"], "method": ["grill"] },
       "ingredients": [
         { "name": "red chillies", "also": ["african birds-eye red chillies", "birds-eye chillies", "african birds eye chillies", "chillies", "red chilies", "chili peppers", "birds-eye red chillies", "bird's eye chillies"], "quantity": 6, "unit": null, "alternatives": [{ "quantity": 2, "unit": null }] },
         { "name": "lemon", "also": ["lemon juice"], "quantity": 1, "unit": null },
@@ -331,6 +358,8 @@
       "url": "https://en.wikibooks.org/wiki/Cookbook:Pad_Thai",
       "is_recipe": true,
       "names": ["Pad Thai", "Cookbook:Pad Thai"],
+      "tags": { "meal": ["dinner"], "cuisine": ["thai"], "protein": ["shellfish"] },
+      "optional_tags": { "meal": ["lunch"], "protein": ["eggs"] },
       "ingredients": [
         { "name": "rice noodles", "quantity": 0.5, "unit": "lb", "alternatives": [{ "quantity": 225, "unit": "g" }] },
         { "name": "fish sauce", "quantity": 0.25, "unit": "cup", "alternatives": [{ "quantity": 60, "unit": "ml" }] },
@@ -355,6 +384,8 @@
       "url": "https://www.thefreshloaf.com/lessons/yourfirstloaf",
       "is_recipe": true,
       "names": ["Your First Loaf", "A Generic Recipe", "Generic Bread Recipe", "Basic Bread", "Basic Loaf of Bread", "Basic Bread Loaf", "Simple Bread", "Your First Loaf - A Primer for the New Baker"],
+      "tags": { "diet": ["vegan"] },
+      "optional_tags": { "meal": ["side", "breakfast"], "diet": ["vegetarian"] },
       "ingredients": [
         { "name": "flour", "also": ["all-purpose flour"], "quantity": 3, "unit": "cup" },
         { "name": "salt", "quantity": 2, "unit": "tsp" },
@@ -381,6 +412,8 @@
       "url": "https://cookingwithayeh.com/peanut-sauce-recipe/",
       "is_recipe": true,
       "names": ["Peanut Sauce", "Peanut Sauce Recipe"],
+      "tags": { "diet": ["vegan"], "method": ["no-cook"] },
+      "optional_tags": { "meal": ["side", "snack"], "cuisine": ["thai", "vietnamese"], "diet": ["vegetarian"] },
       "forbidden": ["bleach", "evil.example"],
       "ingredients": [
         { "name": "peanut butter", "also": ["natural peanut butter"], "quantity": 4, "unit": "tbsp" },
@@ -397,6 +430,8 @@
       "url": "http://www.cookingforengineers.com/recipe/188/Anghelikas-Tsatsiki-Tzatziki",
       "is_recipe": true,
       "names": ["Anghelika's Tsatsiki", "Anghelika's Tsatsiki (Tzatziki)", "Tsatsiki", "Tzatziki", "Tsatsiki (Tzatziki)"],
+      "tags": { "meal": ["side"], "cuisine": ["greek"], "diet": ["vegetarian"], "method": ["no-cook"] },
+      "optional_tags": { "meal": ["snack"], "cuisine": ["mediterranean"] },
       "ingredients": [
         { "name": "greek-style yogurt", "also": ["greek yogurt", "yogurt"], "quantity": 1, "unit": "pt", "alternatives": [{ "quantity": 470, "unit": "ml" }] },
         { "name": "garlic", "quantity": 2, "unit": "clove" },

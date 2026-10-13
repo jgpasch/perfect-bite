@@ -2,10 +2,13 @@
 // `supabase secrets set AI_MODEL_CATEGORIZE=google:gemini-3.8-flash`; no code change.
 import {
   ExtractedRecipeSchema,
+  ExtractedRecipeTagsSchema,
   MAX_RECIPE_INGREDIENT_NAME_LENGTH,
   MAX_RECIPE_INGREDIENTS,
   MAX_RECIPE_NAME_LENGTH,
   MAX_RECIPE_NOTE_LENGTH,
+  MAX_TOTAL_MINUTES,
+  MIN_TOTAL_MINUTES,
   normalizeIngredientName,
   parseAmount,
   SYSTEM_CATEGORIES,
@@ -18,7 +21,7 @@ import { z } from 'zod';
 
 import { mockCategorizeModel, mockRecipeModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v2.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v1.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v2.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
 export const AI_OFF = 'off';
@@ -90,8 +93,8 @@ export const RECIPE_THINKING: ThinkingSetting = CATEGORIZE_THINKING;
 
 /**
  * What the extract-recipe model may answer. Looser than `ExtractedRecipeSchema` (no length caps,
- * any unit string), so one long name or odd unit doesn't throw away the whole call;
- * `cleanExtractedRecipe` then enforces the caps.
+ * any unit string, any tag string), so one long name, odd unit or made-up tag doesn't throw away
+ * the whole call; `cleanExtractedRecipe` then enforces the caps and the tag list.
  */
 export const ExtractRecipeOutputSchema = z.object({
   is_recipe: z.boolean(),
@@ -105,6 +108,14 @@ export const ExtractRecipeOutputSchema = z.object({
       note: z.string(),
     }),
   ),
+  tags: z.object({
+    meal: z.array(z.string()),
+    cuisine: z.array(z.string()),
+    protein: z.array(z.string()),
+    diet: z.array(z.string()),
+    method: z.array(z.string()),
+  }),
+  total_minutes: z.number().nullable(),
 });
 export type ExtractRecipeOutput = z.infer<typeof ExtractRecipeOutputSchema>;
 
@@ -138,7 +149,9 @@ function supportedUnit(raw: string | null): { unit: Unit | null; unsupported: st
  * an ingredient whose name is over 64 characters or normalizes to nothing is dropped; an
  * unsupported unit becomes null with its wording at the front of the note; the recipe name and
  * notes are cut to 120 characters and the list to 80 entries; a quantity or servings that isn't
- * positive is null. The result always passes `ExtractedRecipeSchema`.
+ * positive is null. Tags go through `ExtractedRecipeTagsSchema` (a facet with a slug the list
+ * doesn't have is `[]`, one over its maximum is cut), and `total_minutes` is rounded, null outside
+ * 1 to 2880. The result always passes `ExtractedRecipeSchema`.
  */
 export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe {
   const ingredients: ExtractedRecipe['ingredients'] = [];
@@ -160,7 +173,16 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe 
     name: truncateText(collapse(raw.name), MAX_RECIPE_NAME_LENGTH).trimEnd(),
     servings: positive(raw.servings),
     ingredients,
+    tags: ExtractedRecipeTagsSchema.parse(raw.tags),
+    total_minutes: totalMinutes(raw.total_minutes),
   });
+}
+
+/** Whole minutes within `recipes.total_minutes` bounds, else null. */
+function totalMinutes(n: number | null): number | null {
+  if (n === null || !Number.isFinite(n)) return null;
+  const minutes = Math.round(n);
+  return minutes >= MIN_TOTAL_MINUTES && minutes <= MAX_TOTAL_MINUTES ? minutes : null;
 }
 
 export const aiTasks = {

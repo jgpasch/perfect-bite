@@ -3,7 +3,15 @@
 // against in-memory stores. Nothing is written to any database, and the rate limits don't apply.
 // With --file the page is read from disk and sent as the client's page, so nothing is fetched.
 // Every LLM call is printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
-import { SYSTEM_CATEGORIES, type ExtractedRecipe, type RecipeImportRequest, type RecipeImportResponse } from '@shared/index.ts';
+import {
+  RECIPE_TAG_FACETS,
+  recipeTagLabel,
+  SYSTEM_CATEGORIES,
+  type ExtractedRecipe,
+  type RecipeImportRequest,
+  type RecipeImportResponse,
+  type RecipeTags,
+} from '@shared/index.ts';
 
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import type { Feature } from '../_shared/entitlements.ts';
@@ -136,7 +144,15 @@ function table(rows: string[][]): string {
   return rows.map((r) => r.map((cell, col) => cell + ' '.repeat(widths[col] - [...cell].length)).join('  ').trimEnd()).join('\n');
 }
 
-/** Pure: name, servings, source and the ingredient table. */
+/** Pure: the tags as "Meal: Dinner · Cuisine: Indian", known slugs by label and others as stored; `-` for none. */
+export function formatTags(tags: RecipeTags | null): string {
+  const parts = RECIPE_TAG_FACETS.flatMap((facet) =>
+    (tags?.[facet.key] ?? []).map((slug) => `${facet.label}: ${recipeTagLabel(facet.key, slug) ?? slug}`),
+  );
+  return parts.length === 0 ? '-' : parts.join(' · ');
+}
+
+/** Pure: name, servings, time, tags, source and the ingredient table. */
 export function formatRecipe(response: RecipeImportResponse): string {
   const rows = [['name', 'quantity', 'unit', 'note', 'category']];
   for (const i of response.ingredients) {
@@ -152,6 +168,8 @@ export function formatRecipe(response: RecipeImportResponse): string {
   return [
     `name:     ${response.name}`,
     `servings: ${response.servings ?? '-'}`,
+    `time:     ${response.totalMinutes === null ? '-' : `${response.totalMinutes} min`}`,
+    `tags:     ${formatTags(response.tags)}`,
     `source:   ${response.sourceUrl}`,
     '',
     response.ingredients.length === 0 ? 'No ingredients.' : table(rows),

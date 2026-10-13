@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
 import { UNITS } from '../quantity-parser.ts';
+import {
+  emptyRecipeTags,
+  MAX_TOTAL_MINUTES,
+  MIN_TOTAL_MINUTES,
+  RECIPE_TAG_FACETS,
+  RecipeTagsSchema,
+  type RecipeTagFacet,
+  type RecipeTags,
+} from '../recipe-tags.ts';
 
 // Spec 4.10, 6.6. The import-recipe Edge Function and the app share these: the request the app
 // sends, the extract-recipe LLM output, the response, and the canonical form of a recipe URL.
@@ -76,6 +85,33 @@ export const RecipeImportRequestSchema = z.object({
 });
 export type RecipeImportRequest = z.infer<typeof RecipeImportRequestSchema>;
 
+/**
+ * One facet of the extracted tags (spec 4.14): its slugs without repeats, cut to the facet's
+ * maximum. A facet with a slug the list doesn't have, or that isn't an array of strings, is `[]`,
+ * so one bad facet costs only itself and the import still succeeds.
+ */
+function extractedFacetSchema(facet: RecipeTagFacet) {
+  const known = new Set<string>(facet.values.map((v) => v.slug));
+  return z
+    .array(z.string())
+    .refine((slugs) => slugs.every((slug) => known.has(slug)))
+    .transform((slugs) => [...new Set(slugs)].slice(0, facet.max))
+    .catch([]);
+}
+
+/** The extracted tags: every facet, each checked on its own; anything but an object is untagged facets. */
+export const ExtractedRecipeTagsSchema = z
+  .object(
+    Object.fromEntries(RECIPE_TAG_FACETS.map((facet) => [facet.key, extractedFacetSchema(facet)])) as Record<
+      RecipeTagFacet['key'],
+      ReturnType<typeof extractedFacetSchema>
+    >,
+  )
+  .catch(() => emptyRecipeTags()) satisfies z.ZodType<RecipeTags, unknown>;
+
+/** `recipes.total_minutes`: whole minutes, 1 to 2880 (spec 4.14). */
+export const TotalMinutesSchema = z.number().int().min(MIN_TOTAL_MINUTES).max(MAX_TOTAL_MINUTES);
+
 /** The extract-recipe LLM output. A unit the app doesn't support is null, its wording in `note`. */
 export const ExtractedRecipeSchema = z.object({
   is_recipe: z.boolean(),
@@ -91,6 +127,8 @@ export const ExtractedRecipeSchema = z.object({
       }),
     )
     .max(MAX_RECIPE_INGREDIENTS),
+  tags: ExtractedRecipeTagsSchema,
+  total_minutes: TotalMinutesSchema.nullable(),
 });
 export type ExtractedRecipe = z.infer<typeof ExtractedRecipeSchema>;
 
@@ -111,6 +149,13 @@ export const RecipeImportResponseSchema = z.object({
       status: z.enum(['pending', 'categorized', 'failed']),
     }),
   ),
+  /**
+   * What the extraction tagged (spec 4.14), saved on a recipe the import creates. Null when the
+   * server sent none or something unreadable (an older server), so the recipe stays untagged.
+   */
+  tags: RecipeTagsSchema.nullable().catch(null),
+  /** Minutes, from the page's JSON-LD or the model; null when neither said, or it's out of range. */
+  totalMinutes: TotalMinutesSchema.nullable().catch(null),
 });
 export type RecipeImportResponse = z.infer<typeof RecipeImportResponseSchema>;
 

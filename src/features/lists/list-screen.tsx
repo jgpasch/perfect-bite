@@ -12,6 +12,7 @@ import {
   Pressable,
   Share,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -777,13 +778,27 @@ export function ListScreen({ id }: { id: string }) {
           <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode)} />
         </Stack.Title>
       ) : null}
+      {/* At rest the list's name sits in the header's left slot, on one row with ⋯; add mode swaps it for CompactTitle. */}
+      {addMode ? null : (
+        <Stack.Toolbar placement="left">
+          <Stack.Toolbar.View hidesSharedBackground>
+            <SwitcherTitle name={list.name} invites={invites.length} />
+          </Stack.Toolbar.View>
+        </Stack.Toolbar>
+      )}
       <Stack.Toolbar placement="right" tintColor={header.title}>
         {selection ? (
           <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => setSelection(null)}>
             Done
           </Stack.Toolbar.Button>
         ) : null}
-        <Stack.Toolbar.Menu icon="ellipsis.circle" accessibilityLabel="List actions" hidden={!!selection}>
+        {/* A white wash, as the view pill, with a white ⋯. */}
+        <Stack.Toolbar.Menu
+          icon="ellipsis"
+          variant="prominent"
+          tintColor={header.viewButton.fill}
+          accessibilityLabel="List actions"
+          hidden={!!selection}>
           <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
             Select items
           </Stack.Toolbar.MenuAction>
@@ -854,18 +869,17 @@ export function ListScreen({ id }: { id: string }) {
                 {/* Pulling down past the top shows more green, not the list's ground. */}
                 <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
                 <CollapsingHeader collapsed={addMode}>
-                  <View style={{ gap: spacing.md, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs }}>
-                    <View style={{ paddingTop: spacing.sm }}>
-                      <SwitcherTitle name={list.name} invites={invites.length} />
-                    </View>
-                    <View style={[styles.title, { columnGap: spacing.md }]}>
-                      {toGetLabel(unchecked.length) ? (
-                        <ThemedText variant="amount" color="onHeaderSecondary">
-                          {toGetLabel(unchecked.length)}
-                        </ThemedText>
-                      ) : null}
-                      <ViewMenuButton value={viewMode} onChange={setViewMode} />
-                    </View>
+                  <View
+                    style={[
+                      styles.title,
+                      { columnGap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs },
+                    ]}>
+                    {toGetLabel(unchecked.length) ? (
+                      <ThemedText variant="amount" color="onHeaderSecondary">
+                        {toGetLabel(unchecked.length)}
+                      </ThemedText>
+                    ) : null}
+                    <ViewMenuButton value={viewMode} onChange={setViewMode} />
                   </View>
                 </CollapsingHeader>
                 <View style={{ height: rounded.card }} />
@@ -930,33 +944,38 @@ export function ListScreen({ id }: { id: string }) {
 }
 
 /**
- * The list's name with a round chevron after it: one button that opens the Your lists sheet (spec 4.1,
- * board E). A dot on the chevron while an invite is waiting, which the sheet shows.
+ * The list's name with a small chevron after it: one button that opens the Your lists sheet (spec 4.1,
+ * board E). A long name truncates so the chevron, and ⋯ beside it, stay in view. A dot on the chevron
+ * while an invite is waiting, which the sheet shows.
  */
 function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const look = listHeaderColors(colors);
+  const { width } = useWindowDimensions();
+  // Leaves room for the bar's two 16 pt margins, ⋯ and a gap before it. The bar's margin is 4 pt short of
+  // the sheet's 20 pt gutter, so the name is padded over to line up with "N to get".
+  const maxWidth = width - spacing.lg * 2 - sizes.minTapTarget - spacing.md;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={switcherAccessibilityLabel(name, invites)}
-      accessibilityHint="Shows your lists"
+      accessibilityHint="Shows your other lists"
       onPress={() => router.push('/lists-sheet')}
-      style={({ pressed }) => [styles.switcher, { gap: spacing.sm + spacing.xxs, opacity: pressed ? opacity.pressed : 1 }]}>
-      <ThemedText variant="screenTitle" color="onHeader" style={styles.shrink}>
+      style={({ pressed }) => [
+        styles.switcher,
+        {
+          maxWidth,
+          minHeight: sizes.minTapTarget,
+          paddingLeft: spacing.xs,
+          gap: spacing.xs + spacing.xxs,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <ThemedText variant="screenTitle" color="onHeader" numberOfLines={1} style={styles.shrink}>
         {name}
       </ThemedText>
-      <View
-        style={[
-          styles.chevron,
-          {
-            width: sizes.switcherChevron,
-            height: sizes.switcherChevron,
-            borderRadius: rounded.full,
-            backgroundColor: look.viewButton.fill,
-          },
-        ]}>
-        <Icon name="chevron.down" tint={look.title} size={sizes.iconSmall + spacing.xs} weight="bold" />
+      <View>
+        <Icon name="chevron.down" color="onHeaderSecondary" size={sizes.iconSmall + spacing.xs} weight="bold" />
         {invites > 0 ? (
           <View
             style={[
@@ -964,8 +983,8 @@ function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
               {
                 width: sizes.inviteDot + sizes.inviteDotRing * 2,
                 height: sizes.inviteDot + sizes.inviteDotRing * 2,
-                top: -sizes.inviteDotRing,
-                right: -sizes.inviteDotRing,
+                top: -sizes.inviteDot,
+                right: -sizes.inviteDot,
                 borderRadius: rounded.full,
                 borderWidth: sizes.inviteDotRing,
                 borderColor: look.ground,
@@ -1108,9 +1127,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   title: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', maxWidth: '100%' },
+  switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
   shrink: { flexShrink: 1 },
-  chevron: { alignItems: 'center', justifyContent: 'center' },
   inviteDot: { position: 'absolute' },
   round: { alignItems: 'center', justifyContent: 'center' },
   compactTitle: { alignItems: 'center', justifyContent: 'center' },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
-import { cleanJsonLdText, decodeHtmlEntities, findRecipe } from '../recipe-jsonld';
+import { cleanJsonLdText, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -27,6 +27,7 @@ describe('findRecipe: block shapes', () => {
       name: 'Pad Thai',
       ingredientLines: ['200 g rice noodles', '2 eggs'],
       servings: 2,
+      totalMinutes: null,
     });
   });
 
@@ -175,10 +176,81 @@ describe('findRecipe: servings', () => {
   });
 });
 
+describe('parseIsoDuration', () => {
+  it('reads minutes, hours, days and seconds', () => {
+    expect(parseIsoDuration('PT45M')).toBe(45);
+    expect(parseIsoDuration('PT1H')).toBe(60);
+    expect(parseIsoDuration('PT1H20M')).toBe(80);
+    expect(parseIsoDuration('P0DT2H30M')).toBe(150);
+    expect(parseIsoDuration('P1D')).toBe(1440);
+    expect(parseIsoDuration('PT90S')).toBe(2);
+    expect(parseIsoDuration('PT1.5H')).toBe(90);
+    expect(parseIsoDuration(' pt60m ')).toBe(60);
+  });
+
+  it('is null for no time at all', () => {
+    expect(parseIsoDuration('PT0S')).toBeNull();
+    expect(parseIsoDuration('PT0M')).toBeNull();
+    expect(parseIsoDuration('PT20S')).toBeNull();
+  });
+
+  it('is null for garbage, other units and non-strings', () => {
+    expect(parseIsoDuration('40 minutes')).toBeNull();
+    expect(parseIsoDuration('P')).toBeNull();
+    expect(parseIsoDuration('PT')).toBeNull();
+    expect(parseIsoDuration('')).toBeNull();
+    expect(parseIsoDuration('PT-5M')).toBeNull();
+    expect(parseIsoDuration('PT1H20')).toBeNull();
+    expect(parseIsoDuration('P1Y')).toBeNull();
+    expect(parseIsoDuration('P1M')).toBeNull();
+    expect(parseIsoDuration('P1W')).toBeNull();
+    expect(parseIsoDuration('45M')).toBeNull();
+    expect(parseIsoDuration(45)).toBeNull();
+    expect(parseIsoDuration(null)).toBeNull();
+    expect(parseIsoDuration(undefined)).toBeNull();
+    expect(parseIsoDuration({ value: 'PT45M' })).toBeNull();
+  });
+});
+
+describe('findRecipe: total time', () => {
+  const minutes = (fields: Record<string, unknown>) => findRecipe([block(recipe(fields))])?.totalMinutes;
+
+  it('reads totalTime', () => {
+    expect(minutes({ totalTime: 'PT1H20M' })).toBe(80);
+  });
+
+  it('prefers totalTime over prepTime + cookTime', () => {
+    expect(minutes({ totalTime: 'PT2H', prepTime: 'PT10M', cookTime: 'PT20M' })).toBe(120);
+  });
+
+  it('adds prepTime and cookTime when there is no usable totalTime', () => {
+    expect(minutes({ prepTime: 'PT15M', cookTime: 'PT45M' })).toBe(60);
+    expect(minutes({ totalTime: 'about an hour', prepTime: 'PT15M', cookTime: 'PT1H' })).toBe(75);
+    expect(minutes({ totalTime: 'PT0S', prepTime: 'PT10M', cookTime: 'PT0S' })).toBe(10);
+  });
+
+  it('uses prepTime or cookTime alone', () => {
+    expect(minutes({ prepTime: 'PT10M' })).toBe(10);
+    expect(minutes({ cookTime: 'PT25M', prepTime: 'soon' })).toBe(25);
+  });
+
+  it('is null with no usable time', () => {
+    expect(minutes({})).toBeNull();
+    expect(minutes({ totalTime: '40 minutes', cookTime: '20 minutes' })).toBeNull();
+    expect(minutes({ totalTime: 'PT0S' })).toBeNull();
+  });
+
+  it('is null outside 1 to 2880 minutes', () => {
+    expect(minutes({ totalTime: 'P2D' })).toBe(2880);
+    expect(minutes({ totalTime: 'P2DT1M' })).toBeNull();
+    expect(minutes({ prepTime: 'P1D', cookTime: 'P1DT1M' })).toBeNull();
+  });
+});
+
 // Every application/ld+json block from each page, as served on 2026-10-10.
-const FIXTURES: [string, string[], string, number, string, string, number][] = [
-  ['bbc.co.uk/food (@graph, HTML in strings)', bbcfood, 'Easy chocolate cake', 12, '225g/8oz plain flour', '200ml/7fl oz double cream', 12],
-  ['bbcgoodfood (Recipe in 2nd block)', bbcgoodfood, 'Easy pancakes', 6, '100g plain flour', 'caster sugar to serve (optional)', 12],
+const FIXTURES: [string, string[], string, number, string, string, number, number | null][] = [
+  ['bbc.co.uk/food (@graph, HTML in strings)', bbcfood, 'Easy chocolate cake', 12, '225g/8oz plain flour', '200ml/7fl oz double cream', 12, 90],
+  ['bbcgoodfood (Recipe in 2nd block)', bbcgoodfood, 'Easy pancakes', 6, '100g plain flour', 'caster sugar to serve (optional)', 12, 30],
   [
     'bonappetit (top-level Recipe)',
     bonappetit,
@@ -187,8 +259,10 @@ const FIXTURES: [string, string[], string, number, string, string, number][] = [
     '1½ cups plus 1 Tbsp. (200 g) all-purpose flour (spooning into measuring cups, then leveling)',
     '6 oz. (170 g) bittersweet chocolate (60%–70% cacao), coarsely chopped, or semisweet chocolate chips',
     16,
+    // "40 minutes" isn't ISO 8601.
+    null,
   ],
-  ['delish (top-level array)', delish, 'Creamy Tuscan Chicken', 12, '1 tbsp. extra-virgin olive oil', 'Lemon wedges, for serving', 4],
+  ['delish (top-level array)', delish, 'Creamy Tuscan Chicken', 12, '1 tbsp. extra-virgin olive oil', 'Lemon wedges, for serving', 4, 45],
   [
     'kingarthurbaking (@graph)',
     kingarthur,
@@ -197,6 +271,7 @@ const FIXTURES: [string, string[], string, number, string, string, number][] = [
     '3 cups (360g) King Arthur Unbleached All-Purpose Flour',
     '2 teaspoons instant yeast',
     16,
+    162,
   ],
   [
     'recipetineats (Yoast @graph, entities)',
@@ -206,6 +281,7 @@ const FIXTURES: [string, string[], string, number, string, string, number][] = [
     '4 chicken thighs, bone-in, skin on ((~250g/8oz each) (Note 1))',
     'Creamy mashed potato ((or rice or small pasta))',
     4,
+    60,
   ],
   [
     'tasty (Recipe, VideoObject, array blocks)',
@@ -215,17 +291,19 @@ const FIXTURES: [string, string[], string, number, string, string, number][] = [
     '2 tablespoons unsalted butter',
     '2 tablespoons fresh parsley, chopped',
     4,
+    32,
   ],
 ];
 
 describe('findRecipe: real pages', () => {
-  it.each(FIXTURES)('%s', (_site, blocks, name, lineCount, first, last, servings) => {
+  it.each(FIXTURES)('%s', (_site, blocks, name, lineCount, first, last, servings, totalMinutes) => {
     const found = findRecipe(blocks);
     expect(found?.name).toBe(name);
     expect(found?.ingredientLines).toHaveLength(lineCount);
     expect(found?.ingredientLines[0]).toBe(first);
     expect(found?.ingredientLines.at(-1)).toBe(last);
     expect(found?.servings).toBe(servings);
+    expect(found?.totalMinutes).toBe(totalMinutes);
   });
 });
 
@@ -257,5 +335,6 @@ describe('exports', () => {
   it('exports findRecipe and decodeHtmlEntities from @/shared', () => {
     expect(shared.findRecipe).toBe(findRecipe);
     expect(shared.decodeHtmlEntities).toBe(decodeHtmlEntities);
+    expect(shared.parseIsoDuration).toBe(parseIsoDuration);
   });
 });

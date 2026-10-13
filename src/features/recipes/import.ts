@@ -273,6 +273,9 @@ function createImportedRecipe(
     name: nameOf(imported),
     sourceUrl: imported.sourceUrl,
     notes: imported.servings ? `Serves ${imported.servings}` : null,
+    // Only a recipe this import creates; a reused one keeps its own (spec 4.14).
+    tags: imported.tags,
+    totalMinutes: imported.totalMinutes,
   });
   return id;
 }
