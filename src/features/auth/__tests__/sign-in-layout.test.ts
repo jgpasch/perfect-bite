@@ -1,46 +1,35 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { signInOverflows, signInShapeHeight } from '../sign-in-layout';
+import { signInOverflows, signInHeroSize } from '../sign-in-layout';
 
-const sizes = { max: 92, min: 46, gap: 10 };
+const sizes = { max: 200, min: 100 };
 
-describe('signInShapeHeight', () => {
+describe('signInHeroSize', () => {
   it('uses the full size when there is more than enough room', () => {
-    expect(signInShapeHeight(400, sizes)).toBe(92);
+    expect(signInHeroSize(400, sizes)).toBe(200);
   });
 
-  it('uses the full size when the two rows and the gap fit exactly', () => {
-    expect(signInShapeHeight(92 * 2 + 10, sizes)).toBe(92);
+  it('uses the full size at an exact fit', () => {
+    expect(signInHeroSize(200, sizes)).toBe(200);
   });
 
-  it('shrinks the shapes to fit a shorter space', () => {
-    // (150 - 10) / 2 = 70
-    expect(signInShapeHeight(150, sizes)).toBe(70);
+  it('shrinks the cloche to fit a shorter space, rounding down', () => {
+    expect(signInHeroSize(150.6, sizes)).toBe(150);
   });
 
-  it('rounds down so the rows never overflow the space', () => {
-    // (151 - 10) / 2 = 70.5
-    expect(signInShapeHeight(151, sizes)).toBe(70);
+  it('keeps the cloche at exactly the minimum', () => {
+    expect(signInHeroSize(100, sizes)).toBe(100);
   });
 
-  it('keeps shapes at exactly the minimum', () => {
-    expect(signInShapeHeight(46 * 2 + 10, sizes)).toBe(46);
+  it('drops the cloche once it would be smaller than the minimum', () => {
+    expect(signInHeroSize(99, sizes)).toBe(0);
+    expect(signInHeroSize(20, sizes)).toBe(0);
   });
 
-  it('drops the shapes once they would be shorter than the minimum', () => {
-    expect(signInShapeHeight(46 * 2 + 9, sizes)).toBe(0);
-    expect(signInShapeHeight(20, sizes)).toBe(0);
-  });
-
-  it('has no shapes when there is no space, or before layout', () => {
-    expect(signInShapeHeight(0, sizes)).toBe(0);
-    expect(signInShapeHeight(-30, sizes)).toBe(0);
-    expect(signInShapeHeight(Number.NaN, sizes)).toBe(0);
-  });
-
-  it('accounts for the gap between the rows', () => {
-    expect(signInShapeHeight(200, { max: 200, min: 0, gap: 0 })).toBe(100);
-    expect(signInShapeHeight(200, { max: 200, min: 0, gap: 40 })).toBe(80);
+  it('has no cloche when there is no space, or before layout', () => {
+    expect(signInHeroSize(0, sizes)).toBe(0);
+    expect(signInHeroSize(-30, sizes)).toBe(0);
+    expect(signInHeroSize(Number.NaN, sizes)).toBe(0);
   });
 });
 

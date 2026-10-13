@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from 'react-native';
@@ -15,21 +16,21 @@ import {
   useAccountState,
   verifyEmailCode,
 } from '@/features/auth/account';
-import { signInOverflows, signInShapeHeight } from '@/features/auth/sign-in-layout';
+import { signInHeroSize, signInOverflows } from '@/features/auth/sign-in-layout';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { isGoogleConfigured } from '@/lib/google-sign-in';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
- * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and a grid of
- * coloured shapes filling the space between, on the primary green (spec 4.8). Dev builds also get
+ * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and the gold cloche
+ * in the space between, on the header green the launch screen also uses (spec 4.8). Dev builds also get
  * the email + 6-digit code stub; local Supabase delivers the code to Inbucket
  * (http://127.0.0.1:55324).
  */
 export default function SignInScreen() {
   const account = useAccountState();
-  const { colors, aisles, spacing, scheme } = useTheme();
-  const look = signInColors(colors, aisles);
+  const { colors, spacing } = useTheme();
+  const look = signInColors(colors);
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
   const [email, setEmail] = useState('');
@@ -73,11 +74,11 @@ export default function SignInScreen() {
   return (
     // The screen is exactly the device's height. The safe-area insets are padding inside it, not the
     // scroll view's automatic content insets (which made the flexGrow: 1 content overflow by their
-    // height), and the keyboard shrinks the screen instead of adding a scroll inset. So the shapes
+    // height), and the keyboard shrinks the screen instead of adding a scroll inset. So the cloche
     // give way first, and it scrolls only when the title, field and buttons alone don't fit.
     <KeyboardAvoidingView behavior="padding" style={[styles.fill, { backgroundColor: look.ground }]}>
-      {/* Light status bar text on the light scheme's dark green, dark text on the dark scheme's light green. */}
-      <StatusBar style={scheme === 'dark' ? 'dark' : 'light'} />
+      {/* The header green is dark in both schemes. */}
+      <StatusBar style="light" />
       <ScrollView
         ref={scrollRef}
         contentInsetAdjustmentBehavior="never"
@@ -109,7 +110,7 @@ export default function SignInScreen() {
           </ThemedText>
         </View>
 
-        <Shapes colors={look.shapes} />
+        <Hero />
 
         {account.status === 'unconfigured' ? null : (
           <View style={{ gap: spacing.md }}>
@@ -166,7 +167,7 @@ export default function SignInScreen() {
                 <Button
                   label="Use a different email"
                   variant="plain"
-                  color="onPrimary"
+                  color="onHeader"
                   onPress={() => setStep('email')}
                   disabled={busy}
                 />
@@ -183,69 +184,35 @@ export default function SignInScreen() {
 }
 
 /**
- * Board 09's 3 × 2 grid of rounded shapes, centred in the space the title and the field leave.
- * They shrink to fit, and go once they'd be too small to read as shapes. Decorative.
+ * The gold cloche, centred in the space the title and the field leave. It shrinks to fit, and goes
+ * once it'd be under half size. Decorative.
  */
-function Shapes({ colors }: { colors: string[] }) {
-  const { spacing, sizes, rounded } = useTheme();
+function Hero() {
+  const { sizes } = useTheme();
   const [space, setSpace] = useState(0);
-  const gap = spacing.sm + spacing.xxs;
-  const height = signInShapeHeight(space, { max: sizes.signInShape, min: sizes.signInShape / 2, gap });
-  const round = height / 2;
-  const square = Math.min(rounded.card, round);
-  // Corners per shape: top-left, top-right, bottom-right, bottom-left.
-  const corners = [
-    [square, square, square, square],
-    [round, round, round, round],
-    [square, square, round, square],
-    [round, square, square, square],
-    [square, square, square, square],
-    [round, round, round, round],
-  ];
+  const size = signInHeroSize(space, { max: sizes.signInHero, min: sizes.signInHero / 2 });
   return (
-    // The grid is on an absolute layer so it never adds to the content's height: the space between
-    // the title and the field sizes the shapes, not the other way round.
+    // The cloche is on an absolute layer so it never adds to the content's height: the space between
+    // the title and the field sizes it, not the other way round.
     <View
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       style={styles.fill}
       onLayout={(e) => setSpace(e.nativeEvent.layout.height)}>
-      {height > 0 ? (
-        <View style={[StyleSheet.absoluteFill, styles.centre, { gap }]}>
-          {[0, 3].map((start) => (
-            <View key={start} style={[styles.row, { gap }]}>
-              {colors.slice(start, start + 3).map((color, i) => {
-                const [tl, tr, br, bl] = corners[start + i];
-                return (
-                  <View
-                    key={i}
-                    style={[
-                      styles.shape,
-                      {
-                        height,
-                        backgroundColor: color,
-                        borderTopLeftRadius: tl,
-                        borderTopRightRadius: tr,
-                        borderBottomRightRadius: br,
-                        borderBottomLeftRadius: bl,
-                      },
-                    ]}
-                  />
-                );
-              })}
-            </View>
-          ))}
+      {size > 0 ? (
+        <View style={[StyleSheet.absoluteFill, styles.centre]}>
+          <Image source={CLOCHE} style={{ width: size, height: size }} contentFit="contain" accessible={false} />
         </View>
       ) : null}
     </View>
   );
 }
 
+const CLOCHE = require('../../assets/images/splash-cloche.png');
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flexGrow: 1 },
-  centre: { justifyContent: 'center' },
-  row: { flexDirection: 'row' },
-  shape: { flex: 1, borderCurve: 'continuous' },
+  centre: { alignItems: 'center', justifyContent: 'center' },
   center: { textAlign: 'center' },
 });

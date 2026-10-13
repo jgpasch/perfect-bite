@@ -38,7 +38,7 @@ export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon
   );
 }
 
-/** The main action on a `primary` ground (the sign-in screen): a 54 pt `surface` pill with `ink` text. */
+/** The main action on the `header` green (the sign-in screen): a 54 pt `onHeader` pill with `header` text, in both schemes. */
 export function SurfaceButton({ label, icon, disabled, ...rest }: Props & { icon?: IconName }) {
   const { colors, spacing, rounded, sizes, opacity } = useTheme();
   return (
@@ -54,13 +54,15 @@ export function SurfaceButton({ label, icon, disabled, ...rest }: Props & { icon
           paddingHorizontal: spacing.lg,
           gap: spacing.sm,
           borderRadius: rounded.full,
-          backgroundColor: colors.surface,
+          backgroundColor: colors.onHeader,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}
       {...rest}>
-      {icon ? <Icon name={icon} color="ink" weight="semibold" /> : null}
-      <ThemedText variant="headline">{label}</ThemedText>
+      {icon ? <Icon name={icon} color="header" weight="semibold" /> : null}
+      <ThemedText variant="headline" color="header">
+        {label}
+      </ThemedText>
     </Pressable>
   );
 }

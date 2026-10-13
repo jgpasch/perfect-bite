@@ -222,16 +222,15 @@ export function listRowLook(
 }
 
 /**
- * The sign-in screen (board 09): `onPrimary` text on a `primary` ground, and a `surface` button with
- * `ink` text. The six decorative shapes take aisle tints and the theme's own greens.
+ * The sign-in screen (board 09): `onHeader` text on the `header` green, the same dark green as the
+ * launch screen behind it, and an `onHeader` button with `header` text, so it reads in both schemes.
  */
-export function signInColors(colors: ThemeColors, aisles: Aisles) {
+export function signInColors(colors: ThemeColors) {
   return {
-    ground: colors.primary,
-    text: colors.onPrimary,
-    button: colors.surface,
-    buttonText: colors.ink,
-    shapes: [aisles.blue.dot, aisles.amber.dot, aisles.rose.dot, colors.background, colors.onPrimarySoft, aisles.blue.soft],
+    ground: colors.header,
+    text: colors.onHeader,
+    button: colors.onHeader,
+    buttonText: colors.header,
   };
 }
 

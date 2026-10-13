@@ -480,27 +480,22 @@ describe('addBarButton', () => {
 });
 
 describe('signInColors', () => {
-  it('uses the board 09 colours in light mode', () => {
-    expect(signInColors(Palette.light, AisleColors.light)).toEqual({
-      ground: '#2E6B45',
+  it('uses the header green, matching the launch screen, in light mode', () => {
+    expect(signInColors(Palette.light)).toEqual({
+      ground: '#1F4D33',
       text: '#FFFFFF',
       button: '#FFFFFF',
-      buttonText: '#1D2A22',
-      shapes: ['#3E7BB8', '#C98A1E', '#C2556B', '#EEF3EC', '#1F5233', '#DFEAF6'],
+      buttonText: '#1F4D33',
     });
   });
 
   it.each(SCHEMES)('keeps the text and the button readable in %s mode', (scheme) => {
-    const look = signInColors(Palette[scheme], AisleColors[scheme]);
+    const look = signInColors(Palette[scheme]);
     expect(contrastRatio(look.text, look.ground)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(look.buttonText, look.button)).toBeGreaterThanOrEqual(4.5);
     // The button and the "Use a different email" link sit on the ground.
     expect(contrastRatio(look.button, look.ground)).toBeGreaterThanOrEqual(3);
-    expect(contrastRatio(Palette[scheme].onPrimary, look.ground)).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it.each(SCHEMES)('has six shapes in %s mode', (scheme) => {
-    expect(signInColors(Palette[scheme], AisleColors[scheme]).shapes).toHaveLength(6);
+    expect(contrastRatio(Palette[scheme].onHeader, look.ground)).toBeGreaterThanOrEqual(4.5);
   });
 });
 

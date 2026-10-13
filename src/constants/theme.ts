@@ -246,8 +246,8 @@ export const Sizes = {
   /** household member avatars (overlapping) and the ring that separates them */
   avatar: 48,
   avatarRing: 3,
-  /** the coloured shapes on the sign-in screen */
-  signInShape: 92,
+  /** the cloche on the sign-in screen, at its largest */
+  signInHero: 200,
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
   aisleRow: 52,
   grip: 20,
