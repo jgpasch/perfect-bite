@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, households } from '@/db';
 import type { AccountState } from '@/features/auth/account';
+import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setListArchived } from '@/features/lists/lists';
 import type { PendingSiriAdd } from '@/features/siri/app-group';
 import { resetDb } from '@/test/db';
@@ -25,7 +26,20 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
-jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { version: '1.2.3' } } }));
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native');
+  const builder: object = new Proxy({}, { get: () => () => builder });
+  return {
+    __esModule: true,
+    default: { View, createAnimatedComponent: (c: unknown) => c },
+    FadeIn: builder,
+    FadeInDown: builder,
+    FadeOut: builder,
+    LinearTransition: builder,
+    useReducedMotion: () => false,
+  };
+});
+jest.mock('expo-constants',() => ({ __esModule: true, default: { expoConfig: { version: '1.2.3' } } }));
 // The screens' live queries, read again on every render.
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
@@ -193,6 +207,24 @@ describe('Settings', () => {
     const root = render(<SettingsScreen />);
     click(button(root, 'Personal'));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/settings/households/[id]', params: { id: householdId } });
+  });
+
+  it('says "Deleted <household>" once, on coming back from deleting one', () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    setDeletedHousehold('Cabin');
+    const root = render(<SettingsScreen />);
+    // The name is set in bold, its own Text.
+    expect(textOf(root)).toMatch(/Deleted\s+Cabin$/);
+    expect(announce).toHaveBeenCalledWith('Deleted Cabin');
+    // Taken once: focusing Settings again doesn't show it again.
+    act(() => tree!.unmount());
+    const again = render(<SettingsScreen />);
+    expect(textOf(again)).not.toContain('Deleted');
+  });
+
+  it('shows no toast without a deleted household', () => {
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).not.toContain('Deleted');
   });
 
   it('hides Households with none on the device', () => {

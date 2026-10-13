@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { avatarColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
@@ -9,6 +10,7 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
+import { Toast } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
@@ -25,7 +27,8 @@ import {
   householdsForDeletion,
   isOffline,
 } from '@/features/auth/delete-account';
-import { avatarInitial, householdsQuery } from '@/features/households/households';
+import { takeDeletedHousehold } from '@/features/households/deleted-household-notice';
+import { avatarInitial, deletedHouseholdToast, householdsQuery } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
@@ -54,6 +57,15 @@ export default function SettingsScreen() {
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
   const [deleting, setDeleting] = useState(false);
+  // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
+  const [toast, setToast] = useState<{ key: number; message: string; emphasis?: string } | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+  useFocusEffect(
+    useCallback(() => {
+      const name = takeDeletedHousehold();
+      if (name !== null) setToast({ key: Date.now(), ...deletedHouseholdToast(name) });
+    }, []),
+  );
 
   return (
     // The scroll view sits inside a plain view, as on the other tabs: as the screen's root view the
@@ -176,6 +188,12 @@ export default function SettingsScreen() {
           </ThemedText>
         </View>
       </ScrollView>
+      {toast ? (
+        // Above the tab bar: the bottom safe area here includes it.
+        <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
+          <Toast key={toast.key} message={toast.message} emphasis={toast.emphasis} actions={[]} onDismiss={dismissToast} />
+        </SafeAreaView>
+      ) : null}
       <DeletingOverlay visible={deleting} />
     </Screen>
   );
@@ -240,4 +258,5 @@ const styles = StyleSheet.create({
   start: { alignItems: 'flex-start' },
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   avatar: { alignItems: 'center', justifyContent: 'center' },
+  toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
 });

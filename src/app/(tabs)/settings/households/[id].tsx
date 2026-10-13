@@ -13,8 +13,12 @@ import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { useAccountState } from '@/features/auth/account';
+import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import {
   avatarInitial,
+  DELETE_HINT,
+  deleteHousehold,
+  deleteHouseholdConfirmation,
   fetchHouseholdMembers,
   HOUSEHOLD_COUNT_TABLES,
   householdActionAlert,
@@ -66,8 +70,11 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * if the server made one), then goes back to Settings. The list screen is a root-stack screen above
  * the tabs, so no list of this household can be open under this one. Owners get a pencil beside
  * the name that asks for a new one (`rename_household`); the local row and the list snapshot take
- * it at once, and other members' devices get it on their next sync.
- * TODO(M7): delete household.
+ * it at once, and other members' devices get it on their next sync. Owners also get Delete
+ * household above Leave: after a confirm naming what goes and for how many members, it calls
+ * `delete_household` and pulls, as leaving does, then goes back to Settings, which says "Deleted
+ * <household>". Other members' devices purge it on their next sync, as after a removal; a List tab
+ * showing one of its lists falls back to the default list, then the first.
  */
 export default function HouseholdScreen() {
   const { colors, aisles, spacing, sizes } = useTheme();
@@ -83,6 +90,7 @@ export default function HouseholdScreen() {
   const [busyInvite, setBusyInvite] = useState<string | null>(null);
   const [busyMember, setBusyMember] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const request = useRef(0);
 
   const load = useCallback(() => {
@@ -204,7 +212,7 @@ export default function HouseholdScreen() {
   };
 
   const memberMenu = (member: HouseholdMember) => {
-    if (busyMember || leaving) return;
+    if (busyMember || leaving || deleting) return;
     const sheet = memberActionsSheet(member, members, householdName);
     if (!sheet) return;
     ActionSheetIOS.showActionSheetWithOptions(
@@ -261,8 +269,37 @@ export default function HouseholdScreen() {
     }
   };
 
+  const runDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteHousehold(id);
+      setDeletedHousehold(householdName);
+      router.back();
+    } catch (err) {
+      console.warn(`[households] couldn't delete ${id}`, err);
+      const alert = householdActionAlert('delete', err, { householdName });
+      Alert.alert(alert.title, alert.message);
+      setDeleting(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (deleting || leaving || busyMember || !household) return;
+    const confirm = deleteHouseholdConfirmation({
+      householdName,
+      memberCount: members.length,
+      listCount: household.listCount,
+      recipeCount: household.recipeCount,
+      onlyHousehold: data.length === 1,
+    });
+    Alert.alert(confirm.title, confirm.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: confirm.confirmLabel, style: 'destructive', onPress: () => void runDelete() },
+    ]);
+  };
+
   const confirmLeave = () => {
-    if (leaving || busyMember || !household) return;
+    if (leaving || deleting || busyMember || !household) return;
     const confirm = leaveConfirmation({
       householdName,
       members,
@@ -390,6 +427,16 @@ export default function HouseholdScreen() {
       {state.status === 'ready' && household ? (
         <View style={{ paddingTop: spacing.lg }}>
           <Card>
+            {isOwner ? (
+              <SettingsRow
+                label="Delete household"
+                labelColor="danger"
+                accessibilityHint={DELETE_HINT}
+                trailing={deleting ? <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Deleting" /> : undefined}
+                chevron={false}
+                onPress={confirmDelete}
+              />
+            ) : null}
             <SettingsRow
               label="Leave household"
               labelColor="danger"

@@ -5,8 +5,12 @@ import { db, households, lists, recipes } from '@/db';
 import { resetDb } from '@/test/db';
 import { respondToRpc, resetSupabase, rpcCalls, supabase } from '@/test/fake-supabase';
 
+import { setDeletedHousehold, takeDeletedHousehold } from '../deleted-household-notice';
 import {
   avatarInitial,
+  deletedHouseholdToast,
+  deleteHousehold,
+  deleteHouseholdConfirmation,
   earliestJoinedOther,
   fetchHouseholdMembers,
   HouseholdActionError,
@@ -673,6 +677,134 @@ describe('leaveHousehold', () => {
     supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
     await expect(leaveHousehold('h1')).rejects.toMatchObject({ kind: 'offline' });
     expect(mockPull.calls).toEqual([]);
+  });
+});
+
+describe('deleteHousehold', () => {
+  test('calls delete_household, then pulls, and returns the new household', async () => {
+    respondToRpc('delete_household', { data: { new_household_id: 'h-new' } });
+    await expect(deleteHousehold('h1')).resolves.toEqual({ newHouseholdId: 'h-new' });
+    expect(rpcCalls).toEqual([{ fn: 'delete_household', args: { p_household_id: 'h1' } }]);
+    expect(mockPull.calls).toEqual(['pull']);
+    expect(mockPull.rpcCountAtPull).toEqual([1]);
+  });
+
+  test('with another household left there is no new one', async () => {
+    respondToRpc('delete_household', { data: { new_household_id: null } });
+    await expect(deleteHousehold('h1')).resolves.toEqual({ newHouseholdId: null });
+  });
+
+  test("doesn't touch local households itself: the pull purges it", async () => {
+    respondToRpc('delete_household', { data: { new_household_id: 'h-new' } });
+    await deleteHousehold('h1');
+    expect(db.select({ id: households.id }).from(households).all()).toEqual([{ id: 'h1' }]);
+  });
+
+  test('not an owner is thrown typed and nothing is pulled', async () => {
+    respondToRpc('delete_household', { error: { message: 'not an owner', code: '42501' } });
+    const result = deleteHousehold('h1');
+    await expect(result).rejects.toBeInstanceOf(HouseholdActionError);
+    await expect(result).rejects.toMatchObject({ kind: 'not-owner' });
+    expect(mockPull.calls).toEqual([]);
+  });
+
+  test('offline: says so without asking the server or pulling', async () => {
+    mockNetwork.state = { isConnected: false, isInternetReachable: false };
+    await expect(deleteHousehold('h1')).rejects.toMatchObject({ kind: 'offline' });
+    expect(rpcCalls).toEqual([]);
+    expect(mockPull.calls).toEqual([]);
+  });
+
+  test('a rejected call maps to offline', async () => {
+    supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
+    await expect(deleteHousehold('h1')).rejects.toMatchObject({ kind: 'offline' });
+    expect(mockPull.calls).toEqual([]);
+  });
+});
+
+describe('deleteHouseholdConfirmation (spec 4.7)', () => {
+  const base = { householdName: 'Cabin', memberCount: 3, listCount: 2, recipeCount: 5, onlyHousehold: false };
+
+  test('several members: says it goes for all of them', () => {
+    expect(deleteHouseholdConfirmation(base)).toEqual({
+      title: 'Delete Cabin?',
+      message: "Its 2 lists and 5 recipes will be deleted for all 3 members. This can't be undone.",
+      confirmLabel: 'Delete',
+    });
+  });
+
+  test('only the user: no member count', () => {
+    expect(deleteHouseholdConfirmation({ ...base, memberCount: 1 }).message).toBe(
+      "Its 2 lists and 5 recipes will be deleted. This can't be undone.",
+    );
+  });
+
+  test('members not loaded (0) reads like only the user', () => {
+    expect(deleteHouseholdConfirmation({ ...base, memberCount: 0 }).message).toBe(
+      "Its 2 lists and 5 recipes will be deleted. This can't be undone.",
+    );
+  });
+
+  test('singular counts', () => {
+    expect(deleteHouseholdConfirmation({ ...base, memberCount: 2, listCount: 1, recipeCount: 1 }).message).toBe(
+      "Its 1 list and 1 recipe will be deleted for all 2 members. This can't be undone.",
+    );
+    expect(deleteHouseholdConfirmation({ ...base, listCount: 0, recipeCount: 0 }).message).toBe(
+      "Its 0 lists and 0 recipes will be deleted for all 3 members. This can't be undone.",
+    );
+  });
+
+  test("the user's only household: they get a new one", () => {
+    expect(deleteHouseholdConfirmation({ ...base, memberCount: 1, onlyHousehold: true }).message).toBe(
+      "Its 2 lists and 5 recipes will be deleted. This can't be undone. You'll get a new empty household.",
+    );
+    expect(deleteHouseholdConfirmation({ ...base, onlyHousehold: true }).message).toBe(
+      "Its 2 lists and 5 recipes will be deleted for all 3 members. This can't be undone. You'll get a new empty household.",
+    );
+  });
+
+  test('a blank name reads as this household', () => {
+    expect(deleteHouseholdConfirmation({ ...base, householdName: '  ' }).title).toBe('Delete this household?');
+    expect(deleteHouseholdConfirmation({ ...base, householdName: ' Cabin ' }).title).toBe('Delete Cabin?');
+  });
+});
+
+describe('deletedHouseholdToast', () => {
+  test('names the household, in bold', () => {
+    expect(deletedHouseholdToast('Cabin')).toEqual({ message: 'Deleted Cabin', emphasis: 'Cabin' });
+    expect(deletedHouseholdToast(' Cabin ')).toEqual({ message: 'Deleted Cabin', emphasis: 'Cabin' });
+  });
+
+  test('without a name', () => {
+    expect(deletedHouseholdToast('')).toEqual({ message: 'Deleted the household' });
+  });
+});
+
+describe('delete alerts', () => {
+  const names = { householdName: 'Cabin' };
+  test('per kind', () => {
+    expect(householdActionAlert('delete', new HouseholdActionError('offline', ''), names)).toEqual({
+      title: "You're offline",
+      message: 'Connect to the internet and try again.',
+    });
+    expect(householdActionAlert('delete', { message: 'not an owner' }, names)).toEqual({
+      title: "Couldn't delete Cabin",
+      message: 'Only owners can delete a household.',
+    });
+    expect(householdActionAlert('delete', { message: 'boom' }, names)).toEqual({
+      title: "Couldn't delete Cabin",
+      message: 'Something went wrong. Try again.',
+    });
+    expect(householdActionAlert('delete', { message: 'boom' }).title).toBe("Couldn't delete this household");
+  });
+});
+
+describe('deleted household notice', () => {
+  test('is taken once', () => {
+    expect(takeDeletedHousehold()).toBeNull();
+    setDeletedHousehold('Cabin');
+    expect(takeDeletedHousehold()).toBe('Cabin');
+    expect(takeDeletedHousehold()).toBeNull();
   });
 });
 

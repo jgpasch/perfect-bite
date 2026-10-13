@@ -1,8 +1,8 @@
 // Households (spec 4.7, 5). A household is created locally (ensureStarterData) through the outbox,
 // and the push sends it to the server with `create_household` (src/sync/push.ts). Members are
-// fetched online for the Households screen, which also leaves a household, removes members and
-// changes roles through the server (`leave_household`, `remove_member`, `rename_household`,
-// `set_member_role`).
+// fetched online for the Households screen, which also leaves a household, removes members,
+// changes roles and deletes the household through the server (`leave_household`, `remove_member`,
+// `rename_household`, `set_member_role`, `delete_household`).
 import { asc, eq, sql } from 'drizzle-orm';
 import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
@@ -120,8 +120,8 @@ export type HouseholdActionErrorKind =
   | 'failed';
 
 /**
- * A failed `leave_household`, `remove_member`, `rename_household` or `set_member_role`, with what
- * went wrong for the alert.
+ * A failed `leave_household`, `remove_member`, `rename_household`, `set_member_role` or
+ * `delete_household`, with what went wrong for the alert.
  */
 export class HouseholdActionError extends Error {
   constructor(
@@ -152,9 +152,12 @@ export function toHouseholdActionError(error: unknown): HouseholdActionError {
 /** A role change from a member row's action sheet (4.7). */
 export type RoleChange = 'make-owner' | 'remove-owner' | 'step-down';
 
-/** The alert for a failed leave, removal, rename or role change. Nothing changed, so it only says why. */
+/**
+ * The alert for a failed leave, removal, rename, role change or delete. Nothing changed, so it only
+ * says why.
+ */
 export function householdActionAlert(
-  action: 'leave' | 'remove' | 'rename' | RoleChange,
+  action: 'leave' | 'remove' | 'rename' | 'delete' | RoleChange,
   error: unknown,
   names: { householdName?: string | null; memberName?: string | null } = {},
 ): { title: string; message: string } {
@@ -165,6 +168,7 @@ export function householdActionAlert(
   const titles: Record<typeof action, string> = {
     leave: `Couldn't leave ${household}`,
     rename: `Couldn't rename ${household}`,
+    delete: `Couldn't delete ${household}`,
     remove: `Couldn't remove ${memberName}`,
     'make-owner': `Couldn't make ${memberName} an owner`,
     'remove-owner': `Couldn't remove ${memberName} as owner`,
@@ -181,9 +185,11 @@ export function householdActionAlert(
         message:
           action === 'rename'
             ? 'Only owners can rename a household.'
-            : action === 'remove'
-              ? 'Only owners can remove members.'
-              : 'Only owners can change who is an owner.',
+            : action === 'delete'
+              ? 'Only owners can delete a household.'
+              : action === 'remove'
+                ? 'Only owners can remove members.'
+                : 'Only owners can change who is an owner.',
       };
     case 'last-owner':
       return { title, message: `${names.householdName?.trim() || 'This household'} needs at least one owner.` };
@@ -252,6 +258,20 @@ export async function removeMember(householdId: string, userId: string): Promise
 export async function setMemberRole(householdId: string, userId: string, role: HouseholdMember['role']): Promise<void> {
   await assertOnline();
   await callRpc('set_member_role', { p_household_id: householdId, p_user_id: userId, p_role: role });
+}
+
+/**
+ * Deletes a household for every member (`delete_household`, owners only), then pulls, as leaving
+ * does: the pull purges it from this device and brings down the new personal household, if the
+ * server made one. Other members' devices purge it on their next sync. Returns the caller's new
+ * household's id (null when they still have another). Throws a `HouseholdActionError` (offline
+ * before asking the server); a failure changes nothing.
+ */
+export async function deleteHousehold(householdId: string): Promise<{ newHouseholdId: string | null }> {
+  await assertOnline();
+  const data = await callRpc('delete_household', { p_household_id: householdId });
+  await pullNow();
+  return { newHouseholdId: (data as { new_household_id?: string | null } | null)?.new_household_id ?? null };
 }
 
 /** The longest household name `rename_household` accepts, in characters. */
@@ -328,6 +348,38 @@ export function leaveConfirmation({
   }
   if (onlyHousehold) lines.push("You'll get a new empty household.");
   return { title, message: lines.join(' '), confirmLabel };
+}
+
+/**
+ * The Delete household confirm (spec 4.7): what's deleted, for how many members (not said when the
+ * user is the only one), plus, when it's the user's only household, that they get a new one.
+ */
+export function deleteHouseholdConfirmation({
+  householdName,
+  memberCount,
+  listCount,
+  recipeCount,
+  onlyHousehold,
+}: {
+  householdName: string;
+  memberCount: number;
+  listCount: number;
+  recipeCount: number;
+  onlyHousehold: boolean;
+}): { title: string; message: string; confirmLabel: string } {
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const forAll = memberCount > 1 ? ` for all ${memberCount} members` : '';
+  const lines = [
+    `Its ${plural(listCount, 'list')} and ${plural(recipeCount, 'recipe')} will be deleted${forAll}. This can't be undone.`,
+  ];
+  if (onlyHousehold) lines.push("You'll get a new empty household.");
+  return { title: `Delete ${householdName.trim() || 'this household'}?`, message: lines.join(' '), confirmLabel: 'Delete' };
+}
+
+/** Settings' toast after a household is deleted: "Deleted Cabin", the name in bold. */
+export function deletedHouseholdToast(householdName: string): { message: string; emphasis?: string } {
+  const name = householdName.trim();
+  return name ? { message: `Deleted ${name}`, emphasis: name } : { message: 'Deleted the household' };
 }
 
 /** The action sheet for another member's row (owners only): Remove, then Cancel. */
@@ -425,3 +477,4 @@ export function roleAfter(change: RoleChange): HouseholdMember['role'] {
 /** VoiceOver hints for the rows that act (4.7); a member row's comes from `memberActionsSheet`. */
 export const LEAVE_HINT = 'Asks to confirm, then leaves this household.';
 export const RENAME_HINT = 'Asks for a new name.';
+export const DELETE_HINT = 'Asks to confirm, then deletes this household for every member.';

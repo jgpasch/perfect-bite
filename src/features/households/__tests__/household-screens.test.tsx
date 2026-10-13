@@ -13,6 +13,7 @@ import HouseholdInviteSheet from '@/app/household-invite';
 import JoinHouseholdScreen from '@/app/invite/[token]';
 import HouseholdScreen from '@/app/(tabs)/settings/households/[id]';
 
+import { takeDeletedHousehold } from '../deleted-household-notice';
 import { HouseholdActionError, type HouseholdMember } from '../households';
 import { InviteRow } from '../invite-row';
 import { InviteError, type AcceptedInvite, type HouseholdInvite, type InvitePreview, type MyInvite } from '../invites';
@@ -58,8 +59,10 @@ const mockLeave = jest.fn<Fn<[string], Promise<unknown>>>();
 const mockRemoveMember = jest.fn<Fn<[string, string], Promise<void>>>();
 const mockRename = jest.fn<Fn<[string, string, (string | null)?], Promise<void>>>();
 const mockSetRole = jest.fn<Fn<[string, string, string], Promise<void>>>();
+const mockDelete = jest.fn<Fn<[string], Promise<{ newHouseholdId: string | null }>>>();
 jest.mock('@/features/households/households', () => ({
   ...(jest.requireActual('@/features/households/households') as object),
+  deleteHousehold: (id: string) => mockDelete(id),
   fetchHouseholdMembers: (...args: [string, string]) => mockFetchMembers(...args),
   leaveHousehold: (id: string) => mockLeave(id),
   removeMember: (...args: [string, string]) => mockRemoveMember(...args),
@@ -149,6 +152,7 @@ beforeEach(() => {
     mockRemoveMember,
     mockRename,
     mockSetRole,
+    mockDelete,
     mockPushNow,
     mockPullNow,
     mockSmsAvailable,
@@ -443,7 +447,7 @@ describe('HouseholdScreen', () => {
         const sheet = sheetSpy();
         const alert = alertSpy();
         const root = await render(<HouseholdScreen />);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Invite someone', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Invite someone', 'Delete household', 'Leave household']);
         await pressAsync(byLabel(root, 'Sam'));
         expect(sheet.mock.calls[0][0]).toEqual({
           title: 'Sam',
@@ -461,7 +465,7 @@ describe('HouseholdScreen', () => {
         await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
         expect(mockSetRole).toHaveBeenCalledWith(HOME, 'sam', 'owner');
         expect(mockFetchMembers).toHaveBeenCalledTimes(2);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Invite someone', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Invite someone', 'Delete household', 'Leave household']);
         // Sam is now another owner: the sheet offers Remove as owner.
         expect(byLabel(root, 'Sam').props.accessibilityHint).toBe('Remove as owner or remove.');
         expect(alert).toHaveBeenCalledTimes(1);
@@ -619,6 +623,107 @@ describe('HouseholdScreen', () => {
       expect(alert).toHaveBeenCalledTimes(2);
       expect(mockRouter.back).not.toHaveBeenCalled();
       expect(hasA11y(root, 'Leaving')).toBe(false);
+    });
+  });
+
+  describe('Delete household', () => {
+    const deleteRows = (root: ReactTestRenderer) => allByLabel(root, 'Delete household');
+    const confirmButton = (alert: { mock: { calls: unknown[][] } }, text: string) =>
+      (alert.mock.calls[0][2] as AlertButton[]).find((b) => b.text === text)!;
+
+    test('owners only, above Leave household, with a hint', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      const root = await render(<HouseholdScreen />);
+      const row = byLabel(root, 'Delete household');
+      expect(row.props.labelColor).toBe('danger');
+      expect(row.props.accessibilityHint).toBe('Asks to confirm, then deletes this household for every member.');
+      const labels = root.root
+        .findAll((n) => typeof n.type !== 'string' && /household$/.test(String(n.props.label)))
+        .map((n) => n.props.label);
+      expect(labels.indexOf('Delete household')).toBeLessThan(labels.indexOf('Leave household'));
+    });
+
+    test('a plain member, and anyone before the members load, has no Delete row', async () => {
+      mockFetchMembers.mockResolvedValue([member({ userId: USER, displayName: 'John', isYou: true }), { ...SAM, role: 'owner' }]);
+      const root = await render(<HouseholdScreen />);
+      expect(deleteRows(root)).toHaveLength(0);
+      expect(allByLabel(root, 'Leave household')).toHaveLength(1);
+      act(() => tree?.unmount());
+      mockFetchMembers.mockReturnValue(deferred<HouseholdMember[]>().promise);
+      const loading = await render(<HouseholdScreen />);
+      expect(deleteRows(loading)).toHaveLength(0);
+    });
+
+    test('confirms with the counts for every member; Cancel changes nothing', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await pressAsync(byLabel(root, 'Delete household'));
+      const [title, message, buttons] = alert.mock.calls[0];
+      expect(title).toBe('Delete Smith home?');
+      expect(message).toBe("Its 0 lists and 1 recipe will be deleted for all 2 members. This can't be undone.");
+      expect((buttons as AlertButton[]).map((b) => [b.text, b.style])).toEqual([
+        ['Cancel', 'cancel'],
+        ['Delete', 'destructive'],
+      ]);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    test('the only member of their only household is told they get a new one', async () => {
+      resetDb();
+      db.insert(households).values({ id: HOME, name: 'Smith home' }).run();
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await pressAsync(byLabel(root, 'Delete household'));
+      expect(alert.mock.calls[0][1]).toBe(
+        "Its 0 lists and 0 recipes will be deleted. This can't be undone. You'll get a new empty household.",
+      );
+    });
+
+    test('Delete calls delete_household, then goes back to Settings with the name for its toast', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      const done = deferred<{ newHouseholdId: string | null }>();
+      mockDelete.mockReturnValue(done.promise);
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await pressAsync(byLabel(root, 'Delete household'));
+      act(() => void confirmButton(alert, 'Delete').onPress!());
+      expect(mockDelete).toHaveBeenCalledWith(HOME);
+      expect(hasA11y(root, 'Deleting')).toBe(true);
+      // Busy: a second tap, or Leave, does nothing.
+      await pressAsync(byLabel(root, 'Delete household'));
+      await pressAsync(byLabel(root, 'Leave household'));
+      expect(alert).toHaveBeenCalledTimes(1);
+      await act(async () => done.resolve({ newHouseholdId: null }));
+      expect(mockRouter.back).toHaveBeenCalledTimes(1);
+      expect(takeDeletedHousehold()).toBe('Smith home');
+    });
+
+    test('offline says so, stays, and leaves no toast', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      mockDelete.mockRejectedValue(new HouseholdActionError('offline', 'offline'));
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await pressAsync(byLabel(root, 'Delete household'));
+      await act(async () => confirmButton(alert, 'Delete').onPress!());
+      expect(alert.mock.calls[1].slice(0, 2)).toEqual(["You're offline", 'Connect to the internet and try again.']);
+      expect(mockRouter.back).not.toHaveBeenCalled();
+      expect(hasA11y(root, 'Deleting')).toBe(false);
+      expect(takeDeletedHousehold()).toBeNull();
+    });
+
+    test('a failure alerts with the reason and changes nothing', async () => {
+      mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+      mockDelete.mockRejectedValue(new HouseholdActionError('not-owner', 'not an owner'));
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      await pressAsync(byLabel(root, 'Delete household'));
+      await act(async () => confirmButton(alert, 'Delete').onPress!());
+      expect(alert.mock.calls[1].slice(0, 2)).toEqual(["Couldn't delete Smith home", 'Only owners can delete a household.']);
+      expect(mockRouter.back).not.toHaveBeenCalled();
+      expect(texts(root)).toContain('Smith home');
+      expect(allByLabel(root, 'Delete household')).toHaveLength(1);
     });
   });
 
