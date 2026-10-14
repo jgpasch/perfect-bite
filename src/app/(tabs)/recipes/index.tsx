@@ -7,13 +7,11 @@ import { prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
-import { IconTile } from '@/components/icon-tile';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
 import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { recipeHue } from '@/domain/aisle-color';
 import { openList } from '@/features/lists/current-list';
 import { getList } from '@/features/lists/lists';
 import { useFeature } from '@/features/plans/features';
@@ -22,6 +20,7 @@ import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
+import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
 import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
@@ -322,7 +321,7 @@ function RecipeCard({
                 borderColor: highlighted ? colors.primary : 'transparent',
               },
             ]}>
-            <IconTile hue={recipeHue(recipe.id)} name="fork.knife" size={sizes.recipeTile} />
+            <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
             <View style={styles.flex}>
               <ThemedText variant="headline" numberOfLines={2}>
                 {recipe.name}

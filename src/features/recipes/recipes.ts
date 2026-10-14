@@ -24,8 +24,8 @@ function currentHouseholdId(): string {
 }
 
 /**
- * Live recipes, most recently updated first, each with its household, link, ingredient count, and
- * the tags and time the tab's filters match (spec 4.14).
+ * Live recipes, most recently updated first, each with its household, link, photo, ingredient count,
+ * and the tags and time the tab's filters match (spec 4.14).
  */
 export function recipesQuery() {
   return db
@@ -35,6 +35,7 @@ export function recipesQuery() {
       householdId: recipes.householdId,
       householdName: households.name,
       sourceUrl: recipes.sourceUrl,
+      imageUrl: recipes.imageUrl,
       updatedAt: recipes.updatedAt,
       tags: recipes.tags,
       totalMinutes: recipes.totalMinutes,

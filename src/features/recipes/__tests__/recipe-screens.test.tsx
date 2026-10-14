@@ -99,7 +99,8 @@ jest.mock('expo-router', () => {
     MenuAction: host('ToolbarMenuAction'),
   });
   return {
-    Stack: { Screen: () => null, Toolbar },
+    // A host element, so the header options can be read.
+    Stack: { Screen: host('StackScreen'), Toolbar },
     router: {
       push: (...args: unknown[]) => mockPush(...args),
       navigate: (...args: unknown[]) => mockNavigate(...args),
@@ -109,6 +110,10 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
+jest.mock('expo-image', () => {
+  const { createElement } = require('react');
+  return { Image: (props: object) => createElement('ExpoImage', props) };
+});
 // SwiftUI views as host elements, so the link's context menu items can be found and pressed.
 jest.mock('@expo/ui/swift-ui', () => {
   const { createElement } = require('react');
@@ -497,8 +502,69 @@ const outboxRecipeUpdates = () =>
     // An insert sends every column, `household_id` included; an update only what changed.
     .filter((m) => m.table === 'recipes' && m.id === tacos && !('household_id' in m.fields));
 
+describe('RecipeScreen photo (board 13)', () => {
+  const URL = 'https://example.com/tacos.jpg';
+  const setPhoto = (url: string | null) => db.update(recipes).set({ imageUrl: url }).where(eq(recipes.id, tacos)).run();
+  const images = (root: ReactTestRenderer) => byType(root, 'ExpoImage');
+  const headerOptions = (root: ReactTestRenderer) => byType(root, 'StackScreen')[0].props.options;
+
+  test('with an imageUrl: the photo header above the band, and a transparent native header over it', () => {
+    setPhoto(URL);
+    const root = render(<RecipeScreen />);
+    const [image] = images(root);
+    expect([image.props.source, image.props.contentFit, image.props.cachePolicy, image.props.accessible]).toEqual([
+      URL,
+      'cover',
+      'disk',
+      false,
+    ]);
+    expect(headerOptions(root)).toEqual({
+      headerTransparent: true,
+      headerStyle: { backgroundColor: 'transparent' },
+      headerShadowVisible: false,
+    });
+    // Above the band: the photo comes before the recipe's name.
+    const scroll = root.root.find((n) => String(n.type) === 'RCTScrollView');
+    expect(scroll.props.contentInsetAdjustmentBehavior).toBe('never');
+    const order = scroll.findAll(
+      (n) => String(n.type) === 'ExpoImage' || (String(n.type) === 'Text' && n.props.children === 'Tacos'),
+    );
+    expect(order.map((n) => String(n.type))).toEqual(['ExpoImage', 'Text']);
+  });
+
+  test("without one: no photo, and the native header keeps the band's tint", () => {
+    const root = render(<RecipeScreen />);
+    expect(images(root)).toHaveLength(0);
+    const options = headerOptions(root);
+    expect(options.headerTransparent).toBe(false);
+    expect(options.headerStyle.backgroundColor).not.toBe('transparent');
+    // The same tint as the band holding the recipe's name.
+    const band = root.root.findAll(
+      (n) =>
+        String(n.type) === 'View' &&
+        n.props.style?.backgroundColor === options.headerStyle.backgroundColor &&
+        n.findAll((t) => String(t.type) === 'Text' && t.props.children === 'Tacos').length > 0,
+    );
+    expect(band).not.toHaveLength(0);
+  });
+
+  test('onError drops the photo for this visit, and the tinted header comes back', () => {
+    const withoutPhoto = headerOptions(render(<RecipeScreen />));
+    act(() => tree?.unmount());
+    setPhoto(URL);
+    const root = render(<RecipeScreen />);
+    act(() => images(root)[0].props.onError({ error: 'hotlink blocked' }));
+    expect(images(root)).toHaveLength(0);
+    expect(headerOptions(root)).toEqual(withoutPhoto);
+    expect(texts(root)).toContain('Tacos');
+    // A re-render (a live update) doesn't bring it back.
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
+    expect(images(root)).toHaveLength(0);
+  });
+});
+
 describe('RecipeScreen servings', () => {
-  const stepper = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === Stepper);
+  const stepper =(root: ReactTestRenderer) => root.root.findAll((n) => n.type === Stepper);
   // Presses the stepper's − or + button.
   const step = (root: ReactTestRenderer, label: 'More' | 'Fewer') =>
     press(stepper(root)[0].find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function'));

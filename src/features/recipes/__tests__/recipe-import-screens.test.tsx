@@ -20,6 +20,7 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 import { resetDb } from '@/test/db';
 
 import ImportRecipeSheet from '@/app/import-recipe';
+import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
 import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
@@ -47,6 +48,10 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
+jest.mock('expo-image', () => {
+  const { createElement } = require('react');
+  return { Image: (props: object) => createElement('ExpoImage', props) };
+});
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
   const builder: object = new Proxy({}, { get: () => () => builder });
@@ -648,6 +653,27 @@ describe('RecipesScreen', () => {
     expect(cards(root).length).toBe(3);
     const links = byType(root, 'Link').map((l) => l.props.href.params.id);
     expect(links).toEqual(expect.arrayContaining([tacos, 'chili']));
+  });
+
+  test("a card shows the recipe's photo in its tile, else the icon tile; a failed photo falls back (board 18)", () => {
+    const householdId = getRecipe(createRecipe('Soup'))!.householdId;
+    db.insert(recipes).values({ id: 'tacos', householdId, name: 'Tacos', imageUrl: 'https://example.com/tacos.jpg' }).run();
+    const root = render(<RecipesScreen />);
+    const cardOf = (name: string) =>
+      root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityLabel?.startsWith(name));
+    const photos = (name: string) => cardOf(name).findAll((n) => String(n.type) === 'ExpoImage');
+    const iconTiles = (name: string) => cardOf(name).findAll((n) => n.type === IconTile);
+
+    const [photo] = photos('Tacos');
+    expect([photo.props.source, photo.props.contentFit, photo.props.cachePolicy]).toEqual(['https://example.com/tacos.jpg', 'cover', 'disk']);
+    // The icon tile underneath is the placeholder while it loads.
+    expect(iconTiles('Tacos')).toHaveLength(1);
+    expect(photos('Soup')).toHaveLength(0);
+    expect(iconTiles('Soup')).toHaveLength(1);
+
+    act(() => photo.props.onError({ error: '404' }));
+    expect(photos('Tacos')).toHaveLength(0);
+    expect(iconTiles('Tacos')).toHaveLength(1);
   });
 
   test("a card's menu renames and deletes (after confirming)", () => {

@@ -31,6 +31,7 @@ import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
+import { RecipePhotoHeader, usePhotoFailed } from '@/features/recipes/recipe-photo';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
   forServingsLabel,
@@ -77,10 +78,13 @@ export default function RecipeScreen() {
   const dismissToast = useCallback(() => setDeleted(null), []);
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
+  const photo = usePhotoFailed(recipe?.imageUrl ?? null);
 
   if (!recipe) return <Screen />;
 
   const hue = recipeHue(recipe.id);
+  // A photo that failed to load is dropped for this visit, and the band's tinted header comes back.
+  const imageUrl = photo.failed ? null : recipe.imageUrl;
   const base = recipe.servings;
   const servings = base === null ? null : (chosen ?? base);
 
@@ -132,8 +136,15 @@ export default function RecipeScreen() {
 
   return (
     <Screen>
-      {/* The native header takes the band's tint, so back and actions sit on it (board 06). */}
-      <Stack.Screen options={{ headerStyle: { backgroundColor: aisles[hue].soft } }} />
+      {/* With a photo the native header is transparent over it (board 13); without, it takes the band's
+          tint, so back and actions sit on it (board 06). */}
+      <Stack.Screen
+        options={
+          imageUrl
+            ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
+            : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
+        }
+      />
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Recipe actions">
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
@@ -145,12 +156,16 @@ export default function RecipeScreen() {
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
 
-      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
+      {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
+      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={imageUrl ? 0 : headerHeight}>
         <ScrollView
           style={styles.flex}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          // The photo runs up under the status bar and the header's buttons.
+          contentInsetAdjustmentBehavior="never"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
+          {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} onError={photo.onError} /> : null}
           <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} />
           <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }}>
             <PrimaryButton
