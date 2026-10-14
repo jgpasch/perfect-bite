@@ -4,6 +4,7 @@ import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending, startCategorizeOnGain } from '@/features/categories/categorization';
+import { foldAccentKeys } from '@/features/categories/fold-accents';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { startMyInvites } from '@/features/households/my-invites';
 import { ensureStarterData } from '@/features/lists/lists';
@@ -34,8 +35,8 @@ function dropStuckShare() {
 }
 
 /**
- * Local data every screen expects: the bundled catalog (spec 6.2), pending rows for names it
- * doesn't know (spec 6.3), the one-time ingredient
+ * Local data every screen expects: the bundled catalog (spec 6.2), the one-time merge of accented
+ * ingredient keys (spec 4.15), pending rows for names it doesn't know (spec 6.3), the one-time ingredient
  * history and unit backfills (spec 4.2) and, once signed in and pulled, the user's starter household
  * and list if they have none (written through the outbox, so the push creates them on the server).
  * Render inside DatabaseProvider. The local steps run during render (each is idempotent and fast) so
@@ -47,6 +48,7 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useMemo(() => {
     dropStuckShare(); // TEMP
     loadCatalogSeed();
+    foldAccentKeys();
     ensureMissingIngredients();
     backfillUsage();
     backfillUnitUsage();

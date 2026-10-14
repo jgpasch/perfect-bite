@@ -11,6 +11,7 @@ import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { categories, db, deviceSettings, households, ingredients, lists } from '@/db';
 import * as schema from '@/db/schema';
 import { createCategory, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
+import { FOLD_ACCENTS_KEY, foldAccentKeys } from '@/features/categories/fold-accents';
 import { clearMyInvites, getMyInvites, refreshMyInvites } from '@/features/households/my-invites';
 import { addItem, checkItems } from '@/features/lists/items';
 import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, manualOrderKey, viewModeKey } from '@/features/lists/list-view';
@@ -73,6 +74,7 @@ beforeEach(async () => {
   resetDb();
   resetSupabase();
   seedCatalog();
+  foldAccentKeys();
   backfillUsage();
   backfillUnitUsage();
   ensureStarterData(USER);
@@ -152,6 +154,7 @@ describe('the keep-list', () => {
   test('the kept device settings are preferences and markers, none holding user data', () => {
     expect([...KEPT_DEVICE_SETTINGS].sort()).toEqual(
       [
+        'catalog.accentsFolded',
         'catalog.seedFingerprint',
         'importAddToList',
         'list.aisleColors',
@@ -202,7 +205,16 @@ describe('wipeLocalData', () => {
   test('keeps device-only preferences with their values and drops every other device setting', () => {
     wipeLocalData();
     expect(deviceKeys()).toEqual(
-      [AISLE_COLORS_KEY, BACKFILL_KEY, IMPORT_ADD_TO_LIST_KEY, ITEM_ROW_STYLE_KEY, KEEP_SCREEN_ON_KEY, SEED_KEY, UNITS_BACKFILL_KEY].sort(),
+      [
+        AISLE_COLORS_KEY,
+        BACKFILL_KEY,
+        FOLD_ACCENTS_KEY,
+        IMPORT_ADD_TO_LIST_KEY,
+        ITEM_ROW_STYLE_KEY,
+        KEEP_SCREEN_ON_KEY,
+        SEED_KEY,
+        UNITS_BACKFILL_KEY,
+      ].sort(),
     );
     expect(getDeviceSetting(KEEP_SCREEN_ON_KEY, true)).toBe(false);
     expect(getDeviceSetting(ITEM_ROW_STYLE_KEY, null)).toBe('card');

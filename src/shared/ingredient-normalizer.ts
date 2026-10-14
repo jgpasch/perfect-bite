@@ -44,13 +44,22 @@ export function singularize(word: string): string {
 }
 
 /**
- * The ingredient key for a name: lowercase, trimmed, whitespace collapsed, punctuation stripped,
- * last word singularized. `Cherry Tomatoes!` → `cherry tomato`.
+ * Folds accents (spec 4.15): `limón` → `limon`, `jalapeño` → `jalapeno`, `crème` → `creme`. Only
+ * the combining marks U+0300–U+036F go, so other scripts keep theirs, and letters with no
+ * decomposition (`ß`, `ø`) stay. The fold-accents migration does the same in SQL
+ * (`private.fold_accents`), and the device's one-time merge uses this (`fold-accents.ts`).
+ */
+export function foldAccents(text: string): string {
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC');
+}
+
+/**
+ * The ingredient key for a name: lowercase, trimmed, whitespace collapsed, accents folded,
+ * punctuation stripped, last word singularized. `Cherry Tomatoes!` → `cherry tomato`,
+ * `Limón` → `limon`. The display name keeps what was typed.
  */
 export function normalizeIngredientName(name: string): string {
-  const words = name
-    .toLowerCase()
-    .normalize('NFC')
+  const words = foldAccents(name.toLowerCase().normalize('NFC'))
     .replace(/['’]/g, '') // za'atar → zaatar, not "za atar"
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()

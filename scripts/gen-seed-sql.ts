@@ -14,6 +14,19 @@ function timestamp(now: Date): string {
   return now.toISOString().replace(/\D/g, '').slice(0, 14);
 }
 
+/** The new migration's timestamp: now, or a second after the newest migration if that's later, so it always runs last. */
+async function nextTimestamp(dir: URL): Promise<string> {
+  let latest = '';
+  for await (const f of Deno.readDir(dir)) {
+    const stamp = /^(\d{14})_/.exec(f.name)?.[1];
+    if (stamp && stamp > latest) latest = stamp;
+  }
+  const stamp = timestamp(new Date());
+  if (stamp > latest) return stamp;
+  const [, y, mo, d, h, mi, s] = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(latest)!.map(Number);
+  return timestamp(new Date(Date.UTC(y, mo - 1, d, h, mi, s + 1)));
+}
+
 const entries = seedEntries();
 const categoryRows = SYSTEM_CATEGORIES.map((c, rank) => `  (${sql(c.id)}, ${sql(c.slug)}, ${sql(c.name)}, ${rank})`);
 const ingredientRows = entries.map(
@@ -47,6 +60,7 @@ on conflict (normalized_name) do update set
 where public.ingredients.categorized_by = 'seed' or public.ingredients.status <> 'categorized';
 `;
 
-const path = new URL(`../supabase/migrations/${timestamp(new Date())}_seed_catalog.sql`, import.meta.url);
+const dir = new URL('../supabase/migrations/', import.meta.url);
+const path = new URL(`${await nextTimestamp(dir)}_seed_catalog.sql`, dir);
 await Deno.writeTextFile(path, out);
 console.log(`Wrote ${path.pathname} (${entries.length} ingredients)`);

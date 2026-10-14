@@ -1,0 +1,3 @@
+-- DELETE THIS FILE. A misnamed copy of 20261017093001_seed_catalog.sql that the seed generator
+-- wrote before it learned to sort after the newest migration; the agent that made it couldn't
+-- remove files. Left empty so it does nothing meanwhile.

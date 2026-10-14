@@ -62,7 +62,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
       'green tomatoes', 'green zucchini', 'guava', 'habanero peppers', 'haricots verts', 'hazelnuts',
       'heirloom tomatoes', 'hen of the woods', 'honeycrisp', 'honeycrisp apples', 'horseradish root',
       'hubbard squash', 'hungarian wax peppers', 'idaho potatoes', 'italian eggplant', 'jackfruit',
-      'jalapeno', 'jalapeños', 'japanese eggplant', 'japanese sweet potatoes', 'jerusalem artichokes',
+      'jalapeno','japanese eggplant', 'japanese sweet potatoes', 'jerusalem artichokes',
       'kabocha', 'kabocha squash', 'king oyster mushrooms', 'kirby cucumbers', 'kumquats',
       "lion's mane mushrooms", 'loose carrots', 'lotus root', 'lychee', 'maitake mushrooms', 'malanga',
       'mcintosh apples', 'morel mushrooms', 'morels', 'mushrooms', 'napa cabbage', 'navel oranges',
@@ -213,7 +213,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
     ],
     oz: [
       'cubed pancetta', 'diced pancetta', 'fontina', 'fresh mozzarella', 'goat cheese', 'gorgonzola', 'gouda',
-      'grana padano', 'gruyere', 'gruyère', 'irish cheddar', 'jarlsberg', 'manchego', 'mizithra',
+      'grana padano', 'gruyere','irish cheddar', 'jarlsberg', 'manchego', 'mizithra',
       'parmigiano', 'parmigiano reggiano', 'pecorino', 'pecorino romano', 'raclette', 'ricotta salata',
       'roquefort',
     ],
@@ -456,7 +456,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
     pt: [
       "ben & jerry's", "ben and jerry's", 'coffee ice cream', 'cookie dough ice cream',
       'dairy free ice cream', 'froyo', 'frozen custard', 'frozen yogurt', 'gelato', 'haagen dazs',
-      'häagen-dazs', 'halo top', 'ice cream', 'ice cream pint', 'mint chocolate chip ice cream',
+      'halo top', 'ice cream', 'ice cream pint', 'mint chocolate chip ice cream',
       'neapolitan ice cream', 'nice cream', 'non dairy ice cream', 'rainbow sherbet', 'rocky road ice cream',
       'sherbet', 'sorbet', 'strawberry ice cream', 'vanilla ice cream',
     ],
@@ -836,7 +836,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
       'pepper grinder', 'peppercorn grinder', 'pot roast seasoning', 'ranch mix', 'ranch packet',
       'ranch seasoning packet', 'saffron vial', 'salt', 'salt grinder', 'salt shaker', 'sea salt',
       'sea salt grinder', 'seasoning packet', 'sloppy joe mix', 'table salt', 'taco seasoning',
-      'taco seasoning packet', 'tajin', 'tajín', "tony chachere's", "zatarain's crab boil",
+      'taco seasoning packet', 'tajin',"tony chachere's", "zatarain's crab boil",
     ],
     can: [
       "cavender's", 'mustard powder', 'old bay', 'old bay seasoning', 'pimenton', 'seafood seasoning',
@@ -897,7 +897,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
       "bell's seasoning", 'biryani masala', 'chaat masala', 'chana masala spice', 'coarse kosher salt',
       'diamond crystal', 'diamond crystal kosher salt', 'flaky salt', 'flaky sea salt', 'goya sazon',
       'kosher salt', 'maldon salt', 'morton kosher salt', 'ranch seasoning', 'rasam powder', 'sambar powder',
-      'sazon', 'sazón', 'sazon seasoning', 'sloppy joe seasoning',
+      'sazon','sazon seasoning', 'sloppy joe seasoning',
     ],
   },
   condiments: {
@@ -1119,7 +1119,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
       'pinot grigio', 'pinot gris', 'pinot noir', 'pisco', 'poland spring', 'pom juice', 'pom wonderful',
       'pomegranate juice', 'port', 'port wine', 'porter', 'powerade', 'powerade zero', 'premier protein',
       'prime', 'prime hydration', 'propel', 'prosecco', 'protein shake', 'prune juice', 'pure leaf',
-      'pure leaf tea', 'ramune', 'red blend', 'red wine', 'reposado', 'riesling', 'rioja', 'rose', 'rosé',
+      'pure leaf tea', 'ramune', 'red blend', 'red wine', 'reposado', 'riesling', 'rioja', 'rose',
       'rose wine', "rose's lime juice", 'ruby red grapefruit juice', 'rum', 'rye whiskey', 'sake',
       'sam adams', 'sambuca', 'samuel adams', 'san pellegrino', 'sangiovese', 'sangria', 'sauvignon blanc',
       'schnapps', 'scotch', 'sherry', 'shiraz', 'sidral mundet', 'sierra nevada', 'simple syrup',
@@ -1147,7 +1147,7 @@ export const SEED_INGREDIENTS: Record<SeedCategory, Partial<Record<UnitKey, read
     can: [
       '7 up', '7up', 'a&w root beer', 'alani nu', 'apricot nectar', 'arizona', 'arizona green tea',
       'arizona iced tea', 'bang', 'bang energy', "barq's", 'birch beer', 'brisk', 'bubly', 'c4 energy',
-      'cafe bustelo', 'café bustelo', 'canada dry', 'canada dry ginger ale', 'canned coffee', 'cans of soda',
+      'cafe bustelo','canada dry', 'canada dry ginger ale', 'canned coffee', 'cans of soda',
       'celsius', 'cheerwine', 'cherry coke', 'chock full o nuts', 'club soda cans', 'coca cola',
       'coconut juice', 'code red', 'coffee drinks', 'coffee tin', 'coke', 'coke zero', 'coke zero sugar',
       'coors banquet', 'coors light', 'cream soda', 'crush', 'diet 7up', 'diet coke', 'diet dr pepper',
