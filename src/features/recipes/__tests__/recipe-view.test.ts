@@ -14,7 +14,46 @@ import {
   recipeSuggestionDetail,
   recipeSuggestionLabel,
   servingsLabel,
+  stepLabel,
+  stepsFromText,
+  stepsToText,
 } from '../recipe-view';
+
+describe('steps', () => {
+  test('one step per line, trimmed, empty lines dropped', () => {
+    expect(stepsFromText('  Blend the paste. \n\n\nToss the chicken.\n   \nGrill it.  ')).toEqual([
+      'Blend the paste.',
+      'Toss the chicken.',
+      'Grill it.',
+    ]);
+  });
+
+  test('splits on any line break', () => {
+    expect(stepsFromText('One\r\nTwo\rThree\nFour')).toEqual(['One', 'Two', 'Three', 'Four']);
+  });
+
+  test('a single line is one step; inner spaces are kept', () => {
+    expect(stepsFromText('Rest 5 minutes,  then slice')).toEqual(['Rest 5 minutes,  then slice']);
+  });
+
+  test('nothing, or only blank lines, is null', () => {
+    expect(stepsFromText('')).toBeNull();
+    expect(stepsFromText('  \n\n \t \n')).toBeNull();
+  });
+
+  test('the sheet text is the steps one per line, and round-trips', () => {
+    expect(stepsToText(['A', 'B', 'C'])).toBe('A\nB\nC');
+    expect(stepsToText(null)).toBe('');
+    expect(stepsToText(undefined)).toBe('');
+    expect(stepsToText([])).toBe('');
+    expect(stepsFromText(stepsToText(['A', 'B']))).toEqual(['A', 'B']);
+  });
+
+  test('VoiceOver reads "Step 2 of 7, …"', () => {
+    expect(stepLabel(1, 7, 'Toss the chicken.')).toBe('Step 2 of 7, Toss the chicken.');
+    expect(stepLabel(0, 1, 'Eat.')).toBe('Step 1 of 1, Eat.');
+  });
+});
 
 describe('orderByLastUse', () => {
   const r = (id: string, name: string, updatedAt: string) => ({ id, name, updatedAt: new Date(updatedAt) });

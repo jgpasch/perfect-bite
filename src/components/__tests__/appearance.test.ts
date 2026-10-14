@@ -170,6 +170,14 @@ describe('pillLook', () => {
     }
   });
 
+  it('fills a soft pill (Add steps) with primarySoft and readable onPrimarySoft text', () => {
+    for (const scheme of ['light', 'dark'] as const) {
+      const c = Palette[scheme];
+      expect(pillLook({ soft: true }, c, AisleColors[scheme])).toEqual({ fill: c.primarySoft, text: c.onPrimarySoft, border: null });
+      expect(contrastRatio(c.onPrimarySoft, c.primarySoft)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('leaves an unselected aisle pill white', () => {
     expect(pillLook({ selected: false, hue: 'rose' }, colors, aisles)).toEqual({
       fill: '#FFFFFF',
@@ -441,6 +449,11 @@ describe('sectionHeaderLabel', () => {
 
   it('reads one item in the singular', () => {
     expect(sectionHeaderLabel('Meat & seafood', 1)).toBe('Meat & seafood, 1 item');
+  });
+
+  it('counts in another unit, like the Method card\'s steps', () => {
+    expect(sectionHeaderLabel('Method', 3, ['step', 'steps'])).toBe('Method, 3 steps');
+    expect(sectionHeaderLabel('Method', 1, ['step', 'steps'])).toBe('Method, 1 step');
   });
 
   it('reads zero as plural, not as no count', () => {

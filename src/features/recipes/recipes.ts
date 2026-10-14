@@ -153,6 +153,11 @@ export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: num
   });
 }
 
+/** Saves the Steps sheet: the method in order, or null for none. Hand-made and imported recipes alike. */
+export function updateRecipeSteps(id: string, steps: string[] | null): void {
+  updateRows(db, recipes, eq(recipes.id, id), { steps: steps && steps.length > 0 ? steps : null });
+}
+
 /**
  * Deletes a recipe. Its list items stay; their amounts from it become "no recipe" (spec 4.5),
  * so they show under Other items in the By recipe view. `exec`: the caller's transaction.

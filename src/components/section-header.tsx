@@ -27,6 +27,8 @@ type Props = {
   leading?: ReactNode;
   /** The count on the right. */
   count?: number;
+  /** What the count counts, for VoiceOver: singular and plural. Defaults to items. */
+  countUnit?: readonly [one: string, other: string];
   /** Reads the count to VoiceOver without showing it, e.g. on an open recipe card. */
   hideCount?: boolean;
   /** Shown after the count. It keeps its own tap and doesn't toggle. */
@@ -64,6 +66,7 @@ function HeaderBody({
   band,
   leading,
   count,
+  countUnit,
   hideCount = false,
   trailing,
   onLongPress,
@@ -73,7 +76,7 @@ function HeaderBody({
   collapsed = false,
 }: Omit<Props, 'onSwipeCheck' | 'onSwipeRemove'>) {
   const { spacing, sizes, rounded, opacity } = useTheme();
-  const label = sectionHeaderLabel(accessibilityLabel ?? title, count);
+  const label = sectionHeaderLabel(accessibilityLabel ?? title, count, countUnit);
   const { paddingTop, paddingBottom } = headerPadding(spacing, !!band);
   const bandText = band ? { color: band.text } : undefined;
   const content = (

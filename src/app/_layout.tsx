@@ -94,6 +94,11 @@ export default function RootLayout() {
                   name="recipe/[id]/tags"
                   options={{ title: 'Tags', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Board 16: the recipe's method, one step per line; "Steps" is the large title in the sheet. */}
+                <Stack.Screen
+                  name="recipe/[id]/steps"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 {/* Spec 4.10: a small sheet; from the Recipes tab it also picks the list. */}
                 <Stack.Screen
                   name="import-recipe"

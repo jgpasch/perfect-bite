@@ -17,6 +17,8 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   primary?: boolean;
   /** A solid `primary` outline with `primary` text: an action among choices (the aisle picker's "Show all"). */
   outline?: boolean;
+  /** A `primarySoft` fill with bold `onPrimarySoft` text: an action in an empty card (the Method card's "Add steps"). */
+  soft?: boolean;
   /** A leading SF Symbol in the label's colour (the recipe band's "Suggest tags"). */
   icon?: IconName;
   /** A trailing SF Symbol in the label's colour (the "Show all" chevron). */
@@ -31,6 +33,7 @@ export function Pill({
   dashed = false,
   primary = false,
   outline = false,
+  soft = false,
   icon,
   trailingIcon,
   disabled,
@@ -38,7 +41,7 @@ export function Pill({
   ...rest
 }: Props) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
-  const look = pillLook({ selected, hue, dashed, primary, outline }, colors, aisles);
+  const look = pillLook({ selected, hue, dashed, primary, outline, soft }, colors, aisles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -66,7 +69,7 @@ export function Pill({
       ]}
       {...rest}>
       {icon ? <Icon name={icon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
-      <ThemedText variant="amount" style={[{ color: look.text }, selected ? styles.selected : undefined]}>
+      <ThemedText variant="amount" style={[{ color: look.text }, selected || soft ? styles.selected : undefined]}>
         {label}
       </ThemedText>
       {trailingIcon ? <Icon name={trailingIcon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
