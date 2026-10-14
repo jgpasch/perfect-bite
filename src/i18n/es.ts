@@ -47,7 +47,7 @@ export const es = {
       compactTitleHint: 'Oculta el teclado',
     },
     viewModes: {
-      newest: 'Como se agregaron',
+      newest: 'Recientes',
       category: 'Por pasillo',
       recipe: 'Por receta',
       button: 'Vista: {{mode}}',
@@ -176,7 +176,7 @@ export const es = {
     addRecipeChip_other: 'Agregar receta {{name}}, {{count}} artículos',
     removeHint: 'Mantén presionado para quitar de las sugerencias',
     removeFromSuggestions: 'Quitar de las sugerencias',
-    alreadyOnList: 'ya está en la lista',
+    alreadyOnList: 'en la lista',
   },
   item: {
     save: 'Guardar',

@@ -64,7 +64,9 @@ export function SegmentedControl<T extends string>({ segments, value, onChange, 
             <ThemedText
               variant="amount"
               color={look.text}
-              style={[selected ? styles.selected : undefined, custom ? { color: selected ? custom.selectedText : custom.text } : undefined]}>
+              style={[
+                styles.label,
+                selected ? styles.selected : undefined, custom ? { color: selected ? custom.selectedText : custom.text } : undefined]}>
               {segment.label}
             </ThemedText>
           </Pressable>
@@ -77,5 +79,7 @@ export function SegmentedControl<T extends string>({ segments, value, onChange, 
 const styles = StyleSheet.create({
   track: { flexDirection: 'row', borderCurve: 'continuous' },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
+  // A label longer than its segment wraps, centred, and the segment grows.
+  label: { textAlign: 'center' },
   selected: { fontWeight: '700' },
 });

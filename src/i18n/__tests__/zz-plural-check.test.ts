@@ -96,7 +96,8 @@ describe('lists strings in Spanish', () => {
     expect(toGetLabel(8)).toBe('8 por comprar');
     expect(toGetLabel(0, 2)).toBe('Todo listo');
     expect(toGetLabel(0)).toBeNull();
-    expect(LIST_VIEW_MODES.map((m) => m.label)).toEqual(['Como se agregaron', 'Por pasillo', 'Por receta']);
+    expect(LIST_VIEW_MODES.map((m) => m.label)).toEqual(['Recientes', 'Por pasillo', 'Por receta']);
+    expect(compactHeaderSubtitle(8, 'newest')).toBe('8 por comprar · Recientes');
     expect(viewModeLabel('category')).toBe('Por pasillo');
     expect(viewButtonAccessibilityLabel('recipe')).toBe('Vista: Por receta');
     expect(compactHeaderSubtitle(8, 'category')).toBe('8 por comprar · Por pasillo');

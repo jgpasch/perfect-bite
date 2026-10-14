@@ -66,7 +66,9 @@ function RemovableChip({ chip, onPress }: { chip: FilterChip; onPress: () => voi
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>
-      <ThemedText variant="amount">{chip.label}</ThemedText>
+      <ThemedText variant="amount" style={styles.chipLabel}>
+        {chip.label}
+      </ThemedText>
       <Icon name="xmark" size={sizes.iconSmall} color="inkSecondary" weight="bold" />
     </Pressable>
   );
@@ -75,4 +77,6 @@ function RemovableChip({ chip, onPress }: { chip: FilterChip; onPress: () => voi
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  // A long tag ("Olla de cocción lenta") at large Dynamic Type wraps inside its chip, keeping the ✕.
+  chipLabel: { flexShrink: 1 },
 });

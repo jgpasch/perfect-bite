@@ -2,6 +2,7 @@
 // when disabled, and reports its state to VoiceOver.
 import { describe, expect, it, jest } from '@jest/globals';
 import type { ReactElement } from 'react';
+import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { Button, PrimaryButton, SoftDangerButton, SurfaceButton } from '../button';
@@ -121,6 +122,51 @@ describe('SegmentedControl', () => {
     expect(onChange).not.toHaveBeenCalled();
     click(tabs[2]);
     expect(onChange).toHaveBeenCalledWith('newest');
+  });
+});
+
+// Spanish layout pass: a label longer than its control (Spanish, the largest Dynamic Type) wraps
+// inside it, centred, rather than overflowing or truncating. The type size never changes.
+describe('long labels wrap', () => {
+  const LONG = 'Agregar a una lista de compras muy larga';
+  /** The flattened style of the host Text showing `text`. */
+  const textStyle = (root: ReactTestRenderer, text: string) => {
+    const [node] = root.root.findAll((n) => (n.type as string) === 'Text' && n.props.children === text);
+    return StyleSheet.flatten(node.props.style);
+  };
+
+  it.each([
+    ['PrimaryButton', PrimaryButton],
+    ['SurfaceButton', SurfaceButton],
+    ['SoftDangerButton', SoftDangerButton],
+    ['Button', Button],
+  ] as [string, typeof SoftDangerButton][])('%s', (_, Component) => {
+    const style = textStyle(render(<Component label={LONG} onPress={() => {}} />), LONG);
+    expect(style).toEqual(expect.objectContaining({ flexShrink: 1, textAlign: 'center' }));
+    expect(style.fontSize).toBe(17);
+  });
+
+  it('Pill, selected or not, without limiting its lines', () => {
+    for (const selected of [false, true]) {
+      const root = render(<Pill label={LONG} selected={selected} onPress={() => {}} />);
+      const style = textStyle(root, LONG);
+      expect(style).toEqual(expect.objectContaining({ flexShrink: 1, textAlign: 'center' }));
+      const [node] = root.root.findAll((n) => (n.type as string) === 'Text' && n.props.children === LONG);
+      expect(node.props.numberOfLines).toBeUndefined();
+    }
+  });
+
+  it('SegmentedControl, in its default and custom looks', () => {
+    const segments = [
+      { value: 'ingredients', label: 'Ingredientes' },
+      { value: 'method', label: 'Preparación · 12' },
+    ] as const;
+    const look = { track: '#000', text: '#111', selected: '#222', selectedText: '#333' };
+    for (const custom of [undefined, look]) {
+      const root = render(<SegmentedControl segments={segments} value="method" onChange={() => {}} look={custom} />);
+      expect(textStyle(root, 'Ingredientes').textAlign).toBe('center');
+      expect(textStyle(root, 'Preparación · 12')).toEqual(expect.objectContaining({ textAlign: 'center', fontWeight: '700' }));
+    }
   });
 });
 

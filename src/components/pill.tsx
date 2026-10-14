@@ -69,7 +69,7 @@ export function Pill({
       ]}
       {...rest}>
       {icon ? <Icon name={icon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
-      <ThemedText variant="amount" style={[{ color: look.text }, selected || soft ? styles.selected : undefined]}>
+      <ThemedText variant="amount" style={[styles.label, { color: look.text }, selected || soft ? styles.selected : undefined]}>
         {label}
       </ThemedText>
       {trailingIcon ? <Icon name={trailingIcon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
@@ -79,5 +79,7 @@ export function Pill({
 
 const styles = StyleSheet.create({
   pill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
+  // Wraps inside the pill when it's wider than its row (Spanish, large Dynamic Type).
+  label: { flexShrink: 1, textAlign: 'center' },
   selected: { fontWeight: '700' },
 });

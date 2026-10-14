@@ -133,7 +133,7 @@ describe('item strings in Spanish', () => {
     expect([LIST_ADD_PLACEHOLDER, LIST_ADD_LABEL, ALREADY_ON_LIST_LABEL, addBarButton('x').label]).toEqual([
       'Agrega un artículo',
       'Agregar un artículo',
-      'ya está en la lista',
+      'en la lista',
       'Agregar',
     ]);
     initI18n('en');

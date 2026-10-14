@@ -31,7 +31,7 @@ export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon
       ]}
       {...rest}>
       {icon ? <Icon name={icon} color="onPrimary" weight="semibold" /> : null}
-      <ThemedText variant="headline" color="onPrimary">
+      <ThemedText variant="headline" color="onPrimary" style={styles.label}>
         {label}
       </ThemedText>
     </Pressable>
@@ -72,7 +72,7 @@ export function SurfaceButton({
       ]}
       {...rest}>
       {icon ? <Icon name={icon} color={text} tint={iconTint} weight="semibold" /> : null}
-      <ThemedText variant="headline" color={text}>
+      <ThemedText variant="headline" color={text} style={styles.label}>
         {label}
       </ThemedText>
     </Pressable>
@@ -99,7 +99,7 @@ export function SoftDangerButton({ label, disabled, ...rest }: Props) {
         },
       ]}
       {...rest}>
-      <ThemedText variant="headline" color="danger">
+      <ThemedText variant="headline" color="danger" style={styles.label}>
         {label}
       </ThemedText>
     </Pressable>
@@ -146,7 +146,7 @@ export function Button({
       ) : icon ? (
         <Icon name={icon} color={textColor} weight="semibold" />
       ) : null}
-      <ThemedText variant="headline" color={textColor}>
+      <ThemedText variant="headline" color={textColor} style={styles.label}>
         {label}
       </ThemedText>
     </Pressable>
@@ -155,4 +155,6 @@ export function Button({
 
 const styles = StyleSheet.create({
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
+  // A label longer than the button's room (Spanish, large Dynamic Type) wraps inside it rather than overflowing.
+  label: { flexShrink: 1, textAlign: 'center' },
 });
