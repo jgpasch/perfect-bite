@@ -126,7 +126,8 @@ export type PillLook = { fill: string; text: string; border: string | null };
  * aisle picker) that aisle's `strong` fill, both with light text; `primary` (the Recipes tab's
  * active Filters pill) is `primary` with `onPrimary`. Dashed ("+ New"): no fill, a
  * `controlBorder` outline and `inkSecondary` text. Outline (the aisle picker's "Show all"): no fill,
- * a `primary` outline and `primary` text.
+ * a `primary` outline and `primary` text. Soft (the Method card's "Add steps"): `primarySoft` with
+ * `onPrimarySoft` text.
  */
 export function pillLook(
   {
@@ -135,12 +136,14 @@ export function pillLook(
     dashed = false,
     primary = false,
     outline = false,
-  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean; outline?: boolean },
+    soft = false,
+  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean; outline?: boolean; soft?: boolean },
   colors: ThemeColors,
   aisles: Aisles,
 ): PillLook {
   if (dashed) return { fill: 'transparent', text: colors.inkSecondary, border: colors.controlBorder };
   if (outline) return { fill: 'transparent', text: colors.primary, border: colors.primary };
+  if (soft) return { fill: colors.primarySoft, text: colors.onPrimarySoft, border: null };
   if (selected && primary) return { fill: colors.primary, text: colors.onPrimary, border: null };
   if (selected && hue) return { fill: aisles[hue].strong, text: colors.onPrimary, border: null };
   const look = pillColors(selected);
@@ -290,10 +293,17 @@ export function itemNameColor(checked: boolean): ColorToken {
   return checked ? 'inkSecondary' : 'ink';
 }
 
-/** What VoiceOver reads for a section header: its name, then how many items it has ("Produce, 3 items"). */
-export function sectionHeaderLabel(name: string, count?: number): string {
+/**
+ * What VoiceOver reads for a section header: its name, then how many items it has ("Produce, 3 items").
+ * `unit` counts something else: "Method, 3 steps".
+ */
+export function sectionHeaderLabel(
+  name: string,
+  count?: number,
+  unit: readonly [one: string, other: string] = ['item', 'items'],
+): string {
   if (count === undefined) return name;
-  return `${name}, ${count} ${count === 1 ? 'item' : 'items'}`;
+  return `${name}, ${count} ${count === 1 ? unit[0] : unit[1]}`;
 }
 
 /** What VoiceOver announces when a toast appears: the message, then which actions it offers. */

@@ -30,6 +30,7 @@ import { useFeature } from '@/features/plans/features';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
+import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
 import { RecipePhotoHeader, usePhotoFailed } from '@/features/recipes/recipe-photo';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
@@ -224,6 +225,12 @@ export default function RecipeScreen() {
               ))
             )}
           </Card>
+          <View style={{ height: spacing.md }} />
+          <RecipeMethodCard
+            steps={recipe.steps}
+            hue={hue}
+            onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
+          />
         </ScrollView>
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>

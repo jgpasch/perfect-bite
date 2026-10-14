@@ -259,6 +259,8 @@ export const Sizes = {
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
   aisleRow: 52,
   grip: 20,
+  /** the numbered circle before each step in a recipe's Method card */
+  stepNumber: 26,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */

@@ -137,6 +137,13 @@ describe('AisleColors', () => {
       },
     );
 
+    it.each(Object.keys(AisleColors.light) as (keyof typeof AisleColors.light)[])(
+      'keeps the %s strong digit readable on its soft circle (a Method step number)',
+      (hue) => {
+        expect(contrastRatio(AisleColors[scheme][hue].strong, AisleColors[scheme][hue].soft)).toBeGreaterThanOrEqual(4.5);
+      },
+    );
+
     it('keeps the Owner badge (pending on amber soft) readable', () => {
       expect(contrastRatio(Palette[scheme].pending, AisleColors[scheme].amber.soft)).toBeGreaterThanOrEqual(4.5);
     });

@@ -156,3 +156,25 @@ export function addToRecipeTitle(count: number): string {
 export function addedToRecipeToast(count: number, recipeName: string): { message: string; emphasis: string } {
   return { message: `Added ${count} ${count === 1 ? 'item' : 'items'} to ${recipeName}`, emphasis: recipeName };
 }
+
+/**
+ * The Steps sheet's text as the recipe's steps: one per line, each trimmed, empty lines dropped.
+ * Nothing left is null (no steps), so clearing the field removes them.
+ */
+export function stepsFromText(text: string): string[] | null {
+  const steps = text
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return steps.length > 0 ? steps : null;
+}
+
+/** The recipe's steps as the Steps sheet's text, one per line. */
+export function stepsToText(steps: readonly string[] | null | undefined): string {
+  return (steps ?? []).join('\n');
+}
+
+/** What VoiceOver reads for a step in the Method card: "Step 2 of 7, Toss the chicken…". `index` is 0-based. */
+export function stepLabel(index: number, count: number, text: string): string {
+  return `Step ${index + 1} of ${count}, ${text}`;
+}
