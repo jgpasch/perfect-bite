@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { eq } from 'drizzle-orm';
 
 import { Pill } from '@/components/pill';
+import { SegmentedControl } from '@/components/segmented-control';
 import { AisleColors, Palette, Typography } from '@/constants/theme';
 import { db, outbox, recipes } from '@/db';
 import { recipeHue } from '@/domain/aisle-color';
@@ -18,7 +19,8 @@ import RecipeScreen from '@/app/recipe/[id]/index';
 import RecipeStepsSheet from '@/app/recipe/[id]/steps';
 
 import { RecipeMethodCard } from '../recipe-method-card';
-import { createRecipe, getRecipe, updateRecipeSteps } from '../recipes';
+import { methodTab } from '../recipe-view';
+import { addRecipeIngredient, createRecipe, getRecipe, updateRecipeSteps } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -137,6 +139,11 @@ const stepRows = (root: ReactTestRenderer) =>
 const byA11y = (root: ReactTestRenderer, label: string) =>
   root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function');
 const press = (n: ReactTestInstance) => act(() => n.props.onPress());
+/** The Ingredients | Method switch's tabs (host Views), by their VoiceOver label. */
+const tabs = (root: ReactTestRenderer) =>
+  root.root.findAll((n) => String(n.type) === 'View' && n.props.accessibilityRole === 'tab');
+const tab = (root: ReactTestRenderer, label: string) =>
+  root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'tab' && n.props.accessibilityLabel === label);
 const toolbarButton = (root: ReactTestRenderer, title: string) =>
   root.root.findAll((n) => String(n.type) === 'ToolbarButton').find((n) => n.props.children === title)!;
 const field = (root: ReactTestRenderer) =>
@@ -153,6 +160,7 @@ describe('the Method card', () => {
   test('lists the steps numbered, each read as "Step N of M, …", with the count and Edit', () => {
     setSteps(STEPS);
     const root = render(<RecipeScreen />);
+    press(tab(root, 'Method, 3 steps'));
     const rows = stepRows(root);
     expect(rows.map((r) => r.props.accessibilityLabel)).toEqual([
       'Step 1 of 3, Blend the chipotles into a paste.',
@@ -203,6 +211,138 @@ describe('the Method card', () => {
   test('an empty list of steps is the empty state too', () => {
     const root = render(<RecipeMethodCard steps={[]} hue="green" onEdit={() => {}} />);
     expect(hostTexts(root)).toEqual(['Method', 'No steps yet.', 'Add steps']);
+  });
+});
+
+describe('the Ingredients | Method tabs', () => {
+  const ingredientsHeader = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'Text' && /^Ingredients(, |$)/.test(n.props.accessibilityLabel ?? ''));
+  const methodHeader = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'Text' && /^Method(, |$)/.test(n.props.accessibilityLabel ?? ''));
+  const scrollView = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && typeof n.props.onScroll === 'function');
+  const switchWrapper = (root: ReactTestRenderer) =>
+    // The innermost View with onLayout around the tablist (the keyboard-avoiding view has one too).
+    root.root
+      .findAll(
+        (n) =>
+          String(n.type) === 'View' &&
+          typeof n.props.onLayout === 'function' &&
+          n.findAll((c) => String(c.type) === 'View' && c.props.accessibilityRole === 'tablist').length === 1,
+      )
+      .at(-1)!;
+
+  test('no steps: no switch; the Ingredients card, then the Method card with Add steps, as before', () => {
+    for (const steps of [null, []]) {
+      setSteps(steps);
+      addRecipeIngredient(tacos, '2 lb chicken thighs');
+      const root = render(<RecipeScreen />);
+      expect(root.root.findAll((n) => n.type === SegmentedControl)).toHaveLength(0);
+      expect(tabs(root)).toHaveLength(0);
+      const texts = hostTexts(root);
+      expect(texts.indexOf('Ingredients')).toBeGreaterThan(-1);
+      expect(texts.indexOf('Method')).toBeGreaterThan(texts.indexOf('Ingredients'));
+      expect(texts).toEqual(expect.arrayContaining(['Chicken thighs', 'No steps yet.', 'Add steps']));
+      press(byA11y(root, 'Add steps'));
+      expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/steps', params: { id: tacos } });
+      act(() => tree?.unmount());
+      tree = null;
+      resetDb();
+      ensureStarterData('user-1');
+      tacos = createRecipe('Tacos');
+      mockParams.id = tacos;
+    }
+  });
+
+  test('with steps: "Ingredients" and "Method · 3" as tabs, opening on Ingredients with only its card', () => {
+    setSteps(STEPS);
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    const root = render(<RecipeScreen />);
+    expect(root.root.findAll((n) => String(n.type) === 'View' && n.props.accessibilityRole === 'tablist')).toHaveLength(1);
+    expect(tabs(root).map((t) => [t.props.accessibilityLabel, t.props.accessibilityState])).toEqual([
+      ['Ingredients', { selected: true }],
+      ['Method, 3 steps', { selected: false }],
+    ]);
+    const texts = hostTexts(root);
+    expect(texts).toEqual(expect.arrayContaining(['Ingredients', 'Method · 3', 'Chicken thighs']));
+    expect(ingredientsHeader(root)).toHaveLength(1);
+    expect(methodHeader(root)).toHaveLength(0);
+    expect(stepRows(root)).toHaveLength(0);
+    // The switch sits under the Add to a list / Cook row.
+    expect(texts.indexOf('Cook')).toBeLessThan(texts.indexOf('Method · 3'));
+  });
+
+  test('Method shows only the Method card; Ingredients brings its card back', () => {
+    setSteps(STEPS);
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    const root = render(<RecipeScreen />);
+    press(tab(root, 'Method, 3 steps'));
+    expect(tabs(root).map((t) => t.props.accessibilityState)).toEqual([{ selected: false }, { selected: true }]);
+    expect(stepRows(root)).toHaveLength(3);
+    expect(methodHeader(root)).toHaveLength(1);
+    expect(ingredientsHeader(root)).toHaveLength(0);
+    expect(hostTexts(root)).not.toContain('Chicken thighs');
+    press(tab(root, 'Ingredients'));
+    expect(stepRows(root)).toHaveLength(0);
+    expect(ingredientsHeader(root)).toHaveLength(1);
+    expect(hostTexts(root)).toContain('Chicken thighs');
+  });
+
+  test('the servings stepper keeps its choice across a switch', () => {
+    setSteps(STEPS);
+    db.update(recipes).set({ servings: 4 }).where(eq(recipes.id, tacos)).run();
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    const root = render(<RecipeScreen />);
+    press(byA11y(root, 'More'));
+    press(byA11y(root, 'More'));
+    expect(hostTexts(root)).toEqual(expect.arrayContaining(['For 6', '3 lb']));
+    press(tab(root, 'Method, 3 steps'));
+    expect(hostTexts(root)).not.toContain('For 6');
+    press(tab(root, 'Ingredients'));
+    expect(hostTexts(root)).toEqual(expect.arrayContaining(['For 6', '3 lb', 'Reset']));
+    // Cook still gets the chosen servings from either tab.
+    press(tab(root, 'Method, 3 steps'));
+    press(byA11y(root, 'Start cooking'));
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/cook', params: { id: tacos, servings: '6' } });
+  });
+
+  test('opens on Ingredients every time; the tab isn\'t kept', () => {
+    setSteps(STEPS);
+    let root = render(<RecipeScreen />);
+    press(tab(root, 'Method, 3 steps'));
+    act(() => tree?.unmount());
+    root = render(<RecipeScreen />);
+    expect(tabs(root).map((t) => t.props.accessibilityState)).toEqual([{ selected: true }, { selected: false }]);
+    expect(stepRows(root)).toHaveLength(0);
+  });
+
+  test('the tab reads the step count, one step singular', () => {
+    setSteps(['Grill it.']);
+    const root = render(<RecipeScreen />);
+    expect(hostTexts(root)).toContain('Method · 1');
+    expect(tabs(root)[1].props.accessibilityLabel).toBe('Method, 1 step');
+  });
+
+  test('switching scrolls the switch back to the top only when it has scrolled off', () => {
+    setSteps(STEPS);
+    const root = render(<RecipeScreen />);
+    const scrollTo = jest.fn();
+    scrollView(root).instance.scrollTo = scrollTo;
+    act(() => switchWrapper(root).props.onLayout({ nativeEvent: { layout: { x: 0, y: 320, width: 390, height: 40 } } }));
+    act(() => scrollView(root).props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 100 } } }));
+    press(tab(root, 'Method, 3 steps'));
+    expect(scrollTo).not.toHaveBeenCalled();
+    act(() => scrollView(root).props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 900 } } }));
+    press(tab(root, 'Ingredients'));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 320, animated: true });
+  });
+});
+
+describe('methodTab', () => {
+  test('shows "Method · N" and reads the steps', () => {
+    expect(methodTab(6)).toEqual({ label: 'Method · 6', accessibilityLabel: 'Method, 6 steps' });
+    expect(methodTab(1)).toEqual({ label: 'Method · 1', accessibilityLabel: 'Method, 1 step' });
   });
 });
 

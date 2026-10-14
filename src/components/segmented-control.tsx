@@ -7,6 +7,8 @@ import { useTheme } from '@/hooks/use-theme';
 export type Segment<T extends string> = {
   value: T;
   label: string;
+  /** What VoiceOver reads instead of the label, e.g. "Method, 6 steps" for "Method · 6". */
+  accessibilityLabel?: string;
   /** What VoiceOver reads after the label, e.g. what the segment shows. */
   hint?: string;
 };
@@ -42,7 +44,7 @@ export function SegmentedControl<T extends string>({ segments, value, onChange, 
             key={segment.value}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            accessibilityLabel={segment.label}
+            accessibilityLabel={segment.accessibilityLabel ?? segment.label}
             accessibilityHint={segment.hint}
             onPress={() => {
               if (!selected) onChange(segment.value);

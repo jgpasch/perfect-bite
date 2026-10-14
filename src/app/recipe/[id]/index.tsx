@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
@@ -8,6 +8,7 @@ import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
+import { SegmentedControl } from '@/components/segmented-control';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -36,6 +37,7 @@ import { RecipePhotoHeader, usePhotoFailed } from '@/features/recipes/recipe-pho
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
   forServingsLabel,
+  methodTab,
   parseServings,
   scaledAmount,
   servesLabel,
@@ -80,6 +82,16 @@ export default function RecipeScreen() {
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
   const photo = usePhotoFailed(recipe?.imageUrl ?? null);
+  // Ingredients | Method, only with steps. Opens on Ingredients every visit and isn't saved.
+  const [tab, setTab] = useState<RecipeTab>('ingredients');
+  const scroll = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const switchY = useRef(0);
+  // Switching brings the card into view when the switch has scrolled off the top.
+  const switchTab = (next: RecipeTab) => {
+    setTab(next);
+    if (scrollY.current > switchY.current) scroll.current?.scrollTo({ y: switchY.current, animated: true });
+  };
 
   if (!recipe) return <Screen />;
 
@@ -88,6 +100,7 @@ export default function RecipeScreen() {
   const imageUrl = photo.failed ? null : recipe.imageUrl;
   const base = recipe.servings;
   const servings = base === null ? null : (chosen ?? base);
+  const steps = recipe.steps?.length ?? 0;
 
   const editServings = () =>
     Alert.prompt(
@@ -160,7 +173,10 @@ export default function RecipeScreen() {
       {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={imageUrl ? 0 : headerHeight}>
         <ScrollView
+          ref={scroll}
           style={styles.flex}
+          onScroll={(e) => (scrollY.current = e.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           // The photo runs up under the status bar and the header's buttons.
@@ -184,7 +200,7 @@ export default function RecipeScreen() {
                 }
               />
             </View>
-            {recipe.steps && recipe.steps.length > 0 ? (
+            {steps > 0 ? (
               <SurfaceButton
                 label="Cook"
                 accessibilityLabel="Start cooking"
@@ -201,55 +217,69 @@ export default function RecipeScreen() {
               />
             ) : null}
           </View>
-          <Card>
-            <SectionHeader
-              title="Ingredients"
-              count={ingredients.length}
-              trailing={
-                base !== null && servings !== null ? (
-                  <View style={[styles.row, { gap: spacing.xxs }]}>
-                    {servings !== base ? <Button variant="plain" label="Reset" onPress={() => setChosen(null)} /> : null}
-                    <Stepper
-                      value={servings}
-                      min={SERVINGS_MIN}
-                      max={SERVINGS_MAX}
-                      onChange={setChosen}
-                      label={forServingsLabel(servings)}
-                      accessibilityLabel="Servings"
-                    />
-                  </View>
-                ) : undefined
-              }
+          {/* With steps, one card at a time under the switch; without, Ingredients over the Method's Add steps. */}
+          {steps > 0 ? (
+            <View onLayout={(e) => (switchY.current = e.nativeEvent.layout.y)} style={{ paddingBottom: spacing.md }}>
+              <SegmentedControl
+                segments={[{ value: 'ingredients', label: 'Ingredients' }, { value: 'method', ...methodTab(steps) }]}
+                value={tab}
+                onChange={switchTab}
+              />
+            </View>
+          ) : null}
+          {steps === 0 || tab === 'ingredients' ? (
+            <Card>
+              <SectionHeader
+                title="Ingredients"
+                count={ingredients.length}
+                trailing={
+                  base !== null && servings !== null ? (
+                    <View style={[styles.row, { gap: spacing.xxs }]}>
+                      {servings !== base ? <Button variant="plain" label="Reset" onPress={() => setChosen(null)} /> : null}
+                      <Stepper
+                        value={servings}
+                        min={SERVINGS_MIN}
+                        max={SERVINGS_MAX}
+                        onChange={setChosen}
+                        label={forServingsLabel(servings)}
+                        accessibilityLabel="Servings"
+                      />
+                    </View>
+                  ) : undefined
+                }
+              />
+              {ingredients.length === 0 ? (
+                <ThemedText
+                  variant="callout"
+                  color="inkSecondary"
+                  style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+                  No ingredients yet. Add them below.
+                </ThemedText>
+              ) : (
+                ingredients.map((item) => (
+                  <RecipeIngredientRow
+                    key={item.id}
+                    ingredient={item}
+                    dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
+                    amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
+                    onEdit={() => edit(item)}
+                    onDelete={() => {
+                      deleteRecipeIngredient(item.id);
+                      setDeleted(item);
+                    }}
+                  />
+                ))
+              )}
+            </Card>
+          ) : null}
+          {steps === 0 ? <View style={{ height: spacing.md }} /> : null}
+          {steps === 0 || tab === 'method' ? (
+            <RecipeMethodCard
+              steps={recipe.steps}
+              hue={hue}
+              onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
             />
-            {ingredients.length === 0 ? (
-              <ThemedText
-                variant="callout"
-                color="inkSecondary"
-                style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-                No ingredients yet. Add them below.
-              </ThemedText>
-            ) : (
-              ingredients.map((item) => (
-                <RecipeIngredientRow
-                  key={item.id}
-                  ingredient={item}
-                  dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
-                  amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
-                  onEdit={() => edit(item)}
-                  onDelete={() => {
-                    deleteRecipeIngredient(item.id);
-                    setDeleted(item);
-                  }}
-                />
-              ))
-            )}
-          </Card>
-          <View style={{ height: spacing.md }} />
-          <RecipeMethodCard
-            steps={recipe.steps}
-            hue={hue}
-            onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
-          />
+          ) : null}
         </ScrollView>
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>
@@ -360,6 +390,8 @@ function RecipeBand({
     </View>
   );
 }
+
+type RecipeTab = 'ingredients' | 'method';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

@@ -186,6 +186,11 @@ export function stepLabel(index: number, count: number, text: string): string {
   return `Step ${index + 1} of ${count}, ${text}`;
 }
 
+/** The recipe screen's Method tab: "Method · 6", read by VoiceOver as "Method, 6 steps". */
+export function methodTab(count: number): { label: string; accessibilityLabel: string } {
+  return { label: `Method · ${count}`, accessibilityLabel: `Method, ${count} ${count === 1 ? 'step' : 'steps'}` };
+}
+
 /** The cook screen's line under the name (board 19): "For 6 · 2 of 6 steps done", or without servings "2 of 6 steps done". */
 export function cookProgressLabel(servings: number | null, done: number, total: number): string {
   const progress = `${done} of ${total} ${total === 1 ? 'step' : 'steps'} done`;
