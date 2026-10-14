@@ -1,0 +1,84 @@
+# Check off, uncheck and clear (spec 4.1, 4.6): checked items move to a folded Checked section; Uncheck
+# all and its Undo leave them checked; Clear removes them without touching what's left to get; and all
+# of it is saved in the device's database, so it's the same after a relaunch. This doesn't check the
+# check's linger or animation, the section opening once everything is checked, the long-press menu on
+# the Checked header (a native action sheet), swipes, Clear's Undo (unit tests cover the restore), or
+# that the server got the changes (the relaunch reads the device's database).
+appId: com.jgp.perfectbite
+name: Check off, uncheck and clear
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: email
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- inputText: 'Bread'
+- pressKey: Enter
+- assertVisible: 'Check off Bread'
+- inputText: 'Eggs'
+- pressKey: Enter
+- assertVisible: 'Check off Eggs'
+
+# Check off two. The Checked section starts folded, so their checks leave the screen once they've
+# lingered. VoiceOver reads the "Checked · 2" header as "Checked, 2 items".
+- tapOn: 'Check off Bananas'
+- tapOn: 'Check off Bread'
+- extendedWaitUntil:
+    visible: 'Checked, 2 items'
+    timeout: 10000
+- extendedWaitUntil:
+    notVisible: 'Check off Bananas'
+    timeout: 10000
+- assertNotVisible: 'Check off Bread'
+- assertVisible: 'Check off Eggs'
+
+# Uncheck all brings both back to get; Undo checks them again.
+- tapOn: 'Uncheck all'
+- extendedWaitUntil:
+    visible: 'Unchecked 2 items'
+    timeout: 10000
+- assertVisible: 'Check off Bananas'
+- assertVisible: 'Check off Bread'
+- assertNotVisible: 'Checked, \d+ items?'
+- tapOn: 'Undo'
+- extendedWaitUntil:
+    visible: 'Checked, 2 items'
+    timeout: 10000
+- extendedWaitUntil:
+    notVisible: 'Check off Bananas'
+    timeout: 10000
+- assertNotVisible: 'Check off Bread'
+
+# Clear (VoiceOver: "Clear 2 checked items") deletes both; the Checked section goes and Eggs stays.
+- tapOn: 'Clear 2 checked items'
+- extendedWaitUntil:
+    visible: 'Cleared 2 items'
+    timeout: 10000
+- assertNotVisible: 'Checked, \d+ items?'
+- assertNotVisible: 'Check off Bananas'
+- assertNotVisible: 'Check off Bread'
+- assertVisible: 'Check off Eggs'
+
+# Quit and relaunch, keeping the app's data: still signed in, the list opens from the device's
+# database with only Eggs, unchecked, and no Checked section.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: 'Groceries, switch list'
+    timeout: 30000
+- extendedWaitUntil:
+    visible: 'Check off Eggs'
+    timeout: 10000
+- assertNotVisible: 'Checked, \d+ items?'
+- assertNotVisible: 'Check off Bananas'
+- assertNotVisible: 'Check off Bread'
