@@ -186,6 +186,7 @@ A small button under each list's title reads the current view ("As added ⌄") a
 - A user can belong to any number of households (Q6). They must always belong to at least one.
 - Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Leave, and (owners only) Rename, Remove member, Make owner, Delete household.
 - The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user.
+- **Always have** (4.5): the household screen has an **Always have** row with the count ("None" when empty), for every member. It opens a screen titled "Always have" listing the household's staples by display name in sentence case, live (another member's change shows without leaving). An "Add an ingredient" field at the top marks a name as a staple, read as the add bar reads it (amount ignored; one already there changes nothing), with the add bar's history and catalog chips. Swipe left, or **Edit** and a row's delete button, removes one with no confirm and a "Removed *Salt*" toast with **Undo**. Empty: "Nothing yet. Ingredients you always have are left off when you add a recipe." VoiceOver reads each row as text with a Delete action.
 
 **Roles** (Q1)
 - `owner` or `member`. A household can have several owners and always has at least one.

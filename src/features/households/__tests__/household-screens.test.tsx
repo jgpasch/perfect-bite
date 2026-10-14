@@ -5,17 +5,19 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { ActionSheetIOS, Alert, type AlertButton, Share } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, recipes } from '@/db';
+import { db, householdStaples, households, ingredients, ingredientUsage, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
 import HouseholdInviteSheet from '@/app/household-invite';
 import JoinHouseholdScreen from '@/app/invite/[token]';
 import HouseholdScreen from '@/app/(tabs)/settings/households/[id]';
+import AlwaysHaveScreen from '@/app/(tabs)/settings/always-have';
 
 import { takeDeletedHousehold } from '../deleted-household-notice';
 import { HouseholdActionError, type HouseholdMember } from '../households';
 import { InviteRow } from '../invite-row';
+import { isStaple, setStaple } from '../staples';
 import { InviteError, type AcceptedInvite, type HouseholdInvite, type InvitePreview, type MyInvite } from '../invites';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -36,9 +38,22 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+// Records the tables each screen watches, so a test can check it follows remote changes.
+const mockWatched: unknown[][] = [];
 jest.mock('@/db/live-query', () => ({
-  useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
+  useLiveQueryOn: (query: { all: () => unknown[] }, tables: unknown[]) => {
+    mockWatched.push(tables);
+    return { data: query.all(), error: undefined };
+  },
 }));
+// The swipe: a host element whose `onSwipeableOpen` the test calls, as a full swipe would.
+jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
+  const { createElement } = require('react');
+  return {
+    __esModule: true,
+    default: ({ children, ...props }: Record<string, any>) => createElement('Swipeable', props, children),
+  };
+});
 
 type Fn<A extends unknown[] = any[], R = any> = (...args: A) => R;
 const mockCreateInvite = jest.fn<Fn<[string, string?], Promise<string>>>();
@@ -447,7 +462,7 @@ describe('HouseholdScreen', () => {
         const sheet = sheetSpy();
         const alert = alertSpy();
         const root = await render(<HouseholdScreen />);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Always have', 'None', 'Invite someone', 'Delete household', 'Leave household']);
         await pressAsync(byLabel(root, 'Sam'));
         expect(sheet.mock.calls[0][0]).toEqual({
           title: 'Sam',
@@ -465,7 +480,7 @@ describe('HouseholdScreen', () => {
         await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
         expect(mockSetRole).toHaveBeenCalledWith(HOME, 'sam', 'owner');
         expect(mockFetchMembers).toHaveBeenCalledTimes(2);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Always have', 'None', 'Invite someone', 'Delete household', 'Leave household']);
         // Sam is now another owner: the sheet offers Remove as owner.
         expect(byLabel(root, 'Sam').props.accessibilityHint).toBe('Remove as owner or remove.');
         expect(alert).toHaveBeenCalledTimes(1);
@@ -811,6 +826,205 @@ describe('HouseholdScreen', () => {
       const root = await render(<HouseholdScreen />);
       await save(await openPrompt(root), 'Cabin');
       expect(alert).toHaveBeenCalledWith("Couldn't rename Smith home", 'Use a shorter name (up to 50 characters).');
+    });
+  });
+});
+
+describe('Always have', () => {
+  const rerender = async (element: React.ReactElement) => {
+    await act(async () => tree!.update(element));
+  };
+  const toolbarButton = (root: ReactTestRenderer, label: string) =>
+    byType(root, 'ToolbarButton').find((b) => b.props.children === label);
+  const field = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.accessibilityLabel === 'Add an ingredient')[0];
+  const type = async (root: ReactTestRenderer, text: string) => {
+    await act(async () => field(root).props.onChangeText(text));
+  };
+  const submit = async (root: ReactTestRenderer) => {
+    await act(async () => field(root).props.onSubmitEditing());
+  };
+  // The outermost element with the label: the Pressable (with `onPress`) or the View (with its accessibility props).
+  const byA11y = (root: ReactTestRenderer, label: string) => root.root.findAll((n) => n.props.accessibilityLabel === label)[0];
+  const outboxCount = () => db.select().from(outbox).all().length;
+
+  describe('on the household screen', () => {
+    beforeEach(() => {
+      mockParams.id = HOME;
+      mockFetchMembers.mockResolvedValue([ME_OWNER]);
+    });
+
+    test('a row with the count ("None" when empty) that opens the Always have screen', async () => {
+      const root = await render(<HouseholdScreen />);
+      expect(byLabel(root, 'Always have').props.value).toBe('None');
+      expect(texts(root)).toContain('None');
+
+      setStaple(HOME, 'salt', true, USER);
+      setStaple(HOME, 'pepper', true, USER);
+      // Another household's staples don't count.
+      db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+      setStaple('cabin', 'water', true, USER);
+      await rerender(<HouseholdScreen />);
+      expect(byLabel(root, 'Always have').props.value).toBe('2');
+
+      await pressAsync(byLabel(root, 'Always have'));
+      expect(mockRouter.push).toHaveBeenLastCalledWith({ pathname: '/settings/always-have', params: { household: HOME } });
+    });
+
+    test('an unmarked staple no longer counts', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      setStaple(HOME, 'salt', false, USER);
+      const root = await render(<HouseholdScreen />);
+      expect(byLabel(root, 'Always have').props.value).toBe('None');
+    });
+  });
+
+  describe('the screen', () => {
+    beforeEach(() => {
+      mockParams.household = HOME;
+      mockWatched.length = 0;
+    });
+
+    test('empty: the message, and no Edit', async () => {
+      const root = await render(<AlwaysHaveScreen />);
+      expect(texts(root)).toContain('Nothing yet. Ingredients you always have are left off when you add a recipe.');
+      expect(toolbarButton(root, 'Edit')).toBeUndefined();
+      expect(field(root).props.placeholder).toBe('Add an ingredient');
+      expect(field(root).props.accessibilityLabel).toBe('Add an ingredient');
+    });
+
+    test("lists the household's staples by display name, in sentence case", async () => {
+      db.insert(ingredientUsage)
+        .values({ householdId: HOME, ingredientName: 'olive oil', displayName: 'extra virgin olive oil', lastUsedAt: new Date() })
+        .run();
+      setStaple(HOME, 'salt', true, USER);
+      setStaple(HOME, 'olive oil', true, USER);
+      setStaple(HOME, 'water', true, USER);
+      setStaple(HOME, 'water', false, USER);
+      db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+      setStaple('cabin', 'garlic', true, USER);
+      const root = await render(<AlwaysHaveScreen />);
+      const names = ['Extra virgin olive oil', 'Garlic', 'Salt', 'Water'];
+      expect(texts(root).filter((t) => names.includes(t))).toEqual(['Extra virgin olive oil', 'Salt']);
+      expect(texts(root)).not.toContain('Nothing yet. Ingredients you always have are left off when you add a recipe.');
+    });
+
+    test('watches the staples table, so another member\'s change shows without leaving', async () => {
+      const root = await render(<AlwaysHaveScreen />);
+      expect(mockWatched.some((tables) => tables.includes(householdStaples))).toBe(true);
+      // A pull or Realtime writes the row; the live query re-reads it.
+      db.insert(householdStaples).values({ householdId: HOME, ingredientName: 'salt', createdBy: 'sam' }).run();
+      await rerender(<AlwaysHaveScreen />);
+      expect(texts(root)).toContain('Salt');
+    });
+
+    test('the field marks a name as typed, amount ignored, and clears', async () => {
+      const root = await render(<AlwaysHaveScreen />);
+      await type(root, '2 tbsp Olive oils');
+      await submit(root);
+      expect(isStaple(HOME, 'olive oil')).toBe(true);
+      expect(field(root).props.value).toBe('');
+      expect(texts(root)).toContain('Olive oil');
+    });
+
+    test('adding one already there does nothing', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      const root = await render(<AlwaysHaveScreen />);
+      const start = outboxCount();
+      await type(root, 'Salt');
+      await submit(root);
+      expect(outboxCount()).toBe(start);
+      expect(byType(root, 'Swipeable')).toHaveLength(1);
+    });
+
+    test('blank text adds nothing', async () => {
+      const root = await render(<AlwaysHaveScreen />);
+      const start = outboxCount();
+      await type(root, '   ');
+      await submit(root);
+      expect(outboxCount()).toBe(start);
+      expect(byType(root, 'Swipeable')).toHaveLength(0);
+    });
+
+    test('history and catalog chips, as the add bar; tapping one marks it', async () => {
+      db.insert(ingredientUsage)
+        .values({ householdId: HOME, ingredientName: 'chicken thighs', displayName: 'chicken thighs', lastUsedAt: new Date() })
+        .run();
+      db.insert(ingredients)
+        .values({
+          normalizedName: 'chickpea',
+          displayName: 'chickpeas',
+          isGroceryItem: true,
+        })
+        .run();
+      const root = await render(<AlwaysHaveScreen />);
+      expect(root.root.findAll((n) => n.props.accessibilityLabel === 'Add Chicken thighs')).toHaveLength(0);
+      await type(root, '2 chi');
+      const history = byA11y(root, 'Add Chicken thighs');
+      // Only history can be removed from suggestions.
+      expect(history.props.accessibilityHint).toBe('Long press to remove from suggestions');
+      expect(byA11y(root, 'Add Chickpeas').props.accessibilityHint).toBeUndefined();
+      await pressAsync(history);
+      expect(isStaple(HOME, 'chicken thigh')).toBe(true);
+      expect(field(root).props.value).toBe('');
+    });
+
+    test('swipe left removes with no confirm, "Removed Salt" with Undo brings it back', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      setStaple(HOME, 'pepper', true, USER);
+      const alert = jest.spyOn(Alert, 'alert');
+      const root = await render(<AlwaysHaveScreen />);
+      const salt = byType(root, 'Swipeable')[1];
+      expect(salt.props.enabled).toBe(true);
+      await act(async () => salt.props.onSwipeableOpen());
+      expect(alert).not.toHaveBeenCalled();
+      expect(isStaple(HOME, 'salt')).toBe(false);
+      expect(isStaple(HOME, 'pepper')).toBe(true);
+      await rerender(<AlwaysHaveScreen />);
+      expect(texts(root)).toContain('Removed Salt');
+      expect(texts(root)).not.toContain('Salt');
+      await pressAsync(byA11y(root, 'Undo'));
+      expect(isStaple(HOME, 'salt')).toBe(true);
+      expect(texts(root)).not.toContain('Removed Salt');
+      expect(texts(root)).toContain('Salt');
+    });
+
+    test('Edit shows a delete button per row; Done leaves', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      setStaple(HOME, 'pepper', true, USER);
+      const root = await render(<AlwaysHaveScreen />);
+      expect(root.root.findAll((n) => n.props.accessibilityLabel === 'Delete Salt')).toHaveLength(0);
+      await pressAsync(toolbarButton(root, 'Edit')!);
+      expect(byType(root, 'Swipeable').every((s) => s.props.enabled === false)).toBe(true);
+      await pressAsync(byA11y(root, 'Delete Salt'));
+      expect(isStaple(HOME, 'salt')).toBe(false);
+      expect(texts(root)).toContain('Removed Salt');
+      expect(toolbarButton(root, 'Done')).toBeDefined();
+      await pressAsync(toolbarButton(root, 'Done')!);
+      expect(root.root.findAll((n) => n.props.accessibilityLabel === 'Delete Pepper')).toHaveLength(0);
+      expect(toolbarButton(root, 'Edit')).toBeDefined();
+    });
+
+    test('removing the last one leaves Edit and shows the empty message', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      const root = await render(<AlwaysHaveScreen />);
+      await pressAsync(toolbarButton(root, 'Edit')!);
+      await pressAsync(byA11y(root, 'Delete Salt'));
+      expect(texts(root)).toContain('Nothing yet. Ingredients you always have are left off when you add a recipe.');
+      expect(toolbarButton(root, 'Edit')).toBeUndefined();
+      expect(toolbarButton(root, 'Done')).toBeUndefined();
+    });
+
+    test('VoiceOver: each row is a text with a Delete action', async () => {
+      setStaple(HOME, 'salt', true, USER);
+      const root = await render(<AlwaysHaveScreen />);
+      const row = byA11y(root, 'Salt');
+      expect(row.props.accessibilityRole).toBe('text');
+      expect(row.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+      await act(async () => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } }));
+      expect(isStaple(HOME, 'salt')).toBe(true);
+      await act(async () => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
+      expect(isStaple(HOME, 'salt')).toBe(false);
+      expect(texts(root)).toContain('Removed Salt');
     });
   });
 });

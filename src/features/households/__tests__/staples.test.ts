@@ -5,7 +5,16 @@ import { db, householdStaples, households, ingredientUsage, outbox } from '@/db'
 import { getDefaultListId, ensureStarterData, getList } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
-import { alwaysHaveFootnote, isStaple, setStaple, stapleNames, staplesQuery } from '../staples';
+import {
+  addStapleFromText,
+  alwaysHaveFootnote,
+  isStaple,
+  setStaple,
+  stapleKeyFromText,
+  stapleNames,
+  staplesCountLabel,
+  staplesQuery,
+} from '../staples';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -122,5 +131,48 @@ describe('alwaysHaveFootnote', () => {
     expect(alwaysHaveFootnote(' Home ')).toBe('Left off when you add a recipe. Changes it for everyone in Home.');
     expect(alwaysHaveFootnote(null)).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
     expect(alwaysHaveFootnote('  ')).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
+  });
+});
+
+describe('stapleKeyFromText and addStapleFromText', () => {
+  test('reads the name as the add bar does, amount ignored', () => {
+    expect(stapleKeyFromText('salt')).toBe('salt');
+    expect(stapleKeyFromText('  Salt ')).toBe('salt');
+    expect(stapleKeyFromText('2 tbsp Olive oils')).toBe('olive oil');
+    expect(stapleKeyFromText('1 1/2 cups flour')).toBe('flour');
+    expect(stapleKeyFromText('   ')).toBeNull();
+  });
+
+  test('marks the key for the household; one already marked writes nothing', () => {
+    expect(addStapleFromText(home, '2 tbsp Olive oils', USER)).toBe('olive oil');
+    expect(isStaple(home, 'olive oil')).toBe(true);
+    expect(isStaple(CABIN, 'olive oil')).toBe(false);
+    const start = outboxCount();
+    expect(addStapleFromText(home, 'olive oil', USER)).toBe('olive oil');
+    expect(outboxCount()).toBe(start);
+    expect(staplesQuery(home).all()).toHaveLength(1);
+  });
+
+  test('marks an unmarked one again', () => {
+    setStaple(home, 'salt', true, USER);
+    setStaple(home, 'salt', false, USER);
+    addStapleFromText(home, 'Salt', USER);
+    expect(isStaple(home, 'salt')).toBe(true);
+  });
+
+  test('text with no name marks nothing', () => {
+    const start = outboxCount();
+    expect(addStapleFromText(home, '  ', USER)).toBeNull();
+    expect(addStapleFromText(home, '', USER)).toBeNull();
+    expect(outboxCount()).toBe(start);
+    expect(staplesQuery(home).all()).toEqual([]);
+  });
+});
+
+describe('staplesCountLabel', () => {
+  test('"None" with none, else the count', () => {
+    expect(staplesCountLabel(0)).toBe('None');
+    expect(staplesCountLabel(1)).toBe('1');
+    expect(staplesCountLabel(12)).toBe('12');
   });
 });

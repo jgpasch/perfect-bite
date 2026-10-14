@@ -25,7 +25,8 @@ export default function SettingsStackLayout() {
         // Board 11: the header sits on the household's amber band.
         options={{ title: '', headerBackButtonDisplayMode: 'minimal', headerStyle: { backgroundColor: aisles.amber.soft } }}
       />
-      <Stack.Screen name="sync" options={{ title: 'Sync status', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="always-have" options={{ title: 'Always have', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="sync"options={{ title: 'Sync status', headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="aisle-colors" options={{ title: 'Aisle colours', headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="siri" options={{ title: 'Siri', headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="developer" options={{ title: 'Developer', headerBackButtonDisplayMode: 'minimal' }} />

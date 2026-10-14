@@ -43,6 +43,7 @@ import {
 } from '@/features/households/households';
 import { inviteSheetError } from '@/features/households/invite-sheet';
 import { promptHouseholdName } from '@/features/households/prompt-household-name';
+import { staplesCountLabel, staplesQuery, STAPLES_QUERY_TABLES } from '@/features/households/staples';
 import { createInvite, listHouseholdInvites, revokeInvite, type HouseholdInvite } from '@/features/households/invites';
 import {
   pendingInviteAccessibilityLabel,
@@ -83,6 +84,7 @@ export default function HouseholdScreen() {
   const userId = account.status === 'ready' ? account.account.userId : null;
   const { data } = useLiveQueryOn(householdsWithCountsQuery(), HOUSEHOLD_COUNT_TABLES);
   const household = data.find((h) => h.id === id);
+  const { data: staples } = useLiveQueryOn(staplesQuery(id), STAPLES_QUERY_TABLES, [id]);
   const band = householdBandColors(colors, aisles);
 
   const [state, setState] = useState<MembersState>({ status: 'loading' });
@@ -419,6 +421,17 @@ export default function HouseholdScreen() {
           ))}
         </SettingsSection>
       ) : null}
+
+      <View style={{ paddingTop: spacing.lg }}>
+        <Card>
+          <SettingsRow
+            label="Always have"
+            value={staplesCountLabel(staples.length)}
+            last
+            onPress={() => router.push({ pathname: '/settings/always-have', params: { household: id } })}
+          />
+        </Card>
+      </View>
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={() => invite()} />

@@ -4,6 +4,7 @@
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { db, householdStaples, ingredientUsage } from '@/db';
+import { normalizeIngredientName, parseQuantity } from '@/shared';
 import { upsertRow } from '@/sync/mutate';
 
 /** Tables `staplesQuery` reads, for `useLiveQueryOn`. */
@@ -54,6 +55,29 @@ export function setStaple(householdId: string, ingredientName: string, on: boole
 export function alwaysHaveFootnote(householdName: string | null): string {
   const name = householdName?.trim();
   return `Left off when you add a recipe. Changes it for everyone in ${name || 'your household'}.`;
+}
+
+/** The staple key for typed text, read as the add bar reads it with the amount ignored: `2 tbsp Olive oils` → `olive oil`. */
+export function stapleKeyFromText(text: string): string | null {
+  return normalizeIngredientName(parseQuantity(text).name) || null;
+}
+
+/**
+ * Settings > Always have's add field (spec 4.7): marks typed text as a staple. Returns its key, or null for text with
+ * no name. One already marked stays as it is.
+ */
+export function addStapleFromText(householdId: string, text: string, userId: string | null): string | null {
+  const key = stapleKeyFromText(text);
+  if (key) setStaple(householdId, key, true, userId);
+  return key;
+}
+
+/** Settings > Always have with no staples. */
+export const ALWAYS_HAVE_EMPTY = 'Nothing yet. Ingredients you always have are left off when you add a recipe.';
+
+/** The household screen's Always have row value: how many staples, "None" with none. */
+export function staplesCountLabel(count: number): string {
+  return count === 0 ? 'None' : String(count);
 }
 
 /** The household's staples' keys, for matching recipe ingredients. */
