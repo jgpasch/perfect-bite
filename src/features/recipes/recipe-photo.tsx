@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
 import { recipeHue } from '@/domain/aisle-color';
+import { RecipeCredit } from '@/features/recipes/recipe-credit';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
@@ -76,24 +77,39 @@ export function RecipePhotoCover({ recipeId, imageUrl }: { recipeId: string; ima
 
 /**
  * The recipe screen's photo header (board 13): full width at 16:9 above the band, in the band's tint while
- * it loads. `onError` tells the screen to drop it, so the band and its tinted header come back. Decorative.
+ * it loads. `onError` tells the screen to drop it, so the band and its tinted header come back. The photo is
+ * decorative; the source credit (`sourceUrl`, spec 4.5) sits on its bottom-right corner.
  */
-export function RecipePhotoHeader({ imageUrl, tint, onError }: { imageUrl: string; tint: string; onError: () => void }) {
+export function RecipePhotoHeader({
+  imageUrl,
+  tint,
+  sourceUrl,
+  onError,
+}: {
+  imageUrl: string;
+  tint: string;
+  sourceUrl?: string | null;
+  onError: () => void;
+}) {
   return (
-    <View
-      accessible={false}
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden
-      style={[styles.header, { backgroundColor: tint }]}>
-      <Image
-        testID="recipe-photo"
-        source={imageUrl}
-        contentFit="cover"
-        cachePolicy="disk"
+    // The credit is the photo's sibling, so VoiceOver still reaches it; it's placed over the photo's corner.
+    <View>
+      <View
         accessible={false}
-        onError={onError}
-        style={StyleSheet.absoluteFill}
-      />
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+        style={[styles.header, { backgroundColor: tint }]}>
+        <Image
+          testID="recipe-photo"
+          source={imageUrl}
+          contentFit="cover"
+          cachePolicy="disk"
+          accessible={false}
+          onError={onError}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+      <RecipeCredit sourceUrl={sourceUrl} onPhoto />
     </View>
   );
 }

@@ -362,6 +362,10 @@ export const es = {
       edit: 'Editar enlace',
       remove: 'Quitar enlace',
     },
+    credit: {
+      text: 'De {{host}}',
+      label: 'Receta de {{host}}',
+    },
     method: {
       title: 'Preparación',
       tab: 'Preparación · {{count}}',

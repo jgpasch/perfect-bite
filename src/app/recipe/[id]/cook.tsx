@@ -13,6 +13,7 @@ import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { useKeepAwake } from '@/features/lists/keep-awake';
 import { startingServings } from '@/features/recipes/add-to-list';
+import { RecipeCredit } from '@/features/recipes/recipe-credit';
 import { cookProgressLabel, scaledAmount, stepLabel, stepUnit, upNextIndex } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
@@ -109,6 +110,8 @@ export default function CookScreen() {
                 onToggle={() => toggleStep(index)}
               />
             ))}
+            {/* The source credit at the foot of the last step (spec 4.5). */}
+            <RecipeCredit sourceUrl={recipe.sourceUrl} />
           </Card>
         ) : null}
       </ScrollView>

@@ -9,6 +9,7 @@ import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
+import { RecipeCredit } from './recipe-credit';
 import { stepLabel, stepUnit } from './recipe-view';
 
 /** How far apart a step's lines sit, as a multiple of `body`'s size: roomier than a list row, for reading while cooking. */
@@ -16,15 +17,19 @@ const STEP_LINE_SPACING = 1.45;
 
 /**
  * The recipe screen's Method card (board 14): the steps numbered in the recipe hue's soft circles,
- * selectable for copying, with Edit in the header. With none, "No steps yet." and Add steps (board 15).
+ * selectable for copying, with Edit in the header, and the source credit under them when `sourceUrl` is a
+ * link that opens. With none, "No steps yet." and Add steps (board 15), and no credit.
  */
 export function RecipeMethodCard({
   steps,
   hue,
+  sourceUrl,
   onEdit,
 }: {
   steps: readonly string[] | null;
   hue: AisleHue;
+  /** The recipe's link, credited under the steps. */
+  sourceUrl?: string | null;
   onEdit: () => void;
 }) {
   const t = useT();
@@ -95,6 +100,7 @@ export function RecipeMethodCard({
           </ThemedText>
         </View>
       ))}
+      <RecipeCredit sourceUrl={sourceUrl} />
     </Card>
   );
 }

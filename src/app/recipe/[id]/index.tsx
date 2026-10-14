@@ -184,7 +184,7 @@ export default function RecipeScreen() {
           // The photo runs up under the status bar and the header's buttons.
           contentInsetAdjustmentBehavior="never"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} onError={photo.onError} /> : null}
+          {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} sourceUrl={recipe.sourceUrl} onError={photo.onError} /> : null}
           <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} />
           {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps. */}
           <View style={[styles.row, { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }]}>
@@ -281,6 +281,7 @@ export default function RecipeScreen() {
             <RecipeMethodCard
               steps={recipe.steps}
               hue={hue}
+              sourceUrl={recipe.sourceUrl}
               onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
             />
           ) : null}

@@ -393,6 +393,11 @@ export const en = {
       edit: 'Edit link',
       remove: 'Remove link',
     },
+    /** The source credit under the steps and on the photo. */
+    credit: {
+      text: 'From {{host}}',
+      label: 'Recipe from {{host}}',
+    },
     /** The Method card, the Steps sheet and their steps. */
     method: {
       title: 'Method',
