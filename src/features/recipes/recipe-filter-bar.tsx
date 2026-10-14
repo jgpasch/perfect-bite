@@ -12,6 +12,7 @@ import {
   type RecipeFilters,
 } from '@/features/recipes/recipe-filters';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * Under the Recipes tab's search field (spec 4.14): the Filters pill ("Filters · 2", filled
@@ -26,6 +27,7 @@ export function RecipeFilterBar({
   onOpen: () => void;
   onRemove: (chip: FilterChip) => void;
 }) {
+  const t = useT();
   const { spacing } = useTheme();
   const count = activeFilterCount(filters);
   return (
@@ -33,7 +35,7 @@ export function RecipeFilterBar({
       <Pill
         label={filtersPillLabel(count)}
         accessibilityLabel={filtersPillAccessibilityLabel(count)}
-        accessibilityHint="Opens the filters."
+        accessibilityHint={t('recipes.filters.pillHint')}
         selected={count > 0}
         primary
         onPress={onOpen}

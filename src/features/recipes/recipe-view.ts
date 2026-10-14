@@ -2,7 +2,7 @@
 
 import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
-import { i18n } from '@/i18n';
+import { i18n, onLanguageChanged } from '@/i18n';
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
@@ -35,7 +35,7 @@ export function onListByRecipe(rows: readonly { recipeId: string; listName: stri
 
 /** "1 ingredient", "9 ingredients". */
 export function ingredientCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'ingredient' : 'ingredients'}`;
+  return i18n.t('recipes.tab.ingredients', { count });
 }
 
 /**
@@ -43,7 +43,11 @@ export function ingredientCountLabel(count: number): string {
  * search matched only through an ingredient reads that instead of the count: "Tacos, has chicken thighs".
  */
 export function recipeCardLabel(name: string, count: number, onList?: string | null, ingredientMatch?: string | null): string {
-  return [name, ingredientMatch ? `has ${ingredientMatch}` : ingredientCountLabel(count), onList ? `on ${onList}` : null]
+  return [
+    name,
+    ingredientMatch ? i18n.t('recipes.tab.cardHas', { name: ingredientMatch }) : ingredientCountLabel(count),
+    onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,
+  ]
     .filter(Boolean)
     .join(', ');
 }
@@ -57,16 +61,20 @@ export function servingsLabel(servings: number): string {
 export const SERVINGS_MIN = 1;
 export const SERVINGS_MAX = 100;
 
-export const SERVINGS_ERROR = 'Servings must be a whole number from 1 to 100';
+// Module-level strings follow the app's language (a live binding, set once i18n is initialized).
+export let SERVINGS_ERROR = '';
+onLanguageChanged(() => {
+  SERVINGS_ERROR = i18n.t('recipes.servings.error');
+});
 
 /** The recipe band's servings: "Serves 4". */
 export function servesLabel(servings: number): string {
-  return `Serves ${servings}`;
+  return i18n.t('recipes.servings.serves', { count: servings });
 }
 
 /** The Ingredients stepper's value: "For 6". */
 export function forServingsLabel(servings: number): string {
-  return `For ${servings}`;
+  return i18n.t('recipes.servings.for', { count: servings });
 }
 
 /**
@@ -93,12 +101,14 @@ export function scaledAmount(amount: Amount, chosen: number, base: number): stri
 
 /** The add-to-list CTA: "Add 8 to Groceries", or "Nothing selected". */
 export function addCtaLabel(count: number, listName: string): string {
-  return count === 0 ? 'Nothing selected' : `Add ${count} to ${listName}`;
+  return count === 0
+    ? i18n.t('recipes.addToList.nothingSelected')
+    : i18n.t('recipes.addToList.cta', { count, name: listName });
 }
 
 /** A recipe row's second line in the add bar's panel (spec 4.2): "Recipe · 8 items". */
 export function recipeSuggestionDetail(count: number): string {
-  return `Recipe · ${count} ${count === 1 ? 'item' : 'items'}`;
+  return i18n.t('recipes.toasts.suggestionDetail', { count });
 }
 
 /** What VoiceOver reads for that row: "Add recipe Tacos, 8 items". */
@@ -108,7 +118,7 @@ export function recipeSuggestionLabel(name: string, count: number): string {
 
 /** The toast after adding a recipe to a list: "Added Tacos · 8 items", the recipe's name in bold. */
 export function addedRecipeToListToast(recipeName: string, count: number): { message: string; emphasis: string } {
-  return { message: `Added ${recipeName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName };
+  return { message: i18n.t('recipes.toasts.added', { name: recipeName, count }), emphasis: recipeName };
 }
 
 // Past three names, the line names two and counts the rest.
@@ -126,16 +136,18 @@ export function addedRecipeWithStaplesToast(
   skipped: readonly string[],
   listName?: string,
 ): { message: string; emphasis: string } {
-  if (count === 0 && skipped.length > 0) return { message: `You always have everything in ${recipeName}`, emphasis: recipeName };
+  if (count === 0 && skipped.length > 0) {
+    return { message: i18n.t('recipes.toasts.alwaysHaveAll', { name: recipeName }), emphasis: recipeName };
+  }
   const added = listName
-    ? { message: `Added ${recipeName} to ${listName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName }
+    ? { message: i18n.t('recipes.toasts.addedTo', { name: recipeName, list: listName, count }), emphasis: recipeName }
     : addedRecipeToListToast(recipeName, count);
   if (skipped.length === 0) return added;
   const names =
     skipped.length > SKIPPED_NAMES_SHOWN
-      ? `${skipped.slice(0, 2).join(', ')} and ${skipped.length - 2} more`
+      ? i18n.t('recipes.toasts.skippedMore', { names: skipped.slice(0, 2).join(', '), count: skipped.length - 2 })
       : skipped.join(', ');
-  return { ...added, message: `${added.message}\nSkipped ${names}` };
+  return { ...added, message: `${added.message}\n${i18n.t('recipes.toasts.skipped', { names })}` };
 }
 
 /**
@@ -157,12 +169,12 @@ export function orderByLastUse<R extends { id: string; name: string; updatedAt: 
 
 /** The "Add to recipe" sheet's title: "Add 1 item to…", "Add 3 items to…". */
 export function addToRecipeTitle(count: number): string {
-  return `Add ${count} ${count === 1 ? 'item' : 'items'} to…`;
+  return i18n.t('recipes.addToRecipe.title', { count });
 }
 
 /** The toast after adding items to a recipe: "Added 3 items to Tacos", the recipe's name in bold. */
 export function addedToRecipeToast(count: number, recipeName: string): { message: string; emphasis: string } {
-  return { message: `Added ${count} ${count === 1 ? 'item' : 'items'} to ${recipeName}`, emphasis: recipeName };
+  return { message: i18n.t('recipes.toasts.addedToRecipe', { count, name: recipeName }), emphasis: recipeName };
 }
 
 /**
@@ -184,18 +196,23 @@ export function stepsToText(steps: readonly string[] | null | undefined): string
 
 /** What VoiceOver reads for a step in the Method card: "Step 2 of 7, Toss the chicken…". `index` is 0-based. */
 export function stepLabel(index: number, count: number, text: string): string {
-  return `Step ${index + 1} of ${count}, ${text}`;
+  return i18n.t('recipes.method.step', { number: index + 1, count, text });
 }
 
 /** The recipe screen's Method tab: "Method · 6", read by VoiceOver as "Method, 6 steps". */
 export function methodTab(count: number): { label: string; accessibilityLabel: string } {
-  return { label: `Method · ${count}`, accessibilityLabel: `Method, ${count} ${count === 1 ? 'step' : 'steps'}` };
+  return { label: i18n.t('recipes.method.tab', { count }), accessibilityLabel: i18n.t('recipes.method.tabLabel', { count }) };
+}
+
+/** What a step count counts, singular and plural, for a section header's VoiceOver label. */
+export function stepUnit(): readonly [one: string, other: string] {
+  return [i18n.t('recipes.method.unit', { count: 1 }), i18n.t('recipes.method.unit', { count: 2 })];
 }
 
 /** The cook screen's line under the name (board 19): "For 6 · 2 of 6 steps done", or without servings "2 of 6 steps done". */
 export function cookProgressLabel(servings: number | null, done: number, total: number): string {
-  const progress = `${done} of ${total} ${total === 1 ? 'step' : 'steps'} done`;
-  return servings === null ? progress : `${forServingsLabel(servings)} · ${progress}`;
+  const progress = i18n.t('recipes.cook.progress', { done, count: total });
+  return servings === null ? progress : i18n.t('recipes.cook.withServings', { servings: forServingsLabel(servings), progress });
 }
 
 /** The cook screen's "Up next" step: the first one not ticked, or -1 when every step is. */

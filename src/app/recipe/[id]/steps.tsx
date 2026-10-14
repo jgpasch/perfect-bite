@@ -9,6 +9,7 @@ import { Screen } from '@/components/themed-view';
 import { stepsFromText, stepsToText } from '@/features/recipes/recipe-view';
 import { getRecipe, updateRecipeSteps } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /** The field's minimum height, in lines of `body`: room for a few steps before it grows. */
 const MIN_LINES = 12;
@@ -19,6 +20,7 @@ const MIN_LINES = 12;
  */
 export default function RecipeStepsSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const t = useT();
   const { colors, spacing, typography, scheme } = useTheme();
 
   // A sheet is short-lived: read once rather than live.
@@ -39,19 +41,19 @@ export default function RecipeStepsSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={save}>
-          Save
+          {t('recipes.tags.save')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
 
       <ThemedText variant="sheetTitle" accessibilityRole="header" style={inset}>
-        Steps
+        {t('recipes.method.sheetTitle')}
       </ThemedText>
       <ThemedText variant="sectionLabel" color="inkSecondary" style={inset}>
-        One step per line
+        {t('recipes.method.onePerLine')}
       </ThemedText>
       <Card>
         <TextInput
@@ -60,11 +62,11 @@ export default function RecipeStepsSheet() {
           multiline
           autoFocus={!recipe.steps}
           autoCapitalize="sentences"
-          placeholder="Blend the paste…"
+          placeholder={t('recipes.method.placeholder')}
           placeholderTextColor={colors.inkSecondary}
           selectionColor={colors.primary}
-          accessibilityLabel="Steps"
-          accessibilityHint="One step per line"
+          accessibilityLabel={t('recipes.method.sheetTitle')}
+          accessibilityHint={t('recipes.method.onePerLine')}
           style={[
             typography.body,
             {
@@ -80,7 +82,7 @@ export default function RecipeStepsSheet() {
         />
       </Card>
       <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.xxl }}>
-        Empty lines are dropped. Clear everything to remove the steps.
+        {t('recipes.method.footnote')}
       </ThemedText>
     </Screen>
   );

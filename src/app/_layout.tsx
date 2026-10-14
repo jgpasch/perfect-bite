@@ -13,7 +13,7 @@ import { clearNotifications } from '@/features/notifications/notifications';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
-import { deviceLanguage, initI18n } from '@/i18n';
+import { deviceLanguage, initI18n, useT } from '@/i18n';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -26,6 +26,7 @@ SplashScreen.preventAutoHideAsync();
 startAccount({ beforeReady: wipeIfOtherUser });
 
 export default function RootLayout() {
+  const t = useT();
   const navigationTheme = useNavigationTheme();
   const screenOptions = useStackScreenOptions();
   const { colors, scheme } = useTheme();
@@ -87,7 +88,7 @@ export default function RootLayout() {
                   name="household-invite"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
-                <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: 'Recipes' }} />
+                <Stack.Screen name="recipe/[id]/index" options={{ title: '', headerBackTitle: t('recipes.tab.title') }} />
                 <Stack.Screen
                   name="recipe/[id]/add-to-list"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
@@ -95,7 +96,7 @@ export default function RootLayout() {
                 {/* Spec 4.14: the recipe's tags and total time. */}
                 <Stack.Screen
                   name="recipe/[id]/tags"
-                  options={{ title: 'Tags', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                  options={{ title: t('recipes.tags.title'), presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
                 {/* Board 16: the recipe's method, one step per line; "Steps" is the large title in the sheet. */}
                 <Stack.Screen

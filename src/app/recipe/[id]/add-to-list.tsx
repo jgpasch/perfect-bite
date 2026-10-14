@@ -30,6 +30,7 @@ import {
 import { addCtaLabel, forServingsLabel, SERVINGS_MAX, SERVINGS_MIN, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 /**
@@ -46,6 +47,7 @@ export default function AddRecipeToListSheet() {
     adjust,
     servings: chosenServings,
   } = useLocalSearchParams<{ id: string; list?: string; adjust?: string; servings?: string }>();
+  const t = useT();
   const { spacing, sizes } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
@@ -97,21 +99,21 @@ export default function AddRecipeToListSheet() {
   return (
     <SheetLayout cta={<PrimaryButton label={addCtaLabel(adds.length, listName)} disabled={adds.length === 0} onPress={add} />}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
 
       <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-        Add {recipe.name}
+        {t('recipes.addToList.title', { name: recipe.name })}
       </ThemedText>
 
-      <Label>To</Label>
+      <Label>{t('recipes.addToList.to')}</Label>
       <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
         {lists.map((l) => (
           <Pill key={l.id} label={l.name} selected={l.id === listId} onPress={() => setListId(l.id)} />
         ))}
       </View>
 
-      <Label>Servings</Label>
+      <Label>{t('recipes.addToList.servings')}</Label>
       {base === null ? (
         <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
           {SERVINGS.map((s) => (
@@ -138,7 +140,7 @@ export default function AddRecipeToListSheet() {
             max={SERVINGS_MAX}
             onChange={setServings}
             label={forServingsLabel(servings)}
-            accessibilityLabel="Servings"
+            accessibilityLabel={t('recipes.servings.title')}
             buttonSize={sizes.stepperButtonLarge}
             hideValue
           />
@@ -152,10 +154,10 @@ export default function AddRecipeToListSheet() {
             { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
           ]}>
           <ThemedText variant="amount" accessibilityRole="header" style={[styles.flex, styles.bold]}>
-            Untick what you have
+            {t('recipes.addToList.untick')}
           </ThemedText>
           <ThemedText variant="footnote" color="inkSecondary" style={styles.semibold}>
-            {selected.size} of {ingredients.length}
+            {t('recipes.addToList.selectedOf', { selected: selected.size, count: ingredients.length })}
           </ThemedText>
         </View>
         {ingredients.map((i) => {
@@ -228,14 +230,16 @@ function IngredientChoice({
   on: boolean;
   onPress: () => void;
 }) {
+  const t = useT();
   const { colors, spacing, sizes, opacity } = useTheme();
   // Off rows use `inkSecondary`, not `inkTertiary`: tertiary is too light for text (DESIGN.md).
   const ink = on ? 'ink' : 'inkSecondary';
+  const alwaysHave = t('item.alwaysHave');
   return (
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: on }}
-      accessibilityLabel={[label, staple ? ALWAYS_HAVE : null, amount || null].filter(Boolean).join(', ')}
+      accessibilityLabel={[label, staple ? alwaysHave : null, amount || null].filter(Boolean).join(', ')}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -254,7 +258,7 @@ function IngredientChoice({
         {label}
         {staple ? (
           <ThemedText variant="amount" color="inkSecondary">
-            {`  ${ALWAYS_HAVE}`}
+            {`  ${alwaysHave}`}
           </ThemedText>
         ) : null}
       </ThemedText>
@@ -266,8 +270,6 @@ function IngredientChoice({
     </Pressable>
   );
 }
-
-const ALWAYS_HAVE = 'Always have';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

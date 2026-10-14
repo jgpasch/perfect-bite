@@ -4,6 +4,7 @@ import { collectPendingNames } from '@/features/categories/categories';
 import { stapleNames } from '@/features/households/staples';
 import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
 import { getList } from '@/features/lists/lists';
+import { i18n } from '@/i18n';
 
 import { SERVINGS_MAX, SERVINGS_MIN } from './recipe-view';
 import { getRecipe, recipeIngredientsQuery } from './recipes';
@@ -27,7 +28,7 @@ export function servingsMultiplier(chosen: number, base: number): number {
 
 /** The servings card's line under "For 6": "Recipe serves 4". */
 export function recipeServesLabel(base: number): string {
-  return `Recipe serves ${base}`;
+  return i18n.t('recipes.servings.recipeServes', { count: base });
 }
 
 /**

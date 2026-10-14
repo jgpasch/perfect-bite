@@ -10,6 +10,19 @@ import {
   type RecipeTags,
   type TimeBucket,
 } from '@/shared/recipe-tags';
+import { i18n } from '@/i18n';
+
+const TIME_BUCKET_KEYS = { 'under-30': 'under30', 'under-60': 'under60', 'over-60': 'over60' } as const;
+
+/** A time bucket's label in the app's language: "Under 30 min", "Under 1 hour", "Over 1 hour". */
+export function timeBucketLabel(bucket: TimeBucket): string {
+  return i18n.t(`recipes.timeBuckets.${TIME_BUCKET_KEYS[bucket]}`);
+}
+
+/** The Time facet's name, after the tag facets. */
+export function timeFacetLabel(): string {
+  return i18n.t('recipes.filters.time');
+}
 
 /**
  * The picked values: OR within a facet, AND across facets. `untagged` shows only recipes without
@@ -87,7 +100,7 @@ export type FilterFacet = {
 export function availableFilterFacets(recipes: readonly FilterableRecipe[], filters: RecipeFilters): FilterFacet[] {
   const all: { key: FilterFacetKey; label: string; values: readonly { slug: string; label: string }[] }[] = [
     ...RECIPE_TAG_FACETS.map((f) => ({ key: f.key, label: f.label, values: f.values })),
-    { key: 'time', label: 'Time', values: TIME_BUCKETS.map((b) => ({ slug: b.key, label: b.label })) },
+    { key: 'time', label: timeFacetLabel(), values: TIME_BUCKETS.map((b) => ({ slug: b.key, label: timeBucketLabel(b.key) })) },
   ];
   const facets: FilterFacet[] = [];
   for (const facet of all) {
@@ -128,14 +141,14 @@ export function recipeFilterChips(filters: RecipeFilters): FilterChip[] {
     facet,
     slug,
     label,
-    accessibilityLabel: `Remove ${label} filter`,
+    accessibilityLabel: i18n.t('recipes.filters.removeChip', { label }),
   });
-  if (filters.untagged) return [chip('untagged', 'untagged', 'Untagged')];
+  if (filters.untagged) return [chip('untagged', 'untagged', i18n.t('recipes.filters.untagged'))];
   const chips: FilterChip[] = [];
   for (const facet of RECIPE_TAG_FACETS) {
     for (const v of facet.values) if (filters.tags[facet.key].includes(v.slug)) chips.push(chip(facet.key, v.slug, v.label));
   }
-  for (const b of TIME_BUCKETS) if (filters.time.includes(b.key)) chips.push(chip('time', b.key, b.label));
+  for (const b of TIME_BUCKETS) if (filters.time.includes(b.key)) chips.push(chip('time', b.key, timeBucketLabel(b.key)));
   return chips;
 }
 
@@ -148,20 +161,20 @@ export function removeFilterChip(filters: RecipeFilters, chip: FilterChip): Reci
 
 /** "Filters", or "Filters · 2" while some are on. */
 export function filtersPillLabel(count: number): string {
-  return count > 0 ? `Filters · ${count}` : 'Filters';
+  return count > 0 ? i18n.t('recipes.filters.pill', { count }) : i18n.t('recipes.filters.title');
 }
 
 /** What VoiceOver reads for the pill: "Filters, 2 active". */
 export function filtersPillAccessibilityLabel(count: number): string {
-  return count > 0 ? `Filters, ${count} active` : 'Filters';
+  return count > 0 ? i18n.t('recipes.filters.pillLabel', { count }) : i18n.t('recipes.filters.title');
 }
 
 /** The sheet's CTA: "Show 1 recipe", "Show 12 recipes". */
 export function showRecipesLabel(count: number): string {
-  return `Show ${count} ${count === 1 ? 'recipe' : 'recipes'}`;
+  return i18n.t('recipes.filters.show', { count });
 }
 
 /** The footer under filtered results: "3 recipes without tags aren't shown". */
 export function untaggedFootnote(count: number): string {
-  return count === 1 ? "1 recipe without tags isn't shown" : `${count} recipes without tags aren't shown`;
+  return i18n.t('recipes.tab.untagged', { count });
 }

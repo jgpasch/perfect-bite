@@ -25,6 +25,7 @@ import {
   suggestTagsMessage,
 } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { emptyRecipeTags, RECIPE_TAG_FACETS, RecipeTagsSchema } from '@/shared/recipe-tags';
 
 type Suggestion =
@@ -41,6 +42,7 @@ type Suggestion =
  */
 export default function RecipeTagsSheet() {
   const { id, suggest } = useLocalSearchParams<{ id: string; suggest?: string }>();
+  const t = useT();
   const { colors, spacing, scheme } = useTheme();
   const canSuggest = useFeature('recipe_tags');
 
@@ -67,7 +69,7 @@ export default function RecipeTagsSheet() {
     const fits = applySuggestedTags(emptyRecipeTags(), result.tags) !== null;
     if (fits) setTags((current) => applySuggestedTags(current, result.tags) ?? current);
     setSuggestion({ status: 'done', note: fits ? SUGGESTED_NOTE : NOTHING_SUGGESTED_NOTE });
-    AccessibilityInfo.announceForAccessibility(fits ? 'Tags suggested' : NOTHING_SUGGESTED_NOTE);
+    AccessibilityInfo.announceForAccessibility(fits ? t('recipes.tags.suggested') : NOTHING_SUGGESTED_NOTE);
   };
 
   // Opened from the recipe band's Suggest tags: start once, as the sheet opens.
@@ -112,7 +114,7 @@ export default function RecipeTagsSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={cancel}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={cancel}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
@@ -120,7 +122,7 @@ export default function RecipeTagsSheet() {
           tintColor={prominentButtonTint(scheme, colors)}
           disabled={!parsedTime.ok}
           onPress={save}>
-          Save
+          {t('recipes.tags.save')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
 
@@ -131,9 +133,15 @@ export default function RecipeTagsSheet() {
               icon="sparkles"
               loading={loading}
               disabled={loading || !hasIngredients}
-              label={loading ? 'Suggesting…' : suggestion.status === 'done' ? 'Suggest again' : 'Suggest tags'}
-              accessibilityLabel={loading ? 'Suggesting tags' : 'Suggest tags'}
-              accessibilityHint="Picks tags for this recipe with AI. Nothing is saved until you tap Save."
+              label={t(
+                loading
+                  ? 'recipes.tags.suggesting'
+                  : suggestion.status === 'done'
+                    ? 'recipes.tags.suggestAgain'
+                    : 'recipes.tags.suggest',
+              )}
+              accessibilityLabel={t(loading ? 'recipes.tags.suggestingLabel' : 'recipes.tags.suggest')}
+              accessibilityHint={t('recipes.tags.suggestHint')}
               onPress={() => void startSuggest()}
             />
           </View>
@@ -172,8 +180,8 @@ export default function RecipeTagsSheet() {
                     disabled={blocked}
                     accessibilityRole="togglebutton"
                     accessibilityState={{ checked: on }}
-                    accessibilityHint={blocked ? `${facet.label} is full. ${limit}.` : undefined}
-                    onPress={() => setTags((t) => toggleTag(t, facet.key, value.slug))}
+                    accessibilityHint={blocked ? t('recipes.tags.full', { facet: facet.label, limit }) : undefined}
+                    onPress={() => setTags((current) => toggleTag(current, facet.key, value.slug))}
                   />
                 );
               })}
@@ -185,28 +193,33 @@ export default function RecipeTagsSheet() {
       <View style={{ gap: spacing.sm }}>
         <View style={[styles.row, inset, { gap: spacing.sm }]}>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={styles.flex}>
-            Total time
+            {t('recipes.tags.totalTime')}
           </ThemedText>
           {time.hours || time.minutes ? (
-            <Button variant="plain" label="Clear" onPress={() => setTime({ hours: '', minutes: '' })} accessibilityLabel="Clear total time" />
+            <Button
+              variant="plain"
+              label={t('recipes.tags.clear')}
+              onPress={() => setTime({ hours: '', minutes: '' })}
+              accessibilityLabel={t('recipes.tags.clearTime')}
+            />
           ) : null}
         </View>
         <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
           <TimeField
-            label="hr"
-            accessibilityLabel="Hours"
+            label={t('recipes.tags.hr')}
+            accessibilityLabel={t('recipes.tags.hours')}
             value={time.hours}
-            onChangeText={(hours) => setTime((t) => ({ ...t, hours }))}
+            onChangeText={(hours) => setTime((current) => ({ ...current, hours }))}
           />
           <TimeField
-            label="min"
-            accessibilityLabel="Minutes"
+            label={t('recipes.tags.min')}
+            accessibilityLabel={t('recipes.tags.minutes')}
             value={time.minutes}
-            onChangeText={(minutes) => setTime((t) => ({ ...t, minutes }))}
+            onChangeText={(minutes) => setTime((current) => ({ ...current, minutes }))}
           />
         </View>
         <ThemedText variant="footnote" color={parsedTime.ok ? 'inkSecondary' : 'danger'} style={inset}>
-          {parsedTime.ok ? 'Optional' : parsedTime.error}
+          {parsedTime.ok ? t('recipes.tags.optional') : parsedTime.error}
         </ThemedText>
       </View>
     </Screen>

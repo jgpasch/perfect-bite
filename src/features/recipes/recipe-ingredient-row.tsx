@@ -8,6 +8,7 @@ import type { RecipeIngredient } from '@/db';
 import { formatAmount } from '@/domain/quantity-display';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 type Props = {
@@ -22,6 +23,7 @@ type Props = {
 
 /** A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, swipe left to delete. */
 export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete }: Props) {
+  const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
   const amount = shown ?? formatAmount(ingredient);
@@ -44,8 +46,8 @@ export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdi
           onPress={onEdit}
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityHint="Double-tap to edit"
-          accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
+          accessibilityHint={t('recipes.screen.ingredientHint')}
+          accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
           onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}
           style={({ pressed }) => [
             styles.row,

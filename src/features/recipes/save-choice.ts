@@ -2,6 +2,7 @@
 // share extension mirrors these rules in Swift (`ShareChoice` in
 // targets/share-recipe/ShareChoice.swift); keep the two in sync by hand.
 import { launchListId } from '@/features/lists/list-view';
+import { i18n, onLanguageChanged } from '@/i18n';
 
 export type ChoiceLists = {
   lastOpenedListId: string | null;
@@ -39,7 +40,8 @@ export function defaultListIdIn(choices: ChoiceLists, householdId: string | null
 
 /** The save button: "Save recipe" with the list off, "Save & add to <list>" with it on. */
 export function saveButtonTitle(addToList: boolean, listName: string | null): string {
-  return addToList ? `Save & add to ${listName ?? 'list'}` : 'Save recipe';
+  if (!addToList) return i18n.t('recipes.import.save');
+  return listName === null ? i18n.t('recipes.import.saveAndAddList') : i18n.t('recipes.import.saveAndAdd', { name: listName });
 }
 
 /** What the share sheet says after saving. */
@@ -49,7 +51,11 @@ export function shareSavedMessage(addToList: boolean): string {
     : "Saved. It'll be in your recipes when you open The Perfect Bite.";
 }
 
-export const NO_LISTS_IN_HOUSEHOLD = 'This household has no lists';
+// A live binding: follows the app's language once i18n is initialized.
+export let NO_LISTS_IN_HOUSEHOLD = '';
+onLanguageChanged(() => {
+  NO_LISTS_IN_HOUSEHOLD = i18n.t('recipes.import.noLists');
+});
 
 /**
  * The share envelope's target fields: `listId` only when adding to a list. The switch on with no

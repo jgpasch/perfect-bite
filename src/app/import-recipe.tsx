@@ -36,6 +36,7 @@ import {
 import { setSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * "Add recipe from link…" (spec 4.10): a **Save to** household picker (hidden with one household) and
@@ -51,6 +52,7 @@ import { useTheme } from '@/hooks/use-theme';
 export default function ImportRecipeSheet() {
   const params = useLocalSearchParams<{ list?: string; household?: string; add?: string; to?: string; url?: string }>();
   const fromList = params.list;
+  const t = useT();
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const userId = getAccount()?.userId ?? null;
@@ -90,7 +92,7 @@ export default function ImportRecipeSheet() {
   // The switch can't be on in a household with no lists: that saves the recipe only.
   const addToList = choice.addToList && listId !== null;
   const listName = lists.find((l) => l.id === listId)?.name ?? null;
-  const householdName = choices.households.find((h) => h.id === householdId)?.name ?? 'your recipes';
+  const householdName = choices.households.find((h) => h.id === householdId)?.name ?? t('recipes.import.yourRecipes');
 
   // Changing household resets the list to that household's default.
   const chooseHousehold = (id: string) => setChoice((c) => ({ ...c, householdId: id, listId: defaultListIdIn(choices, id) }));
@@ -159,7 +161,7 @@ export default function ImportRecipeSheet() {
       undo: result.undo,
     } as const;
     if (!open.current) {
-      const name = choices.lists.find((l) => l.id === result.listId)?.name ?? 'your list';
+      const name = choices.lists.find((l) => l.id === result.listId)?.name ?? t('recipes.import.yourList');
       notify({
         ...importedNotification(result, name),
         // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
@@ -181,7 +183,7 @@ export default function ImportRecipeSheet() {
   return (
     <Screen>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <ScrollView
         style={styles.flex}
@@ -189,12 +191,12 @@ export default function ImportRecipeSheet() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
         <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-          Add recipe from link
+          {t('recipes.import.title')}
         </ThemedText>
 
         {choices.households.length > 1 ? (
           <View style={{ gap: spacing.sm }}>
-            <Label>Save to</Label>
+            <Label>{t('recipes.import.saveTo')}</Label>
             <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
               {choices.households.map((h) => (
                 <Pill
@@ -211,7 +213,7 @@ export default function ImportRecipeSheet() {
 
         <Card>
           <SettingsRow
-            label="Also add ingredients to a list"
+            label={t('recipes.import.alsoAdd')}
             detail={lists.length === 0 ? NO_LISTS_IN_HOUSEHOLD : undefined}
             last
             trailing={
@@ -220,8 +222,8 @@ export default function ImportRecipeSheet() {
                 onValueChange={toggleAddToList}
                 disabled={working || lists.length === 0}
                 trackColor={{ true: colors.primary }}
-                accessibilityLabel="Also add ingredients to a list"
-                accessibilityHint={lists.length === 0 ? NO_LISTS_IN_HOUSEHOLD : "Adds the recipe's ingredients to the chosen list"}
+                accessibilityLabel={t('recipes.import.alsoAdd')}
+                accessibilityHint={lists.length === 0 ? NO_LISTS_IN_HOUSEHOLD : t('recipes.import.alsoAddHint')}
               />
             }
           />
@@ -229,7 +231,7 @@ export default function ImportRecipeSheet() {
 
         {addToList ? (
           <View style={{ gap: spacing.sm }}>
-            <Label>List</Label>
+            <Label>{t('recipes.import.list')}</Label>
             <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
               {lists.map((l) => (
                 <Pill
@@ -244,14 +246,14 @@ export default function ImportRecipeSheet() {
           </View>
         ) : null}
 
-        <Label>Link</Label>
+        <Label>{t('recipes.import.link')}</Label>
         <Card>
           <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
             <TextField
               value={text}
               onChangeText={(value) => (setText(value), setError(null))}
-              placeholder="https://"
-              accessibilityLabel="Recipe link"
+              placeholder={t('recipes.add.linkPlaceholder')}
+              accessibilityLabel={t('recipes.add.link')}
               keyboardType="url"
               textContentType="URL"
               autoCapitalize="none"
@@ -261,13 +263,13 @@ export default function ImportRecipeSheet() {
               onSubmitEditing={submit}
               style={[styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }]}
             />
-            <Button label="Paste" variant="plain" disabled={working} onPress={paste} />
+            <Button label={t('recipes.add.paste')} variant="plain" disabled={working} onPress={paste} />
           </View>
         </Card>
 
         {working ? (
           <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-            You can close this. We&apos;ll let you know when it&apos;s ready.
+            {t('recipes.import.canClose')}
           </ThemedText>
         ) : null}
 
@@ -290,7 +292,7 @@ export default function ImportRecipeSheet() {
           backgroundColor: colors.background,
         }}>
         <PrimaryButton
-          label={working ? 'Reading recipe…' : saveButtonTitle(addToList, listName)}
+          label={working ? t('recipes.import.reading') : saveButtonTitle(addToList, listName)}
           icon={working ? undefined : 'link'}
           disabled={working || text.trim() === ''}
           onPress={submit}

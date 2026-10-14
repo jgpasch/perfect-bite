@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n';
+
 /** What the quick add needs of the current list. */
 export type QuickAddCandidate = { id: string; name: string; householdId: string; archivedAt: Date | null };
 
@@ -17,5 +19,5 @@ export function quickAddList(
 
 /** The menu item's title: "Add to Groceries". */
 export function quickAddTitle(listName: string): string {
-  return `Add to ${listName}`;
+  return i18n.t('recipes.tab.addTo', { name: listName });
 }

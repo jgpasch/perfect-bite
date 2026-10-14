@@ -28,6 +28,7 @@ import { NO_RECIPES_MATCH, recipeSearchPlaceholder, searchRecipes } from '@/feat
 import { addToRecipeTitle, ingredientCountLabel, recipeCardLabel } from '@/features/recipes/recipe-view';
 import { recipeIngredientNamesQuery, recipesForPicker } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * "Add to recipe" (spec 4.5): the selected list items go into a new recipe (name it, Return) or an
@@ -38,6 +39,7 @@ import { useTheme } from '@/hooks/use-theme';
  */
 export default function AddToRecipeSheet() {
   const { id, items } = useLocalSearchParams<{ id: string; items: string }>();
+  const t = useT();
   const { colors, spacing, sizes, opacity } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
@@ -94,7 +96,7 @@ export default function AddToRecipeSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
         <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
           {addToRecipeTitle(itemIds.length)}
@@ -108,9 +110,9 @@ export default function AddToRecipeSheet() {
             <TextField
               value={name}
               onChangeText={setName}
-              placeholder="New recipe"
-              accessibilityLabel="New recipe name"
-              accessibilityHint="Type a name, then Return to make the recipe"
+              placeholder={t('recipes.addToRecipe.newRecipe')}
+              accessibilityLabel={t('recipes.addToRecipe.newRecipeLabel')}
+              accessibilityHint={t('recipes.addToRecipe.newRecipeHint')}
               returnKeyType="done"
               autoCapitalize="words"
               onSubmitEditing={createNew}
@@ -126,7 +128,7 @@ export default function AddToRecipeSheet() {
                 value={query}
                 onChangeText={setQuery}
                 placeholder={recipeSearchPlaceholder(recipes.length)}
-                accessibilityLabel="Search recipes"
+                accessibilityLabel={t('recipes.tab.searchLabel')}
                 returnKeyType="search"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -146,7 +148,9 @@ export default function AddToRecipeSheet() {
             <ThemedText variant="callout" color="inkSecondary" style={styles.centerText}>
               {NO_RECIPES_MATCH}
             </ThemedText>
-            {filtering ? <Button label="Clear filters" variant="plain" onPress={() => setFilters(noRecipeFilters())} /> : null}
+            {filtering ? (
+              <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setFilters(noRecipeFilters())} />
+            ) : null}
           </View>
         ) : null}
 
@@ -176,7 +180,7 @@ export default function AddToRecipeSheet() {
                   {/* Spec 4.14: matched only through an ingredient, "Has …" in place of the count. */}
                   {ingredientMatch ? (
                     <ThemedText variant="footnote" color="inkSecondary">
-                      Has{' '}
+                      {t('recipes.tab.has')}{' '}
                       <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
                         {ingredientMatch}
                       </ThemedText>

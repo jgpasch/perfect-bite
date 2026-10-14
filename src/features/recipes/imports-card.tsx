@@ -9,6 +9,7 @@ import type { ColorToken } from '@/constants/theme';
 import type { FailedImport } from '@/db';
 import { getAccount } from '@/features/auth/account';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 import { dismissFailedImport, failedImportName, failedImportReason, retryFailedImport } from './failed-imports';
 import { removeQueuedShare } from './share-drain';
@@ -33,6 +34,7 @@ const WELL: Record<ImportsCardHeading['tone'], { ground: ColorToken; glyph: Colo
  * with **Remove**, failed ones with **Try again** (into the default list) and **Dismiss**.
  */
 export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: ShareQueueStatus }) {
+  const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const [open, setOpen] = useState(false);
   const heading = importsCardHeading(failed.length, queue);
@@ -80,11 +82,11 @@ export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: 
       </Pressable>
       {open ? (
         <>
-          {failed.length > 0 && labelled ? <GroupLabel label="Couldn't import" color="danger" /> : null}
+          {failed.length > 0 && labelled ? <GroupLabel label={t('recipes.imports.failedGroup')} color="danger" /> : null}
           {failed.map((row, i) => (
             <FailedImportRow key={row.id} row={row} divided={!labelled || i > 0} />
           ))}
-          {queue.queued.length > 0 && labelled ? <GroupLabel label="Waiting" color="pending" /> : null}
+          {queue.queued.length > 0 && labelled ? <GroupLabel label={t('recipes.imports.waitingGroup')} color="pending" /> : null}
           {queue.queued.map((share, i) => (
             <QueuedShareRow
               key={share.id}
@@ -119,6 +121,7 @@ function GroupLabel({ label, color }: { label: string; color: ColorToken }) {
 }
 
 function QueuedShareRow({ share, importing, divided }: { share: QueuedShare; importing: boolean; divided: boolean }) {
+  const t = useT();
   const { colors, spacing, sizes } = useTheme();
   const name = importName(share);
 
@@ -151,16 +154,23 @@ function QueuedShareRow({ share, importing, divided }: { share: QueuedShare; imp
       </View>
       {importing ? (
         <View style={[styles.well, { width: sizes.minTapTarget, height: sizes.minTapTarget }]}>
-          <ActivityIndicator size="small" color={colors.inkSecondary} accessibilityLabel={`Importing ${name}`} />
+          <ActivityIndicator size="small" color={colors.inkSecondary} accessibilityLabel={t('recipes.imports.importing', { name })} />
         </View>
       ) : (
-        <Button label="Remove" variant="plain" color="inkSecondary" accessibilityLabel={`Remove ${name}`} onPress={remove} />
+        <Button
+          label={t('recipes.imports.remove')}
+          variant="plain"
+          color="inkSecondary"
+          accessibilityLabel={t('recipes.imports.removeLabel', { name })}
+          onPress={remove}
+        />
       )}
     </View>
   );
 }
 
 function FailedImportRow({ row, divided }: { row: FailedImport; divided: boolean }) {
+  const t = useT();
   const { colors, spacing } = useTheme();
   const [trying, setTrying] = useState(false);
 
@@ -189,8 +199,18 @@ function FailedImportRow({ row, divided }: { row: FailedImport; divided: boolean
         {failedImportReason(row.reason)}
       </ThemedText>
       <View style={[styles.row, { gap: spacing.md }]}>
-        <Button label={trying ? 'Trying…' : 'Try again'} variant="plain" disabled={trying} onPress={retry} />
-        <Button label="Dismiss" variant="plain" color="inkSecondary" onPress={() => dismissFailedImport(row.id)} />
+        <Button
+          label={t(trying ? 'recipes.imports.trying' : 'recipes.imports.tryAgain')}
+          variant="plain"
+          disabled={trying}
+          onPress={retry}
+        />
+        <Button
+          label={t('recipes.imports.dismiss')}
+          variant="plain"
+          color="inkSecondary"
+          onPress={() => dismissFailedImport(row.id)}
+        />
       </View>
     </View>
   );

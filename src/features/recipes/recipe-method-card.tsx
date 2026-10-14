@@ -7,12 +7,12 @@ import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
-import { stepLabel } from './recipe-view';
+import { stepLabel, stepUnit } from './recipe-view';
 
 /** How far apart a step's lines sit, as a multiple of `body`'s size: roomier than a list row, for reading while cooking. */
 const STEP_LINE_SPACING = 1.45;
-const STEP_UNIT = ['step', 'steps'] as const;
 
 /**
  * The recipe screen's Method card (board 14): the steps numbered in the recipe hue's soft circles,
@@ -27,6 +27,7 @@ export function RecipeMethodCard({
   hue: AisleHue;
   onEdit: () => void;
 }) {
+  const t = useT();
   const { colors, aisles, spacing, typography, sizes, rounded } = useTheme();
   const tint = aisles[hue];
   const list = steps ?? [];
@@ -34,12 +35,12 @@ export function RecipeMethodCard({
   if (list.length === 0) {
     return (
       <Card>
-        <SectionHeader title="Method" />
+        <SectionHeader title={t('recipes.method.title')} />
         <View style={[styles.empty, { gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }]}>
           <ThemedText variant="callout" color="inkSecondary">
-            No steps yet.
+            {t('recipes.method.noSteps')}
           </ThemedText>
-          <Pill label="Add steps" icon="plus" soft onPress={onEdit} />
+          <Pill label={t('recipes.method.addSteps')} icon="plus" soft onPress={onEdit} />
         </View>
       </Card>
     );
@@ -48,10 +49,12 @@ export function RecipeMethodCard({
   return (
     <Card>
       <SectionHeader
-        title="Method"
+        title={t('recipes.method.title')}
         count={list.length}
-        countUnit={STEP_UNIT}
-        trailing={<Button variant="plain" label="Edit" accessibilityLabel="Edit steps" onPress={onEdit} />}
+        countUnit={stepUnit()}
+        trailing={
+          <Button variant="plain" label={t('common.edit')} accessibilityLabel={t('recipes.method.editSteps')} onPress={onEdit} />
+        }
       />
       {list.map((step, index) => (
         <View

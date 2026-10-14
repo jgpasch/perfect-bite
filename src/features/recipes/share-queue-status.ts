@@ -2,6 +2,8 @@
 // The share drain publishes it; screens read it with `useShareQueueStatus`.
 import { useSyncExternalStore } from 'react';
 
+import { i18n } from '@/i18n';
+
 import type { ImportRecipeError } from './import';
 
 /** A share waiting in the App Group queue. */
@@ -71,21 +73,25 @@ export function importName(share: { url: string; title: string | null }): string
 }
 
 function recipes(count: number): string {
-  return `${count} ${count === 1 ? 'recipe' : 'recipes'}`;
+  return i18n.t('recipes.imports.recipes', { count });
 }
 
 /** Why the queue is waiting, in plain words, for the card's heading. */
 export function waitReasonText(reason: ShareQueueStatus['waitReason']): string {
   switch (reason) {
     case 'offline':
-      return "You're offline. They'll import when you're back.";
+      return i18n.t('recipes.imports.waitOffline');
     case 'rate_limited':
-      return "The import service is busy. They'll import next time you open the app.";
+      return i18n.t('recipes.imports.waitBusy');
     case null:
-      return 'Waiting to import';
+      return i18n.t('recipes.imports.waitIdle');
     default:
-      return "Something went wrong. They'll import next time you open the app.";
+      return i18n.t('recipes.imports.waitFailed');
   }
+}
+
+function toDestination(name: string): string {
+  return i18n.t('recipes.imports.to', { name });
 }
 
 /** Where a waiting share goes: its list, or its household when it's recipe-only. */
@@ -100,10 +106,10 @@ function destination(share: QueuedShare): string | null {
 export function queuedShareDetail(share: QueuedShare): string {
   const parts = [importHost(share.url) ?? share.url];
   const to = destination(share);
-  if (to) parts.push(`to ${to}`);
-  if (share.attempts === 1) parts.push('tried once');
-  else if (share.attempts === 2) parts.push('tried twice');
-  else if (share.attempts > 2) parts.push(`tried ${share.attempts} times`);
+  if (to) parts.push(toDestination(to));
+  if (share.attempts === 1) parts.push(i18n.t('recipes.imports.triedOnce'));
+  else if (share.attempts === 2) parts.push(i18n.t('recipes.imports.triedTwice'));
+  else if (share.attempts > 2) parts.push(i18n.t('recipes.imports.triedTimes', { count: share.attempts }));
   return parts.join(' · ');
 }
 
@@ -117,23 +123,29 @@ export type ImportsCardHeading = {
 /** The imports card's heading row, or null when there's nothing to show (spec 4.10). */
 export function importsCardHeading(failed: number, queue: ShareQueueStatus): ImportsCardHeading | null {
   const { importing, queued } = queue;
-  const progress = importing ? `Importing ${importing.position} of ${importing.total}…` : null;
+  const progress = importing
+    ? i18n.t('recipes.imports.progress', { position: importing.position, total: importing.total })
+    : null;
   if (failed > 0) {
-    const waiting = queued.length > 0 ? `${queued.length} more waiting` : null;
+    const waiting = queued.length > 0 ? i18n.t('recipes.imports.moreWaiting', { count: queued.length }) : null;
     return {
       tone: 'failed',
-      title: `Couldn't import ${recipes(failed)}`,
+      title: i18n.t('recipes.imports.couldntImport', { recipes: recipes(failed) }),
       subtitle: progress ?? (waiting && queue.waitReason ? `${waiting} · ${waitReasonText(queue.waitReason)}` : waiting),
     };
   }
   if (importing) {
     const current = queued.find((s) => s.id === importing.id);
     const to = current && destination(current);
-    const subtitle = current ? [importName(current), to && `to ${to}`].filter(Boolean).join(' · ') : null;
+    const subtitle = current ? [importName(current), to && toDestination(to)].filter(Boolean).join(' · ') : null;
     return { tone: 'importing', title: progress!, subtitle };
   }
   if (queued.length > 0) {
-    return { tone: 'waiting', title: `${recipes(queued.length)} waiting`, subtitle: waitReasonText(queue.waitReason) };
+    return {
+      tone: 'waiting',
+      title: i18n.t('recipes.imports.waiting', { recipes: recipes(queued.length) }),
+      subtitle: waitReasonText(queue.waitReason),
+    };
   }
   return null;
 }

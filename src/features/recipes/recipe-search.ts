@@ -1,4 +1,5 @@
 // Searching the Recipes tab (spec 4.14). Pure: no React, SQLite or network.
+import { i18n, onLanguageChanged } from '@/i18n';
 
 /** Text as search compares it: lower case, without accents ("Jalapeño" → "jalapeno"), spaces collapsed. */
 export function foldForSearch(text: string): string {
@@ -42,7 +43,11 @@ export function searchRecipes<R extends { id: string; name: string }>(
 
 /** The search field's placeholder: "Search 1 recipe", "Search 52 recipes". */
 export function recipeSearchPlaceholder(count: number): string {
-  return `Search ${count} ${count === 1 ? 'recipe' : 'recipes'}`;
+  return i18n.t('recipes.tab.search', { count });
 }
 
-export const NO_RECIPES_MATCH = 'No recipes match';
+// Module-level strings follow the app's language (a live binding, set once i18n is initialized).
+export let NO_RECIPES_MATCH = '';
+onLanguageChanged(() => {
+  NO_RECIPES_MATCH = i18n.t('recipes.tab.noMatch');
+});

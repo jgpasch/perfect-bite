@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import { i18n } from '@/i18n';
+
 import { createRecipe, getRecipe, updateRecipe } from './recipes';
 
 /**
@@ -9,12 +11,12 @@ import { createRecipe, getRecipe, updateRecipe } from './recipes';
  */
 export function promptRecipeName(recipeId: string | null, current = '', onCreated?: (id: string) => void): void {
   Alert.prompt(
-    recipeId ? 'Rename recipe' : 'New recipe',
+    i18n.t(recipeId ? 'recipes.prompt.rename' : 'recipes.prompt.new'),
     undefined,
     [
-      { text: 'Cancel', style: 'cancel' },
+      { text: i18n.t('common.cancel'), style: 'cancel' },
       {
-        text: recipeId ? 'Save' : 'Create',
+        text: i18n.t(recipeId ? 'recipes.prompt.save' : 'recipes.prompt.create'),
         isPreferred: true,
         onPress: (name?: string) => {
           if (!name?.trim()) return;

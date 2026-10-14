@@ -17,6 +17,7 @@ import {
   type RecipeFilters,
 } from '@/features/recipes/recipe-filters';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * The filter sheet's body (spec 4.14, mockup C): Clear in the toolbar, a group of toggle pills per
@@ -38,6 +39,7 @@ export function RecipeFilterPanel({
   count: number;
   onDone: () => void;
 }) {
+  const t = useT();
   const { spacing } = useTheme();
   const facets = useMemo(() => availableFilterFacets(recipes, filters), [recipes, filters]);
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
@@ -47,9 +49,9 @@ export function RecipeFilterPanel({
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button
           disabled={activeFilterCount(filters) === 0}
-          accessibilityLabel="Clear filters"
+          accessibilityLabel={t('recipes.filters.clearFilters')}
           onPress={() => onChange(noRecipeFilters())}>
-          Clear
+          {t('recipes.filters.clear')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
       <ScrollView
@@ -58,7 +60,7 @@ export function RecipeFilterPanel({
         contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.lg, gap: spacing.lg }}>
         {facets.length === 0 ? (
           <ThemedText variant="callout" color="inkSecondary" style={[inset, styles.center]}>
-            No recipes have tags yet.
+            {t('recipes.filters.noTags')}
           </ThemedText>
         ) : null}
         {facets.map((facet) => (

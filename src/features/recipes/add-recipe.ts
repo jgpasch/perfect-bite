@@ -1,7 +1,12 @@
+import { i18n, onLanguageChanged } from '@/i18n';
+
 import { normalizeRecipeLink, recipeLinkUrl } from './recipe-link';
 
-/** Under the name field when a link is typed there and recipe import isn't on the plan. */
-export const NAME_IS_LINK_FOOTNOTE = "That's a link. Type the recipe's name instead.";
+/** Under the name field when a link is typed there and recipe import isn't on the plan. A live binding. */
+export let NAME_IS_LINK_FOOTNOTE = '';
+onLanguageChanged(() => {
+  NAME_IS_LINK_FOOTNOTE = i18n.t('recipes.add.nameIsLink');
+});
 
 /**
  * The link typed into the Add recipe sheet's name field, if it is one: a link that opens, with

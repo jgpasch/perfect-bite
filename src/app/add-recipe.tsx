@@ -13,6 +13,7 @@ import { NAME_IS_LINK_FOOTNOTE, nameAction } from '@/features/recipes/add-recipe
 import { urlFromText } from '@/features/recipes/import-sheet';
 import { createRecipe } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * "Add recipe" (spec 4.5), the Recipes tab's one way to add: name a blank recipe, or (with
@@ -23,6 +24,7 @@ import { useTheme } from '@/hooks/use-theme';
  */
 export default function AddRecipeSheet() {
   const params = useLocalSearchParams<{ focus?: string }>();
+  const t = useT();
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const canImport = useFeature('recipe_import');
@@ -79,23 +81,23 @@ export default function AddRecipeSheet() {
         paddingBottom: Math.max(insets.bottom, spacing.lg),
       }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <ThemedText variant="sheetTitle" accessibilityRole="header" style={inset}>
-        Add recipe
+        {t('recipes.add.title')}
       </ThemedText>
 
       <View style={{ gap: spacing.sm }}>
         <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={inset}>
-          New recipe
+          {t('recipes.add.newRecipe')}
         </ThemedText>
         <Card>
           <View style={[styles.row, { paddingHorizontal: spacing.lg }]}>
             <TextField
               value={name}
               onChangeText={setName}
-              placeholder="Recipe name"
-              accessibilityLabel="Recipe name"
+              placeholder={t('recipes.add.name')}
+              accessibilityLabel={t('recipes.add.name')}
               autoCapitalize="words"
               autoFocus={!(canImport && params.focus === 'link')}
               returnKeyType={action.kind === 'import' ? 'go' : 'done'}
@@ -111,7 +113,7 @@ export default function AddRecipeSheet() {
         ) : null}
         <View style={{ paddingHorizontal: spacing.lg }}>
           <PrimaryButton
-            label={action.kind === 'import' ? 'Import recipe' : 'Create'}
+            label={t(action.kind === 'import' ? 'recipes.add.importRecipe' : 'recipes.add.create')}
             icon={action.kind === 'import' ? 'link' : undefined}
             disabled={action.kind !== 'create' && action.kind !== 'import'}
             onPress={submitName}
@@ -122,15 +124,15 @@ export default function AddRecipeSheet() {
       {canImport ? (
         <View style={{ gap: spacing.sm }}>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={inset}>
-            Or import from a link
+            {t('recipes.add.orImport')}
           </ThemedText>
           <Card>
             <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
               <TextField
                 value={link}
                 onChangeText={setLink}
-                placeholder="https://"
-                accessibilityLabel="Recipe link"
+                placeholder={t('recipes.add.linkPlaceholder')}
+                accessibilityLabel={t('recipes.add.link')}
                 keyboardType="url"
                 textContentType="URL"
                 autoCapitalize="none"
@@ -140,11 +142,11 @@ export default function AddRecipeSheet() {
                 onSubmitEditing={submitLink}
                 style={field}
               />
-              {clipboardHasLink ? <Button label="Paste" variant="plain" onPress={paste} /> : null}
+              {clipboardHasLink ? <Button label={t('recipes.add.paste')} variant="plain" onPress={paste} /> : null}
             </View>
           </Card>
           <View style={{ paddingHorizontal: spacing.lg }}>
-            <Button label="Import" icon="link" disabled={link.trim() === ''} onPress={submitLink} />
+            <Button label={t('recipes.add.import')} icon="link" disabled={link.trim() === ''} onPress={submitLink} />
           </View>
         </View>
       ) : null}

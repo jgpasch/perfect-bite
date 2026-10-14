@@ -6,9 +6,14 @@ import { ThemedText } from '@/components/themed-text';
 import type { AisleHue } from '@/domain/aisle-color';
 import { recipeTagPills, showImportTagsNote } from '@/features/recipes/recipe-tags-view';
 import { useTheme } from '@/hooks/use-theme';
+import { i18n, onLanguageChanged, useT } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
-export const IMPORT_TAGS_NOTE = 'Tagged when you imported it';
+// A live binding: follows the app's language once i18n is initialized.
+export let IMPORT_TAGS_NOTE = '';
+onLanguageChanged(() => {
+  IMPORT_TAGS_NOTE = i18n.t('recipes.tags.importNote');
+});
 
 /**
  * The recipe band's tags (spec 4.14, mockup D): a wrapping row of pills, each its facet over its
@@ -28,6 +33,7 @@ export function RecipeTagRow({
   onEdit: () => void;
   onSuggest?: () => void;
 }) {
+  const t = useT();
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const pills = recipeTagPills(recipe.tags, recipe.totalMinutes);
   const look = recipeTagPillColors(hue, colors, aisles);
@@ -40,7 +46,7 @@ export function RecipeTagRow({
             key={pill.key}
             accessibilityRole="button"
             accessibilityLabel={pill.accessibilityLabel}
-            accessibilityHint="Edits the tags"
+            accessibilityHint={t('recipes.tags.editHint')}
             onPress={onEdit}
             style={({ pressed }) => [
               styles.tag,
@@ -64,8 +70,8 @@ export function RecipeTagRow({
         <View style={styles.center}>
           <Pill
             dashed
-            label={pills.length ? '+ Tags' : 'Add tags'}
-            accessibilityLabel={pills.length ? 'Edit tags' : 'Add tags'}
+            label={t(pills.length ? 'recipes.tags.more' : 'recipes.tags.add')}
+            accessibilityLabel={t(pills.length ? 'recipes.tags.edit' : 'recipes.tags.add')}
             onPress={onEdit}
           />
         </View>
@@ -74,8 +80,8 @@ export function RecipeTagRow({
             <Pill
               dashed
               icon="sparkles"
-              label="Suggest tags"
-              accessibilityHint="Opens the tags, with AI suggestions."
+              label={t('recipes.tags.suggest')}
+              accessibilityHint={t('recipes.tags.suggestRowHint')}
               onPress={onSuggest}
             />
           </View>

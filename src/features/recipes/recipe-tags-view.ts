@@ -4,11 +4,13 @@ import {
   MAX_TOTAL_MINUTES,
   RECIPE_TAG_FACETS,
   recipeTagLabel,
-  TIME_BUCKETS,
   timeBucket,
   type RecipeTagFacetKey,
   type RecipeTags,
 } from '@/shared/recipe-tags';
+import { i18n } from '@/i18n';
+
+import { timeBucketLabel, timeFacetLabel } from './recipe-filters';
 
 export type RecipeTagPill = {
   key: string;
@@ -31,16 +33,21 @@ export function recipeTagPills(tags: RecipeTags | null, totalMinutes: number | n
     for (const facet of RECIPE_TAG_FACETS) {
       for (const slug of known[facet.key]) {
         const value = recipeTagLabel(facet.key, slug)!;
-        pills.push({ key: `${facet.key}:${slug}`, facet: facet.label, value, accessibilityLabel: `${facet.label}: ${value}` });
+        pills.push({ key: `${facet.key}:${slug}`, facet: facet.label, value, accessibilityLabel: tagPillLabel(facet.label, value) });
       }
     }
   }
   const bucket = timeBucket(totalMinutes);
   if (bucket) {
-    const value = TIME_BUCKETS.find((b) => b.key === bucket)!.label;
-    pills.push({ key: `time:${bucket}`, facet: 'Time', value, accessibilityLabel: `Time: ${value}` });
+    const facet = timeFacetLabel();
+    const value = timeBucketLabel(bucket);
+    pills.push({ key: `time:${bucket}`, facet, value, accessibilityLabel: tagPillLabel(facet, value) });
   }
   return pills;
+}
+
+function tagPillLabel(facet: string, value: string): string {
+  return i18n.t('recipes.tags.pill', { facet, value });
 }
 
 /**
@@ -75,7 +82,7 @@ export function toggleTag(tags: RecipeTags, facet: RecipeTagFacetKey, slug: stri
 
 /** "Pick up to 2". */
 export function facetLimitLabel(max: number): string {
-  return `Pick up to ${max}`;
+  return i18n.t('recipes.tags.limit', { max });
 }
 
 /**
@@ -111,9 +118,9 @@ export function parseTotalTime(hours: string, minutes: string): TotalTimeInput {
   const h = hours.trim();
   const m = minutes.trim();
   if (!h && !m) return { ok: true, totalMinutes: null };
-  if ((h && !/^\d+$/.test(h)) || (m && !/^\d+$/.test(m))) return { ok: false, error: 'Use whole numbers' };
+  if ((h && !/^\d+$/.test(h)) || (m && !/^\d+$/.test(m))) return { ok: false, error: i18n.t('recipes.tags.wholeNumbers') };
   const total = Number(h || 0) * 60 + Number(m || 0);
   if (total === 0) return { ok: true, totalMinutes: null };
-  if (total > MAX_TOTAL_MINUTES) return { ok: false, error: `Up to ${MAX_TOTAL_MINUTES / 60} hours` };
+  if (total > MAX_TOTAL_MINUTES) return { ok: false, error: i18n.t('recipes.tags.upToHours', { hours: MAX_TOTAL_MINUTES / 60 }) };
   return { ok: true, totalMinutes: total };
 }

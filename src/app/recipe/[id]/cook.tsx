@@ -13,12 +13,11 @@ import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { useKeepAwake } from '@/features/lists/keep-awake';
 import { startingServings } from '@/features/recipes/add-to-list';
-import { cookProgressLabel, scaledAmount, stepLabel, upNextIndex } from '@/features/recipes/recipe-view';
+import { cookProgressLabel, scaledAmount, stepLabel, stepUnit, upNextIndex } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
-
-const STEP_UNIT = ['step', 'steps'] as const;
 
 /**
  * Cooking mode (board 19): a full-screen modal on one scrolling page, with the ingredients scaled to the
@@ -27,6 +26,7 @@ const STEP_UNIT = ['step', 'steps'] as const;
  */
 export default function CookScreen() {
   const { id, servings: servingsParam } = useLocalSearchParams<{ id: string; servings?: string }>();
+  const t = useT();
   const { spacing } = useTheme();
   const insets = useSafeAreaInsets();
   // Nothing here is edited, so read once rather than live.
@@ -64,7 +64,7 @@ export default function CookScreen() {
         contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: insets.bottom + spacing.xl, gap: spacing.md + spacing.xxs }}>
         {ingredients.length > 0 ? (
           <Card>
-            <SectionHeader title="Ingredients" count={ingredients.length} />
+            <SectionHeader title={t('recipes.screen.ingredients')} count={ingredients.length} />
             {ingredients.map((item) => {
               const amount =
                 base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : formatAmount(item);
@@ -83,9 +83,9 @@ export default function CookScreen() {
         {steps.length > 0 ? (
           <Card>
             <SectionHeader
-              title="Method"
+              title={t('recipes.method.title')}
               count={steps.length}
-              countUnit={STEP_UNIT}
+              countUnit={stepUnit()}
               hideCount
               trailing={
                 <ThemedText
@@ -94,7 +94,7 @@ export default function CookScreen() {
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                   style={styles.count}>
-                  {`${steps.length} ${steps.length === 1 ? STEP_UNIT[0] : STEP_UNIT[1]}`}
+                  {t('recipes.method.count', { count: steps.length })}
                 </ThemedText>
               }
             />
@@ -118,6 +118,7 @@ export default function CookScreen() {
 
 /** ✕ (Done) on the left, the recipe's name over "For 6 · 2 of 6 steps done" in the middle. */
 function TopBar({ name, progress, paddingTop }: { name: string; progress: string; paddingTop: number }) {
+  const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
     <View
@@ -135,7 +136,7 @@ function TopBar({ name, progress, paddingTop }: { name: string; progress: string
       <Pressable
         onPress={() => router.back()}
         accessibilityRole="button"
-        accessibilityLabel="Done"
+        accessibilityLabel={t('common.done')}
         style={({ pressed }) => [
           styles.center,
           {
@@ -174,13 +175,14 @@ function IngredientRow({
   checked: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   const { colors, spacing, sizes, opacity } = useTheme();
   return (
     <Pressable
       onPress={onToggle}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
-      accessibilityLabel={amount ? `${name}, ${amount}` : name}
+      accessibilityLabel={amount ? t('recipes.cook.ingredient', { name, amount }) : name}
       style={({ pressed }) => [
         styles.row,
         {
@@ -225,6 +227,7 @@ function StepRow({
   upNext: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
     <Pressable
@@ -266,7 +269,7 @@ function StepRow({
       <View style={[styles.flex, { gap: spacing.xs }]}>
         {upNext ? (
           <ThemedText variant="caption" color="onPrimarySoft" style={styles.caps}>
-            Up next
+            {t('recipes.cook.upNext')}
           </ThemedText>
         ) : null}
         <ThemedText variant="cookStep" color={checked ? 'inkSecondary' : 'ink'}>

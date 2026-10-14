@@ -3,6 +3,7 @@
 import { desc, eq } from 'drizzle-orm';
 
 import { db, failedImports, type FailedImportReason } from '@/db';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 
 import { importRecipe, type ImportRecipeResult } from './import';
@@ -68,16 +69,16 @@ export { importName as failedImportName } from './share-queue-status';
 export function failedImportReason(reason: FailedImportReason): string {
   switch (reason) {
     case 'not_a_recipe':
-      return "That page doesn't look like a recipe";
+      return i18n.t('recipes.imports.reasons.notARecipe');
     case 'blocked':
-      return 'The site blocked the import';
+      return i18n.t('recipes.imports.reasons.blocked');
     case 'rate_limited':
-      return 'The import service was busy';
+      return i18n.t('recipes.imports.reasons.rateLimited');
     case 'offline':
-      return "Couldn't connect";
+      return i18n.t('recipes.imports.reasons.offline');
     case 'not_entitled':
       return NOT_ENTITLED_MESSAGE;
     case 'failed':
-      return "Couldn't read that page";
+      return i18n.t('recipes.imports.reasons.failed');
   }
 }

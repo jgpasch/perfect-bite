@@ -5,6 +5,7 @@ import { getNetworkStateAsync } from 'expo-network';
 
 import { isOnline } from '@/features/categories/catch-up';
 import { lostFeature } from '@/features/plans/load';
+import { i18n, onLanguageChanged } from '@/i18n';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { RecipeTags } from '@/shared/recipe-tags';
 import {
@@ -28,18 +29,25 @@ export type SuggestTagsResult = { ok: true; tags: RecipeTags } | { ok: false; er
  * What to tell the person for each error. The server answers both the per-minute and the per-day
  * limit with the same `rate_limited`, so `rate-limited` has one message.
  */
-export const SUGGEST_TAGS_MESSAGES: Record<SuggestTagsError, string> = {
-  offline: "You're offline. Try again when you're connected.",
-  'no-ingredients': "Add some ingredients first, so there's something to go on.",
-  'not-entitled': "Tag suggestions aren't included in your plan.",
-  'rate-limited': "That's a lot of suggestions. Try again in a minute.",
-  unavailable: "Couldn't suggest tags right now. Try again later.",
-  failed: "Couldn't suggest tags right now. Try again later.",
-};
+export let SUGGEST_TAGS_MESSAGES: Record<SuggestTagsError, string>;
 
 /** The Tags sheet's line under Suggest tags once a suggestion comes back, and when nothing fit. */
-export const SUGGESTED_NOTE = 'Suggested by AI. Check them, then Save.';
-export const NOTHING_SUGGESTED_NOTE = 'No tags clearly fit this recipe.';
+export let SUGGESTED_NOTE = '';
+export let NOTHING_SUGGESTED_NOTE = '';
+
+// Module-level strings follow the app's language (live bindings, set once i18n is initialized).
+onLanguageChanged(() => {
+  SUGGEST_TAGS_MESSAGES = {
+    offline: i18n.t('recipes.tags.errors.offline'),
+    'no-ingredients': i18n.t('recipes.tags.errors.noIngredients'),
+    'not-entitled': i18n.t('recipes.tags.errors.notEntitled'),
+    'rate-limited': i18n.t('recipes.tags.errors.rateLimited'),
+    unavailable: i18n.t('recipes.tags.errors.unavailable'),
+    failed: i18n.t('recipes.tags.errors.unavailable'),
+  };
+  SUGGESTED_NOTE = i18n.t('recipes.tags.suggestedNote');
+  NOTHING_SUGGESTED_NOTE = i18n.t('recipes.tags.nothingSuggested');
+});
 
 export function suggestTagsMessage(error: SuggestTagsError): string {
   return SUGGEST_TAGS_MESSAGES[error];

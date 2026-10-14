@@ -1,5 +1,7 @@
 // What the "Add recipe from link…" sheet shows (spec 4.10). Pure, so it can be tested without rendering.
 
+import { i18n, onLanguageChanged } from '@/i18n';
+
 import { addedRecipeToListToast } from './recipe-view';
 import type { ImportRecipeError } from './import';
 
@@ -39,25 +41,29 @@ function count(text: string, char: string): number {
 }
 
 /** What the sheet, a failed share and the imports card say when the plan has no recipe import (spec 4.10). */
-export const NOT_ENTITLED_MESSAGE = "Recipe import isn't included in your plan.";
+// A live binding: follows the app's language once i18n is initialized.
+export let NOT_ENTITLED_MESSAGE = '';
+onLanguageChanged(() => {
+  NOT_ENTITLED_MESSAGE = i18n.t('recipes.import.errors.notEntitled');
+});
 
 /** Spec 4.10's inline failure copy; the sheet stays open. */
 export function importErrorMessage(error: ImportRecipeError): string {
   switch (error.error) {
     case 'not_a_recipe':
-      return "That page doesn't look like a recipe";
+      return i18n.t('recipes.import.errors.notARecipe');
     case 'not_entitled':
       return NOT_ENTITLED_MESSAGE;
     case 'rate_limited':
-      return 'Try again in a minute';
+      return i18n.t('recipes.import.errors.rateLimited');
     case 'offline':
-      return "You're offline";
+      return i18n.t('recipes.import.errors.offline');
     case 'blocked':
-      return 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.';
+      return i18n.t('recipes.import.errors.blocked');
     case 'failed':
-      if (error.reason === 'fetch_failed') return "Couldn't reach that site";
-      if (error.reason === 'invalid_url') return "That doesn't look like a link";
-      return "Couldn't import that recipe. Try again.";
+      if (error.reason === 'fetch_failed') return i18n.t('recipes.import.errors.fetchFailed');
+      if (error.reason === 'invalid_url') return i18n.t('recipes.import.errors.invalidUrl');
+      return i18n.t('recipes.import.errors.failed');
   }
 }
 
@@ -72,8 +78,8 @@ export function importedOnRecipesToast(
   count: number,
   listName: string | null,
 ): { message: string; emphasis: string } {
-  const toast = importedToast(recipeName, count);
-  return listName ? { ...toast, message: `${toast.message} on ${listName}` } : toast;
+  if (!listName) return importedToast(recipeName, count);
+  return { message: i18n.t('recipes.toasts.addedOn', { name: recipeName, count, list: listName }), emphasis: recipeName };
 }
 
 /**
@@ -82,12 +88,12 @@ export function importedOnRecipesToast(
  */
 export function savedRecipeToast(recipeName: string, created: boolean): { message: string; emphasis: string } {
   return {
-    message: created ? `Saved ${recipeName}` : `${recipeName} is already in your recipes`,
+    message: i18n.t(created ? 'recipes.toasts.saved' : 'recipes.toasts.alreadySaved', { name: recipeName }),
     emphasis: recipeName,
   };
 }
 
 /** The list screen's toast when one share-queue drain imported several recipes: "Added 3 recipes". */
 export function sharedImportsToast(count: number): { message: string } {
-  return { message: `Added ${count} ${count === 1 ? 'recipe' : 'recipes'}` };
+  return { message: i18n.t('recipes.toasts.sharedImports', { count }) };
 }

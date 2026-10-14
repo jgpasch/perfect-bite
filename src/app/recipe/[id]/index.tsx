@@ -56,11 +56,13 @@ import {
   updateRecipeServings,
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 /** A recipe (spec 4.5, board 06): ingredients added with the same field and parser as lists. */
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const t = useT();
   const { spacing, aisles } = useTheme();
   const headerHeight = useHeaderHeight();
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
@@ -104,8 +106,8 @@ export default function RecipeScreen() {
 
   const editServings = () =>
     Alert.prompt(
-      'Servings',
-      'How many people it serves, 1 to 100. Leave it empty to remove.',
+      t('recipes.servings.title'),
+      t('recipes.servings.prompt'),
       (text) => {
         const parsed = parseServings(text ?? '');
         if ('error' in parsed) return Alert.alert(parsed.error);
@@ -120,7 +122,7 @@ export default function RecipeScreen() {
   const edit = (ingredient: RecipeIngredient) => {
     const amount = formatAmount(ingredient);
     Alert.prompt(
-      'Edit ingredient',
+      t('recipes.screen.editIngredient'),
       undefined,
       (text) => {
         if (!text?.trim()) return;
@@ -136,10 +138,10 @@ export default function RecipeScreen() {
   };
 
   const confirmDelete = () =>
-    Alert.alert(`Delete “${recipe.name}”?`, 'Items already on your lists stay there.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           deleteRecipe(id);
@@ -160,12 +162,12 @@ export default function RecipeScreen() {
         }
       />
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Recipe actions">
+        <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel={t('recipes.screen.actions')}>
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
-            Rename
+            {t('recipes.screen.rename')}
           </Stack.Toolbar.MenuAction>
           <Stack.Toolbar.MenuAction icon="trash" destructive onPress={confirmDelete}>
-            Delete recipe
+            {t('recipes.screen.deleteRecipe')}
           </Stack.Toolbar.MenuAction>
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
@@ -188,7 +190,7 @@ export default function RecipeScreen() {
           <View style={[styles.row, { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }]}>
             <View style={styles.flex}>
               <PrimaryButton
-                label="Add to a list"
+                label={t('recipes.screen.addToAList')}
                 icon="cart"
                 disabled={ingredients.length === 0}
                 onPress={() =>
@@ -202,8 +204,8 @@ export default function RecipeScreen() {
             </View>
             {steps > 0 ? (
               <SurfaceButton
-                label="Cook"
-                accessibilityLabel="Start cooking"
+                label={t('recipes.screen.cook')}
+                accessibilityLabel={t('recipes.screen.startCooking')}
                 icon="flame"
                 iconTint={aisles[hue].strong}
                 on="surface"
@@ -221,7 +223,7 @@ export default function RecipeScreen() {
           {steps > 0 ? (
             <View onLayout={(e) => (switchY.current = e.nativeEvent.layout.y)} style={{ paddingBottom: spacing.md }}>
               <SegmentedControl
-                segments={[{ value: 'ingredients', label: 'Ingredients' }, { value: 'method', ...methodTab(steps) }]}
+                segments={[{ value: 'ingredients', label: t('recipes.screen.ingredients') }, { value: 'method', ...methodTab(steps) }]}
                 value={tab}
                 onChange={switchTab}
               />
@@ -230,19 +232,21 @@ export default function RecipeScreen() {
           {steps === 0 || tab === 'ingredients' ? (
             <Card>
               <SectionHeader
-                title="Ingredients"
+                title={t('recipes.screen.ingredients')}
                 count={ingredients.length}
                 trailing={
                   base !== null && servings !== null ? (
                     <View style={[styles.row, { gap: spacing.xxs }]}>
-                      {servings !== base ? <Button variant="plain" label="Reset" onPress={() => setChosen(null)} /> : null}
+                      {servings !== base ? (
+                        <Button variant="plain" label={t('recipes.screen.reset')} onPress={() => setChosen(null)} />
+                      ) : null}
                       <Stepper
                         value={servings}
                         min={SERVINGS_MIN}
                         max={SERVINGS_MAX}
                         onChange={setChosen}
                         label={forServingsLabel(servings)}
-                        accessibilityLabel="Servings"
+                        accessibilityLabel={t('recipes.servings.title')}
                       />
                     </View>
                   ) : undefined
@@ -253,7 +257,7 @@ export default function RecipeScreen() {
                   variant="callout"
                   color="inkSecondary"
                   style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-                  No ingredients yet. Add them below.
+                  {t('recipes.screen.noIngredients')}
                 </ThemedText>
               ) : (
                 ingredients.map((item) => (
@@ -285,8 +289,8 @@ export default function RecipeScreen() {
           <View style={{ paddingBottom: spacing.sm }}>
             <Toast
               key={deleted.id}
-              message={`Removed ${displayItemName(deleted.displayName)}`}
-              actions={[{ label: 'Undo', onPress: () => (undeleteRecipeIngredient(deleted.id), setDeleted(null)) }]}
+              message={t('recipes.screen.removed', { name: displayItemName(deleted.displayName) })}
+              actions={[{ label: t('common.undo'), onPress: () => (undeleteRecipeIngredient(deleted.id), setDeleted(null)) }]}
               onDismiss={dismissToast}
             />
           </View>
@@ -294,8 +298,8 @@ export default function RecipeScreen() {
         <ItemAddBar
           householdId={recipe.householdId}
           onAdd={(text) => void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? [])}
-          placeholder="Add 2 cups flour…"
-          accessibilityLabel="Add an ingredient"
+          placeholder={t('recipes.screen.addPlaceholder')}
+          accessibilityLabel={t('recipes.screen.addLabel')}
         />
       </KeyboardAvoidingView>
     </Screen>
@@ -318,6 +322,7 @@ function RecipeBand({
   hasIngredients: boolean;
   onEditServings: () => void;
 }) {
+  const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
   const canSuggest = useFeature('recipe_tags') && hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
@@ -352,7 +357,7 @@ function RecipeBand({
             onPress={onEditServings}
             accessibilityRole="button"
             accessibilityLabel={servesLabel(recipe.servings)}
-            accessibilityHint="Edits the servings"
+            accessibilityHint={t('recipes.servings.editHint')}
             style={({ pressed }) => [
               styles.row,
               { gap: spacing.xs + spacing.xxs, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
@@ -363,7 +368,7 @@ function RecipeBand({
             </ThemedText>
           </Pressable>
         ) : (
-          <Pill dashed icon="person.2" label="Add servings" onPress={onEditServings} />
+          <Pill dashed icon="person.2" label={t('recipes.servings.add')} onPress={onEditServings} />
         )}
       </View>
       <RecipeTagRow
@@ -380,10 +385,10 @@ function RecipeBand({
         value={notes}
         onChangeText={setNotes}
         onEndEditing={save}
-        placeholder="Add notes"
+        placeholder={t('recipes.screen.addNotes')}
         placeholderTextColor={colors.inkSecondary}
         selectionColor={tint.strong}
-        accessibilityLabel="Notes"
+        accessibilityLabel={t('recipes.screen.notes')}
         multiline
         style={[typography.callout, { color: colors.ink, minHeight: sizes.minTapTarget }]}
       />

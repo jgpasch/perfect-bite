@@ -56,9 +56,11 @@ import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/s
 import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
 export default function RecipesScreen() {
+  const t = useT();
   const { spacing, scheme, colors, sizes } = useTheme();
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
@@ -120,8 +122,8 @@ export default function RecipesScreen() {
       recipeId,
       ...addedRecipeWithStaplesToast(added.recipeName, added.count, added.skipped, list.name),
       actions: [
-        ...(nothingAdded ? [] : [{ label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
-        { label: 'Open list', onPress: () => (setToast(null), openList(list.id)) },
+        ...(nothingAdded ? [] : [{ label: t('common.undo'), onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
+        { label: t('recipes.tab.openList'), onPress: () => (setToast(null), openList(list.id)) },
       ],
     });
   };
@@ -135,11 +137,11 @@ export default function RecipesScreen() {
   const canImport = useFeature('recipe_import');
   const empty = (
     <EmptyState
-      message="No recipes yet."
+      message={t('recipes.tab.empty')}
       action={
         <View style={{ gap: spacing.sm }}>
-          <PrimaryButton label="New recipe" onPress={addRecipe} />
-          {canImport ? <Button label="Import from link" variant="plain" onPress={importFromLink} /> : null}
+          <PrimaryButton label={t('recipes.tab.newRecipe')} onPress={addRecipe} />
+          {canImport ? <Button label={t('recipes.tab.importFromLink')} variant="plain" onPress={importFromLink} /> : null}
         </View>
       }
     />
@@ -156,9 +158,9 @@ export default function RecipesScreen() {
           recipeId: result.recipeId,
           ...savedRecipeToast(result.recipeName, result.created),
           actions: [
-            ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
+            ...(result.created ? [{ label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) }] : []),
             {
-              label: 'View recipe',
+              label: t('common.viewRecipe'),
               onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
             },
           ],
@@ -166,7 +168,7 @@ export default function RecipesScreen() {
       };
       show();
       return onSavedRecipeResult(show);
-    }, []),
+    }, [t]),
   );
 
   // Recipes shared to the extension (spec 4.10), when the drain finishes while this tab shows.
@@ -180,7 +182,7 @@ export default function RecipesScreen() {
           }
           const [result] = imported;
           const viewRecipe = {
-            label: 'View recipe',
+            label: t('common.viewRecipe'),
             onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
           };
           if (result.listId === null) {
@@ -190,7 +192,7 @@ export default function RecipesScreen() {
               recipeId: result.recipeId,
               ...savedRecipeToast(result.recipeName, result.created),
               actions: [
-                ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
+                ...(result.created ? [{ label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) }] : []),
                 viewRecipe,
               ],
             });
@@ -202,15 +204,15 @@ export default function RecipesScreen() {
             recipeId: result.recipeId,
             ...importedOnRecipesToast(result.recipeName, result.added, getList(listId)?.name ?? null),
             actions: [
-              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              { label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) },
               {
-                label: 'Open list',
+                label: t('recipes.tab.openList'),
                 onPress: () => (setToast(null), openList(listId)),
               },
             ],
           });
         }),
-      [],
+      [t],
     ),
   );
 
@@ -221,7 +223,7 @@ export default function RecipesScreen() {
           icon="plus"
           variant="prominent"
           tintColor={prominentButtonTint(scheme, colors)}
-          accessibilityLabel="Add recipe"
+          accessibilityLabel={t('recipes.tab.addRecipe')}
           onPress={addRecipe}
         />
       </Stack.Toolbar>
@@ -262,7 +264,7 @@ export default function RecipesScreen() {
                 {NO_RECIPES_MATCH}
               </ThemedText>
               {filtering ? (
-                <Button label="Clear filters" variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
+                <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
               ) : null}
             </View>
           ) : null}
@@ -297,7 +299,7 @@ export default function RecipesScreen() {
           {untaggedHidden > 0 ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityHint="Clears the filters and shows only recipes without tags."
+              accessibilityHint={t('recipes.tab.untaggedHint')}
               onPress={() => setRecipeFilters(untaggedOnlyFilters())}
               style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
               <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
@@ -335,14 +337,15 @@ function RecipeCard({
   quickAddTo: { id: string; name: string } | null;
   onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
 }) {
+  const t = useT();
   const { colors, spacing, sizes, rounded } = useTheme();
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
   const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
 
   const confirmDelete = () =>
-    Alert.alert(`Delete “${recipe.name}”?`, 'Items already on your lists stay there.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteRecipe(recipe.id) },
+    Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteRecipe(recipe.id) },
     ]);
 
   return (
@@ -369,7 +372,7 @@ function RecipeCard({
               </ThemedText>
               {ingredientMatch ? (
                 <ThemedText variant="footnote" color="inkSecondary">
-                  Has{' '}
+                  {t('recipes.tab.has')}{' '}
                   <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
                     {ingredientMatch}
                   </ThemedText>
@@ -383,7 +386,7 @@ function RecipeCard({
             {onList ? (
               // Badge pins itself to the top; the wrapper centres it in the row.
               <View>
-                <Badge label={`On ${onList}`} />
+                <Badge label={t('recipes.tab.onList', { name: onList })} />
               </View>
             ) : null}
           </View>
@@ -401,14 +404,16 @@ function RecipeCard({
         {/* The recipe screen's Add to a list sheet (spec 4.5); left out, as that button is disabled, with no ingredients. */}
         {recipe.ingredientCount > 0 ? (
           <Link.MenuAction
-            title="Add to a list"
+            title={t('recipes.tab.addToAList')}
             icon="cart"
             onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id } })}
           />
         ) : null}
-        {link ? <Link.MenuAction title="Visit recipe on web" icon="safari" onPress={() => void openRecipeLink(link)} /> : null}
-        <Link.MenuAction title="Rename" icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
-        <Link.MenuAction title="Delete" icon="trash" destructive onPress={confirmDelete} />
+        {link ? (
+          <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
+        ) : null}
+        <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
+        <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={confirmDelete} />
       </Link.Menu>
     </Link>
   );
