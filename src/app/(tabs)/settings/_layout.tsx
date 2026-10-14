@@ -30,6 +30,7 @@ export default function SettingsStackLayout() {
       <Stack.Screen name="always-have" options={{ title: t('settings.alwaysHave'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="sync"options={{ title: t('settings.syncStatus'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="aisle-colors" options={{ title: t('settings.aisleColours'), headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="language" options={{ title: t('settings.language'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="siri" options={{ title: t('settings.siri'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="developer" options={{ title: t('settings.developer'), headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>

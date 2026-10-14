@@ -438,6 +438,7 @@ settings.accountLabel,"Signed in as {{email}}, {{status}}","Sesión iniciada com
 settings.unknownEmail,unknown,desconocido,
 settings.signedIn,Signed in,Sesión iniciada,
 settings.shopping,Shopping,Compras,
+settings.aisles,Aisles,Pasillos,
 settings.siriAddsTo,Siri adds to,Siri agrega a,
 settings.aisleOrder,Store aisle order,Orden de pasillos de la tienda,
 settings.aisleColours,Aisle colours,Colores de pasillos,

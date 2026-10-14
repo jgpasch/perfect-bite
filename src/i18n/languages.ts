@@ -2,6 +2,9 @@
 export const LANGUAGES = ['en', 'es'] as const;
 export type Language = (typeof LANGUAGES)[number];
 
+/** Each language's name in itself, as a language picker shows it whatever the app's language. */
+export const LANGUAGE_NAMES: Record<Language, string> = { en: 'English', es: 'Español' };
+
 /**
  * The languages users get from their phone's settings. Spanish is added when it's switched on;
  * until then it shows only when forced (`EXPO_PUBLIC_FORCE_LANGUAGE=es`).

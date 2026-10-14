@@ -567,6 +567,7 @@ export const en = {
     unknownEmail: 'unknown',
     signedIn: 'Signed in',
     shopping: 'Shopping',
+    aisles: 'Aisles',
     siriAddsTo: 'Siri adds to',
     aisleOrder: 'Store aisle order',
     aisleColours: 'Aisle colours',
@@ -584,6 +585,13 @@ export const en = {
     version: 'Version {{version}}',
     alwaysHave: 'Always have',
     siri: 'Siri',
+    general: 'General',
+    language: 'Language',
+    /** Settings > Language. */
+    languageScreen: {
+      phone: 'Same as phone',
+      footnote: 'Only this device changes. Siri and system messages stay in the phone’s language.',
+    },
     /** Settings > Aisle colours. */
     aisleColors: {
       itemRows: 'Item rows',

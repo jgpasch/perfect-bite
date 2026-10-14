@@ -40,9 +40,9 @@ import {
 } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
-import { i18n, useT } from '@/i18n';
+import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
-/** Settings (board 10): the account card, Shopping and Households cards, then Sign out, Delete account and the version. */
+/** Settings (board 10): the account card, Shopping, Aisles, General and Households cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
   const t = useT();
@@ -116,17 +116,6 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/siri')}
           />
           <SettingsRow
-            label={t('settings.aisleOrder')}
-            icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
-            onPress={() => router.push('/category-order')}
-          />
-          <SettingsRow
-            label={t('settings.aisleColours')}
-            value={aisleColorStyleLabel(aisleColors)}
-            icon={{ name: 'paintpalette', hue: 'rose' }}
-            onPress={() => router.push('/settings/aisle-colors')}
-          />
-          <SettingsRow
             label={t('settings.keepScreenOn')}
             detail={t('settings.keepScreenOnDetail')}
             icon={{ name: 'sun.max', hue: 'amber' }}
@@ -156,6 +145,31 @@ export default function SettingsScreen() {
                 accessibilityHint={t('settings.alwaysShowCheckedHint')}
               />
             }
+            last
+          />
+        </SettingsSection>
+
+        <SettingsSection title={t('settings.aisles')}>
+          <SettingsRow
+            label={t('settings.aisleOrder')}
+            icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
+            onPress={() => router.push('/category-order')}
+          />
+          <SettingsRow
+            label={t('settings.aisleColours')}
+            value={aisleColorStyleLabel(aisleColors)}
+            icon={{ name: 'paintpalette', hue: 'rose' }}
+            onPress={() => router.push('/settings/aisle-colors')}
+            last
+          />
+        </SettingsSection>
+
+        <SettingsSection title={t('settings.general')}>
+          <SettingsRow
+            label={t('settings.language')}
+            value={LANGUAGE_NAMES[currentLanguage()]}
+            icon={{ name: 'globe', hue: 'blue' }}
+            onPress={() => router.push('/settings/language')}
           />
           <SettingsRow
             label={t('settings.syncStatus')}

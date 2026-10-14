@@ -6,7 +6,7 @@ import { en } from './en';
 import { es } from './es';
 import { type Language, resolveLanguage, SUPPORTED_LANGUAGES } from './languages';
 
-export { type Language, LANGUAGES, resolveLanguage, SUPPORTED_LANGUAGES } from './languages';
+export { type Language, LANGUAGE_NAMES, LANGUAGES, resolveLanguage, SUPPORTED_LANGUAGES } from './languages';
 
 declare module 'i18next' {
   interface CustomTypeOptions {

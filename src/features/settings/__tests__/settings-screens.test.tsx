@@ -11,11 +11,13 @@ import type { AccountState } from '@/features/auth/account';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setListArchived } from '@/features/lists/lists';
 import type { PendingSiriAdd } from '@/features/siri/app-group';
+import { currentLanguage, initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import type { SyncStatus } from '@/sync/status';
 
 import SettingsScreen from '@/app/(tabs)/settings/index';
 import AisleColorsScreen from '@/app/(tabs)/settings/aisle-colors';
+import LanguageScreen from '@/app/(tabs)/settings/language';
 import DeveloperScreen from '@/app/(tabs)/settings/developer';
 import SiriDefaultListScreen from '@/app/(tabs)/settings/siri';
 import SyncStatusScreen from '@/app/(tabs)/settings/sync';
@@ -26,8 +28,10 @@ import {
   getItemRowStyle,
   getKeepScreenOn,
   setAisleColorStyle,
+  setDeviceSetting,
   setKeepScreenOn,
 } from '../device-settings';
+import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -190,9 +194,9 @@ describe('Settings', () => {
     expect(textOf(root)).toMatch(/Version\s+1\.2\.3/);
   });
 
-  it('shows the Shopping rows with their current values', () => {
+  it('shows the Shopping, Aisles and General rows with their current values', () => {
     const root = render(<SettingsScreen />);
-    expect(headers(root)).toEqual(expect.arrayContaining(['Shopping', 'Households']));
+    expect(headers(root)).toEqual(expect.arrayContaining(['Shopping', 'Aisles', 'General', 'Households']));
     button(root, 'Siri adds to, Groceries');
     button(root, 'Store aisle order');
     button(root, 'Aisle colours, Whole row');
@@ -439,6 +443,49 @@ describe('Aisle colours', () => {
     setAisleColorStyle('header');
     const root = render(<AisleColorsScreen />);
     expect(button(root, 'Header only').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+  });
+});
+
+describe('Language', () => {
+  // The rest of the suite runs in English.
+  afterEach(() => {
+    act(() => initI18n('en'));
+  });
+
+  it('shows the app language on the Settings row', () => {
+    const root = render(<SettingsScreen />);
+    expect(headers(root)).toEqual(expect.arrayContaining(['General']));
+    click(button(root, 'Language, English'));
+    expect(mockPush).toHaveBeenCalledWith('/settings/language');
+  });
+
+  it('follows the phone until a language is picked', () => {
+    const root = render(<LanguageScreen />);
+    expect(getLanguageChoice()).toBeNull();
+    expect(button(root, 'Same as phone, English').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    expect(button(root, 'Español').props.accessibilityState).toEqual(expect.objectContaining({ selected: false }));
+  });
+
+  it('switches the app at once, saves the choice on this device, and goes back to the phone', () => {
+    const root = render(<LanguageScreen />);
+    click(button(root, 'Español'));
+    expect(currentLanguage()).toBe('es');
+    expect(getLanguageChoice()).toBe('es');
+    expect(startupLanguage()).toBe('es');
+    // The screen's own text follows: the phone row reads in Spanish now.
+    expect(button(root, 'Español').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    button(root, 'Igual que el teléfono, English');
+
+    click(button(root, 'Igual que el teléfono, English'));
+    expect(currentLanguage()).toBe('en');
+    expect(getLanguageChoice()).toBeNull();
+    expect(button(root, 'Same as phone, English').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+  });
+
+  it('ignores a saved value it has no strings for', () => {
+    setDeviceSetting(LANGUAGE_KEY, 'fr');
+    expect(getLanguageChoice()).toBeNull();
+    expect(startupLanguage()).toBe('en');
   });
 });
 

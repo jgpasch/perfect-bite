@@ -527,6 +527,7 @@ export const es = {
     unknownEmail: 'desconocido',
     signedIn: 'Sesión iniciada',
     shopping: 'Compras',
+    aisles: 'Pasillos',
     siriAddsTo: 'Siri agrega a',
     aisleOrder: 'Orden de pasillos de la tienda',
     aisleColours: 'Colores de pasillos',
@@ -544,6 +545,12 @@ export const es = {
     version: 'Versión {{version}}',
     alwaysHave: 'Siempre tengo',
     siri: 'Siri',
+    general: 'General',
+    language: 'Idioma',
+    languageScreen: {
+      phone: 'Igual que el teléfono',
+      footnote: 'Solo cambia en este dispositivo. Siri y los mensajes del sistema siguen en el idioma del teléfono.',
+    },
     aisleColors: {
       itemRows: 'Filas de artículos',
       bands: 'Bandas de color',

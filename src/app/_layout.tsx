@@ -11,17 +11,18 @@ import { wipeIfOtherUser } from '@/features/auth/sign-out';
 import { NotificationHost } from '@/features/notifications/notification-host';
 import { clearNotifications } from '@/features/notifications/notifications';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
+import { startupLanguage } from '@/features/settings/language';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
-import { deviceLanguage, initI18n, useT } from '@/i18n';
+import { initI18n, useT } from '@/i18n';
 
 export { ErrorBoundary } from 'expo-router';
 
 // A deep link (to a recipe, an invite) still gets the tabs underneath to go back to.
 export const unstable_settings = { initialRouteName: '(tabs)' };
 
-// The app's strings, in the phone's language (spec 4.15), before anything renders.
-initI18n(deviceLanguage());
+// The app's strings, in the language picked in Settings or else the phone's (spec 4.15), before anything renders.
+initI18n(startupLanguage());
 SplashScreen.preventAutoHideAsync();
 startAccount({ beforeReady: wipeIfOtherUser });
 
