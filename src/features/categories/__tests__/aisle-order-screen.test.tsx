@@ -6,6 +6,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, households } from '@/db';
 import { Sizes, Spacing } from '@/constants/theme';
+import { initI18n } from '@/i18n';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
@@ -297,6 +298,35 @@ describe('the Aisle order screen', () => {
     createCategory(USER, 'h1', 'Costco');
     const root = render();
     expect(rowLabels(root).find((l) => l.startsWith('Costco,'))).toMatch(/^Costco, \d+ of/);
+  });
+
+  it('is in Spanish with the app in Spanish (spec 4.15)', () => {
+    initI18n('es');
+    try {
+      const root = render();
+      const header = root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'header');
+      expect(header.props.children).toBe('Orden de pasillos');
+      const texts = root.root.findAll((n) => typeof n.type === 'string' && typeof n.props.children === 'string');
+      expect(texts.map((n) => n.props.children)).toContain(
+        'Arrastra los pasillos en el orden en que recorres la tienda. Solo tú ves este orden.',
+      );
+      expect(root.root.find((n) => (n.type as string) === 'ToolbarButton').props.children).toBe('Listo');
+      const spanishRows = root.root.findAll(
+        (n) => typeof n.type === 'string' && n.props.accessibilityHint === 'Mantén presionado y arrastra para mover',
+      );
+      const count = SYSTEM_CATEGORIES.length;
+      expect(spanishRows[0].props.accessibilityLabel).toBe(`${SYSTEM_CATEGORIES[0].name}, 1 de ${count}`);
+      expect(spanishRows[1].props.accessibilityActions).toEqual([
+        { name: 'moveUp', label: 'Subir' },
+        { name: 'moveDown', label: 'Bajar' },
+      ]);
+      a11yAction(spanishRows[0], 'moveDown');
+      expect(announce).toHaveBeenLastCalledWith(`Movido a 2 de ${count}`);
+    } finally {
+      act(() => tree?.unmount());
+      tree = null;
+      initI18n('en');
+    }
   });
 
   it('Done closes it', () => {

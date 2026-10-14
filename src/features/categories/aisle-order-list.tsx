@@ -21,8 +21,16 @@ import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { aisleColor } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
-import { aisleRowActions, aisleRowLabel, autoScrollStep, dropIndex, moveId } from './aisle-order';
+import {
+  aisleMovedAnnouncement,
+  aisleRowActions,
+  aisleRowLabel,
+  autoScrollStep,
+  dropIndex,
+  moveId,
+} from './aisle-order';
 
 /** `household`: a custom aisle's household name, shown as a second line (null for none). */
 export type AisleOrderItem = { id: string; name: string; slug: string | null; household?: string | null };
@@ -162,7 +170,7 @@ export function AisleOrderList({ aisles, onMove, header }: Props) {
 
   const moveByAccessibility = (index: number, to: number) => {
     onMove(index, to);
-    AccessibilityInfo.announceForAccessibility(`Moved to ${to + 1} of ${count}`);
+    AccessibilityInfo.announceForAccessibility(aisleMovedAnnouncement(to, count));
   };
 
   // The dashed slot the dragged row will drop into.
@@ -249,6 +257,7 @@ function AisleRow({
   onMeasure,
   onAccessibilityMove,
 }: RowProps) {
+  const t = useT();
   const { colors, aisles, spacing, sizes, rounded, shadows, motion } = useTheme();
   const look = aisleRowLook(dragging, aisleColor(aisle.slug), colors, aisles);
   const { id } = aisle;
@@ -296,7 +305,7 @@ function AisleRow({
       <Animated.View
         accessible
         accessibilityLabel={aisleRowLabel(aisle.name, index, count, aisle.household)}
-        accessibilityHint="Touch and hold, then drag to move"
+        accessibilityHint={t('aisleOrder.rowHint')}
         accessibilityActions={aisleRowActions(index, count)}
         onAccessibilityAction={(e) => {
           if (e.nativeEvent.actionName === 'moveUp') onAccessibilityMove(index, index - 1);

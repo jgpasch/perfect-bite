@@ -14,12 +14,14 @@ import { AisleOrderList } from '@/features/categories/aisle-order-list';
 import { categoriesQuery, moveCategory } from '@/features/categories/categories';
 import { householdsQuery } from '@/features/households/households';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * "Aisle order" (spec 4.3.3, board 12): the user's category order, used on every list. Opened from
  * Settings (Store aisle order) or from a list's ⋯ menu in By aisle (Reorder aisles…).
  */
 export default function CategoryOrderScreen() {
+  const t = useT();
   const { spacing, colors, scheme } = useTheme();
   const userId = getAccount()?.userId ?? '';
   // System aisles plus the custom aisles of every household the user is in (spec 4.3.3).
@@ -42,7 +44,7 @@ export default function CategoryOrderScreen() {
       <Screen>
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => router.back()}>
-            Done
+            {t('common.done')}
           </Stack.Toolbar.Button>
         </Stack.Toolbar>
         <AisleOrderList
@@ -54,13 +56,13 @@ export default function CategoryOrderScreen() {
                 variant="screenTitle"
                 accessibilityRole="header"
                 style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingTop: spacing.md + spacing.xxs, paddingBottom: spacing.xs }}>
-                Aisle order
+                {t('aisleOrder.title')}
               </ThemedText>
               <ThemedText
                 variant="callout"
                 color="inkSecondary"
                 style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.lg }}>
-                Drag aisles into the order you walk the store. Only you see this order.
+                {t('aisleOrder.intro')}
               </ThemedText>
             </>
           }

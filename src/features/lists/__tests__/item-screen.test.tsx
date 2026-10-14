@@ -9,6 +9,7 @@ import ItemEditSheet from '@/app/list/[id]/item/[itemId]';
 import { categories, db, householdCategoryOverrides, households, ingredients, listItems } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { setFeatures } from '@/features/plans/features';
+import { initI18n } from '@/i18n';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import { SYSTEM_CATEGORIES } from '@/shared';
@@ -481,5 +482,124 @@ describe('Move to another list', () => {
     expect(item(itemId).listId).toBe(listId);
     expect(mockBack).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+// Spec 4.15: the sheet's strings come from src/i18n/. The English above is unchanged.
+describe('in Spanish', () => {
+  beforeEach(() => initI18n('es'));
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  test('the toolbar, fields, labels and buttons', () => {
+    const { itemId } = addItem(listId, '2 milk', USER)!;
+    open(itemId);
+    expect(toolbar('Cancelar')).toBeDefined();
+    expect(toolbar('Guardar')).toBeDefined();
+    expect(input('Nombre').props.accessibilityHint).toBe('Cambia el nombre del artículo en esta lista');
+    expect(input('Cantidad, en Piezas').props.placeholder).toBe('Ninguna');
+    expect(input('Cantidad, en Piezas').props.accessibilityHint).toBe(
+      'Se guarda cuando terminas de escribir. Vacío borra la cantidad.',
+    );
+    expect(input('Nota').props.placeholder).toBe('p. ej. la bolsa grande');
+    expect(lines()).toEqual(expect.arrayContaining(['Cantidad', 'Nota', 'Pasillo', 'Siempre tengo', 'Eliminar artículo']));
+    expect(pressables('Ya lo tengo')).not.toHaveLength(0);
+    expect(pressables('Aumentar cantidad')).not.toHaveLength(0);
+    expect(pressables('Disminuir cantidad')).not.toHaveLength(0);
+    expect(text()).not.toMatch(/Amount|Note|Aisle|Always have|Delete item/);
+  });
+
+  test('the unit menu and its groups', () => {
+    const { itemId } = addItem(listId, '2 lb milk', USER)!;
+    open(itemId);
+    const menu = tree!.root.find((n) => n.type === ('SwiftMenu' as never));
+    expect(menu.props.modifiers).toEqual([{ accessibilityLabel: 'Unidad, lb' }, { accessibilityHint: 'Muestra las unidades' }]);
+    const titles = tree!.root.findAll((n) => n.type === ('SwiftSection' as never)).map((s) => s.props.title);
+    expect(titles).toEqual([undefined, 'Piezas', 'Peso', 'Volumen', 'Paquetes']);
+    const lb = tree!.root.findAll((n) => n.type === ('SwiftToggle' as never) && n.props.label === undefined)[0];
+    expect(textOf(lb)).toBe('lbLa de siempre');
+  });
+
+  test('mixed units: the disabled controls say to edit the amount as text', () => {
+    const { itemId } = addItem(listId, '2 cans milk', USER)!;
+    addItem(listId, '400 g milk', USER);
+    open(itemId);
+    expect(pressables('Unidad')[0].props.accessibilityHint).toBe('Edita la cantidad como texto');
+    expect(pressables('Aumentar cantidad')[0].props.accessibilityHint).toBe('Edita la cantidad como texto');
+    expect(input('Cantidad').props.placeholder).toBe('p. ej. 2 lb');
+  });
+
+  test('a typed word that is not a number', () => {
+    const { itemId } = addItem(listId, '2 milk', USER)!;
+    open(itemId);
+    typeIn('Cantidad, en Piezas', 'mucho');
+    act(() => input('Cantidad, en Piezas').props.onBlur());
+    expect(text()).toContain('“mucho” no es un número, como 2 o 1.5');
+  });
+
+  test('the amounts added say who and when, and each can be removed', () => {
+    const { itemId } = addItem(listId, '2 milk', USER)!;
+    addItem(listId, '1 milk', USER);
+    open(itemId);
+    expect(lines()).toEqual(expect.arrayContaining(['Agregado', 'Tú, justo ahora']));
+    const remove = pressables('Quitar 1')[0];
+    expect(remove.props.accessibilityHint).toBe('Quita esta cantidad');
+    act(() => remove.props.onPress());
+    expect(getItemEdit(itemId)!.amount).toBe('2');
+  });
+
+  test('a recipe’s amount names the recipe and opens it', () => {
+    const recipeId = createRecipe('Hotcakes', getList(listId)!.householdId);
+    addRecipeIngredient(recipeId, '1 cup milk');
+    addWholeRecipeToList(listId, recipeId, USER);
+    open(listItemsQuery(listId).all()[0].id);
+    const row = pressables('1 cup, Hotcakes, justo ahora')[0];
+    expect(row.props.accessibilityHint).toBe('Abre Hotcakes');
+  });
+
+  test('checking says when and by whom', () => {
+    const { itemId } = addItem(listId, 'milk', USER)!;
+    open(itemId);
+    press('Ya lo tengo');
+    refresh();
+    expect(lines()).toContain('Marcado justo ahora por ti');
+  });
+
+  test('the aisle pills: Show all, New aisle, the shared footnote and Reset', () => {
+    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+    const { itemId } = addItem(listId, 'milk', USER)!;
+    open(itemId);
+    const showAll = pressables('Ver todos')[0];
+    expect(showAll.props.accessibilityHint).toBe(`Muestra ${SYSTEM_CATEGORIES.length - 6} pasillos más`);
+    press('Ver todos');
+    press('Frozen');
+    expect(lines()).toContain('Lo cambia para todos en Personal.');
+    expect(pressables('Restablecer')[0].props.accessibilityHint).toBe('Usa el pasillo de siempre para todos');
+    press('Nuevo pasillo');
+    expect(prompt.mock.calls[0][0]).toBe('Nuevo pasillo');
+    expect(lines()).toContain('+ Nuevo');
+  });
+
+  test('Always have: its switch and footnote', () => {
+    const { itemId } = addItem(listId, 'salt', USER)!;
+    open(itemId);
+    const toggle = tree!.root.find((n) => n.type === Switch);
+    expect(toggle.props.accessibilityLabel).toBe('Siempre tengo');
+    expect(toggle.props.accessibilityHint).toBe('Se omite cuando agregas una receta');
+    expect(text()).toContain('Se omite cuando agregas una receta. Lo cambia para todos en Personal.');
+  });
+
+  test('Move to another list', () => {
+    createList('Costco');
+    const { itemId } = addItem(listId, 'milk', USER)!;
+    const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    open(itemId);
+    expect(lines()).toContain('Mover a otra lista…');
+    expect(pressables('Mover a otra lista')[0].props.accessibilityHint).toBe('Muestra las otras listas');
+    press('Mover a otra lista');
+    expect(sheet.mock.calls[0][0]).toMatchObject({ title: 'Mover a', options: ['Costco', 'Cancelar'], cancelButtonIndex: 1 });
   });
 });

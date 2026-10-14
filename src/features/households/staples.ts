@@ -4,6 +4,7 @@
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { db, householdStaples, ingredientUsage } from '@/db';
+import { i18n } from '@/i18n';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
 import { upsertRow } from '@/sync/mutate';
 
@@ -54,7 +55,7 @@ export function setStaple(householdId: string, ingredientName: string, on: boole
 /** The item sheet's footnote under its Always have switch (spec 4.2): staples are the household's. */
 export function alwaysHaveFootnote(householdName: string | null): string {
   const name = householdName?.trim();
-  return `Left off when you add a recipe. Changes it for everyone in ${name || 'your household'}.`;
+  return name ? i18n.t('item.alwaysHaveFootnote', { name }) : i18n.t('item.alwaysHaveFootnoteYours');
 }
 
 /** The staple key for typed text, read as the add bar reads it with the amount ignored: `2 tbsp Olive oils` → `olive oil`. */

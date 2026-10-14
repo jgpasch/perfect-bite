@@ -1,9 +1,11 @@
 // Copy for shared aisles (spec 4.3.2, 4.3.3): an aisle choice and a custom aisle belong to the household.
 
+import { i18n } from '@/i18n';
+
 /** The item sheet's footnote under the aisle pills when the chosen aisle isn't the catalog default. */
 export function sharedAisleFootnote(householdName: string | null): string {
   const name = householdName?.trim();
-  return name ? `Changes it for everyone in ${name}.` : 'Changes it for everyone in your household.';
+  return name ? i18n.t('item.sharedAisle', { name }) : i18n.t('item.sharedAisleYours');
 }
 
 /**

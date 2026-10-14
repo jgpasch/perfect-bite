@@ -55,6 +55,7 @@ import {
 } from '@/features/lists/items';
 import { setMoveResult } from '@/features/lists/move-result';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName, OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
 /**
@@ -92,6 +93,7 @@ export default function ItemEditSheet() {
   // Always have (spec 4.2, 4.5): the household's staple, saved as soon as it's switched.
   const [staple, setStapleState] = useState(() => (initial ? isStaple(initial.householdId, initial.ingredientName) : false));
   const sorts = useFeature('categorize');
+  const t = useT();
 
   if (!edit || !initial) return <Screen />;
 
@@ -127,7 +129,7 @@ export default function ItemEditSheet() {
 
   const newCategory = () => {
     if (!userId) return;
-    Alert.prompt('New aisle', undefined, (name) => {
+    Alert.prompt(t('item.newAisle'), undefined, (name) => {
       if (!name?.trim()) return;
       const id = createCategory(userId, initial.householdId, name);
       setCategoryList(getOrderedCategories(userId, initial.householdId));
@@ -161,7 +163,7 @@ export default function ItemEditSheet() {
     if (quantityDraft === null || !shown) return null;
     const next = typedAmount(quantityDraft, shown);
     if (next === undefined) {
-      setError(`"${quantityDraft.trim()}" isn't a number, like 2 or 1.5`);
+      setError(t('item.notANumber', { text: quantityDraft.trim() }));
       return false;
     }
     setQuantityDraft(null);
@@ -218,7 +220,11 @@ export default function ItemEditSheet() {
   // Spec 4.4: the item meets the other list as an add would; that list opens with the toast and Undo.
   const move = () => {
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: 'Move to', options: [...moveTargets.map((l) => l.name), 'Cancel'], cancelButtonIndex: moveTargets.length },
+      {
+        title: t('item.moveTo'),
+        options: [...moveTargets.map((l) => l.name), t('common.cancel')],
+        cancelButtonIndex: moveTargets.length,
+      },
       (index) => {
         const target = moveTargets[index];
         if (!target || !persist()) return;
@@ -248,11 +254,11 @@ export default function ItemEditSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={save}>
-          Save
+          {t('item.save')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
 
@@ -264,8 +270,8 @@ export default function ItemEditSheet() {
             onChangeText={set('name')}
             onFocus={() => setEditingName(true)}
             onBlur={() => setEditingName(false)}
-            accessibilityLabel="Name"
-            accessibilityHint="Renames the item on this list"
+            accessibilityLabel={t('item.name')}
+            accessibilityHint={t('item.nameHint')}
             multiline
             submitBehavior="blurAndSubmit"
             returnKeyType="done"
@@ -295,13 +301,13 @@ export default function ItemEditSheet() {
             ring={sorting ? undefined : aisles[hue].dot}
             fill={colors.surface}
             onPress={() => setChecked(!checked)}
-            accessibilityLabel="Got it"
+            accessibilityLabel={t('item.gotIt')}
           />
         </View>
       </View>
 
       <Card>
-        <FieldRow label="Amount" first>
+        <FieldRow label={t('item.amount')} first>
           <View style={[styles.row, styles.wrap, { gap: spacing.sm }]}>
             <View style={[styles.grow, { minWidth: sizes.fieldLabel }]}>
               {shown ? (
@@ -312,9 +318,9 @@ export default function ItemEditSheet() {
                     setError(null);
                   }}
                   onBlur={() => commitQuantity()}
-                  placeholder="None"
-                  accessibilityLabel={`Amount, in ${unitLabel(shown.unit)}`}
-                  accessibilityHint="Saves when you're done typing. Empty clears the amount."
+                  placeholder={t('item.amountNone')}
+                  accessibilityLabel={t('item.amountIn', { unit: unitLabel(shown.unit) })}
+                  accessibilityHint={t('item.amountHint')}
                   keyboardType="decimal-pad"
                   selectTextOnFocus
                 />
@@ -325,8 +331,8 @@ export default function ItemEditSheet() {
                     setAmountTouched(true);
                     set('amount')(value);
                   }}
-                  placeholder="e.g. 2 lb"
-                  accessibilityLabel="Amount"
+                  placeholder={t('item.amountPlaceholder')}
+                  accessibilityLabel={t('item.amount')}
                   autoCapitalize="none"
                   returnKeyType="done"
                 />
@@ -341,12 +347,12 @@ export default function ItemEditSheet() {
             />
           </View>
         </FieldRow>
-        <FieldRow label="Note">
+        <FieldRow label={t('item.note')}>
           <InlineField
             value={edit.note}
             onChangeText={set('note')}
-            placeholder="e.g. the big bag"
-            accessibilityLabel="Note"
+            placeholder={t('item.notePlaceholder')}
+            accessibilityLabel={t('item.note')}
             multiline
           />
         </FieldRow>
@@ -356,11 +362,11 @@ export default function ItemEditSheet() {
         // Spec 4.4: each add is listed with a delete control (Undo, later); a recipe's add opens it.
         <>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
-            Added
+            {t('item.added')}
           </ThemedText>
           <Card>
             {contributions.map((c, i) => {
-              const text = formatAmount(c) || 'No amount';
+              const text = formatAmount(c) || t('item.noAmount');
               const line = addedLine(c, userId, now);
               return (
                 <CardRow key={c.id} first={i === 0}>
@@ -368,8 +374,8 @@ export default function ItemEditSheet() {
                   {fromRecipe(c) ? (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${text}, ${line}`}
-                      accessibilityHint={`Opens ${c.recipeName}`}
+                      accessibilityLabel={t('item.addedRow', { amount: text, line })}
+                      accessibilityHint={t('item.opensRecipe', { name: c.recipeName })}
                       onPress={() => openRecipe(c.recipeId)}
                       style={({ pressed }) => [
                         styles.row,
@@ -388,8 +394,8 @@ export default function ItemEditSheet() {
                   )}
                   {contributions.length > 1 ? (
                     <RemoveButton
-                      accessibilityLabel={`Remove ${text}`}
-                      accessibilityHint="Removes this amount"
+                      accessibilityLabel={t('item.removeAmount', { amount: text })}
+                      accessibilityHint={t('item.removeAmountHint')}
                       onPress={() => deleteContribution(c.id)}
                     />
                   ) : null}
@@ -403,7 +409,7 @@ export default function ItemEditSheet() {
       {userId ? (
         <>
           <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={labelInset}>
-            Aisle
+            {t('item.aisle')}
           </ThemedText>
           <View style={[styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
             {sortingDefault ? (
@@ -425,14 +431,14 @@ export default function ItemEditSheet() {
             ))}
             {hiddenAisles > 0 ? (
               <Pill
-                label="Show all"
+                label={t('item.showAll')}
                 outline
                 trailingIcon="chevron.down"
-                accessibilityHint={`Shows ${hiddenAisles} more aisles`}
+                accessibilityHint={t('item.showMore', { count: hiddenAisles })}
                 onPress={() => setAislesOpen(true)}
               />
             ) : (
-              <Pill label="+ New" accessibilityLabel="New aisle" dashed onPress={newCategory} />
+              <Pill label={t('item.newPill')} accessibilityLabel={t('item.newAisle')} dashed onPress={newCategory} />
             )}
           </View>
           {isOverride ? (
@@ -442,9 +448,9 @@ export default function ItemEditSheet() {
                 {sharedAisleFootnote(householdName)}
               </ThemedText>
               <Button
-                label="Reset to default"
+                label={t('item.resetToDefault')}
                 variant="plain"
-                accessibilityHint="Uses the usual aisle for everyone"
+                accessibilityHint={t('item.resetHint')}
                 onPress={() => chooseCategory(defaultId)}
               />
             </View>
@@ -452,15 +458,15 @@ export default function ItemEditSheet() {
           <View style={{ gap: spacing.sm }}>
             <Card>
               <SettingsRow
-                label="Always have"
+                label={t('item.alwaysHave')}
                 last
                 trailing={
                   <Switch
                     value={staple}
                     onValueChange={toggleStaple}
                     trackColor={{ true: colors.primary }}
-                    accessibilityLabel="Always have"
-                    accessibilityHint="Left off when you add a recipe"
+                    accessibilityLabel={t('item.alwaysHave')}
+                    accessibilityHint={t('item.alwaysHaveHint')}
                   />
                 }
               />
@@ -482,14 +488,14 @@ export default function ItemEditSheet() {
         <Card>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Move to another list"
-            accessibilityHint="Shows the other lists"
+            accessibilityLabel={t('item.moveToAnother')}
+            accessibilityHint={t('item.moveHint')}
             onPress={move}
             style={({ pressed }) => ({ opacity: pressed ? opacity.pressed : 1 })}>
             <CardRow first>
               <Icon name="arrow.right.circle" color="primary" />
               <ThemedText variant="headline" style={styles.flex}>
-                Move to another list…
+                {t('item.moveToAnotherMenu')}
               </ThemedText>
               <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} />
             </CardRow>
@@ -499,7 +505,7 @@ export default function ItemEditSheet() {
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <SoftDangerButton
-          label="Delete item"
+          label={t('item.deleteItem')}
           onPress={() => {
             deleteItem(itemId);
             router.back();
@@ -532,8 +538,6 @@ function fromRecipe<C extends { source: string; recipeId: string | null; recipeN
   return c.source === 'recipe' && c.recipeId !== null && c.recipeName !== null;
 }
 
-const DISABLED_HINT = 'Edit the amount as text';
-
 /** The unit button and − / + beside the number field (spec 4.4). Disabled when `amount` is null. */
 function AmountControls({
   amount,
@@ -549,8 +553,9 @@ function AmountControls({
   onStep: (direction: 1 | -1) => void;
   onChooseUnit: (unit: Unit | null) => void;
 }) {
+  const t = useT();
   const { spacing } = useTheme();
-  const disabledHint = amount ? undefined : DISABLED_HINT;
+  const disabledHint = amount ? undefined : t('item.editAsText');
   return (
     <View style={[styles.row, { gap: spacing.sm }]}>
       {amount ? (
@@ -558,22 +563,22 @@ function AmountControls({
       ) : (
         <StepperButton
           icon="chevron.up.chevron.down"
-          accessibilityLabel="Unit"
-          accessibilityHint={DISABLED_HINT}
+          accessibilityLabel={t('item.unit')}
+          accessibilityHint={t('item.editAsText')}
           disabled
           onPress={() => {}}
         />
       )}
       <StepperButton
         icon="minus"
-        accessibilityLabel="Decrease amount"
+        accessibilityLabel={t('item.decrease')}
         accessibilityHint={disabledHint}
         disabled={!amount || !canDecrease}
         onPress={() => onStep(-1)}
       />
       <StepperButton
         icon="plus"
-        accessibilityLabel="Increase amount"
+        accessibilityLabel={t('item.increase')}
         accessibilityHint={disabledHint}
         disabled={!amount}
         onPress={() => onStep(1)}
@@ -595,6 +600,7 @@ function UnitMenu({
   usual: Unit | null | undefined;
   onChoose: (unit: Unit | null) => void;
 }) {
+  const t = useT();
   const { scheme, colors } = useTheme();
   const label = unitLabel(unit);
   return (
@@ -605,7 +611,7 @@ function UnitMenu({
             <StepperFace icon="chevron.up.chevron.down" label={label} />
           </RNHostView>
         }
-        modifiers={[accessibilityLabel(`Unit, ${label}`), accessibilityHint('Shows the units')]}>
+        modifiers={[accessibilityLabel(t('item.unitWith', { unit: label })), accessibilityHint(t('item.unitsHint'))]}>
         {unitMenuSections(unit, usual).map((section) => (
           <Section key={section.title ?? 'usual'} title={section.title ?? undefined}>
             {section.items.map((item) =>
@@ -613,7 +619,7 @@ function UnitMenu({
                 // A second Text is the menu item's subtitle.
                 <Toggle key={item.label} isOn={item.checked} onIsOnChange={() => onChoose(item.unit)}>
                   <SwiftText>{item.label}</SwiftText>
-                  <SwiftText>Usual</SwiftText>
+                  <SwiftText>{t('item.usualUnit')}</SwiftText>
                 </Toggle>
               ) : (
                 <Toggle

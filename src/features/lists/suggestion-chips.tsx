@@ -5,6 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { matchParts } from '@/domain/text-match';
 import { recipeSuggestionLabel } from '@/features/recipes/recipe-view';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 import type { SuggestionChip } from './suggestions';
 
@@ -31,15 +32,16 @@ export function SuggestionChips({
   onPressItem,
   onPressRecipe,
   onRemove,
-  accessibilityLabel = 'Suggestions',
+  accessibilityLabel,
 }: Props) {
+  const t = useT();
   const { spacing } = useTheme();
   return (
     <ScrollView
       horizontal
       keyboardShouldPersistTaps="always"
       showsHorizontalScrollIndicator={false}
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={accessibilityLabel ?? t('addBar.suggestions')}
       // Edge to edge under the add bar's side padding, so chips scroll off the screen's edge.
       style={{ marginHorizontal: -spacing.lg, marginBottom: spacing.sm }}
       contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
@@ -58,8 +60,8 @@ export function SuggestionChips({
             key={chip.key}
             label={chip.label}
             typed={typed}
-            accessibilityLabel={`Add ${chip.label}`}
-            accessibilityHint={chip.removable ? 'Long press to remove from suggestions' : undefined}
+            accessibilityLabel={t('addBar.addChip', { name: chip.label })}
+            accessibilityHint={chip.removable ? t('addBar.removeHint') : undefined}
             onPress={() => onPressItem(chip)}
             onLongPress={chip.removable ? () => onRemove(chip) : undefined}
           />

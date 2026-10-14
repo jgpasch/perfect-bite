@@ -6,10 +6,12 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, lists } from '@/db';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
+import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
 
 import { ItemAddBar } from '../add-bar';
+import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '../add-bar-copy';
 import { addItem, clearChecked, setItemChecked, undoAdd, type AddItemResult } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
 import { SuggestionChips } from '../suggestion-chips';
@@ -346,5 +348,79 @@ describe('SuggestionChips', () => {
     expect(h.onRemove).toHaveBeenCalledWith(chips[1]);
     expect(pressable('Add Chickpeas').props.onLongPress).toBeUndefined();
     expect(byLabel('Add Chickpeas').props.accessibilityHint).toBeUndefined();
+  });
+});
+
+// Spec 4.15: the add bar's strings come from src/i18n/. The English above is unchanged.
+describe('in Spanish', () => {
+  beforeEach(() => initI18n('es'));
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  function renderBar(over: Partial<Parameters<typeof ItemAddBar>[0]> = {}) {
+    const props = { householdId, onAdd: jest.fn(), placeholder: LIST_ADD_PLACEHOLDER, accessibilityLabel: LIST_ADD_LABEL, ...over };
+    act(() => {
+      tree = create(<ItemAddBar {...props} />);
+    });
+    return props;
+  }
+  const rowLabel = () => hosts((n) => n.props.horizontal === true)[0]?.props.accessibilityLabel;
+
+  test('the field and the + button', () => {
+    renderBar();
+    expect(input().props.placeholder).toBe('Agrega un artículo');
+    expect(input().props.accessibilityLabel).toBe('Agregar un artículo');
+    expect(pressable('Agregar')).toBeDefined();
+  });
+
+  test('the usual items row while the field is empty, Suggestions while typing', () => {
+    for (const name of ['milk', 'milk']) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
+    clearChecked(listId);
+    renderBar({ listId });
+    act(() => input().props.onFocus());
+    expect(rowLabel()).toBe('Lo de siempre');
+    expect(byLabel('Agregar Milk').props.accessibilityHint).toBe('Mantén presionado para quitar de las sugerencias');
+    type('mil');
+    expect(rowLabel()).toBe('Sugerencias');
+  });
+
+  test('Remove from suggestions and Cancel in the long-press menu', () => {
+    addItem(listId, 'oat milk', USER);
+    const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    renderBar();
+    type('oat');
+    act(() => pressable('Agregar Oat milk').props.onLongPress());
+    expect(sheet.mock.calls[0][0]).toMatchObject({ options: ['Quitar de las sugerencias', 'Cancelar'], title: 'Oat milk' });
+  });
+
+  test('a recipe chip, with Spanish plurals', () => {
+    const tacos = createRecipe('Tacos', householdId);
+    addRecipeIngredient(tacos, 'tortillas');
+    addRecipeIngredient(tacos, 'limes');
+    const tamales = createRecipe('Tamales', householdId);
+    addRecipeIngredient(tamales, 'masa');
+    renderBar({ onAddRecipe: jest.fn() });
+    type('ta');
+    expect(byLabel('Agregar receta Tacos, 2 artículos')).toBeDefined();
+    expect(byLabel('Agregar receta Tamales, 1 artículo')).toBeDefined();
+  });
+
+  test('the chip row on its own defaults to Suggestions', () => {
+    act(() => {
+      tree = create(
+        <SuggestionChips
+          chips={[{ kind: 'item', key: 'milk', label: 'Milk', text: 'milk', removable: false } as SuggestionChip]}
+          typed=""
+          onPressItem={jest.fn()}
+          onPressRecipe={jest.fn()}
+          onRemove={jest.fn()}
+        />,
+      );
+    });
+    expect(rowLabel()).toBe('Sugerencias');
+    expect(byLabel('Agregar Milk').props.accessibilityHint).toBeUndefined();
   });
 });

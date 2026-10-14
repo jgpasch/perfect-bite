@@ -1,6 +1,8 @@
 // The "Added" rows on the item sheet (spec 4.4, board 04): who added each amount, and when,
 // e.g. "You, Tuesday" or "Siri, just now".
 
+import { i18n } from '@/i18n';
+
 export type AddedBy = {
   source: 'manual' | 'recipe' | 'siri';
   /** The user who added it; null on old rows. */
@@ -14,10 +16,10 @@ export type AddedBy = {
  * aren't stored on the device, so their adds can't be named yet.
  */
 export function addedByLabel({ source, addedBy, recipeName }: AddedBy, userId: string | null): string {
-  if (source === 'siri') return 'Siri';
-  if (source === 'recipe') return recipeName?.trim() || 'A recipe';
-  if (addedBy !== null && addedBy === userId) return 'You';
-  return 'Someone else';
+  if (source === 'siri') return i18n.t('addedBy.siri');
+  if (source === 'recipe') return recipeName?.trim() || i18n.t('addedBy.recipe');
+  if (addedBy !== null && addedBy === userId) return i18n.t('addedBy.you');
+  return i18n.t('addedBy.someoneElse');
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -33,12 +35,12 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
  */
 export function addedWhen(at: Date, now: Date): string {
   const ms = now.getTime() - at.getTime();
-  if (ms < 60_000) return 'just now';
-  if (ms < 60 * 60_000) return `${Math.floor(ms / 60_000)} min ago`;
+  if (ms < 60_000) return i18n.t('addedBy.justNow');
+  if (ms < 60 * 60_000) return i18n.t('addedBy.minutesAgo', { minutes: Math.floor(ms / 60_000) });
   // Round: a day across a daylight-saving change is 23 or 25 hours.
   const days = Math.round((startOfDay(now) - startOfDay(at)) / DAY_MS);
-  if (days === 0) return 'today';
-  if (days === 1) return 'yesterday';
+  if (days === 0) return i18n.t('addedBy.today');
+  if (days === 1) return i18n.t('addedBy.yesterday');
   if (days < 7) return WEEKDAYS[at.getDay()];
   const date = `${MONTHS[at.getMonth()]} ${at.getDate()}`;
   return at.getFullYear() === now.getFullYear() ? date : `${date}, ${at.getFullYear()}`;
@@ -50,12 +52,12 @@ export function addedWhen(at: Date, now: Date): string {
  * check with no one recorded leaves the "by" off.
  */
 export function checkedLine(checkedAt: Date, checkedBy: string | null, userId: string | null, now: Date): string {
-  const when = `Checked ${addedWhen(checkedAt, now)}`;
-  if (checkedBy === null) return when;
-  return `${when} by ${checkedBy === userId ? 'you' : 'someone else'}`;
+  const when = addedWhen(checkedAt, now);
+  if (checkedBy === null) return i18n.t('addedBy.checked', { when });
+  return i18n.t(checkedBy === userId ? 'addedBy.checkedByYou' : 'addedBy.checkedBySomeoneElse', { when });
 }
 
 /** The second column of an "Added" row: "You, Tuesday". */
 export function addedLine(add: AddedBy & { createdAt: Date }, userId: string | null, now: Date): string {
-  return `${addedByLabel(add, userId)}, ${addedWhen(add.createdAt, now)}`;
+  return i18n.t('addedBy.line', { who: addedByLabel(add, userId), when: addedWhen(add.createdAt, now) });
 }

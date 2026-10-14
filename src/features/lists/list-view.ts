@@ -183,7 +183,10 @@ export function duplicateQuery(text: string): string | null {
 }
 
 /** Shown in place of the amount on an item that matches the add text. */
-export const ALREADY_ON_LIST_LABEL = 'already on list';
+export let ALREADY_ON_LIST_LABEL = '';
+onLanguageChanged(() => {
+  ALREADY_ON_LIST_LABEL = i18n.t('addBar.alreadyOnList');
+});
 
 /**
  * Where the typed key's words start as a run of whole words in `words`, or -1. The run's last word is compared

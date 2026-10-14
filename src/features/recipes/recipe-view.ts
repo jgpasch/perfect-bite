@@ -2,6 +2,7 @@
 
 import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
+import { i18n } from '@/i18n';
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
@@ -102,7 +103,7 @@ export function recipeSuggestionDetail(count: number): string {
 
 /** What VoiceOver reads for that row: "Add recipe Tacos, 8 items". */
 export function recipeSuggestionLabel(name: string, count: number): string {
-  return `Add recipe ${name}, ${count} ${count === 1 ? 'item' : 'items'}`;
+  return i18n.t('addBar.addRecipeChip', { name, count });
 }
 
 /** The toast after adding a recipe to a list: "Added Tacos · 8 items", the recipe's name in bold. */

@@ -3,19 +3,31 @@
 
 import { formatNumber, type Amount } from '@/domain/quantity-display';
 import { stepAmount } from '@/domain/quantity-math';
+import { i18n } from '@/i18n';
 import { parseAmount, type Unit } from '@/shared';
 
-/** The unit menu's groups, in menu order. Every supported unit (spec 4.2) is in exactly one. */
-export const UNIT_GROUPS: readonly { title: string; units: readonly (Unit | null)[] }[] = [
-  { title: 'Count', units: [null] },
-  { title: 'Weight', units: ['g', 'kg', 'oz', 'lb'] },
-  { title: 'Volume', units: ['ml', 'l', 'tsp', 'tbsp', 'cup', 'fl oz', 'pt', 'qt', 'gal'] },
-  { title: 'Packages', units: ['can', 'jar', 'bag', 'box', 'bunch', 'clove', 'pinch', 'dozen'] },
-];
+/**
+ * The unit menu's groups, in menu order, each titled in the app's language. Every supported unit
+ * (spec 4.2) is in exactly one.
+ */
+export const UNIT_GROUPS: readonly { readonly title: string; units: readonly (Unit | null)[] }[] = (
+  [
+    { key: 'count', units: [null] },
+    { key: 'weight', units: ['g', 'kg', 'oz', 'lb'] },
+    { key: 'volume', units: ['ml', 'l', 'tsp', 'tbsp', 'cup', 'fl oz', 'pt', 'qt', 'gal'] },
+    { key: 'packages', units: ['can', 'jar', 'bag', 'box', 'bunch', 'clove', 'pinch', 'dozen'] },
+  ] as const
+).map(({ key, units }) => ({
+  units,
+  // A getter, read each time (no object spread here: Babel's would read it once, at load).
+  get title() {
+    return i18n.t(`item.unitGroups.${key}`);
+  },
+}));
 
 /** `lb` → `lb`; no unit → `Count`. */
 export function unitLabel(unit: Unit | null): string {
-  return unit ?? 'Count';
+  return unit ?? i18n.t('item.unitGroups.count');
 }
 
 export type UnitMenuItem = { unit: Unit | null; label: string; checked: boolean; usual: boolean };

@@ -1,6 +1,8 @@
 // The drag-to-reorder maths for the Aisle order screen (spec 4.3.3, board 12). Worklets, so the
 // gesture can run them on the UI thread; plain functions everywhere else (and in Jest).
 
+import { i18n } from '@/i18n';
+
 /** Where a row dragged from `from` by `offset` points would land, given each row's slot height. */
 export function dropIndex(from: number, offset: number, slot: number, count: number): number {
   'worklet';
@@ -34,12 +36,20 @@ export function autoScrollStep(y: number, viewport: number, edge: number, max: n
 /** The VoiceOver actions on an aisle row: Move up / Move down, left out at the ends. */
 export function aisleRowActions(index: number, count: number): { name: 'moveUp' | 'moveDown'; label: string }[] {
   const actions: { name: 'moveUp' | 'moveDown'; label: string }[] = [];
-  if (index > 0) actions.push({ name: 'moveUp', label: 'Move up' });
-  if (index < count - 1) actions.push({ name: 'moveDown', label: 'Move down' });
+  if (index > 0) actions.push({ name: 'moveUp', label: i18n.t('aisleOrder.moveUp') });
+  if (index < count - 1) actions.push({ name: 'moveDown', label: i18n.t('aisleOrder.moveDown') });
   return actions;
 }
 
 /** What VoiceOver reads for an aisle row: "Produce, 1 of 20", or "Costco, Test home, 3 of 20" with a household line. */
 export function aisleRowLabel(name: string, index: number, count: number, household?: string | null): string {
-  return household ? `${name}, ${household}, ${index + 1} of ${count}` : `${name}, ${index + 1} of ${count}`;
+  const position = index + 1;
+  return household
+    ? i18n.t('aisleOrder.rowWithHousehold', { name, household, position, count })
+    : i18n.t('aisleOrder.row', { name, position, count });
+}
+
+/** What VoiceOver announces after a Move up / Move down: "Moved to 3 of 20". */
+export function aisleMovedAnnouncement(to: number, count: number): string {
+  return i18n.t('aisleOrder.moved', { position: to + 1, count });
 }

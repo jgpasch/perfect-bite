@@ -4,6 +4,7 @@ import { ActionSheetIOS } from 'react-native';
 import { AddBar } from '@/components/add-bar';
 import { ingredientUsage, listItems } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
+import { useT } from '@/i18n';
 import { displayItemName, parseQuantity } from '@/shared';
 
 import { openItemKeysQuery, usualItems } from './items';
@@ -46,6 +47,7 @@ export function ItemAddBar({
   placeholder,
   accessibilityLabel,
 }: Props) {
+  const t = useT();
   const [text, setTextState] = useState('');
   const [focused, setFocused] = useState(false);
   // Bumped after "Remove from suggestions" and after adding an item or a recipe, so suggestions are read again.
@@ -75,7 +77,12 @@ export function ItemAddBar({
   // Spec 4.2: only household history can be removed; catalog-only suggestions have no menu.
   const removeMenu = ({ key, displayName }: { key: string; displayName: string }) => {
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: displayItemName(displayName), options: ['Remove from suggestions', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
+      {
+        title: displayItemName(displayName),
+        options: [t('addBar.removeFromSuggestions'), t('common.cancel')],
+        destructiveButtonIndex: 0,
+        cancelButtonIndex: 1,
+      },
       (index) => {
         if (index !== 0) return;
         hideFromSuggestions(householdId, key);
@@ -117,7 +124,7 @@ export function ItemAddBar({
           <SuggestionChips
             chips={chips}
             typed={parseQuantity(text).name}
-            accessibilityLabel={text.trim() ? 'Suggestions' : 'Usual items'}
+            accessibilityLabel={text.trim() ? t('addBar.suggestions') : t('addBar.usualItems')}
             onPressItem={(chip) => add(chip.text)}
             onPressRecipe={(chip) => addRecipe(chip.recipe)}
             onRemove={(chip) => removeMenu({ key: chip.key, displayName: chip.label })}
