@@ -264,8 +264,11 @@ export function createCategory(userId: string, householdId: string, name: string
 // --- Overrides (spec 4.3.2) ----------------------------------------------------------------
 // Keyed by the ingredient's family key (spec 4.15), so `leche` and `milk` share one override.
 
-/** The family key of an ingredient in the local catalog: its `sameAs`, else its own key. */
-function localFamilyKey(tx: Exec, ingredientName: string): string {
+/**
+ * The family key of an ingredient in the local catalog: its `sameAs`, else its own key (also for a name the
+ * catalog doesn't know).
+ */
+export function localFamilyKey(tx: Exec, ingredientName: string): string {
   const row = tx.select({ sameAs: ingredients.sameAs }).from(ingredients).where(eq(ingredients.normalizedName, ingredientName)).get();
   return familyKey(ingredientName, row?.sameAs);
 }

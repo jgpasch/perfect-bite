@@ -40,6 +40,7 @@ jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
 const item = (over: Partial<ItemView> = {}): ItemView => ({
   id: 'i1',
   ingredientName: 'limes',
+  familyKey: 'limes',
   categoryId: 'produce',
   displayName: 'limes',
   note: null,

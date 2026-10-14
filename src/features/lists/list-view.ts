@@ -201,12 +201,25 @@ function wordRunIndex(words: readonly string[], query: string): number {
   return -1;
 }
 
+type AlreadyOnListItem = { ingredientName: string; familyKey?: string; checkedAt: Date | null };
+
 /**
  * An unchecked item whose key is the typed key, or has it as a run of whole words, is already on the list:
- * `cumin` marks Cumin and Ground cumin, `cum` marks nothing, `pea` marks Peas but not Peanut butter.
+ * `cumin` marks Cumin and Ground cumin, `cum` marks nothing, `pea` marks Peas but not Peanut butter. So is one
+ * whose family key (spec 4.15) has the typed key's family key that way: `family` is the typed key's
+ * (`localFamilyKey`), so `pepino` marks Cucumber and `cucumber` marks Pepino. Returns the key that matched, to
+ * highlight in the name (`cucumber` for Cucumber when `pepino` was typed), or null.
  */
-export function isAlreadyOnList(item: { ingredientName: string; checkedAt: Date | null }, query: string | null): boolean {
-  return query !== null && item.checkedAt === null && wordRunIndex(item.ingredientName.split(' '), query) !== -1;
+export function alreadyOnListMatch(item: AlreadyOnListItem, query: string | null, family: string | null = query): string | null {
+  if (query === null || item.checkedAt !== null) return null;
+  if (wordRunIndex(item.ingredientName.split(' '), query) !== -1) return query;
+  if (family !== null && wordRunIndex((item.familyKey ?? item.ingredientName).split(' '), family) !== -1) return family;
+  return null;
+}
+
+/** Whether an item is marked "already on list" (`alreadyOnListMatch`). */
+export function isAlreadyOnList(item: AlreadyOnListItem, query: string | null, family: string | null = query): boolean {
+  return alreadyOnListMatch(item, query, family) !== null;
 }
 
 /**

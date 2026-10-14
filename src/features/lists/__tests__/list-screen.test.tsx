@@ -631,6 +631,81 @@ describe('adding', () => {
     expect(row('milk').props.alreadyOnList).toBeUndefined();
   });
 
+  describe('add mode across a family (spec 4.15)', () => {
+    // `pepino` is linked to `cucumber`; `tomate` and `tomato` are not linked.
+    beforeEach(() => {
+      const produce = cat('produce');
+      db.insert(ingredients)
+        .values([
+          { normalizedName: 'cucumber', displayName: 'cucumber', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
+          { normalizedName: 'pepino', displayName: 'pepino', defaultCategoryId: produce, status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
+          { normalizedName: 'tomato', displayName: 'tomato', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
+          { normalizedName: 'tomate', displayName: 'tomate', defaultCategoryId: produce, status: 'categorized', lang: 'es' },
+        ])
+        .run();
+    });
+    const type = (value: string) => act(() => addBar().props.onTextChange(value));
+
+    test('typing pepino marks an unchecked Cucumber, highlighting its own name', () => {
+      put('Cucumber');
+      put('milk');
+      render();
+      act(() => addBar().props.onFocusChange(true));
+      type('2 pepinos');
+      expect(row('Cucumber').props.alreadyOnList).toEqual({ query: 'cucumber' });
+      expect(row('milk').props.alreadyOnList).toBeUndefined();
+    });
+
+    test('typing cucumber marks an unchecked Pepino', () => {
+      put('Pepino');
+      render();
+      act(() => addBar().props.onFocusChange(true));
+      type('cucumber');
+      expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'cucumber' });
+      type('pepino');
+      expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'pepino' });
+      // Part of a word still marks nothing.
+      type('cucu');
+      expect(row('Pepino').props.alreadyOnList).toBeUndefined();
+    });
+
+    test('nothing combines: adding pepino beside Cucumber makes a second item', () => {
+      put('Cucumber');
+      render();
+      add('pepino');
+      expect(rowNames()).toEqual(['Cucumber', 'pepino']);
+    });
+
+    test('an unlinked pair marks nothing either way', () => {
+      put('Tomato');
+      put('Tomate');
+      render();
+      act(() => addBar().props.onFocusChange(true));
+      type('tomate');
+      expect(row('Tomato').props.alreadyOnList).toBeUndefined();
+      expect(row('Tomate').props.alreadyOnList).toEqual({ query: 'tomate' });
+      type('tomato');
+      expect(row('Tomato').props.alreadyOnList).toEqual({ query: 'tomato' });
+      expect(row('Tomate').props.alreadyOnList).toBeUndefined();
+    });
+
+    test('a checked twin is not marked', () => {
+      const { itemId } = put('Cucumber')!;
+      setItemChecked(itemId, true, USER);
+      put('Pepino');
+      render();
+      press(pressable('Checked, 1 item'));
+      act(() => addBar().props.onFocusChange(true));
+      type('pepino');
+      expect(row('Cucumber').props.item.checkedAt).not.toBeNull();
+      expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
+      expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'pepino' });
+      type('cucumber');
+      expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
+      expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'cucumber' });
+    });
+  });
+
   test('a recipe chip adds the whole recipe with Undo and Adjust', () => {
     const recipeId = createRecipe('Tacos', getList(listId)!.householdId);
     addRecipeIngredient(recipeId, 'tortillas');

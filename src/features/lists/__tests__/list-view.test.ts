@@ -30,6 +30,7 @@ import {
   compactHeaderSubtitle,
   deletedToast,
   duplicateQuery,
+  alreadyOnListMatch,
   alreadyOnListParts,
   isAlreadyOnList,
   DEFAULT_LIST_VIEW_MODE,
@@ -818,6 +819,53 @@ describe('add mode', () => {
       expect(on('Ground cumin', 'cumin', new Date())).toBe(false);
       expect(on('Cumin', 'c')).toBe(false);
       expect(isAlreadyOnList({ ingredientName: 'cumin', checkedAt: null }, null)).toBe(false);
+    });
+
+    describe('across a family (spec 4.15)', () => {
+      // `pepino` → `cucumber` (linked); `tomate` and `tomato` unlinked. `family` is the typed key's family key.
+      const item = (ingredientName: string, familyKey: string, checkedAt: Date | null = null) => ({
+        ingredientName,
+        familyKey,
+        checkedAt,
+      });
+      const cucumber = item('cucumber', 'cucumber');
+      const pepino = item('pepino', 'cucumber');
+
+      it('marks Cucumber when pepino is typed, matching the family key', () => {
+        expect(alreadyOnListMatch(cucumber, 'pepino', 'cucumber')).toBe('cucumber');
+        expect(isAlreadyOnList(cucumber, 'pepino', 'cucumber')).toBe(true);
+      });
+
+      it('marks Pepino when cucumber is typed', () => {
+        expect(alreadyOnListMatch(pepino, 'cucumber', 'cucumber')).toBe('cucumber');
+      });
+
+      it('prefers the typed key when the item has it, so its own name highlights', () => {
+        expect(alreadyOnListMatch(pepino, 'pepino', 'cucumber')).toBe('pepino');
+      });
+
+      it('compares family keys as whole words, as the typed key', () => {
+        expect(alreadyOnListMatch(item('english cucumber', 'english cucumber'), 'pepino', 'cucumber')).toBe('cucumber');
+        expect(alreadyOnListMatch(cucumber, 'pepin', 'pepin')).toBeNull();
+        expect(alreadyOnListMatch(item('leche de avena', 'oat milk'), 'milk', 'milk')).toBe('milk');
+      });
+
+      it('leaves an unlinked pair apart', () => {
+        expect(isAlreadyOnList(item('tomato', 'tomato'), 'tomate', 'tomate')).toBe(false);
+        expect(isAlreadyOnList(item('tomate', 'tomate'), 'tomato', 'tomato')).toBe(false);
+      });
+
+      it('never marks a checked twin, and nothing without a query', () => {
+        expect(alreadyOnListMatch(item('cucumber', 'cucumber', new Date()), 'pepino', 'cucumber')).toBeNull();
+        expect(alreadyOnListMatch(item('pepino', 'cucumber', new Date()), 'cucumber', 'cucumber')).toBeNull();
+        expect(alreadyOnListMatch(cucumber, null, 'cucumber')).toBeNull();
+      });
+
+      it('without a family key, compares the item key (as before links)', () => {
+        expect(alreadyOnListMatch({ ingredientName: 'cucumber', checkedAt: null }, 'pepino', 'cucumber')).toBe('cucumber');
+        expect(alreadyOnListMatch({ ingredientName: 'cucumber', checkedAt: null }, 'cucumber')).toBe('cucumber');
+        expect(alreadyOnListMatch({ ingredientName: 'pepino', checkedAt: null }, 'cucumber')).toBeNull();
+      });
     });
 
     it('highlights the matched word(s) of the name', () => {

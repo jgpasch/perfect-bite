@@ -29,7 +29,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
-import { categories, lists, userCategoryOrder } from '@/db';
+import { categories, db, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor, recipeHue } from '@/domain/aisle-color';
 import {
@@ -43,7 +43,7 @@ import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
-import { categoriesQuery } from '@/features/categories/categories';
+import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
@@ -93,7 +93,7 @@ import {
   duplicateQuery,
   expandSection,
   fromRecipesHint,
-  isAlreadyOnList,
+  alreadyOnListMatch,
   manualOrderKey,
   movedToast,
   orderByNewest,
@@ -330,6 +330,8 @@ export function ListScreen({ id }: { id: string }) {
   const [addText, setAddText] = useState('');
   const addMode = adding && !selection;
   const query = addMode ? duplicateQuery(addText) : null;
+  // Its family key (spec 4.15), so `pepino` marks Cucumber too.
+  const queryFamily = useMemo(() => (query === null ? null : localFamilyKey(db, query)), [query]);
   // Leaving add mode scrolls back to where it started: adds scroll to their section, which would leave the
   // re-expanded title above the fold.
   const scrollOffset = useRef(0);
@@ -755,6 +757,7 @@ export function ListScreen({ id }: { id: string }) {
     moves?: RowMove[],
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
+    const match = alreadyOnListMatch(item, query, queryFamily);
     return (
       <ItemRow
         key={entry.key}
@@ -764,7 +767,7 @@ export function ListScreen({ id }: { id: string }) {
         // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
         // as do rows under a coloured aisle header.
         look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
-        alreadyOnList={query !== null && isAlreadyOnList(item, query) ? { query } : undefined}
+        alreadyOnList={match === null ? undefined : { query: match }}
         first={index === 0}
         sorting={sorting}
         amountText={entry.amountText}

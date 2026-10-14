@@ -26,7 +26,7 @@ import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
-import { displayItemName, normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
+import { displayItemName, familyKey, normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -715,6 +715,7 @@ export function listItemsQuery(listId: string) {
       createdAt: listItems.createdAt,
       defaultCategoryId: ingredients.defaultCategoryId,
       ingredientStatus: ingredients.status,
+      sameAs: ingredients.sameAs,
       defaultUnit: ingredients.defaultUnit,
       overrideCategoryId: householdCategoryOverrides.categoryId,
       quantity: listItemContributions.quantity,
@@ -793,6 +794,8 @@ type ItemRow = Awaited<ReturnType<typeof listItemsQuery>>[number];
 export type ItemView = {
   id: string;
   ingredientName: string;
+  /** The ingredient's family key (spec 4.15: `familyKey`): `pepino`'s is `cucumber`. */
+  familyKey: string;
   /** This user's section (spec 5, "Effective category"). */
   categoryId: string;
   displayName: string;
@@ -834,6 +837,7 @@ export function groupItems(
       item = {
         id: row.id,
         ingredientName: row.ingredientName,
+        familyKey: familyKey(row.ingredientName, row.sameAs),
         categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId, row.ingredientStatus, sorts),
         displayName: row.displayName,
         note: row.note,
