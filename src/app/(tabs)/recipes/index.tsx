@@ -1,7 +1,7 @@
 import { Link, router, Stack, useFocusEffect, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,7 +30,15 @@ import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
-import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
+import { PhotoSizeToggle } from '@/features/recipes/photo-size-toggle';
+import { RecipePhotoCover, RecipePhotoTile } from '@/features/recipes/recipe-photo';
+import {
+  gridRows,
+  readRecipePhotoSize,
+  RECIPE_PHOTO_SIZE_KEY,
+  recipeGridColumns,
+  type RecipePhotoSize,
+} from '@/features/recipes/recipe-photo-size';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
 import {
@@ -39,6 +47,7 @@ import {
   onListByRecipe,
   recipeMetaLine,
   recipeRowLabel,
+  recipeTimeLabel,
 } from '@/features/recipes/recipe-view';
 import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
 import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
@@ -78,7 +87,7 @@ import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/s
 import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useTheme } from '@/hooks/use-theme';
-import { useT } from '@/i18n';
+import { i18n, useT } from '@/i18n';
 
 /**
  * Recipes tab (spec 4.5): the List tab's green header (title, search, "N recipes" and Filters) over a card of
@@ -121,6 +130,16 @@ export default function RecipesScreen() {
     setSortState(next);
     setDeviceSetting(RECIPE_SORT_KEY, next);
   };
+  // Spec 4.5: small photos in rows or large ones in a grid, remembered on this device like the sort.
+  const [photoSize, setPhotoSizeState] = useState<RecipePhotoSize>(() =>
+    readRecipePhotoSize(getDeviceSetting<unknown>(RECIPE_PHOTO_SIZE_KEY, null)),
+  );
+  const setPhotoSize = (next: RecipePhotoSize) => {
+    setPhotoSizeState(next);
+    setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, next);
+  };
+  // One tile per row at the largest accessibility text sizes.
+  const columns = recipeGridColumns(useWindowDimensions().fontScale);
   // By meal's folded sections, kept for the app session.
   const folded = useFoldedMealSections();
   // A household with no matches has no group, so it's hidden. Search and filters apply first; households
@@ -298,6 +317,34 @@ export default function RecipesScreen() {
       </View>
     ));
 
+  // Large photos: the same recipes as tiles, two per row (one at the largest text sizes), 14 pt in and 12 apart.
+  const renderGrid = (tiles: readonly (RecipeSummary & { ingredientMatch: string | null })[]) => (
+    <View testID="recipe-grid" style={{ padding: spacing.md + spacing.xxs, gap: spacing.md }}>
+      {gridRows(tiles, columns).map((row) => (
+        <View key={row[0].id} testID="recipe-grid-row" style={[styles.gridRow, { gap: spacing.md }]}>
+          {row.map((r) => (
+            <View key={r.id} testID="recipe-grid-cell" style={styles.flex}>
+              <RecipeTile
+                recipe={r}
+                ingredientMatch={r.ingredientMatch}
+                onList={onList.get(r.id) ?? null}
+                highlighted={toast?.recipeId === r.id}
+                quickAddTo={quickAddList(currentList, r)}
+                onQuickAdd={quickAdd}
+              />
+            </View>
+          ))}
+          {/* A short last row keeps its tiles at the column width. */}
+          {Array.from({ length: columns - row.length }, (_, k) => (
+            <View key={`gap-${k}`} testID="recipe-grid-cell" style={styles.flex} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+  const renderRecipes = (recipes: readonly (RecipeSummary & { ingredientMatch: string | null })[]) =>
+    photoSize === 'large' ? renderGrid(recipes) : renderRows(recipes);
+
   return (
     <Screen>
       {onRecipes ? <StatusBar style="light" /> : null}
@@ -338,6 +385,7 @@ export default function RecipesScreen() {
                       onPress={openFilters}
                     />
                     <RecipeSortButton value={sort} onChange={setSort} />
+                    <PhotoSizeToggle value={photoSize} onChange={setPhotoSize} />
                   </View>
                 </View>
               </>
@@ -399,7 +447,7 @@ export default function RecipesScreen() {
                         countUnit={mealSectionUnit()}
                         collapsed={folded.has(key)}
                         onToggle={() => toggleMealSection(key)}>
-                        {renderRows(section.recipes)}
+                        {renderRecipes(section.recipes)}
                       </FoldingSection>
                     </Card>
                   );
@@ -407,7 +455,7 @@ export default function RecipesScreen() {
               </View>
             ) : (
               <View style={{ paddingHorizontal: spacing.lg }}>
-                <Card>{renderRows(group.recipes)}</Card>
+                <Card>{renderRecipes(group.recipes)}</Card>
               </View>
             )}
           </View>
@@ -514,94 +562,63 @@ function RecipeRow({
   // Dragged past FULL_SWIPE of the card: letting go asks to delete, rather than leaving Delete showing.
   const fullSwipe = useRef(false);
   const setFullSwipe = useCallback((full: boolean) => (fullSwipe.current = full), []);
-  // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
-  const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
   const meta = recipeMetaLine(recipe);
 
   // The menu's Delete, the swipe's and VoiceOver's; Cancel closes a swiped card.
-  const confirmDelete = () =>
-    Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
-      { text: t('common.cancel'), style: 'cancel', onPress: () => swipeable.current?.close() },
-      { text: t('common.delete'), style: 'destructive', onPress: () => deleteRecipe(recipe.id) },
-    ]);
+  const confirmDelete = () => confirmDeleteRecipe(recipe, () => swipeable.current?.close());
 
-  const card = (
-    <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
-      <Link.Trigger>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch)}
-          accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
-          onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && confirmDelete()}>
-          {/* Layout lives on a View: Link's trigger replaces the Pressable's style. */}
-          <View
-            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-            style={[
-              styles.row,
-              {
-                minHeight: sizes.recipeTile + spacing.md * 2,
-                paddingVertical: spacing.md - sizes.focusRing,
-                paddingHorizontal: spacing.lg - sizes.focusRing,
-                gap: spacing.md,
-                backgroundColor: colors.surface,
-                borderWidth: sizes.focusRing,
-                // The outline follows the card's corners, so it isn't clipped on the first and last rows.
-                borderRadius: highlighted ? rounded.card : 0,
-                borderColor: highlighted ? colors.primary : 'transparent',
-              },
-            ]}>
-            <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
-            <View style={styles.flex}>
-              <ThemedText variant="headline" numberOfLines={1}>
-                {recipe.name}
+  // eslint-disable-next-line react-hooks/refs -- `confirmDelete` reads the ref only when pressed, not during render
+  const card = recipeLink({
+    recipe,
+    onList,
+    ingredientMatch,
+    quickAddTo,
+    onQuickAdd,
+    onDelete: confirmDelete,
+    children: (
+      <View
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        style={[
+          styles.row,
+          {
+            minHeight: sizes.recipeTile + spacing.md * 2,
+            paddingVertical: spacing.md - sizes.focusRing,
+            paddingHorizontal: spacing.lg - sizes.focusRing,
+            gap: spacing.md,
+            backgroundColor: colors.surface,
+            borderWidth: sizes.focusRing,
+            // The outline follows the card's corners, so it isn't clipped on the first and last rows.
+            borderRadius: highlighted ? rounded.card : 0,
+            borderColor: highlighted ? colors.primary : 'transparent',
+          },
+        ]}>
+        <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
+        <View style={styles.flex}>
+          <ThemedText variant="headline" numberOfLines={1}>
+            {recipe.name}
+          </ThemedText>
+          {ingredientMatch ? (
+            <ThemedText variant="footnote" color="inkSecondary">
+              {t('recipes.tab.has')}{' '}
+              <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
+                {ingredientMatch}
               </ThemedText>
-              {ingredientMatch ? (
-                <ThemedText variant="footnote" color="inkSecondary">
-                  {t('recipes.tab.has')}{' '}
-                  <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
-                    {ingredientMatch}
-                  </ThemedText>
-                </ThemedText>
-              ) : meta ? (
-                <ThemedText variant="footnote" color="inkSecondary">
-                  {meta}
-                </ThemedText>
-              ) : null}
-            </View>
-            {onList ? (
-              // Badge pins itself to the top; the wrapper centres it in the row.
-              <View>
-                <Badge label={t('recipes.tab.onList', { name: onList })} />
-              </View>
-            ) : null}
+            </ThemedText>
+          ) : meta ? (
+            <ThemedText variant="footnote" color="inkSecondary">
+              {meta}
+            </ThemedText>
+          ) : null}
+        </View>
+        {onList ? (
+          // Badge pins itself to the top; the wrapper centres it in the row.
+          <View>
+            <Badge label={t('recipes.tab.onList', { name: onList })} />
           </View>
-        </Pressable>
-      </Link.Trigger>
-      <Link.Menu>
-        {/* Spec 4.5: one-step add to the current list, when it's open and in the recipe's household. */}
-        {quickAddTo ? (
-          <Link.MenuAction
-            title={quickAddTitle(quickAddTo.name)}
-            icon="cart.badge.plus"
-            onPress={() => onQuickAdd(recipe.id, quickAddTo)}
-          />
         ) : null}
-        {/* The recipe screen's Add to a list sheet (spec 4.5); left out, as that button is disabled, with no ingredients. */}
-        {recipe.ingredientCount > 0 ? (
-          <Link.MenuAction
-            title={t('recipes.tab.addToAList')}
-            icon="cart"
-            onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id } })}
-          />
-        ) : null}
-        {link ? (
-          <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
-        ) : null}
-        <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
-        <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={confirmDelete} />
-      </Link.Menu>
-    </Link>
-  );
+      </View>
+    ),
+  });
 
   return (
     <ReanimatedSwipeable
@@ -625,6 +642,146 @@ function RecipeRow({
       {card}
     </ReanimatedSwipeable>
   );
+}
+
+/** Asks before deleting a recipe (the menu's Delete, a swipe's and VoiceOver's); `onCancel` closes a swiped row. */
+function confirmDeleteRecipe(recipe: { id: string; name: string }, onCancel?: () => void) {
+  Alert.alert(i18n.t('recipes.tab.deleteTitle', { name: recipe.name }), i18n.t('recipes.tab.deleteMessage'), [
+    { text: i18n.t('common.cancel'), style: 'cancel', onPress: onCancel },
+    { text: i18n.t('common.delete'), style: 'destructive', onPress: () => deleteRecipe(recipe.id) },
+  ]);
+}
+
+/**
+ * A recipe's row or tile as a link to the recipe (spec 4.5): its VoiceOver label and Delete action, and the
+ * long-press menu (Add to <list>, Add to a list, Visit recipe, Rename, Delete). A plain function, so a row's
+ * swipeable wraps the Link itself. Callers re-render on a language change through `useT`.
+ */
+function recipeLink({
+  recipe,
+  onList,
+  ingredientMatch,
+  quickAddTo,
+  onQuickAdd,
+  onDelete,
+  children,
+}: {
+  recipe: RecipeSummary;
+  onList: string | null;
+  ingredientMatch: string | null;
+  quickAddTo: { id: string; name: string } | null;
+  onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
+  onDelete: () => void;
+  children: ReactNode;
+}) {
+  const t = i18n.t.bind(i18n);
+  // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
+  const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
+  return (
+    <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
+      <Link.Trigger>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch)}
+          accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
+          onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}>
+          {/* Layout lives on the children: Link's trigger replaces the Pressable's style. */}
+          {children}
+        </Pressable>
+      </Link.Trigger>
+      <Link.Menu>
+        {/* Spec 4.5: one-step add to the current list, when it's open and in the recipe's household. */}
+        {quickAddTo ? (
+          <Link.MenuAction
+            title={quickAddTitle(quickAddTo.name)}
+            icon="cart.badge.plus"
+            onPress={() => onQuickAdd(recipe.id, quickAddTo)}
+          />
+        ) : null}
+        {/* The recipe screen's Add to a list sheet (spec 4.5); left out, as that button is disabled, with no ingredients. */}
+        {recipe.ingredientCount > 0 ? (
+          <Link.MenuAction
+            title={t('recipes.tab.addToAList')}
+            icon="cart"
+            onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id } })}
+          />
+        ) : null}
+        {link ? (
+          <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
+        ) : null}
+        <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
+        <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={onDelete} />
+      </Link.Menu>
+    </Link>
+  );
+}
+
+/**
+ * A recipe's tile with large photos (spec 4.5): the photo at 4:3 with the "On <list>" badge over its top
+ * corner, the name on up to two lines, and the time (or "Has …" when a search matched only an ingredient).
+ * No swipe: Delete is in the menu and a VoiceOver action.
+ */
+function RecipeTile({
+  recipe,
+  ingredientMatch,
+  onList,
+  highlighted,
+  quickAddTo,
+  onQuickAdd,
+}: {
+  recipe: RecipeSummary;
+  ingredientMatch: string | null;
+  onList: string | null;
+  /** Just imported: outlined in `primary` while the toast shows. */
+  highlighted: boolean;
+  quickAddTo: { id: string; name: string } | null;
+  onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
+}) {
+  const t = useT();
+  const { colors, spacing, sizes, rounded } = useTheme();
+  const time = recipeTimeLabel(recipe.totalMinutes);
+  return recipeLink({
+    recipe,
+    onList,
+    ingredientMatch,
+    quickAddTo,
+    onQuickAdd,
+    onDelete: () => confirmDeleteRecipe(recipe),
+    children: (
+      <View
+        style={{
+          gap: spacing.xxs,
+          borderWidth: sizes.focusRing,
+          borderRadius: rounded.md + sizes.focusRing,
+          borderColor: highlighted ? colors.primary : 'transparent',
+          borderCurve: 'continuous',
+        }}>
+        <View style={{ marginBottom: spacing.xs }}>
+          <RecipePhotoCover recipeId={recipe.id} imageUrl={recipe.imageUrl} />
+          {onList ? (
+            <View style={[styles.tileBadge, { top: spacing.xs, end: spacing.xs }]}>
+              <Badge label={t('recipes.tab.onList', { name: onList })} />
+            </View>
+          ) : null}
+        </View>
+        <ThemedText variant="headline" numberOfLines={2}>
+          {recipe.name}
+        </ThemedText>
+        {ingredientMatch ? (
+          <ThemedText variant="footnote" color="inkSecondary">
+            {t('recipes.tab.has')}{' '}
+            <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
+              {ingredientMatch}
+            </ThemedText>
+          </ThemedText>
+        ) : time ? (
+          <ThemedText variant="footnote" color="inkSecondary">
+            {time}
+          </ThemedText>
+        ) : null}
+      </View>
+    ),
+  });
 }
 
 /** How far across the card a swipe goes before letting go asks to delete it. */
@@ -674,6 +831,8 @@ const styles = StyleSheet.create({
   grow: { flexGrow: 1 },
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   row: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  gridRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  tileBadge: { position: 'absolute', maxWidth: '80%' },
   headerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
   headerPills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flexShrink: 1 },
   search: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },

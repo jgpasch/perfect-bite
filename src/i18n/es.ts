@@ -299,6 +299,11 @@ export const es = {
       unit_one: 'receta',
       unit_other: 'recetas',
     },
+    photoSize: {
+      label: 'Tamaño de las fotos',
+      small: 'Fotos pequeñas',
+      large: 'Fotos grandes',
+    },
     filters: {
       title: 'Filtros',
       pill: 'Filtros · {{count}}',

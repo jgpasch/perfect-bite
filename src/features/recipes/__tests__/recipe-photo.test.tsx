@@ -5,9 +5,9 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { IconTile } from '@/components/icon-tile';
 import { recipeHue } from '@/domain/aisle-color';
-import { Rounded as rounded, Sizes as sizes } from '@/constants/theme';
+import { AisleColors, Rounded as rounded, Sizes as sizes } from '@/constants/theme';
 
-import { RecipePhotoHeader, RecipePhotoTile } from '../recipe-photo';
+import { RecipePhotoCover, RecipePhotoHeader, RecipePhotoTile } from '../recipe-photo';
 
 jest.mock('@/global.css', () => ({}));
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
@@ -93,5 +93,42 @@ describe('RecipePhotoHeader', () => {
     ]);
     act(() => image.props.onError({ error: '404' }));
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('RecipePhotoCover', () => {
+  const cover = (root: ReactTestRenderer) => root.root.find((n) => String(n.type) === 'View' && n.props.testID === 'recipe-photo-cover');
+  const hueSoft = AisleColors.light[recipeHue('r1')].soft;
+
+  test('without an imageUrl: the recipe hue at 4:3, radius md, no photo, hidden from VoiceOver', () => {
+    const root = render(<RecipePhotoCover recipeId="r1" imageUrl={null} />);
+    expect(images(root)).toHaveLength(0);
+    expect(flatStyle(cover(root).props.style)).toMatchObject({
+      width: '100%',
+      aspectRatio: 4 / 3,
+      borderRadius: rounded.md,
+      overflow: 'hidden',
+      backgroundColor: hueSoft,
+    });
+    expect(cover(root).props.accessibilityElementsHidden).toBe(true);
+  });
+
+  test('with an imageUrl: the photo fills it, cropped, over the hue', () => {
+    const root = render(<RecipePhotoCover recipeId="r1" imageUrl={URL} />);
+    const [image] = images(root);
+    expect(image.props.source).toBe(URL);
+    expect(image.props.contentFit).toBe('cover');
+    expect(flatStyle(image.props.style)).toMatchObject({ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 });
+    expect(flatStyle(cover(root).props.style).backgroundColor).toBe(hueSoft);
+  });
+
+  test('a photo that fails to load leaves the hue for good; a new imageUrl gets its own try', () => {
+    const root = render(<RecipePhotoCover recipeId="r1" imageUrl={URL} />);
+    act(() => images(root)[0].props.onError({ error: '404' }));
+    expect(images(root)).toHaveLength(0);
+    act(() => root.update(<RecipePhotoCover recipeId="r1" imageUrl={URL} />));
+    expect(images(root)).toHaveLength(0);
+    act(() => root.update(<RecipePhotoCover recipeId="r1" imageUrl="https://example.com/other.jpg" />));
+    expect(images(root)).toHaveLength(1);
   });
 });

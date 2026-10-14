@@ -325,6 +325,12 @@ export const en = {
       unit_one: 'recipe',
       unit_other: 'recipes',
     },
+    /** The header's photo-size toggle (spec 4.5). */
+    photoSize: {
+      label: 'Photo size',
+      small: 'Small photos',
+      large: 'Large photos',
+    },
     /** The Filters pill, its chips and its sheet (spec 4.14). */
     filters: {
       title: 'Filters',
