@@ -4,10 +4,30 @@ import { stapleNames } from '@/features/households/staples';
 import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
 import { getList } from '@/features/lists/lists';
 
+import { SERVINGS_MAX, SERVINGS_MIN } from './recipe-view';
 import { getRecipe, recipeIngredientsQuery } from './recipes';
 
 /** Servings multipliers offered when adding a recipe to a list (spec 4.5). */
 export const SERVINGS = [0.5, 1, 2, 3] as const;
+
+/**
+ * Where Add to list's servings card starts (board 17): the recipe screen's chosen servings (`param`, a whole number
+ * 1–100), else the recipe's own `base`.
+ */
+export function startingServings(base: number, param: string | undefined): number {
+  const chosen = Number(param);
+  return param && Number.isInteger(chosen) && chosen >= SERVINGS_MIN && chosen <= SERVINGS_MAX ? chosen : base;
+}
+
+/** The multiplier for `buildRecipeAdds` when adding for `chosen` people and the recipe serves `base`. */
+export function servingsMultiplier(chosen: number, base: number): number {
+  return chosen / base;
+}
+
+/** The servings card's line under "For 6": "Recipe serves 4". */
+export function recipeServesLabel(base: number): string {
+  return `Recipe serves ${base}`;
+}
 
 /** The bulk adds for a recipe's chosen ingredients, scaled by `servings`. */
 export function buildRecipeAdds(

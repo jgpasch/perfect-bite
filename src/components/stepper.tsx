@@ -15,6 +15,8 @@ type Props = {
   accessibilityLabel: string;
   /** The round buttons' size; defaults to `sizes.stepperButton` (34). */
   buttonSize?: number;
+  /** Leaves the value out from between the buttons when it shows nearby (Add to list's servings card). */
+  hideValue?: boolean;
 };
 
 /**
@@ -22,7 +24,7 @@ type Props = {
  * with the value in `amount` 700 between them. Each button's hit area is at least 44 pt, and a button
  * is disabled at its end of the range. VoiceOver reads it as one adjustable control: swipe up or down.
  */
-export function Stepper({ value, min, max, onChange, label, accessibilityLabel, buttonSize }: Props) {
+export function Stepper({ value, min, max, onChange, label, accessibilityLabel, buttonSize, hideValue }: Props) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const size = buttonSize ?? sizes.stepperButton;
   const step = (direction: 1 | -1) => {
@@ -71,9 +73,11 @@ export function Stepper({ value, min, max, onChange, label, accessibilityLabel, 
         { padding: sizes.stepperInset, gap: spacing.xxs, borderRadius: rounded.full, backgroundColor: colors.surfaceMuted },
       ]}>
       {button(-1)}
-      <ThemedText variant="amount" style={[styles.value, { paddingHorizontal: spacing.sm }]}>
-        {label}
-      </ThemedText>
+      {hideValue ? null : (
+        <ThemedText variant="amount" style={[styles.value, { paddingHorizontal: spacing.sm }]}>
+          {label}
+        </ThemedText>
+      )}
       {button(1)}
     </View>
   );

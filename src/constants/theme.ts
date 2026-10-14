@@ -216,6 +216,8 @@ export const Sizes = {
   /** the round − and + in a `Stepper`, and the track's inset around them */
   stepperButton: 34,
   stepperInset: 3,
+  /** the larger `Stepper` buttons on Add to list's servings card */
+  stepperButtonLarge: 40,
   /** primary CTA */
   cta: 54,
   /** soft destructive button */

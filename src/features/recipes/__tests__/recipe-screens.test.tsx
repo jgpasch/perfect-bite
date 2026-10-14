@@ -1294,6 +1294,80 @@ describe('AddRecipeToListSheet', () => {
     });
   });
 
+  describe('by servings (board 17)', () => {
+    const stepper = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === Stepper);
+    const step = (root: ReactTestRenderer, label: 'More' | 'Fewer') =>
+      press(stepper(root)[0].find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function'));
+    const multiplierPills = (root: ReactTestRenderer) =>
+      root.root.findAll((n) => n.type === Pill && /×$/.test(n.props.label)).map((n) => n.props.label);
+
+    test('with servings, a servings card at the base replaces the multiplier pills', () => {
+      updateRecipeServings(tacos, 4);
+      const root = render(<AddRecipeToListSheet />);
+      expect(multiplierPills(root)).toEqual([]);
+      expect(texts(root)).toEqual(expect.arrayContaining(['Servings', 'For 4', 'Recipe serves 4']));
+      const [s] = stepper(root);
+      expect([s.props.value, s.props.min, s.props.max, s.props.label, s.props.accessibilityLabel]).toEqual([4, 1, 100, 'For 4', 'Servings']);
+      expect(s.props.buttonSize).toBe(40);
+      expect(s.props.hideValue).toBe(true);
+      // "For 4" shows once, in the card's headline, not again between the buttons.
+      expect(texts(root).filter((t) => t === 'For 4')).toHaveLength(1);
+      expect(checkboxes(root).map((c) => c.props.accessibilityLabel)).toEqual(['Ground beef, 1 lb', 'Tortillas, 8', 'Cilantro']);
+    });
+
+    test("starts at the recipe screen's chosen servings and adds chosen ÷ base", () => {
+      updateRecipeServings(tacos, 4);
+      mockParams.servings = '6';
+      const root = render(<AddRecipeToListSheet />);
+      expect(texts(root)).toEqual(expect.arrayContaining(['For 6', 'Recipe serves 4']));
+      expect(checkboxes(root).map((c) => c.props.accessibilityLabel)).toEqual(['Ground beef, 1.5 lb', 'Tortillas, 12', 'Cilantro']);
+      press(root.root.find((n) => typeof n.type !== 'string' && /^Add 3 to /.test(n.props.label ?? '') && n.props.onPress));
+      expect(listRows(groceries)).toEqual(['1.5 lb ground beef', '12 tortillas', 'cilantro']);
+    });
+
+    test('a bad servings param starts at the base', () => {
+      updateRecipeServings(tacos, 4);
+      mockParams.servings = '0';
+      const root = render(<AddRecipeToListSheet />);
+      expect(stepper(root)[0].props.value).toBe(4);
+    });
+
+    test('stepping changes "For N" and the amounts; down to 1 for a recipe serving 2 halves them', () => {
+      updateRecipeServings(tacos, 2);
+      const root = render(<AddRecipeToListSheet />);
+      step(root, 'More');
+      expect(texts(root)).toContain('For 3');
+      expect(checkboxes(root).map((c) => c.props.accessibilityLabel)).toEqual(['Ground beef, 1.5 lb', 'Tortillas, 12', 'Cilantro']);
+      step(root, 'Fewer');
+      step(root, 'Fewer');
+      expect(texts(root)).toContain('For 1');
+      expect(checkboxes(root).map((c) => c.props.accessibilityLabel)).toEqual(['Ground beef, 0.5 lb', 'Tortillas, 4', 'Cilantro']);
+      press(root.root.find((n) => typeof n.type !== 'string' && /^Add 3 to /.test(n.props.label ?? '') && n.props.onPress));
+      expect(listRows(groceries)).toEqual(['0.5 lb ground beef', '4 tortillas', 'cilantro']);
+    });
+
+    test('without servings, the multiplier pills stay and a servings param is ignored', () => {
+      mockParams.servings = '6';
+      const root = render(<AddRecipeToListSheet />);
+      expect(multiplierPills(root)).toEqual(['½×', '1×', '2×', '3×']);
+      expect(selectedPills(root)).toContain('1×');
+      expect(stepper(root)).toHaveLength(0);
+      expect(checkboxes(root).map((c) => c.props.accessibilityLabel)).toEqual(['Ground beef, 1 lb', 'Tortillas, 8', 'Cilantro']);
+    });
+
+    test('the recipe screen passes its chosen servings only when off the base', () => {
+      updateRecipeServings(tacos, 4);
+      const screen = render(<RecipeScreen />);
+      press(byLabel(screen, 'Add to a list'));
+      expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos } });
+      const recipeStepper = stepper(screen)[0];
+      press(recipeStepper.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'More' && typeof n.props.onPress === 'function'));
+      press(recipeStepper.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'More' && typeof n.props.onPress === 'function'));
+      press(byLabel(screen, 'Add to a list'));
+      expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos, servings: '6' } });
+    });
+  });
+
   test('Cancel goes back without adding', () => {
     const root = render(<AddRecipeToListSheet />);
     const cancel = byType(root, 'ToolbarButton').find((n) => n.props.children === 'Cancel')!;

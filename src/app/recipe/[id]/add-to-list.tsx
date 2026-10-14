@@ -7,6 +7,7 @@ import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { Pill } from '@/components/pill';
+import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
@@ -16,8 +17,17 @@ import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
 import { stapleNames } from '@/features/households/staples';
-import { addRecipeToList, buildRecipeAdds, defaultSelection, replaceRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
-import { addCtaLabel, servingsLabel } from '@/features/recipes/recipe-view';
+import {
+  addRecipeToList,
+  buildRecipeAdds,
+  defaultSelection,
+  recipeServesLabel,
+  replaceRecipeAdd,
+  SERVINGS,
+  servingsMultiplier,
+  startingServings,
+} from '@/features/recipes/add-to-list';
+import { addCtaLabel, forServingsLabel, SERVINGS_MAX, SERVINGS_MIN, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { displayItemName } from '@/shared';
@@ -29,8 +39,14 @@ import { displayItemName } from '@/shared';
  */
 export default function AddRecipeToListSheet() {
   // From the add bar's Adjust (spec 4.2): `list` preselects that list and `adjust` names the add this one replaces.
-  const { id, list: fromList, adjust } = useLocalSearchParams<{ id: string; list?: string; adjust?: string }>();
-  const { spacing } = useTheme();
+  // From the recipe screen's stepper (board 17), `servings` is its chosen servings.
+  const {
+    id,
+    list: fromList,
+    adjust,
+    servings: chosenServings,
+  } = useLocalSearchParams<{ id: string; list?: string; adjust?: string; servings?: string }>();
+  const { spacing, sizes } = useTheme();
   const userId = getAccount()?.userId ?? null;
 
   // A sheet is short-lived: read once rather than live.
@@ -49,9 +65,12 @@ export default function AddRecipeToListSheet() {
   // Spec 4.5: the household's staples (Always have) start unticked and are tagged; ticking one doesn't change it.
   const [staples] = useState(() => (recipe ? stapleNames(recipe.householdId) : new Set<string>()));
   const [selected, setSelected] = useState(() => defaultSelection(ingredients, staples));
-  const [servings, setServings] = useState(1);
+  // With the recipe's servings, people (board 17); without, a multiplier pill (board 07).
+  const base = recipe?.servings ?? null;
+  const [servings, setServings] = useState(() => (base === null ? 1 : startingServings(base, chosenServings)));
+  const multiplier = base === null ? servings : servingsMultiplier(servings, base);
 
-  const adds = useMemo(() => buildRecipeAdds(id, ingredients, selected, servings), [id, ingredients, selected, servings]);
+  const adds = useMemo(() => buildRecipeAdds(id, ingredients, selected, multiplier), [id, ingredients, selected, multiplier]);
   const listName = lists.find((l) => l.id === listId)?.name ?? '';
 
   if (!recipe || !listId) return <Screen />;
@@ -93,13 +112,38 @@ export default function AddRecipeToListSheet() {
       </View>
 
       <Label>Servings</Label>
-      <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
-        {SERVINGS.map((s) => (
-          <View key={s} style={styles.flex}>
-            <Pill label={servingsLabel(s)} selected={s === servings} onPress={() => setServings(s)} />
+      {base === null ? (
+        <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+          {SERVINGS.map((s) => (
+            <View key={s} style={styles.flex}>
+              <Pill label={servingsLabel(s)} selected={s === servings} onPress={() => setServings(s)} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Card
+          style={[
+            styles.row,
+            { gap: spacing.md, paddingVertical: spacing.sm, paddingLeft: spacing.lg, paddingRight: spacing.sm },
+          ]}>
+          <View style={styles.flex}>
+            <ThemedText variant="headline">{forServingsLabel(servings)}</ThemedText>
+            <ThemedText variant="footnote" color="inkSecondary">
+              {recipeServesLabel(base)}
+            </ThemedText>
           </View>
-        ))}
-      </View>
+          <Stepper
+            value={servings}
+            min={SERVINGS_MIN}
+            max={SERVINGS_MAX}
+            onChange={setServings}
+            label={forServingsLabel(servings)}
+            accessibilityLabel="Servings"
+            buttonSize={sizes.stepperButtonLarge}
+            hideValue
+          />
+        </Card>
+      )}
 
       <Card>
         <View
@@ -116,7 +160,7 @@ export default function AddRecipeToListSheet() {
         </View>
         {ingredients.map((i) => {
           const on = selected.has(i.id);
-          const amount = formatAmount({ quantity: i.quantity === null ? null : i.quantity * servings, unit: i.unit });
+          const amount = formatAmount({ quantity: i.quantity === null ? null : i.quantity * multiplier, unit: i.unit });
           return (
             <IngredientChoice
               key={i.id}

@@ -24,7 +24,10 @@ import {
   addWholeRecipeToList,
   buildRecipeAdds,
   defaultSelection,
+  recipeServesLabel,
   replaceRecipeAdd,
+  servingsMultiplier,
+  startingServings,
   undoRecipeAdd,
 } from '../add-to-list';
 import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '../recipes';
@@ -448,5 +451,50 @@ describe('Always have: staples are left out of recipe adds (spec 4.5)', () => {
     setStaple(home, 'salt', true, USER);
     undoRecipeAdd(addWholeRecipeToList(listId, soup, USER)!);
     expect(rows()).toEqual(['salt']);
+  });
+});
+
+describe('by servings (board 17)', () => {
+  const quantities = (adds: ReturnType<typeof buildRecipeAdds>) => adds.map((a) => ('parsed' in a ? a.parsed.quantity : undefined));
+
+  test('starts at the chosen servings from the recipe screen, else the base', () => {
+    expect(startingServings(4, '6')).toBe(6);
+    expect(startingServings(4, '1')).toBe(1);
+    expect(startingServings(4, '100')).toBe(100);
+    expect(startingServings(4, undefined)).toBe(4);
+    expect(startingServings(4, '')).toBe(4);
+  });
+
+  test('a bad chosen servings falls back to the base', () => {
+    for (const param of ['0', '101', '-2', '2.5', 'six', ' ']) expect(startingServings(4, param)).toBe(4);
+  });
+
+  test('the multiplier is chosen ÷ base', () => {
+    expect(servingsMultiplier(6, 4)).toBe(1.5);
+    expect(servingsMultiplier(4, 4)).toBe(1);
+    expect(servingsMultiplier(2, 4)).toBe(0.5);
+    expect(servingsMultiplier(1, 3)).toBeCloseTo(1 / 3);
+  });
+
+  test('"Recipe serves 4"', () => {
+    expect(recipeServesLabel(4)).toBe('Recipe serves 4');
+    expect(recipeServesLabel(1)).toBe('Recipe serves 1');
+  });
+
+  test('for 6 when the recipe serves 4 adds 1.5× the amounts', () => {
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const adds = buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), servingsMultiplier(6, 4));
+    expect(quantities(adds)).toEqual([1.5, 12, 1.5, null, 3]);
+    addRecipeToList(listId, adds, USER);
+    expect(rows()).toEqual(['1.5 lb ground beef', '12 tortillas', '1½ cup salsa', 'cilantro', '3 limes']);
+  });
+
+  test('3 of 3 gives the amounts back exactly; 1 of 3 adds a third', () => {
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const all = new Set(ingredients.map((i) => i.id));
+    expect(quantities(buildRecipeAdds(tacos, ingredients, all, servingsMultiplier(3, 3)))).toEqual([1, 8, 1, null, 2]);
+    const third = quantities(buildRecipeAdds(tacos, ingredients, all, servingsMultiplier(1, 3)));
+    expect(third[1]).toBeCloseTo(8 / 3);
+    expect(third[3]).toBeNull();
   });
 });

@@ -149,6 +149,15 @@ describe('Stepper', () => {
     expect(byRole(root, 'button').map((b) => b.props.accessibilityLabel)).toEqual(['Fewer', 'More']);
   });
 
+  it('hideValue leaves the value out from between the buttons, but VoiceOver still reads it', () => {
+    const root = render(
+      <Stepper value={6} min={1} max={100} onChange={() => {}} label="For 6" accessibilityLabel="Servings" hideValue />,
+    );
+    expect(icons(root)).toEqual(['minus', 'plus']);
+    expect(root.root.findAll((n) => (n.type as string) === 'Text')).toEqual([]);
+    expect(byRole(root, 'adjustable')[0].props.accessibilityValue).toEqual({ text: 'For 6' });
+  });
+
   it('− and + step by one', () => {
     const onChange = jest.fn();
     const root = stepper(4, onChange);

@@ -157,7 +157,13 @@ export default function RecipeScreen() {
               label="Add to a list"
               icon="cart"
               disabled={ingredients.length === 0}
-              onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id } })}
+              onPress={() =>
+                router.push({
+                  pathname: '/recipe/[id]/add-to-list',
+                  // Board 17: the sheet starts at the stepper's servings when it's off the base.
+                  params: servings !== null && servings !== base ? { id, servings: String(servings) } : { id },
+                })
+              }
             />
           </View>
           <Card>
