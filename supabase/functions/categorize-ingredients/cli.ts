@@ -5,7 +5,7 @@
 // Every LLM call is printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@shared/index.ts';
 
-import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v2.ts';
+import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v3.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import type { Feature } from '../_shared/entitlements.ts';
 import { isThinkingSetting, THINKING_SETTINGS, type ThinkingSetting } from '../_shared/ai/tasks.ts';
@@ -19,6 +19,8 @@ import {
   type CategorizeResponse,
   type CategorizeStore,
   type IngredientRow,
+  type LimitResult,
+  type TwinRow,
 } from './handler.ts';
 
 export const USAGE = `Usage: yarn ai:categorize [options] <name>... (or - to read names from stdin, one per line)
@@ -32,7 +34,7 @@ Options:
   --raw                              Also print the raw HTTP request and response bodies
   --quiet                            Only the table and totals, not each call's prompt and response
   --dry-run                          Print the instructions and prompt, and make no call
-  --json                             Print the raw { results } response the app would get
+  --json                             Print the raw { results, twins } response the app would get
   -h, --help                         Show this help
 
 Each LLM call is printed as it finishes: instructions, prompt, response, finish reason, input,
@@ -126,15 +128,20 @@ export function namesFromText(text: string): string[] {
     .filter((line) => line !== '');
 }
 
+/** A stored row, with the columns the function writes but never reads back. */
+export type MemoryRow = IngredientRow & { categorized_by: string | null; household_count: number };
+
 /** The `ingredients` table in memory, starting empty, with the real store's conditional writes. */
 export class MemoryStore implements CategorizeStore {
-  rows = new Map<string, IngredientRow>();
+  rows = new Map<string, MemoryRow>();
   aiCalls: AiCallRecord[] = [];
 
-  async getIngredients(names: readonly string[]) {
+  async getIngredients(names: readonly string[]): Promise<IngredientRow[]> {
     return names.flatMap((n) => {
       const row = this.rows.get(n);
-      return row ? [{ ...row }] : [];
+      if (!row) return [];
+      const { categorized_by: _by, household_count: _count, ...rest } = row;
+      return [rest];
     });
   }
 
@@ -143,16 +150,22 @@ export class MemoryStore implements CategorizeStore {
       if (this.rows.has(r.normalized_name)) continue;
       this.rows.set(r.normalized_name, {
         normalized_name: r.normalized_name,
+        display_name: r.display_name,
         status: 'pending',
         default_category_id: null,
         is_grocery_item: null,
         default_unit: null,
         attempts: 0,
+        lang: null,
+        same_as: null,
+        linked_by: null,
+        categorized_by: null,
+        household_count: 0,
       });
     }
   }
 
-  async saveCategorized(rows: readonly CategorizedAnswer[]) {
+  async saveCategorized(rows: readonly CategorizedAnswer[], categorizedBy: string) {
     for (const r of rows) {
       const row = this.rows.get(r.normalized_name);
       if (!row || row.status === 'categorized') continue;
@@ -161,8 +174,40 @@ export class MemoryStore implements CategorizeStore {
         default_category_id: r.default_category_id,
         is_grocery_item: r.is_grocery_item,
         default_unit: r.default_unit,
+        categorized_by: categorizedBy,
+        lang: r.lang ?? row.lang,
       });
     }
+  }
+
+  async insertTwins(rows: readonly TwinRow[], categorizedBy: string) {
+    for (const r of rows) {
+      if (this.rows.has(r.normalized_name)) continue;
+      this.rows.set(r.normalized_name, {
+        ...r,
+        status: 'categorized',
+        attempts: 0,
+        same_as: null,
+        linked_by: null,
+        categorized_by: categorizedBy,
+        household_count: 0,
+      });
+    }
+  }
+
+  async getLinkTargets(names: readonly string[]) {
+    const targets = new Set([...this.rows.values()].map((r) => r.same_as));
+    return names.filter((n) => targets.has(n));
+  }
+
+  /** With the database's one-level rule: the target has no link, and nothing links to `name`. */
+  async link(name: string, target: string, linkedBy: string) {
+    const row = this.rows.get(name);
+    const to = this.rows.get(target);
+    if (!row || !to || row.same_as !== null || to.same_as !== null || name === target) return false;
+    if ((await this.getLinkTargets([name])).length > 0) return false;
+    Object.assign(row, { same_as: target, linked_by: linkedBy });
+    return true;
   }
 
   async saveFailed(names: readonly string[]) {
@@ -178,8 +223,8 @@ export class MemoryStore implements CategorizeStore {
   }
 
   /** Local and manual: no rate limits, no global cap. */
-  async checkLimit() {
-    return 'ok' as const;
+  async checkLimit(_newNames = 0): Promise<LimitResult> {
+    return 'ok';
   }
 
   /** No database, so no plans: every feature is granted. */
@@ -220,6 +265,22 @@ export function formatTable(names: readonly string[], response: CategorizeRespon
     ]);
   }
   return table(rows);
+}
+
+/**
+ * Links and translations (spec 4.15): the input names with a link, then the twins this run created
+ * or linked, marked `twin`. Empty when there are none.
+ */
+export function formatLinks(names: readonly string[], response: CategorizeResponse): string {
+  const rows = [['name', 'lang', 'same_as', 'linked_by', '']];
+  for (const key of resultKeys(names)) {
+    const r = response.results[key];
+    if (r?.same_as) rows.push([key, r.lang ?? '-', r.same_as ?? '-', r.linked_by ?? '-', '']);
+  }
+  for (const [key, r] of Object.entries(response.twins ?? {})) {
+    rows.push([key, r.lang ?? '-', r.same_as ?? '-', r.linked_by ?? '-', 'twin']);
+  }
+  return rows.length === 1 ? '' : table(rows);
 }
 
 export function formatStats(calls: readonly AiCallRecord[]): string {
@@ -343,6 +404,8 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   } else {
     io.out(formatTable(names, response));
     io.out('');
+    const links = formatLinks(names, response);
+    if (links) io.out(`${links}\n`);
   }
   info(formatStats(stores.flatMap((s) => s.aiCalls)));
   if (args.repeat > 1) info(formatLatency(stores.map((s) => s.aiCalls)));

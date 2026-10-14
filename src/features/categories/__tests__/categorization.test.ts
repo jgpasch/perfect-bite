@@ -29,10 +29,18 @@ function addLocal(name: string, status: 'pending' | 'failed' | 'categorized' = '
 const row = (name: string) => db.select().from(ingredients).where(eq(ingredients.normalizedName, name)).get();
 const sentNames = (call = 0) => (invoke.mock.calls[call][1] as { body: { names: string[] } }).body.names;
 
-function respond(
-  results: Record<string, { status: string; category_id: string | null; is_grocery_item: boolean | null; default_unit?: string | null }>,
-) {
-  invoke.mockResolvedValue({ data: { results }, error: null });
+type Answer = {
+  status: string;
+  category_id: string | null;
+  is_grocery_item: boolean | null;
+  default_unit?: string | null;
+  lang?: string | null;
+  same_as?: string | null;
+  linked_by?: string | null;
+};
+
+function respond(results: Record<string, Answer>, twins?: Record<string, Answer & { display_name?: string }>) {
+  invoke.mockResolvedValue({ data: twins ? { results, twins } : { results }, error: null });
 }
 
 beforeEach(() => {
@@ -162,6 +170,101 @@ describe('results', () => {
     await categorizePending(['a', 'b']);
     expect(row('a')!.status).toBe('pending');
     expect(row('b')!.status).toBe('pending');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('languages and links (spec 4.15)', () => {
+  const PRODUCE = id('produce');
+  const link = (lang: string | null, sameAs: string | null, linkedBy: string | null) => ({ lang, same_as: sameAs, linked_by: linkedBy });
+
+  test("a categorized answer brings the name's language and link", async () => {
+    addLocal('chapulin');
+    respond({ chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, default_unit: 'lb', ...link('es', 'grasshopper', 'google:m') } });
+    await categorizePending(['chapulin']);
+    expect(row('chapulin')).toMatchObject({ status: 'categorized', lang: 'es', sameAs: 'grasshopper', linkedBy: 'google:m' });
+  });
+
+  test('a new twin is added to the catalog, categorized, with its link', async () => {
+    addLocal('grasshopper');
+    respond(
+      { grasshopper: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, default_unit: 'lb', ...link('en', null, null) } },
+      { chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, default_unit: 'lb', display_name: 'Chapulines', ...link('es', 'grasshopper', 'google:m') } },
+    );
+    await categorizePending(['grasshopper']);
+    expect(row('grasshopper')).toMatchObject({ lang: 'en', sameAs: null, linkedBy: null });
+    expect(row('chapulin')).toEqual({
+      normalizedName: 'chapulin',
+      displayName: 'Chapulines',
+      defaultCategoryId: PRODUCE,
+      status: 'categorized',
+      isGroceryItem: true,
+      categorizedBy: CATEGORIZED_BY_SERVER,
+      defaultUnit: 'lb',
+      lang: 'es',
+      sameAs: 'grasshopper',
+      linkedBy: 'google:m',
+    });
+  });
+
+  test('a twin the device already has keeps its own category and display name and gains the link', async () => {
+    addLocal('grasshopper');
+    addLocal('chapulin', 'categorized', id('pantry'));
+    respond(
+      { grasshopper: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, ...link('en', null, null) } },
+      { chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, display_name: 'Chapulín!', ...link('es', 'grasshopper', 'google:m') } },
+    );
+    await categorizePending(['grasshopper']);
+    expect(row('chapulin')).toMatchObject({ displayName: 'chapulin', defaultCategoryId: id('pantry'), sameAs: 'grasshopper', linkedBy: 'google:m', lang: 'es' });
+  });
+
+  test('a cleared link on the server clears the local one', async () => {
+    addLocal('chapulin');
+    db.update(ingredients).set({ sameAs: 'grasshopper', linkedBy: 'google:m' }).where(eq(ingredients.normalizedName, 'chapulin')).run();
+    respond({ chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, ...link('es', null, null) } });
+    await categorizePending(['chapulin']);
+    expect(row('chapulin')).toMatchObject({ sameAs: null, linkedBy: null, lang: 'es' });
+  });
+
+  test("an answer without the link fields (an older server), a pending or a failed answer leave the local link alone", async () => {
+    for (const name of ['a', 'b', 'c']) {
+      addLocal(name);
+      db.update(ingredients).set({ lang: 'es', sameAs: 'x', linkedBy: 'seed' }).where(eq(ingredients.normalizedName, name)).run();
+    }
+    respond({
+      a: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true },
+      b: { status: 'pending', category_id: null, is_grocery_item: null, ...link(null, null, null) },
+      c: { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, ...link(null, null, null) },
+    });
+    await categorizePending(['a', 'b', 'c']);
+    for (const name of ['a', 'b', 'c']) expect(row(name)).toMatchObject({ lang: 'es', sameAs: 'x', linkedBy: 'seed' });
+    expect(row('a')!.status).toBe('categorized');
+  });
+
+  test('a twin that is not categorized or has no display name is ignored', async () => {
+    addLocal('chapulin');
+    respond(
+      { chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, ...link('es', null, null) } },
+      {
+        grasshopper: { status: 'pending', category_id: null, is_grocery_item: null, display_name: 'grasshopper', ...link('en', null, null) },
+        locust: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, ...link('en', null, null) },
+      },
+    );
+    await categorizePending(['chapulin']);
+    expect(row('grasshopper')).toBeUndefined();
+    expect(row('locust')).toBeUndefined();
+    expect(row('chapulin')!.status).toBe('categorized');
+  });
+
+  test('a twin with an unknown category rolls back the whole answer', async () => {
+    addLocal('chapulin');
+    respond(
+      { chapulin: { status: 'categorized', category_id: PRODUCE, is_grocery_item: true, ...link('es', 'grasshopper', 'm') } },
+      { grasshopper: { status: 'categorized', category_id: 'no-such-category', is_grocery_item: true, display_name: 'grasshopper', ...link('en', null, null) } },
+    );
+    await categorizePending(['chapulin']);
+    expect(row('chapulin')).toMatchObject({ status: 'pending', sameAs: null });
+    expect(row('grasshopper')).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });

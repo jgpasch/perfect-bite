@@ -26,7 +26,14 @@ export type CategorizeResult = {
   is_grocery_item: boolean | null;
   /** A `unit_key`; absent from servers older than the default unit. */
   default_unit?: string | null;
+  /** The name's language and link (spec 4.15); absent from servers older than linked ingredients. */
+  lang?: 'en' | 'es' | null;
+  same_as?: string | null;
+  linked_by?: string | null;
 };
+
+/** A translation's row the server created or linked for this request (spec 4.15). */
+export type TwinResult = CategorizeResult & { display_name: string };
 
 let catchUp: Promise<void> | null = null;
 
@@ -94,9 +101,11 @@ async function send(names: readonly string[]): Promise<void> {
       return;
     }
     if (error) throw error;
-    const results = (data as { results?: unknown } | null)?.results;
+    const body = data as { results?: unknown; twins?: unknown } | null;
+    const results = body?.results;
     if (!results || typeof results !== 'object') throw new Error('categorize-ingredients: no results');
-    applyResults(results as Record<string, CategorizeResult>);
+    const twins = body?.twins && typeof body.twins === 'object' ? (body.twins as Record<string, TwinResult>) : {};
+    applyResults(results as Record<string, CategorizeResult>, db, twins);
   } catch (e) {
     console.warn('Categorization failed; names stay pending', e);
   }
@@ -104,10 +113,17 @@ async function send(names: readonly string[]): Promise<void> {
 
 /**
  * Writes the server's answers to local `ingredients` rows in one transaction. `pending` answers
- * change nothing; a `failed` answer goes to Other. Rows already categorized locally are kept, and
- * overrides live in their own table, so they are never touched. `exec`: the caller's transaction.
+ * change nothing; a `failed` answer goes to Other. Rows already categorized locally keep their
+ * category, and overrides live in their own table, so they are never touched. A categorized answer
+ * also brings the name's language and link (spec 4.15), as pull would. `twins`, the translations'
+ * rows the server created or linked, are added to the catalog (or have their link updated), so a
+ * name typed in the other language is known offline. `exec`: the caller's transaction.
  */
-export function applyResults(results: Record<string, CategorizeResult>, exec: Exec = db): void {
+export function applyResults(
+  results: Record<string, CategorizeResult>,
+  exec: Exec = db,
+  twins: Record<string, TwinResult> = {},
+): void {
   exec.transaction((tx) => {
     for (const [name, r] of Object.entries(results)) {
       if (r.status !== 'categorized' && r.status !== 'failed') continue;
@@ -122,6 +138,32 @@ export function applyResults(results: Record<string, CategorizeResult>, exec: Ex
         })
         .where(and(eq(ingredients.normalizedName, name), ne(ingredients.status, 'categorized')))
         .run();
+      if (categorized) applyLink(tx, name, r);
+    }
+    for (const [name, r] of Object.entries(twins)) {
+      if (r.status !== 'categorized' || typeof r.display_name !== 'string' || !r.display_name) continue;
+      tx.insert(ingredients)
+        .values({
+          normalizedName: name,
+          displayName: r.display_name,
+          status: 'categorized',
+          defaultCategoryId: r.category_id || OTHER_CATEGORY_ID,
+          isGroceryItem: r.is_grocery_item,
+          categorizedBy: CATEGORIZED_BY_SERVER,
+          defaultUnit: r.default_unit || null,
+        })
+        .onConflictDoNothing()
+        .run();
+      applyLink(tx, name, r);
     }
   });
+}
+
+/** Copies the server's `lang`, `same_as` and `linked_by` onto a local row, when the answer has them. */
+function applyLink(tx: Exec, name: string, r: CategorizeResult): void {
+  if (!('same_as' in r)) return;
+  tx.update(ingredients)
+    .set({ lang: r.lang ?? null, sameAs: r.same_as ?? null, linkedBy: r.linked_by ?? null })
+    .where(eq(ingredients.normalizedName, name))
+    .run();
 }

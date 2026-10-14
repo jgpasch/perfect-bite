@@ -3,9 +3,9 @@
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES, type UnitKey } from '@shared/index.ts';
 import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } from 'ai';
 
-import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v2.ts';
+import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v3.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { isAiEnabled } from '../_shared/ai/tasks.ts';
+import { isAiEnabled, type CategorizeOutput } from '../_shared/ai/tasks.ts';
 import type { Feature } from '../_shared/entitlements.ts';
 
 /** Names per request (LLM boundaries: input). */
@@ -19,18 +19,39 @@ export const MAX_ATTEMPTS = 3;
 
 export type IngredientStatus = 'pending' | 'categorized' | 'failed';
 
+/** A stored language (spec 4.15); the model's `other` is stored as null. */
+export type IngredientLang = 'en' | 'es';
+
 export type IngredientRow = {
   normalized_name: string;
+  display_name: string;
   status: IngredientStatus;
   default_category_id: string | null;
   is_grocery_item: boolean | null;
   /** A unit key (spec 4.2); null when unknown. */
   default_unit: string | null;
   attempts: number;
+  lang: IngredientLang | null;
+  /** The English ingredient this name means (spec 4.15); one level only. */
+  same_as: string | null;
+  /** `seed`, a model id or `admin`; null without a link. */
+  linked_by: string | null;
 };
 
 export type CategorizedAnswer = {
   normalized_name: string;
+  default_category_id: string;
+  is_grocery_item: boolean;
+  default_unit: UnitKey;
+  /** Written only when not null, so a known language is never cleared. */
+  lang: IngredientLang | null;
+};
+
+/** A translation's own row (spec 4.15): the name's category, unit and grocery flag. */
+export type TwinRow = {
+  normalized_name: string;
+  display_name: string;
+  lang: IngredientLang;
   default_category_id: string;
   is_grocery_item: boolean;
   default_unit: UnitKey;
@@ -41,10 +62,25 @@ export interface CategorizeStore {
   getIngredients(names: readonly string[]): Promise<IngredientRow[]>;
   /** Inserts `pending` rows; `on conflict do nothing`. */
   insertPending(rows: readonly { normalized_name: string; display_name: string }[]): Promise<void>;
-  /** Sets the category, default unit, `status = 'categorized'` and `categorized_by`, only `where status <> 'categorized'`. */
+  /**
+   * Sets the category, default unit, `status = 'categorized'`, `categorized_by` and (when not null)
+   * `lang`, only `where status <> 'categorized'`.
+   */
   saveCategorized(rows: readonly CategorizedAnswer[], categorizedBy: string): Promise<void>;
   /** Sets `status = 'failed'`, `attempts + 1` and category Other, only `where status <> 'categorized'`. */
   saveFailed(names: readonly string[]): Promise<void>;
+  /**
+   * Inserts `categorized` twin rows with `categorized_by` and `household_count = 0` (spec 6.5 keeps
+   * them out of other households' autocomplete); `on conflict do nothing`.
+   */
+  insertTwins(rows: readonly TwinRow[], categorizedBy: string): Promise<void>;
+  /** The names among `names` that another ingredient's `same_as` points at. */
+  getLinkTargets(names: readonly string[]): Promise<string[]>;
+  /**
+   * Sets `name`'s `same_as` to `target` and `linked_by`, only `where same_as is null`. False when
+   * nothing was linked: a link appeared meanwhile, or the one-level rule refused it.
+   */
+  link(name: string, target: string, linkedBy: string): Promise<boolean>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
   /**
@@ -67,9 +103,24 @@ export type CategorizeResult = {
   is_grocery_item: boolean | null;
   /** A unit key; null when unknown. */
   default_unit: string | null;
+  /** The name's language (spec 4.15); null when not known. */
+  lang: IngredientLang | null;
+  /** The English ingredient this name is linked to; null without a link. */
+  same_as: string | null;
+  linked_by: string | null;
 };
 
-export type CategorizeResponse = { results: Record<string, CategorizeResult> };
+/** A twin this request created or linked, with the display name a device needs to add it. */
+export type TwinResult = CategorizeResult & { display_name: string };
+
+export type CategorizeResponse = {
+  results: Record<string, CategorizeResult>;
+  /**
+   * Translations' rows this request created or linked (spec 4.15), by key; never an input name.
+   * Absent when there are none.
+   */
+  twins?: Record<string, TwinResult>;
+};
 
 export class CategorizeInputError extends Error {
   override name = 'CategorizeInputError';
@@ -85,8 +136,9 @@ export class CategorizeLimitError extends Error {
 
 const CATEGORY_ID_BY_SLUG = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.slug, c.id]));
 
-const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null };
-const TOO_LONG: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, default_unit: null };
+const NO_LINK = { lang: null, same_as: null, linked_by: null } as const;
+const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null, ...NO_LINK };
+const TOO_LONG: CategorizeResult = { status: 'failed', category_id: OTHER_CATEGORY_ID, is_grocery_item: null, default_unit: null, ...NO_LINK };
 
 /** A provider error or timeout isn't the names' fault: they stay pending and no attempt counts. */
 export function isProviderFailure(err: unknown): boolean {
@@ -98,6 +150,18 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+function toResult(row: IngredientRow): CategorizeResult {
+  return {
+    status: row.status,
+    category_id: row.default_category_id,
+    is_grocery_item: row.is_grocery_item,
+    default_unit: row.default_unit,
+    lang: row.lang,
+    same_as: row.same_as,
+    linked_by: row.linked_by,
+  };
 }
 
 /**
@@ -141,12 +205,15 @@ export async function categorize(
 
   // Names that should have reached the LLM but didn't (kill switch, provider error): answered pending.
   const deferred = new Set<string>();
+  // Translations' rows created or linked on the way (spec 4.15).
+  const twinKeys = new Set<string>();
   if (!aiEnabled) {
     for (const n of toSend) deferred.add(n);
   } else {
     for (const batch of chunk(toSend, MAX_NAMES_PER_CALL)) {
       const outcome = await categorizeBatch(batch, store, model);
       if (outcome === 'deferred') for (const n of batch) deferred.add(n);
+      else for (const t of outcome.twins) twinKeys.add(t);
     }
   }
 
@@ -155,19 +222,14 @@ export async function categorize(
   const results = new Map<string, CategorizeResult>();
   for (const n of keys) {
     const row = rows.get(n);
-    if (!row || (deferred.has(n) && row.status !== 'categorized')) {
-      results.set(n, PENDING);
-    } else {
-      results.set(n, {
-        status: row.status,
-        category_id: row.default_category_id,
-        is_grocery_item: row.is_grocery_item,
-        default_unit: row.default_unit,
-      });
-    }
+    results.set(n, !row || (deferred.has(n) && row.status !== 'categorized') ? PENDING : toResult(row));
   }
   for (const n of tooLong) results.set(n, TOO_LONG);
-  return { results: Object.fromEntries(results) };
+
+  const twinNames = [...twinKeys].filter((n) => !inputs.has(n));
+  if (twinNames.length === 0) return { results: Object.fromEntries(results) };
+  const twins = (await store.getIngredients(twinNames)).map((r) => [r.normalized_name, { ...toResult(r), display_name: r.display_name }]);
+  return { results: Object.fromEntries(results), twins: Object.fromEntries(twins) };
 }
 
 /** One LLM call. Bad output fails the names it covers; a provider failure defers the whole batch. */
@@ -175,7 +237,7 @@ async function categorizeBatch(
   batch: readonly string[],
   store: CategorizeStore,
   model: { instance: LanguageModel; modelId: string } | undefined,
-): Promise<'done' | 'deferred'> {
+): Promise<{ twins: string[] } | 'deferred'> {
   let result;
   try {
     result = await runAiTask(
@@ -187,7 +249,7 @@ async function categorizeBatch(
     if (isProviderFailure(err)) return 'deferred';
     if (NoObjectGeneratedError.isInstance(err)) {
       await store.saveFailed(batch);
-      return 'done';
+      return { twins: [] };
     }
     throw err;
   }
@@ -195,21 +257,102 @@ async function categorizeBatch(
   const sent = new Set(batch);
   const seen = new Set<string>();
   const answers = new Map<string, CategorizedAnswer>();
+  const translated: { answer: CategorizedAnswer; raw: Answer }[] = [];
   // Never more answers than names sent; answers for names not sent are ignored; the first answer wins.
-  for (const answer of result.output.results.slice(0, batch.length)) {
-    if (!sent.has(answer.name) || seen.has(answer.name)) continue;
-    seen.add(answer.name);
-    const categoryId = CATEGORY_ID_BY_SLUG.get(answer.category);
+  for (const raw of result.output.results.slice(0, batch.length)) {
+    if (!sent.has(raw.name) || seen.has(raw.name)) continue;
+    seen.add(raw.name);
+    const categoryId = CATEGORY_ID_BY_SLUG.get(raw.category);
     if (!categoryId) continue; // The schema allows only known slugs; this is a second guard.
-    answers.set(answer.name, {
-      normalized_name: answer.name,
+    const answer: CategorizedAnswer = {
+      normalized_name: raw.name,
       default_category_id: categoryId,
-      is_grocery_item: answer.is_grocery_item,
-      default_unit: answer.unit,
-    });
+      is_grocery_item: raw.is_grocery_item,
+      default_unit: raw.unit,
+      lang: raw.lang === 'other' ? null : raw.lang,
+    };
+    answers.set(raw.name, answer);
+    translated.push({ answer, raw });
   }
   if (answers.size > 0) await store.saveCategorized([...answers.values()], result.model);
   const unanswered = batch.filter((n) => !answers.has(n));
   if (unanswered.length > 0) await store.saveFailed(unanswered);
-  return 'done';
+
+  // After the batch's own rows are saved, so a twin that is also in the batch is found, not made.
+  const twins: string[] = [];
+  for (const { answer, raw } of translated) {
+    const twin = await saveTwin(answer, raw, store, result.model);
+    if (twin) twins.push(twin);
+  }
+  return { twins };
+}
+
+type Answer = CategorizeOutput['results'][number];
+
+/** The longest translation stored, like a name (LLM boundaries: output). */
+export const MAX_TRANSLATION_LENGTH = MAX_NAME_LENGTH;
+
+/** Letters (any script, with their accents), spaces, hyphens and apostrophes. No tabs or newlines. */
+const TRANSLATION_CHARS = /^[\p{L}\p{M}' \-’]+$/u;
+
+/**
+ * The model's translation of `nameKey`, checked before it's stored (spec 6.4: output): trimmed,
+ * runs of spaces collapsed, at most 64 characters before and after normalizing, only letters,
+ * spaces, hyphens and apostrophes, and a key that's neither empty nor the name's own. Null otherwise.
+ */
+export function cleanTranslation(raw: string | null, nameKey: string): { key: string; display: string } | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (!TRANSLATION_CHARS.test(trimmed)) return null;
+  const display = trimmed.replace(/ +/g, ' ');
+  if ([...display].length > MAX_TRANSLATION_LENGTH) return null;
+  const key = normalizeIngredientName(display);
+  if (key === '' || key === nameKey || [...key].length > MAX_TRANSLATION_LENGTH) return null;
+  return { key, display };
+}
+
+/**
+ * Stores one answer's translation as its twin (spec 4.15) and, for an exact equivalent, links the
+ * pair: the non-English row's `same_as` is the English one. A new twin gets the name's category,
+ * unit and grocery flag; one that exists keeps its own and is only linked. Nothing is linked when
+ * either side already has a link (a seed link always wins), when the non-English side is already
+ * a link's target, or when an existing twin's language isn't the one expected. Only English and
+ * Spanish names of grocery items get a twin: an errand or an injection name can't write another
+ * key's row. Returns the twin's key when it was created or linked.
+ */
+async function saveTwin(answer: CategorizedAnswer, raw: Answer, store: CategorizeStore, modelId: string): Promise<string | null> {
+  if (answer.lang === null || !answer.is_grocery_item) return null;
+  const translation = cleanTranslation(raw.translation, answer.normalized_name);
+  if (!translation) return null;
+  const twinLang: IngredientLang = answer.lang === 'en' ? 'es' : 'en';
+
+  let [twin] = await store.getIngredients([translation.key]);
+  let created = false;
+  if (!twin) {
+    await store.insertTwins(
+      [
+        {
+          normalized_name: translation.key,
+          display_name: translation.display,
+          lang: twinLang,
+          default_category_id: answer.default_category_id,
+          is_grocery_item: answer.is_grocery_item,
+          default_unit: answer.default_unit,
+        },
+      ],
+      modelId,
+    );
+    [twin] = await store.getIngredients([translation.key]);
+    created = true;
+  }
+  if (!twin) return null;
+  if (!raw.exact_equivalent) return created ? twin.normalized_name : null;
+
+  const [name] = await store.getIngredients([answer.normalized_name]);
+  const linkable = name && name.same_as === null && twin.same_as === null && (twin.lang === null || twin.lang === twinLang);
+  if (!linkable) return created ? twin.normalized_name : null;
+  const [source, target] = answer.lang === 'en' ? [twin, name] : [name, twin];
+  if ((await store.getLinkTargets([source.normalized_name])).length > 0) return created ? twin.normalized_name : null;
+  const linked = await store.link(source.normalized_name, target.normalized_name, modelId);
+  return created || linked ? twin.normalized_name : null;
 }

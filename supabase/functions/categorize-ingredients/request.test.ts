@@ -7,7 +7,9 @@ import { dailyNameCap, DEFAULT_DAILY_NAME_CAP, handleRequest, MAX_BODY_BYTES, ty
 
 const ENDPOINT ='http://localhost/functions/v1/categorize-ingredients';
 const OK: CategorizeResponse = {
-  results: { milk: { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: true, default_unit: 'gal' } },
+  results: {
+    milk: { status: 'categorized', category_id: OTHER_CATEGORY_ID, is_grocery_item: true, default_unit: 'gal', lang: 'en', same_as: null, linked_by: null },
+  },
 };
 
 /** Deps with AI_MODEL_CATEGORIZE=mock and a categorize that records what it was called with. */

@@ -22,7 +22,7 @@ import {
 import { z } from 'zod';
 
 import { mockCategorizeModel, mockRecipeModel, mockTagsModel } from './mock-model.ts';
-import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v2.ts';
+import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v3.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
@@ -30,6 +30,9 @@ import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tag
 export const AI_OFF = 'off';
 
 const CATEGORY_SLUGS = SYSTEM_CATEGORIES.map((c) => c.slug) as [CategorySlug, ...CategorySlug[]];
+
+/** The languages the categorizer tells apart (spec 4.15); `other` is stored as an unknown (null) `lang`. */
+export const CATEGORIZE_LANGS = ['en', 'es', 'other'] as const;
 
 export const CategorizeOutputSchema = z.object({
   results: z.array(
@@ -39,14 +42,26 @@ export const CategorizeOutputSchema = z.object({
       is_grocery_item: z.boolean(),
       /** How it's usually bought (spec 4.2): a unit key, `count` for a plain number. */
       unit: z.enum(UNIT_KEYS),
+      /** The name's language. */
+      lang: z.enum(CATEGORIZE_LANGS),
+      /**
+       * Mexican Spanish for an English name, English for a Spanish one; null when there's none or
+       * it's the same word. Model-written text: the handler's `cleanTranslation` checks it first.
+       */
+      translation: z.string().nullable(),
+      /** True only when the name and its translation are the same thing on a shopping list. */
+      exact_equivalent: z.boolean(),
     }),
   ),
 });
 export type CategorizeOutput = z.infer<typeof CategorizeOutputSchema>;
 
-/** About 50 output tokens per name plus 200, capped at 5,500 (LLM boundaries: call limits). */
+/**
+ * About 80 output tokens per name plus 200, capped at 8,500 (LLM boundaries: call limits). v3's
+ * language, translation and link flag take about 30 of the 80.
+ */
 export function maxOutputTokens(nameCount: number): number {
-  return Math.min(5_500, 200 + 50 * Math.max(0, nameCount));
+  return Math.min(8_500, 200 + 80 * Math.max(0, nameCount));
 }
 
 function env(name: string): string | null {

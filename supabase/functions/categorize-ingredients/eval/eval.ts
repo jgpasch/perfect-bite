@@ -1,15 +1,16 @@
 // `yarn ai:eval`: the golden-set eval (spec §6.4). Runs every name in golden.json through the
 // function's own categorize(), with the same runAiTask, prompt and validation, against the CLI's
 // in-memory store, in batches of 50 so each batch is one LLM call. Prints the accuracy, the
-// default-unit score, and every miss. Run it whenever the model or the prompt changes; it costs real tokens, so it isn't part
-// of CI or `deno test`.
+// default-unit score, the language, translation and link scores (spec 4.15; a wrong link costs
+// more than a missing one), and every miss. Run it whenever the model or the prompt changes; it
+// costs real tokens, so it isn't part of CI or `deno test`.
 import { normalizeIngredientName, SYSTEM_CATEGORIES, UNIT_KEYS, type CategorySlug } from '@shared/index.ts';
 import { z } from 'zod';
 
 import type { AiCallRecord } from '../../_shared/ai/run-ai-task.ts';
-import { AI_OFF } from '../../_shared/ai/tasks.ts';
+import { AI_OFF, CATEGORIZE_LANGS, type CategorizeOutput } from '../../_shared/ai/tasks.ts';
 import { formatStats, MemoryStore } from '../cli.ts';
-import { categorize, MAX_NAME_LENGTH, type CategorizeResult } from '../handler.ts';
+import { categorize, cleanTranslation, MAX_NAME_LENGTH, type CategorizeResponse, type CategorizeResult } from '../handler.ts';
 
 export const USAGE = `Usage: yarn ai:eval [options]
 
@@ -35,6 +36,15 @@ const GoldenCaseSchema = z.object({
   units: z.array(z.enum(UNIT_KEYS)).min(1).optional(),
   /** A prompt-injection attempt: expected other/false, and the rest of its batch must still be right. */
   injection: z.boolean().optional(),
+  /** The name's language (spec 4.15). Unscored when absent. */
+  lang: z.enum(CATEGORIZE_LANGS).optional(),
+  /**
+   * Translations a shopper would accept, compared by key; a `null` in the list (or `null` for the
+   * whole) means no translation is right too. Unscored when absent.
+   */
+  translation: z.array(z.string().min(1).nullable()).min(1).nullable().optional(),
+  /** Whether the name should be linked to its translation (spec 4.15). Links are unscored when absent. */
+  exact_equivalent: z.boolean().optional(),
 });
 export type GoldenCase = z.infer<typeof GoldenCaseSchema>;
 
@@ -57,8 +67,16 @@ export function parseGolden(json: unknown): GoldenCase[] {
     }
     if (seen.has(key)) throw new EvalUsageError(`golden.json: "${c.name}" duplicates another name after normalizing`);
     seen.add(key);
+    if (c.exact_equivalent && acceptedTranslations(c).every((t) => t === null)) {
+      throw new EvalUsageError(`golden.json: "${c.name}" expects a link but lists no translation to link to`);
+    }
   }
   return parsed.data.cases;
+}
+
+/** A case's accepted translations as keys; `null` where no translation is accepted. */
+export function acceptedTranslations(c: GoldenCase): (string | null)[] {
+  return (c.translation ?? [null]).map((t) => (t === null ? null : normalizeIngredientName(t)));
 }
 
 export type EvalArgs = { model: string | null; help: boolean };
@@ -99,15 +117,48 @@ export type CaseOutcome = {
   unit: string | null;
   /** The unit is one of `units` and categorized; null when the case has no `units`. Not part of `correct`. */
   unitOk: boolean | null;
+  /** The model's language for the name; null when it gave no answer. */
+  lang: string | null;
+  /** The language is the case's; null when the case has no `lang`. Not part of `correct`. */
+  langOk: boolean | null;
+  /** The model's translation as written; null when none. */
+  translation: string | null;
+  /** The translation, as the server would keep it, is one the case accepts; null when unscored. */
+  translationOk: boolean | null;
+  /** The key the name was linked with (either direction); null when unlinked. */
+  linkedTo: string | null;
+  /**
+   * `right`: linked to an accepted translation when the case expects a link, else unlinked.
+   * `missing`: a link was expected and none made. `wrong`: a link the case doesn't expect. Null
+   * when the case has no `exact_equivalent`.
+   */
+  link: 'right' | 'missing' | 'wrong' | null;
 };
 
-/** Pure: one golden case against what categorize() returned for it. */
-export function scoreCase(c: GoldenCase, result: CategorizeResult | undefined, batch: number): CaseOutcome {
+/** What the model said about a name's language, from the call's output. */
+export type LanguageAnswer = { lang: string; translation: string | null };
+
+/** Pure: one golden case against what categorize() returned for it and the model's language answer. */
+export function scoreCase(
+  c: GoldenCase,
+  result: CategorizeResult | undefined,
+  batch: number,
+  language: { answer?: LanguageAnswer | null; linkedTo?: string | null } = {},
+): CaseOutcome {
   const slug = result?.category_id ? (SLUG_BY_ID.get(result.category_id) ?? result.category_id) : null;
   const status = result?.status ?? 'missing';
   const categoryOk = slug !== null && (slug === c.category || (c.also ?? []).includes(slug as CategorySlug));
   const groceryOk = result?.is_grocery_item === c.is_grocery_item;
   const unit = result?.default_unit ?? null;
+  const answer = language.answer ?? null;
+  const linkedTo = language.linkedTo ?? null;
+  const accepted = acceptedTranslations(c);
+  const kept = answer ? (cleanTranslation(answer.translation, normalizeIngredientName(c.name))?.key ?? null) : null;
+  let link: CaseOutcome['link'] = null;
+  if (c.exact_equivalent !== undefined) {
+    if (linkedTo === null) link = c.exact_equivalent ? 'missing' : 'right';
+    else link = c.exact_equivalent && accepted.includes(linkedTo) ? 'right' : 'wrong';
+  }
   return {
     case: c,
     batch,
@@ -119,10 +170,36 @@ export function scoreCase(c: GoldenCase, result: CategorizeResult | undefined, b
     correct: status === 'categorized' && categoryOk && groceryOk,
     unit,
     unitOk: c.units ? status === 'categorized' && unit !== null && (c.units as string[]).includes(unit) : null,
+    lang: answer?.lang ?? null,
+    langOk: c.lang ? answer?.lang === c.lang : null,
+    translation: answer?.translation ?? null,
+    translationOk: c.translation === undefined ? null : answer !== null && accepted.includes(kept),
+    linkedTo,
+    link,
   };
 }
 
 export type EvalReport = { outcomes: CaseOutcome[]; calls: AiCallRecord[] };
+
+/** Pure: each name's first answer in the batch's successful calls, by name as sent. */
+export function languageAnswers(calls: readonly AiCallRecord[]): Map<string, LanguageAnswer> {
+  const answers = new Map<string, LanguageAnswer>();
+  for (const call of calls) {
+    if (call.status !== 'ok') continue;
+    for (const a of (call.output as CategorizeOutput).results) {
+      if (!answers.has(a.name)) answers.set(a.name, { lang: a.lang, translation: a.translation });
+    }
+  }
+  return answers;
+}
+
+/** Pure: the key `key` was linked with: its own `same_as`, else a row in the response linking to it. */
+export function linkedWith(key: string, response: CategorizeResponse): string | null {
+  const own = response.results[key]?.same_as;
+  if (own) return own;
+  const rows = [...Object.entries(response.results), ...Object.entries(response.twins ?? {})];
+  return rows.find(([name, r]) => name !== key && r.same_as === key)?.[0] ?? null;
+}
 
 /** Runs every case through categorize(), one fresh in-memory store per batch, in file order. */
 export async function runEval(cases: readonly GoldenCase[], batchSize = EVAL_BATCH_SIZE): Promise<EvalReport> {
@@ -132,8 +209,12 @@ export async function runEval(cases: readonly GoldenCase[], batchSize = EVAL_BAT
     const batch = cases.slice(i, i + batchSize);
     const store = new MemoryStore();
     const response = await categorize(batch.map((c) => c.name), store);
+    const answers = languageAnswers(store.aiCalls);
     for (const c of batch) {
-      outcomes.push(scoreCase(c, response.results[normalizeIngredientName(c.name)], i / batchSize + 1));
+      const key = normalizeIngredientName(c.name);
+      outcomes.push(
+        scoreCase(c, response.results[key], i / batchSize + 1, { answer: answers.get(key) ?? null, linkedTo: linkedWith(key, response) }),
+      );
     }
     calls.push(...store.aiCalls);
   }
@@ -164,6 +245,20 @@ export function formatReport(report: EvalReport): string {
   const scoredUnits = outcomes.filter((o) => o.unitOk !== null);
   if (scoredUnits.length > 0) {
     lines.push(`unit:            ${pct(scoredUnits.filter((o) => o.unitOk).length, scoredUnits.length)}`);
+  }
+  const scoredLangs = outcomes.filter((o) => o.langOk !== null);
+  if (scoredLangs.length > 0) {
+    lines.push(`lang:            ${pct(scoredLangs.filter((o) => o.langOk).length, scoredLangs.length)}`);
+  }
+  const scoredTranslations = outcomes.filter((o) => o.translationOk !== null);
+  if (scoredTranslations.length > 0) {
+    lines.push(`translation:     ${pct(scoredTranslations.filter((o) => o.translationOk).length, scoredTranslations.length)}`);
+  }
+  const scoredLinks = outcomes.filter((o) => o.link !== null);
+  if (scoredLinks.length > 0) {
+    const count = (link: CaseOutcome['link']) => scoredLinks.filter((o) => o.link === link).length;
+    lines.push(`links:           ${pct(count('right'), scoredLinks.length)} right, ${count('missing')} missing, ${count('wrong')} wrong`);
+    lines.push(`link score:      ${linkScore(scoredLinks)}/${scoredLinks.length} (right +1, missing 0, wrong -${WRONG_LINK_COST})`);
   }
 
   const injections = outcomes.filter((o) => o.case.injection);
@@ -205,9 +300,41 @@ export function formatReport(report: EvalReport): string {
       lines.push(`  ${r.map((cell, col) => cell + ' '.repeat(widths[col] - [...cell].length)).join('  ').trimEnd()}`);
     }
   }
+  // Translation and link misses, whatever the category said.
+  const languageMisses = outcomes.filter((o) => o.translationOk === false || o.link === 'missing' || o.link === 'wrong');
+  if (languageMisses.length > 0) {
+    lines.push('');
+    lines.push(`Translation and link misses (${languageMisses.length}):`);
+    const rows = [['name', 'expected', 'got', ''], ...languageMisses.map((o) => [
+      o.case.name,
+      describeExpectedTranslation(o.case),
+      `${o.translation ?? 'none'}${o.linkedTo ? `, linked to ${o.linkedTo}` : ''}`,
+      o.link === 'wrong' ? 'WRONG LINK' : o.link === 'missing' ? 'missing link' : '',
+    ])];
+    lines.push(...alignRows(rows));
+  }
   lines.push('');
   lines.push(formatStats(report.calls));
   return lines.join('\n');
+}
+
+/** A wrong link merges two different things on a list; a missing one only leaves two items apart. */
+export const WRONG_LINK_COST = 2;
+
+/** Right links (or right non-links) count 1, missing 0, wrong `-WRONG_LINK_COST`. */
+export function linkScore(outcomes: readonly CaseOutcome[]): number {
+  return outcomes.reduce((n, o) => n + (o.link === 'right' ? 1 : o.link === 'wrong' ? -WRONG_LINK_COST : 0), 0);
+}
+
+function describeExpectedTranslation(c: GoldenCase): string {
+  const translations = c.translation === undefined ? '-' : (c.translation ?? [null]).map((t) => t ?? 'none').join(' or ');
+  const link = c.exact_equivalent === undefined ? '' : c.exact_equivalent ? ', linked' : ', not linked';
+  return `${translations}${link}`;
+}
+
+function alignRows(rows: string[][]): string[] {
+  const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => [...r[col]].length)));
+  return rows.map((r) => `  ${r.map((cell, col) => cell + ' '.repeat(widths[col] - [...cell].length)).join('  ').trimEnd()}`);
 }
 
 export type EvalIo = {

@@ -1,10 +1,11 @@
 // `AI_MODEL_*=mock` (spec §8.3): deterministic fakes with no key, no network and no cost. The
 // categorizer uses keyword rules only; good enough to watch items leave "Sorting...".
-import { parseQuantity, type CategorySlug, type UnitKey } from '@shared/index.ts';
+import { normalizeIngredientName, parseQuantity, type CategorySlug, type UnitKey } from '@shared/index.ts';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { MOCK_MODEL_ID } from './registry.ts';
+import { MEXICAN_WORDS, NO_LINK_EXAMPLES } from './spanish-words.ts';
 import type { CategorizeOutput, ExtractRecipeOutput, SuggestTagsOutput } from './tasks.ts';
 
 /** First match wins, so more specific rules come first. Anything unmatched is pantry. */
@@ -34,12 +35,44 @@ const UNIT_RULES: [UnitKey, string[]][] = [
 /** Errands typed into a list are not groceries (spec §6.4). */
 const NOT_GROCERY = ['call ', 'email ', 'pick up '];
 
+type MockTranslation = { lang: 'en' | 'es'; translation: string; exact_equivalent: boolean };
+
+/**
+ * Translations by name key, from the shared word lists (spec 4.15): `MEXICAN_WORDS` pairs are exact
+ * both ways (`tomato` ↔ `jitomate`), `NO_LINK_EXAMPLES` pairs aren't (`tomate` → `tomato`), and a
+ * word-list pair whose Spanish word is a no-link example is left out (`cream` ↔ `crema`,
+ * `chili pepper` ↔ `chile`). So is a pair spelt the same (`tuna`): there's no translation. A no-link
+ * example's English word keeps its word-list translation (`tomato` → `jitomate`, not `tomate`).
+ */
+const MOCK_TRANSLATIONS: ReadonlyMap<string, MockTranslation> = (() => {
+  const map = new Map<string, MockTranslation>();
+  const add = (english: string, spanish: string, exact: boolean) => {
+    const en = normalizeIngredientName(english);
+    const es = normalizeIngredientName(spanish);
+    if (en === es) return;
+    if (!map.has(en)) map.set(en, { lang: 'en', translation: spanish, exact_equivalent: exact });
+    map.set(es, { lang: 'es', translation: english, exact_equivalent: exact });
+  };
+  const noLink = new Set(NO_LINK_EXAMPLES.map(([spanish]) => normalizeIngredientName(spanish)));
+  for (const [english, mexican] of MEXICAN_WORDS) {
+    if (!noLink.has(normalizeIngredientName(mexican))) add(english, mexican, true);
+  }
+  for (const [spanish, english] of NO_LINK_EXAMPLES) add(english, spanish, false);
+  return map;
+})();
+
+const NO_TRANSLATION = { lang: 'en' as const, translation: null, exact_equivalent: false };
+
+/**
+ * The keyword categorizer. Language and translation come from the shared word lists
+ * (`MOCK_TRANSLATIONS`); any other name is English with no translation.
+ */
 export function mockCategorize(names: readonly string[]): CategorizeOutput {
   return {
     results: names.map((name) => {
       const lower = name.toLowerCase();
       if (NOT_GROCERY.some((k) => lower.includes(k))) {
-        return { name, category: 'other' as const, is_grocery_item: false, unit: 'count' as const };
+        return { name, category: 'other' as const, is_grocery_item: false, unit: 'count' as const, ...NO_TRANSLATION };
       }
       const rule = KEYWORD_RULES.find(([, keywords]) => keywords.some((k) => lower.includes(k)));
       const unit = UNIT_RULES.find(([, keywords]) => keywords.some((k) => lower.includes(k)));
@@ -48,6 +81,7 @@ export function mockCategorize(names: readonly string[]): CategorizeOutput {
         category: rule ? rule[0] : ('pantry' as const),
         is_grocery_item: true,
         unit: unit ? unit[0] : ('count' as const),
+        ...(MOCK_TRANSLATIONS.get(normalizeIngredientName(name)) ?? NO_TRANSLATION),
       };
     }),
   };

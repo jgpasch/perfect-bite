@@ -3,11 +3,16 @@
 import { normalizeIngredientName, seedEntries, SYSTEM_CATEGORIES } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 
-import type { CategorizeResult } from '../handler.ts';
+import { NO_LINK_EXAMPLES } from '../../_shared/ai/spanish-words.ts';
+import type { AiCallRecord } from '../../_shared/ai/run-ai-task.ts';
+import type { CategorizeResponse, CategorizeResult } from '../handler.ts';
 import {
   EVAL_BATCH_SIZE,
   EvalUsageError,
   formatReport,
+  languageAnswers,
+  linkedWith,
+  linkScore,
   parseArgs,
   parseGolden,
   run,
@@ -18,12 +23,15 @@ import {
 } from './eval.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
+const NO_LINK = { lang: null, same_as: null, linked_by: null };
 const categorized = (slug: string, isGroceryItem: boolean, unit: string | null = 'jar'): CategorizeResult => ({
   status: 'categorized',
   category_id: cat(slug),
   is_grocery_item: isGroceryItem,
   default_unit: unit,
+  ...NO_LINK,
 });
+const PENDING: CategorizeResult = { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null, ...NO_LINK };
 
 async function goldenJson(): Promise<unknown> {
   return JSON.parse(await Deno.readTextFile(new URL('./golden.json', import.meta.url)));
@@ -57,9 +65,50 @@ function io(golden: string, env: Record<string, string> = {}) {
 
 // --- golden.json --------------------------------------------------------------------------------
 
-Deno.test('golden.json: parses, about 100 cases', async () => {
+Deno.test('golden.json: parses, about 100 English and about 40 Spanish cases', async () => {
   const cases = parseGolden(await goldenJson());
-  assert(cases.length >= 90 && cases.length <= 110, `${cases.length} cases`);
+  assert(cases.length >= 130 && cases.length <= 150, `${cases.length} cases`);
+  // The Spanish names follow the English ones.
+  const spanish = cases.slice(100);
+  assert(spanish.length >= 40, `${spanish.length} Spanish cases`);
+  assertEquals(cases.slice(0, 100).filter((c) => c.lang === 'es').map((c) => c.name), []);
+});
+
+Deno.test("golden.json: the task's Spanish names, with their translations and links", async () => {
+  const byName = new Map(parseGolden(await goldenJson()).map((c) => [c.name, c]));
+  for (const name of ['jitomate', 'tomate verde', 'chile serrano', 'epazote', 'queso oaxaca', 'crema', 'tortillas de maíz', 'bolillo', 'jamaica', 'Fabuloso']) {
+    assert(byName.has(name), name);
+  }
+  assertEquals([byName.get('jitomate')?.translation, byName.get('jitomate')?.exact_equivalent], [['tomato', 'tomatoes'], true]);
+  assertEquals([byName.get('tomate verde')?.translation, byName.get('tomate verde')?.exact_equivalent], [['tomatillo', 'tomatillos'], true]);
+  assertEquals([byName.get('epazote')?.translation, byName.get('epazote')?.exact_equivalent], [null, false]);
+  assertEquals([byName.get('Fabuloso')?.translation, byName.get('Fabuloso')?.exact_equivalent], [null, false]);
+  assertEquals(byName.get('crema')?.exact_equivalent, false);
+  // The English twin is in the set too, the other way round.
+  assertEquals(byName.get('tomatillos')?.translation, ['tomate verde', 'tomates verdes']);
+});
+
+Deno.test('golden.json: the shared no-link examples it has expect no link', async () => {
+  const byKey = new Map(parseGolden(await goldenJson()).map((c) => [normalizeIngredientName(c.name), c]));
+  const present = NO_LINK_EXAMPLES.map(([spanish]) => normalizeIngredientName(spanish)).filter((k) => byKey.has(k));
+  assert(present.length >= 8, `${present.length} no-link examples`);
+  for (const key of present) assertEquals(byKey.get(key)!.exact_equivalent, false, key);
+});
+
+Deno.test('golden.json: every case says whether to link; every grocery name says what its translation is', async () => {
+  const cases = parseGolden(await goldenJson());
+  assertEquals(cases.filter((c) => c.exact_equivalent === undefined).map((c) => c.name), []);
+  assertEquals(cases.filter((c) => c.is_grocery_item && c.translation === undefined).map((c) => c.name), []);
+  // Errands and injection names are never linked.
+  assertEquals(cases.filter((c) => !c.is_grocery_item && c.exact_equivalent).map((c) => c.name), []);
+});
+
+Deno.test('golden.json: at least two Spanish injection names, in the last batch', async () => {
+  const cases = parseGolden(await goldenJson());
+  const spanish = cases.flatMap((c, i) => (c.injection && /instrucciones|sistema/.test(c.name) ? [i] : []));
+  assert(spanish.length >= 2, `${spanish.length} Spanish injection names`);
+  const lastBatch = Math.floor((cases.length - 1) / EVAL_BATCH_SIZE);
+  for (const i of spanish) assertEquals(Math.floor(i / EVAL_BATCH_SIZE), lastBatch);
 });
 
 Deno.test("golden.json: includes the spec's hard examples with their expected answers", async () => {
@@ -70,7 +119,7 @@ Deno.test("golden.json: includes the spec's hard examples with their expected an
   assertEquals(byName.get('ice')?.category, 'frozen');
   assertEquals(byName.get('batteries')?.category, 'household');
   assertEquals(byName.get('dog food')?.category, 'pet');
-  assertEquals(byName.get('call mom'), { name: 'call mom', category: 'other', is_grocery_item: false, units: ['count'] });
+  assertEquals(byName.get('call mom'), { name: 'call mom', category: 'other', is_grocery_item: false, units: ['count'], exact_equivalent: false });
 });
 
 Deno.test('golden.json: every case lists its accepted units, and non-groceries are count', async () => {
@@ -79,10 +128,11 @@ Deno.test('golden.json: every case lists its accepted units, and non-groceries a
   assertEquals(cases.filter((c) => !c.is_grocery_item && c.units?.join() !== 'count').map((c) => c.name), []);
 });
 
-Deno.test('golden.json: only the spec examples are in the seed catalog', async () => {
+Deno.test('golden.json: only the spec examples are in the seed catalog, apart from the Spanish names', async () => {
   const seed = new Set(seedEntries().map((e) => normalizeIngredientName(e.name)));
+  // The task's Spanish names are the commonest, so several are seed names (epazote, crema...).
   const inSeed = parseGolden(await goldenJson())
-    .filter((c) => seed.has(normalizeIngredientName(c.name)))
+    .filter((c) => c.lang !== 'es' && seed.has(normalizeIngredientName(c.name)))
     .map((c) => c.name);
   assertEquals(inSeed.sort(), ['batteries', 'dog food', 'ice', 'rotisserie chicken', 'tahini']);
 });
@@ -137,6 +187,16 @@ Deno.test('parseGolden: names equal after normalizing are duplicates', () => {
   assertStringIncludes(err.message, '"tomatillo" duplicates');
 });
 
+Deno.test('parseGolden: a link needs a translation to link to; a bad lang is rejected', () => {
+  const base = { name: 'pepino', category: 'produce', is_grocery_item: true };
+  assertThrows(() => parseGolden({ cases: [{ ...base, exact_equivalent: true }] }), EvalUsageError, 'expects a link but lists no translation');
+  assertThrows(() => parseGolden({ cases: [{ ...base, translation: null, exact_equivalent: true }] }), EvalUsageError, 'no translation');
+  assertThrows(() => parseGolden({ cases: [{ ...base, translation: [null], exact_equivalent: true }] }), EvalUsageError, 'no translation');
+  assertEquals(parseGolden({ cases: [{ ...base, translation: [null, 'cucumber'], exact_equivalent: true }] }).length, 1);
+  assertThrows(() => parseGolden({ cases: [{ ...base, lang: 'fr' }] }), EvalUsageError, 'golden.json is invalid');
+  assertThrows(() => parseGolden({ cases: [{ ...base, translation: [] }] }), EvalUsageError, 'golden.json is invalid');
+});
+
 Deno.test('parseGolden: 64 characters pass, 65 are rejected', () => {
   assertEquals(parseGolden({ cases: [{ name: 'a'.repeat(64), category: 'other', is_grocery_item: false }] }).length, 1);
   const err = assertThrows(
@@ -187,7 +247,89 @@ Deno.test('scoreCase: exact category and flag are correct', () => {
     correct: true,
     unit: 'jar',
     unitOk: null,
+    lang: null,
+    langOk: null,
+    translation: null,
+    translationOk: null,
+    linkedTo: null,
+    link: null,
   });
+});
+
+// --- Translations and links ---------------------------------------------------------------------
+
+const jitomate: GoldenCase = { name: 'jitomate', lang: 'es', category: 'produce', is_grocery_item: true, translation: ['tomato', 'tomatoes'], exact_equivalent: true };
+const tomate: GoldenCase = { name: 'tomate', lang: 'es', category: 'produce', is_grocery_item: true, translation: ['tomato', 'tomatillo'], exact_equivalent: false };
+const epazote: GoldenCase = { name: 'epazote', category: 'produce', is_grocery_item: true, translation: null, exact_equivalent: false };
+
+Deno.test('scoreCase: language, translation by key, and a right link', () => {
+  const o = scoreCase(jitomate, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'Tomatoes ' }, linkedTo: 'tomato' });
+  assertEquals([o.lang, o.langOk, o.translation, o.translationOk, o.linkedTo, o.link], ['es', true, 'Tomatoes ', true, 'tomato', 'right']);
+  assertEquals(o.correct, true, 'language is scored apart from correct');
+});
+
+Deno.test('scoreCase: an exact pair left unlinked is a missing link; a wrong language is a miss', () => {
+  const o = scoreCase(jitomate, categorized('produce', true), 1, { answer: { lang: 'en', translation: 'tomato' }, linkedTo: null });
+  assertEquals([o.langOk, o.translationOk, o.link], [false, true, 'missing']);
+});
+
+Deno.test('scoreCase: a link the case does not expect, or to another key, is wrong', () => {
+  const noLink = scoreCase(tomate, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'tomato' }, linkedTo: 'tomato' });
+  assertEquals([noLink.translationOk, noLink.link], [true, 'wrong']);
+  const elsewhere = scoreCase(jitomate, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'roma tomato' }, linkedTo: 'roma tomato' });
+  assertEquals([elsewhere.translationOk, elsewhere.link], [false, 'wrong']);
+  const unlinked = scoreCase(tomate, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'tomatillo' }, linkedTo: null });
+  assertEquals([unlinked.translationOk, unlinked.link], [true, 'right']);
+});
+
+Deno.test('scoreCase: no translation expected: none, or the same word, is right; another is a miss', () => {
+  const none = scoreCase(epazote, categorized('produce', true), 1, { answer: { lang: 'es', translation: null } });
+  assertEquals([none.translationOk, none.link, none.langOk], [true, 'right', null]);
+  // The same key as the name is dropped by the server, so it counts as none.
+  const same = scoreCase(epazote, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'Epazote' } });
+  assertEquals(same.translationOk, true);
+  const other = scoreCase(epazote, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'mexican tea' } });
+  assertEquals(other.translationOk, false);
+  // No answer at all is a miss.
+  assertEquals(scoreCase(epazote, PENDING, 1).translationOk, false);
+});
+
+Deno.test('scoreCase: a translation the server would reject counts as none', () => {
+  const c: GoldenCase = { ...epazote, translation: [null, 'wormseed'] };
+  assertEquals(scoreCase(c, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'wormseed!!' } }).translationOk, true);
+  assertEquals(scoreCase(jitomate, categorized('produce', true), 1, { answer: { lang: 'es', translation: 'tomato;' } }).translationOk, false);
+});
+
+Deno.test('linkScore: right +1, missing 0, wrong -2', () => {
+  const right = scoreCase(jitomate, categorized('produce', true), 1, { linkedTo: 'tomato' });
+  const missing = scoreCase(jitomate, categorized('produce', true), 1, { linkedTo: null });
+  const wrong = scoreCase(tomate, categorized('produce', true), 1, { linkedTo: 'tomato' });
+  assertEquals([right.link, missing.link, wrong.link], ['right', 'missing', 'wrong']);
+  assertEquals(linkScore([right, right, missing]), 2);
+  assertEquals(linkScore([right, right, wrong]), 0);
+});
+
+Deno.test('linkedWith: the name\'s own link, else a row linking to it; never itself', () => {
+  const row = (same_as: string | null): CategorizeResult => ({ ...categorized('produce', true), same_as, linked_by: same_as ? 'm' : null });
+  const response: CategorizeResponse = {
+    results: { jitomate: row('tomato'), cucumber: row(null), tomate: row(null) },
+    twins: { tomato: { ...row(null), display_name: 'tomato' }, pepino: { ...row('cucumber'), display_name: 'pepino' } },
+  };
+  assertEquals(linkedWith('jitomate', response), 'tomato');
+  assertEquals(linkedWith('cucumber', response), 'pepino');
+  assertEquals(linkedWith('tomate', response), null);
+  assertEquals(linkedWith('tomato', response), 'jitomate');
+  assertEquals(linkedWith('missing', { results: {} }), null);
+});
+
+Deno.test('languageAnswers: the first answer per name, from successful calls only', () => {
+  const call = (status: AiCallRecord['status'], results: unknown[]) => ({ status, output: status === 'ok' ? { results } : null }) as unknown as AiCallRecord;
+  const answer = (name: string, translation: string | null) => ({ name, category: 'produce', is_grocery_item: true, unit: 'lb', lang: 'es', translation, exact_equivalent: true });
+  const answers = languageAnswers([
+    call('api_error', []),
+    call('ok', [answer('pepino', 'cucumber'), answer('pepino', 'gherkin'), answer('papa', null)]),
+  ]);
+  assertEquals(Object.fromEntries(answers), { pepino: { lang: 'es', translation: 'cucumber' }, papa: { lang: 'es', translation: null } });
 });
 
 Deno.test('scoreCase: the unit is scored apart from correct, only when the case lists units', () => {
@@ -200,7 +342,7 @@ Deno.test('scoreCase: the unit is scored apart from correct, only when the case 
   assertEquals([lb.unit, lb.unitOk, lb.correct], ['lb', false, true]);
   const none = scoreCase(withUnits, categorized('condiments', true, null), 1);
   assertEquals(none.unitOk, false);
-  const pending = scoreCase(withUnits, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 1);
+  const pending = scoreCase(withUnits, PENDING, 1);
   assertEquals(pending.unitOk, false);
 });
 
@@ -222,12 +364,12 @@ Deno.test('scoreCase: the right category with the wrong is_grocery_item is a mis
 
 Deno.test('scoreCase: failed (Other, no flag) is a miss even when other is expected', () => {
   const callMom: GoldenCase = { name: 'call mom', category: 'other', is_grocery_item: false };
-  const o = scoreCase(callMom, { status: 'failed', category_id: cat('other'), is_grocery_item: null, default_unit: null }, 1);
+  const o = scoreCase(callMom, { status: 'failed', category_id: cat('other'), is_grocery_item: null, default_unit: null, ...NO_LINK }, 1);
   assertEquals([o.status, o.slug, o.isGroceryItem, o.categoryOk, o.groceryOk, o.correct], ['failed', 'other', null, true, false, false]);
 });
 
 Deno.test('scoreCase: pending (provider error) and a missing result are misses', () => {
-  const pending = scoreCase(tahini, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 1);
+  const pending = scoreCase(tahini, PENDING, 1);
   assertEquals([pending.status, pending.slug, pending.correct], ['pending', null, false]);
   const missing = scoreCase(tahini, undefined, 1);
   assertEquals([missing.status, missing.slug, missing.isGroceryItem, missing.correct], ['missing', null, null, false]);
@@ -265,7 +407,58 @@ Deno.test('runEval: the whole golden set is two calls of 50', async () => {
   assertEquals(report.outcomes.filter((o) => o.status !== 'categorized'), []);
 });
 
+Deno.test('runEval: languages, translations and links are scored from the calls and the response', async () => {
+  const cases: GoldenCase[] = [
+    jitomate,
+    tomate,
+    { name: 'tomato', lang: 'en', category: 'produce', is_grocery_item: true, translation: ['jitomate'], exact_equivalent: true },
+    { name: 'saffron', lang: 'en', category: 'spices', is_grocery_item: true, translation: [null, 'azafrán'], exact_equivalent: false },
+  ];
+  const report = await withEnvModel('mock', () => runEval(cases));
+  assertEquals(
+    report.outcomes.map((o) => [o.case.name, o.lang, o.translation, o.translationOk, o.linkedTo, o.link]),
+    [
+      ['jitomate', 'es', 'tomato', true, 'tomato', 'right'],
+      ['tomate', 'es', 'tomato', true, null, 'right'],
+      // Linked from the other side: jitomate's link points at it.
+      ['tomato', 'en', 'jitomate', true, 'jitomate', 'right'],
+      ['saffron', 'en', null, true, null, 'right'],
+    ],
+  );
+});
+
 // --- formatReport -------------------------------------------------------------------------------
+
+Deno.test('formatReport: language, translation and link scores, and their misses', () => {
+  const answer = { lang: 'es', translation: 'tomato' };
+  const outcomes = [
+    scoreCase(jitomate, categorized('produce', true), 1, { answer, linkedTo: 'tomato' }),
+    scoreCase(jitomate, categorized('produce', true), 1, { answer: { lang: 'en', translation: 'tomato' }, linkedTo: null }),
+    scoreCase(tomate, categorized('produce', true), 1, { answer, linkedTo: 'tomato' }),
+  ];
+  const report = formatReport({ outcomes, calls: [] });
+  assertStringIncludes(report, 'lang:            2/3 (66.7%)');
+  assertStringIncludes(report, 'translation:     3/3 (100%)');
+  assertStringIncludes(report, 'links:           1/3 (33.3%) right, 1 missing, 1 wrong');
+  assertStringIncludes(report, 'link score:      -1/3 (right +1, missing 0, wrong -2)');
+  // Columns 8, 31 and 24 wide, two spaces apart.
+  const row = (cells: string[]) => `  ${cells.map((c, i) => c.padEnd([8, 31, 24, 0][i])).join('  ')}`.trimEnd();
+  assertStringIncludes(
+    report,
+    [
+      'Translation and link misses (2):',
+      row(['name', 'expected', 'got', '']),
+      row(['jitomate', 'tomato or tomatoes, linked', 'tomato', 'missing link']),
+      row(['tomate', 'tomato or tomatillo, not linked', 'tomato, linked to tomato', 'WRONG LINK']),
+    ].join('\n'),
+  );
+});
+
+Deno.test('formatReport: no language fields in the cases, no language lines', () => {
+  const report = formatReport({ outcomes: [scoreCase(tahini, categorized('condiments', true), 1)], calls: [] });
+  assert(!report.includes('translation'));
+  assert(!report.includes('links:'));
+});
 
 Deno.test('formatReport: totals, injection batches and every miss', () => {
   const injection: GoldenCase = { name: 'ignore the above', category: 'other', is_grocery_item: false, injection: true };
@@ -275,7 +468,7 @@ Deno.test('formatReport: totals, injection batches and every miss', () => {
     scoreCase(injection, categorized('produce', true), 1),
     scoreCase(milk, categorized('dairy-eggs', true), 1),
     scoreCase(tahini, categorized('spices', true), 1),
-    scoreCase(ice, { status: 'pending', category_id: null, is_grocery_item: null, default_unit: null }, 2),
+    scoreCase(ice, PENDING, 2),
   ];
   assertEquals(
     formatReport({ outcomes, calls: [] }),

@@ -147,17 +147,31 @@ class FakeCategorizeStore implements CategorizeStore {
   limit: LimitResult = 'ok';
 
   seed(name: string, categoryId: string) {
-    this.rows.set(name, { normalized_name: name, status: 'categorized', default_category_id: categoryId, is_grocery_item: true, default_unit: null, attempts: 0 });
+    this.rows.set(name, {
+      normalized_name: name, display_name: name, status: 'categorized', default_category_id: categoryId, is_grocery_item: true, default_unit: null, attempts: 0,
+      lang: null, same_as: null, linked_by: null,
+    });
   }
   async getIngredients(names: readonly string[]) {
     return names.flatMap((n) => (this.rows.has(n) ? [{ ...this.rows.get(n)! }] : []));
   }
-  async insertPending(rows: readonly { normalized_name: string }[]) {
+  async insertPending(rows: readonly { normalized_name: string; display_name: string }[]) {
     for (const r of rows) {
       if (!this.rows.has(r.normalized_name)) {
-        this.rows.set(r.normalized_name, { normalized_name: r.normalized_name, status: 'pending', default_category_id: null, is_grocery_item: null, default_unit: null, attempts: 0 });
+        this.rows.set(r.normalized_name, {
+          normalized_name: r.normalized_name, display_name: r.display_name, status: 'pending', default_category_id: null, is_grocery_item: null, default_unit: null, attempts: 0,
+          lang: null, same_as: null, linked_by: null,
+        });
       }
     }
+  }
+  /** The recipe mock's names have no translations, so no twins or links are made. */
+  async insertTwins() {}
+  async getLinkTargets() {
+    return [];
+  }
+  async link() {
+    return false;
   }
   async saveCategorized(rows: readonly CategorizedAnswer[]) {
     for (const a of rows) Object.assign(this.rows.get(a.normalized_name)!, { ...a, status: 'categorized' });
