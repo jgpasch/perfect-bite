@@ -255,9 +255,11 @@ const add = (value: string) => {
   act(() => addBar().props.onAdd(value));
   refresh();
 };
-const fold = () => all('ViewMenuButton')[0].props.fold as
-  | { canCollapse: boolean; canExpand: boolean; onCollapseAll: () => void; onExpandAll: () => void }
-  | undefined;
+/** The ⋯ menu's inline groups, each as its actions' titles. */
+const menuGroups = () =>
+  all('ToolbarMenu')
+    .filter((m) => m.props.inline)
+    .map((g) => all('ToolbarMenuAction', g).map((n) => n.props.children));
 const setView = (mode: string) => act(() => all('ViewMenuButton')[0].props.onChange(mode));
 
 describe('the list', () => {
@@ -1124,13 +1126,77 @@ describe('folding sections', () => {
     expect(rowNames()).toEqual(['milk']);
     expect(getDeviceSetting(collapsedSectionsKey(listId, 'category'), [])).toEqual([`c-${cat('produce')}`]);
 
-    // In the view button's menu.
-    act(() => fold()!.onCollapseAll());
+    // In the ⋯ menu: one section folded, so both are on.
+    expect(menuAction('Collapse all').props.disabled).toBe(false);
+    expect(menuAction('Expand all').props.disabled).toBe(false);
+    press(menuAction('Collapse all'));
     expect(rows()).toHaveLength(0);
-    expect(fold()!.canCollapse).toBe(false);
-    act(() => fold()!.onExpandAll());
+    expect(menuAction('Collapse all').props.disabled).toBe(true);
+    expect(menuAction('Expand all').props.disabled).toBe(false);
+    press(menuAction('Expand all'));
     expect(rowNames()).toEqual(['bananas', 'milk']);
-    expect(fold()!.canExpand).toBe(false);
+    expect(menuAction('Collapse all').props.disabled).toBe(false);
+    expect(menuAction('Expand all').props.disabled).toBe(true);
+    expect(getDeviceSetting(collapsedSectionsKey(listId, 'category'), [])).toEqual([]);
+  });
+
+  test('Collapse all and Expand all are their own ⋯ group after Select items / Share, in By aisle', () => {
+    put('milk');
+    render();
+    setView('category');
+    expect(menuGroups()).toEqual([
+      ['Select items', 'Share list'],
+      ['Collapse all', 'Expand all'],
+      ['Edit list…', 'Reorder aisles…'],
+    ]);
+    expect(menuAction('Collapse all').props.icon).toBe('rectangle.compress.vertical');
+    expect(menuAction('Expand all').props.icon).toBe('rectangle.expand.vertical');
+    // Nothing folded yet: nothing to expand.
+    expect(menuAction('Collapse all').props.disabled).toBe(false);
+    expect(menuAction('Expand all').props.disabled).toBe(true);
+  });
+
+  test('By recipe: Collapse all and Expand all fold every recipe card, saved for that view only', () => {
+    const recipeId = createRecipe('Tacos', getList(listId)!.householdId);
+    addRecipeIngredient(recipeId, 'tortillas');
+    addWholeRecipeToList(listId, recipeId, USER);
+    put('milk');
+    render();
+    setView('recipe');
+    expect(menuGroups()[1]).toEqual(['Collapse all', 'Expand all']);
+    press(menuAction('Collapse all'));
+    expect(rows()).toHaveLength(0);
+    expect(getDeviceSetting(collapsedSectionsKey(listId, 'recipe'), [])).toEqual([`r-${recipeId}`, 'r-other']);
+    expect(sections().every((s) => s.props.collapsed)).toBe(true);
+    expect(menuAction('Collapse all').props.disabled).toBe(true);
+    expect(getDeviceSetting(collapsedSectionsKey(listId, 'category'), [])).toEqual([]);
+    press(menuAction('Expand all'));
+    expect(rows().length).toBeGreaterThan(0);
+    expect(sections().some((s) => s.props.collapsed)).toBe(false);
+    expect(menuAction('Expand all').props.disabled).toBe(true);
+  });
+
+  test('As added has no Collapse all', () => {
+    put('milk');
+    render();
+    expect(menuAction('Collapse all')).toBeUndefined();
+    expect(menuAction('Expand all')).toBeUndefined();
+    expect(menuGroups()).toEqual([['Select items', 'Share list'], ['Edit list…']]);
+  });
+
+  test('a view with no sections has no Collapse all', () => {
+    render();
+    setView('category');
+    expect(menuAction('Collapse all')).toBeUndefined();
+    setView('recipe');
+    expect(menuAction('Expand all')).toBeUndefined();
+  });
+
+  test('the view menu no longer has them', () => {
+    put('milk');
+    render();
+    setView('category');
+    expect(all('ViewMenuButton')[0].props).not.toHaveProperty('fold');
   });
 
   test('an add into a folded section opens it', () => {
@@ -1142,10 +1208,6 @@ describe('folding sections', () => {
     expect(section('Dairy & Eggs').props.collapsed).toBe(false);
   });
 
-  test('As added has no Collapse all', () => {
-    render();
-    expect(fold()).toBeUndefined();
-  });
 });
 
 describe('the list menu', () => {

@@ -1,5 +1,5 @@
 import { Button, Host, Menu, RNHostView, Section, Toggle } from '@expo/ui/swift-ui';
-import { accessibilityHint, accessibilityLabel, disabled } from '@expo/ui/swift-ui/modifiers';
+import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 import { StyleSheet, View } from 'react-native';
 
 import { listHeaderColors } from '@/components/appearance';
@@ -14,24 +14,18 @@ import {
 } from '@/features/lists/list-view';
 import { useTheme } from '@/hooks/use-theme';
 
-/** Collapse all / Expand all, for the views with sections. */
-export type FoldActions = { canCollapse: boolean; canExpand: boolean; onCollapseAll: () => void; onExpandAll: () => void };
-
 /**
  * The list screen's view button (spec 4.6): a small white-wash pill on the green header reading the
- * current view, "As added ⌄", that opens a native menu of the views, the current one ticked. In By aisle
- * and By recipe, Collapse all and Expand all follow in their own group; in As added with a dragged order,
- * Reset order does.
+ * current view, "As added ⌄", that opens a native menu of the views, the current one ticked. In As added
+ * with a dragged order, Reset order follows in its own group.
  */
 export function ViewMenuButton({
   value,
   onChange,
-  fold,
   onResetOrder,
 }: {
   value: ListViewMode;
   onChange: (mode: ListViewMode) => void;
-  fold?: FoldActions;
   /** Set while As added shows the user's own order: back to plain As added. */
   onResetOrder?: () => void;
 }) {
@@ -80,22 +74,6 @@ export function ViewMenuButton({
               onIsOnChange={() => onChange(mode.value)}
             />
           ))}
-          {fold ? (
-            <Section>
-              <Button
-                label="Collapse all"
-                systemImage="rectangle.compress.vertical"
-                onPress={fold.onCollapseAll}
-                modifiers={[disabled(!fold.canCollapse)]}
-              />
-              <Button
-                label="Expand all"
-                systemImage="rectangle.expand.vertical"
-                onPress={fold.onExpandAll}
-                modifiers={[disabled(!fold.canExpand)]}
-              />
-            </Section>
-          ) : null}
           {onResetOrder ? (
             <Section>
               <Button label="Reset order" systemImage="arrow.uturn.backward" onPress={onResetOrder} />
