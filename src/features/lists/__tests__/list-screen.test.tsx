@@ -22,6 +22,7 @@ import {
   setKeepScreenOn,
 } from '@/features/settings/device-settings';
 import type { MyInvite } from '@/features/households/invites';
+import { setStaple } from '@/features/households/staples';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
@@ -635,6 +636,71 @@ describe('adding', () => {
     act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
     expect(rowNames().sort()).toEqual(['limes', 'tortillas']);
     expect(text()).toContain('Added Tacos · 2 items');
+    tapToast('Adjust');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/recipe/[id]/add-to-list',
+      params: { id: recipeId, list: listId, adjust: expect.any(String) },
+    });
+  });
+
+  test('a recipe chip leaves the staples off and names them on a second line', () => {
+    const householdId = getList(listId)!.householdId;
+    const recipeId = createRecipe('Tacos', householdId);
+    addRecipeIngredient(recipeId, 'tortillas');
+    addRecipeIngredient(recipeId, 'salt');
+    addRecipeIngredient(recipeId, 'limes');
+    addRecipeIngredient(recipeId, 'pepper');
+    setStaple(householdId, 'salt', true, USER);
+    setStaple(householdId, 'pepper', true, USER);
+    render();
+    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 4 }));
+    expect(rowNames().sort()).toEqual(['limes', 'tortillas']);
+    expect(lines()).toContain('Added Tacos · 2 items\nSkipped salt, pepper');
+    expect(hostByLabel('Undo')).toBeDefined();
+    tapToast('Adjust');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/recipe/[id]/add-to-list',
+      params: { id: recipeId, list: listId, adjust: expect.any(String) },
+    });
+  });
+
+  test('a recipe chip with more than three staples names two and counts the rest', () => {
+    const householdId = getList(listId)!.householdId;
+    const recipeId = createRecipe('Tacos', householdId);
+    for (const name of ['tortillas', 'salt', 'pepper', 'olive oil', 'water']) addRecipeIngredient(recipeId, name);
+    for (const name of ['salt', 'pepper', 'olive oil', 'water']) setStaple(householdId, name, true, USER);
+    render();
+    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 5 }));
+    expect(rowNames()).toEqual(['tortillas']);
+    expect(lines()).toContain('Added Tacos · 1 item\nSkipped salt, pepper and 2 more');
+  });
+
+  test('a recipe chip with no staples has no second line', () => {
+    const householdId = getList(listId)!.householdId;
+    const recipeId = createRecipe('Tacos', householdId);
+    addRecipeIngredient(recipeId, 'salt');
+    setStaple(householdId, 'salt', true, USER);
+    setStaple(householdId, 'salt', false, USER);
+    render();
+    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 1 }));
+    expect(rowNames()).toEqual(['salt']);
+    expect(lines()).toContain('Added Tacos · 1 item');
+    expect(text()).not.toContain('Skipped');
+  });
+
+  test('a recipe chip that is all staples adds nothing and offers only Adjust', () => {
+    const householdId = getList(listId)!.householdId;
+    const recipeId = createRecipe('Tacos', householdId);
+    addRecipeIngredient(recipeId, 'Salt');
+    addRecipeIngredient(recipeId, 'pepper');
+    setStaple(householdId, 'salt', true, USER);
+    setStaple(householdId, 'pepper', true, USER);
+    render();
+    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
+    expect(rows()).toHaveLength(0);
+    expect(lines()).toContain('You always have everything in Tacos');
+    expect(text()).not.toContain('Added');
+    expect(tree!.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === 'Undo')).toHaveLength(0);
     tapToast('Adjust');
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/recipe/[id]/add-to-list',

@@ -122,7 +122,7 @@ import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-l
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
-import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
+import { addedRecipeToListToast, addedRecipeWithStaplesToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import {
   clearManualOrder,
   getAisleColorStyle,
@@ -627,17 +627,20 @@ export function ListScreen({ id }: { id: string }) {
   };
 
   // Spec 4.2: a recipe picked in the add bar adds all its ingredients at 1× (Combine as 4.4 bulk add), with Undo,
-  // and Adjust, which opens the recipe's add sheet; adding from there replaces this add.
+  // and Adjust, which opens the recipe's add sheet; adding from there replaces this add. The household's staples
+  // (Always have, 4.5) are left out and named; when that's all of them, nothing is added and only Adjust is offered.
   const addRecipe = (recipe: RecipeSuggestion) => {
     const added = addWholeRecipeToList(id, recipe.id, userId);
     if (!added) return;
     void categorizePending(added.pendingNames);
-    if (viewMode === 'newest') listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    if (viewMode === 'newest' && added.count > 0) listRef.current?.scrollToOffset({ offset: 0, animated: true });
     setToast({
       key: `recipe-add-${recipe.id}-${Date.now()}`,
-      ...addedRecipeToListToast(added.recipeName, added.count),
+      ...addedRecipeWithStaplesToast(added.recipeName, added.count, added.skipped),
       actions: [
-        { label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) },
+        ...(added.count === 0 && added.skipped.length > 0
+          ? []
+          : [{ label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
         {
           label: 'Adjust',
           onPress: () => {

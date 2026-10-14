@@ -69,6 +69,29 @@ export function addedRecipeToListToast(recipeName: string, count: number): { mes
   return { message: `Added ${recipeName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName };
 }
 
+// Past three names, the line names two and counts the rest.
+const SKIPPED_NAMES_SHOWN = 3;
+
+/**
+ * The add bar's recipe toast (spec 4.2) when it left the household's staples (Always have) out: "Added Tacos · 6
+ * items" with a second line "Skipped salt, pepper" ("Skipped salt, pepper and 2 more" past three). With every
+ * ingredient a staple nothing was added: "You always have everything in Tacos".
+ */
+export function addedRecipeWithStaplesToast(
+  recipeName: string,
+  count: number,
+  skipped: readonly string[],
+): { message: string; emphasis: string } {
+  if (count === 0 && skipped.length > 0) return { message: `You always have everything in ${recipeName}`, emphasis: recipeName };
+  const added = addedRecipeToListToast(recipeName, count);
+  if (skipped.length === 0) return added;
+  const names =
+    skipped.length > SKIPPED_NAMES_SHOWN
+      ? `${skipped.slice(0, 2).join(', ')} and ${skipped.length - 2} more`
+      : skipped.join(', ');
+  return { ...added, message: `${added.message}\nSkipped ${names}` };
+}
+
 /**
  * Recipes most recently used first (the "Add to recipe" sheet, spec 4.5). A recipe's last use is
  * the later of its last change (`updatedAt`) and the last time it was added to a list (`uses`, one

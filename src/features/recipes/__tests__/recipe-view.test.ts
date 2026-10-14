@@ -3,6 +3,7 @@ import { describe, expect, test } from '@jest/globals';
 import {
   addCtaLabel,
   addedRecipeToListToast,
+  addedRecipeWithStaplesToast,
   addedToRecipeToast,
   addToRecipeTitle,
   groupRecipesByHousehold,
@@ -153,6 +154,30 @@ describe('labels', () => {
     expect(addedRecipeToListToast('Tacos', 8)).toEqual({ message: 'Added Tacos · 8 items', emphasis: 'Tacos' });
     expect(addedRecipeToListToast('Toast', 1)).toEqual({ message: 'Added Toast · 1 item', emphasis: 'Toast' });
     expect(addedRecipeToListToast('Tacos', 0)).toEqual({ message: 'Added Tacos · 0 items', emphasis: 'Tacos' });
+  });
+
+  test('the add bar toast names skipped staples on a second line, up to three, then two and a count', () => {
+    expect(addedRecipeWithStaplesToast('Tacos', 6, [])).toEqual({ message: 'Added Tacos · 6 items', emphasis: 'Tacos' });
+    expect(addedRecipeWithStaplesToast('Tacos', 1, ['salt'])).toEqual({
+      message: 'Added Tacos · 1 item\nSkipped salt',
+      emphasis: 'Tacos',
+    });
+    expect(addedRecipeWithStaplesToast('Tacos', 6, ['salt', 'pepper']).message).toBe('Added Tacos · 6 items\nSkipped salt, pepper');
+    expect(addedRecipeWithStaplesToast('Tacos', 6, ['salt', 'pepper', 'water']).message).toBe(
+      'Added Tacos · 6 items\nSkipped salt, pepper, water',
+    );
+    expect(addedRecipeWithStaplesToast('Tacos', 6, ['salt', 'pepper', 'water', 'olive oil']).message).toBe(
+      'Added Tacos · 6 items\nSkipped salt, pepper and 2 more',
+    );
+  });
+
+  test('the add bar toast when every ingredient is a staple', () => {
+    expect(addedRecipeWithStaplesToast('Tacos', 0, ['salt', 'pepper'])).toEqual({
+      message: 'You always have everything in Tacos',
+      emphasis: 'Tacos',
+    });
+    // A recipe with no ingredients at all isn't "everything a staple".
+    expect(addedRecipeWithStaplesToast('Tacos', 0, []).message).toBe('Added Tacos · 0 items');
   });
 
   test("an add bar recipe row says it's a recipe and counts its items", () => {

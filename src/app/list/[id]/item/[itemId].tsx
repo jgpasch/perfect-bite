@@ -2,7 +2,7 @@ import { Host, Menu, RNHostView, Section, Text as SwiftText, Toggle } from '@exp
 import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import { ActionSheetIOS, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActionSheetIOS, Alert, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
 import { Button, SoftDangerButton } from '@/components/button';
@@ -11,6 +11,7 @@ import { CheckCircle } from '@/components/check-circle';
 import { Icon, type IconName } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
+import { SettingsRow } from '@/components/settings-group';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -32,6 +33,7 @@ import {
 import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
+import { alwaysHaveFootnote, isStaple, setStaple } from '@/features/households/staples';
 import { openList } from '@/features/lists/current-list';
 import { useFeature } from '@/features/plans/features';
 import {
@@ -87,6 +89,8 @@ export default function ItemEditSheet() {
   const [editingName, setEditingName] = useState(false);
   // The aisle picker shows the first few aisles (always with the current one) until Show all.
   const [aislesOpen, setAislesOpen] = useState(false);
+  // Always have (spec 4.2, 4.5): the household's staple, saved as soon as it's switched.
+  const [staple, setStapleState] = useState(() => (initial ? isStaple(initial.householdId, initial.ingredientName) : false));
   const sorts = useFeature('categorize');
 
   if (!edit || !initial) return <Screen />;
@@ -227,6 +231,11 @@ export default function ItemEditSheet() {
         }
       },
     );
+  };
+
+  const toggleStaple = (on: boolean) => {
+    setStaple(initial.householdId, initial.ingredientName, on, userId);
+    setStapleState(on);
   };
 
   const now = new Date();
@@ -440,6 +449,26 @@ export default function ItemEditSheet() {
               />
             </View>
           ) : null}
+          <View style={{ gap: spacing.sm }}>
+            <Card>
+              <SettingsRow
+                label="Always have"
+                last
+                trailing={
+                  <Switch
+                    value={staple}
+                    onValueChange={toggleStaple}
+                    trackColor={{ true: colors.primary }}
+                    accessibilityLabel="Always have"
+                    accessibilityHint="Left off when you add a recipe"
+                  />
+                }
+              />
+            </Card>
+            <ThemedText variant="footnote" color="inkSecondary" style={labelInset}>
+              {alwaysHaveFootnote(householdName)}
+            </ThemedText>
+          </View>
         </>
       ) : null}
 

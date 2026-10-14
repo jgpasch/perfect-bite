@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { Button } from '@/components/button';
 import { Pill } from '@/components/pill';
 import { db, households, lists, outbox, recipes } from '@/db';
+import { isStaple, setStaple } from '@/features/households/staples';
 import { resolveCurrentListId } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
@@ -23,7 +24,7 @@ import AddRecipeToListSheet from '@/app/recipe/[id]/add-to-list';
 import RecipeScreen from '@/app/recipe/[id]/index';
 import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 
-import { addRecipeToList, buildRecipeAdds } from '../add-to-list';
+import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
 import { IMPORT_TAGS_NOTE } from '../recipe-tag-row';
 import { NOTHING_SUGGESTED_NOTE, SUGGESTED_NOTE, type SuggestTagsResult } from '../suggest-tags';
@@ -1045,6 +1046,73 @@ describe('AddRecipeToListSheet', () => {
     press(byLabel(root, '2×'));
     press(root.root.find((n) => typeof n.type !== 'string' && /^Add 3 to /.test(n.props.label ?? '') && n.props.onPress));
     expect(listRows(groceries)).toEqual(['2 lb ground beef', '16 tortillas', 'cilantro']);
+  });
+
+  describe('Always have', () => {
+    const household = () => getRecipe(tacos)!.householdId;
+    const choices = (root: ReactTestRenderer) =>
+      checkboxes(root).map((c) => [c.props.accessibilityLabel, c.props.accessibilityState.checked]);
+    /** The "Always have" tags drawn, with their colour. */
+    const tags = (root: ReactTestRenderer) =>
+      root.root
+        .findAll((n) => typeof n.type !== 'string' && n.props.children === '  Always have')
+        .map((n) => n.props.color);
+
+    test('staples start unticked and tagged, in inkSecondary; the count follows the ticks', () => {
+      setStaple(household(), 'cilantro', true, USER);
+      const root = render(<AddRecipeToListSheet />);
+      expect(choices(root)).toEqual([
+        ['Ground beef, 1 lb', true],
+        ['Tortillas, 8', true],
+        ['Cilantro, Always have', false],
+      ]);
+      expect(tags(root)).toEqual(['inkSecondary']);
+      expect(texts(root)).toEqual(expect.arrayContaining(['2 of 3', 'Cilantro  Always have']));
+      const groceriesName = db.select().from(lists).all().find((l) => l.id === groceries)!.name;
+      expect(byLabel(root, `Add 2 to ${groceriesName}`).props.disabled).toBe(false);
+    });
+
+    test("ticking a staple adds it this time and doesn't change the staple", () => {
+      setStaple(household(), 'cilantro', true, USER);
+      const root = render(<AddRecipeToListSheet />);
+      press(checkboxes(root)[2]);
+      expect(texts(root)).toContain('3 of 3');
+      // Still tagged: it's still a staple.
+      expect(tags(root)).toEqual(['inkSecondary']);
+      press(root.root.find((n) => typeof n.type !== 'string' && /^Add 3 to /.test(n.props.label ?? '') && n.props.onPress));
+      expect(listRows(groceries)).toEqual(['1 lb ground beef', '8 tortillas', 'cilantro']);
+      expect(isStaple(household(), 'cilantro')).toBe(true);
+    });
+
+    test('rows have no long-press to mark or unmark', () => {
+      const root = render(<AddRecipeToListSheet />);
+      expect(checkboxes(root).map((c) => c.props.onLongPress)).toEqual([undefined, undefined, undefined]);
+    });
+
+    test("another household's staples, or an unmarked one, start ticked with no tag", () => {
+      insertRow(db, households, { id: 'h-cabin', name: 'Cabin' });
+      setStaple('h-cabin', 'cilantro', true, USER);
+      const tortillas = recipeIngredientsQuery(tacos).all()[1].ingredientName;
+      setStaple(household(), tortillas, true, USER);
+      setStaple(household(), tortillas, false, USER);
+      const root = render(<AddRecipeToListSheet />);
+      expect(choices(root).map(([, checked]) => checked)).toEqual([true, true, true]);
+      expect(tags(root)).toEqual([]);
+    });
+
+    test('from Adjust after an all-staples add, the same starting ticks, and the add puts on what is ticked', () => {
+      for (const i of recipeIngredientsQuery(tacos).all()) setStaple(household(), i.ingredientName, true, USER);
+      const first = addWholeRecipeToList(groceries, tacos, USER)!;
+      expect(first.count).toBe(0);
+      mockParams.list = groceries;
+      mockParams.adjust = startAdjust({ listId: groceries, recipeId: tacos, results: first.results });
+      const root = render(<AddRecipeToListSheet />);
+      expect(choices(root).map(([, checked]) => checked)).toEqual([false, false, false]);
+      expect(texts(root)).toContain('0 of 3');
+      press(checkboxes(root)[1]);
+      press(byLabel(root, 'Add 1 to ' + db.select().from(lists).all().find((l) => l.id === groceries)!.name));
+      expect(listRows(groceries)).toEqual(['8 tortillas']);
+    });
   });
 
   test('Cancel goes back without adding', () => {

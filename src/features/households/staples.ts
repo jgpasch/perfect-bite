@@ -50,6 +50,12 @@ export function setStaple(householdId: string, ingredientName: string, on: boole
   upsertRow(db, householdStaples, { householdId, ingredientName, createdBy: userId, deletedAt }, { deletedAt });
 }
 
+/** The item sheet's footnote under its Always have switch (spec 4.2): staples are the household's. */
+export function alwaysHaveFootnote(householdName: string | null): string {
+  const name = householdName?.trim();
+  return `Left off when you add a recipe. Changes it for everyone in ${name || 'your household'}.`;
+}
+
 /** The household's staples' keys, for matching recipe ingredients. */
 export function stapleNames(householdId: string): Set<string> {
   return new Set(

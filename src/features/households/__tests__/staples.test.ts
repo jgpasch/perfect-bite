@@ -5,7 +5,7 @@ import { db, householdStaples, households, ingredientUsage, outbox } from '@/db'
 import { getDefaultListId, ensureStarterData, getList } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
-import { isStaple, setStaple, stapleNames, staplesQuery } from '../staples';
+import { alwaysHaveFootnote, isStaple, setStaple, stapleNames, staplesQuery } from '../staples';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -113,5 +113,14 @@ describe('staplesQuery', () => {
   test('is empty for a household with none', () => {
     setStaple(CABIN, 'salt', true, USER);
     expect(staplesQuery(home).all()).toEqual([]);
+  });
+});
+
+describe('alwaysHaveFootnote', () => {
+  test('names the household, or says "your household" without a name', () => {
+    expect(alwaysHaveFootnote('Home')).toBe('Left off when you add a recipe. Changes it for everyone in Home.');
+    expect(alwaysHaveFootnote(' Home ')).toBe('Left off when you add a recipe. Changes it for everyone in Home.');
+    expect(alwaysHaveFootnote(null)).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
+    expect(alwaysHaveFootnote('  ')).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
   });
 });

@@ -46,8 +46,9 @@ export default function AddRecipeToListSheet() {
     const offered = (listId: string | null | undefined) => lists.find((l) => l.id === listId)?.id;
     return offered(fromList) ?? offered(userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null;
   });
-  // Spec 4.5: the household's staples (Always have) start unticked.
-  const [selected, setSelected] = useState(() => defaultSelection(ingredients, recipe ? stapleNames(recipe.householdId) : new Set()));
+  // Spec 4.5: the household's staples (Always have) start unticked and are tagged; ticking one doesn't change it.
+  const [staples] = useState(() => (recipe ? stapleNames(recipe.householdId) : new Set<string>()));
+  const [selected, setSelected] = useState(() => defaultSelection(ingredients, staples));
   const [servings, setServings] = useState(1);
 
   const adds = useMemo(() => buildRecipeAdds(id, ingredients, selected, servings), [id, ingredients, selected, servings]);
@@ -121,6 +122,7 @@ export default function AddRecipeToListSheet() {
               key={i.id}
               label={displayItemName(i.displayName)}
               amount={amount}
+              staple={staples.has(i.ingredientName)}
               on={on}
               onPress={() => setSelected(toggle(selected, i.id))}
             />
@@ -165,8 +167,23 @@ function Label({ children }: { children: string }) {
   );
 }
 
-/** A row in "Untick what you have": a round check, the name, and the scaled amount. Off rows are muted. */
-function IngredientChoice({ label, amount, on, onPress }: { label: string; amount: string; on: boolean; onPress: () => void }) {
+/**
+ * A row in "Untick what you have": a round check, the name (with an "Always have" tag for a staple), and the scaled
+ * amount. Off rows are muted.
+ */
+function IngredientChoice({
+  label,
+  amount,
+  staple,
+  on,
+  onPress,
+}: {
+  label: string;
+  amount: string;
+  staple: boolean;
+  on: boolean;
+  onPress: () => void;
+}) {
   const { colors, spacing, sizes, opacity } = useTheme();
   // Off rows use `inkSecondary`, not `inkTertiary`: tertiary is too light for text (DESIGN.md).
   const ink = on ? 'ink' : 'inkSecondary';
@@ -174,7 +191,7 @@ function IngredientChoice({ label, amount, on, onPress }: { label: string; amoun
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: on }}
-      accessibilityLabel={amount ? `${label}, ${amount}` : label}
+      accessibilityLabel={[label, staple ? ALWAYS_HAVE : null, amount || null].filter(Boolean).join(', ')}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -191,6 +208,11 @@ function IngredientChoice({ label, amount, on, onPress }: { label: string; amoun
       <CheckCircle checked={on} />
       <ThemedText variant="body" color={ink} style={styles.flex}>
         {label}
+        {staple ? (
+          <ThemedText variant="amount" color="inkSecondary">
+            {`  ${ALWAYS_HAVE}`}
+          </ThemedText>
+        ) : null}
       </ThemedText>
       {amount ? (
         <ThemedText variant="amount" color="inkSecondary">
@@ -200,6 +222,8 @@ function IngredientChoice({ label, amount, on, onPress }: { label: string; amoun
     </Pressable>
   );
 }
+
+const ALWAYS_HAVE = 'Always have';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

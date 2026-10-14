@@ -1,11 +1,13 @@
 // The item sheet (spec 4.2, 4.3.2, 4.4, board 04), against the real in-memory database: name, its check
 // (Got it), amount stepper and unit, note, the amounts added, aisle, Move, Delete.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { ActionSheetIOS, Alert } from 'react-native';
+import { eq } from 'drizzle-orm';
+import { ActionSheetIOS, Alert, Switch } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import ItemEditSheet from '@/app/list/[id]/item/[itemId]';
-import { categories, db, householdCategoryOverrides, ingredients, listItems } from '@/db';
+import { categories, db, householdCategoryOverrides, households, ingredients, listItems } from '@/db';
+import { isStaple, setStaple } from '@/features/households/staples';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
@@ -343,11 +345,12 @@ describe('the aisle', () => {
     const { itemId } = addItem(listId, 'milk', USER)!;
     open(itemId);
     expect(pill('Dairy & Eggs').props.accessibilityState).toMatchObject({ selected: true });
-    expect(text()).not.toContain('Changes it for everyone');
+    // The aisle's own footnote line (Always have's footnote says it too, after its own sentence).
+    expect(lines()).not.toContain('Changes it for everyone in Personal.');
     press('Show all');
     press('Frozen');
     expect(pill('Frozen').props.accessibilityState).toMatchObject({ selected: true });
-    expect(text()).toContain('Changes it for everyone in Personal.');
+    expect(lines()).toContain('Changes it for everyone in Personal.');
     tapToolbar('Save');
     expect(db.select().from(householdCategoryOverrides).all()).toEqual([
       expect.objectContaining({ ingredientName: 'milk', categoryId: cat('frozen') }),
@@ -394,6 +397,52 @@ describe('the aisle', () => {
     press('Show all');
     press('New aisle');
     expect(pill('Asian market').props.accessibilityState).toMatchObject({ selected: true });
+  });
+});
+
+describe('Always have', () => {
+  const toggle = () => tree!.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Always have');
+  const householdId = () => getList(listId)!.householdId;
+
+  test('a switch below the aisle with its hint and the household in the footnote', () => {
+    const { itemId } = addItem(listId, 'salt', USER)!;
+    open(itemId);
+    expect(toggle().props.value).toBe(false);
+    expect(toggle().props.accessibilityHint).toBe('Left off when you add a recipe');
+    expect(text()).toContain('Left off when you add a recipe. Changes it for everyone in Personal.');
+    // Below the aisle pills.
+    const all = lines();
+    expect(all.indexOf('Always have')).toBeGreaterThan(all.indexOf('Aisle'));
+  });
+
+  test('without a household name the footnote says "your household"', () => {
+    db.update(households).set({ name: '' }).where(eq(households.id, householdId())).run();
+    const { itemId } = addItem(listId, 'salt', USER)!;
+    open(itemId);
+    expect(text()).toContain('Left off when you add a recipe. Changes it for everyone in your household.');
+  });
+
+  test('switching it on marks the ingredient at once, without Save; off unmarks it', () => {
+    const { itemId } = addItem(listId, '2 Salt', USER)!;
+    open(itemId);
+    act(() => toggle().props.onValueChange(true));
+    expect(toggle().props.value).toBe(true);
+    // Saved for the household by the ingredient's key, with nothing else saved and the sheet still open.
+    expect(isStaple(householdId(), 'salt')).toBe(true);
+    expect(mockBack).not.toHaveBeenCalled();
+    act(() => toggle().props.onValueChange(false));
+    expect(toggle().props.value).toBe(false);
+    expect(isStaple(householdId(), 'salt')).toBe(false);
+  });
+
+  test('an ingredient already marked shows on; Cancel keeps the change', () => {
+    setStaple(householdId(), 'salt', true, USER);
+    const { itemId } = addItem(listId, 'salt', USER)!;
+    open(itemId);
+    expect(toggle().props.value).toBe(true);
+    act(() => toggle().props.onValueChange(false));
+    tapToolbar('Cancel');
+    expect(isStaple(householdId(), 'salt')).toBe(false);
   });
 });
 
