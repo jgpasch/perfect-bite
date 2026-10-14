@@ -1,0 +1,106 @@
+# A recipe from scratch onto a list (spec 4.5, with 4.4 bulk add): New recipe on the Recipes tab, three
+# ingredients with the add field, then Add to a list puts all three on Groceries with the "Added Tacos ·
+# 3 items" toast, and By recipe groups them under a Tacos section. Adding onion by hand then Combines into
+# the onion that's there (now a manual add too, so it stays under Tacos, with no Other items section).
+# The New recipe prompt is a native text alert, matched by its text. This doesn't check the servings
+# multiplier, unticking an ingredient, staples, the toast's Undo, or a recipe added from the add bar.
+appId: com.jgp.perfectbite
+name: A recipe from scratch onto a list
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: email
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+
+# With the keyboard up, a tap on a tab only dismisses it, so tap until the Recipes tab shows.
+- repeat:
+    while:
+      notVisible: 'No recipes yet.'
+    times: 4
+    commands:
+      - tapOn: 'Recipes'
+      - waitForAnimationToEnd
+
+# New recipe asks for the name, then opens the recipe.
+- tapOn: 'New recipe'
+- extendedWaitUntil:
+    visible: 'Create'
+    timeout: 10000
+- inputText: 'Tacos'
+- tapOn: 'Create'
+- extendedWaitUntil:
+    visible: 'Add an ingredient'
+    timeout: 10000
+- assertVisible: 'Tacos'
+
+# Three ingredients with the add field. A recipe row reads its amount, then its name.
+- tapOn: 'Add an ingredient'
+- inputText: '1 lb ground beef'
+- pressKey: Enter
+- assertVisible: '1 lb Ground beef'
+- inputText: '8 tortillas'
+- pressKey: Enter
+- assertVisible: '8 Tortillas?'
+- inputText: '1 onion'
+- pressKey: Enter
+- assertVisible: '1 Onion'
+- assertVisible: 'Ingredients, 3 items'
+
+# Add to a list: all three ticked, Groceries chosen, then the CTA adds them and opens the list.
+- tapOn: 'Add to a list'
+- extendedWaitUntil:
+    visible: 'Add 3 to Groceries'
+    timeout: 10000
+- assertVisible: 'Add Tacos'
+- assertVisible: '3 of 3'
+- tapOn: 'Groceries'
+- assertVisible: 'Add 3 to Groceries'
+- tapOn: 'Add 3 to Groceries'
+
+# The list: the bulk-add toast and all three items. A text match must cover the whole label, hence the .*.
+- extendedWaitUntil:
+    visible: 'Added Tacos · 3 items.*'
+    timeout: 10000
+- assertVisible: 'Groceries, switch list'
+- assertVisible: 'Check off Ground beef'
+- assertVisible: 'Check off Tortillas?'
+- assertVisible: 'Check off Onion'
+
+# By recipe: a Tacos section holding the three, and nothing under Other items.
+- tapOn: 'View: As added'
+- tapOn: 'By recipe'
+- extendedWaitUntil:
+    visible: 'Tacos, 3 items'
+    timeout: 10000
+- assertVisible: 'View: By recipe'
+- assertNotVisible: 'Other items.*'
+- assertVisible:
+    text: 'Check off Ground beef'
+    below: 'Tacos, 3 items'
+- assertVisible:
+    text: 'Check off Tortillas?'
+    below: 'Tacos, 3 items'
+- assertVisible:
+    text: 'Check off Onion'
+    below: 'Tacos, 3 items'
+
+# Onion by hand Combines: the "Added to Onion" toast, still one Onion row and three items under Tacos.
+# Index 1 is a second match.
+- tapOn: 'Add an item'
+- inputText: 'onion'
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: 'Added to Onion.*'
+    timeout: 10000
+- assertVisible: 'Check off Onion'
+- assertNotVisible:
+    text: 'Check off Onion'
+    index: 1
+- assertVisible: 'Tacos, 3 items'
+- assertNotVisible: 'Other items.*'
