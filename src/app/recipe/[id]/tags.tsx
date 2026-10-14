@@ -26,6 +26,7 @@ import {
 } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import { tagFacetLabel, tagLabel } from '@/i18n/vocabulary';
 import { emptyRecipeTags, RECIPE_TAG_FACETS, RecipeTagsSchema } from '@/shared/recipe-tags';
 
 type Suggestion =
@@ -156,11 +157,12 @@ export default function RecipeTagsSheet() {
       {RECIPE_TAG_FACETS.map((facet) => {
         const full = facetAtMax(tags, facet.key);
         const limit = facetLimitLabel(facet.max);
+        const facetName = tagFacetLabel(facet.key);
         return (
           <View key={facet.key} style={{ gap: spacing.sm }}>
             <View style={[styles.row, inset, { gap: spacing.sm }]}>
               <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={styles.flex}>
-                {facet.label}
+                {facetName}
               </ThemedText>
               {full ? (
                 <ThemedText variant="footnote" color="inkSecondary">
@@ -175,12 +177,12 @@ export default function RecipeTagsSheet() {
                 return (
                   <Pill
                     key={value.slug}
-                    label={value.label}
+                    label={tagLabel(facet.key, value.slug)!}
                     selected={on}
                     disabled={blocked}
                     accessibilityRole="togglebutton"
                     accessibilityState={{ checked: on }}
-                    accessibilityHint={blocked ? t('recipes.tags.full', { facet: facet.label, limit }) : undefined}
+                    accessibilityHint={blocked ? t('recipes.tags.full', { facet: facetName, limit }) : undefined}
                     onPress={() => setTags((current) => toggleTag(current, facet.key, value.slug))}
                   />
                 );

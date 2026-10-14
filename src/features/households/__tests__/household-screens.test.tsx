@@ -1368,16 +1368,16 @@ describe('in Spanish', () => {
         'Dueño',
         'Miembro',
         'Invitados',
-        'Enviada por John · vence Oct 17',
+        'Enviada por John · vence 17 oct',
         'Enlace de invitación',
-        'Enviada · vence Oct 17',
+        'Enviada · vence 17 oct',
         'Siempre tengo',
         'Ninguno',
       ]),
     );
     expect(hasA11y(root, 'Cambiar nombre del hogar')).toBe(true);
     expect(hasA11y(root, 'Sam, Miembro')).toBe(true);
-    expect(hasA11y(root, 'pat@example.com, Enviada por John · vence Oct 17, Pendiente')).toBe(true);
+    expect(hasA11y(root, 'pat@example.com, Enviada por John · vence 17 oct, Pendiente')).toBe(true);
     expect(byLabel(root, 'Invitar a alguien')).toBeDefined();
     expect(byLabel(root, 'Eliminar hogar').props.accessibilityHint).toBe(
       'Te pide confirmar y luego elimina este hogar para todos sus miembros.',

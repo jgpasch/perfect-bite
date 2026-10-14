@@ -139,6 +139,7 @@ import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import { withAisleNames } from '@/i18n/vocabulary';
 import { displayItemName } from '@/shared';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
@@ -231,11 +232,13 @@ export function ListScreen({ id }: { id: string }) {
   const itemById = useMemo(() => new Map([...unchecked, ...checked].map((item) => [item.id, item])), [unchecked, checked]);
   // The list household's aisles (spec 4.3.2), in this user's order.
   const householdId = list?.householdId ?? '';
-  const { data: categoryRows } = useLiveQueryOn(
+  const { data: storedCategoryRows } = useLiveQueryOn(
     categoriesQuery(userId ?? '', householdId),
     [categories, userCategoryOrder],
     [userId, householdId],
   );
+  // System aisles named in the app's language (spec 4.15).
+  const categoryRows = useMemo(() => withAisleNames(storedCategoryRows), [storedCategoryRows]);
   const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
   const sections = useMemo(() => groupByCategory(orderedCategories, placed), [orderedCategories, placed]);
 

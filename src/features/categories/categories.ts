@@ -11,6 +11,7 @@ import { COUNT_KEY } from '@/domain/usual-unit';
 import { hasFeature } from '@/features/plans/features';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { i18n } from '@/i18n';
+import { aisleName, systemAisleSlug, withAisleNames } from '@/i18n/vocabulary';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
@@ -142,9 +143,12 @@ export function categoriesQuery(userId: string, households: Households) {
 }
 export type CategoryRow = Awaited<ReturnType<typeof categoriesQuery>>[number];
 
-/** The categories of `households`, in the user's order (spec 4.3.3). */
+/**
+ * The categories of `households`, in the user's order (spec 4.3.3), system aisles named in the
+ * app's language (4.15).
+ */
 export function getOrderedCategories(userId: string, households: Households): CategoryRow[] {
-  return orderCategories(categoriesQuery(userId, households).all());
+  return orderCategories(withAisleNames(categoriesQuery(userId, households).all()));
 }
 
 /**
@@ -189,13 +193,17 @@ export function moveCategory(userId: string, households: Households, from: numbe
 
 /**
  * "New aisle...": a custom category for the household (every member gets it), at the end of this
- * user's order. A name the household already has (a system aisle or one of its own, in any case)
- * returns that one instead.
+ * user's order. A name the household already has returns that one instead: a system aisle's
+ * English or Spanish name ignoring case and accents (spec 4.15: `Lácteos` is Dairy & Eggs), or one
+ * of its own in any case.
  */
 export function createCategory(userId: string, householdId: string, name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
   if (!trimmed) throw new Error(i18n.t('errors.categoryNeedsName'));
-  const existing = getOrderedCategories(userId, householdId).find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  const all = getOrderedCategories(userId, householdId);
+  const slug = systemAisleSlug(trimmed);
+  const existing =
+    (slug && all.find((c) => c.slug === slug)) || all.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) return existing.id;
   const ordered = placeAll(userId, householdId);
   const id = newId();
@@ -271,7 +279,7 @@ export function ingredientAisles(
   for (const name of ingredientNames) {
     const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(householdId, name);
     const category = byId.get(overrideCategoryId ?? defaultCategoryId ?? '');
-    if (category) out.set(name, { slug: category.slug, name: category.name });
+    if (category) out.set(name, { slug: category.slug, name: aisleName(category) });
   }
   return out;
 }

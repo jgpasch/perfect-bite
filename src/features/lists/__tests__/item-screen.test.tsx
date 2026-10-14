@@ -556,7 +556,7 @@ describe('in Spanish', () => {
     addRecipeIngredient(recipeId, '1 cup milk');
     addWholeRecipeToList(listId, recipeId, USER);
     open(listItemsQuery(listId).all()[0].id);
-    const row = pressables('1 cup, Hotcakes, justo ahora')[0];
+    const row = pressables('1 taza, Hotcakes, justo ahora')[0];
     expect(row.props.accessibilityHint).toBe('Abre Hotcakes');
   });
 
@@ -575,7 +575,7 @@ describe('in Spanish', () => {
     const showAll = pressables('Ver todos')[0];
     expect(showAll.props.accessibilityHint).toBe(`Muestra ${SYSTEM_CATEGORIES.length - 6} pasillos más`);
     press('Ver todos');
-    press('Frozen');
+    press('Congelados');
     expect(lines()).toContain('Lo cambia para todos en Personal.');
     expect(pressables('Restablecer')[0].props.accessibilityHint).toBe('Usa el pasillo de siempre para todos');
     press('Nuevo pasillo');

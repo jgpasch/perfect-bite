@@ -265,7 +265,7 @@ describe('invites in Spanish', () => {
   it('words the Invited rows and their action sheet', () => {
     initI18n('es');
     const now = new Date('2026-10-14T00:00:00Z');
-    expect(pendingInviteDetail({ invitedBy: 'John', expiresAt: '2026-10-18T12:00:00Z' }, now)).toBe('Enviada por John · vence Oct 18');
+    expect(pendingInviteDetail({ invitedBy: 'John', expiresAt: '2026-10-18T12:00:00Z' }, now)).toBe('Enviada por John · vence 18 oct');
     expect(pendingInviteDetail({ invitedBy: null, expiresAt: 'nope' }, now)).toBe('Enviada');
     expect(pendingInviteActions({ email: 'a@b.co' }).options).toEqual(['Volver a enviar', 'Cancelar invitación', 'Cancelar']);
     expect(pendingInviteErrorTitle('revoke')).toBe('No se pudo cancelar la invitación');

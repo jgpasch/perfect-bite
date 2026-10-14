@@ -84,6 +84,15 @@ export function formatDate(date: Date | number, options?: Intl.DateTimeFormatOpt
   return new Intl.DateTimeFormat(currentLanguage(), options).format(date);
 }
 
+/**
+ * A short date in the app's language, with the year only when it isn't `now`'s: "Mar 4",
+ * "Mar 4, 2025"; Spanish "4 mar", "4 mar 2025".
+ */
+export function shortDate(date: Date, now: Date): string {
+  const year = date.getFullYear() === now.getFullYear() ? undefined : 'numeric';
+  return formatDate(date, { month: 'short', day: 'numeric', year });
+}
+
 /** A number in the app's language, e.g. `formatNumber(1234.5)` → "1,234.5". */
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
   return new Intl.NumberFormat(currentLanguage(), options).format(value);

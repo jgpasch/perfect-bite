@@ -315,7 +315,7 @@ describe('the Aisle order screen', () => {
         (n) => typeof n.type === 'string' && n.props.accessibilityHint === 'Mantén presionado y arrastra para mover',
       );
       const count = SYSTEM_CATEGORIES.length;
-      expect(spanishRows[0].props.accessibilityLabel).toBe(`${SYSTEM_CATEGORIES[0].name}, 1 de ${count}`);
+      expect(spanishRows[0].props.accessibilityLabel).toBe(`Frutas y verduras, 1 de ${count}`);
       expect(spanishRows[1].props.accessibilityActions).toEqual([
         { name: 'moveUp', label: 'Subir' },
         { name: 'moveDown', label: 'Bajar' },

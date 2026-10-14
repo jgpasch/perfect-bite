@@ -15,6 +15,7 @@ import { categoriesQuery, moveCategory } from '@/features/categories/categories'
 import { householdsQuery } from '@/features/households/households';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import { withAisleNames } from '@/i18n/vocabulary';
 
 /**
  * "Aisle order" (spec 4.3.3, board 12): the user's category order, used on every list. Opened from
@@ -34,7 +35,7 @@ export default function CategoryOrderScreen() {
   );
   // With more than one household, a custom aisle shows its household's name (two "Costco"s).
   const ordered = useMemo(
-    () => orderCategories(data).map((c) => ({ ...c, household: aisleHouseholdLine(c.householdId, householdRows) })),
+    () => orderCategories(withAisleNames(data)).map((c) => ({ ...c, household: aisleHouseholdLine(c.householdId, householdRows) })),
     [data, householdRows],
   );
 

@@ -4,7 +4,7 @@
 import { sql } from 'drizzle-orm';
 
 import { db, outbox } from '@/db';
-import { i18n } from '@/i18n';
+import { formatDate, i18n } from '@/i18n';
 
 import { getSyncActivity, type SyncActivity } from './activity';
 import { getPullState, pullNow, type PullState, type PullSummary } from './pull';
@@ -108,7 +108,7 @@ export function formatLastSync(iso: string | null, now: Date): string {
   if (minutes < 60) return i18n.t('sync.minutesAgo', { count: minutes });
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return i18n.t('sync.hoursAgo', { count: hours });
-  return at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return formatDate(at, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
 // --- Reading and acting --------------------------------------------------------------------

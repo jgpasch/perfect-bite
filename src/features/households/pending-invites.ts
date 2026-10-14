@@ -2,19 +2,16 @@
 // it's for over who sent it and when it expires, and a Pending badge. This is the rows' copy and
 // their action sheet; the screen is `src/app/(tabs)/settings/households/[id].tsx`.
 import type { HouseholdInvite } from '@/features/households/invites';
-import { i18n } from '@/i18n';
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+import { i18n, shortDate } from '@/i18n';
 
 /**
  * A short local date for an invite's expiry: "Oct 18", with the year when it isn't `now`'s year
- * ("Jan 2, 2027"). Null for a timestamp that doesn't parse.
+ * ("Jan 2, 2027"), in the app's language. Null for a timestamp that doesn't parse.
  */
 export function inviteDateLabel(iso: string, now: Date = new Date()): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-  return date.getFullYear() === now.getFullYear() ? day : `${day}, ${date.getFullYear()}`;
+  return shortDate(date, now);
 }
 
 /** The row's first line: the invited email, or "Invite link" for a link-only invite. */

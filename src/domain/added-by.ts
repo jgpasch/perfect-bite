@@ -1,7 +1,7 @@
 // The "Added" rows on the item sheet (spec 4.4, board 04): who added each amount, and when,
 // e.g. "You, Tuesday" or "Siri, just now".
 
-import { i18n } from '@/i18n';
+import { formatDate, i18n, shortDate } from '@/i18n';
 
 export type AddedBy = {
   source: 'manual' | 'recipe' | 'siri';
@@ -23,15 +23,14 @@ export function addedByLabel({ source, addedBy, recipeName }: AddedBy, userId: s
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
 /**
  * When an amount was added, relative to `now` in local time: "just now" (under a minute, or a
  * clock that's ahead), "5 min ago", "today", "yesterday", a weekday within the last week, then
- * "Mar 4" ("Mar 4, 2025" in another year).
+ * "Mar 4" ("Mar 4, 2025" in another year). Weekdays and dates are in the app's language
+ * ("martes", "4 mar").
  */
 export function addedWhen(at: Date, now: Date): string {
   const ms = now.getTime() - at.getTime();
@@ -41,9 +40,8 @@ export function addedWhen(at: Date, now: Date): string {
   const days = Math.round((startOfDay(now) - startOfDay(at)) / DAY_MS);
   if (days === 0) return i18n.t('addedBy.today');
   if (days === 1) return i18n.t('addedBy.yesterday');
-  if (days < 7) return WEEKDAYS[at.getDay()];
-  const date = `${MONTHS[at.getMonth()]} ${at.getDate()}`;
-  return at.getFullYear() === now.getFullYear() ? date : `${date}, ${at.getFullYear()}`;
+  if (days < 7) return formatDate(at, { weekday: 'long' });
+  return shortDate(at, now);
 }
 
 /**

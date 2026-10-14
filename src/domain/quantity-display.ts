@@ -1,5 +1,6 @@
 // Formatting a single amount. Summing an item's amounts is quantity-math.ts (spec 4.4).
 
+import { unitName } from '@/i18n/vocabulary';
 import type { Unit } from '@/shared';
 
 export type Amount = { quantity: number | null; unit: Unit | null };
@@ -25,9 +26,9 @@ export function formatNumber(n: number, decimal = false): string {
   return String(Math.round(n * 100) / 100);
 }
 
-/** `2 lb`, `3`, `1 dozen`; empty when there is no quantity. */
+/** `2 lb`, `3`, `1 dozen` (*2 tazas* in Spanish); empty when there is no quantity. */
 export function formatAmount({ quantity, unit }: Amount): string {
   if (quantity === null) return '';
   if (!unit) return formatNumber(quantity);
-  return `${formatNumber(quantity, DECIMAL_UNITS.has(unit))} ${unit}`;
+  return `${formatNumber(quantity, DECIMAL_UNITS.has(unit))} ${unitName(unit, quantity)}`;
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
 import { eq } from 'drizzle-orm';
 
@@ -6,6 +6,7 @@ import { categories, db, householdCategoryOverrides, households, ingredients } f
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { addItem, addItemsBulk, deleteItem, groupItems, listItemsQuery, updateItem } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
+import { initI18n } from '@/i18n';
 import { insertRow } from '@/sync/mutate';
 import { applySuggestion, getSuggestions } from '@/features/lists/suggestions';
 import {
@@ -246,6 +247,44 @@ describe('custom aisles (spec 4.3.2)', () => {
     moveCategory(A, [home, CABIN], farm, 0);
     expect(names(A, [home, CABIN])[0]).toBe('Farm stand');
     expect(names(A, CABIN)[0]).toBe('Farm stand');
+  });
+});
+
+describe('system aisles in either language (spec 4.15)', () => {
+  afterEach(() => initI18n('en'));
+
+  test('"New category…" with a system aisle’s English or Spanish name picks that aisle', () => {
+    expect(createCategory(A, home, 'Lácteos')).toBe(id('dairy-eggs'));
+    expect(createCategory(A, home, '  lacteos ')).toBe(id('dairy-eggs'));
+    expect(createCategory(A, home, 'FRUTAS Y  VERDURAS')).toBe(id('produce'));
+    expect(createCategory(A, home, 'panaderia')).toBe(id('bakery'));
+    expect(createCategory(A, home, 'dairy & eggs')).toBe(id('dairy-eggs'));
+    // Whatever the app's language.
+    initI18n('es');
+    expect(createCategory(A, home, 'Meat & Seafood')).toBe(id('meat-seafood'));
+    expect(createCategory(A, home, 'Carnes y mariscos')).toBe(id('meat-seafood'));
+    expect(names(A)).toHaveLength(SYSTEM_CATEGORIES.length);
+  });
+
+  test('a name that is only close to a system aisle is a new custom aisle', () => {
+    const dairy = createCategory(A, home, 'Lácteos extra');
+    expect(dairy).not.toBe(id('dairy-eggs'));
+    expect(db.select().from(categories).where(eq(categories.id, dairy)).get()).toMatchObject({ name: 'Lácteos extra', slug: null });
+  });
+
+  test('system aisles show in the app’s language; stored names and custom aisles don’t change', () => {
+    const custom = createCategory(A, home, 'Costco');
+    initI18n('es');
+    expect(names(A).slice(0, 3)).toEqual(['Frutas y verduras', 'Panadería', 'Salchichonería']);
+    expect(names(A).at(-1)).toBe('Costco');
+    expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: 'dairy-eggs', name: 'Lácteos' });
+    setCategoryOverride(home, key('milk'), custom);
+    expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: null, name: 'Costco' });
+    expect(db.select().from(categories).where(eq(categories.id, id('produce'))).get()!.name).toBe('Produce');
+    expect(categoryNameById([], 'gone')).toBe('Otros');
+    initI18n('en');
+    expect(names(A).slice(0, 3)).toEqual(['Produce', 'Bakery', 'Deli']);
+    expect(categoryNameById([], 'gone')).toBe('Other');
   });
 });
 

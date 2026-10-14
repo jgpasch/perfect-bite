@@ -9,6 +9,7 @@ import {
   type RecipeTags,
 } from '@/shared/recipe-tags';
 import { i18n } from '@/i18n';
+import { tagFacetLabel, tagLabel } from '@/i18n/vocabulary';
 
 import { timeBucketLabel, timeFacetLabel } from './recipe-filters';
 
@@ -32,8 +33,9 @@ export function recipeTagPills(tags: RecipeTags | null, totalMinutes: number | n
   if (known) {
     for (const facet of RECIPE_TAG_FACETS) {
       for (const slug of known[facet.key]) {
-        const value = recipeTagLabel(facet.key, slug)!;
-        pills.push({ key: `${facet.key}:${slug}`, facet: facet.label, value, accessibilityLabel: tagPillLabel(facet.label, value) });
+        const value = tagLabel(facet.key, slug)!;
+        const name = tagFacetLabel(facet.key);
+        pills.push({ key: `${facet.key}:${slug}`, facet: name, value, accessibilityLabel: tagPillLabel(name, value) });
       }
     }
   }

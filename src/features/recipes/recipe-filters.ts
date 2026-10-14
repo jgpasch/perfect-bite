@@ -11,6 +11,7 @@ import {
   type TimeBucket,
 } from '@/shared/recipe-tags';
 import { i18n } from '@/i18n';
+import { tagFacetLabel, tagLabel } from '@/i18n/vocabulary';
 
 const TIME_BUCKET_KEYS = { 'under-30': 'under30', 'under-60': 'under60', 'over-60': 'over60' } as const;
 
@@ -99,7 +100,11 @@ export type FilterFacet = {
  */
 export function availableFilterFacets(recipes: readonly FilterableRecipe[], filters: RecipeFilters): FilterFacet[] {
   const all: { key: FilterFacetKey; label: string; values: readonly { slug: string; label: string }[] }[] = [
-    ...RECIPE_TAG_FACETS.map((f) => ({ key: f.key, label: f.label, values: f.values })),
+    ...RECIPE_TAG_FACETS.map((f) => ({
+      key: f.key,
+      label: tagFacetLabel(f.key),
+      values: f.values.map((v) => ({ slug: v.slug, label: tagLabel(f.key, v.slug)! })),
+    })),
     { key: 'time', label: timeFacetLabel(), values: TIME_BUCKETS.map((b) => ({ slug: b.key, label: timeBucketLabel(b.key) })) },
   ];
   const facets: FilterFacet[] = [];
@@ -146,7 +151,7 @@ export function recipeFilterChips(filters: RecipeFilters): FilterChip[] {
   if (filters.untagged) return [chip('untagged', 'untagged', i18n.t('recipes.filters.untagged'))];
   const chips: FilterChip[] = [];
   for (const facet of RECIPE_TAG_FACETS) {
-    for (const v of facet.values) if (filters.tags[facet.key].includes(v.slug)) chips.push(chip(facet.key, v.slug, v.label));
+    for (const v of facet.values) if (filters.tags[facet.key].includes(v.slug)) chips.push(chip(facet.key, v.slug, tagLabel(facet.key, v.slug)!));
   }
   for (const b of TIME_BUCKETS) if (filters.time.includes(b.key)) chips.push(chip('time', b.key, timeBucketLabel(b.key)));
   return chips;

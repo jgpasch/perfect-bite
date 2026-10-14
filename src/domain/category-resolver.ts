@@ -1,5 +1,6 @@
 // Spec 5 ("Effective category") and 4.3.3. Pure: no React, SQLite or network.
 
+import { i18n } from '@/i18n';
 import { OTHER_CATEGORY_ID } from '@/shared';
 
 /** The "Sorting..." section's id: not a real category, for ingredients awaiting categorization. */
@@ -61,7 +62,7 @@ export function sectionAccessibilityLabel(category: { id: string; name: string }
 /** A category's name by id: "Sorting..." for the Sorting section, else Other when it isn't found. */
 export function categoryNameById(categories: readonly { id: string; name: string }[], id: string): string {
   if (id === SORTING_CATEGORY_ID) return SORTING_CATEGORY.name;
-  return categories.find((c) => c.id === id)?.name ?? 'Other';
+  return categories.find((c) => c.id === id)?.name ?? i18n.t('vocab.aisles.other');
 }
 
 /**

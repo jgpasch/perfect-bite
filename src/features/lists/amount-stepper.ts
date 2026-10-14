@@ -4,6 +4,7 @@
 import { formatNumber, type Amount } from '@/domain/quantity-display';
 import { stepAmount } from '@/domain/quantity-math';
 import { i18n } from '@/i18n';
+import { unitName } from '@/i18n/vocabulary';
 import { parseAmount, type Unit } from '@/shared';
 
 /**
@@ -25,9 +26,9 @@ export const UNIT_GROUPS: readonly { readonly title: string; units: readonly (Un
   },
 }));
 
-/** `lb` → `lb`; no unit → `Count`. */
+/** `lb` → `lb`, `cup` → `cup` (*taza* in Spanish); no unit → `Count`. */
 export function unitLabel(unit: Unit | null): string {
-  return unit ?? i18n.t('item.unitGroups.count');
+  return unit ? unitName(unit) : i18n.t('item.unitGroups.count');
 }
 
 export type UnitMenuItem = { unit: Unit | null; label: string; checked: boolean; usual: boolean };
