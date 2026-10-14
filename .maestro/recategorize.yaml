@@ -1,0 +1,127 @@
+# Recategorize an item (spec 4.3.2, with the edit sheet in 4.2): picking another aisle in the item's
+# edit sheet writes a household override, so the sheet shows "Changes it for everyone in …" and, after
+# Save, By aisle puts the item under the new aisle's header. The override is the household's, so the
+# same name added to a second list (made through the Your lists sheet) lands in the new aisle there
+# too. Reset to default puts it back in its usual aisle. The sheet's "Move to category…" is the row of
+# aisle pills (spec 4.2); the New list prompt is a native text alert, matched by its text. This doesn't
+# check "+ New" (a custom aisle), Show all, another member or device seeing the change, a second
+# household's overrides, or two members changing the same item.
+appId: com.jgp.perfectbite
+name: Recategorize an item
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: email
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+
+# The catalog (and the mock categorizer, mock-model.ts) puts bananas and apples in Produce.
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- inputText: 'Apples'
+- pressKey: Enter
+- assertVisible: 'Check off Apples'
+
+# In add mode the view button gives way to the compact title, which hides the keyboard when tapped.
+- tapOn: 'Groceries, 2 to get · As added'
+- extendedWaitUntil:
+    visible: 'View: As added'
+    timeout: 10000
+- tapOn: 'View: As added'
+- tapOn: 'By aisle'
+- extendedWaitUntil:
+    visible: 'Produce, 2 items'
+    timeout: 15000
+
+# Open Bananas' edit sheet (the row reads "Bananas, …"; a text match must cover the whole label) and
+# pick Bakery: the footnote and Reset to default show under the pills.
+- tapOn: 'Bananas(, .*)?'
+- scrollUntilVisible:
+    element: 'Bakery'
+    centerElement: true
+- tapOn: 'Bakery'
+- extendedWaitUntil:
+    visible: 'Changes it for everyone in .*'
+    timeout: 10000
+- assertVisible: 'Reset to default'
+
+# Save: Bananas sits under a Bakery header, below Produce (the default order), and Apples stays put.
+- tapOn: 'Save'
+- extendedWaitUntil:
+    visible: 'Bakery, 1 item'
+    timeout: 10000
+- assertVisible: 'Produce, 1 item'
+- assertVisible:
+    text: 'Check off Bananas'
+    below: 'Bakery, 1 item'
+- assertVisible:
+    text: 'Check off Apples'
+    above: 'Bakery, 1 item'
+
+# A second list in the same household, through the Your lists sheet. Creating it switches to it.
+- tapOn: 'Groceries, switch list'
+- extendedWaitUntil:
+    visible: 'New list'
+    timeout: 10000
+- tapOn: 'New list'
+- extendedWaitUntil:
+    visible: 'Create'
+    timeout: 10000
+- inputText: 'Weekend'
+- tapOn: 'Create'
+- extendedWaitUntil:
+    visible: 'Weekend, switch list'
+    timeout: 10000
+
+# Bananas there goes straight to Bakery: the override is the household's, not the list's.
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- tapOn: 'Weekend, 1 to get · As added'
+- extendedWaitUntil:
+    visible: 'View: As added'
+    timeout: 10000
+- tapOn: 'View: As added'
+- tapOn: 'By aisle'
+- extendedWaitUntil:
+    visible: 'Bakery, 1 item'
+    timeout: 15000
+- assertNotVisible: 'Produce, .*'
+
+# Back to Groceries (still in By aisle; the view is remembered per list).
+- tapOn: 'Weekend, switch list'
+- extendedWaitUntil:
+    visible: 'Groceries, 2 items to get.*'
+    timeout: 10000
+- tapOn: 'Groceries, 2 items to get.*'
+- extendedWaitUntil:
+    visible: 'Groceries, switch list'
+    timeout: 10000
+- extendedWaitUntil:
+    visible: 'Bakery, 1 item'
+    timeout: 10000
+
+# Reset to default: the footnote goes, and after Save Bananas is back under Produce with no Bakery.
+- tapOn: 'Bananas(, .*)?'
+- scrollUntilVisible:
+    element: 'Reset to default'
+    centerElement: true
+- tapOn: 'Reset to default'
+- extendedWaitUntil:
+    notVisible: 'Changes it for everyone in .*'
+    timeout: 10000
+- assertNotVisible: 'Reset to default'
+- tapOn: 'Save'
+- extendedWaitUntil:
+    visible: 'Produce, 2 items'
+    timeout: 10000
+- assertNotVisible: 'Bakery, .*'
+- assertVisible: 'Check off Bananas'
