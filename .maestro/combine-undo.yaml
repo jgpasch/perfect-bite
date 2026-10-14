@@ -1,0 +1,57 @@
+# Add, combine and undo (spec 4.4, with 4.2 parsing): adding a name that's already on the list
+# Combines into the open row instead of adding a second one, shows "Added to Milk" with Undo, and
+# Undo leaves the row as it was. Then a typed amount ("2 lbs") is parsed into a number and a unit
+# the edit sheet shows. This doesn't check the combined total itself ("2 gal" or "1 gal + 1"
+# depends on the usual unit; unit tests cover the quantity math), the row's highlight, or the
+# toast timing out after 5 seconds.
+appId: com.jgp.perfectbite
+name: Add, combine and undo
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: email
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+
+# 1 gal milk, then milk: one Milk row and the Combine toast. The row reads "Milk, <amount>, <aisle>"
+# to VoiceOver; a text match must cover the whole label, hence the .*. Index 1 is a second match.
+- tapOn: 'Add an item'
+- inputText: '1 gal milk'
+- pressKey: Enter
+- assertVisible: 'Milk, 1 gal(, .*)?'
+- inputText: 'milk'
+- pressKey: Enter
+- assertVisible: 'Added to Milk.*'
+- assertVisible: 'Undo'
+- assertVisible: 'Check off Milk'
+- assertNotVisible:
+    text: 'Check off Milk'
+    index: 1
+
+# Undo takes the add back: the amount is 1 gal again, still on one row.
+- tapOn: 'Undo'
+- extendedWaitUntil:
+    visible: 'Milk, 1 gal(, .*)?'
+    timeout: 10000
+- assertNotVisible: 'Added to Milk.*'
+- assertVisible: 'Check off Milk'
+- assertNotVisible:
+    text: 'Check off Milk'
+    index: 1
+
+# 2 lbs chicken thighs: the edit sheet's Amount row holds 2, in lb.
+- tapOn: 'Add an item'
+- inputText: '2 lbs chicken thighs'
+- pressKey: Enter
+- tapOn: 'Chicken thighs, 2 lb.*'
+- extendedWaitUntil:
+    visible: 'Amount, in lb'
+    timeout: 10000
+- assertVisible: 'Unit, lb'
+- copyTextFrom: 'Amount, in lb'
+- assertTrue: ${maestro.copiedText == '2'}
