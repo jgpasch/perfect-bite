@@ -59,13 +59,54 @@ describe('servings', () => {
     expect(scaledAmount({ quantity: 2, unit: 'lb' }, 6, 4)).toBe('3 lb');
     expect(scaledAmount({ quantity: 1, unit: 'lb' }, 6, 4)).toBe('1.5 lb');
     expect(scaledAmount({ quantity: 1, unit: 'cup' }, 2, 4)).toBe('½ cup');
-    expect(scaledAmount({ quantity: 100, unit: 'g' }, 1, 3)).toBe('33.33 g');
+    // 33.33 g rounds to a kitchen measure.
+    expect(scaledAmount({ quantity: 100, unit: 'g' }, 1, 3)).toBe('35 g');
     expect(scaledAmount({ quantity: 12, unit: null }, 4, 4)).toBe('12');
+  });
+
+  test('scaledAmount rounds to kitchen measures, changing the unit when it reads better', () => {
+    expect(scaledAmount({ quantity: 3, unit: 'cup' }, 1, 7)).toBe('½ cup');
+    expect(scaledAmount({ quantity: 1, unit: 'cup' }, 1, 8)).toBe('2 tbsp');
+    expect(scaledAmount({ quantity: 2, unit: 'tbsp' }, 1, 4)).toBe('1½ tsp');
+    expect(scaledAmount({ quantity: 2, unit: 'tbsp' }, 8, 4)).toBe('¼ cup');
+    expect(scaledAmount({ quantity: 3, unit: null }, 1, 4)).toBe('1');
+  });
+
+  test('scaledAmount at the base servings is as written, not rounded', () => {
+    expect(scaledAmount({ quantity: 0.42, unit: 'cup' }, 4, 4)).toBe('0.42 cup');
+    expect(scaledAmount({ quantity: 33, unit: 'g' }, 3, 3)).toBe('33 g');
+    expect(scaledAmount({ quantity: 6, unit: 'tbsp' }, 2, 2)).toBe('6 tbsp');
+    expect(scaledAmount({ quantity: 0.1, unit: 'tsp' }, 1, 1)).toBe('0.1 tsp');
   });
 
   test('scaledAmount: no quantity is empty', () => {
     expect(scaledAmount({ quantity: null, unit: null }, 6, 4)).toBe('');
     expect(scaledAmount({ quantity: null, unit: 'cup' }, 6, 4)).toBe('');
+  });
+
+  describe('a whole recipe for 4', () => {
+    const recipe = [
+      { quantity: 1, unit: 'lb' },
+      { quantity: 2, unit: 'cup' },
+      { quantity: 3, unit: 'tbsp' },
+      { quantity: 1, unit: 'tsp' },
+      { quantity: 0.5, unit: 'tsp' },
+      { quantity: 2, unit: null },
+      { quantity: 1, unit: null },
+      { quantity: 400, unit: 'g' },
+      { quantity: 250, unit: 'ml' },
+      { quantity: 1, unit: 'can' },
+      { quantity: null, unit: null },
+    ] as const;
+    const scaled = (chosen: number) => recipe.map((a) => scaledAmount(a, chosen, 4));
+
+    test('for 6', () => {
+      expect(scaled(6)).toEqual(['1.5 lb', '3 cup', '4½ tbsp', '1½ tsp', '¾ tsp', '3', '1½', '600 g', '375 ml', '1½ can', '']);
+    });
+
+    test('for 1', () => {
+      expect(scaled(1)).toEqual(['0.25 lb', '½ cup', '2¼ tsp', '¼ tsp', '⅛ tsp', '½', '½', '100 g', '65 ml', '¼ can', '']);
+    });
   });
 });
 

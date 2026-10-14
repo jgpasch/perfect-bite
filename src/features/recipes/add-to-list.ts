@@ -1,4 +1,5 @@
 import type { RecipeIngredient } from '@/db';
+import { kitchenRound } from '@/domain/kitchen-round';
 import { collectPendingNames } from '@/features/categories/categories';
 import { stapleNames } from '@/features/households/staples';
 import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
@@ -29,7 +30,10 @@ export function recipeServesLabel(base: number): string {
   return `Recipe serves ${base}`;
 }
 
-/** The bulk adds for a recipe's chosen ingredients, scaled by `servings`. */
+/**
+ * The bulk adds for a recipe's chosen ingredients, scaled by `servings` and rounded to kitchen measures
+ * (`kitchenRound`, which may change the unit). At 1× the amounts are as written.
+ */
 export function buildRecipeAdds(
   recipeId: string,
   ingredients: readonly RecipeIngredient[],
@@ -44,8 +48,9 @@ export function buildRecipeAdds(
       parsed: {
         ingredientName: i.ingredientName,
         displayName: i.displayName,
-        quantity: i.quantity === null ? null : i.quantity * servings,
-        unit: i.unit,
+        ...(i.quantity === null || servings === 1
+          ? { quantity: i.quantity, unit: i.unit }
+          : kitchenRound({ quantity: i.quantity * servings, unit: i.unit })),
       },
     }));
 }

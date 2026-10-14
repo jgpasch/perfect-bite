@@ -489,12 +489,33 @@ describe('by servings (board 17)', () => {
     expect(rows()).toEqual(['1.5 lb ground beef', '12 tortillas', '1½ cup salsa', 'cilantro', '3 limes']);
   });
 
-  test('3 of 3 gives the amounts back exactly; 1 of 3 adds a third', () => {
+  test('3 of 3 gives the amounts back exactly; 1 of 3 adds a third, rounded to kitchen measures', () => {
     const ingredients = recipeIngredientsQuery(tacos).all();
     const all = new Set(ingredients.map((i) => i.id));
     expect(quantities(buildRecipeAdds(tacos, ingredients, all, servingsMultiplier(3, 3)))).toEqual([1, 8, 1, null, 2]);
+    // ⅓ lb → 0.25, 8⁄3 tortillas → 2.5, ⅓ cup, ⅔ lime → ½.
     const third = quantities(buildRecipeAdds(tacos, ingredients, all, servingsMultiplier(1, 3)));
-    expect(third[1]).toBeCloseTo(8 / 3);
-    expect(third[3]).toBeNull();
+    expect(third).toEqual([0.25, 2.5, 1 / 3, null, 0.5]);
+  });
+
+  test('a scaled add can change the unit, and that is what goes on the list', () => {
+    const ingredients = recipeIngredientsQuery(tacos).all();
+    const adds = buildRecipeAdds(tacos, ingredients, new Set(ingredients.map((i) => i.id)), servingsMultiplier(1, 8));
+    expect(adds.map((a) => ('parsed' in a ? a.parsed.unit : undefined))).toEqual(['lb', null, 'tbsp', null, null]);
+    expect(quantities(adds)).toEqual([0.25, 1, 2, null, 0.5]);
+    addRecipeToList(listId, adds, USER);
+    expect(rows()).toEqual(['0.25 lb ground beef', '1 tortillas', '2 tbsp salsa', 'cilantro', '½ limes']);
+  });
+
+  test('at 1× the amounts are added as written, not rounded', () => {
+    const recipeId = createRecipe('Dressing');
+    addRecipeIngredient(recipeId, '0.42 cup olive oil');
+    addRecipeIngredient(recipeId, '33 g parmesan');
+    const ingredients = recipeIngredientsQuery(recipeId).all();
+    const adds = buildRecipeAdds(recipeId, ingredients, new Set(ingredients.map((i) => i.id)), 1);
+    expect(adds.map((a) => ('parsed' in a ? [a.parsed.quantity, a.parsed.unit] : undefined))).toEqual([
+      [0.42, 'cup'],
+      [33, 'g'],
+    ]);
   });
 });

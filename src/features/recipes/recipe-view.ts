@@ -1,5 +1,6 @@
 // What the recipe screens show (boards 05–07). Pure: no React, SQLite or network.
 
+import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
@@ -81,10 +82,12 @@ export function parseServings(text: string): { servings: number | null } | { err
 
 /**
  * An ingredient's amount for `chosen` people when the recipe serves `base`: quantity × chosen ÷ base,
- * formatted as Add to list does. Empty when it has no quantity.
+ * rounded to a kitchen measure (`kitchenRound`) and formatted as Add to list does. At `base` it's as
+ * written, not rounded. Empty when it has no quantity.
  */
 export function scaledAmount(amount: Amount, chosen: number, base: number): string {
-  return formatAmount({ quantity: amount.quantity === null ? null : (amount.quantity * chosen) / base, unit: amount.unit });
+  if (amount.quantity === null || chosen === base) return formatAmount(amount);
+  return formatAmount(kitchenRound({ quantity: (amount.quantity * chosen) / base, unit: amount.unit }));
 }
 
 /** The add-to-list CTA: "Add 8 to Groceries", or "Nothing selected". */
