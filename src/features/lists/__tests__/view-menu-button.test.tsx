@@ -91,23 +91,23 @@ describe('ViewMenuButton', () => {
     expect(onChange).toHaveBeenLastCalledWith('newest');
   });
 
-  test('with fold actions, Collapse all and Expand all follow the views in their own group', () => {
-    const fold = { canCollapse: true, canExpand: false, onCollapseAll: jest.fn(), onExpandAll: jest.fn() };
+  test('with a dragged order, Reset order follows the views in its own group', () => {
+    const onResetOrder = jest.fn();
     let tree!: ReactTestRenderer;
     act(() => {
-      tree = create(<ViewMenuButton value="category" onChange={() => {}} fold={fold} />);
+      tree = create(<ViewMenuButton value="newest" onChange={() => {}} onResetOrder={onResetOrder} />);
     });
     const buttons = tree.root.find((n) => n.type === ('SwiftSection' as never)).findAll((n) => n.type === ('SwiftButton' as never));
-    expect(buttons.map((b) => [b.props.label, b.props.modifiers])).toEqual([
-      ['Collapse all', [{ disabled: false }]],
-      ['Expand all', [{ disabled: true }]],
-    ]);
+    expect(buttons.map((b) => [b.props.label, b.props.systemImage])).toEqual([['Reset order', 'arrow.uturn.backward']]);
     act(() => buttons[0].props.onPress());
-    expect(fold.onCollapseAll).toHaveBeenCalled();
+    expect(onResetOrder).toHaveBeenCalledTimes(1);
   });
 
-  test('without them, no second group', () => {
-    const { tree } = render('newest');
-    expect(tree.root.findAll((n) => n.type === ('SwiftSection' as never))).toHaveLength(0);
+  test('without one, no second group; Collapse all and Expand all are never here (they live in the ⋯ menu)', () => {
+    for (const value of ['newest', 'category', 'recipe'] as const) {
+      const { tree } = render(value);
+      expect(tree.root.findAll((n) => n.type === ('SwiftSection' as never))).toHaveLength(0);
+      expect(tree.root.findAll((n) => n.type === ('SwiftButton' as never))).toHaveLength(0);
+    }
   });
 });

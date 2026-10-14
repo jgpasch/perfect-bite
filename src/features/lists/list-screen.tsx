@@ -413,6 +413,16 @@ export function ListScreen({ id }: { id: string }) {
   const sectionMode: SectionedViewMode | null = viewMode === 'newest' ? null : viewMode;
   const foldableKeys = blocks.flatMap((b) => ((b.kind === 'aisle' && !b.sorting) || b.kind === 'recipe' ? [b.key] : []));
   const foldedCount = sectionMode ? collapsedShowing(collapsedSaved[sectionMode], foldableKeys).size : 0;
+  // Collapse all / Expand all in the ⋯ menu: only in a view that has sections to fold.
+  const fold =
+    sectionMode && foldableKeys.length > 0
+      ? {
+          canCollapse: foldedCount < foldableKeys.length,
+          canExpand: foldedCount > 0,
+          onCollapseAll: () => saveCollapsed(sectionMode, foldableKeys),
+          onExpandAll: () => saveCollapsed(sectionMode, []),
+        }
+      : null;
 
   // An add or Combine that lands in a folded section opens it, so its highlight shows. By recipe can show
   // an item in several sections; one open one is enough.
@@ -918,7 +928,7 @@ export function ListScreen({ id }: { id: string }) {
           tintColor={header.viewButton.fill}
           accessibilityLabel={t('lists.screen.listActions')}
           hidden={!!selection}>
-          {/* Two inline groups, so the native menu draws a divider between them. */}
+          {/* Inline groups, so the native menu draws a divider between them. */}
           <Stack.Toolbar.Menu inline>
             <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
               {t('lists.screen.selectItems')}
@@ -927,6 +937,16 @@ export function ListScreen({ id }: { id: string }) {
               {t('lists.screen.shareList')}
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
+          {fold ? (
+            <Stack.Toolbar.Menu inline>
+              <Stack.Toolbar.MenuAction icon="rectangle.compress.vertical" disabled={!fold.canCollapse} onPress={fold.onCollapseAll}>
+                {t('lists.viewModes.collapseAll')}
+              </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.MenuAction icon="rectangle.expand.vertical" disabled={!fold.canExpand} onPress={fold.onExpandAll}>
+                {t('lists.viewModes.expandAll')}
+              </Stack.Toolbar.MenuAction>
+            </Stack.Toolbar.Menu>
+          ) : null}
           <Stack.Toolbar.Menu inline>
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => router.push({ pathname: '/list/[id]/edit', params: { id } })}>
               {t('lists.screen.editList')}
@@ -967,16 +987,6 @@ export function ListScreen({ id }: { id: string }) {
                     <ViewMenuButton
                       value={viewMode}
                       onChange={setViewMode}
-                      fold={
-                        sectionMode
-                          ? {
-                              canCollapse: foldableKeys.length > 0 && foldedCount < foldableKeys.length,
-                              canExpand: foldedCount > 0,
-                              onCollapseAll: () => saveCollapsed(sectionMode, foldableKeys),
-                              onExpandAll: () => saveCollapsed(sectionMode, []),
-                            }
-                          : undefined
-                      }
                       onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
                     />
                   </View>
