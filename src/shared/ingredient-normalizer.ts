@@ -78,3 +78,12 @@ export function normalizeIngredientName(name: string): string {
   words[words.length - 1] = singularize(words[words.length - 1]);
   return words.join(' ');
 }
+
+/**
+ * An ingredient's family key (spec 4.15): the English ingredient it links to (`same_as`), else its
+ * own key. `leche` → `milk`, `milk` → `milk`, an unlinked `tomate` → `tomate`. Household aisle
+ * overrides are keyed by it, so twins share an aisle.
+ */
+export function familyKey(normalizedName: string, sameAs: string | null | undefined): string {
+  return sameAs ?? normalizedName;
+}

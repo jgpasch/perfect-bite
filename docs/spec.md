@@ -122,7 +122,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 
 #### 4.3.2 Recategorizing (req 6)
 - From the item's edit sheet (tap the item's name), "Move to category..." opens a category picker (with "New category...").
-- This writes a **household override** for that ingredient (`household_category_overrides`, keyed by household and ingredient), in the household of the list the item is on. It applies on every list of that household, for *every member*, on every device. Other households, and the global default, are unchanged.
+- This writes a **household override** for that ingredient (`household_category_overrides`, keyed by household and the ingredient's family key, 4.15, so `leche` and `milk` move together), in the household of the list the item is on. It applies on every list of that household, for *every member*, on every device. Other households, and the global default, are unchanged.
 - Someone in two households has a separate set of overrides in each; a list or recipe uses its own household's.
 - "New category..." creates a **custom aisle in that household**: every member has it (each places it in their own order, 4.3.3). A name the household already has (a system aisle or one of its custom ones, in any case) picks that one instead.
 - When the chosen aisle differs from the catalog default, the item sheet shows a footnote under the aisle pills, "Changes it for everyone in <household>." ("Changes it for everyone in your household." with no name), and a plain **Reset to default** button (VoiceOver hint "Uses the usual aisle for everyone") that selects the default aisle.

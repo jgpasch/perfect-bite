@@ -252,6 +252,91 @@ describe('overrides (spec 4.3.2)', () => {
   });
 });
 
+describe('shared aisle across a family (spec 4.15)', () => {
+  const overrideRows = () =>
+    db
+      .select({ householdId: householdCategoryOverrides.householdId, ingredientName: householdCategoryOverrides.ingredientName, categoryId: householdCategoryOverrides.categoryId })
+      .from(householdCategoryOverrides)
+      .all();
+
+  beforeEach(() => {
+    addItem(listId, 'milk', A);
+    addItem(listId, 'leche', A);
+  });
+
+  test('moving milk moves leche, on the list and in the item sheet and aisle dots', () => {
+    expect(categoryOf('milk')).toBe(id('dairy-eggs'));
+    expect(categoryOf('leche')).toBe(id('dairy-eggs'));
+    setCategoryOverride(home, key('milk'), id('beverages'));
+    expect(categoryOf('milk')).toBe(id('beverages'));
+    expect(categoryOf('leche')).toBe(id('beverages'));
+    expect(getIngredientCategory(home, key('leche'))).toEqual({
+      defaultCategoryId: id('dairy-eggs'),
+      overrideCategoryId: id('beverages'),
+      status: 'categorized',
+    });
+    expect(ingredientAisles(home, [key('leche')]).get(key('leche'))).toEqual({ slug: 'beverages', name: 'Beverages' });
+    expect(overrideRows()).toEqual([{ householdId: home, ingredientName: 'milk', categoryId: id('beverages') }]);
+  });
+
+  test('moving leche moves milk: the override is written under the family key', () => {
+    setCategoryOverride(home, key('leche'), id('frozen'));
+    expect(overrideRows()).toEqual([{ householdId: home, ingredientName: 'milk', categoryId: id('frozen') }]);
+    expect(categoryOf('milk')).toBe(id('frozen'));
+    expect(categoryOf('leche')).toBe(id('frozen'));
+    expect(getIngredientCategory(home, key('milk')).overrideCategoryId).toBe(id('frozen'));
+  });
+
+  test("from leche's item sheet, then Reset to default from it, for both names", () => {
+    const leche = groupItems(listItemsQuery(listId).all()).unchecked.find((i) => i.displayName === 'leche')!;
+    updateItem(leche.id, { name: 'leche', amount: '', note: '', categoryId: id('pantry') });
+    expect(categoryOf('milk')).toBe(id('pantry'));
+    expect(categoryOf('leche')).toBe(id('pantry'));
+    updateItem(leche.id, { name: 'leche', amount: '', note: '', categoryId: null });
+    expect(overrideRows()).toEqual([{ householdId: home, ingredientName: 'milk', categoryId: null }]);
+    expect(categoryOf('milk')).toBe(id('dairy-eggs'));
+    expect(categoryOf('leche')).toBe(id('dairy-eggs'));
+  });
+
+  test('the later of two changes on either twin wins, since both write one row', () => {
+    setCategoryOverride(home, key('milk'), id('beverages'));
+    setCategoryOverride(home, key('leche'), id('frozen'));
+    expect(categoryOf('milk')).toBe(id('frozen'));
+    clearCategoryOverride(home, key('milk'));
+    expect(categoryOf('leche')).toBe(id('dairy-eggs'));
+    expect(overrideRows()).toHaveLength(1);
+  });
+
+  test("another household's milk keeps its own aisle", () => {
+    addItem(cabinListId, 'leche', A);
+    setCategoryOverride(home, key('leche'), id('frozen'));
+    expect(categoryOf('leche', cabinListId)).toBe(id('dairy-eggs'));
+    expect(getIngredientCategory(CABIN, key('milk')).overrideCategoryId).toBeNull();
+  });
+
+  test('an unlinked pair (tomate, tomato) stays separate, both ways', () => {
+    addItem(listId, 'tomate', A);
+    addItem(listId, 'tomato', A);
+    const tomatoDefault = categoryOf('tomato');
+    setCategoryOverride(home, key('tomate'), id('canned-jarred'));
+    expect(categoryOf('tomate')).toBe(id('canned-jarred'));
+    expect(categoryOf('tomato')).toBe(tomatoDefault);
+    setCategoryOverride(home, key('tomato'), id('frozen'));
+    expect(categoryOf('tomate')).toBe(id('canned-jarred'));
+    expect(categoryOf('tomato')).toBe(id('frozen'));
+    expect(overrideRows().map((r) => r.ingredientName).sort()).toEqual(['tomate', 'tomato']);
+  });
+
+  test('a name linked later (pulled from the server) follows its family at once', () => {
+    addItem(listId, 'kashk', A);
+    setCategoryOverride(home, key('milk'), id('beverages'));
+    expect(categoryOf('kashk')).toBe(SORTING_CATEGORY_ID);
+    db.update(ingredients).set({ sameAs: 'milk', linkedBy: 'model-x' }).where(eq(ingredients.normalizedName, key('kashk'))).run();
+    expect(categoryOf('kashk')).toBe(id('beverages'));
+    expect(getIngredientCategory(home, key('kashk')).overrideCategoryId).toBe(id('beverages'));
+  });
+});
+
 describe('category order (spec 4.3.3)', () => {
   test('moving a category changes only that user’s order', () => {
     const dairy = names(A).indexOf('Dairy & Eggs');
@@ -365,6 +450,23 @@ describe('autocomplete', () => {
     ]);
     expect(searchCatalog('thigh', 5).map((r) => r.displayName)).toContain('chicken thighs');
     expect(searchCatalog('%', 5)).toEqual([]);
+  });
+
+  test("names in the app's language come first (spec 4.15)", () => {
+    const shown = (q: string, language?: string) => searchCatalog(q, 5, language).map((r) => r.displayName);
+    // English: whole-name prefix first, so `dulce de leche` and `tres leches cake` (English names) come first.
+    expect(shown('lech', 'en')).toEqual(['dulce de leche', 'tres leches cake', 'leche', 'lechuga', 'leche de soya']);
+    expect(shown('lech', 'es')).toEqual(['leche', 'lechuga', 'leche de soya', 'leche de avena', 'leche evaporada']);
+    expect(shown('tomat', 'en')).toEqual(['tomatoes', 'tomato jam', 'tomato soup', 'tomato juice', 'tomato paste']);
+    // Spanish names first, a word match included, before the English prefix matches.
+    expect(shown('tomat', 'es')).toEqual(['tomate', 'tomate verde', 'puré de tomate', 'pasta de tomate', 'tomatoes']);
+    // No Spanish match: the English names as before.
+    expect(shown('cuc', 'es')).toEqual(shown('cuc', 'en'));
+    // The default is the app's language.
+    expect(shown('lech')).toEqual(shown('lech', 'en'));
+    initI18n('es');
+    expect(shown('lech')).toEqual(shown('lech', 'es'));
+    initI18n('en');
   });
 
   test('suggests recent household items first, then the catalog, keeping a typed amount', () => {

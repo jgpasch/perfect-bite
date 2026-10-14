@@ -2,9 +2,11 @@ import { describe, expect, it, test } from '@jest/globals';
 
 import {
   frecency,
+  rankCatalog,
   rankHistory,
   rankRecipes,
   rankUsual,
+  type CatalogRow,
   type HistoryRow,
   type RecipeRow,
   type RecipeUse,
@@ -231,5 +233,42 @@ describe('rankRecipes (spec 4.2)', () => {
     expect(rows).toEqual(before);
     // History ranking is unaffected by recipes with the same name.
     expect(names(rankHistory([usage('taco shells', 2, 0)], 'ta', now))).toEqual(['taco shells']);
+  });
+});
+
+describe('rankCatalog (spec 4.2, 4.15)', () => {
+  const entry = (displayName: string, lang: string | null): CatalogRow => ({ key: displayName, displayName, lang });
+  const rows = [
+    entry('milk', 'en'),
+    entry('leche', 'es'),
+    entry('leche de soya', 'es'),
+    entry('dulce de leche', 'en'),
+    entry('lemon', 'en'),
+    entry('lechuga', 'es'),
+    entry('lecithin', null),
+  ];
+  const shown = (q: string, language: string, limit = 10) => rankCatalog(rows, q, language, limit).map((r) => r.displayName);
+
+  it("puts names in the app's language first, then prefix before word matches, shorter, then A–Z", () => {
+    expect(shown('le', 'es')).toEqual(['leche', 'lechuga', 'leche de soya', 'lemon', 'lecithin', 'dulce de leche']);
+    expect(shown('le', 'en')).toEqual(['lemon', 'dulce de leche', 'leche', 'lechuga', 'lecithin', 'leche de soya']);
+  });
+
+  it("treats an unknown language (null) as not the app's, and with no name in the app's language ranks as before", () => {
+    expect(shown('lec', 'en')).toEqual(['dulce de leche', 'leche', 'lechuga', 'lecithin', 'leche de soya']);
+    expect(shown('lec', 'fr')).toEqual(['leche', 'lechuga', 'lecithin', 'leche de soya', 'dulce de leche']);
+  });
+
+  it('matches a query of several words after any space, case-insensitively', () => {
+    expect(shown('DE LECHE', 'es')).toEqual(['dulce de leche']);
+    expect(shown('  de soya ', 'en')).toEqual(['leche de soya']);
+    expect(shown('ilk', 'en')).toEqual([]);
+  });
+
+  it('caps at the limit, and an empty query or a zero limit gives nothing', () => {
+    expect(shown('le', 'es', 2)).toEqual(['leche', 'lechuga']);
+    expect(shown('le', 'es', 0)).toEqual([]);
+    expect(shown('   ', 'es')).toEqual([]);
+    expect(rankCatalog([], 'le', 'es', 5)).toEqual([]);
   });
 });

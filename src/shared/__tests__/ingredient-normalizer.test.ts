@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { foldAccents, normalizeIngredientName, singularize } from '../ingredient-normalizer';
+import { familyKey, foldAccents, normalizeIngredientName, singularize } from '../ingredient-normalizer';
 
 describe('normalizeIngredientName', () => {
   it.each([
@@ -92,4 +92,18 @@ describe('singularize', () => {
       expect(singularize(word)).toBe(word);
     },
   );
+});
+
+describe('familyKey (spec 4.15)', () => {
+  it('is the linked English key for a linked name, else the name’s own key', () => {
+    expect(familyKey('leche', 'milk')).toBe('milk');
+    expect(familyKey('milk', null)).toBe('milk');
+    expect(familyKey('tomate', null)).toBe('tomate');
+    expect(familyKey('tomato', undefined)).toBe('tomato');
+  });
+
+  it('gives twins one key, and an unlinked pair two', () => {
+    expect(familyKey('pepino', 'cucumber')).toBe(familyKey('cucumber', null));
+    expect(familyKey('tomate', null)).not.toBe(familyKey('tomato', null));
+  });
 });

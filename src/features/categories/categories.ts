@@ -1,21 +1,23 @@
 // Categories, the ingredient catalog cache, household overrides and custom aisles, and the user's
 // aisle order (spec 4.3). Local reads and writes. Custom categories, overrides and order write
 // through the sync helpers (outbox, spec 7.1); the catalog is local here and pull fills it.
-import { and, asc, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { categories, db, householdCategoryOverrides, ingredients, userCategoryOrder } from '@/db';
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
 import { fingerprint } from '@/domain/fingerprint';
 import { positionBetween, positionForMove } from '@/domain/position';
+import { rankCatalog } from '@/domain/suggestion-rank';
 import { COUNT_KEY } from '@/domain/usual-unit';
 import { hasFeature } from '@/features/plans/features';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
-import { i18n } from '@/i18n';
+import { currentLanguage, i18n } from '@/i18n';
 import { aisleName, systemAisleSlug, withAisleNames } from '@/i18n/vocabulary';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 import {
+  familyKey,
   normalizeIngredientName,
   SEED_INGREDIENTS,
   SEED_INGREDIENTS_ES,
@@ -260,13 +262,21 @@ export function createCategory(userId: string, householdId: string, name: string
 }
 
 // --- Overrides (spec 4.3.2) ----------------------------------------------------------------
+// Keyed by the ingredient's family key (spec 4.15), so `leche` and `milk` share one override.
+
+/** The family key of an ingredient in the local catalog: its `sameAs`, else its own key. */
+function localFamilyKey(tx: Exec, ingredientName: string): string {
+  const row = tx.select({ sameAs: ingredients.sameAs }).from(ingredients).where(eq(ingredients.normalizedName, ingredientName)).get();
+  return familyKey(ingredientName, row?.sameAs);
+}
 
 /**
- * Moves an ingredient to a category for everyone in the household, on every list. `tx`: the
- * caller's transaction.
+ * Moves an ingredient, and every name linked with it, to a category for everyone in the household,
+ * on every list. `tx`: the caller's transaction.
  */
 export function setCategoryOverride(householdId: string, ingredientName: string, categoryId: string, tx: Exec = db): void {
-  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName, categoryId }, { categoryId });
+  const key = localFamilyKey(tx, ingredientName);
+  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName: key, categoryId }, { categoryId });
 }
 
 /**
@@ -274,16 +284,17 @@ export function setCategoryOverride(householdId: string, ingredientName: string,
  * row, so it syncs like any other change: the later of two conflicting changes wins (7.3).
  */
 export function clearCategoryOverride(householdId: string, ingredientName: string, tx: Exec = db): void {
-  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName, categoryId: null }, { categoryId: null });
+  const key = localFamilyKey(tx, ingredientName);
+  upsertRow(tx, householdCategoryOverrides, { householdId, ingredientName: key, categoryId: null }, { categoryId: null });
 }
 
-/** An ingredient's category in a household, and the household's override (null: the default). */
+/** An ingredient's category in a household, and the household's override for its family (null: the default). */
 export function getIngredientCategory(
   householdId: string,
   ingredientName: string,
 ): { defaultCategoryId: string | null; overrideCategoryId: string | null; status: IngredientStatus | null } {
   const row = db
-    .select({ defaultCategoryId: ingredients.defaultCategoryId, status: ingredients.status })
+    .select({ defaultCategoryId: ingredients.defaultCategoryId, status: ingredients.status, sameAs: ingredients.sameAs })
     .from(ingredients)
     .where(eq(ingredients.normalizedName, ingredientName))
     .get();
@@ -293,7 +304,7 @@ export function getIngredientCategory(
     .where(
       and(
         eq(householdCategoryOverrides.householdId, householdId),
-        eq(householdCategoryOverrides.ingredientName, ingredientName),
+        eq(householdCategoryOverrides.ingredientName, familyKey(ingredientName, row?.sameAs)),
       ),
     )
     .get();
@@ -327,12 +338,19 @@ export function ingredientAisles(
 
 // --- Catalog search (autocomplete, spec 4.2) -----------------------------------------------
 
-/** Catalog ingredients whose name starts with `prefix`, or has a word that does. */
-export function searchCatalog(prefix: string, limit: number): { key: string; displayName: string }[] {
+/**
+ * Catalog ingredients whose name starts with `prefix`, or has a word that does, in `rankCatalog`'s order: names in
+ * `language` (the app's, spec 4.15) first.
+ */
+export function searchCatalog(
+  prefix: string,
+  limit: number,
+  language: string = currentLanguage(),
+): { key: string; displayName: string }[] {
   const p = prefix.trim().toLowerCase().replace(/[%_]/g, '');
   if (!p) return [];
-  return db
-    .select({ key: ingredients.normalizedName, displayName: ingredients.displayName })
+  const matches = db
+    .select({ key: ingredients.normalizedName, displayName: ingredients.displayName, lang: ingredients.lang })
     .from(ingredients)
     .where(
       and(
@@ -340,8 +358,6 @@ export function searchCatalog(prefix: string, limit: number): { key: string; dis
         or(like(ingredients.displayName, `${p}%`), like(ingredients.displayName, `% ${p}%`)),
       ),
     )
-    // Whole-name prefix matches first, then shorter names.
-    .orderBy(sql`${ingredients.displayName} not like ${`${p}%`}`, sql`length(${ingredients.displayName})`, asc(ingredients.displayName))
-    .limit(limit)
     .all();
+  return rankCatalog(matches, p, language, limit).map(({ key, displayName }) => ({ key, displayName }));
 }

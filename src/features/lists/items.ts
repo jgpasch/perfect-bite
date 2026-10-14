@@ -1,5 +1,5 @@
 // List items (spec 4.2, 4.4): local reads, and writes through the sync helpers (outbox, spec 7.1).
-import { and, asc, eq, inArray, isNotNull, isNull, like, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import {
   db,
@@ -732,11 +732,12 @@ export function listItemsQuery(listId: string) {
     )
     .leftJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
     .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
+    // The override is the ingredient's family's (spec 4.15: `familyKey`), so `leche` follows `milk`.
     .leftJoin(
       householdCategoryOverrides,
       and(
         eq(householdCategoryOverrides.householdId, listItems.householdId),
-        eq(householdCategoryOverrides.ingredientName, listItems.ingredientName),
+        eq(householdCategoryOverrides.ingredientName, sql`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`),
       ),
     )
     .where(and(eq(listItems.listId, listId), liveItem))

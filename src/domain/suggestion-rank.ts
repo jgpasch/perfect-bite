@@ -1,4 +1,4 @@
-// Spec 4.2: orders the household's ingredient history, and its recipes, for autocomplete. Pure.
+// Spec 4.2: orders the household's ingredient history, the catalog and the household's recipes, for autocomplete. Pure.
 
 export type HistoryRow = {
   /** Ingredient key. */
@@ -48,6 +48,35 @@ export function rankHistory<T extends HistoryRow>(rows: readonly T[], query: str
         a.row.displayName.length - b.row.displayName.length ||
         (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
     )
+    .map((m) => m.row);
+}
+
+/** A catalog name as autocomplete sees it (spec 4.2), with its language (4.15; null when not known). */
+export type CatalogRow = { key: string; displayName: string; lang: string | null };
+
+/**
+ * The catalog names whose display name starts with `query` (case-insensitive), or has it after a space, so a query of
+ * several words matches mid-name (`chicken th` → `frozen chicken thighs`; spec 4.2). Names in the app's `language`
+ * first (4.15: `leche` before `milk` in Spanish), then a whole-name prefix match before a word match, then the shorter
+ * name, then alphabetical; at most `limit`. An empty query matches nothing.
+ */
+export function rankCatalog<T extends CatalogRow>(rows: readonly T[], query: string, language: string, limit: number): T[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return rows
+    .flatMap((row) => {
+      const name = row.displayName.toLowerCase();
+      const kind = name.startsWith(q) ? 'prefix' : name.includes(` ${q}`) ? 'word' : null;
+      return kind ? [{ row, kind, other: row.lang === language ? 0 : 1 }] : [];
+    })
+    .sort(
+      (a, b) =>
+        a.other - b.other ||
+        (a.kind === b.kind ? 0 : a.kind === 'prefix' ? -1 : 1) ||
+        a.row.displayName.length - b.row.displayName.length ||
+        (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
+    )
+    .slice(0, Math.max(0, limit))
     .map((m) => m.row);
 }
 

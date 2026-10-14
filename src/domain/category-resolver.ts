@@ -9,7 +9,8 @@ export const SORTING_CATEGORY_ID = 'sorting';
 export type IngredientStatus = 'pending' | 'categorized' | 'failed';
 
 /**
- * The section an item shows under for one user: their override, else the ingredient's global
+ * The section an item shows under for one user: their household's override (read under the
+ * ingredient's family key, spec 4.15, so linked names share it), else the ingredient's global
  * default, else "Sorting..." while it is pending or has no ingredient row (spec 4.3.1), else
  * Other (categorization failed). `sorts` false (the user's plan has no `categorize`, spec 4.12):
  * nothing is waiting for an aisle, so those go to Other too.
