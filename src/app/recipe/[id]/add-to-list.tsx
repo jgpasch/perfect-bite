@@ -15,7 +15,8 @@ import { categorizePending } from '@/features/categories/categorization';
 import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
-import { addRecipeToList, buildRecipeAdds, replaceRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
+import { stapleNames } from '@/features/households/staples';
+import { addRecipeToList, buildRecipeAdds, defaultSelection, replaceRecipeAdd, SERVINGS } from '@/features/recipes/add-to-list';
 import { addCtaLabel, servingsLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
@@ -45,7 +46,8 @@ export default function AddRecipeToListSheet() {
     const offered = (listId: string | null | undefined) => lists.find((l) => l.id === listId)?.id;
     return offered(fromList) ?? offered(userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null;
   });
-  const [selected, setSelected] = useState(() => new Set(ingredients.map((i) => i.id)));
+  // Spec 4.5: the household's staples (Always have) start unticked.
+  const [selected, setSelected] = useState(() => defaultSelection(ingredients, recipe ? stapleNames(recipe.householdId) : new Set()));
   const [servings, setServings] = useState(1);
 
   const adds = useMemo(() => buildRecipeAdds(id, ingredients, selected, servings), [id, ingredients, selected, servings]);

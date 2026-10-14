@@ -1,6 +1,8 @@
 import type { RecipeIngredient } from '@/db';
 import { collectPendingNames } from '@/features/categories/categories';
+import { stapleNames } from '@/features/households/staples';
 import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
+import { getList } from '@/features/lists/lists';
 
 import { getRecipe, recipeIngredientsQuery } from './recipes';
 
@@ -28,6 +30,14 @@ export function buildRecipeAdds(
     }));
 }
 
+/**
+ * The ingredients a recipe add starts with ticked (spec 4.5): all but the household's staples (`stapleNames`),
+ * matched by ingredient key.
+ */
+export function defaultSelection(ingredients: readonly RecipeIngredient[], staples: ReadonlySet<string>): Set<string> {
+  return new Set(ingredients.filter((i) => !staples.has(i.ingredientName)).map((i) => i.id));
+}
+
 /** What one recipe add did: the adds, for Undo, how many there were, for the toast, and new names. */
 export type RecipeListAdd = {
   results: (AddItemResult | null)[];
@@ -51,19 +61,27 @@ export function undoRecipeAdd(add: Pick<RecipeListAdd, 'results'>): void {
 }
 
 /**
- * A recipe picked in the add bar (spec 4.2): every ingredient at 1×, added as `addRecipeToList` does. Null when the
- * recipe is gone; `recipeName` is for the toast.
+ * A recipe picked in the add bar (spec 4.2): every ingredient at 1× except the list household's staples
+ * (`defaultSelection`), added as `addRecipeToList` does. Null when the recipe is gone; `recipeName` is for the toast
+ * and `skipped` names the staples left out, in recipe order. All staples: nothing added, `count: 0`.
  */
 export function addWholeRecipeToList(
   listId: string,
   recipeId: string,
   userId: string | null,
-): (RecipeListAdd & { recipeName: string }) | null {
+): (RecipeListAdd & { recipeName: string; skipped: string[] }) | null {
   const recipe = getRecipe(recipeId);
   if (!recipe) return null;
   const ingredients = recipeIngredientsQuery(recipeId).all();
-  const adds = buildRecipeAdds(recipeId, ingredients, new Set(ingredients.map((i) => i.id)), 1);
-  return { ...addRecipeToList(listId, adds, userId), recipeName: recipe.name };
+  const householdId = getList(listId)?.householdId;
+  const selected = defaultSelection(ingredients, householdId ? stapleNames(householdId) : new Set());
+  const adds = buildRecipeAdds(recipeId, ingredients, selected, 1);
+  // One name per staple, the recipe's first text for it.
+  const skipped = new Map<string, string>();
+  for (const i of ingredients) {
+    if (!selected.has(i.id) && !skipped.has(i.ingredientName)) skipped.set(i.ingredientName, i.displayName);
+  }
+  return { ...addRecipeToList(listId, adds, userId), recipeName: recipe.name, skipped: [...skipped.values()] };
 }
 
 /**

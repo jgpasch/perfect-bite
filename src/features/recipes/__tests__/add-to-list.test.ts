@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
-import { db, ingredientUnitUsage, ingredientUsage, listItems } from '@/db';
+import { db, households, ingredientUnitUsage, ingredientUsage, listItems } from '@/db';
 import { groupByRecipe } from '@/domain/recipe-grouping';
+import { setStaple, stapleNames } from '@/features/households/staples';
 
 import {
   addItem,
@@ -15,10 +16,17 @@ import {
   setItemChecked,
   uncheckItems,
 } from '@/features/lists/items';
-import { createList, ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { createList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 
-import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds, replaceRecipeAdd, undoRecipeAdd } from '../add-to-list';
+import {
+  addRecipeToList,
+  addWholeRecipeToList,
+  buildRecipeAdds,
+  defaultSelection,
+  replaceRecipeAdd,
+  undoRecipeAdd,
+} from '../add-to-list';
 import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -307,6 +315,10 @@ describe('a recipe picked in the add bar (spec 4.2)', () => {
     expect(rows()).toEqual([]);
   });
 
+  test('with no staples, nothing is skipped', () => {
+    expect(addWholeRecipeToList(listId, tacos, USER)!.skipped).toEqual([]);
+  });
+
   test('a recipe with no ingredients adds nothing', () => {
     const empty = createRecipe('Empty');
     const added = addWholeRecipeToList(listId, empty, USER)!;
@@ -351,5 +363,90 @@ describe('a recipe picked in the add bar (spec 4.2)', () => {
         '1 lb ground beef',
       ]);
     });
+  });
+});
+
+describe('Always have: staples are left out of recipe adds (spec 4.5)', () => {
+  let home: string;
+  let soup: string;
+
+  beforeEach(() => {
+    home = getList(listId)!.householdId;
+    soup = createRecipe('Soup');
+    for (const text of ['2 carrots', 'Salt', 'sea salt', '1 tsp black pepper', 'water']) addRecipeIngredient(soup, text);
+  });
+
+  const names = (ids: ReadonlySet<string>) =>
+    recipeIngredientsQuery(soup)
+      .all()
+      .filter((i) => ids.has(i.id))
+      .map((i) => i.displayName);
+
+  test('defaultSelection ticks everything but staples, matching by ingredient key', () => {
+    setStaple(home, 'salt', true, USER);
+    setStaple(home, 'water', true, USER);
+    expect(names(defaultSelection(recipeIngredientsQuery(soup).all(), stapleNames(home)))).toEqual([
+      'carrots',
+      'sea salt',
+      'black pepper',
+    ]);
+  });
+
+  test('defaultSelection with no staples ticks everything', () => {
+    const ingredients = recipeIngredientsQuery(soup).all();
+    expect(defaultSelection(ingredients, new Set())).toEqual(new Set(ingredients.map((i) => i.id)));
+  });
+
+  test('the 1× add leaves staples out and names them: `Salt` matches `salt`, `sea salt` is added', () => {
+    setStaple(home, 'salt', true, USER);
+    setStaple(home, 'black pepper', true, USER);
+    const added = addWholeRecipeToList(listId, soup, USER)!;
+    expect(added.count).toBe(3);
+    expect(added.skipped).toEqual(['Salt', 'black pepper']);
+    expect(rows()).toEqual(['2 carrots', 'sea salt', 'water']);
+  });
+
+  test('a staple twice in the recipe is named once', () => {
+    addRecipeIngredient(soup, 'salt');
+    setStaple(home, 'salt', true, USER);
+    const added = addWholeRecipeToList(listId, soup, USER)!;
+    expect(added.skipped).toEqual(['Salt']);
+    expect(added.count).toBe(4);
+  });
+
+  test('an unmarked staple is added again', () => {
+    setStaple(home, 'salt', true, USER);
+    setStaple(home, 'salt', false, USER);
+    const added = addWholeRecipeToList(listId, soup, USER)!;
+    expect(added.count).toBe(5);
+    expect(added.skipped).toEqual([]);
+    expect(rows()).toContain('Salt');
+  });
+
+  test("another household's staples don't count", () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    setStaple('cabin', 'salt', true, USER);
+    setStaple('cabin', 'water', true, USER);
+    const added = addWholeRecipeToList(listId, soup, USER)!;
+    expect(added.count).toBe(5);
+    expect(added.skipped).toEqual([]);
+  });
+
+  test('a recipe of only staples adds nothing', () => {
+    const seasoning = createRecipe('Seasoning');
+    addRecipeIngredient(seasoning, 'salt');
+    addRecipeIngredient(seasoning, 'pepper');
+    setStaple(home, 'salt', true, USER);
+    setStaple(home, 'pepper', true, USER);
+    const added = addWholeRecipeToList(listId, seasoning, USER)!;
+    expect(added).toMatchObject({ recipeName: 'Seasoning', count: 0, results: [], skipped: ['salt', 'pepper'] });
+    expect(rows()).toEqual([]);
+  });
+
+  test('Undo of an add with skipped staples takes back only what it added', () => {
+    addItem(listId, 'salt', USER);
+    setStaple(home, 'salt', true, USER);
+    undoRecipeAdd(addWholeRecipeToList(listId, soup, USER)!);
+    expect(rows()).toEqual(['salt']);
   });
 });
