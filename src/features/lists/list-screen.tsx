@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  AccessibilityInfo,
   ActionSheetIOS,
   FlatList,
   Keyboard,
@@ -14,7 +15,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { aisleHeaderBand, categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
@@ -41,10 +42,11 @@ import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { useMyInvites } from '@/features/households/my-invites';
+import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
 import { categoriesQuery } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
-import { ItemRow } from '@/features/lists/item-row';
+import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useKeepListAwake } from '@/features/lists/keep-awake';
 import {
   addItem,
@@ -74,6 +76,7 @@ import {
 import {
   addedToast,
   aisleSectionKey,
+  applyManualOrder,
   alsoInHint,
   CHECK_LINGER_MS,
   checkedAllToast,
@@ -90,6 +93,7 @@ import {
   expandSection,
   fromRecipesHint,
   isAlreadyOnList,
+  manualOrderKey,
   movedToast,
   orderByNewest,
   readCollapsedSections,
@@ -107,6 +111,7 @@ import {
 } from '@/features/lists/list-view';
 import { listQuery } from '@/features/lists/lists';
 import { takeMoveResult } from '@/features/lists/move-result';
+import { ReorderableRows } from '@/features/lists/reorderable-rows';
 import { ViewMenuButton } from '@/features/lists/view-menu-button';
 import { listShareText } from '@/features/lists/share';
 import { onRecipeAddResult, startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
@@ -119,16 +124,20 @@ import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import {
+  clearManualOrder,
   getAisleColorStyle,
   getAlwaysShowChecked,
   getDeviceSetting,
   getItemRowStyle,
+  getManualOrder,
+  saveManualOrder,
   setDeviceSetting,
 } from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { displayItemName } from '@/shared';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
 
@@ -249,6 +258,10 @@ export function ListScreen({ id }: { id: string }) {
     setViewModeState(mode);
     setDeviceSetting(viewModeKey(id), mode);
   };
+  // Spec 4.6: the order dragged in As added, saved per list on this device; this state mirrors it.
+  const [manualOrder, setManualOrder] = useState(() => getManualOrder(id));
+  // While a row is lifted the list doesn't scroll under the finger.
+  const [dragging, setDragging] = useState(false);
   // Settings > Aisle colours: By aisle tints each row (the default) or only the aisle's header. Read on
   // focus, since it's changed on the Settings tab.
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
@@ -302,7 +315,8 @@ export function ListScreen({ id }: { id: string }) {
   const highlightedId = toast?.itemId ?? null;
   const slugById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.slug])), [categoryRows]);
   const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
-  const listRef = useRef<FlatList<Block>>(null);
+  // An animated ref, so a drag in As added can scroll the list from the UI thread.
+  const listRef = useAnimatedRef<FlatList<Block>>();
 
   // Add mode: while the add field is focused the big title and view button collapse into the native header,
   // and items matching the typed text are marked "already on list".
@@ -322,7 +336,7 @@ export function ListScreen({ id }: { id: string }) {
     if (addModeOffset.current === null) return;
     listRef.current?.scrollToOffset({ offset: addModeOffset.current, animated: true });
     addModeOffset.current = null;
-  }, [addMode]);
+  }, [addMode, listRef]);
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {
     setAdding(false);
@@ -333,9 +347,16 @@ export function ListScreen({ id }: { id: string }) {
   const blocks = useMemo<Block[]>(() => {
     const out: Block[] =
       viewMode === 'newest'
-        ? // As added: one card, no header, latest add at the top; each row shows its aisle's dot.
+        ? // As added: one card, no header, latest add at the top, then the rows the user dragged in their order;
+          // each row shows its aisle's dot.
           placed.length > 0
-          ? [{ kind: 'newest', key: 'newest', entries: orderByNewest(placed).map((item) => ({ key: item.id, item })) }]
+          ? [
+              {
+                kind: 'newest',
+                key: 'newest',
+                entries: applyManualOrder(orderByNewest(placed), manualOrder).map((item) => ({ key: item.id, item })),
+              },
+            ]
           : []
         : viewMode === 'category'
         ? // By aisle: a card per aisle in the user's order, empty ones hidden, items by when added.
@@ -380,7 +401,7 @@ export function ListScreen({ id }: { id: string }) {
       });
     }
     return out;
-  }, [viewMode, sections, orderedCategories, placed, shownChecked, showChecked, slugById, collapsedSaved]);
+  }, [viewMode, sections, orderedCategories, placed, shownChecked, showChecked, slugById, collapsedSaved, manualOrder]);
 
   // The sections Collapse all and Expand all work on: every header in this view (Sorting… has none).
   const sectionMode: SectionedViewMode | null = viewMode === 'newest' ? null : viewMode;
@@ -415,7 +436,7 @@ export function ListScreen({ id }: { id: string }) {
     revealRef.current = null;
     openSectionOf(itemId);
     listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
-  }, [blocks, openSectionOf]);
+  }, [blocks, openSectionOf, listRef]);
 
   // Select mode (spec 4.5): pick items, then Add to recipe opens the sheet. When it closes having
   // added them, leave Select mode, switch to By recipe and say where they went.
@@ -673,6 +694,38 @@ export function ListScreen({ id }: { id: string }) {
 
   const dismissToast = useCallback(() => setToast(null), []);
 
+  // Spec 4.6: rows move by drag (and VoiceOver's Move up / Move down) in As added only, outside Select mode
+  // and add mode. Each move saves the whole order on screen.
+  const canReorder = viewMode === 'newest' && !selection && !addMode;
+  const moveInAsAdded = (ids: readonly string[], from: number, to: number) => {
+    setManualOrder(saveManualOrder(id, moveId(ids, from, to), [...unchecked, ...checked]));
+  };
+  const moveActions = (ids: readonly string[], index: number, item: ItemView): RowMove[] =>
+    aisleRowActions(index, ids.length).map((action) => ({
+      ...action,
+      onPress: () => {
+        const to = action.name === 'moveUp' ? index - 1 : index + 1;
+        moveInAsAdded(ids, index, to);
+        AccessibilityInfo.announceForAccessibility(aisleRowLabel(displayItemName(item.displayName), to, ids.length));
+      },
+    }));
+  // Back to plain As added, no confirm; Undo puts the saved order back.
+  const resetOrder = () => {
+    const previous = getManualOrder(id);
+    clearManualOrder(id);
+    setManualOrder([]);
+    setToast({
+      key: `order-reset-${Date.now()}`,
+      message: 'Order reset',
+      actions: [
+        {
+          label: 'Undo',
+          onPress: () => (setDeviceSetting(manualOrderKey(id), previous), setManualOrder(previous), setToast(null)),
+        },
+      ],
+    });
+  };
+
   const renderEntry = (
     entry: Entry,
     index: number,
@@ -680,6 +733,7 @@ export function ListScreen({ id }: { id: string }) {
     sorting = false,
     aisle?: { name: string },
     plain = false,
+    moves?: RowMove[],
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     return (
@@ -702,19 +756,39 @@ export function ListScreen({ id }: { id: string }) {
         onDelete={() => remove(entry.item)}
         onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
         onSelect={selection ? undefined : () => startSelecting([entry.item.id])}
+        reorderable={moves !== undefined}
+        moves={moves}
       />
     );
   };
 
   // As added and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
-  const renderEntryWithAisle = (e: Entry, i: number) => {
+  // `moves`: an As added row that can be dragged.
+  const renderEntryWithAisle = (e: Entry, i: number, moves?: RowMove[]) => {
     const categoryId = e.item.categoryId;
-    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' });
+    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' }, false, moves);
   };
 
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
+      const ids = block.entries.map((e) => e.item.id);
+      // A checked row lingering in place doesn't move.
+      const movable = (e: Entry) => canReorder && (itemById.get(e.item.id) ?? e.item).checkedAt === null;
+      return (
+        <Card>
+          <ReorderableRows
+            scrollRef={listRef}
+            rows={block.entries.map((e, i) => ({
+              id: e.item.id,
+              draggable: movable(e),
+              node: renderEntryWithAisle(e, i, movable(e) ? moveActions(ids, i, e.item) : undefined),
+            }))}
+            onMove={(from, to) => moveInAsAdded(ids, from, to)}
+            onSelect={(itemId) => startSelecting([itemId])}
+            onDragChange={setDragging}
+          />
+        </Card>
+      );
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
@@ -761,7 +835,7 @@ export function ListScreen({ id }: { id: string }) {
             hideCount={!block.collapsed}
             collapsed={block.collapsed}
             onToggle={() => toggleSection('recipe', block.key)}>
-            {block.entries.map(renderEntryWithAisle)}
+            {block.entries.map((e, i) => renderEntryWithAisle(e, i))}
           </FoldingSection>
         </Card>
       );
@@ -855,6 +929,7 @@ export function ListScreen({ id }: { id: string }) {
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
         <FlatList
           ref={listRef}
+          scrollEnabled={!dragging}
           style={styles.flex}
           data={blocks}
           keyExtractor={(block) => block.key}
@@ -887,6 +962,7 @@ export function ListScreen({ id }: { id: string }) {
                             }
                           : undefined
                       }
+                      onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
                     />
                   </View>
                 </CollapsingHeader>

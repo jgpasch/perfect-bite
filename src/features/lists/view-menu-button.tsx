@@ -20,16 +20,20 @@ export type FoldActions = { canCollapse: boolean; canExpand: boolean; onCollapse
 /**
  * The list screen's view button (spec 4.6): a small white-wash pill on the green header reading the
  * current view, "As added ⌄", that opens a native menu of the views, the current one ticked. In By aisle
- * and By recipe, Collapse all and Expand all follow in their own group.
+ * and By recipe, Collapse all and Expand all follow in their own group; in As added with a dragged order,
+ * Reset order does.
  */
 export function ViewMenuButton({
   value,
   onChange,
   fold,
+  onResetOrder,
 }: {
   value: ListViewMode;
   onChange: (mode: ListViewMode) => void;
   fold?: FoldActions;
+  /** Set while As added shows the user's own order: back to plain As added. */
+  onResetOrder?: () => void;
 }) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();
   const look = listHeaderColors(colors).viewButton;
@@ -90,6 +94,11 @@ export function ViewMenuButton({
                 onPress={fold.onExpandAll}
                 modifiers={[disabled(!fold.canExpand)]}
               />
+            </Section>
+          ) : null}
+          {onResetOrder ? (
+            <Section>
+              <Button label="Reset order" systemImage="arrow.uturn.backward" onPress={onResetOrder} />
             </Section>
           ) : null}
         </Menu>

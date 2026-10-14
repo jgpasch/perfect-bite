@@ -13,7 +13,7 @@ import * as schema from '@/db/schema';
 import { createCategory, loadCatalogSeed, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
 import { clearMyInvites, getMyInvites, refreshMyInvites } from '@/features/households/my-invites';
 import { addItem, checkItems } from '@/features/lists/items';
-import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, viewModeKey } from '@/features/lists/list-view';
+import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, manualOrderKey, viewModeKey } from '@/features/lists/list-view';
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage, BACKFILL_KEY, UNITS_BACKFILL_KEY } from '@/features/lists/usage';
 import { clearNotifications, currentNotification, notify } from '@/features/notifications/notifications';
@@ -102,6 +102,7 @@ beforeEach(async () => {
 
   // Device settings: list state and sync state (user data) next to device-only preferences.
   setDeviceSetting(viewModeKey(homeList), 'aisle');
+  setDeviceSetting(manualOrderKey(homeList), [{ id: 'item-1', at: 1 }]);
   setLastOpenedList(homeList);
   setDeviceSetting(FEATURES_KEY, { userId: USER, features: ['categorize', 'recipe_import'] });
   setDeviceSetting('sync.pull', { userId: USER, cursors: { [`household:${home}:lists`]: '2026-10-01' } });
@@ -206,7 +207,7 @@ describe('wipeLocalData', () => {
     expect(getDeviceSetting(ITEM_ROW_STYLE_KEY, null)).toBe('card');
     expect(getDeviceSetting(IMPORT_ADD_TO_LIST_KEY, false)).toBe(true);
     // Sync cursors, the HLC clock, push backoff, list state and the cached plan are gone.
-    for (const key of ['sync.pull', 'sync.push', 'sync.clock', 'lastOpenedListId', viewModeKey(homeList), FEATURES_KEY]) {
+    for (const key of ['sync.pull', 'sync.push', 'sync.clock', 'lastOpenedListId', viewModeKey(homeList), manualOrderKey(homeList), FEATURES_KEY]) {
       expect(getDeviceSetting(key, null)).toBeNull();
     }
   });

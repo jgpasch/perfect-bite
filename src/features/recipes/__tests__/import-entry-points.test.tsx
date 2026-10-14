@@ -29,6 +29,7 @@ jest.mock('react-native-reanimated', () => {
     FadeOut: builder,
     LinearTransition: builder,
     useReducedMotion: () => false,
+    useAnimatedRef: () => require('react').useRef(null),
     useAnimatedStyle: (fn: () => object) => fn(),
     useSharedValue: (value: unknown) => ({ value }),
     withSpring: (value: unknown) => value,
@@ -44,6 +45,7 @@ jest.mock('@/db/live-query', () => ({
 jest.mock('@/features/lists/view-menu-button', () => ({ ViewMenuButton: () => null }));
 jest.mock('@/features/lists/add-bar', () => ({ ItemAddBar: () => null }));
 jest.mock('@/features/lists/item-row', () => ({ ItemRow: () => null }));
+jest.mock('@/features/lists/reorderable-rows', () => ({ ReorderableRows: () => null }));
 
 let listId: string;
 const mockPush = jest.fn();

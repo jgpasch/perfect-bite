@@ -167,6 +167,45 @@ describe('ItemRow', () => {
     expect(h.onSelect).toHaveBeenCalledTimes(1);
   });
 
+  test('As added: the drag owns the long-press, so holding still neither selects nor opens', () => {
+    jest.mocked(Haptics.impactAsync).mockClear();
+    const tree = render({ reorderable: true });
+    act(() => pressable(tree, 'Limes, 3').props.onLongPress());
+    expect(h.onSelect).not.toHaveBeenCalled();
+    expect(h.onEdit).not.toHaveBeenCalled();
+    expect(Haptics.impactAsync).not.toHaveBeenCalled();
+    // VoiceOver's Select is still there.
+    act(() => byLabel(tree, 'Limes, 3').props.onAccessibilityAction({ nativeEvent: { actionName: 'select' } }));
+    expect(h.onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test('As added: VoiceOver Move up / Move down come after the others and do their move', () => {
+    const up = jest.fn();
+    const down = jest.fn();
+    const tree = render({
+      reorderable: true,
+      moves: [
+        { name: 'moveUp', label: 'Move up', onPress: up },
+        { name: 'moveDown', label: 'Move down', onPress: down },
+      ],
+    });
+    const row = byLabel(tree, 'Limes, 3');
+    expect(row.props.accessibilityActions).toEqual([
+      { name: 'edit', label: 'Edit' },
+      { name: 'delete', label: 'Delete' },
+      { name: 'toggle', label: 'Check off' },
+      { name: 'select', label: 'Select' },
+      { name: 'moveUp', label: 'Move up' },
+      { name: 'moveDown', label: 'Move down' },
+    ]);
+    act(() => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveDown' } }));
+    expect(down).toHaveBeenCalledTimes(1);
+    expect(up).not.toHaveBeenCalled();
+    act(() => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveUp' } }));
+    expect(up).toHaveBeenCalledTimes(1);
+    expect(h.onEdit).not.toHaveBeenCalled();
+  });
+
   test('a checked row offers Uncheck; without onSelect there is no Select action or long-press', () => {
     const tree = render({ item: item({ checkedAt: new Date() }), onSelect: undefined });
     const row = byLabel(tree, 'Limes, 3');

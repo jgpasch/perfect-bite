@@ -50,7 +50,19 @@ type Props = {
   onEdit: () => void;
   /** Long-press (or the "Select" action) when not selecting: enter Select mode with this item (spec 4.5). */
   onSelect?: () => void;
+  /**
+   * As added (spec 4.6): the row's long-press belongs to the drag around it (`ReorderableRows`), which
+   * enters Select mode itself when let go without moving.
+   */
+  reorderable?: boolean;
+  /** As added: VoiceOver's Move up / Move down, each with what it does. */
+  moves?: RowMove[];
 };
+
+export type RowMove = { name: 'moveUp' | 'moveDown'; label: string; onPress: () => void };
+
+// Holding a reorderable row still runs out a Pressable's long-press, so the tap that ends it isn't an open.
+const noop = () => {};
 
 /**
  * A list item in a card (spec 4.2): tap the check to check it off, tap the rest of the row to open its
@@ -74,6 +86,8 @@ export function ItemRow({
   onDelete,
   onEdit,
   onSelect,
+  reorderable = false,
+  moves = [],
 }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
@@ -191,7 +205,9 @@ export function ItemRow({
             <Pressable
               onPress={onEdit}
               onLongPress={
-                onSelect
+                reorderable
+                  ? noop
+                  : onSelect
                   ? () => {
                       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       onSelect();
@@ -206,8 +222,10 @@ export function ItemRow({
                 { name: 'delete', label: 'Delete' },
                 { name: 'toggle', label: toggleActionLabel(checked) },
                 ...(onSelect ? [{ name: 'select', label: 'Select' }] : []),
+                ...moves.map(({ name, label }) => ({ name, label })),
               ]}
               onAccessibilityAction={({ nativeEvent }) => {
+                moves.find((m) => m.name === nativeEvent.actionName)?.onPress();
                 if (nativeEvent.actionName === 'edit') onEdit();
                 if (nativeEvent.actionName === 'delete') onDelete();
                 if (nativeEvent.actionName === 'toggle') onToggle();

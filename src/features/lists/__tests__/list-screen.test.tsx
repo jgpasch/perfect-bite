@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync } from 'expo-keep-awake';
-import { ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
+import { AccessibilityInfo, ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { categories, db, ingredients } from '@/db';
@@ -16,6 +16,7 @@ import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import {
   getDeviceSetting,
   setAisleColorStyle,
+  setDeviceSetting,
   setAlwaysShowChecked,
   setItemRowStyle,
   setKeepScreenOn,
@@ -26,7 +27,8 @@ import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import { addItem, listItemsQuery, moveItemToList, setItemChecked } from '../items';
-import { collapsedSectionsKey, viewModeKey } from '../list-view';
+import type { RowMove } from '../item-row';
+import { addedAt, collapsedSectionsKey, manualOrderKey, viewModeKey } from '../list-view';
 import { ListScreen } from '../list-screen';
 import { createList, ensureStarterData, getDefaultListId, getList } from '../lists';
 import { setMoveResult } from '../move-result';
@@ -51,6 +53,7 @@ jest.mock('react-native-reanimated', () => {
     FadeOut: builder,
     LinearTransition: builder,
     useReducedMotion: () => false,
+    useAnimatedRef: () => require('react').useRef(null),
     useAnimatedStyle: (fn: () => object) => fn(),
     useSharedValue: (value: unknown) => ({ value }),
     withTiming: (value: unknown) => value,
@@ -94,6 +97,14 @@ jest.mock('@/features/lists/item-row', () => {
 jest.mock('@/features/lists/add-bar', () => {
   const { createElement } = require('react');
   return { ItemAddBar: (props: object) => createElement('ItemAddBar', props) };
+});
+// As added's drag: the test calls its drop and still-lift callbacks as the gesture would.
+jest.mock('@/features/lists/reorderable-rows', () => {
+  const { createElement } = require('react');
+  return {
+    ReorderableRows: ({ rows, ...props }: { rows: { id: string; draggable: boolean; node: unknown }[] }) =>
+      createElement('ReorderableRows', { ...props, draggable: rows.map((r) => r.draggable) }, rows.map((r) => r.node)),
+  };
 });
 jest.mock('@/features/lists/view-menu-button', () => {
   const { createElement } = require('react');
@@ -711,6 +722,178 @@ describe('Select mode', () => {
     expect(text()).toContain('Added 1 item to Pancakes');
     tapToast('View recipe');
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'r1' } });
+  });
+});
+
+describe('dragging in As added (spec 4.6)', () => {
+  const drag = () => all('ReorderableRows')[0];
+  const viewMenu = () => all('ViewMenuButton')[0];
+  const savedOrder = () => getDeviceSetting<unknown>(manualOrderKey(listId), null);
+  const actionNames = (name: string) => (row(name).props.moves as RowMove[]).map((m) => m.name);
+  const moveAction = (name: string, action: string) =>
+    act(() => (row(name).props.moves as RowMove[]).find((m) => m.name === action)!.onPress());
+  /** milk, eggs, bananas added in that order: As added reads bananas, eggs, milk. */
+  function threeItems() {
+    put('milk');
+    put('eggs');
+    put('bananas');
+  }
+
+  test('the order applies from a saved setting, with a new add above it', () => {
+    threeItems();
+    render();
+    const at = (name: string) => addedAt(row(name).props.item);
+    const id = (name: string) => row(name).props.item.id as string;
+    const saved = ['milk', 'bananas', 'eggs'].map((name) => ({ id: id(name), at: at(name) }));
+    act(() => tree!.unmount());
+    setDeviceSetting(manualOrderKey(listId), saved);
+    render();
+    expect(rowNames()).toEqual(['milk', 'bananas', 'eggs']);
+    // The header still reads As added.
+    expect(viewMenu().props.value).toBe('newest');
+    jest.setSystemTime(Date.now() + 1000);
+    add('bread');
+    expect(rowNames()).toEqual(['bread', 'milk', 'bananas', 'eggs']);
+    // Garbage in storage counts as no order.
+    act(() => tree!.unmount());
+    setDeviceSetting(manualOrderKey(listId), 'nonsense');
+    render();
+    expect(rowNames()).toEqual(['bread', 'bananas', 'eggs', 'milk']);
+    expect(viewMenu().props.onResetOrder).toBeUndefined();
+  });
+
+  test('a drop saves the whole order on screen, which survives leaving and switching views', () => {
+    threeItems();
+    render();
+    expect(drag().props.draggable).toEqual([true, true, true]);
+    // bananas (top) dropped at the bottom.
+    act(() => drag().props.onMove(0, 2));
+    expect(rowNames()).toEqual(['eggs', 'milk', 'bananas']);
+    expect((savedOrder() as { id: string }[]).map((e) => e.id)).toEqual(
+      ['eggs', 'milk', 'bananas'].map((name) => row(name).props.item.id),
+    );
+    setView('category');
+    expect(all('ReorderableRows')).toHaveLength(0);
+    setView('newest');
+    expect(rowNames()).toEqual(['eggs', 'milk', 'bananas']);
+    act(() => tree!.unmount());
+    render();
+    expect(rowNames()).toEqual(['eggs', 'milk', 'bananas']);
+  });
+
+  test('a long-press let go without moving still enters Select mode with the item selected', () => {
+    threeItems();
+    render();
+    // The drag owns the row's long-press in As added.
+    expect(row('milk').props.reorderable).toBe(true);
+    act(() => drag().props.onSelect(row('milk').props.item.id));
+    expect(text()).toContain('1 selected');
+    expect(row('milk').props.selected).toBe(true);
+    expect(row('eggs').props.selected).toBe(false);
+    expect(savedOrder()).toBeNull();
+    // No dragging, and no Move actions, while selecting.
+    expect(drag().props.draggable).toEqual([false, false, false]);
+    expect(row('milk').props.reorderable).toBe(false);
+    expect(row('milk').props.moves).toBeUndefined();
+  });
+
+  test('no drag in add mode, By aisle or By recipe, where the row keeps its own long-press', () => {
+    threeItems();
+    render();
+    act(() => addBar().props.onFocusChange(true));
+    expect(drag().props.draggable).toEqual([false, false, false]);
+    expect(row('milk').props.reorderable).toBe(false);
+    act(() => addBar().props.onFocusChange(false));
+    expect(drag().props.draggable).toEqual([true, true, true]);
+    for (const mode of ['category', 'recipe']) {
+      setView(mode);
+      expect(row('milk').props.reorderable).toBe(false);
+      expect(row('milk').props.moves).toBeUndefined();
+      expect(row('milk').props.onSelect).toBeDefined();
+    }
+  });
+
+  test('a checked row lingering in place doesn\'t move', () => {
+    threeItems();
+    render();
+    act(() => row('eggs').props.onToggle());
+    expect(drag().props.draggable).toEqual([true, false, true]);
+    expect(row('eggs').props.moves).toBeUndefined();
+  });
+
+  test('VoiceOver Move up / Move down, left out at the ends, save and announce the new place', () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    threeItems();
+    render();
+    expect(actionNames('bananas')).toEqual(['moveDown']);
+    expect(actionNames('eggs')).toEqual(['moveUp', 'moveDown']);
+    expect(actionNames('milk')).toEqual(['moveUp']);
+    expect(row('milk').props.moves.map((m: RowMove) => m.label)).toEqual(['Move up']);
+    moveAction('bananas', 'moveDown');
+    expect(rowNames()).toEqual(['eggs', 'bananas', 'milk']);
+    expect(announce).toHaveBeenLastCalledWith('Bananas, 2 of 3');
+    moveAction('eggs', 'moveDown');
+    expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
+    moveAction('milk', 'moveUp');
+    expect(rowNames()).toEqual(['bananas', 'milk', 'eggs']);
+    expect(announce).toHaveBeenLastCalledWith('Milk, 2 of 3');
+    act(() => tree!.unmount());
+    render();
+    expect(rowNames()).toEqual(['bananas', 'milk', 'eggs']);
+  });
+
+  test('Reset order clears it with no confirm, and Undo puts it back', () => {
+    threeItems();
+    render();
+    // Nothing saved yet: no Reset order.
+    expect(viewMenu().props.onResetOrder).toBeUndefined();
+    act(() => drag().props.onMove(0, 2));
+    const saved = savedOrder();
+    expect(rowNames()).toEqual(['eggs', 'milk', 'bananas']);
+    // Only in As added.
+    setView('category');
+    expect(viewMenu().props.onResetOrder).toBeUndefined();
+    setView('newest');
+    act(() => viewMenu().props.onResetOrder());
+    expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
+    expect(savedOrder()).toBeNull();
+    expect(text()).toContain('Order reset');
+    expect(viewMenu().props.onResetOrder).toBeUndefined();
+    expect(viewMenu().props.value).toBe('newest');
+    tapToast('Undo');
+    expect(rowNames()).toEqual(['eggs', 'milk', 'bananas']);
+    expect(savedOrder()).toEqual(saved);
+    expect(text()).not.toContain('Order reset');
+    expect(viewMenu().props.onResetOrder).toBeDefined();
+  });
+
+  test('the Order reset toast goes after 5 seconds, leaving the plain order', () => {
+    threeItems();
+    render();
+    act(() => drag().props.onMove(0, 2));
+    act(() => viewMenu().props.onResetOrder());
+    expect(text()).toContain('Order reset');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(text()).not.toContain('Order reset');
+    expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
+    expect(savedOrder()).toBeNull();
+  });
+
+  test('a checked item keeps its place for when it comes back', () => {
+    const { itemId: milkId } = put('milk')!;
+    put('eggs');
+    put('bananas');
+    render();
+    // milk to the top: milk, bananas, eggs.
+    act(() => drag().props.onMove(2, 0));
+    expect(rowNames()).toEqual(['milk', 'bananas', 'eggs']);
+    setItemChecked(milkId, true, USER);
+    refresh();
+    act(() => drag().props.onMove(1, 0));
+    expect(rowNames()).toEqual(['eggs', 'bananas']);
+    setItemChecked(milkId, false, USER);
+    refresh();
+    expect(rowNames()).toEqual(['milk', 'eggs', 'bananas']);
   });
 });
 
