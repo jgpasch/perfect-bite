@@ -317,9 +317,10 @@ export default function RecipesScreen() {
       </View>
     ));
 
-  // Large photos: the same recipes as tiles, two per row (one at the largest text sizes), 14 pt in and 12 apart.
-  const renderGrid = (tiles: readonly (RecipeSummary & { ingredientMatch: string | null })[]) => (
-    <View testID="recipe-grid" style={{ padding: spacing.md + spacing.xxs, gap: spacing.md }}>
+  // Large photos: the same recipes as tiles, each its own card on the screen's ground, two per row (one at the
+  // largest text sizes) and 12 apart. Under a meal's header band they start 12 below it.
+  const renderGrid = (tiles: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) => (
+    <View testID="recipe-grid" style={{ paddingTop: underHeader ? spacing.md : 0, gap: spacing.md }}>
       {gridRows(tiles, columns).map((row) => (
         <View key={row[0].id} testID="recipe-grid-row" style={[styles.gridRow, { gap: spacing.md }]}>
           {row.map((r) => (
@@ -342,8 +343,8 @@ export default function RecipesScreen() {
       ))}
     </View>
   );
-  const renderRecipes = (recipes: readonly (RecipeSummary & { ingredientMatch: string | null })[]) =>
-    photoSize === 'large' ? renderGrid(recipes) : renderRows(recipes);
+  const renderRecipes = (recipes: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) =>
+    photoSize === 'large' ? renderGrid(recipes, underHeader) : renderRows(recipes);
 
   return (
     <Screen>
@@ -434,12 +435,13 @@ export default function RecipesScreen() {
               </ThemedText>
             ) : null}
             {sort === 'meal' ? (
-              // Spec 4.5: a folding card per meal, its header tinted in the meal's hue.
+              // Spec 4.5: a folding card per meal, its header tinted in the meal's hue. With large photos the
+              // tiles are their own cards, so the section's ground is the screen's.
               <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
                 {group.meals.map((section) => {
                   const key = mealSectionKey(group.householdId, section.meal);
                   return (
-                    <Card key={key}>
+                    <Card key={key} background={photoSize === 'large' ? 'background' : 'surface'}>
                       <FoldingSection
                         title={section.title}
                         band={hueHeaderBand(section.hue, scheme)}
@@ -447,7 +449,7 @@ export default function RecipesScreen() {
                         countUnit={mealSectionUnit()}
                         collapsed={folded.has(key)}
                         onToggle={() => toggleMealSection(key)}>
-                        {renderRecipes(section.recipes)}
+                        {renderRecipes(section.recipes, true)}
                       </FoldingSection>
                     </Card>
                   );
@@ -455,7 +457,12 @@ export default function RecipesScreen() {
               </View>
             ) : (
               <View style={{ paddingHorizontal: spacing.lg }}>
-                <Card>{renderRecipes(group.recipes)}</Card>
+                {photoSize === 'large' ? (
+                  // The tiles are their own cards, so there's no household card around them.
+                  <View style={{ marginHorizontal: spacing.lg }}>{renderRecipes(group.recipes)}</View>
+                ) : (
+                  <Card>{renderRecipes(group.recipes)}</Card>
+                )}
               </View>
             )}
           </View>
@@ -717,7 +724,7 @@ function recipeLink({
 }
 
 /**
- * A recipe's tile with large photos (spec 4.5): the photo at 4:3 with the "On <list>" badge over its top
+ * A recipe's tile with large photos (spec 4.5): a small card holding the photo at 4:3 with the "On <list>" badge over its top
  * corner, the name on up to two lines, and the time (or "Has …" when a search matched only an ingredient).
  * No swipe: Delete is in the menu and a VoiceOver action.
  */
@@ -751,8 +758,11 @@ function RecipeTile({
       <View
         style={{
           gap: spacing.xxs,
+          padding: spacing.sm - sizes.focusRing,
+          backgroundColor: colors.surface,
           borderWidth: sizes.focusRing,
-          borderRadius: rounded.md + sizes.focusRing,
+          // Concentric with the photo's corners, 8 pt in.
+          borderRadius: rounded.md + spacing.sm,
           borderColor: highlighted ? colors.primary : 'transparent',
           borderCurve: 'continuous',
         }}>

@@ -235,7 +235,7 @@ describe('the photo-size toggle', () => {
     }
   });
 
-  test('Large photos: a two-column grid of tiles in the household card, saved on this device', () => {
+  test('Large photos: a two-column grid of tiles on the screen\'s ground, saved on this device', () => {
     const root = render();
     choose(root, 'Large photos');
     expect(segments(root).map((s) => s.props.accessibilityState.selected)).toEqual([false, true]);
@@ -248,8 +248,8 @@ describe('the photo-size toggle', () => {
       ['Apple crumble', 'Banana bread'],
       ['Curry', null],
     ]);
-    // 14 pt in, 12 between rows and columns.
-    expect(flat(grid.props.style)).toMatchObject({ padding: 14, gap: 12 });
+    // No household card around the tiles; 12 between rows and columns.
+    expect(flat(grid.props.style)).toMatchObject({ paddingTop: 0, gap: 12 });
     expect(flat(gridRowsOf(grid)[0].props.style)).toMatchObject({ flexDirection: 'row', gap: 12 });
     // Each cell takes an equal share of the row.
     expect(byTestID(grid, 'recipe-grid-cell').map((c) => flat(c.props.style).flex)).toEqual([1, 1, 1, 1, 1, 1]);
@@ -297,6 +297,8 @@ describe('the photo-size toggle', () => {
     setDeviceSetting(RECIPE_SORT_KEY, 'meal');
     const root = render();
     choose(root, 'Large photos');
+    // 12 below each meal's header band.
+    expect(flat(grids(root.root)[0].props.style)).toMatchObject({ paddingTop: 12, gap: 12 });
     expect(sections(root).map((s) => [s.props.title, gridLayout(grids(s)[0])])).toEqual([
       ['Breakfast', [['Frittata', null]]],
       ['Dinner', [['Curry', 'Tacos']]],
@@ -329,6 +331,9 @@ describe('a large tile', () => {
     const name = tacos.findAll((n) => n.type === ('Text' as never) && n.props.children === 'Tacos')[0];
     expect(name.props.numberOfLines).toBe(2);
     expect(texts(tacos)).toEqual(['Tacos', '35 min']);
+    // Its own white card, 8 pt in, its corners concentric with the photo's.
+    const card = tacos.find((n) => n.type === ('View' as never) && flat(n.props.style).borderWidth !== undefined);
+    expect(flat(card.props.style)).toMatchObject({ backgroundColor: Palette.light.surface, padding: 6, borderWidth: 2, borderRadius: 20 });
     // No photo: just the hue and the fork and knife.
     const curry = covers(tile(root, 'Curry'))[0];
     expect(curry.findAll((n) => n.type === ('ExpoImage' as never))).toHaveLength(0);
