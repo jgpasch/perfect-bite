@@ -1,0 +1,97 @@
+# View modes and the remembered choice (spec 4.6, 6.2): By aisle puts items under their aisles' headers
+# in the default store-walk order (Produce before Bakery); tapping a header folds its rows away; By
+# recipe puts items from no recipe under Other items; and the view and the fold are remembered on the
+# device, so the list opens the same way after a relaunch. The view menu is a native SwiftUI menu; its
+# items are matched by their text. This doesn't check As added's drag order, Collapse all / Expand all,
+# folds in By recipe, a reordered aisle order (category-order), or Aisle colours in Settings.
+appId: com.jgp.perfectbite
+name: View modes and the remembered choice
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: email
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+
+# The mock categorizer (mock-model.ts) puts bananas and apples in Produce and bread in Bakery.
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- inputText: 'Apples'
+- pressKey: Enter
+- assertVisible: 'Check off Apples'
+- inputText: 'Bread'
+- pressKey: Enter
+- assertVisible: 'Check off Bread'
+
+# In add mode the view button gives way to the compact title, which hides the keyboard when tapped.
+- tapOn: 'Groceries, 3 to get · As added'
+- extendedWaitUntil:
+    visible: 'View: As added'
+    timeout: 10000
+
+# By aisle: both headers, Produce above Bakery (the default order, spec 6.2). VoiceOver reads a header
+# as its name and count. Waiting on them also waits for the items to leave Sorting….
+- tapOn: 'View: As added'
+- tapOn: 'By aisle'
+- extendedWaitUntil:
+    visible: 'Produce, 2 items'
+    timeout: 15000
+- extendedWaitUntil:
+    visible: 'Bakery, 1 item'
+    timeout: 15000
+- assertVisible: 'View: By aisle'
+- assertVisible:
+    text: 'Bakery, 1 item'
+    below: 'Produce, 2 items'
+
+# Fold Produce: its rows hide, the header stays, and Bakery's row doesn't.
+- tapOn: 'Produce, 2 items'
+- extendedWaitUntil:
+    notVisible: 'Check off Bananas'
+    timeout: 10000
+- assertNotVisible: 'Check off Apples'
+- assertVisible: 'Produce, 2 items'
+- assertVisible: 'Check off Bread'
+
+# By recipe: none of these came from a recipe, so they're all under Other items.
+- tapOn: 'View: By aisle'
+- tapOn: 'By recipe'
+- extendedWaitUntil:
+    visible: 'Other items, 3 items'
+    timeout: 10000
+- assertVisible: 'View: By recipe'
+- assertNotVisible: 'Produce, 2 items'
+- assertVisible: 'Check off Bananas'
+
+# Back to By aisle: Produce is still folded.
+- tapOn: 'View: By recipe'
+- tapOn: 'By aisle'
+- extendedWaitUntil:
+    visible: 'Produce, 2 items'
+    timeout: 10000
+- assertNotVisible: 'Check off Bananas'
+- assertVisible: 'Check off Bread'
+
+# Quit and relaunch, keeping the app's data: the list opens in By aisle with Produce still folded.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: 'Groceries, switch list'
+    timeout: 30000
+- extendedWaitUntil:
+    visible: 'View: By aisle'
+    timeout: 10000
+- extendedWaitUntil:
+    visible: 'Produce, 2 items'
+    timeout: 10000
+- assertVisible: 'Bakery, 1 item'
+- assertNotVisible: 'Check off Bananas'
+- assertNotVisible: 'Check off Apples'
+- assertVisible: 'Check off Bread'
