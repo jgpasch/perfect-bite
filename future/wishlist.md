@@ -8,3 +8,6 @@
 - **Home screen quick actions**: long-press the app icon for "Add to <default list>", "Import recipe from clipboard" and "Open <last list>".
 - **Recipe from a photo**: on-device text recognition of a recipe card or cookbook page, then the existing no-JSON-LD import path (4.10).
 - **Unit conversion on recipes**: a metric ↔ US toggle on the recipe screen, display only, next to servings scaling.
+- **DMCA agent and takedown contact**: register a designated agent with the US Copyright Office (about $6) and publish a takedown contact, for safe harbor over imported recipes stored on our servers. The user does this; not a code task.
+- **Keep imported recipes private**: never publish an imported recipe outside its household (web pages, public share links). A rule for `web-app-tasks.md` and `copy-to-household-tasks.md`, where the copyright risk jumps.
+- **Don't share cached steps across users**: the `recipe_imports` cache (spec 6.6) serves one user's copied steps to others; keep caching ingredients, tags and time, and reuse steps only from the same user's import (or accept it, since the cache lasts 30 days).
