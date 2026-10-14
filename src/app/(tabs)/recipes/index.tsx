@@ -1,12 +1,16 @@
 import { Link, router, Stack, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
@@ -88,6 +92,17 @@ export default function RecipesScreen() {
   const untaggedHidden =
     filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
+
+  // Spec 4.5: one card's Delete open at a time; opening another or scrolling closes it.
+  const openCard = useRef<SwipeableMethods | null>(null);
+  const cardOpened = useCallback((card: SwipeableMethods) => {
+    if (openCard.current !== card) openCard.current?.close();
+    openCard.current = card;
+  }, []);
+  const cardClosed = useCallback((card: SwipeableMethods) => {
+    if (openCard.current === card) openCard.current = null;
+  }, []);
+  const closeOpenCard = useCallback(() => openCard.current?.close(), []);
 
   // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
   const addRecipe = () => router.push('/add-recipe');
@@ -204,6 +219,7 @@ export default function RecipesScreen() {
       ) : (
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
+          onScrollBeginDrag={closeOpenCard}
           contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
           {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
           {showImports ? (
@@ -250,6 +266,8 @@ export default function RecipesScreen() {
                     ingredientMatch={r.ingredientMatch}
                     onList={onList.get(r.id) ?? null}
                     highlighted={toast?.recipeId === r.id}
+                    onSwipeOpen={cardOpened}
+                    onSwipeClose={cardClosed}
                   />
                 ))}
               </View>
@@ -283,6 +301,8 @@ function RecipeCard({
   ingredientMatch,
   onList,
   highlighted,
+  onSwipeOpen,
+  onSwipeClose,
 }: {
   recipe: RecipeSummary;
   /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the count. */
@@ -290,23 +310,37 @@ function RecipeCard({
   onList: string | null;
   /** Just imported: outlined in `primary` while the toast shows. */
   highlighted: boolean;
+  /** Its swipe opened or closed, so the screen keeps only one card open. */
+  onSwipeOpen: (card: SwipeableMethods) => void;
+  onSwipeClose: (card: SwipeableMethods) => void;
 }) {
   const { colors, spacing, sizes, rounded } = useTheme();
+  const swipeable = useRef<SwipeableMethods>(null);
+  const [width, setWidth] = useState(0);
+  // Dragged past FULL_SWIPE of the card: letting go asks to delete, rather than leaving Delete showing.
+  const fullSwipe = useRef(false);
+  const setFullSwipe = useCallback((full: boolean) => (fullSwipe.current = full), []);
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
   const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
 
+  // The menu's Delete, the swipe's and VoiceOver's; Cancel closes a swiped card.
   const confirmDelete = () =>
     Alert.alert(`Delete “${recipe.name}”?`, 'Items already on your lists stay there.', [
-      { text: 'Cancel', style: 'cancel' },
+      { text: 'Cancel', style: 'cancel', onPress: () => swipeable.current?.close() },
       { text: 'Delete', style: 'destructive', onPress: () => deleteRecipe(recipe.id) },
     ]);
 
-  return (
+  const card = (
     <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
       <Link.Trigger>
-        <Pressable accessibilityRole="button" accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList, ingredientMatch)}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList, ingredientMatch)}
+          accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
+          onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && confirmDelete()}>
           {/* Layout lives on a View: Link's trigger replaces the Pressable's style. */}
           <View
+            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
             style={[
               styles.card,
               {
@@ -360,6 +394,69 @@ function RecipeCard({
       </Link.Menu>
     </Link>
   );
+
+  return (
+    <ReanimatedSwipeable
+      ref={swipeable}
+      // Follows the finger like a list row; a short swipe leaves Delete showing, a full one asks at once.
+      friction={1}
+      overshootLeft={false}
+      containerStyle={{ borderRadius: rounded.card, borderCurve: 'continuous' }}
+      onSwipeableWillOpen={() => {
+        if (swipeable.current) onSwipeOpen(swipeable.current);
+        if (fullSwipe.current) confirmDelete();
+      }}
+      onSwipeableClose={() => swipeable.current && onSwipeClose(swipeable.current)}
+      renderRightActions={(_progress, translation) => (
+        <DeleteAction
+          translation={translation}
+          fullAt={width > 0 ? width * FULL_SWIPE : Infinity}
+          onFull={setFullSwipe}
+          onPress={confirmDelete}
+        />
+      )}>
+      {card}
+    </ReanimatedSwipeable>
+  );
+}
+
+/** How far across the card a swipe goes before letting go asks to delete it. */
+const FULL_SWIPE = 0.6;
+
+/** The `danger` Delete behind a swiped card: it widens as the card overshoots, and says when a swipe is full. */
+function DeleteAction({
+  translation,
+  fullAt,
+  onFull,
+  onPress,
+}: {
+  translation: SharedValue<number>;
+  fullAt: number;
+  onFull: (full: boolean) => void;
+  onPress: () => void;
+}) {
+  const { colors, spacing, opacity } = useTheme();
+  useAnimatedReaction(
+    () => translation.get() <= -fullAt,
+    (full, was) => {
+      if (full !== was) scheduleOnRN(onFull, full);
+    },
+    [fullAt, onFull],
+  );
+  const fill = useAnimatedStyle(() => ({ width: Math.max(0, -translation.get()) }));
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Delete"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.action,
+        { backgroundColor: colors.danger, paddingHorizontal: spacing.xl, opacity: pressed ? opacity.pressed : 1 },
+      ]}>
+      <Animated.View pointerEvents="none" style={[styles.fill, { backgroundColor: colors.danger }, fill]} />
+      <Icon name="trash" color="onPrimary" />
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -369,4 +466,6 @@ const styles = StyleSheet.create({
   grow: { flexGrow: 1 },
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  action: { alignItems: 'center', justifyContent: 'center' },
+  fill: { position: 'absolute', top: 0, bottom: 0, right: 0 },
 });
