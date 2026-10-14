@@ -272,12 +272,19 @@ function createImportedRecipe(
     householdId,
     name: nameOf(imported),
     sourceUrl: imported.sourceUrl,
-    notes: imported.servings ? `Serves ${imported.servings}` : null,
     // Only a recipe this import creates; a reused one keeps its own (spec 4.14).
     tags: imported.tags,
     totalMinutes: imported.totalMinutes,
+    steps: imported.steps.length > 0 ? imported.steps : null,
+    servings: servingsOf(imported.servings),
+    imageUrl: imported.imageUrl,
   });
   return id;
+}
+
+/** `recipes.servings`: a whole number from 1 to 100, else null. */
+function servingsOf(servings: number | null): number | null {
+  return servings !== null && Number.isInteger(servings) && servings >= 1 && servings <= 100 ? servings : null;
 }
 
 /** The recipe's name, or its site's host when the page gave none. */

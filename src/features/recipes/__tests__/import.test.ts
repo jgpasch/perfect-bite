@@ -79,8 +79,8 @@ const TIKKA: RecipeImportResponse = {
   ],
   tags: { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] },
   totalMinutes: 50,
-  steps: [],
-  imageUrl: null,
+  steps: ['Marinate the chicken.', 'Grill it.', 'Simmer in the sauce.'],
+  imageUrl: 'https://example.com/tikka.jpg',
 };
 
 let listId: string;
@@ -126,6 +126,13 @@ const liveRecipes = () =>
 const recipeTags = (id: string) =>
   db
     .select({ tags: recipes.tags, tagsEdited: recipes.tagsEdited, totalMinutes: recipes.totalMinutes })
+    .from(recipes)
+    .where(eq(recipes.id, id))
+    .get();
+
+const recipeExtras = (id: string) =>
+  db
+    .select({ steps: recipes.steps, servings: recipes.servings, imageUrl: recipes.imageUrl, notes: recipes.notes })
     .from(recipes)
     .where(eq(recipes.id, id))
     .get();
@@ -203,7 +210,7 @@ describe('a new recipe', () => {
   test('creates the recipe with its ingredients in page order', async () => {
     const result = await importOk();
     expect(liveRecipes()).toEqual([
-      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: null },
     ]);
     expect(ingredientRows(result.recipeId)).toEqual([
       { ingredientName: 'chicken thigh', displayName: 'chicken thighs', quantity: 2, unit: 'lb', note: 'boneless' },
@@ -239,7 +246,7 @@ describe('a new recipe', () => {
     expect(invoke).toHaveBeenLastCalledWith('import-recipe', { body: { url: URL_, page } });
   });
 
-  test('no servings leaves notes empty; no name uses the host', async () => {
+  test('no name uses the host', async () => {
     respond({ ...TIKKA, name: '  ', servings: null });
     const result = await importOk();
     expect(result.recipeName).toBe('example.com');
@@ -270,6 +277,55 @@ describe('a new recipe', () => {
     respond({ ...TIKKA, tags: none, totalMinutes: null });
     const result = await importOk();
     expect(recipeTags(result.recipeId)).toEqual({ tags: none, tagsEdited: false, totalMinutes: null });
+  });
+
+  test('saves the steps, servings and photo on the recipe it creates, with no "Serves N" note, and sends them', async () => {
+    const result = await importOk();
+    expect(recipeExtras(result.recipeId)).toEqual({
+      steps: ['Marinate the chicken.', 'Grill it.', 'Simmer in the sauce.'],
+      servings: 4,
+      imageUrl: 'https://example.com/tikka.jpg',
+      notes: null,
+    });
+    const insert = db
+      .select()
+      .from(outbox)
+      .all()
+      .map((r) => r.mutation)
+      .find((m) => m.table === 'recipes' && m.id === result.recipeId)!;
+    expect(insert.fields).toMatchObject({
+      steps: ['Marinate the chicken.', 'Grill it.', 'Simmer in the sauce.'],
+      servings: 4,
+      image_url: 'https://example.com/tikka.jpg',
+      notes: null,
+    });
+  });
+
+  test('no steps saves null, not an empty array', async () => {
+    respond({ ...TIKKA, steps: [] });
+    const result = await importOk();
+    expect(recipeExtras(result.recipeId)?.steps).toBeNull();
+  });
+
+  test('a response with no steps or photo (an older server) saves null for both', async () => {
+    const { steps: _steps, imageUrl: _image, ...older } = TIKKA;
+    respond(older);
+    const result = await importOk();
+    expect(recipeExtras(result.recipeId)).toEqual({ steps: null, servings: 4, imageUrl: null, notes: null });
+  });
+
+  test.each([
+    [null, null],
+    [1, 1],
+    [100, 100],
+    [0, null],
+    [-2, null],
+    [101, null],
+    [2.5, null],
+  ])('servings %p saves %p', async (servings, saved) => {
+    respond({ ...TIKKA, servings });
+    const result = await importOk();
+    expect(recipeExtras(result.recipeId)).toMatchObject({ servings: saved, notes: null });
   });
 
   test('saves in one top-level transaction, and undoes in one', async () => {
@@ -341,6 +397,27 @@ describe('an existing recipe with the same URL', () => {
       .slice(before)
       .filter((r) => r.mutation.table === 'recipes');
     expect(recipeMutations).toEqual([]);
+  });
+
+  test('keeps its own steps, servings, photo and "Serves N" note; nothing is backfilled', async () => {
+    db.update(recipes)
+      .set({ steps: ['Ask Mum.'], servings: 2, imageUrl: 'https://example.com/mum.jpg', notes: 'Serves 6' })
+      .where(eq(recipes.id, existing))
+      .run();
+    const result = await importOk();
+    expect(result.recipeId).toBe(existing);
+    expect(recipeExtras(existing)).toEqual({
+      steps: ['Ask Mum.'],
+      servings: 2,
+      imageUrl: 'https://example.com/mum.jpg',
+      notes: 'Serves 6',
+    });
+  });
+
+  test('one with none of them stays without them', async () => {
+    const result = await importOk();
+    expect(result.recipeId).toBe(existing);
+    expect(recipeExtras(existing)).toEqual({ steps: null, servings: null, imageUrl: null, notes: null });
   });
 
   test('an untagged existing recipe stays untagged', async () => {
@@ -456,7 +533,7 @@ describe('import ids', () => {
     const second = await importOk({ importId: 'envelope-1' });
     expect(second.recipeId).not.toBe(first.recipeId);
     expect(liveRecipes()).toEqual([
-      { id: second.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+      { id: second.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: null },
     ]);
   });
 });
@@ -527,7 +604,7 @@ describe('recipe-only (a household, no list)', () => {
     });
     expect(recipeHousehold(result.recipeId)).toBe(OTHER);
     expect(liveRecipes()).toEqual([
-      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: null },
     ]);
     expect(ingredientRows(result.recipeId).map((i) => i.displayName)).toEqual([
       'chicken thighs',
@@ -759,7 +836,7 @@ describe('device fallback for blocked sites', () => {
     expect(result.recipeName).toBe('Chicken tikka masala');
     expect(result.added).toBe(4);
     expect(liveRecipes()).toEqual([
-      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: 'Serves 4' },
+      { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: null },
     ]);
   });
 
