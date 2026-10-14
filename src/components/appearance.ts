@@ -7,6 +7,7 @@ import type { IconName } from '@/components/icon';
 import { AisleColors as AisleTokens, Palette, Rounded, Spacing, type AisleColors, type ColorScheme, type ColorToken, type ThemeColors } from '@/constants/theme';
 import { aisleColor, type AisleHue } from '@/domain/aisle-color';
 import { contrastRatio, mix } from '@/domain/contrast';
+import { i18n } from '@/i18n';
 import type { CategorySlug } from '@/shared/seed/categories';
 
 type Aisles = (typeof AisleColors)[keyof typeof AisleColors];
@@ -300,16 +301,17 @@ export function itemNameColor(checked: boolean): ColorToken {
 export function sectionHeaderLabel(
   name: string,
   count?: number,
-  unit: readonly [one: string, other: string] = ['item', 'items'],
+  unit?: readonly [one: string, other: string],
 ): string {
   if (count === undefined) return name;
+  if (!unit) return i18n.t('common.sectionCount', { name, count });
   return `${name}, ${count} ${count === 1 ? unit[0] : unit[1]}`;
 }
 
 /** What VoiceOver announces when a toast appears: the message, then which actions it offers. */
 export function toastAnnouncement(message: string, actionLabels: string[]): string {
   if (actionLabels.length === 0) return message;
-  return `${message}. ${actionLabels.join(', ')} available.`;
+  return i18n.t('common.toastAnnouncement', { message, actions: actionLabels.join(', ') });
 }
 
 /**

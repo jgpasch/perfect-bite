@@ -13,6 +13,7 @@ import {
   type ListViewMode,
 } from '@/features/lists/list-view';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /** Collapse all / Expand all, for the views with sections. */
 export type FoldActions = { canCollapse: boolean; canExpand: boolean; onCollapseAll: () => void; onExpandAll: () => void };
@@ -36,6 +37,7 @@ export function ViewMenuButton({
   onResetOrder?: () => void;
 }) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();
+  const t = useT();
   const look = listHeaderColors(colors).viewButton;
   // The pill is shorter than a tap target, so its face is padded to 44 pt and the same padding taken
   // back from the layout: the row then lays out the pill itself and centres it on the "N to get"
@@ -83,13 +85,13 @@ export function ViewMenuButton({
           {fold ? (
             <Section>
               <Button
-                label="Collapse all"
+                label={t('lists.viewModes.collapseAll')}
                 systemImage="rectangle.compress.vertical"
                 onPress={fold.onCollapseAll}
                 modifiers={[disabled(!fold.canCollapse)]}
               />
               <Button
-                label="Expand all"
+                label={t('lists.viewModes.expandAll')}
                 systemImage="rectangle.expand.vertical"
                 onPress={fold.onExpandAll}
                 modifiers={[disabled(!fold.canExpand)]}
@@ -98,7 +100,7 @@ export function ViewMenuButton({
           ) : null}
           {onResetOrder ? (
             <Section>
-              <Button label="Reset order" systemImage="arrow.uturn.backward" onPress={onResetOrder} />
+              <Button label={t('lists.viewModes.resetOrder')}systemImage="arrow.uturn.backward" onPress={onResetOrder} />
             </Section>
           ) : null}
         </Menu>

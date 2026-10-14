@@ -24,6 +24,7 @@ import {
 import type { MyInvite } from '@/features/households/invites';
 import { setStaple } from '@/features/households/staples';
 import { recordListOpened } from '@/features/siri/list-snapshot';
+import { initI18n } from '@/i18n';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
 
@@ -1525,5 +1526,100 @@ describe('keeping the screen on (spec 4.1)', () => {
     expect(awake()).toBe(false);
     act(() => setKeepScreenOn(true));
     expect(awake()).toBe(true);
+  });
+});
+
+describe('the list screen in Spanish', () => {
+  // Unmount before switching back, so the screen doesn't re-render outside act.
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  test('an empty list says so in Spanish', () => {
+    initI18n('es');
+    render();
+    expect(text()).toContain('Esta lista está vacía. Agrega un artículo abajo.');
+  });
+
+  test('the header, switcher and ⋯ menu', () => {
+    put('milk');
+    mockInvites.current = [{ id: 'inv-1', householdName: 'Los López' } as MyInvite];
+    initI18n('es');
+    render();
+    expect(text()).toContain('1 por comprar');
+    expect(pressable('Groceries, cambiar de lista, 1 invitación pendiente').props.accessibilityHint).toBe(
+      'Muestra tus otras listas',
+    );
+    expect(hostByLabel('Acciones de la lista')).toBeDefined();
+    expect(all('ToolbarMenuAction').map((n) => n.props.children)).toEqual([
+      'Seleccionar artículos',
+      'Compartir lista',
+      'Editar lista…',
+    ]);
+    setView('category');
+    expect(menuAction('Reordenar pasillos…')).toBeDefined();
+  });
+
+  test('the Checked section, its menu and its toasts, with Spanish plurals', () => {
+    const a = put('milk')!;
+    const b = put('eggs')!;
+    put('bread');
+    setItemChecked(a.itemId, true, USER);
+    setItemChecked(b.itemId, true, USER);
+    initI18n('es');
+    const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((options) => {
+      expect(options.options).toEqual(['Borrar 2 artículos marcados', 'Desmarcar todo', 'Cancelar']);
+    });
+    render();
+    expect(lines()).toContain('Marcados · 2');
+    act(() => pressable('Marcados, 2 artículos').props.onLongPress());
+    expect(sheet).toHaveBeenCalled();
+    expect(pressable('Desmarcar todo')).toBeDefined();
+    act(() => hostByLabel('Borrar 2 artículos marcados').props.onClick());
+    expect(text()).toContain('Se borraron 2 artículos');
+    tapToast('Deshacer');
+    refresh();
+    press(pressable('Desmarcar todo'));
+    expect(text()).toContain('Se desmarcaron 2 artículos');
+  });
+
+  test('a section’s Check all and an item delete', () => {
+    put('milk');
+    put('eggs');
+    initI18n('es');
+    render();
+    setView('category');
+    const dairy = sections().find((s) => s.props.actions)!;
+    expect(dairy.props.actions.map((a: { label: string }) => a.label)).toEqual(['Marcar todo']);
+    act(() => dairy.props.actions[0].onPress());
+    expect(text()).toContain('Se marcaron 2 artículos');
+    refresh();
+    put('bread');
+    refresh();
+    act(() => row('bread').props.onDelete());
+    expect(text()).toContain('Se eliminó Bread');
+  });
+
+  test('Select mode', () => {
+    put('milk');
+    initI18n('es');
+    render();
+    press(menuAction('Seleccionar artículos'));
+    expect(text()).toContain('Toca artículos para seleccionarlos');
+    act(() => row('milk').props.onToggle());
+    expect(text()).toContain('1 seleccionado');
+    expect(pressable('Agregar a receta')).toBeDefined();
+    expect(all('ToolbarButton').map((n) => n.props.children)).toContain('Listo');
+  });
+
+  test('Share list keeps its layout', () => {
+    put('2 milk');
+    initI18n('es');
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    render();
+    press(menuAction('Compartir lista'));
+    expect(share).toHaveBeenCalledWith({ message: 'Groceries\n- 2 Milk' });
   });
 });

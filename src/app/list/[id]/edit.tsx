@@ -12,6 +12,7 @@ import { LIST_HUES, listColorName, listHue, type ListHue } from '@/domain/aisle-
 import { getAccount } from '@/features/auth/account';
 import { deleteList, getDefaultListId, getList, renameList, setDefaultList, setListColor } from '@/features/lists/lists';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * Edit list (spec 4.1), from the list's ⋯ menu: its name, colour and whether Siri adds to it, then
@@ -20,6 +21,7 @@ import { useTheme } from '@/hooks/use-theme';
 export default function EditListSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, spacing, sizes, opacity, scheme } = useTheme();
+  const t = useT();
   const userId = getAccount()?.userId ?? null;
   // A sheet is short-lived: read once rather than live.
   const [initial] = useState(() => {
@@ -40,10 +42,10 @@ export default function EditListSheet() {
   };
 
   const confirmDelete = () => {
-    Alert.alert(`Delete “${initial.name}”?`, 'Its items are deleted too.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('lists.sheet.deleteTitle', { name: initial.name }), t('lists.sheet.deleteMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           // The List tab moves on to the next list by itself.
@@ -57,7 +59,7 @@ export default function EditListSheet() {
   return (
     <Screen>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
@@ -65,7 +67,7 @@ export default function EditListSheet() {
           tintColor={prominentButtonTint(scheme, colors)}
           disabled={!name.trim()}
           onPress={save}>
-          Done
+          {t('common.done')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
       <ScrollView
@@ -74,11 +76,11 @@ export default function EditListSheet() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
         <View style={{ gap: spacing.sm }}>
-          <Label>Name</Label>
+          <Label>{t('lists.edit.name')}</Label>
           <TextField
             value={name}
             onChangeText={setName}
-            accessibilityLabel="Name"
+            accessibilityLabel={t('lists.edit.name')}
             autoCapitalize="words"
             returnKeyType="done"
             style={{ marginHorizontal: spacing.lg }}
@@ -86,7 +88,7 @@ export default function EditListSheet() {
         </View>
 
         <View style={{ gap: spacing.sm }}>
-          <Label>Colour</Label>
+          <Label>{t('lists.edit.colour')}</Label>
           <Card style={[styles.row, styles.wrap, { gap: spacing.sm, padding: spacing.md }]}>
             {[null, ...LIST_HUES].map((h) => (
               <Swatch key={h ?? 'default'} hue={h} selected={h === hue} onPress={() => setHue(h)} />
@@ -96,7 +98,7 @@ export default function EditListSheet() {
 
         <Card>
           <SettingsRow
-            label="Default list for Siri"
+            label={t('lists.edit.siri')}
             last
             trailing={
               <Switch
@@ -105,8 +107,8 @@ export default function EditListSheet() {
                 // Siri always has a default list: it moves by turning it on for another one.
                 disabled={initial.siri || !userId}
                 trackColor={{ true: colors.primary }}
-                accessibilityLabel="Default list for Siri"
-                accessibilityHint={initial.siri ? 'To change it, turn it on for another list' : 'Siri adds to this list unless you name another'}
+                accessibilityLabel={t('lists.edit.siri')}
+                accessibilityHint={initial.siri ? t('lists.edit.siriHintOn') : t('lists.edit.siriHintOff')}
               />
             }
           />
@@ -115,11 +117,11 @@ export default function EditListSheet() {
         <Card>
           <Pressable
             accessibilityRole="button"
-            accessibilityHint="Asks first"
+            accessibilityHint={t('lists.edit.deleteHint')}
             onPress={confirmDelete}
             style={({ pressed }) => [styles.center, { minHeight: sizes.cardRowMin, opacity: pressed ? opacity.pressed : 1 }]}>
             <ThemedText variant="body" color="danger">
-              Delete list
+              {t('lists.edit.deleteList')}
             </ThemedText>
           </Pressable>
         </Card>

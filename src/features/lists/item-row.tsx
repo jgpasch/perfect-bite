@@ -10,6 +10,7 @@ import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 import type { ItemView } from './items';
@@ -90,6 +91,7 @@ export function ItemRow({
   moves = [],
 }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
+  const t = useT();
   const { entering, exiting, layout } = useMotion();
   const swipeable = useRef<SwipeableMethods>(null);
   const selecting = selected !== undefined;
@@ -191,7 +193,7 @@ export function ItemRow({
             accessibilityRole="checkbox"
             accessibilityState={{ checked: on }}
             accessibilityLabel={label}
-            accessibilityHint="Double-tap to select"
+            accessibilityHint={t('lists.row.selectHint')}
             style={({ pressed }) => [
               rowStyle,
               { paddingRight: spacing.lg, paddingVertical: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
@@ -216,12 +218,12 @@ export function ItemRow({
               }
               accessibilityRole="button"
               accessibilityLabel={label}
-              accessibilityHint="Opens details"
+              accessibilityHint={t('lists.row.opensDetails')}
               accessibilityActions={[
-                { name: 'edit', label: 'Edit' },
-                { name: 'delete', label: 'Delete' },
+                { name: 'edit', label: t('common.edit') },
+                { name: 'delete', label: t('common.delete') },
                 { name: 'toggle', label: toggleActionLabel(checked) },
-                ...(onSelect ? [{ name: 'select', label: 'Select' }] : []),
+                ...(onSelect ? [{ name: 'select', label: t('common.select') }] : []),
                 ...moves.map(({ name, label }) => ({ name, label })),
               ]}
               onAccessibilityAction={({ nativeEvent }) => {

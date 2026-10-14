@@ -1,6 +1,7 @@
 // Pantry redesign: each aisle has a hue so you can find your place in a long list at a glance.
 // The hue picks a `dot` and `soft` pair from the theme's `aisles` tokens (DESIGN.md, aisle colours).
 
+import { i18n } from '@/i18n';
 import type { CategorySlug } from '@/shared/seed/categories';
 
 export type AisleHue = 'green' | 'teal' | 'blue' | 'plum' | 'rose' | 'orange' | 'amber' | 'grey';
@@ -17,11 +18,9 @@ export function listHue(color: string | null | undefined): ListHue | null {
   return color != null && (LIST_HUES as readonly string[]).includes(color) ? (color as ListHue) : null;
 }
 
-const HUE_NAMES: Record<ListHue, string> = { green: 'Green', blue: 'Blue', rose: 'Rose', amber: 'Amber', grey: 'Grey' };
-
 /** A list colour's name in the Colour menu: the hue's name, or "Default" for none. */
 export function listColorName(hue: ListHue | null): string {
-  return hue === null ? 'Default' : HUE_NAMES[hue];
+  return i18n.t(`lists.colours.${hue ?? 'default'}`);
 }
 
 // Neighbouring aisles in the default store order mostly get different hues, so the centre-store run

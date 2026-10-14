@@ -32,7 +32,7 @@ export function initI18n(language: Language): void {
     return;
   }
   i18n.use(initReactI18next).init({
-    resources: { en: { translation: en }, es: { translation: es } },
+    resources: { en: { translation: en }, es: { translation: withManyPlurals(es) } },
     lng: language,
     fallbackLng: 'en',
     // The resources are bundled, so this finishes before it returns.
@@ -43,6 +43,23 @@ export function initI18n(language: Language): void {
   if (__DEV__) warnMissingIntl();
 }
 
+type StringTree = { [key: string]: string | StringTree };
+
+/**
+ * The strings with a `_many` copy of each `_other` plural that has none. Spanish plural rules put a
+ * million (1000000) in a `many` category, which `en.ts`'s keys can't have; without the copy i18next
+ * would fall back to English for it.
+ */
+export function withManyPlurals<T extends StringTree>(strings: T): T {
+  const out: StringTree = {};
+  for (const [key, value] of Object.entries(strings)) {
+    out[key] = typeof value === 'string' ? value : withManyPlurals(value);
+    const many = key.endsWith('_other') ? `${key.slice(0, -'_other'.length)}_many` : null;
+    if (many && typeof value === 'string' && !(many in strings)) out[many] = value;
+  }
+  return out as T;
+}
+
 /** The app's language, once `initI18n` has run. */
 export function currentLanguage(): Language {
   return (i18n.language as Language | undefined) ?? 'en';
@@ -51,6 +68,15 @@ export function currentLanguage(): Language {
 /** `t` for the app's strings: `t('signIn.sendCode')`, `t('signIn.codeSent', { email })`. */
 export function useT() {
   return useTranslation().t;
+}
+
+/**
+ * Keeps a module-level string in the app's language: runs `update` now (once `initI18n` has run) and
+ * whenever the language changes, since a module can load before the root layout initializes.
+ */
+export function onLanguageChanged(update: () => void): void {
+  if (i18n.isInitialized) update();
+  i18n.on('languageChanged', update);
 }
 
 /** A date in the app's language, e.g. `formatDate(d, { weekday: 'long' })` → "Tuesday". */

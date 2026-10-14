@@ -38,6 +38,7 @@ import {
 } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { useTheme } from '@/hooks/use-theme';
+import { i18n, useT } from '@/i18n';
 
 /**
  * Your lists (spec 4.1, boards G and H): opened from the list's name. Invites first, then the lists,
@@ -46,6 +47,7 @@ import { useTheme } from '@/hooks/use-theme';
  */
 export default function ListsSheet() {
   const { spacing, scheme, colors } = useTheme();
+  const t = useT();
   // userSettings: so the Siri mark follows "Make default for Siri".
   const { data } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
   // Live, so joining a household from here shows its lists at once.
@@ -79,7 +81,7 @@ export default function ListsSheet() {
   const decline = (invite: MyInvite) => {
     const prompt = declineInvitePrompt(invite);
     Alert.alert(prompt.title, prompt.message, [
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
       {
         text: 'Decline',
         style: 'destructive',
@@ -129,13 +131,17 @@ export default function ListsSheet() {
     <Screen>
       <Stack.Toolbar placement="left">
         {active.length > 1 ? (
-          <Stack.Toolbar.Button onPress={() => setReordering((r) => !r)}>{reordering ? 'Done' : 'Edit'}</Stack.Toolbar.Button>
+          <Stack.Toolbar.Button onPress={() => setReordering((r) => !r)}>{reordering ? t('common.done') : t('common.edit')}</Stack.Toolbar.Button>
         ) : null}
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         {overview.kind === 'multi' ? (
           // Several households: ask which one gets the new list.
-          <Stack.Toolbar.Menu icon="plus" accessibilityLabel="New list" title="New list in" hidden={reordering}>
+          <Stack.Toolbar.Menu
+            icon="plus"
+            accessibilityLabel={t('lists.sheet.newList')}
+            title={t('lists.sheet.newListIn')}
+            hidden={reordering}>
             {overview.sections.map((s) => (
               <Stack.Toolbar.MenuAction key={s.householdId} icon="circle.fill" onPress={() => create(s.householdId)}>
                 {s.name}
@@ -145,7 +151,7 @@ export default function ListsSheet() {
         ) : (
           <Stack.Toolbar.Button
             icon="plus"
-            accessibilityLabel="New list"
+            accessibilityLabel={t('lists.sheet.newList')}
             onPress={() => create(overview.householdId ?? undefined)}
             hidden={reordering}
           />
@@ -171,10 +177,10 @@ export default function ListsSheet() {
       ) : (
         <ScrollView style={styles.flex} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: spacing.xl }}>
           <ThemedText variant="sheetTitle" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.sm }}>
-            Your lists
+            {t('lists.sheet.title')}
           </ThemedText>
           {invites.length > 0 ? (
-            <Group label="Invite" labelColor="pending">
+            <Group label={t('lists.sheet.invite')} labelColor="pending">
               <View style={{ gap: spacing.sm }}>
                 {invites.map((invite) => (
                   <InviteRow
@@ -195,7 +201,7 @@ export default function ListsSheet() {
                   rows(s.lists)
                 ) : (
                   <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg }}>
-                    No lists
+                    {t('lists.sheet.noLists')}
                   </ThemedText>
                 )}
               </Group>
@@ -261,9 +267,9 @@ function Group({
 }
 
 function confirmDelete(list: ListSummary) {
-  Alert.alert(`Delete “${list.name}”?`, 'Its items are deleted too.', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => deleteList(list.id) },
+  Alert.alert(i18n.t('lists.sheet.deleteTitle', { name: list.name }), i18n.t('lists.sheet.deleteMessage'), [
+    { text: i18n.t('common.cancel'), style: 'cancel' },
+    { text: i18n.t('common.delete'), style: 'destructive', onPress: () => deleteList(list.id) },
   ]);
 }
 
@@ -271,10 +277,10 @@ function confirmDelete(list: ListSummary) {
 function listActions(list: ListSummary, isDefault: boolean) {
   const userId = getAccount()?.userId;
   const actions: { label: string; run: () => void }[] = [
-    { label: 'Rename', run: () => promptListName(list.id, list.name) },
-    ...(userId && !isDefault ? [{ label: 'Make default for Siri', run: () => setDefaultList(userId, list.id) }] : []),
-    { label: 'Archive', run: () => setListArchived(list.id, true) },
-    { label: 'Delete', run: () => confirmDelete(list) },
+    { label: i18n.t('lists.sheet.rename'), run: () => promptListName(list.id, list.name) },
+    ...(userId && !isDefault ? [{ label: i18n.t('lists.sheet.makeDefault'), run: () => setDefaultList(userId, list.id) }] : []),
+    { label: i18n.t('lists.sheet.archive'), run: () => setListArchived(list.id, true) },
+    { label: i18n.t('common.delete'), run: () => confirmDelete(list) },
   ];
   showActions(list.name, actions);
 }
@@ -282,15 +288,15 @@ function listActions(list: ListSummary, isDefault: boolean) {
 /** An archived list: Unarchive or Delete. */
 function archivedActions(list: ListSummary) {
   showActions(list.name, [
-    { label: 'Unarchive', run: () => setListArchived(list.id, false) },
-    { label: 'Delete', run: () => confirmDelete(list) },
+    { label: i18n.t('lists.sheet.unarchive'), run: () => setListArchived(list.id, false) },
+    { label: i18n.t('common.delete'), run: () => confirmDelete(list) },
   ]);
 }
 
 function showActions(title: string, actions: { label: string; run: () => void }[]) {
-  const options = [...actions.map((a) => a.label), 'Cancel'];
+  const options = [...actions.map((a) => a.label), i18n.t('common.cancel')];
   ActionSheetIOS.showActionSheetWithOptions(
-    { title, options, destructiveButtonIndex: options.indexOf('Delete'), cancelButtonIndex: actions.length },
+    { title, options, destructiveButtonIndex: options.indexOf(i18n.t('common.delete')), cancelButtonIndex: actions.length },
     (index) => actions[index]?.run(),
   );
 }
@@ -309,6 +315,7 @@ function ListRow({
   onPress: () => void;
 }) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
+  const t = useT();
   const archived = list.archivedAt !== null;
   const look = listRowLook(current, isDefault, listHue(list.color), colors, aisles);
   const label = listRowAccessibilityLabel(list.name, list.uncheckedCount, { isDefault, archived, current });
@@ -317,8 +324,8 @@ function ListRow({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: current }}
-      accessibilityHint={archived ? 'Unarchive or delete' : undefined}
-      accessibilityActions={archived ? undefined : [{ name: 'longpress', label: 'More actions' }]}
+      accessibilityHint={archived ? t('lists.sheet.archivedHint') : undefined}
+      accessibilityActions={archived ? undefined : [{ name: 'longpress', label: t('lists.sheet.moreActions') }]}
       onAccessibilityAction={() => listActions(list, isDefault)}
       onPress={onPress}
       onLongPress={archived ? undefined : () => listActions(list, isDefault)}
@@ -362,11 +369,12 @@ function ListRow({
 
 function ArchivedHeader({ count, open, onPress }: { count: number; open: boolean; onPress: () => void }) {
   const { spacing, sizes, opacity } = useTheme();
+  const t = useT();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
-      accessibilityLabel={`Archived lists, ${count}`}
+      accessibilityLabel={t('lists.sheet.archivedLabel', { count })}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -375,7 +383,7 @@ function ArchivedHeader({ count, open, onPress }: { count: number; open: boolean
       ]}>
       <Icon name="archivebox" color="inkSecondary" size={sizes.iconSmall + spacing.xs} />
       <ThemedText variant="amount" color="inkSecondary">
-        Archived lists ({count})
+        {t('lists.sheet.archived', { count })}
       </ThemedText>
       <Icon name={open ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
     </Pressable>

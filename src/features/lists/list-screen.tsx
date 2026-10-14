@@ -82,6 +82,7 @@ import {
   checkedAllToast,
   checkedChoiceAfterAllDoneChange,
   checkedSectionOpen,
+  checkedHeaderLabel,
   clearCheckedLabel,
   clearedToast,
   collapsedSectionsKey,
@@ -137,6 +138,7 @@ import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
@@ -171,6 +173,7 @@ function checkHaptic() {
  */
 export function ListScreen({ id }: { id: string }) {
   const { colors, aisles, spacing, sizes, rounded, opacity, scheme } = useTheme();
+  const t = useT();
   const header = listHeaderColors(colors);
   const headerHeight = useHeaderHeight();
   // Light status bar content on the green header, also while this list's item sheets are up over it.
@@ -456,7 +459,7 @@ export function ListScreen({ id }: { id: string }) {
             key: `moved-${moved.itemId}-${Date.now()}`,
             ...movedToast(moved),
             itemId: moved.kind === 'combine' ? moved.targetItemId : undefined,
-            actions: [{ label: 'Undo', onPress: () => (undoMove(moved), setToast(null)) }],
+            actions: [{ label: t('common.undo'), onPress: () => (undoMove(moved), setToast(null)) }],
           });
           return;
         }
@@ -467,7 +470,7 @@ export function ListScreen({ id }: { id: string }) {
           setToast({
             key: `recipe-add-${result.recipeId}-${Date.now()}`,
             ...addedRecipeToListToast(result.recipeName, result.count),
-            actions: [{ label: 'Undo', onPress: () => (undoRecipeAdd(result), setToast(null)) }],
+            actions: [{ label: t('common.undo'), onPress: () => (undoRecipeAdd(result), setToast(null)) }],
           });
           return;
         }
@@ -477,9 +480,9 @@ export function ListScreen({ id }: { id: string }) {
             key: `import-${result.recipeId}-${Date.now()}`,
             ...importedToast(result.recipeName, result.count),
             actions: [
-              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              { label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) },
               {
-                label: 'View recipe',
+                label: t('common.viewRecipe'),
                 onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
               },
             ],
@@ -492,9 +495,9 @@ export function ListScreen({ id }: { id: string }) {
             key: `saved-${result.recipeId}-${Date.now()}`,
             ...savedRecipeToast(result.recipeName, result.created),
             actions: [
-              ...(result.created ? [{ label: 'Undo', onPress: () => (result.undo(), setToast(null)) }] : []),
+              ...(result.created ? [{ label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) }] : []),
               {
-                label: 'View recipe',
+                label: t('common.viewRecipe'),
                 onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
               },
             ],
@@ -509,7 +512,7 @@ export function ListScreen({ id }: { id: string }) {
           ...addedToRecipeToast(result.count, result.recipeName),
           actions: [
             {
-              label: 'View recipe',
+              label: t('common.viewRecipe'),
               onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
             },
           ],
@@ -517,7 +520,7 @@ export function ListScreen({ id }: { id: string }) {
       };
       show();
       return onRecipeAddResult(show);
-    }, [id, openSectionOf]),
+    }, [id, openSectionOf, t]),
   );
   // Adds Siri queued while the app was closed (spec 4.9): one toast, on whichever list is showing.
   useFocusEffect(
@@ -546,15 +549,15 @@ export function ListScreen({ id }: { id: string }) {
             key: `shared-${result.recipeId}-${Date.now()}`,
             ...importedToast(result.recipeName, result.added),
             actions: [
-              { label: 'Undo', onPress: () => (result.undo(), setToast(null)) },
+              { label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) },
               {
-                label: 'View recipe',
+                label: t('common.viewRecipe'),
                 onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
               },
             ],
           });
         }),
-      [],
+      [t],
     ),
   );
 
@@ -566,7 +569,7 @@ export function ListScreen({ id }: { id: string }) {
     setToast({
       key: `checked-${checked.checkedAt.getTime()}`,
       ...checkedAllToast(checked.ids.length),
-      actions: [{ label: 'Undo', onPress: () => (uncheckItems(checked), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (uncheckItems(checked), setToast(null)) }],
     });
   };
 
@@ -577,7 +580,7 @@ export function ListScreen({ id }: { id: string }) {
     setToast({
       key: `removed-${recipeId}-${removed.deletedAt.getTime()}`,
       ...removedRecipeToast(recipeName),
-      actions: [{ label: 'Undo', onPress: () => (restoreRecipeOnList(removed), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (restoreRecipeOnList(removed), setToast(null)) }],
     });
   };
 
@@ -589,9 +592,9 @@ export function ListScreen({ id }: { id: string }) {
     if (!recipeId) return [];
     const link = recipeLinks.get(recipeId);
     return [
-      { label: 'Check all', onPress: () => checkAll(block.itemIds) },
-      ...(link ? [{ label: 'Visit recipe on web', onPress: () => void openRecipeLink(link) }] : []),
-      { label: 'Remove recipe from list', destructive: true, onPress: () => removeRecipe(recipeId, block.title) },
+      { label: t('lists.sections.checkAll'), onPress: () => checkAll(block.itemIds) },
+      ...(link ? [{ label: t('lists.sections.visitRecipe'), onPress: () => void openRecipeLink(link) }] : []),
+      { label: t('lists.sections.removeRecipe'), destructive: true, onPress: () => removeRecipe(recipeId, block.title) },
     ];
   };
 
@@ -602,7 +605,7 @@ export function ListScreen({ id }: { id: string }) {
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: block.title,
-        options: [...actions.map((a) => a.label), 'Cancel'],
+        options: [...actions.map((a) => a.label), t('common.cancel')],
         destructiveButtonIndex: actions.findIndex((a) => a.destructive),
         cancelButtonIndex: actions.length,
       },
@@ -622,7 +625,7 @@ export function ListScreen({ id }: { id: string }) {
       key: result.contributionId,
       ...addedToast(result.existingName ?? value.trim(), result.totalAmountText),
       itemId: result.itemId,
-      actions: [{ label: 'Undo', onPress: () => (undoAdd(result), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (undoAdd(result), setToast(null)) }],
     });
   };
 
@@ -640,9 +643,9 @@ export function ListScreen({ id }: { id: string }) {
       actions: [
         ...(added.count === 0 && added.skipped.length > 0
           ? []
-          : [{ label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
+          : [{ label: t('common.undo'), onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
         {
-          label: 'Adjust',
+          label: t('lists.toasts.adjust'),
           onPress: () => {
             setToast(null);
             const adjust = startAdjust({ listId: id, recipeId: recipe.id, results: added.results });
@@ -658,9 +661,9 @@ export function ListScreen({ id }: { id: string }) {
     setToast({
       key: `deleted-${item.id}`,
       ...deletedToast(item.displayName),
-      actions: [{ label: 'Undo', onPress: () => (undeleteItem(item.id), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (undeleteItem(item.id), setToast(null)) }],
     });
-  }, []);
+  }, [t]);
 
   // Spec 4.1, 4.6: no confirmation; the toast's Undo brings exactly those items back.
   const clear = useCallback(() => {
@@ -669,9 +672,9 @@ export function ListScreen({ id }: { id: string }) {
     setToast({
       key: `cleared-${cleared.deletedAt.getTime()}`,
       ...clearedToast(cleared.ids.length),
-      actions: [{ label: 'Undo', onPress: () => (restoreItems(cleared.ids, cleared.deletedAt), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (restoreItems(cleared.ids, cleared.deletedAt), setToast(null)) }],
     });
-  }, [id]);
+  }, [id, t]);
 
   // Spec 4.6: no confirmation either; Undo checks those items again as they were.
   const uncheck = useCallback(() => {
@@ -680,14 +683,14 @@ export function ListScreen({ id }: { id: string }) {
     setToast({
       key: `unchecked-${unchecked[0].id}-${Date.now()}`,
       ...uncheckedAllToast(unchecked.length),
-      actions: [{ label: 'Undo', onPress: () => (recheckItems(unchecked), setToast(null)) }],
+      actions: [{ label: t('common.undo'), onPress: () => (recheckItems(unchecked), setToast(null)) }],
     });
-  }, [id]);
+  }, [id, t]);
 
   const checkedMenu = (count: number) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     ActionSheetIOS.showActionSheetWithOptions(
-      { options: [clearCheckedLabel(count), 'Uncheck all', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
+      { options: [clearCheckedLabel(count), t('lists.checked.uncheckAll'), t('common.cancel')], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
       (index) => {
         if (index === 0) clear();
         if (index === 1) uncheck();
@@ -719,10 +722,10 @@ export function ListScreen({ id }: { id: string }) {
     setManualOrder([]);
     setToast({
       key: `order-reset-${Date.now()}`,
-      message: 'Order reset',
+      message: t('lists.toasts.orderReset'),
       actions: [
         {
-          label: 'Undo',
+          label: t('common.undo'),
           onPress: () => (setDeviceSetting(manualOrderKey(id), previous), setManualOrder(previous), setToast(null)),
         },
       ],
@@ -815,7 +818,7 @@ export function ListScreen({ id }: { id: string }) {
             onToggle={() => toggleSection('category', block.key)}
             // Spec 4.6: swipe right to check the aisle off; no swipe to delete. VoiceOver gets it as an action.
             onSwipeCheck={selection ? undefined : () => checkAll(block.entries.map((e) => e.item.id))}
-            actions={selection ? undefined : [{ label: 'Check all', onPress: () => checkAll(block.entries.map((e) => e.item.id)) }]}>
+            actions={selection ? undefined : [{ label: t('lists.sections.checkAll'), onPress: () => checkAll(block.entries.map((e) => e.item.id)) }]}>
             {block.entries.map((e, i) => renderEntry(e, i, colors.surface, false, undefined, plain))}
           </FoldingSection>
         </Card>
@@ -851,7 +854,7 @@ export function ListScreen({ id }: { id: string }) {
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ expanded: showChecked }}
-            accessibilityLabel={`Checked, ${block.count} ${block.count === 1 ? 'item' : 'items'}`}
+            accessibilityLabel={checkedHeaderLabel(block.count)}
             onPress={() => setCheckedChoice(!showChecked)}
             onLongPress={() => checkedMenu(block.count)}
             style={({ pressed }) => [
@@ -865,12 +868,12 @@ export function ListScreen({ id }: { id: string }) {
               },
             ]}>
             <ThemedText variant="sectionLabel" color="inkSecondary" numberOfLines={1} style={styles.shrink}>
-              Checked · {block.count}
+              {t('lists.checked.header', { count: block.count })}
             </ThemedText>
             <Icon name={showChecked ? 'chevron.down' : 'chevron.right'} color="inkSecondary" size={sizes.iconSmall} />
           </Pressable>
-          <Button label="Uncheck all" variant="plain" onPress={uncheck} />
-          <Button label="Clear" accessibilityLabel={clearCheckedLabel(block.count)} variant="plain" onPress={clear} />
+          <Button label={t('lists.checked.uncheckAll')} variant="plain" onPress={uncheck} />
+          <Button label={t('lists.checked.clear')} accessibilityLabel={clearCheckedLabel(block.count)} variant="plain" onPress={clear} />
         </View>
         {block.entries.length > 0 ? (
           <Card>{block.entries.map((e, i) => renderEntry(e, i, colors.surface))}</Card>
@@ -902,7 +905,7 @@ export function ListScreen({ id }: { id: string }) {
       <Stack.Toolbar placement="right" tintColor={header.title}>
         {selection ? (
           <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => setSelection(null)}>
-            Done
+            {t('common.done')}
           </Stack.Toolbar.Button>
         ) : null}
         {/* A white wash, as the view pill, with a white ⋯. */}
@@ -910,25 +913,25 @@ export function ListScreen({ id }: { id: string }) {
           icon="ellipsis"
           variant="prominent"
           tintColor={header.viewButton.fill}
-          accessibilityLabel="List actions"
+          accessibilityLabel={t('lists.screen.listActions')}
           hidden={!!selection}>
           {/* Two inline groups, so the native menu draws a divider between them. */}
           <Stack.Toolbar.Menu inline>
             <Stack.Toolbar.MenuAction icon="checkmark.circle" disabled={unchecked.length === 0} onPress={() => startSelecting([])}>
-              Select items
+              {t('lists.screen.selectItems')}
             </Stack.Toolbar.MenuAction>
             <Stack.Toolbar.MenuAction icon="square.and.arrow.up" onPress={() => Share.share({ message: listShareText(list.name, unchecked) })}>
-              Share list
+              {t('lists.screen.shareList')}
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
           <Stack.Toolbar.Menu inline>
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => router.push({ pathname: '/list/[id]/edit', params: { id } })}>
-              Edit list…
+              {t('lists.screen.editList')}
             </Stack.Toolbar.MenuAction>
             {/* By aisle: a way to the aisle order (also in Settings). */}
             {viewMode === 'category' ? (
               <Stack.Toolbar.MenuAction icon="arrow.up.arrow.down" onPress={() => router.push('/category-order')}>
-                Reorder aisles…
+                {t('lists.screen.reorderAisles')}
               </Stack.Toolbar.MenuAction>
             ) : null}
           </Stack.Toolbar.Menu>
@@ -999,7 +1002,7 @@ export function ListScreen({ id }: { id: string }) {
           onScroll={(e) => (scrollOffset.current = e.nativeEvent.contentOffset.y)}
           scrollEventThrottle={16}
           contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
-          ListEmptyComponent={<EmptyState message="Nothing on this list yet. Add an item below." />}
+          ListEmptyComponent={<EmptyState message={t('lists.screen.empty')} />}
           renderItem={({ item: block }) => renderBlock(block)}
           onScrollToIndexFailed={({ index, averageItemLength }) =>
             listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
@@ -1044,6 +1047,7 @@ export function ListScreen({ id }: { id: string }) {
  */
 function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
+  const t = useT();
   const look = listHeaderColors(colors);
   const { width } = useWindowDimensions();
   // Leaves room for the bar's two 16 pt margins, ⋯ and a gap before it. The bar's margin is 4 pt short of
@@ -1053,7 +1057,7 @@ function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={switcherAccessibilityLabel(name, invites)}
-      accessibilityHint="Shows your other lists"
+      accessibilityHint={t('lists.screen.switchListHint')}
       onPress={() => router.push('/lists-sheet')}
       style={({ pressed }) => [
         styles.switcher,
@@ -1098,13 +1102,14 @@ function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
  */
 function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
   const { sizes } = useTheme();
+  const t = useT();
   const { reduceMotion } = useMotion();
   return (
     <Animated.View entering={(reduceMotion ? FadeIn : FadeInDown).duration(Motion.duration)}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name}, ${subtitle}`}
-        accessibilityHint="Hides the keyboard"
+        accessibilityLabel={t('lists.screen.compactTitle', { name, subtitle })}
+        accessibilityHint={t('lists.screen.compactTitleHint')}
         onPress={Keyboard.dismiss}
         style={[styles.compactTitle, { minHeight: sizes.minTapTarget }]}>
         <ThemedText variant="headline" color="onHeader" numberOfLines={1}>
@@ -1171,6 +1176,7 @@ function toggleIn(set: Set<string>, value: string): Set<string> {
 
 function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: () => void }) {
   const { colors, spacing } = useTheme();
+  const t = useT();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -1183,9 +1189,9 @@ function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: 
         borderTopColor: colors.border,
       }}>
       <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite">
-        {count === 0 ? 'Tap items to select them' : `${count} selected`}
+        {count === 0 ? t('lists.select.tapToSelect') : t('lists.select.selected', { count })}
       </ThemedText>
-      <PrimaryButton label="Add to recipe" disabled={count === 0} onPress={onAddToRecipe} />
+      <PrimaryButton label={t('lists.select.addToRecipe')}disabled={count === 0} onPress={onAddToRecipe} />
     </View>
   );
 }

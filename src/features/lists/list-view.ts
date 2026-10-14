@@ -5,6 +5,7 @@ import type { ItemRowStyle } from '@/components/appearance';
 import type { IconName } from '@/components/icon';
 import { sectionAccessibilityLabel, SORTING_CATEGORY } from '@/domain/category-resolver';
 import type { MatchParts } from '@/domain/text-match';
+import { i18n, onLanguageChanged } from '@/i18n';
 import { displayItemName, normalizeIngredientName, parseQuantity, singularize } from '@/shared';
 
 // --- Your lists sheet ------------------------------------------------------------------------
@@ -58,12 +59,12 @@ export function listsOverview<L extends { householdId: string }>(
 
 /** What VoiceOver reads for a household's section header: "test fam, 2 members", or just the name when the members aren't known. */
 export function householdHeaderLabel(name: string, memberCount?: number): string {
-  return memberCount === undefined ? name : `${name}, ${memberCount} ${memberCount === 1 ? 'member' : 'members'}`;
+  return memberCount === undefined ? name : i18n.t('lists.sheet.members', { name, count: memberCount });
 }
 
 /** A list's count in the Your lists sheet: the items to get, or "Done" when there are none. */
 export function listRowCount(count: number): string {
-  return count > 0 ? String(count) : 'Done';
+  return count > 0 ? String(count) : i18n.t('lists.sheet.rowDone');
 }
 
 /** What VoiceOver reads for a list in the Your lists sheet: "Groceries, 12 items to get, Siri list, current". */
@@ -72,17 +73,17 @@ export function listRowAccessibilityLabel(
   count: number,
   { isDefault = false, archived = false, current = false }: { isDefault?: boolean; archived?: boolean; current?: boolean } = {},
 ): string {
-  const parts = [name, count > 0 ? `${count} ${count === 1 ? 'item' : 'items'} to get` : 'all done'];
-  if (isDefault) parts.push('Siri list');
-  if (archived) parts.push('archived');
-  if (current) parts.push('current');
+  const parts = [name, count > 0 ? i18n.t('lists.sheet.toGet', { count }) : i18n.t('lists.sheet.allDone')];
+  if (isDefault) parts.push(i18n.t('lists.sheet.siriList'));
+  if (archived) parts.push(i18n.t('lists.sheet.archivedState'));
+  if (current) parts.push(i18n.t('lists.sheet.current'));
   return parts.join(', ');
 }
 
 /** What VoiceOver reads for the list's name in its header, which opens the Your lists sheet. */
 export function switcherAccessibilityLabel(name: string, invites: number): string {
-  if (invites === 0) return `${name}, switch list`;
-  return `${name}, switch list, ${invites} ${invites === 1 ? 'invite' : 'invites'} waiting`;
+  if (invites === 0) return i18n.t('lists.screen.switchList', { name });
+  return i18n.t('lists.screen.switchListInvites', { name, count: invites });
 }
 
 // --- Launch --------------------------------------------------------------------------------
@@ -106,8 +107,8 @@ export function launchListId(
 
 /** "12 to get" beside the list's title, "All done" once everything on it is checked; nothing on an empty list. */
 export function toGetLabel(uncheckedCount: number, checkedCount = 0): string | null {
-  if (uncheckedCount > 0) return `${uncheckedCount} to get`;
-  return checkedCount > 0 ? 'All done' : null;
+  if (uncheckedCount > 0) return i18n.t('lists.screen.toGet', { count: uncheckedCount });
+  return checkedCount > 0 ? i18n.t('lists.screen.allDone') : null;
 }
 
 /**
@@ -128,12 +129,21 @@ export function checkedChoiceAfterAllDoneChange(choice: boolean | null): boolean
 
 export type ListViewMode = 'newest' | 'category' | 'recipe';
 
-/** The list screen's views (spec 4.6), in menu order, each with its menu icon. */
-export const LIST_VIEW_MODES: readonly { value: ListViewMode; label: string; icon: IconName }[] = [
-  { value: 'newest', label: 'As added', icon: 'clock' },
-  { value: 'category', label: 'By aisle', icon: 'cart' },
-  { value: 'recipe', label: 'By recipe', icon: 'fork.knife' },
-];
+/** The list screen's views (spec 4.6), in menu order, each with its menu icon and its name in the app's language. */
+export const LIST_VIEW_MODES: readonly { value: ListViewMode; readonly label: string; icon: IconName }[] = (
+  [
+    { value: 'newest', icon: 'clock' },
+    { value: 'category', icon: 'cart' },
+    { value: 'recipe', icon: 'fork.knife' },
+  ] as const
+).map(({ value, icon }) => ({
+  value,
+  icon,
+  // A getter, read each time (no object spread here: Babel's would read it once, at load).
+  get label() {
+    return i18n.t(`lists.viewModes.${value}`);
+  },
+}));
 
 /** A list with no saved choice on this device opens in As added. */
 export const DEFAULT_LIST_VIEW_MODE: ListViewMode = 'newest';
@@ -145,10 +155,17 @@ export function viewModeLabel(mode: ListViewMode): string {
 
 /** What VoiceOver reads for the view button: `View: As added`. */
 export function viewButtonAccessibilityLabel(mode: ListViewMode): string {
-  return `View: ${viewModeLabel(mode)}`;
+  return i18n.t('lists.viewModes.button', { mode: viewModeLabel(mode) });
 }
 
-export const VIEW_BUTTON_HINT = 'Changes how the list is grouped';
+// Module-level strings follow the app's language (a live binding, set once i18n is initialized).
+export let VIEW_BUTTON_HINT = '';
+/** The label on each row in the Sorting… card. */
+export let SORTING_LABEL = '';
+onLanguageChanged(() => {
+  VIEW_BUTTON_HINT = i18n.t('lists.viewModes.buttonHint');
+  SORTING_LABEL = i18n.t('lists.sections.sorting');
+});
 
 /** The compact add-mode header's second line: the count and the view, `8 to get · As added`. */
 export function compactHeaderSubtitle(uncheckedCount: number, mode: ListViewMode, checkedCount = 0): string {
@@ -422,7 +439,7 @@ export function manualOrderEntries(
 
 /** The second line on an item that is in other recipes too (By recipe). */
 export function alsoInHint(alsoIn: readonly string[]): string | undefined {
-  return alsoIn.length > 0 ? `Also in ${alsoIn.join(', ')}` : undefined;
+  return alsoIn.length > 0 ? i18n.t('lists.sections.alsoIn', { names: alsoIn.join(', ') }) : undefined;
 }
 
 /**
@@ -431,7 +448,7 @@ export function alsoInHint(alsoIn: readonly string[]): string | undefined {
  */
 export function fromRecipesHint(contributions: readonly { recipeId: string | null; recipeName: string | null }[]): string | undefined {
   const names = [...new Set(contributions.flatMap((c) => (c.recipeId !== null && c.recipeName ? [c.recipeName] : [])))];
-  return names.length > 0 ? `From ${names.join(', ')}` : undefined;
+  return names.length > 0 ? i18n.t('lists.sections.fromRecipes', { names: names.join(', ') }) : undefined;
 }
 
 /** How long a just-checked row stays where it was, struck through, so a second tap can take it back. */
@@ -453,9 +470,6 @@ export function withLingering<I extends { id: string; checkedAt: Date | null }>(
   };
 }
 
-/** The label on each row in the Sorting… card. */
-export const SORTING_LABEL = 'Sorting…';
-
 /**
  * What VoiceOver reads for an item row: name, amount, note and hint, then its aisle (As added shows it
  * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
@@ -471,18 +485,23 @@ export function itemRowLabel(
 
 /** What VoiceOver reads for an item's round check: "Check off Limes" (its checked state is read separately). */
 export function checkOffLabel(name: string): string {
-  return `Check off ${name}`;
+  return i18n.t('lists.row.checkOff', { name });
 }
 
 /** The custom action on an item row that toggles its check: "Check off", or "Uncheck" once it's checked. */
 export function toggleActionLabel(checked: boolean): string {
-  return checked ? 'Uncheck' : 'Check off';
+  return checked ? i18n.t('lists.row.uncheckAction') : i18n.t('lists.row.checkOffAction');
 }
 
 /** The toast after an add merged into an item: "Added to Milk, now 1 gal + 1"; the name is set in bold. */
 export function addedToast(storedName: string, totalAmountText: string | null | undefined): { message: string; emphasis: string } {
   const name = displayItemName(storedName);
-  return { message: totalAmountText ? `Added to ${name}, now ${totalAmountText}` : `Added to ${name}`, emphasis: name };
+  return {
+    message: totalAmountText
+      ? i18n.t('lists.toasts.addedToNow', { name, amount: totalAmountText })
+      : i18n.t('lists.toasts.addedTo', { name }),
+    emphasis: name,
+  };
 }
 
 /**
@@ -497,41 +516,51 @@ export function movedToast(move: {
 }): { message: string; emphasis: string } {
   if (move.kind === 'combine') return addedToast(move.name, move.totalAmountText);
   const name = displayItemName(move.name);
-  return { message: move.fromListName ? `Moved ${name} from ${move.fromListName}` : `Moved ${name}`, emphasis: name };
+  return {
+    message: move.fromListName
+      ? i18n.t('lists.toasts.movedFrom', { name, list: move.fromListName })
+      : i18n.t('lists.toasts.moved', { name }),
+    emphasis: name,
+  };
 }
 
 /** The toast after an item was deleted: "Deleted Milk", with Undo; the name is set in bold. */
 export function deletedToast(storedName: string): { message: string; emphasis: string } {
   const name = displayItemName(storedName);
-  return { message: `Deleted ${name}`, emphasis: name };
+  return { message: i18n.t('lists.toasts.deleted', { name }), emphasis: name };
 }
 
 /** The toast after Clear checked items (spec 4.6): "Cleared 3 items", with Undo. */
 export function clearedToast(count: number): { message: string } {
-  return { message: `Cleared ${count} ${count === 1 ? 'item' : 'items'}` };
+  return { message: i18n.t('lists.toasts.cleared', { count }) };
 }
 
 /** The toast after a section's Check all (spec 4.6): "Checked 3 items", with Undo. */
 export function checkedAllToast(count: number): { message: string } {
-  return { message: `Checked ${count} ${count === 1 ? 'item' : 'items'}` };
+  return { message: i18n.t('lists.toasts.checkedAll', { count }) };
 }
 
 /** The toast after the Checked section's Uncheck all (spec 4.6): "Unchecked 6 items", with Undo. */
 export function uncheckedAllToast(count: number): { message: string } {
-  return { message: `Unchecked ${count} ${count === 1 ? 'item' : 'items'}` };
+  return { message: i18n.t('lists.toasts.uncheckedAll', { count }) };
 }
 
 /** The toast after Remove recipe from list (spec 4.6): "Removed Tacos from the list", with Undo; the name in bold. */
 export function removedRecipeToast(recipeName: string): { message: string; emphasis: string } {
-  return { message: `Removed ${recipeName} from the list`, emphasis: recipeName };
+  return { message: i18n.t('lists.toasts.removedRecipe', { name: recipeName }), emphasis: recipeName };
 }
 
 /** The Checked header's Clear button and long-press action, for VoiceOver: "Clear 3 checked items". */
 export function clearCheckedLabel(count: number): string {
-  return `Clear ${count} checked ${count === 1 ? 'item' : 'items'}`;
+  return i18n.t('lists.checked.clearLabel', { count });
+}
+
+/** The Checked section's header for VoiceOver: "Checked, 2 items". */
+export function checkedHeaderLabel(count: number): string {
+  return i18n.t('lists.checked.label', { count });
 }
 
 /** The toast on a list screen after the Siri queue drained (spec 4.9): "Siri added 2 items". */
 export function siriAddedToast(count: number): { message: string } {
-  return { message: `Siri added ${count} ${count === 1 ? 'item' : 'items'}` };
+  return { message: i18n.t('lists.toasts.siriAdded', { count }) };
 }

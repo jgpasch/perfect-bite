@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import { i18n } from '@/i18n';
+
 import { createList, renameList } from './lists';
 
 /**
@@ -14,12 +16,12 @@ export function promptListName(
   householdId?: string,
 ): void {
   Alert.prompt(
-    listId ? 'Rename list' : 'New list',
+    listId ? i18n.t('lists.prompt.rename') : i18n.t('lists.prompt.new'),
     undefined,
     [
-      { text: 'Cancel', style: 'cancel' },
+      { text: i18n.t('common.cancel'), style: 'cancel' },
       {
-        text: listId ? 'Save' : 'Create',
+        text: listId ? i18n.t('lists.prompt.save') : i18n.t('lists.prompt.create'),
         isPreferred: true,
         onPress: (name?: string) => {
           if (!name?.trim()) return;

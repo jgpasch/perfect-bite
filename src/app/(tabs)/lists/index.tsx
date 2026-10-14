@@ -14,6 +14,7 @@ import { ListScreen } from '@/features/lists/list-screen';
 import { listsWithCountsQuery } from '@/features/lists/lists';
 import { promptListName } from '@/features/lists/prompt-list-name';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * The List tab (spec 4.1, board E): the current list itself, the one last shown on this device, else
@@ -40,17 +41,18 @@ export default function ListTab() {
 /** No open lists: make one, or open the sheet for archived lists and invites. */
 function NoLists({ hasOthers }: { hasOthers: boolean }) {
   const { spacing } = useTheme();
+  const t = useT();
   const invites = useMyInvites();
   return (
     <Screen>
       <EmptyState
-        message="No lists yet."
+        message={t('lists.noLists.message')}
         action={
           <View style={{ gap: spacing.sm }}>
-            <PrimaryButton label="New list" onPress={() => promptListName(null, '', openList)} />
+            <PrimaryButton label={t('lists.noLists.newList')} onPress={() => promptListName(null, '', openList)} />
             {hasOthers || invites.length > 0 ? (
               <Button
-                label={invites.length > 0 ? `${invites.length} ${invites.length === 1 ? 'invite' : 'invites'} waiting` : 'Your lists'}
+                label={invites.length > 0 ? t('lists.noLists.invites', { count: invites.length }) : t('lists.noLists.yourLists')}
                 variant="plain"
                 onPress={() => router.push('/lists-sheet')}
               />

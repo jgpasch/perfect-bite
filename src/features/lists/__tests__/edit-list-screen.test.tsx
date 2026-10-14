@@ -5,6 +5,7 @@ import { Alert } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import EditListSheet from '@/app/list/[id]/edit';
+import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
 import { createList, ensureStarterData, getDefaultListId, getList } from '../lists';
@@ -132,5 +133,48 @@ describe('Edit list', () => {
     act(() => buttons.find((b) => b.text === 'Delete')!.onPress!());
     expect(getList(listId)).toBeUndefined();
     expect(mockBack).toHaveBeenCalled();
+  });
+});
+
+describe('Edit list in Spanish', () => {
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  test('shows its labels, colours and hints in Spanish', () => {
+    initI18n('es');
+    open();
+    expect(byLabel('Nombre').props.value).toBe('Groceries');
+    expect(swatches().map((s) => s.props.accessibilityLabel)).toEqual(['Predeterminado', 'Verde', 'Azul', 'Rosa', 'Ámbar', 'Gris']);
+    expect(lines()).toEqual(expect.arrayContaining(['Nombre', 'Color', 'Lista predeterminada para Siri', 'Eliminar lista']));
+    expect(byLabel('Lista predeterminada para Siri').props.accessibilityHint).toBe('Para cambiarla, actívala en otra lista');
+    expect(toolbar('Cancelar')).toBeDefined();
+    expect(toolbar('Listo')).toBeDefined();
+  });
+
+  test('a list that isn’t Siri’s says what turning it on does', () => {
+    initI18n('es');
+    open(createList('Costco'));
+    expect(byLabel('Lista predeterminada para Siri').props.accessibilityHint).toBe(
+      'Siri agrega a esta lista si no mencionas otra',
+    );
+  });
+
+  test('Delete list asks first, in Spanish', () => {
+    let buttons: { text: string; onPress?: () => void }[] = [];
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, b) => {
+      buttons = b as typeof buttons;
+    });
+    initI18n('es');
+    open();
+    act(() =>
+      tree!.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Pregunta antes').props.onPress(),
+    );
+    expect(alert.mock.calls[0].slice(0, 2)).toEqual(['¿Eliminar “Groceries”?', 'También se eliminan sus artículos.']);
+    expect(buttons.map((b) => b.text)).toEqual(['Cancelar', 'Eliminar']);
+    act(() => buttons[1].onPress!());
+    expect(getList(listId)).toBeUndefined();
   });
 });

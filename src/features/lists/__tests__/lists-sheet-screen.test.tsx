@@ -9,6 +9,7 @@ import ListsSheet from '@/app/lists-sheet';
 import { db, households, lists, userSettings } from '@/db';
 import type { MyInvite } from '@/features/households/invites';
 import { getDeviceSetting } from '@/features/settings/device-settings';
+import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
 import { addItem, setItemChecked } from '../items';
@@ -576,5 +577,68 @@ describe('invites', () => {
     render();
     expect(all('InviteRow')).toHaveLength(1);
     expect(rows()).toEqual([]);
+  });
+});
+
+describe('Your lists in Spanish', () => {
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  test('the title, rows and toolbar', () => {
+    addItem(groceries, 'leche', USER);
+    createList('Costco');
+    initI18n('es');
+    render();
+    expect(lines()[0]).toBe('Tus listas');
+    expect(rows()).toEqual(['Groceries, 1 artículo por comprar, lista de Siri, actual', 'Costco, todo listo']);
+    expect(lines()).toEqual(expect.arrayContaining(['1', 'Listo']));
+    expect(toolbarButton('Nueva lista')).toBeDefined();
+    expect(toolbarButton('Editar')).toBeDefined();
+    expect(row('Costco').props.accessibilityActions).toEqual([{ name: 'longpress', label: 'Más acciones' }]);
+  });
+
+  test('a row’s actions, with Eliminar as the destructive one', () => {
+    createList('Costco');
+    const sheet = spySheet();
+    initI18n('es');
+    render();
+    act(() => row('Costco').props.onLongPress());
+    expect(sheet.mock.calls[0][0]).toEqual({
+      title: 'Costco',
+      options: ['Cambiar nombre', 'Hacer predeterminada para Siri', 'Archivar', 'Eliminar', 'Cancelar'],
+      destructiveButtonIndex: 3,
+      cancelButtonIndex: 4,
+    });
+    const alert = spyAlert();
+    act(() => sheet.mock.calls[0][1](3));
+    expect(alert.spy.mock.calls[0].slice(0, 2)).toEqual(['¿Eliminar “Costco”?', 'También se eliminan sus artículos.']);
+    expect(alert.buttons()).toEqual(['Cancelar', 'Eliminar']);
+  });
+
+  test('New list asks in Spanish', () => {
+    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+    initI18n('es');
+    render();
+    press(toolbarButton('Nueva lista')!);
+    expect(prompt.mock.calls[0][0]).toBe('Nueva lista');
+    expect((prompt.mock.calls[0][2] as Button[]).map((b) => b.text)).toEqual(['Cancelar', 'Crear']);
+  });
+
+  test('archived lists, and several households', () => {
+    const costco = createList('Costco');
+    setListArchived(costco, true);
+    initI18n('es');
+    render();
+    expect(lines()).toContain('Listas archivadas (1)');
+    press(pressable('Listas archivadas, 1'));
+    expect(row('Costco').props.accessibilityLabel).toBe('Costco, todo listo, archivada');
+    expect(row('Costco').props.accessibilityHint).toBe('Desarchivar o eliminar');
+    const sheet = spySheet();
+    press(row('Costco'));
+    expect(sheet.mock.calls[0][0].options).toEqual(['Desarchivar', 'Eliminar', 'Cancelar']);
+    expect(sheet.mock.calls[0][0].destructiveButtonIndex).toBe(1);
   });
 });
