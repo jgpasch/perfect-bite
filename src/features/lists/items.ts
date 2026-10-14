@@ -22,6 +22,7 @@ import { rankHistory, rankUsual } from '@/domain/suggestion-rank';
 import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
 import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
@@ -34,7 +35,7 @@ const liveContribution = isNull(listItemContributions.deletedAt);
 
 export class DuplicateItemError extends Error {
   constructor(name: string) {
-    super(`${name} is already on this list`);
+    super(i18n.t('errors.alreadyOnList', { name }));
     this.name = 'DuplicateItemError';
   }
 }
@@ -603,7 +604,7 @@ export type ItemEdit = {
 export function updateItem(itemId: string, edit: ItemEdit): string[] {
   const name = edit.name.trim().replace(/\s+/g, ' ');
   const ingredientName = normalizeIngredientName(name);
-  if (!ingredientName) throw new Error('An item needs a name');
+  if (!ingredientName) throw new Error(i18n.t('errors.itemNeedsName'));
 
   return db.transaction((tx) => {
     const item = getItem(tx, itemId);
@@ -636,7 +637,7 @@ export function updateItem(itemId: string, edit: ItemEdit): string[] {
       return pendingNames;
     }
     const amount = parseAmount(edit.amount);
-    if (!amount) throw new Error(`"${edit.amount.trim()}" isn't an amount, like 2 or 1 lb`);
+    if (!amount) throw new Error(i18n.t('errors.notAnAmount', { amount: edit.amount.trim() }));
     replaceAmounts(tx, item, contributions, amount);
     return pendingNames;
   });
@@ -1154,8 +1155,8 @@ export function moveItemToList(itemId: string, toListId: string): MoveItemResult
       .where(and(eq(lists.id, toListId), isNull(lists.deletedAt)))
       .get();
     if (!to) throw new Error(`No list ${toListId}`);
-    if (to.id === item.listId) throw new Error(`${displayItemName(item.displayName)} is already on this list`);
-    if (to.householdId !== item.householdId) throw new Error('An item can only move to a list in its household');
+    if (to.id === item.listId) throw new Error(i18n.t('errors.alreadyOnList', { name: displayItemName(item.displayName) }));
+    if (to.householdId !== item.householdId) throw new Error(i18n.t('errors.otherHousehold'));
     const from = tx.select({ name: lists.name }).from(lists).where(eq(lists.id, item.listId)).get();
 
     const moved = liveContributions(tx, itemId);

@@ -8,6 +8,8 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 
+import { i18n } from '@/i18n';
+
 const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 
@@ -21,7 +23,7 @@ let configured = false;
  * The web client ID is what makes Google include an ID token; Supabase accepts both client IDs.
  */
 export async function getGoogleIdToken(): Promise<string | null> {
-  if (!isGoogleConfigured) throw new Error('Google sign-in is not configured.');
+  if (!isGoogleConfigured) throw new Error(i18n.t('errors.googleNotConfigured'));
   if (!configured) {
     GoogleSignin.configure({ webClientId, iosClientId });
     configured = true;
@@ -29,7 +31,7 @@ export async function getGoogleIdToken(): Promise<string | null> {
   try {
     const response = await GoogleSignin.signIn();
     if (isCancelledResponse(response)) return null;
-    if (!response.data.idToken) throw new Error('Google didn’t return an ID token.');
+    if (!response.data.idToken) throw new Error(i18n.t('errors.googleNoToken'));
     return response.data.idToken;
   } catch (err) {
     if (isErrorWithCode(err) && err.code === statusCodes.IN_PROGRESS) return null;

@@ -2,6 +2,7 @@
 // the invite; step 2 offers ways to tell them. This is the sheet's pure logic: its step state, which
 // channel rows show, and its copy. The screen is `src/app/household-invite.tsx`.
 import { InviteError, inviteErrorMessage, isEmail, normalizeEmail } from '@/features/households/invites';
+import { i18n } from '@/i18n';
 
 export type InviteSheetState =
   | { step: 'email'; email: string; submitting: boolean; error: string | null }
@@ -75,13 +76,13 @@ export function inviteChannels(available: { sms: boolean | null; mail: boolean |
 export function inviteChannelLabel(channel: InviteChannel): string {
   switch (channel) {
     case 'messages':
-      return 'Messages';
+      return i18n.t('invites.sheet.messages');
     case 'mail':
-      return 'Mail';
+      return i18n.t('invites.sheet.mail');
     case 'copy':
-      return 'Copy link';
+      return i18n.t('invites.sheet.copy');
     case 'more':
-      return 'More…';
+      return i18n.t('invites.sheet.more');
   }
 }
 
@@ -98,25 +99,18 @@ export function emailNamePart(email: string): string | null {
 
 /** Step 1's title. */
 export function inviteSheetTitle(householdName: string | null | undefined): string {
-  return `Invite to ${householdName?.trim() || 'your household'}`;
+  return i18n.t('invites.sheet.title', { name: householdName?.trim() || i18n.t('invites.sheet.yourHousehold') });
 }
-
-/** Step 1's line under the title: what joining means. */
-export const INVITE_JOINING_LINE = "They'll share its lists and recipes. Their other households aren't affected.";
-
-/** Step 1's footnote under the email field. */
-export const INVITE_EMAIL_FOOTNOTE = 'Use the email they sign in with (their Google account).';
 
 /** Step 2's title: "Let Sam know". */
 export function inviteSendTitle(email: string): string {
-  return `Let ${emailNamePart(email) ?? 'them'} know`;
+  return i18n.t('invites.sheet.sendTitle', { name: emailNamePart(email) ?? i18n.t('invites.sheet.them') });
 }
 
 /** Step 2's note under the rows: the invite reaches them in the app even if nothing is sent. */
 export function inviteSkipNote(email: string): string {
   const name = emailNamePart(email);
-  const who = name ? `${name} signs` : 'they sign';
-  return `You can also skip this. If ${who} in with this email, they'll see the invite in the app.`;
+  return name ? i18n.t('invites.sheet.skipNote', { name }) : i18n.t('invites.sheet.skipNoteUnnamed');
 }
 
 /**

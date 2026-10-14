@@ -9,6 +9,7 @@ import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 import { db, households, lists, recipes } from '@/db';
 import { isOnline } from '@/features/categories/catch-up';
 import { syncListSnapshot } from '@/features/siri/list-snapshot';
+import { i18n, onLanguageChanged } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 import { pullNow } from '@/sync/pull';
 
@@ -43,8 +44,20 @@ export function householdsWithCountsQuery() {
 
 /** The line under a household's name: "3 lists · 1 recipe". */
 export function householdCountsLabel(listCount: number, recipeCount: number): string {
-  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
-  return `${plural(listCount, 'list')} · ${plural(recipeCount, 'recipe')}`;
+  return i18n.t('households.counts', countsParams(listCount, recipeCount));
+}
+
+/** "3 lists" and "1 recipe", for the messages that name both. */
+function countsParams(listCount: number, recipeCount: number): { lists: string; recipes: string } {
+  return {
+    lists: i18n.t('households.lists', { count: listCount }),
+    recipes: i18n.t('households.recipes', { count: recipeCount }),
+  };
+}
+
+/** A household's name for a message, or "this household" when it has none. */
+function householdOrThis(name: string | null | undefined): string {
+  return name?.trim() || i18n.t('households.thisHousehold');
 }
 
 /**
@@ -95,17 +108,28 @@ export async function fetchHouseholdMembers(householdId: string, currentUserId: 
   }));
 }
 
-/** Shown on the household screen for any load failure, including a household not registered yet. */
-export const MEMBERS_ERROR_MESSAGE = "Couldn't load members. Check your connection.";
+/**
+ * Shown on the household screen for any load failure, including a household not registered yet
+ * (`households.membersError`; a live binding).
+ */
+export let MEMBERS_ERROR_MESSAGE = '';
+onLanguageChanged(() => {
+  MEMBERS_ERROR_MESSAGE = i18n.t('households.membersError');
+});
 
 /** A member row's label: the display name, with "(You)" on the caller's own row. */
 export function memberLabel(member: Pick<HouseholdMember, 'displayName' | 'isYou'>): string {
-  const name = member.displayName.trim() || 'Unnamed';
-  return member.isYou ? `${name} (You)` : name;
+  const name = member.displayName.trim() || i18n.t('households.unnamed');
+  return member.isYou ? i18n.t('households.you', { name }) : name;
 }
 
 export function roleLabel(role: HouseholdMember['role']): string {
-  return role === 'owner' ? 'Owner' : 'Member';
+  return role === 'owner' ? i18n.t('households.owner') : i18n.t('households.member');
+}
+
+/** A member row's VoiceOver label when it opens a sheet: "Sam, Member". */
+export function memberRowAccessibilityLabel(member: HouseholdMember): string {
+  return i18n.t('households.memberRow', { name: memberLabel(member), role: roleLabel(member.role) });
 }
 
 // --- Leaving and removal (spec 4.7) ---------------------------------------------------------
@@ -162,43 +186,55 @@ export function householdActionAlert(
   names: { householdName?: string | null; memberName?: string | null } = {},
 ): { title: string; message: string } {
   const { kind } = toHouseholdActionError(error);
-  const household = names.householdName?.trim() || 'this household';
-  const memberName = names.memberName?.trim() || 'them';
-  if (kind === 'offline') return { title: "You're offline", message: 'Connect to the internet and try again.' };
+  const household = householdOrThis(names.householdName);
+  const member = names.memberName?.trim() || i18n.t('households.errors.them');
+  if (kind === 'offline') return { title: i18n.t('common.offline'), message: i18n.t('households.errors.offline') };
   const titles: Record<typeof action, string> = {
-    leave: `Couldn't leave ${household}`,
-    rename: `Couldn't rename ${household}`,
-    delete: `Couldn't delete ${household}`,
-    remove: `Couldn't remove ${memberName}`,
-    'make-owner': `Couldn't make ${memberName} an owner`,
-    'remove-owner': `Couldn't remove ${memberName} as owner`,
-    'step-down': "Couldn't step down as owner",
+    leave: i18n.t('households.errors.leave', { household }),
+    rename: i18n.t('households.errors.rename', { household }),
+    delete: i18n.t('households.errors.delete', { household }),
+    remove: i18n.t('households.errors.remove', { member }),
+    'make-owner': i18n.t('households.errors.makeOwner', { member }),
+    'remove-owner': i18n.t('households.errors.removeOwner', { member }),
+    'step-down': i18n.t('households.errors.stepDown'),
   };
   const title = titles[action];
   const aboutThem = action === 'remove' || action === 'make-owner' || action === 'remove-owner';
   switch (kind) {
     case 'not-member':
-      return { title, message: aboutThem ? `They're no longer in ${household}.` : `You're no longer in ${household}.` };
+      return {
+        title,
+        message: aboutThem
+          ? i18n.t('households.errors.theyLeft', { household })
+          : i18n.t('households.errors.youLeft', { household }),
+      };
     case 'not-owner':
       return {
         title,
         message:
           action === 'rename'
-            ? 'Only owners can rename a household.'
+            ? i18n.t('households.errors.ownersRename')
             : action === 'delete'
-              ? 'Only owners can delete a household.'
+              ? i18n.t('households.errors.ownersDelete')
               : action === 'remove'
-                ? 'Only owners can remove members.'
-                : 'Only owners can change who is an owner.',
+                ? i18n.t('households.errors.ownersRemove')
+                : i18n.t('households.errors.ownersRoles'),
       };
-    case 'last-owner':
-      return { title, message: `${names.householdName?.trim() || 'This household'} needs at least one owner.` };
+    case 'last-owner': {
+      const name = names.householdName?.trim();
+      return {
+        title,
+        message: name
+          ? i18n.t('households.errors.lastOwner', { household: name })
+          : i18n.t('households.errors.lastOwnerUnnamed'),
+      };
+    }
     case 'blank':
-      return { title, message: 'Enter a name.' };
+      return { title, message: i18n.t('households.errors.blank') };
     case 'too-long':
-      return { title, message: `Use a shorter name (up to ${HOUSEHOLD_NAME_MAX} characters).` };
+      return { title, message: i18n.t('households.errors.tooLong', { max: HOUSEHOLD_NAME_MAX }) };
     default:
-      return { title, message: 'Something went wrong. Try again.' };
+      return { title, message: i18n.t('households.errors.failed') };
   }
 }
 
@@ -328,25 +364,24 @@ export function leaveConfirmation({
   recipeCount: number;
   onlyHousehold: boolean;
 }): { title: string; message: string; confirmLabel: string } {
-  const name = householdName.trim() || 'this household';
-  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const name = householdOrThis(householdName);
   const me = members.find((m) => m.isYou);
   const heir = earliestJoinedOther(members);
   const lines: string[] = [];
-  let title = `Leave ${name}?`;
-  let confirmLabel = 'Leave';
+  let title = i18n.t('households.leave.title', { name });
+  let confirmLabel = i18n.t('households.leave.confirm');
   if (!heir) {
-    title = `Leave and delete ${name}?`;
-    confirmLabel = 'Leave and Delete';
-    lines.push(
-      `You're the only member, so its ${plural(listCount, 'list')} and ${plural(recipeCount, 'recipe')} will be deleted.`,
-    );
+    title = i18n.t('households.leave.titleDelete', { name });
+    confirmLabel = i18n.t('households.leave.confirmDelete');
+    lines.push(i18n.t('households.leave.onlyMember', countsParams(listCount, recipeCount)));
   } else {
-    lines.push("You'll lose access to its lists and recipes. They stay with the household.");
+    lines.push(i18n.t('households.leave.loseAccess'));
     const lastOwner = me?.role === 'owner' && !members.some((m) => !m.isYou && m.role === 'owner');
-    if (lastOwner) lines.push(`${heir.displayName.trim() || 'The earliest member'} will become the owner.`);
+    if (lastOwner) {
+      lines.push(i18n.t('households.leave.heir', { name: heir.displayName.trim() || i18n.t('households.leave.earliestMember') }));
+    }
   }
-  if (onlyHousehold) lines.push("You'll get a new empty household.");
+  if (onlyHousehold) lines.push(i18n.t('households.leave.newHousehold'));
   return { title, message: lines.join(' '), confirmLabel };
 }
 
@@ -367,19 +402,26 @@ export function deleteHouseholdConfirmation({
   recipeCount: number;
   onlyHousehold: boolean;
 }): { title: string; message: string; confirmLabel: string } {
-  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
-  const forAll = memberCount > 1 ? ` for all ${memberCount} members` : '';
+  const counts = countsParams(listCount, recipeCount);
   const lines = [
-    `Its ${plural(listCount, 'list')} and ${plural(recipeCount, 'recipe')} will be deleted${forAll}. This can't be undone.`,
+    memberCount > 1
+      ? i18n.t('households.delete.messageForAll', { ...counts, count: memberCount })
+      : i18n.t('households.delete.message', counts),
   ];
-  if (onlyHousehold) lines.push("You'll get a new empty household.");
-  return { title: `Delete ${householdName.trim() || 'this household'}?`, message: lines.join(' '), confirmLabel: 'Delete' };
+  if (onlyHousehold) lines.push(i18n.t('households.leave.newHousehold'));
+  return {
+    title: i18n.t('households.delete.title', { name: householdOrThis(householdName) }),
+    message: lines.join(' '),
+    confirmLabel: i18n.t('common.delete'),
+  };
 }
 
 /** Settings' toast after a household is deleted: "Deleted Cabin", the name in bold. */
 export function deletedHouseholdToast(householdName: string): { message: string; emphasis?: string } {
   const name = householdName.trim();
-  return name ? { message: `Deleted ${name}`, emphasis: name } : { message: 'Deleted the household' };
+  return name
+    ? { message: i18n.t('households.delete.deleted', { name }), emphasis: name }
+    : { message: i18n.t('households.delete.deletedUnnamed') };
 }
 
 /** The action sheet for another member's row (owners only): Remove, then Cancel. */
@@ -389,7 +431,7 @@ export function removeMemberSheet(householdName: string): {
   cancelButtonIndex: number;
 } {
   return {
-    options: [`Remove from ${householdName.trim() || 'this household'}`, 'Cancel'],
+    options: [i18n.t('households.members.removeFrom', { household: householdOrThis(householdName) }), i18n.t('common.cancel')],
     destructiveButtonIndex: 0,
     cancelButtonIndex: 1,
   };
@@ -397,10 +439,9 @@ export function removeMemberSheet(householdName: string): {
 
 /** The confirm after choosing Remove. */
 export function removeMemberConfirmation(memberName: string, householdName: string): { title: string; message: string } {
-  const household = householdName.trim() || 'this household';
   return {
-    title: `Remove ${memberName.trim() || 'this member'}?`,
-    message: `They'll lose access to ${household}'s lists and recipes.`,
+    title: i18n.t('households.members.removeTitle', { name: memberName.trim() || i18n.t('households.members.thisMember') }),
+    message: i18n.t('households.members.removeMessage', { household: householdOrThis(householdName) }),
   };
 }
 
@@ -430,16 +471,21 @@ export function memberActionsSheet(
   if (!members.some((m) => m.isYou && m.role === 'owner')) return null;
   if (member.isYou) {
     if (!members.some((m) => !m.isYou && m.role === 'owner')) return null;
-    return { options: ['Step down as owner', 'Cancel'], actions: ['step-down'], cancelButtonIndex: 1, hint: 'Step down as owner.' };
+    return {
+      options: [i18n.t('households.members.stepDown'), i18n.t('common.cancel')],
+      actions: ['step-down'],
+      cancelButtonIndex: 1,
+      hint: i18n.t('households.members.stepDownHint'),
+    };
   }
   const remove = removeMemberSheet(householdName);
   const owner = member.role === 'owner';
   return {
-    options: [owner ? 'Remove as owner' : 'Make owner', ...remove.options],
+    options: [owner ? i18n.t('households.members.removeOwner') : i18n.t('households.members.makeOwner'), ...remove.options],
     actions: [owner ? 'remove-owner' : 'make-owner', 'remove'],
     destructiveButtonIndex: remove.destructiveButtonIndex + 1,
     cancelButtonIndex: remove.cancelButtonIndex + 1,
-    hint: owner ? 'Remove as owner or remove.' : 'Make owner or remove.',
+    hint: owner ? i18n.t('households.members.ownerHint') : i18n.t('households.members.memberHint'),
   };
 }
 
@@ -448,22 +494,27 @@ export function roleChangeConfirmation(
   change: RoleChange,
   memberName: string,
 ): { title: string; message: string; confirmLabel: string; destructive: boolean } {
-  const name = memberName.trim() || 'this member';
+  const name = memberName.trim() || i18n.t('households.members.thisMember');
   switch (change) {
     case 'make-owner':
       return {
-        title: `Make ${name} an owner?`,
-        message: 'Owners can rename the household, remove members and delete it.',
-        confirmLabel: 'Make owner',
+        title: i18n.t('households.members.makeOwnerTitle', { name }),
+        message: i18n.t('households.members.makeOwnerMessage'),
+        confirmLabel: i18n.t('households.members.makeOwner'),
         destructive: false,
       };
     case 'remove-owner':
-      return { title: `Remove ${name} as owner?`, message: "They'll stay a member.", confirmLabel: 'Remove as owner', destructive: true };
+      return {
+        title: i18n.t('households.members.removeOwnerTitle', { name }),
+        message: i18n.t('households.members.removeOwnerMessage'),
+        confirmLabel: i18n.t('households.members.removeOwner'),
+        destructive: true,
+      };
     case 'step-down':
       return {
-        title: 'Step down as owner?',
-        message: "You'll stay a member. Only owners can rename, remove members or delete the household.",
-        confirmLabel: 'Step down',
+        title: i18n.t('households.members.stepDownTitle'),
+        message: i18n.t('households.members.stepDownMessage'),
+        confirmLabel: i18n.t('households.members.stepDownConfirm'),
         destructive: true,
       };
   }
@@ -473,8 +524,3 @@ export function roleChangeConfirmation(
 export function roleAfter(change: RoleChange): HouseholdMember['role'] {
   return change === 'make-owner' ? 'owner' : 'member';
 }
-
-/** VoiceOver hints for the rows that act (4.7); a member row's comes from `memberActionsSheet`. */
-export const LEAVE_HINT = 'Asks to confirm, then leaves this household.';
-export const RENAME_HINT = 'Asks for a new name.';
-export const DELETE_HINT = 'Asks to confirm, then deletes this household for every member.';

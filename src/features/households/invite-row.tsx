@@ -6,6 +6,7 @@ import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { householdColor } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 import type { MyInvite } from './invites';
 import {
@@ -33,6 +34,7 @@ export function InviteRow({
   onDecline: () => void;
 }) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
+  const t = useT();
   const avatar = avatarColors(householdColor(invite.householdId), colors, aisles);
   const disabled = !!busy;
   const buttonOpacity = (pressed: boolean, isBusy: boolean) => (disabled && !isBusy ? opacity.disabled : pressed ? opacity.pressed : 1);
@@ -73,7 +75,7 @@ export function InviteRow({
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Join"
+        accessibilityLabel={t('invites.card.join')}
         accessibilityState={{ disabled, busy: busy === 'join' }}
         disabled={disabled}
         onPress={onJoin}
@@ -91,7 +93,7 @@ export function InviteRow({
           <ActivityIndicator color={colors.onPrimary} />
         ) : (
           <ThemedText variant="headline" color="onPrimary">
-            Join
+            {t('invites.card.join')}
           </ThemedText>
         )}
       </Pressable>

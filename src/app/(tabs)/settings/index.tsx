@@ -21,7 +21,6 @@ import {
   DELETE_ACCOUNT_FAILED,
   DELETE_ACCOUNT_OFFLINE,
   DELETE_ACCOUNT_SECOND_CONFIRM,
-  DELETING_ACCOUNT,
   DeleteAccountError,
   deleteAccount,
   deleteAccountConfirmation,
@@ -41,10 +40,12 @@ import {
 } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
+import { i18n, useT } from '@/i18n';
 
 /** Settings (board 10): the account card, Shopping and Households cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
+  const t = useT();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : undefined;
   const email = account.status === 'ready' ? account.account.email : undefined;
@@ -83,7 +84,7 @@ export default function SettingsScreen() {
         contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
         <Card
           accessible
-          accessibilityLabel={`Signed in as ${email ?? 'unknown'}, ${sync.label}`}
+          accessibilityLabel={t('settings.accountLabel', { email: email ?? t('settings.unknownEmail'), status: sync.label })}
           style={[styles.row, { padding: spacing.lg, gap: spacing.md + spacing.xxs }]}>
           <View
             style={[
@@ -98,7 +99,7 @@ export default function SettingsScreen() {
           <View style={styles.flex}>
             <ThemedText variant="headline">{email ?? '—'}</ThemedText>
             <ThemedText variant="footnote" color="inkSecondary">
-              Signed in
+              {t('settings.signedIn')}
             </ThemedText>
           </View>
           {/* Badges align to the top of their parent; this keeps it centred beside the name. */}
@@ -107,41 +108,41 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        <SettingsSection title="Shopping">
+        <SettingsSection title={t('settings.shopping')}>
           <SettingsRow
-            label="Siri adds to"
+            label={t('settings.siriAddsTo')}
             value={siriList ?? '—'}
             icon={{ name: 'mic', hue: 'green' }}
             onPress={() => router.push('/settings/siri')}
           />
           <SettingsRow
-            label="Store aisle order"
+            label={t('settings.aisleOrder')}
             icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
             onPress={() => router.push('/category-order')}
           />
           <SettingsRow
-            label="Aisle colours"
+            label={t('settings.aisleColours')}
             value={aisleColorStyleLabel(aisleColors)}
             icon={{ name: 'paintpalette', hue: 'rose' }}
             onPress={() => router.push('/settings/aisle-colors')}
           />
           <SettingsRow
-            label="Keep screen on"
-            detail="While a list has items to get"
+            label={t('settings.keepScreenOn')}
+            detail={t('settings.keepScreenOnDetail')}
             icon={{ name: 'sun.max', hue: 'amber' }}
             trailing={
               <Switch
                 value={keepScreenOn}
                 onValueChange={setKeepScreenOn}
                 trackColor={{ true: colors.primary }}
-                accessibilityLabel="Keep screen on"
-                accessibilityHint="Stops the screen locking while a list has items to get"
+                accessibilityLabel={t('settings.keepScreenOn')}
+                accessibilityHint={t('settings.keepScreenOnHint')}
               />
             }
           />
           <SettingsRow
-            label="Always show checked items"
-            detail="Otherwise they show once everything's checked"
+            label={t('settings.alwaysShowChecked')}
+            detail={t('settings.alwaysShowCheckedDetail')}
             icon={{ name: 'checklist', hue: 'teal' }}
             trailing={
               <Switch
@@ -151,13 +152,13 @@ export default function SettingsScreen() {
                   setAlwaysShowCheckedState(on);
                 }}
                 trackColor={{ true: colors.primary }}
-                accessibilityLabel="Always show checked items"
-                accessibilityHint="Keeps the Checked section open on your lists"
+                accessibilityLabel={t('settings.alwaysShowChecked')}
+                accessibilityHint={t('settings.alwaysShowCheckedHint')}
               />
             }
           />
           <SettingsRow
-            label="Sync status"
+            label={t('settings.syncStatus')}
             value={sync.label}
             icon={{ name: 'arrow.triangle.2.circlepath', hue: 'grey' }}
             onPress={() => router.push('/settings/sync')}
@@ -166,7 +167,7 @@ export default function SettingsScreen() {
         </SettingsSection>
 
         {householdRows.length > 0 ? (
-          <SettingsSection title="Households">
+          <SettingsSection title={t('settings.households')}>
             {householdRows.map((h, i) => (
               <SettingsRow
                 key={h.id}
@@ -180,9 +181,9 @@ export default function SettingsScreen() {
         ) : null}
 
         {__DEV__ ? (
-          <SettingsSection title="Developer">
+          <SettingsSection title={t('settings.developer')}>
             <SettingsRow
-              label="Siri queue and log"
+              label={t('settings.developerRow')}
               icon={{ name: 'hammer', hue: 'grey' }}
               onPress={() => router.push('/settings/developer')}
               last
@@ -192,23 +193,23 @@ export default function SettingsScreen() {
 
         <View style={[styles.start, { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl, gap: spacing.sm }]}>
           <Button
-            label="Sign out"
+            label={t('settings.signOut')}
             variant="plain"
             color="danger"
             onPress={() => signOutAndWipe().catch((err) => console.warn('[settings] sign out failed', err))}
           />
           <Button
-            label="Delete account"
+            label={t('account.delete')}
             variant="plain"
             color="danger"
-            accessibilityHint="Deletes your account and data. Asks you first."
+            accessibilityHint={t('account.deleteHint')}
             disabled={deleting}
             onPress={() => {
               if (userId) void confirmDeleteAccount(userId, () => setDeleting(true), () => setDeleting(false));
             }}
           />
           <ThemedText variant="footnote" color="inkSecondary">
-            Version {version}
+            {t('settings.version', { version })}
           </ThemedText>
         </View>
       </ScrollView>
@@ -245,14 +246,14 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
     }
   };
   Alert.alert(first.title, first.message, [
-    { text: 'Cancel', style: 'cancel' },
+    { text: i18n.t('common.cancel'), style: 'cancel' },
     {
-      text: 'Delete account',
+      text: i18n.t('account.delete'),
       style: 'destructive',
       onPress: () =>
         Alert.alert(DELETE_ACCOUNT_SECOND_CONFIRM.title, DELETE_ACCOUNT_SECOND_CONFIRM.message, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: () => void run() },
+          { text: i18n.t('common.cancel'), style: 'cancel' },
+          { text: i18n.t('common.delete'), style: 'destructive', onPress: () => void run() },
         ]),
     },
   ]);
@@ -261,8 +262,9 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
 /** Full screen while the account is deleted; it can't be dismissed. */
 function DeletingOverlay({ visible }: { visible: boolean }) {
   const { colors, spacing } = useTheme();
+  const t = useT();
   useEffect(() => {
-    if (visible) AccessibilityInfo.announceForAccessibility('Deleting your account');
+    if (visible) AccessibilityInfo.announceForAccessibility(i18n.t('account.deletingAnnouncement'));
   }, [visible]);
   return (
     <Modal visible={visible} animationType="fade" onRequestClose={() => {}}>
@@ -270,7 +272,7 @@ function DeletingOverlay({ visible }: { visible: boolean }) {
         accessibilityViewIsModal
         style={[styles.overlay, { backgroundColor: colors.background, gap: spacing.md, padding: spacing.xl }]}>
         <ActivityIndicator color={colors.inkSecondary} />
-        <ThemedText variant="headline">{DELETING_ACCOUNT}</ThemedText>
+        <ThemedText variant="headline">{t('account.deleting')}</ThemedText>
       </View>
     </Modal>
   );

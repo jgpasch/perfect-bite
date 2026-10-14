@@ -10,6 +10,7 @@ import { positionBetween, positionForMove } from '@/domain/position';
 import { COUNT_KEY } from '@/domain/usual-unit';
 import { hasFeature } from '@/features/plans/features';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
@@ -193,7 +194,7 @@ export function moveCategory(userId: string, households: Households, from: numbe
  */
 export function createCategory(userId: string, householdId: string, name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
-  if (!trimmed) throw new Error('A category needs a name');
+  if (!trimmed) throw new Error(i18n.t('errors.categoryNeedsName'));
   const existing = getOrderedCategories(userId, householdId).find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) return existing.id;
   const ordered = placeAll(userId, householdId);

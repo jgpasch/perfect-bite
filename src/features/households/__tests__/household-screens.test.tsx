@@ -7,6 +7,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, householdStaples, households, ingredients, ingredientUsage, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
+import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
 import HouseholdInviteSheet from '@/app/household-invite';
@@ -1346,5 +1347,135 @@ describe('InviteRow', () => {
     // The busy one shows a spinner in place of its label or icon.
     expect(byType(root, 'ActivityIndicator')).toHaveLength(1);
     expect(texts(root)).toEqual(['J', 'John invited you', 'to Smith household · 2 members', ...(busy === 'join' ? [] : ['Join'])]);
+  });
+});
+
+// Spec 4.15: the same screens with the app in Spanish.
+describe('in Spanish', () => {
+  beforeEach(() => initI18n('es'));
+  afterEach(() => initI18n('en'));
+
+  test('the household screen: counts, members, roles, the Invited section and its rows', async () => {
+    mockParams.id = HOME;
+    mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+    mockListInvites.mockResolvedValue([pendingInvite(), pendingInvite({ id: 'inv-2', email: null, invitedBy: null })]);
+    const root = await render(<HouseholdScreen />);
+    expect(texts(root)).toEqual(
+      expect.arrayContaining([
+        '0 listas · 1 receta',
+        'Miembros',
+        'John (Tú)',
+        'Dueño',
+        'Miembro',
+        'Invitados',
+        'Enviada por John · vence Oct 17',
+        'Enlace de invitación',
+        'Enviada · vence Oct 17',
+        'Siempre tengo',
+        'Ninguno',
+      ]),
+    );
+    expect(hasA11y(root, 'Cambiar nombre del hogar')).toBe(true);
+    expect(hasA11y(root, 'Sam, Miembro')).toBe(true);
+    expect(hasA11y(root, 'pat@example.com, Enviada por John · vence Oct 17, Pendiente')).toBe(true);
+    expect(byLabel(root, 'Invitar a alguien')).toBeDefined();
+    expect(byLabel(root, 'Eliminar hogar').props.accessibilityHint).toBe(
+      'Te pide confirmar y luego elimina este hogar para todos sus miembros.',
+    );
+    expect(byLabel(root, 'Salir del hogar').props.accessibilityHint).toBe('Te pide confirmar y luego sales de este hogar.');
+  });
+
+  test('the household screen: a failed load and Reintentar', async () => {
+    mockParams.id = HOME;
+    mockFetchMembers.mockRejectedValue(new Error('offline'));
+    const root = await render(<HouseholdScreen />);
+    expect(texts(root)).toContain('No se pudieron cargar los miembros. Revisa tu conexión.');
+    expect(byLabel(root, 'Reintentar')).toBeDefined();
+  });
+
+  test('a member row opens the Spanish sheet, and Quitar asks in Spanish', async () => {
+    mockParams.id = HOME;
+    mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+    const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const root = await render(<HouseholdScreen />);
+    const samRow = byLabel(root, 'Sam');
+    expect(samRow.props.accessibilityHint).toBe('Hacer dueño o quitar del hogar.');
+    act(() => samRow.props.onPress());
+    const [options, onChoose] = sheet.mock.calls[0];
+    expect(options.options).toEqual(['Hacer dueño', 'Quitar de Smith home', 'Cancelar']);
+    act(() => onChoose(1));
+    const [title, message, buttons] = alert.mock.calls[0];
+    expect(title).toBe('¿Quitar a Sam?');
+    expect(message).toBe('Ya no tendrá acceso a las listas y recetas de Smith home.');
+    expect((buttons as AlertButton[]).map((b) => b.text)).toEqual(['Cancelar', 'Quitar']);
+  });
+
+  test('the invite sheet: both steps', async () => {
+    mockParams.household = HOME;
+    mockCreateInvite.mockResolvedValue('perfectbite://invite/abc');
+    const root = await render(<HouseholdInviteSheet />);
+    expect(texts(root)).toEqual(
+      expect.arrayContaining([
+        'Invitar a Smith home',
+        'Compartirá sus listas y recetas. Sus otros hogares no cambian.',
+        'Usa el correo con el que inicia sesión (su cuenta de Google).',
+      ]),
+    );
+    const field = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Su correo');
+    expect(field.props.placeholder).toBe('nombre@ejemplo.com');
+    expect(byLabel(root, '¿No sabes su correo? Mejor comparte un enlace')).toBeDefined();
+    const next = () => byType(root, 'ToolbarButton').find((n) => n.props.children === 'Siguiente')!;
+    act(() => field.props.onChangeText('pat@example.com'));
+    await act(async () => {
+      await next().props.onPress();
+    });
+    expect(texts(root)).toEqual(
+      expect.arrayContaining([
+        'Avísale a Pat',
+        'La invitación vence en 7 días',
+        'Envíala por',
+        'Mensajes',
+        'Copiar enlace',
+        'Más…',
+        'También puedes saltarte esto. Si Pat inicia sesión con este correo, verá la invitación en la app.',
+      ]),
+    );
+    expect(byLabel(root, 'Listo')).toBeDefined();
+  });
+
+  test('the join screen: a valid invite, and one that can no longer be used', async () => {
+    mockParams.token = TOKEN;
+    mockPreviewInvite.mockResolvedValue({ householdId: HOME, householdName: 'Smith home', invitedBy: 'John', status: 'valid' });
+    const root = await render(<JoinHouseholdScreen />);
+    expect(texts(root)).toEqual([
+      '¿Unirte a Smith home?',
+      'Te invitó John',
+      'Compartirás sus listas y recetas. Tus otros hogares no cambian.',
+      'Unirme',
+      'Ahora no',
+    ]);
+    act(() => tree?.unmount());
+    mockPreviewInvite.mockReset().mockRejectedValue(new InviteError('expired', 'invite expired'));
+    const expired = await render(<JoinHouseholdScreen />);
+    expect(texts(expired)).toEqual(['No puedes unirte', 'Esta invitación ya venció. Pide una nueva.', 'Cerrar']);
+  });
+
+  test('the invite row', async () => {
+    const invite: MyInvite = { id: 'i1', householdId: HOME, householdName: 'Smith household', invitedBy: 'John', memberCount: 1 };
+    const root = await render(<InviteRow invite={invite} busy={null} onJoin={() => {}} onDecline={() => {}} />);
+    expect(texts(root)).toEqual(['J', 'John te invitó', 'a Smith household · 1 miembro', 'Unirme']);
+    expect(hasA11y(root, 'John te invitó a Smith household')).toBe(true);
+    expect(hasA11y(root, 'Rechazar la invitación a Smith household')).toBe(true);
+    expect(hasA11y(root, 'Unirme')).toBe(true);
+  });
+
+  test('Always have: the field, the empty state, and the removed toast', async () => {
+    mockParams.household = HOME;
+    const root = await render(<AlwaysHaveScreen />);
+    const field = root.root.find((n) => String(n.type) === 'TextInput');
+    expect(field.props.placeholder).toBe('Agrega un ingrediente');
+    expect(field.props.accessibilityLabel).toBe('Agrega un ingrediente');
+    expect(texts(root)).toContain('Nada todavía. Los ingredientes que siempre tienes se omiten al agregar una receta.');
   });
 });

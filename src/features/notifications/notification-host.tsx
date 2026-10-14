@@ -22,6 +22,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Motion } from '@/constants/theme';
 import { matchParts } from '@/domain/text-match';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 import { dismissNotification, useCurrentNotification, type AppNotification } from './notifications';
 
@@ -59,6 +60,7 @@ export function NotificationHost() {
 
 function Banner({ notification }: { notification: AppNotification }) {
   const { colors, spacing, rounded, shadows, scheme } = useTheme();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const offset = useSharedValue(0);
@@ -117,7 +119,7 @@ function Banner({ notification }: { notification: AppNotification }) {
         accessibilityRole="button"
         accessibilityLabel={announcement}
         accessibilityHint={hint}
-        accessibilityActions={[{ name: 'activate' }, { name: 'escape', label: 'Dismiss' }]}
+        accessibilityActions={[{ name: 'activate' }, { name: 'escape', label: t('common.dismiss') }]}
         onAccessibilityAction={(e) => {
           if (e.nativeEvent.actionName === 'activate') open();
           if (e.nativeEvent.actionName === 'escape') dismissNotification(id);

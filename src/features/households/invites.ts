@@ -4,6 +4,7 @@
 // screen (`list_household_invites`) and in the invitee's app (`my_invites`), where they can accept
 // or decline it without the link. Links use the app scheme for now; Universal Links need a hosted
 // domain.
+import { i18n, onLanguageChanged } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
 /** The deep link for an invite token. Opens `src/app/invite/[token].tsx`. */
@@ -14,12 +15,12 @@ export function inviteLink(token: string): string {
 /** The text sent through Messages and the share sheet (More…): what it is, then the link. */
 export function inviteShareMessage(householdName: string, link: string): string {
   const name = householdName.trim();
-  return name ? `Join “${name}” on The Perfect Bite: ${link}` : `Join my household on The Perfect Bite: ${link}`;
+  return name ? i18n.t('invites.share', { name, link }) : i18n.t('invites.shareUnnamed', { link });
 }
 
 /** The subject of an invite sent through Mail. */
 export function inviteMailSubject(householdName: string): string {
-  return `Join ${householdName.trim() || 'my household'} on The Perfect Bite`;
+  return i18n.t('invites.mailSubject', { name: householdName.trim() || i18n.t('invites.myHousehold') });
 }
 
 /**
@@ -37,15 +38,13 @@ export function inviteMailBody({
   email: string;
   link: string;
 }): string {
-  const household = householdName.trim() || 'my household';
+  const household = householdName.trim() || i18n.t('invites.myHousehold');
   const inviter = inviterName?.trim();
   return [
-    inviter
-      ? `${inviter} invited you to join ${household} on The Perfect Bite.`
-      : `You're invited to join ${household} on The Perfect Bite.`,
-    "You'll share its lists and recipes. Your other households aren't affected.",
-    `Open this link to join: ${link}`,
-    `Sign in with ${normalizeEmail(email)} and the invite will be waiting.`,
+    inviter ? i18n.t('invites.mailInvitedBy', { inviter, household }) : i18n.t('invites.mailInvited', { household }),
+    i18n.t('invites.joinBody'),
+    i18n.t('invites.mailLink', { link }),
+    i18n.t('invites.mailSignIn', { email: normalizeEmail(email) }),
   ].join('\n\n');
 }
 
@@ -90,20 +89,22 @@ export function inviteErrorMessage(
 ): string {
   switch (kind) {
     case 'invalid':
-      return "This invite link isn't valid. Ask for a new one.";
+      return i18n.t('invites.errors.invalid');
     case 'used':
-      return 'This invite has already been used. Ask for a new one.';
+      return i18n.t('invites.errors.used');
     case 'expired':
-      return 'This invite has expired. Ask for a new one.';
+      return i18n.t('invites.errors.expired');
     case 'already-member': {
       const email = context.email?.trim();
-      const household = context.householdName?.trim() || 'this household';
-      return email ? `${normalizeEmail(email)} is already in ${household}.` : `They're already in ${household}.`;
+      const household = context.householdName?.trim() || i18n.t('households.thisHousehold');
+      return email
+        ? i18n.t('invites.errors.alreadyMemberEmail', { email: normalizeEmail(email), household })
+        : i18n.t('invites.errors.alreadyMember', { household });
     }
     case 'invalid-email':
-      return "That doesn't look like an email address.";
+      return i18n.t('invites.errors.invalidEmail');
     case 'network':
-      return "Couldn't reach the server. Check your connection and try again.";
+      return i18n.t('invites.errors.network');
   }
 }
 
@@ -258,19 +259,23 @@ export async function declineInvite(inviteId: string): Promise<void> {
 
 /** The join screen's question for a valid invite (spec 4.7). */
 export function joinTitle(householdName: string): string {
-  return `Join ${householdName.trim() || 'this household'}?`;
+  return i18n.t('invites.join.title', { name: householdName.trim() || i18n.t('households.thisHousehold') });
 }
 
-export const JOIN_BODY = "You'll share its lists and recipes. Your other households aren't affected.";
+/** What joining means (a live binding). */
+export let JOIN_BODY = '';
+onLanguageChanged(() => {
+  JOIN_BODY = i18n.t('invites.joinBody');
+});
 
 /** The line for a status that can't be joined, or null for a valid one. */
 export function inviteStatusMessage(status: InviteStatus, householdName: string): string | null {
-  const name = householdName.trim() || 'this household';
+  const name = householdName.trim() || i18n.t('households.thisHousehold');
   switch (status) {
     case 'valid':
       return null;
     case 'member':
-      return `You're already in ${name}.`;
+      return i18n.t('invites.join.alreadyIn', { name });
     case 'used':
       return inviteErrorMessage('used');
     case 'expired':

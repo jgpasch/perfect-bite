@@ -52,7 +52,7 @@ export default function RootLayout() {
           <AppDataGate>
             <Stack screenOptions={screenOptions}>
               <Stack.Protected guard={ready}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Lists' }} />
+                <Stack.Screen name="(tabs)" options={{ headerShown: false, title: t('tabs.backTitle') }} />
                 {/* A link to a list makes it current and shows the List tab (spec 4.1). */}
                 <Stack.Screen name="list/[id]/index" options={{ headerShown: false, animation: 'none' }} />
                 {/* Boards G, H: opened from the list's name. */}
@@ -73,7 +73,7 @@ export default function RootLayout() {
                 {/* From the list's ⋯ menu: Cancel, "Edit list", Done. */}
                 <Stack.Screen
                   name="list/[id]/edit"
-                  options={{ title: 'Edit list', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                  options={{ title: t('tabs.editList'), presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
                 />
                 <Stack.Screen
                   name="list/[id]/add-to-recipe"

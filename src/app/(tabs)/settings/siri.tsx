@@ -9,10 +9,12 @@ import { useAccountState } from '@/features/auth/account';
 import { getDefaultListId, listsWithCountsQuery, setDefaultList } from '@/features/lists/lists';
 import { buildListSnapshot, siriListChoices } from '@/features/siri/list-snapshot';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /** Settings > Siri adds to (spec 4.1, 4.9): pick the default list, the one Siri adds to unless you name another. */
 export default function SiriDefaultListScreen() {
   const { spacing } = useTheme();
+  const t = useT();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : undefined;
   // userSettings: so the tick follows a new default.
@@ -24,9 +26,9 @@ export default function SiriDefaultListScreen() {
 
   return (
     <Screen scroll contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
-      <SettingsSection title="Siri adds to">
+      <SettingsSection title={t('settings.siriAddsTo')}>
         {choices.length === 0 ? (
-          <SettingsRow label="No lists" last />
+          <SettingsRow label={t('settings.siriList.noLists')} last />
         ) : (
           choices.map((c, i) => (
             <SettingsRow
@@ -44,7 +46,7 @@ export default function SiriDefaultListScreen() {
         variant="footnote"
         color="inkSecondary"
         style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
-        Try: Hey Siri, add milk to The Perfect Bite
+        {t('settings.siriList.example')}
       </ThemedText>
     </Screen>
   );

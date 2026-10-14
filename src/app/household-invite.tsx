@@ -17,8 +17,6 @@ import { recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { avatarInitial, householdsQuery } from '@/features/households/households';
 import {
   canSubmitInvite,
-  INVITE_EMAIL_FOOTNOTE,
-  INVITE_JOINING_LINE,
   inviteChannelLabel,
   inviteChannels,
   inviteSendTitle,
@@ -31,6 +29,7 @@ import {
 } from '@/features/households/invite-sheet';
 import { createInvite, inviteMailBody, inviteMailSubject, inviteShareMessage } from '@/features/households/invites';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { pushNow } from '@/sync/push';
 
 const CHANNEL_ICONS: Record<InviteChannel, { name: IconName; hue: AisleHue }> = {
@@ -55,6 +54,7 @@ export default function HouseholdInviteSheet() {
     link: resentLink,
   } = useLocalSearchParams<{ household: string; inviter?: string; email?: string; link?: string }>();
   const { colors, spacing, scheme } = useTheme();
+  const t = useT();
   // A sheet is short-lived: read once rather than live.
   const [householdName] = useState(() => householdsQuery().all().find((h) => h.id === householdId)?.name ?? null);
   const [state, dispatch] = useReducer(inviteSheetReducer, { email: resentEmail, link: resentLink }, inviteSheetStartState);
@@ -113,11 +113,11 @@ export default function HouseholdInviteSheet() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ gap: spacing.sm, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Cancel</Stack.Toolbar.Button>
+        <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.View hidden={!state.submitting}>
-          <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Creating invite" />
+          <ActivityIndicator color={colors.inkSecondary} accessibilityLabel={t('invites.sheet.creating')} />
         </Stack.Toolbar.View>
         <Stack.Toolbar.Button
           hidden={state.submitting}
@@ -125,7 +125,7 @@ export default function HouseholdInviteSheet() {
           tintColor={prominentButtonTint(scheme, colors)}
           disabled={!canSubmitInvite(state) || sharing}
           onPress={submit}>
-          Next
+          {t('common.next')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
       <View style={{ paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.xs, paddingBottom: spacing.sm }}>
@@ -133,16 +133,16 @@ export default function HouseholdInviteSheet() {
           {inviteSheetTitle(householdName)}
         </ThemedText>
         <ThemedText variant="footnote" color="inkSecondary">
-          {INVITE_JOINING_LINE}
+          {t('invites.sheet.joiningLine')}
         </ThemedText>
       </View>
       <View style={{ paddingHorizontal: spacing.lg }}>
         <TextField
           value={state.email}
           onChangeText={(email) => (dispatch({ type: 'edit', email }), setLinkError(null))}
-          placeholder="name@example.com"
-          accessibilityLabel="Their email"
-          accessibilityHint={INVITE_EMAIL_FOOTNOTE}
+          placeholder={t('invites.sheet.emailPlaceholder')}
+          accessibilityLabel={t('invites.sheet.emailLabel')}
+          accessibilityHint={t('invites.sheet.emailFootnote')}
           keyboardType="email-address"
           textContentType="emailAddress"
           autoComplete="email"
@@ -170,11 +170,11 @@ export default function HouseholdInviteSheet() {
         importantForAccessibility="no-hide-descendants"
         accessibilityElementsHidden
         style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-        {INVITE_EMAIL_FOOTNOTE}
+        {t('invites.sheet.emailFootnote')}
       </ThemedText>
       <View style={[styles.start, { paddingHorizontal: spacing.lg, paddingTop: spacing.sm }]}>
         <Button
-          label={sharing ? 'Creating link…' : "Don't know their email? Share a link instead"}
+          label={sharing ? t('invites.sheet.creatingLink') : t('invites.sheet.shareLink')}
           variant="plain"
           color="inkSecondary"
           disabled={busy}
@@ -200,6 +200,7 @@ function SendStep({
   onBack: () => void;
 }) {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
+  const t = useT();
   const [available, setAvailable] = useState<{ sms: boolean | null; mail: boolean | null }>({ sms: null, mail: null });
   const [copied, setCopied] = useState(0);
   const avatar = avatarColors(recipeHue(email), colors, aisles);
@@ -251,7 +252,7 @@ function SendStep({
       scroll
       contentContainerStyle={{ flexGrow: 1, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button icon="chevron.left" accessibilityLabel="Back" onPress={onBack} />
+        <Stack.Toolbar.Button icon="chevron.left" accessibilityLabel={t('common.back')} onPress={onBack} />
       </Stack.Toolbar>
       <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
         {inviteSendTitle(email)}
@@ -271,11 +272,11 @@ function SendStep({
         <View style={styles.flex}>
           <ThemedText variant="headline">{email}</ThemedText>
           <ThemedText variant="footnote" color="inkSecondary">
-            Invite expires in 7 days
+            {t('invites.sheet.expires')}
           </ThemedText>
         </View>
       </View>
-      <SettingsSection title="Send it with">
+      <SettingsSection title={t('invites.sheet.sendWith')}>
         {channels.map((channel, i) => (
           <SettingsRow
             key={channel}
@@ -303,11 +304,11 @@ function SendStep({
       <View style={styles.flex} />
       {copied ? (
         <View style={{ paddingTop: spacing.md }}>
-          <Toast key={copied} message="Link copied" actions={[]} onDismiss={dismissToast} />
+          <Toast key={copied} message={t('invites.sheet.linkCopied')} actions={[]} onDismiss={dismissToast} />
         </View>
       ) : null}
       <View style={{ alignItems: 'center', paddingTop: spacing.sm }}>
-        <Button label="Done" variant="plain" onPress={() => router.back()} />
+        <Button label={t('common.done')} variant="plain" onPress={() => router.back()} />
       </View>
     </Screen>
   );

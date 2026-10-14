@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import { i18n } from '@/i18n';
+
 /**
  * Asks for a household's new name with the system text prompt, prefilled with `current`. Save
  * calls `onSave` with the trimmed name; a blank name is ignored.
@@ -7,12 +9,12 @@ import { Alert } from 'react-native';
  */
 export function promptHouseholdName(current: string, onSave: (name: string) => void): void {
   Alert.prompt(
-    'Rename household',
+    i18n.t('households.screen.rename'),
     undefined,
     [
-      { text: 'Cancel', style: 'cancel' },
+      { text: i18n.t('common.cancel'), style: 'cancel' },
       {
-        text: 'Save',
+        text: i18n.t('common.save'),
         isPreferred: true,
         onPress: (name?: string) => {
           const trimmed = name?.trim();

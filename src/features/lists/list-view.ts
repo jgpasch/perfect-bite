@@ -241,10 +241,15 @@ export const AISLE_COLORS_KEY = 'list.aisleColors';
 export const DEFAULT_AISLE_COLOR_STYLE: AisleColorStyle = 'rows';
 
 /** The choices on Settings > Aisle colours, in order. */
-export const AISLE_COLOR_STYLES: readonly { value: AisleColorStyle; label: string }[] = [
-  { value: 'rows', label: 'Whole row' },
-  { value: 'header', label: 'Header only' },
-];
+export const AISLE_COLOR_STYLES: readonly { value: AisleColorStyle; readonly label: string }[] = (
+  ['rows', 'header'] as const
+).map((value) => ({
+  value,
+  // A getter, as LIST_VIEW_MODES' labels, so it follows the app's language.
+  get label() {
+    return i18n.t(`settings.aisleColors.${value}`);
+  },
+}));
 
 /** The saved aisle colours choice, read defensively: anything unknown is the default. */
 export function readAisleColorStyle(saved: unknown): AisleColorStyle {
@@ -261,10 +266,14 @@ export const ITEM_ROW_STYLE_KEY = 'list.itemRowStyle';
 export const DEFAULT_ITEM_ROW_STYLE: ItemRowStyle = 'bands';
 
 /** The choices on Settings > Aisle colours > Item rows, in order. */
-export const ITEM_ROW_STYLES: readonly { value: ItemRowStyle; label: string }[] = [
-  { value: 'bands', label: 'Colour bands' },
-  { value: 'white', label: 'White rows' },
-];
+export const ITEM_ROW_STYLES: readonly { value: ItemRowStyle; readonly label: string }[] = (
+  ['bands', 'white'] as const
+).map((value) => ({
+  value,
+  get label() {
+    return i18n.t(`settings.aisleColors.${value}`);
+  },
+}));
 
 /** The saved item row style, read defensively: anything unknown is the default. */
 export function readItemRowStyle(saved: unknown): ItemRowStyle {

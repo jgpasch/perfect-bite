@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 type Props = {
   value: number;
@@ -26,6 +27,7 @@ type Props = {
  */
 export function Stepper({ value, min, max, onChange, label, accessibilityLabel, buttonSize, hideValue }: Props) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const t = useT();
   const size = buttonSize ?? sizes.stepperButton;
   const step = (direction: 1 | -1) => {
     const next = Math.min(max, Math.max(min, value + direction));
@@ -37,7 +39,7 @@ export function Stepper({ value, min, max, onChange, label, accessibilityLabel, 
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={direction === 1 ? 'More' : 'Fewer'}
+        accessibilityLabel={direction === 1 ? t('common.more') : t('common.fewer')}
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={() => step(direction)}

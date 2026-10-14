@@ -15,7 +15,6 @@ import { Toast } from '@/components/toast';
 import { useLiveQueryOn } from '@/db/live-query';
 import { getAccount } from '@/features/auth/account';
 import {
-  ALWAYS_HAVE_EMPTY,
   addStapleFromText,
   setStaple,
   staplesQuery,
@@ -26,6 +25,7 @@ import { getSuggestions, suggestionChips } from '@/features/lists/suggestions';
 import { hideFromSuggestions } from '@/features/lists/usage';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { displayItemName, parseQuantity } from '@/shared';
 
 type Staple = { ingredientName: string; displayName: string };
@@ -38,6 +38,7 @@ type Staple = { ingredientName: string; displayName: string };
  */
 export default function AlwaysHaveScreen() {
   const { spacing } = useTheme();
+  const t = useT();
   const { household = '' } = useLocalSearchParams<{ household: string }>();
   const { data: staples } = useLiveQueryOn(staplesQuery(household), STAPLES_QUERY_TABLES, [household]);
   const [text, setText] = useState('');
@@ -66,7 +67,12 @@ export default function AlwaysHaveScreen() {
 
   const removeMenu = ({ key, label }: { key: string; label: string }) => {
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: label, options: ['Remove from suggestions', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
+      {
+        title: label,
+        options: [t('addBar.removeFromSuggestions'), t('common.cancel')],
+        destructiveButtonIndex: 0,
+        cancelButtonIndex: 1,
+      },
       (index) => {
         if (index !== 0) return;
         hideFromSuggestions(household, key);
@@ -81,7 +87,7 @@ export default function AlwaysHaveScreen() {
     <Screen>
       <Stack.Toolbar placement="right">
         {staples.length > 0 ? (
-          <Stack.Toolbar.Button onPress={() => setEditing((e) => !e)}>{isEditing ? 'Done' : 'Edit'}</Stack.Toolbar.Button>
+          <Stack.Toolbar.Button onPress={() => setEditing((e) => !e)}>{isEditing ? t('common.done') : t('common.edit')}</Stack.Toolbar.Button>
         ) : null}
       </Stack.Toolbar>
       <ScrollView
@@ -101,8 +107,8 @@ export default function AlwaysHaveScreen() {
             autoCorrect={false}
             spellCheck={false}
             autoComplete="off"
-            placeholder="Add an ingredient"
-            accessibilityLabel="Add an ingredient"
+            placeholder={t('settings.alwaysHaveScreen.add')}
+            accessibilityLabel={t('settings.alwaysHaveScreen.add')}
           />
           {chips.length > 0 ? (
             <SuggestionChips
@@ -115,7 +121,7 @@ export default function AlwaysHaveScreen() {
           ) : null}
         </View>
         {staples.length === 0 ? (
-          <EmptyState message={ALWAYS_HAVE_EMPTY} />
+          <EmptyState message={t('settings.alwaysHaveScreen.empty')} />
         ) : (
           <Card style={{ marginTop: spacing.lg }}>
             {staples.map((s, i) => (
@@ -134,10 +140,10 @@ export default function AlwaysHaveScreen() {
         <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
           <Toast
             key={removed.ingredientName}
-            message={`Removed ${displayItemName(removed.displayName)}`}
+            message={t('common.removedToast', { name: displayItemName(removed.displayName) })}
             actions={[
               {
-                label: 'Undo',
+                label: t('common.undo'),
                 onPress: () => {
                   setStaple(household, removed.ingredientName, true, userId);
                   setRemoved(null);
@@ -165,6 +171,7 @@ function StapleRow({
   onDelete: () => void;
 }) {
   const { colors, spacing, sizes, opacity } = useTheme();
+  const t = useT();
   const { entering, exiting, layout } = useMotion();
   const name = displayItemName(staple.displayName);
   return (
@@ -196,7 +203,7 @@ function StapleRow({
           {editing ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Delete ${name}`}
+              accessibilityLabel={t('settings.alwaysHaveScreen.deleteLabel', { name })}
               onPress={onDelete}
               hitSlop={(sizes.minTapTarget - sizes.icon) / 2}
               style={({ pressed }) => ({ opacity: pressed ? opacity.pressed : 1 })}>
@@ -207,7 +214,7 @@ function StapleRow({
             accessible
             accessibilityRole="text"
             accessibilityLabel={name}
-            accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
+            accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
             onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}
             style={styles.label}>
             <ThemedText variant="body">{name}</ThemedText>

@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { formatLastSync, syncNow } from '@/sync/status';
 
 /** How often "5 min ago" is brought up to date. */
@@ -20,6 +21,7 @@ const CLOCK_TICK_MS = 30_000;
  */
 export default function SyncStatusScreen() {
   const { spacing } = useTheme();
+  const t = useT();
   const status = useSyncStatus();
   const [now, setNow] = useState(() => new Date());
 
@@ -37,23 +39,26 @@ export default function SyncStatusScreen() {
 
   return (
     <Screen scroll contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
-      <SettingsSection title="Status">
+      <SettingsSection title={t('settings.sync.status')}>
         <SettingsRow
-          label="Status"
+          label={t('settings.sync.status')}
           trailing={
-            <View accessible accessibilityLabel={`Status, ${status.label}`}>
+            <View accessible accessibilityLabel={t('settings.sync.statusLabel', { status: status.label })}>
               <Badge label={status.label} tone={status.tone} />
             </View>
           }
         />
-        <SettingsRow label="Waiting to send" value={String(status.pending)} />
-        {status.rejected > 0 ? <SettingsRow label="Not accepted" value={String(status.rejected)} /> : null}
-        <SettingsRow label="Last synced" value={formatLastSync(status.lastSuccessAt, now)} last />
+        <SettingsRow label={t('settings.sync.waiting')} value={String(status.pending)} />
+        {status.rejected > 0 ? <SettingsRow label={t('settings.sync.rejected')} value={String(status.rejected)} /> : null}
+        <SettingsRow label={t('settings.sync.lastSynced')} value={formatLastSync(status.lastSuccessAt, now)} last />
       </SettingsSection>
 
       {status.lastError ? (
-        <SettingsSection title="Last error">
-          <Card accessible accessibilityLabel={`Last error: ${status.lastError}`} style={{ padding: spacing.lg }}>
+        <SettingsSection title={t('settings.sync.lastError')}>
+          <Card
+            accessible
+            accessibilityLabel={t('settings.sync.lastErrorLabel', { error: status.lastError })}
+            style={{ padding: spacing.lg }}>
             <ThemedText variant="body" color="danger" selectable>
               {status.lastError}
             </ThemedText>
@@ -63,7 +68,7 @@ export default function SyncStatusScreen() {
 
       <View style={{ paddingTop: spacing.xl, paddingHorizontal: spacing.lg }}>
         <PrimaryButton
-          label={status.state === 'syncing' && !status.canSyncNow ? 'Syncing…' : 'Sync now'}
+          label={status.state === 'syncing' && !status.canSyncNow ? t('settings.sync.syncing') : t('settings.sync.syncNow')}
           icon="arrow.triangle.2.circlepath"
           disabled={!status.canSyncNow}
           onPress={onSyncNow}
@@ -74,7 +79,7 @@ export default function SyncStatusScreen() {
           variant="footnote"
           color="inkSecondary"
           style={{ textAlign: 'center', paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
-          Changes are kept on this phone and sent when you’re back online.
+          {t('settings.sync.offlineNote')}
         </ThemedText>
       ) : null}
     </Screen>

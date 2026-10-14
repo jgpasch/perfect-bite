@@ -83,7 +83,7 @@ export default function ListsSheet() {
     Alert.alert(prompt.title, prompt.message, [
       { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Decline',
+        text: t('invites.card.decline'),
         style: 'destructive',
         onPress: () => {
           setBusyInvite({ id: invite.id, action: 'decline' });

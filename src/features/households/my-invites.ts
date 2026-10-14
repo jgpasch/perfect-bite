@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { i18n } from '@/i18n';
 import { pullNow } from '@/sync/pull';
 
 import { avatarInitial } from './households';
@@ -95,7 +96,7 @@ export type MyInviteResult = { ok: true } | { ok: false; message: string; remove
  */
 export function myInviteFailure(err: unknown): { message: string; removed: boolean } {
   const kind = err instanceof InviteError ? err.kind : 'network';
-  if (kind === 'used' || kind === 'invalid') return { message: 'This invite was cancelled.', removed: true };
+  if (kind === 'used' || kind === 'invalid') return { message: i18n.t('invites.errors.cancelled'), removed: true };
   if (kind === 'expired') return { message: inviteErrorMessage('expired'), removed: true };
   return { message: inviteErrorMessage(kind), removed: false };
 }
@@ -136,27 +137,26 @@ export function declineMyInvite(invite: MyInvite): Promise<MyInviteResult> {
 /** "John invited you", or "You're invited" when the inviter has no name. */
 export function inviteCardTitle(invite: MyInvite): string {
   const inviter = invite.invitedBy?.trim();
-  return inviter ? `${inviter} invited you` : "You're invited";
+  return inviter ? i18n.t('invites.card.title', { name: inviter }) : i18n.t('invites.card.titleUnnamed');
 }
 
 function householdLabel(invite: MyInvite): string {
-  return invite.householdName.trim() || 'a household';
+  return invite.householdName.trim() || i18n.t('invites.card.aHousehold');
 }
 
 /** The Decline button's VoiceOver label: "Decline invite to Smith household". */
 export function declineInviteLabel(invite: MyInvite): string {
-  return `Decline invite to ${householdLabel(invite)}`;
+  return i18n.t('invites.card.declineLabel', { household: householdLabel(invite) });
 }
 
 /** "to Smith household · 2 members". */
 export function inviteCardDetail(invite: MyInvite): string {
-  const members = `${invite.memberCount} ${invite.memberCount === 1 ? 'member' : 'members'}`;
-  return `to ${householdLabel(invite)} · ${members}`;
+  return i18n.t('invites.card.detail', { household: householdLabel(invite), count: invite.memberCount });
 }
 
 /** What VoiceOver reads for the card: "John invited you to Smith household". */
 export function inviteCardAccessibilityLabel(invite: MyInvite): string {
-  return `${inviteCardTitle(invite)} to ${householdLabel(invite)}`;
+  return i18n.t('invites.card.label', { title: inviteCardTitle(invite), household: householdLabel(invite) });
 }
 
 /** The letter in the card's avatar: the inviter's initial, else the household's. */
@@ -168,7 +168,9 @@ export function inviteCardInitial(invite: MyInvite): string {
 export function declineInvitePrompt(invite: MyInvite): { title: string; message: string } {
   const inviter = invite.invitedBy?.trim();
   return {
-    title: `Decline the invite to ${householdLabel(invite)}?`,
-    message: `${inviter || 'They'} can send a new one.`,
+    title: i18n.t('invites.card.declineTitle', { household: householdLabel(invite) }),
+    message: inviter
+      ? i18n.t('invites.card.declineMessage', { name: inviter })
+      : i18n.t('invites.card.declineMessageUnnamed'),
   };
 }

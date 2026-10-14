@@ -5,6 +5,7 @@ import { db, households, listItems, lists, userSettings, type List } from '@/db'
 import type { ListHue } from '@/domain/aisle-color';
 import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 
@@ -75,7 +76,7 @@ export function getList(id: string): List | undefined {
 /** Adds a list at the end, in `householdId` (default: the first household). */
 export function createList(name: string, householdId?: string): string {
   const trimmed = name.trim();
-  if (!trimmed) throw new Error('A list needs a name');
+  if (!trimmed) throw new Error(i18n.t('errors.listNeedsName'));
   const id = newId();
   const last = db.select({ position: max(lists.position) }).from(lists).where(live).get();
   insertRow(db, lists, {

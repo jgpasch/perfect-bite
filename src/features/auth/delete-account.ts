@@ -7,39 +7,48 @@ import { wipeLocalData } from '@/features/auth/local-wipe';
 import { pushBriefly } from '@/features/auth/sign-out';
 import { isOnline } from '@/features/categories/catch-up';
 import { fetchHouseholdMembers, householdsWithCountsQuery } from '@/features/households/households';
+import { i18n, onLanguageChanged } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
 /** One of the user's households, for the confirm: its counts and how many members it has. */
 export type HouseholdForDeletion = { name: string; listCount: number; recipeCount: number; memberCount: number };
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /**
  * The first confirm. `households` is null when the members couldn't be fetched: then it says only
  * what's true for everyone, without the per-household lines.
  */
 export function deleteAccountConfirmation(households: HouseholdForDeletion[] | null): { title: string; message: string } {
-  const lines = ["This can't be undone. Your account, your aisle order and your settings will be deleted."];
+  const lines = [i18n.t('account.confirmMessage')];
   if (households) {
     for (const h of households.filter((h) => h.memberCount <= 1)) {
       lines.push(
-        `${h.name} and its ${plural(h.listCount, 'list')} and ${plural(h.recipeCount, 'recipe')} will be deleted, because you're its only member.`,
+        i18n.t('account.onlyMember', {
+          name: h.name,
+          lists: i18n.t('households.lists', { count: h.listCount }),
+          recipes: i18n.t('households.recipes', { count: h.recipeCount }),
+        }),
       );
     }
     const shared = households.filter((h) => h.memberCount > 1).map((h) => h.name);
-    if (shared.length > 0) {
-      lines.push(`Your lists and recipes in ${shared.join(', ')} stay with ${shared.length === 1 ? 'its' : 'their'} other members.`);
-    }
+    if (shared.length > 0) lines.push(i18n.t('account.shared', { names: shared.join(', '), count: shared.length }));
   }
-  return { title: 'Delete your account?', message: lines.join('\n\n') };
+  return { title: i18n.t('account.confirmTitle'), message: lines.join('\n\n') };
 }
 
+type AlertText = { title: string; message: string };
+
+// Live bindings, in the app's language.
 /** The second confirm, so one mis-tap can't delete the account. */
-export const DELETE_ACCOUNT_SECOND_CONFIRM = { title: 'Are you sure?', message: 'Your account will be deleted now.' };
-export const DELETE_ACCOUNT_OFFLINE = { title: "You're offline", message: 'Connect to the internet to delete your account.' };
-export const DELETE_ACCOUNT_FAILED = { title: "Couldn't delete your account", message: 'Nothing was deleted. Try again later.' };
-export const DELETING_ACCOUNT = 'Deleting your account…';
-export const ACCOUNT_DELETED_TOAST = 'Your account was deleted.';
+export let DELETE_ACCOUNT_SECOND_CONFIRM: AlertText = { title: '', message: '' };
+export let DELETE_ACCOUNT_OFFLINE: AlertText = { title: '', message: '' };
+export let DELETE_ACCOUNT_FAILED: AlertText = { title: '', message: '' };
+export let ACCOUNT_DELETED_TOAST = '';
+onLanguageChanged(() => {
+  DELETE_ACCOUNT_SECOND_CONFIRM = { title: i18n.t('account.sureTitle'), message: i18n.t('account.sureMessage') };
+  DELETE_ACCOUNT_OFFLINE = { title: i18n.t('common.offline'), message: i18n.t('account.offlineMessage') };
+  DELETE_ACCOUNT_FAILED = { title: i18n.t('account.failedTitle'), message: i18n.t('account.failedMessage') };
+  ACCOUNT_DELETED_TOAST = i18n.t('account.deleted');
+});
 
 /** True when the OS says there's no connection. Unknown counts as online: the call finds out. */
 export async function isOffline(): Promise<boolean> {

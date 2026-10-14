@@ -3,6 +3,7 @@
 
 import { recipeHue } from '@/domain/aisle-color';
 import type { AppNotification } from '@/features/notifications/notifications';
+import { i18n } from '@/i18n';
 
 import type { ImportRecipeError, ImportRecipeSuccess } from './import';
 import { importErrorMessage } from './import-sheet';
@@ -11,17 +12,17 @@ type Content = Omit<AppNotification, 'onPress'>;
 
 /** "Recipe added" · "Added Chicken tikka masala · 12 items to Groceries", the name in bold. */
 export function importedNotification(result: ImportRecipeSuccess, listName: string): Content {
-  const items = `${result.added} ${result.added === 1 ? 'item' : 'items'}`;
+  const items = i18n.t('notifications.items', { count: result.added });
   return {
     id: `recipe-import-${result.recipeId}`,
     kind: 'recipeImport',
     icon: 'fork.knife',
     hue: recipeHue(result.recipeId),
     tone: 'success',
-    title: 'Recipe added',
-    body: `Added ${result.recipeName} · ${items} to ${listName}`,
+    title: i18n.t('notifications.recipeAdded'),
+    body: i18n.t('notifications.recipeAddedBody', { name: result.recipeName, items, list: listName }),
     emphasis: result.recipeName,
-    hint: `Opens ${listName}`,
+    hint: i18n.t('notifications.opens', { name: listName }),
   };
 }
 
@@ -33,10 +34,10 @@ export function savedNotification(result: ImportRecipeSuccess, householdName: st
     icon: 'fork.knife',
     hue: recipeHue(result.recipeId),
     tone: 'success',
-    title: 'Recipe saved',
-    body: `Saved ${result.recipeName} to ${householdName}`,
+    title: i18n.t('notifications.recipeSaved'),
+    body: i18n.t('notifications.recipeSavedBody', { name: result.recipeName, household: householdName }),
     emphasis: result.recipeName,
-    hint: 'Opens the recipe',
+    hint: i18n.t('notifications.opensRecipe'),
   };
 }
 
@@ -48,8 +49,8 @@ export function importFailedNotification(error: ImportRecipeError, url: string):
     icon: 'exclamationmark.triangle.fill',
     hue: 'rose',
     tone: 'warning',
-    title: "Couldn't import recipe",
+    title: i18n.t('notifications.importFailed'),
     body: importErrorMessage(error),
-    hint: 'Opens the link again to try once more',
+    hint: i18n.t('notifications.importFailedHint'),
   };
 }

@@ -73,12 +73,9 @@ export function addStapleFromText(householdId: string, text: string, userId: str
   return key;
 }
 
-/** Settings > Always have with no staples. */
-export const ALWAYS_HAVE_EMPTY = 'Nothing yet. Ingredients you always have are left off when you add a recipe.';
-
 /** The household screen's Always have row value: how many staples, "None" with none. */
 export function staplesCountLabel(count: number): string {
-  return count === 0 ? 'None' : String(count);
+  return count === 0 ? i18n.t('settings.alwaysHaveScreen.none') : String(count);
 }
 
 /** The household's staples' keys, for matching recipe ingredients. */

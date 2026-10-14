@@ -10,13 +10,13 @@ import {
   InviteError,
   inviteErrorMessage,
   inviteStatusMessage,
-  JOIN_BODY,
   joinTitle,
   previewInvite,
   type InviteErrorKind,
   type InvitePreview,
 } from '@/features/households/invites';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 import { pullNow } from '@/sync/pull';
 
 type State =
@@ -33,6 +33,7 @@ const errorKind = (err: unknown): InviteErrorKind => (err instanceof InviteError
  */
 export default function JoinHouseholdScreen() {
   const { colors, spacing } = useTheme();
+  const t = useT();
   const { token } = useLocalSearchParams<{ token: string }>();
   const [state, setState] = useState<State>({ status: 'loading' });
   const request = useRef(0);
@@ -82,7 +83,7 @@ export default function JoinHouseholdScreen() {
   if (state.status === 'loading') {
     return (
       <Screen style={[padding, { justifyContent: 'center' }]}>
-        <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Loading invite" />
+        <ActivityIndicator color={colors.inkSecondary} accessibilityLabel={t('invites.join.loading')} />
       </Screen>
     );
   }
@@ -91,14 +92,14 @@ export default function JoinHouseholdScreen() {
     return (
       <Screen scroll contentContainerStyle={padding}>
         <ThemedText variant="title" accessibilityRole="header">
-          {state.kind === 'network' ? "Couldn't load the invite" : "Can't join"}
+          {state.kind === 'network' ? t('invites.join.loadFailed') : t('invites.join.cantJoin')}
         </ThemedText>
         <ThemedText variant="lead" color="inkSecondary">
           {inviteErrorMessage(state.kind)}
         </ThemedText>
         <View style={{ gap: spacing.sm }}>
-          {state.kind === 'network' ? <PrimaryButton label="Try again" onPress={load} /> : null}
-          <Button label="Close" variant="plain" onPress={close} />
+          {state.kind === 'network' ? <PrimaryButton label={t('common.tryAgain')} onPress={load} /> : null}
+          <Button label={t('common.close')} variant="plain" onPress={close} />
         </View>
       </Screen>
     );
@@ -114,23 +115,28 @@ export default function JoinHouseholdScreen() {
       </ThemedText>
       {preview.status === 'valid' && preview.invitedBy ? (
         <ThemedText variant="amount" color="inkSecondary">
-          {`Invited by ${preview.invitedBy}`}
+          {t('invites.join.invitedBy', { name: preview.invitedBy })}
         </ThemedText>
       ) : null}
       <ThemedText variant="lead" color="inkSecondary">
-        {blocked ?? JOIN_BODY}
+        {blocked ?? t('invites.joinBody')}
       </ThemedText>
       <View style={{ gap: spacing.sm }}>
         {preview.status === 'valid' ? (
           <PrimaryButton
-            label={joining ? 'Joining…' : 'Join'}
+            label={joining ? t('invites.join.joining') : t('invites.join.join')}
             disabled={joining}
             onPress={() => join(preview)}
           />
         ) : preview.status === 'member' ? (
-          <PrimaryButton label="Open household" onPress={() => openHousehold(preview.householdId)} />
+          <PrimaryButton label={t('invites.join.openHousehold')} onPress={() => openHousehold(preview.householdId)} />
         ) : null}
-        <Button label={preview.status === 'valid' ? 'Not now' : 'Close'} variant="plain" disabled={joining} onPress={close} />
+        <Button
+          label={preview.status === 'valid' ? t('invites.join.notNow') : t('common.close')}
+          variant="plain"
+          disabled={joining}
+          onPress={close}
+        />
       </View>
     </Screen>
   );

@@ -4,6 +4,7 @@
 import { sql } from 'drizzle-orm';
 
 import { db, outbox } from '@/db';
+import { i18n } from '@/i18n';
 
 import { getSyncActivity, type SyncActivity } from './activity';
 import { getPullState, pullNow, type PullState, type PullSummary } from './pull';
@@ -48,13 +49,13 @@ export type SyncStatus = {
   canSyncNow: boolean;
 };
 
-const LABELS: Record<SyncState, { label: string; tone: SyncBadgeTone }> = {
-  off: { label: 'Not syncing', tone: 'pending' },
-  offline: { label: 'Offline', tone: 'pending' },
-  error: { label: 'Sync error', tone: 'danger' },
-  syncing: { label: 'Syncing…', tone: 'pending' },
-  never: { label: 'Not synced yet', tone: 'pending' },
-  synced: { label: 'Synced', tone: 'positive' },
+const TONES: Record<SyncState, SyncBadgeTone> = {
+  off: 'pending',
+  offline: 'pending',
+  error: 'danger',
+  syncing: 'pending',
+  never: 'pending',
+  synced: 'positive',
 };
 
 function later(a: string | null, b: string | null): string | null {
@@ -62,10 +63,13 @@ function later(a: string | null, b: string | null): string | null {
   return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
-/** Push's error first: it's the one holding the user's own changes back. */
+/**
+ * Push's error first: it's the one holding the user's own changes back. The error itself is shown as
+ * the app got it (a network or database message, for support), after a translated "Sending:".
+ */
 function standingError(inputs: SyncInputs): string | null {
-  if (inputs.push.lastError) return `Sending: ${inputs.push.lastError}`;
-  if (inputs.pull.lastError) return `Receiving: ${inputs.pull.lastError}`;
+  if (inputs.push.lastError) return i18n.t('sync.sending', { error: inputs.push.lastError });
+  if (inputs.pull.lastError) return i18n.t('sync.receiving', { error: inputs.pull.lastError });
   return null;
 }
 
@@ -83,7 +87,8 @@ export function syncStatus(inputs: SyncInputs): SyncStatus {
   else state = 'synced';
   return {
     state,
-    ...LABELS[state],
+    label: i18n.t(`sync.states.${state}`),
+    tone: TONES[state],
     pending: Math.max(0, inputs.pending),
     rejected: Math.max(0, inputs.rejected),
     lastSuccessAt,
@@ -94,15 +99,15 @@ export function syncStatus(inputs: SyncInputs): SyncStatus {
 
 /** "Just now", "5 min ago", "3 h ago", then the date and time; "Never" for null. */
 export function formatLastSync(iso: string | null, now: Date): string {
-  if (!iso) return 'Never';
+  if (!iso) return i18n.t('sync.never');
   const at = new Date(iso);
   const ms = now.getTime() - at.getTime();
-  if (Number.isNaN(ms)) return 'Never';
+  if (Number.isNaN(ms)) return i18n.t('sync.never');
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return i18n.t('sync.justNow');
+  if (minutes < 60) return i18n.t('sync.minutesAgo', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
+  if (hours < 24) return i18n.t('sync.hoursAgo', { count: hours });
   return at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 

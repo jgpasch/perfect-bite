@@ -5,6 +5,7 @@ import { db, households, listItemContributions, listItems, lists, recipeIngredie
 import { positionBetween } from '@/domain/position';
 import { ensureLocalIngredient } from '@/features/categories/categories';
 import { recordUsage } from '@/features/lists/usage';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
 import { RecipeTagsSchema, type RecipeTags } from '@/shared/recipe-tags';
@@ -121,7 +122,7 @@ export function recipeIngredientsQuery(recipeId: string) {
 
 function cleanName(name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
-  if (!trimmed) throw new Error('A recipe needs a name');
+  if (!trimmed) throw new Error(i18n.t('errors.recipeNeedsName'));
   return trimmed;
 }
 
@@ -271,7 +272,7 @@ type RecipeIngredientUnit = (typeof recipeIngredients.$inferInsert)['unit'];
 export function updateRecipeIngredient(id: string, text: string, note = ''): string[] {
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);
-  if (!ingredientName) throw new Error('An ingredient needs a name');
+  if (!ingredientName) throw new Error(i18n.t('errors.ingredientNeedsName'));
   return db.transaction((tx) => {
     updateRows(tx, recipeIngredients, eq(recipeIngredients.id, id), {
       ingredientName,

@@ -16,7 +16,6 @@ import { useAccountState } from '@/features/auth/account';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import {
   avatarInitial,
-  DELETE_HINT,
   deleteHousehold,
   deleteHouseholdConfirmation,
   fetchHouseholdMembers,
@@ -24,15 +23,13 @@ import {
   householdActionAlert,
   householdCountsLabel,
   householdsWithCountsQuery,
-  LEAVE_HINT,
   leaveConfirmation,
   leaveHousehold,
   memberActionsSheet,
   memberLabel,
-  MEMBERS_ERROR_MESSAGE,
+  memberRowAccessibilityLabel,
   removeMember,
   removeMemberConfirmation,
-  RENAME_HINT,
   renameHousehold,
   roleAfter,
   roleChangeConfirmation,
@@ -53,6 +50,7 @@ import {
   pendingInviteTitle,
 } from '@/features/households/pending-invites';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; members: HouseholdMember[] };
 
@@ -79,6 +77,7 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  */
 export default function HouseholdScreen() {
   const { colors, aisles, spacing, sizes } = useTheme();
+  const t = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : null;
@@ -230,14 +229,14 @@ export default function HouseholdScreen() {
         if (action === 'remove') {
           const confirm = removeMemberConfirmation(member.displayName, householdName);
           Alert.alert(confirm.title, confirm.message, [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Remove', style: 'destructive', onPress: () => void remove(member) },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.remove'), style: 'destructive', onPress: () => void remove(member) },
           ]);
           return;
         }
         const confirm = roleChangeConfirmation(action, member.displayName);
         Alert.alert(confirm.title, confirm.message, [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
             text: confirm.confirmLabel,
             style: confirm.destructive ? 'destructive' : 'default',
@@ -295,7 +294,7 @@ export default function HouseholdScreen() {
       onlyHousehold: data.length === 1,
     });
     Alert.alert(confirm.title, confirm.message, [
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
       { text: confirm.confirmLabel, style: 'destructive', onPress: () => void runDelete() },
     ]);
   };
@@ -310,7 +309,7 @@ export default function HouseholdScreen() {
       onlyHousehold: data.length === 1,
     });
     Alert.alert(confirm.title, confirm.message, [
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
       { text: confirm.confirmLabel, style: 'destructive', onPress: () => void leave() },
     ]);
   };
@@ -342,8 +341,8 @@ export default function HouseholdScreen() {
             {isOwner && household ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Rename household"
-                accessibilityHint={RENAME_HINT}
+                accessibilityLabel={t('households.screen.rename')}
+                accessibilityHint={t('households.hints.rename')}
                 hitSlop={(sizes.minTapTarget - sizes.iconSmall) / 2}
                 onPress={() => promptHouseholdName(householdName, (name) => void rename(name))}>
                 <Icon name="pencil" tint={band.text} size={sizes.iconSmall} weight="semibold" />
@@ -361,17 +360,17 @@ export default function HouseholdScreen() {
         ) : null}
       </View>
 
-      <SettingsSection title="Members">
+      <SettingsSection title={t('households.screen.members')}>
         {state.status === 'loading' ? (
           <View style={{ padding: spacing.lg }}>
-            <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Loading members" />
+            <ActivityIndicator color={colors.inkSecondary} accessibilityLabel={t('households.screen.loadingMembers')} />
           </View>
         ) : state.status === 'error' ? (
           <View style={{ padding: spacing.lg, gap: spacing.sm }}>
             <ThemedText variant="body" color="inkSecondary">
-              {MEMBERS_ERROR_MESSAGE}
+              {t('households.membersError')}
             </ThemedText>
-            <Button label="Retry" variant="plain" onPress={load} />
+            <Button label={t('common.retry')} variant="plain" onPress={load} />
           </View>
         ) : (
           state.members.map((m, i) => {
@@ -381,7 +380,7 @@ export default function HouseholdScreen() {
                 key={m.userId}
                 label={memberLabel(m)}
                 value={m.role === 'owner' ? undefined : roleLabel(m.role)}
-                accessibilityLabel={sheet ? `${memberLabel(m)}, ${roleLabel(m.role)}` : undefined}
+                accessibilityLabel={sheet ? memberRowAccessibilityLabel(m) : undefined}
                 accessibilityHint={sheet?.hint}
                 trailing={
                   busyMember === m.userId ? (
@@ -400,7 +399,7 @@ export default function HouseholdScreen() {
       </SettingsSection>
 
       {state.status === 'ready' && invites.length > 0 ? (
-        <SettingsSection title="Invited">
+        <SettingsSection title={t('households.screen.invited')}>
           {invites.map((pending, i) => (
             <SettingsRow
               key={pending.id}
@@ -411,7 +410,7 @@ export default function HouseholdScreen() {
                 busyInvite === pending.id ? (
                   <ActivityIndicator color={colors.inkSecondary} />
                 ) : (
-                  <Badge label="Pending" tone="pending" />
+                  <Badge label={t('households.screen.pending')} tone="pending" />
                 )
               }
               chevron={false}
@@ -425,7 +424,7 @@ export default function HouseholdScreen() {
       <View style={{ paddingTop: spacing.lg }}>
         <Card>
           <SettingsRow
-            label="Always have"
+            label={t('settings.alwaysHave')}
             value={staplesCountLabel(staples.length)}
             last
             onPress={() => router.push({ pathname: '/settings/always-have', params: { household: id } })}
@@ -434,7 +433,7 @@ export default function HouseholdScreen() {
       </View>
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
-        <PrimaryButton label="Invite someone" icon="person.badge.plus" disabled={!household} onPress={() => invite()} />
+        <PrimaryButton label={t('households.screen.inviteSomeone')} icon="person.badge.plus" disabled={!household} onPress={() => invite()} />
       </View>
 
       {state.status === 'ready' && household ? (
@@ -442,19 +441,27 @@ export default function HouseholdScreen() {
           <Card>
             {isOwner ? (
               <SettingsRow
-                label="Delete household"
+                label={t('households.screen.delete')}
                 labelColor="danger"
-                accessibilityHint={DELETE_HINT}
-                trailing={deleting ? <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Deleting" /> : undefined}
+                accessibilityHint={t('households.hints.delete')}
+                trailing={
+                  deleting ? (
+                    <ActivityIndicator color={colors.inkSecondary} accessibilityLabel={t('households.screen.deleting')} />
+                  ) : undefined
+                }
                 chevron={false}
                 onPress={confirmDelete}
               />
             ) : null}
             <SettingsRow
-              label="Leave household"
+              label={t('households.screen.leave')}
               labelColor="danger"
-              accessibilityHint={LEAVE_HINT}
-              trailing={leaving ? <ActivityIndicator color={colors.inkSecondary} accessibilityLabel="Leaving" /> : undefined}
+              accessibilityHint={t('households.hints.leave')}
+              trailing={
+                leaving ? (
+                  <ActivityIndicator color={colors.inkSecondary} accessibilityLabel={t('households.screen.leaving')} />
+                ) : undefined
+              }
               chevron={false}
               last
               onPress={confirmLeave}
