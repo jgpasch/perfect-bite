@@ -1,5 +1,6 @@
 // Spec 4.2. Light quantity parsing for typed and dictated adds: a leading amount and optional
 // unit come off the front, the rest is the name. Shared with the Edge Functions (siri-add).
+// Spanish amounts (spec 4.15) are read whatever the app's language.
 
 /** Supported units (spec 4.2). A count has no unit. */
 export const UNITS = [
@@ -34,7 +35,7 @@ export type Unit = (typeof UNITS)[number];
 export const UNIT_KEYS = ['count', ...UNITS] as const;
 export type UnitKey = (typeof UNIT_KEYS)[number];
 
-/** Spellings (lowercase, no trailing period) → unit. */
+/** Spellings (lowercase, accents folded, no trailing period) → unit. */
 const UNIT_ALIASES: Record<string, Unit> = {
   g: 'g', gr: 'g', gram: 'g', grams: 'g',
   kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
@@ -56,7 +57,29 @@ const UNIT_ALIASES: Record<string, Unit> = {
   clove: 'clove', cloves: 'clove',
   pinch: 'pinch', pinches: 'pinch',
   dozen: 'dozen', dozens: 'dozen',
+  // Spanish (spec 4.15). `kilo(s)` and `gr` are shared with English.
+  gramo: 'g', gramos: 'g',
+  kilogramo: 'kg', kilogramos: 'kg',
+  mililitro: 'ml', mililitros: 'ml',
+  litro: 'l', litros: 'l',
+  libra: 'lb', libras: 'lb',
+  onza: 'oz', onzas: 'oz',
+  cucharadita: 'tsp', cucharaditas: 'tsp', cdta: 'tsp', cdtas: 'tsp',
+  cucharada: 'tbsp', cucharadas: 'tbsp', cda: 'tbsp', cdas: 'tbsp',
+  taza: 'cup', tazas: 'cup',
+  galon: 'gal', galones: 'gal',
+  lata: 'can', latas: 'can',
+  frasco: 'jar', frascos: 'jar',
+  bolsa: 'bag', bolsas: 'bag',
+  caja: 'box', cajas: 'box',
+  manojo: 'bunch', manojos: 'bunch',
+  diente: 'clove', dientes: 'clove',
+  pizca: 'pinch', pizcas: 'pinch',
+  docena: 'dozen', docenas: 'dozen',
 };
+
+/** Spanish words for a plain count (`3 piezas de aguacate` is 3 `aguacate`). */
+const COUNT_WORDS = new Set(['pieza', 'piezas', 'pza', 'pzas']);
 
 /** Two-word units, checked before single words. */
 const TWO_WORD_UNITS: Record<string, Unit> = {
@@ -69,7 +92,14 @@ const NUMBER_WORDS: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
   ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
   seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, half: 0.5,
+  // Spanish (spec 4.15), accents folded.
+  un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+  nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16,
+  diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, medio: 0.5, media: 0.5,
 };
+
+/** Number words that are only an amount before a unit or an article: `half and half`, `media crema`. */
+const HALF_WORDS = new Set(['half', 'medio', 'media']);
 
 const UNICODE_FRACTIONS: Record<string, number> = {
   '½': 1 / 2, '⅓': 1 / 3, '⅔': 2 / 3, '¼': 1 / 4, '¾': 3 / 4, '⅛': 1 / 8,
@@ -97,15 +127,25 @@ function parseNumberToken(token: string): number | null {
   return null;
 }
 
+/** Lowercase, accents folded, no trailing period: the form the lookup tables use. */
+function lookupForm(word: string): string {
+  return word.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\.$/, '');
+}
+
 function unitFor(word: string | undefined): Unit | null {
   if (!word) return null;
-  return UNIT_ALIASES[word.toLowerCase().replace(/\.$/, '')] ?? null;
+  return UNIT_ALIASES[lookupForm(word)] ?? null;
+}
+
+function isCountWord(word: string | undefined): boolean {
+  return word !== undefined && COUNT_WORDS.has(lookupForm(word));
 }
 
 /**
  * Pulls a leading amount and unit off an add.
  * `2 lbs chicken thighs` → 2 lb `chicken thighs`; `two avocados` → 2 `avocados`;
  * `1 1/2 cups flour` → 1.5 cup `flour`; `milk` → no quantity. Unknown unit words stay in the name.
+ * Spanish too: `2 tazas de harina` → 2 cup `harina`; `3 piezas de aguacate` → 3 `aguacate`.
  */
 export function parseQuantity(input: string): ParsedQuantity {
   const words = input.trim().split(/\s+/).filter(Boolean);
@@ -123,10 +163,13 @@ export function parseQuantity(input: string): ParsedQuantity {
     unit = unitFor(glued[2]);
     i = 1;
   } else {
-    quantity = parseNumberToken(words[0]) ?? NUMBER_WORDS[words[0].toLowerCase()] ?? null;
+    quantity = parseNumberToken(words[0]) ?? NUMBER_WORDS[lookupForm(words[0])] ?? null;
     if (quantity === null) return plain;
-    // "half and half" is a name; "half a cup" and "half gallon milk" are amounts.
-    if (/^half$/i.test(words[0]) && !/^an?$/i.test(words[1]) && !unitFor(words[1])) return plain;
+    // "half and half" and "media crema" are names; "half a cup", "half gallon milk" and
+    // "medio kilo de queso" are amounts.
+    if (HALF_WORDS.has(lookupForm(words[0])) && !/^an?$/i.test(words[1]) && !unitFor(words[1])) {
+      return plain;
+    }
     i = 1;
     const extra = words[1] !== undefined ? parseNumberToken(words[1]) : null;
     if (extra !== null && extra < 1 && Number.isInteger(quantity)) {
@@ -149,8 +192,14 @@ export function parseQuantity(input: string): ParsedQuantity {
     }
   }
 
-  // "2 cans of tomatoes"
-  if (unit !== null && words[i]?.toLowerCase() === 'of' && words.length > i + 1) i += 1;
+  // "3 piezas de aguacate": a count word, no unit.
+  const counted = unit === null && isCountWord(words[i]) && words.length > i + 1;
+  if (counted) i += 1;
+
+  // "2 cans of tomatoes", "2 tazas de harina"
+  if ((unit !== null || counted) && /^(of|de)$/i.test(words[i] ?? '') && words.length > i + 1) {
+    i += 1;
+  }
 
   const name = words.slice(i).join(' ');
   // Nothing left to name ("2", "a"): keep the whole text as the name.
