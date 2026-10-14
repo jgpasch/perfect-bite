@@ -1,7 +1,12 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  addedAt,
   addedToast,
+  applyManualOrder,
+  manualOrderEntries,
+  manualOrderKey,
+  readManualOrder,
   aisleSectionKey,
   collapsedSectionsKey,
   collapsedShowing,
@@ -399,6 +404,239 @@ describe('orderByNewest', () => {
     const input = [item('a', [['c1', 1]]), item('b', [['c2', 2]])];
     orderByNewest(input);
     expect(ids(input)).toEqual(['a', 'b']);
+  });
+});
+
+describe('manual As added order', () => {
+  const t = (minutes: number) => new Date(Date.UTC(2026, 9, 10, 9, minutes));
+  const ms = (minutes: number) => t(minutes).getTime();
+  const item = (
+    id: string,
+    contributions: [string, number][],
+    { createdAt = 0, checked = false }: { createdAt?: number; checked?: boolean } = {},
+  ) => ({
+    id,
+    createdAt: t(createdAt),
+    checkedAt: checked ? t(59) : null,
+    contributions: contributions.map(([cid, m]) => ({ id: cid, createdAt: t(m) })),
+  });
+  const ids = (items: { id: string }[]) => items.map((i) => i.id);
+  const view = (items: ReturnType<typeof item>[], saved: unknown) => ids(applyManualOrder(orderByNewest(items), readManualOrder(saved)));
+
+  const milk = item('milk', [['c1', 1]]);
+  const eggs = item('eggs', [['c2', 2]]);
+  const bread = item('bread', [['c3', 3]]);
+
+  it('keys the setting by list', () => {
+    expect(manualOrderKey('abc')).toBe('list.abc.manualOrder');
+    expect(manualOrderKey('xyz')).toBe('list.xyz.manualOrder');
+  });
+
+  describe('addedAt', () => {
+    it('is the earliest current amount’s createdAt, whatever their order', () => {
+      expect(addedAt(item('milk', [['c4', 10], ['c1', 1]], { createdAt: 0 }))).toBe(ms(1));
+    });
+
+    it('is the item’s own createdAt with no amounts', () => {
+      expect(addedAt(item('bare', [], { createdAt: 7 }))).toBe(ms(7));
+    });
+  });
+
+  describe('readManualOrder', () => {
+    it('reads a list of { id, at }', () => {
+      expect(readManualOrder([{ id: 'a', at: 1 }, { id: 'b', at: 2 }])).toEqual([
+        { id: 'a', at: 1 },
+        { id: 'b', at: 2 },
+      ]);
+    });
+
+    it('keeps the first place of an id saved twice', () => {
+      expect(readManualOrder([{ id: 'a', at: 1 }, { id: 'b', at: 2 }, { id: 'a', at: 3 }])).toEqual([
+        { id: 'a', at: 1 },
+        { id: 'b', at: 2 },
+      ]);
+    });
+
+    it('drops extra fields', () => {
+      expect(readManualOrder([{ id: 'a', at: 1, extra: true }])).toEqual([{ id: 'a', at: 1 }]);
+    });
+
+    it.each([
+      ['null', null],
+      ['undefined', undefined],
+      ['a string', 'milk,eggs'],
+      ['a number', 4],
+      ['an object', { id: 'a', at: 1 }],
+      ['a list of strings', ['a', 'b']],
+      ['an entry with no at', [{ id: 'a' }]],
+      ['an at that is a string', [{ id: 'a', at: '1' }]],
+      ['an at that is NaN', [{ id: 'a', at: NaN }]],
+      ['an at that is Infinity', [{ id: 'a', at: Infinity }]],
+      ['an id that is a number', [{ id: 1, at: 1 }]],
+      ['a null entry among good ones', [{ id: 'a', at: 1 }, null]],
+    ])('reads %s as no order', (_, saved) => {
+      expect(readManualOrder(saved)).toEqual([]);
+    });
+  });
+
+  describe('applyManualOrder', () => {
+    it('is plain As added with nothing saved', () => {
+      expect(view([milk, eggs, bread], null)).toEqual(['bread', 'eggs', 'milk']);
+    });
+
+    it('is plain As added with garbage saved', () => {
+      expect(view([milk, eggs, bread], 'garbage')).toEqual(['bread', 'eggs', 'milk']);
+    });
+
+    it('puts saved items in their saved places', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'bread', at: ms(3) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      expect(view([milk, eggs, bread], saved)).toEqual(['milk', 'bread', 'eggs']);
+    });
+
+    it('puts new items above every saved one, newest first', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      const jam = item('jam', [['c5', 5]]);
+      const oats = item('oats', [['c4', 4]]);
+      expect(view([milk, eggs, jam, oats], saved)).toEqual(['jam', 'oats', 'milk', 'eggs']);
+    });
+
+    it('treats an unsaved item older than the saved ones as new, too', () => {
+      const old = item('old', [['c0', 0]]);
+      expect(view([milk, eggs, old], [{ id: 'eggs', at: ms(2) }, { id: 'milk', at: ms(1) }])).toEqual(['old', 'eggs', 'milk']);
+    });
+
+    it('lands a recipe add on top as a block in ingredient order', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      const batch = [item('i9', [['r1', 5]]), item('i1', [['r2', 5]]), item('i5', [['r3', 5]])];
+      expect(view([batch[2], milk, batch[0], eggs, batch[1]], saved)).toEqual(['i9', 'i1', 'i5', 'milk', 'eggs']);
+    });
+
+    it('keeps a combined item where the user put it', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'bread', at: ms(3) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      const combined = item('milk', [['c1', 1], ['c9', 20]]);
+      expect(view([combined, eggs, bread], saved)).toEqual(['milk', 'bread', 'eggs']);
+    });
+
+    it('moves a re-added item (new amounts, so a new at) to the top', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'bread', at: ms(3) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      const readded = item('eggs', [['c9', 20]]);
+      expect(view([milk, readded, bread], saved)).toEqual(['eggs', 'milk', 'bread']);
+    });
+
+    it('ignores saved entries for items not showing, and puts an unchecked item back in its place', () => {
+      const saved = [
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+        { id: 'gone', at: ms(4) },
+        { id: 'bread', at: ms(3) },
+      ];
+      expect(view([milk, item('eggs', [['c2', 2]], { checked: true }), bread], saved)).toEqual(['milk', 'bread']);
+      // Unchecked again, with its amounts unchanged.
+      expect(view([milk, eggs, bread], saved)).toEqual(['milk', 'eggs', 'bread']);
+    });
+
+    it('does not change its input', () => {
+      const ordered = orderByNewest([milk, eggs]);
+      applyManualOrder(ordered, [{ id: 'milk', at: ms(1) }]);
+      expect(ids(ordered)).toEqual(['eggs', 'milk']);
+    });
+  });
+
+  describe('manualOrderEntries', () => {
+    it('pins every item on screen in its order, with its current at', () => {
+      expect(manualOrderEntries(['milk', 'bread', 'eggs'], [milk, eggs, bread], [])).toEqual([
+        { id: 'milk', at: ms(1) },
+        { id: 'bread', at: ms(3) },
+        { id: 'eggs', at: ms(2) },
+      ]);
+    });
+
+    it('saves a re-added item with its new at', () => {
+      const readded = item('eggs', [['c9', 20]]);
+      expect(manualOrderEntries(['eggs', 'milk'], [milk, readded], [{ id: 'eggs', at: ms(2) }, { id: 'milk', at: ms(1) }])).toEqual([
+        { id: 'eggs', at: ms(20) },
+        { id: 'milk', at: ms(1) },
+      ]);
+    });
+
+    it('keeps a checked item’s previous entry just after the item it followed', () => {
+      const checkedEggs = item('eggs', [['c2', 2]], { checked: true });
+      const previous = [
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+        { id: 'bread', at: ms(3) },
+      ];
+      const entries = manualOrderEntries(['bread', 'milk'], [milk, checkedEggs, bread], previous);
+      expect(entries).toEqual([
+        { id: 'bread', at: ms(3) },
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+      ]);
+      // Unchecked, Eggs comes back under Milk.
+      expect(view([milk, eggs, bread], entries)).toEqual(['bread', 'milk', 'eggs']);
+    });
+
+    it('keeps a checked item that was first at the top', () => {
+      const checkedEggs = item('eggs', [['c2', 2]], { checked: true });
+      const previous = [
+        { id: 'eggs', at: ms(2) },
+        { id: 'milk', at: ms(1) },
+        { id: 'bread', at: ms(3) },
+      ];
+      expect(manualOrderEntries(['bread', 'milk'], [milk, checkedEggs, bread], previous)).toEqual([
+        { id: 'eggs', at: ms(2) },
+        { id: 'bread', at: ms(3) },
+        { id: 'milk', at: ms(1) },
+      ]);
+    });
+
+    it('keeps a checked item’s saved at, so re-adding it later still counts as new', () => {
+      const checkedEggs = item('eggs', [['c2', 2]], { checked: true });
+      const entries = manualOrderEntries(['milk'], [milk, checkedEggs], [{ id: 'eggs', at: ms(2) }, { id: 'milk', at: ms(1) }]);
+      expect(entries).toEqual([
+        { id: 'eggs', at: ms(2) },
+        { id: 'milk', at: ms(1) },
+      ]);
+      expect(view([milk, item('eggs', [['c9', 20]])], entries)).toEqual(['eggs', 'milk']);
+    });
+
+    it('drops entries for items that are gone, and does not keep a checked item that was never saved', () => {
+      const checkedJam = item('jam', [['c5', 5]], { checked: true });
+      const previous = [
+        { id: 'gone', at: ms(4) },
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+      ];
+      expect(manualOrderEntries(['eggs', 'milk'], [milk, eggs, checkedJam], previous)).toEqual([
+        { id: 'eggs', at: ms(2) },
+        { id: 'milk', at: ms(1) },
+      ]);
+    });
+
+    it('skips ids on screen that are not items, and ids repeated', () => {
+      expect(manualOrderEntries(['milk', 'ghost', 'milk', 'eggs'], [milk, eggs], [])).toEqual([
+        { id: 'milk', at: ms(1) },
+        { id: 'eggs', at: ms(2) },
+      ]);
+    });
   });
 });
 

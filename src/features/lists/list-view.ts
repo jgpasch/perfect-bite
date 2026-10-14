@@ -291,7 +291,7 @@ export function collapsedShowing(saved: readonly string[], sectionKeys: readonly
   return new Set(saved.filter((key) => showing.has(key)));
 }
 
-type NewestItem = {
+export type NewestItem = {
   id: string;
   createdAt: Date;
   checkedAt: Date | null;
@@ -309,16 +309,115 @@ export function orderByNewest<T extends NewestItem>(items: readonly T[]): T[] {
   const keyed = items
     .filter((item) => item.checkedAt === null)
     .map((item) => {
-      let first: { id: string; createdAt: Date } | undefined;
-      for (const c of item.contributions) {
-        const t = c.createdAt.getTime();
-        if (!first || t < first.createdAt.getTime() || (t === first.createdAt.getTime() && c.id < first.id)) first = c;
-      }
-      return { item, at: (first ?? item).createdAt.getTime(), tie: (first ?? item).id };
+      const first = earliestAmount(item);
+      return { item, at: first.createdAt.getTime(), tie: first.id };
     });
   const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   keyed.sort((a, b) => b.at - a.at || byId(a.tie, b.tie) || byId(a.item.id, b.item.id));
   return keyed.map((k) => k.item);
+}
+
+/** The item's earliest current amount (ties by id), or the item itself when it has none. */
+function earliestAmount(item: NewestItem): { id: string; createdAt: Date } {
+  let first: { id: string; createdAt: Date } | undefined;
+  for (const c of item.contributions) {
+    const t = c.createdAt.getTime();
+    if (!first || t < first.createdAt.getTime() || (t === first.createdAt.getTime() && c.id < first.id)) first = c;
+  }
+  return first ?? item;
+}
+
+/** When the item was added, as As added sorts it (ms): its earliest current amount's `createdAt`, else its own. */
+export function addedAt(item: NewestItem): number {
+  return earliestAmount(item).createdAt.getTime();
+}
+
+/**
+ * One place in the user's own As added order: the item, and the `addedAt` its place was based on. When
+ * `addedAt` changes (a checked item re-added gets new amounts) the item counts as a new add.
+ */
+export type ManualOrderEntry = { id: string; at: number };
+
+/** Where the device setting for a list's manual As added order lives. */
+export const manualOrderKey = (listId: string) => `list.${listId}.manualOrder`;
+
+/**
+ * The saved manual order, read defensively: anything that isn't a list of `{ id, at }` counts as none.
+ * An id saved twice keeps its first place.
+ */
+export function readManualOrder(saved: unknown): ManualOrderEntry[] {
+  if (!Array.isArray(saved)) return [];
+  const valid = saved.every(
+    (e: unknown) =>
+      typeof e === 'object' &&
+      e !== null &&
+      typeof (e as ManualOrderEntry).id === 'string' &&
+      typeof (e as ManualOrderEntry).at === 'number' &&
+      Number.isFinite((e as ManualOrderEntry).at),
+  );
+  if (!valid) return [];
+  const seen = new Set<string>();
+  const entries: ManualOrderEntry[] = [];
+  for (const { id, at } of saved as ManualOrderEntry[]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    entries.push({ id, at });
+  }
+  return entries;
+}
+
+/**
+ * The As added view in the user's order. `ordered` is `orderByNewest`'s result. Items saved with their
+ * current `addedAt` take their saved places; the rest (never placed, or re-added since) go above them,
+ * newest first. A Combine keeps `addedAt`, so a combined item stays put. Saved entries for items not
+ * showing are skipped, so an unchecked item comes back to its place.
+ */
+export function applyManualOrder<T extends NewestItem>(ordered: readonly T[], saved: readonly ManualOrderEntry[]): T[] {
+  if (saved.length === 0) return [...ordered];
+  const place = new Map(saved.map((e, i) => [e.id, { at: e.at, index: i }]));
+  const fresh: T[] = [];
+  const pinned: { item: T; index: number }[] = [];
+  for (const item of ordered) {
+    const p = place.get(item.id);
+    if (p && p.at === addedAt(item)) pinned.push({ item, index: p.index });
+    else fresh.push(item);
+  }
+  pinned.sort((a, b) => a.index - b.index);
+  return [...fresh, ...pinned.map((p) => p.item)];
+}
+
+/**
+ * The entries to save after a drop: every item in `visibleIds` (the order on screen), so the whole
+ * order is pinned, plus the previous entries for checked items, each kept just after the item it
+ * followed, so it returns there when unchecked. Entries for anything else (deleted, never synced
+ * here) are dropped.
+ */
+export function manualOrderEntries(
+  visibleIds: readonly string[],
+  items: readonly NewestItem[],
+  previous: readonly ManualOrderEntry[],
+): ManualOrderEntry[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const visible: ManualOrderEntry[] = [];
+  const shown = new Set<string>();
+  for (const id of visibleIds) {
+    const item = byId.get(id);
+    if (!item || shown.has(id)) continue;
+    shown.add(id);
+    visible.push({ id, at: addedAt(item) });
+  }
+  // Checked entries, grouped under the nearest shown entry before them in the previous order.
+  const after = new Map<string | null, ManualOrderEntry[]>();
+  let anchor: string | null = null;
+  for (const e of previous) {
+    if (shown.has(e.id)) {
+      anchor = e.id;
+      continue;
+    }
+    if (byId.get(e.id)?.checkedAt == null) continue;
+    after.set(anchor, [...(after.get(anchor) ?? []), e]);
+  }
+  return [...(after.get(null) ?? []), ...visible.flatMap((e) => [e, ...(after.get(e.id) ?? [])])];
 }
 
 /** The second line on an item that is in other recipes too (By recipe). */

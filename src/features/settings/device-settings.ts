@@ -5,9 +5,14 @@ import { db, deviceSettings } from '@/db';
 import {
   AISLE_COLORS_KEY,
   ITEM_ROW_STYLE_KEY,
+  manualOrderEntries,
+  manualOrderKey,
   readAisleColorStyle,
   readItemRowStyle,
+  readManualOrder,
   type AisleColorStyle,
+  type ManualOrderEntry,
+  type NewestItem,
 } from '@/features/lists/list-view';
 
 /** Reads a per-device setting (spec 4.6), or `fallback` if it was never set. */
@@ -44,6 +49,26 @@ export function getItemRowStyle(): ItemRowStyle {
 
 export function setItemRowStyle(style: ItemRowStyle): void {
   setDeviceSetting(ITEM_ROW_STYLE_KEY, style);
+}
+
+/** A list's manual As added order on this device (none if never saved or unreadable). */
+export function getManualOrder(listId: string): ManualOrderEntry[] {
+  return readManualOrder(getDeviceSetting<unknown>(manualOrderKey(listId), null));
+}
+
+/**
+ * Saves the order on screen after a drop (`visibleIds`, top first) as the list's manual order, keeping
+ * the entries for checked `items`. Returns what it saved.
+ */
+export function saveManualOrder(listId: string, visibleIds: readonly string[], items: readonly NewestItem[]): ManualOrderEntry[] {
+  const entries = manualOrderEntries(visibleIds, items, getManualOrder(listId));
+  setDeviceSetting(manualOrderKey(listId), entries);
+  return entries;
+}
+
+/** Forgets the list's manual order, back to plain As added. */
+export function clearManualOrder(listId: string): void {
+  clearDeviceSetting(manualOrderKey(listId));
 }
 
 /** Settings > Shopping > Keep screen on (spec 4.1): on unless turned off on this device. */
