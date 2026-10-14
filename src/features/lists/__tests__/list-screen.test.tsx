@@ -2,6 +2,7 @@
 // add bar, view button and section header are host stand-ins, so the test reads the props the screen gives
 // them and calls their callbacks as a tap, swipe or add would.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync } from 'expo-keep-awake';
@@ -669,11 +670,31 @@ describe('adding', () => {
       expect(row('Pepino').props.alreadyOnList).toBeUndefined();
     });
 
-    test('nothing combines: adding pepino beside Cucumber makes a second item', () => {
+    test('adding pepino beside Cucumber adds to it, keeping its name (spec 4.4)', () => {
       put('Cucumber');
       render();
-      add('pepino');
-      expect(rowNames()).toEqual(['Cucumber', 'pepino']);
+      add('2 pepinos');
+      expect(rowNames()).toEqual(['Cucumber']);
+      expect(text()).toContain('Added to Cucumber, now 3');
+    });
+
+    test('adding cucumber beside Pepino adds to it, and Undo takes it back', () => {
+      put('Pepino');
+      render();
+      add('cucumber');
+      expect(rowNames()).toEqual(['Pepino']);
+      expect(text()).toContain('Added to Pepino, now 2');
+      tapToast('Undo');
+      refresh();
+      expect(rowNames()).toEqual(['Pepino']);
+      expect(row('Pepino').props.item.amountText).toBe('');
+    });
+
+    test('an unlinked pair stays two items', () => {
+      put('Tomato');
+      render();
+      add('tomate');
+      expect(rowNames()).toEqual(['Tomato', 'tomate']);
     });
 
     test('an unlinked pair marks nothing either way', () => {
@@ -692,7 +713,11 @@ describe('adding', () => {
     test('a checked twin is not marked', () => {
       const { itemId } = put('Cucumber')!;
       setItemChecked(itemId, true, USER);
+      // Added before the link, as an add now reopens the checked Cucumber.
+      const pepino = eq(ingredients.normalizedName, 'pepino');
+      db.update(ingredients).set({ sameAs: null, linkedBy: null }).where(pepino).run();
       put('Pepino');
+      db.update(ingredients).set({ sameAs: 'cucumber', linkedBy: 'seed' }).where(pepino).run();
       render();
       press(pressable('Checked, 1 item'));
       act(() => addBar().props.onFocusChange(true));

@@ -261,7 +261,12 @@ describe('shared aisle across a family (spec 4.15)', () => {
 
   beforeEach(() => {
     addItem(listId, 'milk', A);
+    // Two items on one list: leche is added unlinked, as an add would now Combine it into milk (4.4).
+    const leche = eq(ingredients.normalizedName, 'leche');
+    const link = db.select({ sameAs: ingredients.sameAs, linkedBy: ingredients.linkedBy }).from(ingredients).where(leche).get()!;
+    db.update(ingredients).set({ sameAs: null, linkedBy: null }).where(leche).run();
     addItem(listId, 'leche', A);
+    db.update(ingredients).set(link).where(leche).run();
   });
 
   test('moving milk moves leche, on the list and in the item sheet and aisle dots', () => {

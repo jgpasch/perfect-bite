@@ -20,7 +20,12 @@ import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory, rankUsual } from '@/domain/suggestion-rank';
 import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
-import { clearCategoryOverride, ensureLocalIngredient, setCategoryOverride } from '@/features/categories/categories';
+import {
+  clearCategoryOverride,
+  ensureLocalIngredient,
+  localFamilyKey,
+  setCategoryOverride,
+} from '@/features/categories/categories';
 import { recordUsage, unrecordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
@@ -56,6 +61,25 @@ function findOpenItem(tx: Tx, listId: string, ingredientName: string, exceptId?:
     .get();
 }
 
+/** The oldest open item on `item`'s list for another name of its family (spec 4.15), if any. */
+function findOpenTwin(tx: Tx, item: ListItem) {
+  return tx
+    .select({ id: listItems.id })
+    .from(listItems)
+    .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
+    .where(
+      and(
+        eq(listItems.listId, item.listId),
+        eq(sql`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`, localFamilyKey(tx, item.ingredientName)),
+        ne(listItems.ingredientName, item.ingredientName),
+        liveItem,
+        isNull(listItems.checkedAt),
+      ),
+    )
+    .orderBy(asc(listItems.createdAt), asc(listItems.id))
+    .get();
+}
+
 function getItem(tx: Tx, id: string): ListItem {
   const item = tx.select().from(listItems).where(eq(listItems.id, id)).get();
   if (!item) throw new Error(`No list item ${id}`);
@@ -77,12 +101,24 @@ export type AddItemResult = {
   reopened?: { checkedAt: Date; checkedBy: string | null; contributionIds: string[] };
   /** The name, if this add was the first to record it (pending), for `categorizePending`. */
   pendingNames: string[];
+  /**
+   * The key this add counted a use of: its own, which isn't the item's when it combined into a
+   * twin (spec 4.15). Left out, the item's.
+   */
+  ingredientName?: string;
 };
 
+/** A list's live items, each with its family key (spec 4.15) for `detectDuplicate`. */
 function liveItemsForList(tx: Tx, listId: string) {
   return tx
-    .select({ id: listItems.id, ingredientName: listItems.ingredientName, checkedAt: listItems.checkedAt })
+    .select({
+      id: listItems.id,
+      ingredientName: listItems.ingredientName,
+      familyKey: sql<string>`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`,
+      checkedAt: listItems.checkedAt,
+    })
     .from(listItems)
+    .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
     .where(and(eq(listItems.listId, listId), liveItem))
     .all();
 }
@@ -201,6 +237,7 @@ function applyAdd(
 
   const item = getItem(tx, decision.itemId);
   const previous = liveContributions(tx, item.id);
+  const twin = add.ingredientName !== item.ingredientName ? { ingredientName: add.ingredientName } : {};
 
   if (decision.kind === 'combine') {
     insertRow(tx, listItemContributions, { ...contribution, listItemId: item.id });
@@ -214,6 +251,7 @@ function applyAdd(
         usualUnitFor(tx, list.householdId, item.ingredientName),
       ),
       pendingNames,
+      ...twin,
     };
   }
 
@@ -231,6 +269,7 @@ function applyAdd(
     kind: 'reopen',
     reopened: { checkedAt: item.checkedAt!, checkedBy: item.checkedBy, contributionIds: previous.map((c) => c.id) },
     pendingNames,
+    ...twin,
   };
 }
 
@@ -255,7 +294,7 @@ export function addItem(
   if (!add) return null;
   return db.transaction((tx) => {
     const list = getListForAdd(tx, listId);
-    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId));
+    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId), localFamilyKey(tx, add.ingredientName));
     return applyAdd(tx, list, add, decision, { userId, source });
   });
 }
@@ -286,7 +325,7 @@ export function addSiriItem(
       .get();
     if (contribution) return 'applied';
     const list = getListForAdd(tx, listId);
-    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId));
+    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId), localFamilyKey(tx, add.ingredientName));
     // The derived item id is taken only if an earlier add made that item, whose amount would exist.
     const taken = tx.select({ id: listItems.id }).from(listItems).where(eq(listItems.id, ids.itemId)).get();
     const itemId = taken ? newId() : ids.itemId;
@@ -318,7 +357,7 @@ function undoAddIn(tx: Tx, result: AddItemResult, now: Date): void {
     .from(listItemContributions)
     .where(eq(listItemContributions.id, result.contributionId))
     .get();
-  unrecordUsage(tx, item.householdId, item.ingredientName, undone);
+  unrecordUsage(tx, item.householdId, result.ingredientName ?? item.ingredientName, undone);
   updateRows(tx, listItemContributions, eq(listItemContributions.id, result.contributionId), { deletedAt: now });
   if (result.kind === 'new') {
     updateRows(tx, listItems, eq(listItems.id, result.itemId), { deletedAt: now });
@@ -382,6 +421,7 @@ export function addItemsBulk(
     const decisions = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
       liveItemsForList(tx, listId),
+      parsed.map((p) => (p ? localFamilyKey(tx, p.ingredientName) : '')),
     );
     const results: (AddItemResult | null)[] = [];
     const at = new Date();
@@ -402,13 +442,14 @@ export function addItemsBulk(
 
 /**
  * Makes an item live and unchecked (or live and checked, for undoing a delete of a checked
- * item). If the same ingredient is already open on the list, the item's amounts move onto that
- * one instead, since a list holds one open item per ingredient. Returns that item and the amounts
- * moved onto it, if it merged.
+ * item). If the same ingredient, or else another name of its family (spec 4.15), is already open on
+ * the list, the item's amounts move onto that one instead, since a list holds one open item per
+ * ingredient (as `apply_mutations` merges it). Returns that item and the amounts moved onto it, if
+ * it merged.
  */
 function restoreItem(tx: Tx, item: ListItem, checked: boolean): Merged | undefined {
   if (!checked) {
-    const open = findOpenItem(tx, item.listId, item.ingredientName, item.id);
+    const open = findOpenItem(tx, item.listId, item.ingredientName, item.id) ?? findOpenTwin(tx, item);
     if (open) {
       const moved = updateRows(
         tx,

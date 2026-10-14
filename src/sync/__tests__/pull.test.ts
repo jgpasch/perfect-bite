@@ -594,6 +594,77 @@ describe('Combine on clash (4.4)', () => {
     expect(itemRow('done')!.deletedAt).toBeNull();
     expect(itemRow('theirs')!.deletedAt).toBeNull();
   });
+
+  describe('across a family (4.15)', () => {
+    // `leche` is linked to `milk`; `tomate` and `tomato` are not.
+    beforeEach(() => {
+      db.insert(ingredients)
+        .values([
+          { normalizedName: 'milk', displayName: 'milk', status: 'categorized' },
+          { normalizedName: 'leche', displayName: 'leche', status: 'categorized', sameAs: 'milk', linkedBy: 'seed' },
+          { normalizedName: 'tomato', displayName: 'tomato', status: 'categorized' },
+          { normalizedName: 'tomate', displayName: 'tomate', status: 'categorized' },
+        ])
+        .run();
+    });
+    const mine = (ingredientName: string) =>
+      insertRow(db, listItems, { id: 'mine', listId: L, householdId: H1, ingredientName, displayName: ingredientName });
+
+    test("a remote open milk takes in this device's unpushed leche", async () => {
+      mine('leche');
+      insertRow(db, listItemContributions, { id: 'c-mine', listItemId: 'mine', householdId: H1, quantity: 2 });
+      const queued = outboxRows();
+      put('list_items', remoteItem('theirs', ts(20)));
+
+      await pullNow();
+
+      expect(itemRow('theirs')).toMatchObject({ deletedAt: null, displayName: 'milk' });
+      expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
+      expect(contributionsOf('theirs')).toEqual(['c-mine']);
+      expect(outboxRows()).toEqual(queued);
+    });
+
+    test("a remote open leche takes in this device's unpushed milk", async () => {
+      mine('milk');
+      put('list_items', remoteItem('theirs', ts(20), { ingredient_name: 'leche', display_name: 'leche' }));
+
+      await pullNow();
+
+      expect(itemRow('theirs')!.deletedAt).toBeNull();
+      expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
+    });
+
+    test('a leche already pushed stays, as the server keeps both', async () => {
+      mine('leche');
+      clearOutbox();
+      put('list_items', remoteItem('theirs', ts(20)));
+
+      await pullNow();
+
+      expect(itemRow('mine')!.deletedAt).toBeNull();
+      expect(itemRow('theirs')!.deletedAt).toBeNull();
+    });
+
+    test('an unlinked pair stays two items', async () => {
+      mine('tomate');
+      put('list_items', remoteItem('theirs', ts(20), { ingredient_name: 'tomato', display_name: 'tomato' }));
+
+      await pullNow();
+
+      expect(itemRow('mine')!.deletedAt).toBeNull();
+      expect(itemRow('theirs')!.deletedAt).toBeNull();
+    });
+
+    test('a cleared link stops the merge', async () => {
+      db.update(ingredients).set({ sameAs: null, linkedBy: null }).where(eq(ingredients.normalizedName, 'leche')).run();
+      mine('leche');
+      put('list_items', remoteItem('theirs', ts(20)));
+
+      await pullNow();
+
+      expect(itemRow('mine')!.deletedAt).toBeNull();
+    });
+  });
 });
 
 describe('counters and usage', () => {

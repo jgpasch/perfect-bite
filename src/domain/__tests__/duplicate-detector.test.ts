@@ -43,4 +43,44 @@ describe('planBulkAdd', () => {
   it('adds everything new to an empty list', () => {
     expect(planBulkAdd(['a', 'b'], [])).toEqual([{ kind: 'new' }, { kind: 'new' }]);
   });
+
+  it('folds twins in the batch and combines them with the list by family key (spec 4.15)', () => {
+    const cucumber = { ...open('c', 'cucumber'), familyKey: 'cucumber' };
+    expect(
+      planBulkAdd(['pepino', 'leche', 'milk', 'tomate'], [cucumber], ['cucumber', 'milk', 'milk', 'tomate']),
+    ).toEqual([{ kind: 'combine', itemId: 'c' }, { kind: 'new' }, { kind: 'sameAsEarlier', index: 1 }, { kind: 'new' }]);
+  });
+});
+
+describe('detectDuplicate across a family (spec 4.15)', () => {
+  const twin = (item: ExistingItem, familyKey: string): ExistingItem => ({ ...item, familyKey });
+
+  it('combines into an open item of the same family, both ways', () => {
+    expect(detectDuplicate('pepino', [twin(open('c', 'cucumber'), 'cucumber')], 'cucumber')).toEqual({
+      kind: 'combine',
+      itemId: 'c',
+    });
+    expect(detectDuplicate('cucumber', [twin(open('p', 'pepino'), 'cucumber')], 'cucumber')).toEqual({
+      kind: 'combine',
+      itemId: 'p',
+    });
+  });
+
+  it('prefers its own key, open before checked', () => {
+    const items = [twin(open('c', 'cucumber'), 'cucumber'), twin(open('p', 'pepino'), 'cucumber')];
+    expect(detectDuplicate('pepino', items, 'cucumber')).toEqual({ kind: 'combine', itemId: 'p' });
+    const ownChecked = [twin(checked('p', 'pepino', 5), 'cucumber'), twin(open('c', 'cucumber'), 'cucumber')];
+    expect(detectDuplicate('pepino', ownChecked, 'cucumber')).toEqual({ kind: 'combine', itemId: 'c' });
+    const bothChecked = [twin(checked('c', 'cucumber', 9), 'cucumber'), twin(checked('p', 'pepino', 5), 'cucumber')];
+    expect(detectDuplicate('pepino', bothChecked, 'cucumber')).toEqual({ kind: 'reopen', itemId: 'p' });
+    expect(detectDuplicate('pepino', [twin(checked('c', 'cucumber', 9), 'cucumber')], 'cucumber')).toEqual({
+      kind: 'reopen',
+      itemId: 'c',
+    });
+  });
+
+  it("doesn't match other families, or without a family given", () => {
+    expect(detectDuplicate('tomate', [twin(open('t', 'tomato'), 'tomato')], 'tomate')).toEqual({ kind: 'new' });
+    expect(detectDuplicate('pepino', [twin(open('c', 'cucumber'), 'cucumber')])).toEqual({ kind: 'new' });
+  });
 });

@@ -18,6 +18,7 @@ import { seedCatalog } from '@/test/seed';
 import {
   addItem,
   addItemsBulk,
+  addSiriItem,
   clearChecked,
   contributionsQuery,
   deleteContribution,
@@ -194,6 +195,153 @@ describe('bulk add (spec 4.4)', () => {
     addItem(listId, '1 gal milk', USER);
     addItemsBulk(listId, adds, USER);
     expect(rows(view().unchecked)).toEqual(['1¼ gal milk', '3 eggs', '1 tsp salt']); // 1 gal + 3 cups
+  });
+});
+
+describe('combine across a family (spec 4.4, 4.15)', () => {
+  // `pepino` is linked to `cucumber`; `tomate` and `tomato` are not.
+  beforeEach(() => {
+    db.insert(ingredients)
+      .values([
+        { normalizedName: 'cucumber', displayName: 'cucumber', status: 'categorized', lang: 'en' },
+        { normalizedName: 'pepino', displayName: 'pepino', status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
+        { normalizedName: 'tomato', displayName: 'tomato', status: 'categorized', lang: 'en' },
+        { normalizedName: 'tomate', displayName: 'tomate', status: 'categorized', lang: 'es' },
+      ])
+      .run();
+  });
+  const unlinkPepino = () =>
+    db.update(ingredients).set({ sameAs: null, linkedBy: null }).where(eq(ingredients.normalizedName, 'pepino')).run();
+  const usage = (name: string) =>
+    db
+      .select({ useCount: ingredientUsage.useCount, displayName: ingredientUsage.displayName })
+      .from(ingredientUsage)
+      .where(eq(ingredientUsage.ingredientName, name))
+      .get();
+  const unitUsage = (name: string) =>
+    db
+      .select({ unitKey: ingredientUnitUsage.unitKey, useCount: ingredientUnitUsage.useCount })
+      .from(ingredientUnitUsage)
+      .where(eq(ingredientUnitUsage.ingredientName, name))
+      .all();
+
+  test('pepino added beside an open cucumber adds to it, keeping the name it was first added under', () => {
+    const first = addItem(listId, '1 cucumber', USER)!;
+    const second = addItem(listId, '2 pepinos', USER)!;
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'cucumber', totalAmountText: '3' });
+    expect(rows(view().unchecked)).toEqual(['3 cucumber']);
+    expect(contributionsQuery(first.itemId).all().map((c) => c.quantity)).toEqual([1, 2]);
+  });
+
+  test('cucumber added beside an open pepino adds to it', () => {
+    const first = addItem(listId, 'Pepino', USER)!;
+    const second = addItem(listId, 'cucumber', USER)!;
+    expect(second).toMatchObject({ itemId: first.itemId, kind: 'combine', existingName: 'Pepino' });
+    expect(rows(view().unchecked)).toEqual(['2 Pepino']);
+  });
+
+  test('usage history and the usual unit stay per key', () => {
+    addItem(listId, '2 cucumbers', USER);
+    addItem(listId, '1 lb pepinos', USER);
+    expect(usage('cucumber')).toEqual({ useCount: 1, displayName: 'cucumbers' });
+    expect(usage('pepino')).toEqual({ useCount: 1, displayName: 'pepinos' });
+    expect(unitUsage('cucumber')).toEqual([{ unitKey: 'count', useCount: 1 }]);
+    expect(unitUsage('pepino')).toEqual([{ unitKey: 'lb', useCount: 1 }]);
+  });
+
+  test('undo of a family combine takes back the amount and the pepino use', () => {
+    addItem(listId, '1 cucumber', USER);
+    const r = addItem(listId, '2 pepinos', USER)!;
+    undoAdd(r);
+    expect(rows(view().unchecked)).toEqual(['1 cucumber']);
+    expect(usage('pepino')).toBeUndefined();
+    expect(usage('cucumber')!.useCount).toBe(1);
+  });
+
+  test('a checked twin is reopened with its amounts replaced', () => {
+    const cucumber = addItem(listId, '3 cucumbers', USER)!;
+    setItemChecked(cucumber.itemId, true, USER);
+    const again = addItem(listId, '1 pepino', USER)!;
+    expect(again).toMatchObject({ itemId: cucumber.itemId, kind: 'reopen' });
+    expect(rows(view().unchecked)).toEqual(['1 cucumbers']);
+  });
+
+  test("the add's own key wins over its twin when both are open", () => {
+    unlinkPepino();
+    addItem(listId, 'cucumber', USER);
+    const pepino = addItem(listId, 'pepino', USER)!;
+    db.update(ingredients).set({ sameAs: 'cucumber', linkedBy: 'seed' }).where(eq(ingredients.normalizedName, 'pepino')).run();
+    expect(addItem(listId, 'pepino', USER)).toMatchObject({ itemId: pepino.itemId, kind: 'combine' });
+    expect(rows(view().unchecked)).toEqual(['cucumber', '2 pepino']);
+  });
+
+  test('unchecking an item beside its open twin folds it in, as the server would', () => {
+    unlinkPepino();
+    const cucumber = addItem(listId, '2 cucumbers', USER)!;
+    setItemChecked(cucumber.itemId, true, USER);
+    const pepino = addItem(listId, '1 pepino', USER)!;
+    db.update(ingredients).set({ sameAs: 'cucumber', linkedBy: 'seed' }).where(eq(ingredients.normalizedName, 'pepino')).run();
+    setItemChecked(cucumber.itemId, false, USER);
+    expect(rows(view().unchecked)).toEqual(['3 pepino']);
+    expect(view().checked).toHaveLength(0);
+    expect(contributionsQuery(pepino.itemId).all().map((c) => c.quantity)).toEqual([2, 1]);
+  });
+
+  test('an unlinked pair stays two items', () => {
+    addItem(listId, 'tomato', USER);
+    expect(addItem(listId, 'tomate', USER)!.kind).toBe('new');
+    expect(rows(view().unchecked)).toEqual(['tomato', 'tomate']);
+  });
+
+  test("a cleared link stops new combines; what's already combined stays", () => {
+    const cucumber = addItem(listId, '1 cucumber', USER)!;
+    addItem(listId, '2 pepinos', USER);
+    unlinkPepino();
+    expect(addItem(listId, 'pepino', USER)!.kind).toBe('new');
+    expect(rows(view().unchecked)).toEqual(['3 cucumber', 'pepino']);
+    expect(contributionsQuery(cucumber.itemId).all().map((c) => c.quantity)).toEqual([1, 2]);
+  });
+
+  test("a recipe's Add to a list combines twins with the list and within the recipe", () => {
+    const recipe = createRecipe('Salad');
+    addItem(listId, '1 cucumber', USER);
+    const results = addItemsBulk(
+      listId,
+      [
+        { text: '2 pepinos', source: 'recipe', recipeId: recipe },
+        { text: 'tomate', source: 'recipe', recipeId: recipe },
+        { text: 'tomato', source: 'recipe', recipeId: recipe },
+      ],
+      USER,
+    );
+    expect(results.map((r) => r?.kind)).toEqual(['combine', 'new', 'new']);
+    expect(rows(view().unchecked)).toEqual(['3 cucumber', 'tomate', 'tomato']);
+    undoAdds(results);
+    expect(rows(view().unchecked)).toEqual(['1 cucumber']);
+  });
+
+  test('twins within one recipe fold into the first', () => {
+    const results = addItemsBulk(listId, [{ text: '1 pepino' }, { text: '2 cucumbers' }], USER);
+    expect(results.map((r) => r?.kind)).toEqual(['new', 'combine']);
+    expect(results[1]!.itemId).toBe(results[0]!.itemId);
+    expect(rows(view().unchecked)).toEqual(['3 pepino']);
+  });
+
+  test('a Siri add combines across a family, both ways', () => {
+    const cucumber = addItem(listId, 'cucumber', USER)!;
+    const at = new Date('2026-10-14T10:00:00Z');
+    expect(addSiriItem(listId, 'dos pepinos', USER, { itemId: 's-item', contributionId: 's-c' }, at)).toMatchObject({
+      itemId: cucumber.itemId,
+      kind: 'combine',
+    });
+    const other = createList('Costco');
+    const pepino = addItem(other, 'pepino', USER)!;
+    expect(addSiriItem(other, 'cucumber', USER, { itemId: 's-item-2', contributionId: 's-c-2' }, at)).toMatchObject({
+      itemId: pepino.itemId,
+      kind: 'combine',
+    });
+    expect(rows(view().unchecked)).toEqual(['3 cucumber']);
+    expect(rows(view(other).unchecked)).toEqual(['2 pepino']);
   });
 });
 

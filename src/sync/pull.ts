@@ -16,13 +16,14 @@
 //   sets them. Counters are the server's total plus this device's unpushed deltas.
 // - A remote open item that clashes with a different local open item for the same ingredient on
 //   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
-//   will do when the local one is pushed (7.3).
+//   will do when the local one is pushed (7.3). So does an unpushed local add of another name of
+//   its family (4.15).
 // - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
 // - A full pull also notices lost memberships (4.7): a household the server listed for the user
 //   last time and doesn't now is purged from this device with its queued mutations (`purge.ts`),
 //   once the households still listed are in. Households the server has never listed (e.g. one
 //   created here and not pushed yet) are left alone.
-import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
@@ -46,7 +47,7 @@ import {
   type FieldClock,
 } from '@/db';
 import { getAccount } from '@/features/auth/account';
-import { ensureMissingIngredients } from '@/features/categories/categories';
+import { ensureMissingIngredients, localFamilyKey } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -216,23 +217,35 @@ const LOCAL_ONLY = new Set(['fieldClock', 'createdAt', 'updatedAt']);
 
 /**
  * Merges every other local open item for `item`'s ingredient on its list into it (a silent
- * Combine, 4.4). Returns the merged ids; their contributions move once `item` is written.
+ * Combine, 4.4). So is one for another name of its family (4.15) that this device opened and hasn't
+ * pushed (added, unchecked or restored), since that's when `apply_mutations` merges across a family.
+ * Returns the merged ids; their contributions move once `item` is written.
  */
-function closeClashingItems(tx: Exec, item: Row): string[] {
+function closeClashingItems(tx: Exec, item: Row, pending: PendingIndex): string[] {
   if (item.deletedAt != null || item.checkedAt != null) return [];
+  const name = item.ingredientName as string;
+  const opensOnPush = (id: string) => {
+    const fields = pending.get(refKey(getTableName(listItems), id, undefined))?.fields;
+    return !!fields && (fields.has('checked_at') || fields.has('deleted_at'));
+  };
   const others = tx
-    .select({ id: listItems.id })
+    .select({ id: listItems.id, ingredientName: listItems.ingredientName })
     .from(listItems)
+    .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
     .where(
       and(
         eq(listItems.listId, item.listId as string),
-        eq(listItems.ingredientName, item.ingredientName as string),
+        or(
+          eq(listItems.ingredientName, name),
+          eq(sql`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`, localFamilyKey(tx, name)),
+        ),
         isNull(listItems.deletedAt),
         isNull(listItems.checkedAt),
         ne(listItems.id, item.id as string),
       ),
     )
     .all()
+    .filter((r) => r.ingredientName === name || opensOnPush(r.id))
     .map((r) => r.id);
   if (others.length) tx.update(listItems).set({ deletedAt: new Date() }).where(inArray(listItems.id, others)).run();
   return others;
@@ -293,7 +306,7 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
   }
 
   const remoteUpdatedAt = new Date(remote.updated_at);
-  const merged = table === listItems ? closeClashingItems(tx, { ...local, ...keyValues, ...set }) : [];
+  const merged = table === listItems ? closeClashingItems(tx, { ...local, ...keyValues, ...set }, pending) : [];
   if (local) {
     const changed: Row = {};
     for (const [prop, value] of Object.entries(set)) {
