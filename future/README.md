@@ -21,3 +21,4 @@ When a feature is fully moved into `tasks.md`, delete its file here. When you pa
 | [universal-links-tasks.md](universal-links-tasks.md) | ready | 4.7 |
 | [e2e-tasks.md](e2e-tasks.md) | ready | 7.2, 8.3 |
 | [feature-discovery-tasks.md](feature-discovery-tasks.md) | ideas | 4.9, 4.10 |
+| [i18n-es-mx-tasks.md](i18n-es-mx-tasks.md) | ready | 4.15 |
