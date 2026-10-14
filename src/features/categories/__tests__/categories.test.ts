@@ -92,6 +92,71 @@ describe('seed', () => {
   });
 });
 
+describe('Spanish seed and links (spec 4.15)', () => {
+  const row = (name: string) =>
+    db.select().from(ingredients).where(eq(ingredients.normalizedName, key(name))).get();
+  const reload = () => {
+    require('@/features/settings/device-settings').setDeviceSetting('catalog.seedFingerprint', 0);
+    loadCatalogSeed();
+  };
+
+  test('loads Spanish names with their language, links, and their target’s aisle and unit', () => {
+    expect(row('leche')).toEqual({
+      normalizedName: 'leche',
+      displayName: 'leche',
+      defaultCategoryId: id('dairy-eggs'),
+      status: 'categorized',
+      isGroceryItem: true,
+      categorizedBy: 'seed',
+      defaultUnit: 'gal',
+      lang: 'es',
+      sameAs: 'milk',
+      linkedBy: 'seed',
+    });
+    expect(row('milk')).toMatchObject({ lang: 'en', sameAs: null, linkedBy: null });
+    expect(row('limones')).toMatchObject({ normalizedName: 'limon', lang: 'es', sameAs: null, linkedBy: null });
+    expect(row('tomate')).toMatchObject({ lang: 'es', sameAs: null });
+    expect(row('crema')).toMatchObject({ lang: 'en', sameAs: null });
+    addItem(listId, '2 pepinos', A);
+    expect(categoryOf('pepinos')).toBe(id('produce'));
+  });
+
+  test('a row the server categorized keeps its answer but learns its language and the seed link', () => {
+    db.update(ingredients)
+      .set({ defaultCategoryId: id('snacks'), categorizedBy: 'gemini-test', lang: null, sameAs: null, linkedBy: null })
+      .where(eq(ingredients.normalizedName, 'leche'))
+      .run();
+    reload();
+    expect(row('leche')).toMatchObject({
+      defaultCategoryId: id('snacks'),
+      categorizedBy: 'gemini-test',
+      lang: 'es',
+      sameAs: 'milk',
+      linkedBy: 'seed',
+    });
+  });
+
+  test("a seed link replaces a model's link but not an admin's", () => {
+    db.update(ingredients).set({ sameAs: 'cream', linkedBy: 'gemini-test' }).where(eq(ingredients.normalizedName, 'leche')).run();
+    db.update(ingredients).set({ sameAs: 'egg white', linkedBy: 'admin' }).where(eq(ingredients.normalizedName, 'huevo')).run();
+    reload();
+    expect(row('leche')).toMatchObject({ sameAs: 'milk', linkedBy: 'seed' });
+    expect(row('huevos')).toMatchObject({ sameAs: 'egg white', linkedBy: 'admin' });
+  });
+
+  test("clears a seed link the seed no longer lists, and leaves other links alone", () => {
+    db.insert(ingredients)
+      .values([
+        { normalizedName: 'old seed link', displayName: 'old seed link', status: 'categorized', sameAs: 'milk', linkedBy: 'seed' },
+        { normalizedName: 'model link', displayName: 'model link', status: 'categorized', sameAs: 'milk', linkedBy: 'gemini-test' },
+      ])
+      .run();
+    reload();
+    expect(row('old seed link')).toMatchObject({ sameAs: null, linkedBy: null });
+    expect(row('model link')).toMatchObject({ sameAs: 'milk', linkedBy: 'gemini-test' });
+  });
+});
+
 describe('overrides (spec 4.3.2)', () => {
   test("apply to everyone in the household on every list, not to another household's", () => {
     const second = createList('Costco', home);
@@ -372,6 +437,9 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
     isGroceryItem: null,
     categorizedBy: null,
     defaultUnit: null,
+    lang: null,
+    sameAs: null,
+    linkedBy: null,
   });
   const itemNamed = (name: string) =>
     groupItems(listItemsQuery(listId).all()).unchecked.find((i) => i.displayName === name)!;
@@ -508,6 +576,9 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
         isGroceryItem: true,
         categorizedBy: 'seed',
         defaultUnit: 'lb',
+        lang: 'en',
+        sameAs: null,
+        linkedBy: null,
       },
     ]);
     expect(categoryOf('Tomatoes')).toBe(id('produce'));

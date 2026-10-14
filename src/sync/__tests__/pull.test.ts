@@ -1266,9 +1266,56 @@ describe('ingredient catalog', () => {
       isGroceryItem: true,
       categorizedBy: 'model',
       defaultUnit: 'qt',
+      lang: null,
+      sameAs: null,
+      linkedBy: null,
     });
     expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'natto')).get()).toBeUndefined();
     expect(getPullState().cursors['catalog:ingredients']).toBe(ts(8));
+  });
+
+  const linkOf = (name: string) =>
+    db
+      .select({ lang: ingredients.lang, sameAs: ingredients.sameAs, linkedBy: ingredients.linkedBy })
+      .from(ingredients)
+      .where(eq(ingredients.normalizedName, name))
+      .get();
+
+  test('copies the language and link (spec 4.15)', async () => {
+    db.insert(ingredients).values({ normalizedName: 'leche', displayName: 'leche', status: 'pending' }).run();
+    put(
+      'ingredients',
+      ingredient('leche', ts(7), { lang: 'es', same_as: 'milk', linked_by: 'gemini-test' }),
+      ingredient('milk', ts(8), { lang: 'en', same_as: null, linked_by: null, categorized_by: 'seed' }),
+    );
+
+    await pullNow();
+
+    expect(linkOf('leche')).toEqual({ lang: 'es', sameAs: 'milk', linkedBy: 'gemini-test' });
+    expect(linkOf('milk')).toEqual({ lang: 'en', sameAs: null, linkedBy: null });
+  });
+
+  test('a cleared link clears it here too', async () => {
+    db.insert(ingredients)
+      .values({ normalizedName: 'leche', displayName: 'leche', status: 'categorized', lang: 'es', sameAs: 'milk', linkedBy: 'gemini-test' })
+      .run();
+    put('ingredients', ingredient('leche', ts(7), { lang: 'es', same_as: null, linked_by: null }));
+
+    await pullNow();
+
+    expect(linkOf('leche')).toEqual({ lang: 'es', sameAs: null, linkedBy: null });
+  });
+
+  test("a server without the link columns yet leaves the device's alone", async () => {
+    db.insert(ingredients)
+      .values({ normalizedName: 'leche', displayName: 'leche', status: 'categorized', lang: 'es', sameAs: 'milk', linkedBy: 'seed' })
+      .run();
+    put('ingredients', ingredient('leche', ts(7), { default_unit: 'gal' }));
+
+    await pullNow();
+
+    expect(linkOf('leche')).toEqual({ lang: 'es', sameAs: 'milk', linkedBy: 'seed' });
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'leche')).get()?.defaultUnit).toBe('gal');
   });
 
   test("a pending server row doesn't undo a categorized one", async () => {

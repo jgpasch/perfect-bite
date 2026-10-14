@@ -88,6 +88,9 @@ describe('results', () => {
       isGroceryItem: true,
       categorizedBy: CATEGORIZED_BY_SERVER,
       defaultUnit: 'jar',
+      lang: null,
+      sameAs: null,
+      linkedBy: null,
     });
     expect(row('call mom')).toMatchObject({ status: 'categorized', defaultCategoryId: OTHER_CATEGORY_ID, isGroceryItem: false });
     expect(warn).not.toHaveBeenCalled();

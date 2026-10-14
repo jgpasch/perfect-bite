@@ -1,7 +1,7 @@
 // Categories, the ingredient catalog cache, household overrides and custom aisles, and the user's
 // aisle order (spec 4.3). Local reads and writes. Custom categories, overrides and order write
 // through the sync helpers (outbox, spec 7.1); the catalog is local here and pull fills it.
-import { and, asc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { categories, db, householdCategoryOverrides, ingredients, userCategoryOrder } from '@/db';
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
@@ -15,17 +15,26 @@ import { aisleName, systemAisleSlug, withAisleNames } from '@/i18n/vocabulary';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
-import { normalizeIngredientName, SEED_INGREDIENTS, seedEntries, SYSTEM_CATEGORIES } from '@/shared';
+import {
+  normalizeIngredientName,
+  SEED_INGREDIENTS,
+  SEED_INGREDIENTS_ES,
+  seedEntries,
+  seedEsEntries,
+  SYSTEM_CATEGORIES,
+} from '@/shared';
 
 // --- Seed ----------------------------------------------------------------------------------
 
-/** Changes whenever the bundled seed does (names, categories or units), so an app update re-applies it. */
-const SEED_FINGERPRINT = fingerprint([SYSTEM_CATEGORIES, SEED_INGREDIENTS]);
+/** Changes whenever the bundled seed does (names, categories, units or links), so an app update re-applies it. */
+const SEED_FINGERPRINT = fingerprint([SYSTEM_CATEGORIES, SEED_INGREDIENTS, SEED_INGREDIENTS_ES]);
 export const SEED_KEY = 'catalog.seedFingerprint';
 
 /**
- * Loads the bundled system categories and seed ingredients (spec 6.2) into the local catalog.
- * Cheap when already loaded. Seed rows never overwrite an ingredient the server categorized.
+ * Loads the bundled system categories and the English and Spanish seed ingredients (spec 6.2,
+ * 4.15) into the local catalog, as the seed migration does on the server. Cheap when already
+ * loaded. Seed rows never overwrite an ingredient the server categorized, but every seed name gets
+ * its language where it has none, and the Spanish seed's links replace any but an admin's.
  */
 export function loadCatalogSeed(): void {
   if (getDeviceSetting(SEED_KEY, 0) === SEED_FINGERPRINT) return;
@@ -37,7 +46,12 @@ export function loadCatalogSeed(): void {
         .onConflictDoUpdate({ target: categories.id, set: { slug: c.slug, name: c.name, defaultRank: rank } })
         .run();
     });
-    for (const { name: displayName, category, unit } of seedEntries()) {
+    const seeds = [
+      ...seedEntries().map((e) => ({ ...e, lang: 'en' as const, sameAs: null })),
+      ...seedEsEntries().map((e) => ({ ...e, lang: 'es' as const })),
+    ];
+    // English first, so a Spanish name's target is already there.
+    for (const { name: displayName, category, unit, lang } of seeds) {
       const row = {
         normalizedName: normalizeIngredientName(displayName),
         displayName,
@@ -46,6 +60,7 @@ export function loadCatalogSeed(): void {
         isGroceryItem: true,
         categorizedBy: 'seed',
         defaultUnit: unit,
+        lang,
       };
       tx.insert(ingredients)
         .values(row)
@@ -54,6 +69,32 @@ export function loadCatalogSeed(): void {
           set: row,
           setWhere: or(eq(ingredients.categorizedBy, 'seed'), sql`${ingredients.status} <> 'categorized'`),
         })
+        .run();
+    }
+    // Rows the seed doesn't own still learn their language: one statement per language.
+    for (const lang of ['en', 'es'] as const) {
+      const keys = JSON.stringify(seeds.filter((e) => e.lang === lang).map((e) => normalizeIngredientName(e.name)));
+      tx.update(ingredients)
+        .set({ lang })
+        .where(and(isNull(ingredients.lang), sql`${ingredients.normalizedName} in (select value from json_each(${keys}))`))
+        .run();
+    }
+    const linked = seeds.filter((e) => e.sameAs !== null).map((e) => normalizeIngredientName(e.name));
+    // A seed link the seed no longer lists goes, as on the server.
+    tx.update(ingredients)
+      .set({ sameAs: null, linkedBy: null })
+      .where(and(eq(ingredients.linkedBy, 'seed'), notInArray(ingredients.normalizedName, linked)))
+      .run();
+    for (const { name, sameAs } of seeds) {
+      if (sameAs === null) continue;
+      tx.update(ingredients)
+        .set({ sameAs: normalizeIngredientName(sameAs), linkedBy: 'seed' })
+        .where(
+          and(
+            eq(ingredients.normalizedName, normalizeIngredientName(name)),
+            or(isNull(ingredients.linkedBy), ne(ingredients.linkedBy, 'admin')),
+          ),
+        )
         .run();
     }
   });

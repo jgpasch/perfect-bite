@@ -54,6 +54,15 @@ export const ingredients = sqliteTable('ingredients', {
    * the categorizer. The usual unit until the household has its own history; null when unknown.
    */
   defaultUnit: text('default_unit'),
+  /** The name's language (spec 4.15): `en` or `es`; null when not known. */
+  lang: text('lang', { enum: ['en', 'es'] }),
+  /**
+   * The English ingredient this name means (`leche` → `milk`, spec 4.15); one level only. No
+   * foreign key here: the server enforces it, and the device may not hold the target yet.
+   */
+  sameAs: text('same_as'),
+  /** Who made the `sameAs` link: `seed`, a model id or `admin`; null without a link. */
+  linkedBy: text('linked_by'),
 });
 
 // --- Per-user aisle order (spec 4.3.3). Never shared with the household. --------------------

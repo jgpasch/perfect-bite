@@ -354,7 +354,7 @@ export function applyRemoteDelete(table: string, old: Record<string, unknown>, u
 /**
  * Applies a catalog row to the local copy of an ingredient this device already has (7.4). Never
  * adds names: the device keeps the seed plus what it has seen. A server answer that isn't final
- * doesn't replace a categorized one.
+ * doesn't replace a categorized one. Language and link (`lang`, `same_as`, `linked_by`) come with it.
  */
 function applyIngredient(tx: Exec, remote: ServerRow): void {
   const name = remote.normalized_name as string;
@@ -367,6 +367,10 @@ function applyIngredient(tx: Exec, remote: ServerRow): void {
     isGroceryItem: (remote.is_grocery_item as boolean | null) ?? null,
     categorizedBy: (remote.categorized_by as string | null) ?? null,
     defaultUnit: (remote.default_unit as string | null) ?? null,
+    // A server without the link columns (4.15) yet leaves the seed's own alone.
+    lang: 'lang' in remote ? ((remote.lang as typeof local.lang) ?? null) : local.lang,
+    sameAs: 'same_as' in remote ? ((remote.same_as as string | null) ?? null) : local.sameAs,
+    linkedBy: 'linked_by' in remote ? ((remote.linked_by as string | null) ?? null) : local.linkedBy,
   };
   const same = (Object.keys(next) as (keyof typeof next)[]).every((k) => next[k] === local[k]);
   if (!same) tx.update(ingredients).set(next).where(eq(ingredients.normalizedName, name)).run();

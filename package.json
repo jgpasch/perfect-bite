@@ -77,6 +77,7 @@
     "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
     "e2e": "scripts/e2e.sh",
     "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts",
+    "seed:es-plurals": "deno run --allow-read --allow-write=src/shared/spanish-plurals.ts scripts/gen-es-plurals.ts",
     "i18n:export": "deno run --no-lock --allow-read --allow-write=docs/i18n scripts/i18n-export.ts"
   },
   "private": true,

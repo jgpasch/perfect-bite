@@ -1,5 +1,6 @@
 // Spec 4.2. The ingredient key: the app and the Edge Functions both call this, so client and
 // server always agree on which ingredient a name means. Keep it pure (runs under Deno too).
+import { SPANISH_ES_PLURALS } from './spanish-plurals.ts';
 
 /** Words that end in "s" but are already singular (or have no singular). */
 const UNCOUNTABLE = new Set([
@@ -31,8 +32,16 @@ const IRREGULAR: Record<string, string> = {
   veggies: 'veggie',
 };
 
-/** Simple English singularization of one lowercase word. */
+/**
+ * Singularizes one lowercase, accent-folded word: a Spanish `-es` plural from the list generated
+ * from the Spanish seed (`limones` → `limon`, spec 4.15), else the English rules.
+ */
 export function singularize(word: string): string {
+  return Object.hasOwn(SPANISH_ES_PLURALS, word) ? SPANISH_ES_PLURALS[word] : englishSingular(word);
+}
+
+/** Simple English singularization of one lowercase word. */
+export function englishSingular(word: string): string {
   if (word.length < 3 || UNCOUNTABLE.has(word)) return word;
   if (word in IRREGULAR) return IRREGULAR[word];
   if (word.endsWith('ies')) return `${word.slice(0, -3)}y`; // berries, anchovies
