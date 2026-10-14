@@ -13,8 +13,58 @@ import {
   recipeCardLabel,
   recipeSuggestionDetail,
   recipeSuggestionLabel,
+  forServingsLabel,
+  parseServings,
+  scaledAmount,
+  servesLabel,
+  SERVINGS_ERROR,
   servingsLabel,
 } from '../recipe-view';
+
+describe('servings', () => {
+  test('the band and stepper labels', () => {
+    expect(servesLabel(4)).toBe('Serves 4');
+    expect(servesLabel(1)).toBe('Serves 1');
+    expect(forServingsLabel(6)).toBe('For 6');
+  });
+
+  test('parseServings takes a whole number 1–100, trimmed', () => {
+    expect(parseServings('4')).toEqual({ servings: 4 });
+    expect(parseServings(' 12 ')).toEqual({ servings: 12 });
+    expect(parseServings('1')).toEqual({ servings: 1 });
+    expect(parseServings('100')).toEqual({ servings: 100 });
+    expect(parseServings('007')).toEqual({ servings: 7 });
+  });
+
+  test('parseServings: empty clears', () => {
+    expect(parseServings('')).toEqual({ servings: null });
+    expect(parseServings('   ')).toEqual({ servings: null });
+  });
+
+  test('parseServings: anything else is an error', () => {
+    for (const text of ['0', '101', '-2', '2.5', 'four', '4 people', '1e2']) {
+      expect(parseServings(text)).toEqual({ error: SERVINGS_ERROR });
+    }
+    expect(SERVINGS_ERROR).toBe('Servings must be a whole number from 1 to 100');
+  });
+
+  test('scaledAmount is quantity × chosen ÷ base, formatted as Add to list does', () => {
+    // 1 × 6 ÷ 4: fractions for counts and volumes, decimals for weights.
+    expect(scaledAmount({ quantity: 1, unit: null }, 6, 4)).toBe('1½');
+    expect(scaledAmount({ quantity: 1, unit: 'can' }, 6, 4)).toBe('1½ can');
+    expect(scaledAmount({ quantity: 1, unit: 'tsp' }, 6, 4)).toBe('1½ tsp');
+    expect(scaledAmount({ quantity: 2, unit: 'lb' }, 6, 4)).toBe('3 lb');
+    expect(scaledAmount({ quantity: 1, unit: 'lb' }, 6, 4)).toBe('1.5 lb');
+    expect(scaledAmount({ quantity: 1, unit: 'cup' }, 2, 4)).toBe('½ cup');
+    expect(scaledAmount({ quantity: 100, unit: 'g' }, 1, 3)).toBe('33.33 g');
+    expect(scaledAmount({ quantity: 12, unit: null }, 4, 4)).toBe('12');
+  });
+
+  test('scaledAmount: no quantity is empty', () => {
+    expect(scaledAmount({ quantity: null, unit: null }, 6, 4)).toBe('');
+    expect(scaledAmount({ quantity: null, unit: 'cup' }, 6, 4)).toBe('');
+  });
+});
 
 describe('orderByLastUse', () => {
   const r = (id: string, name: string, updatedAt: string) => ({ id, name, updatedAt: new Date(updatedAt) });

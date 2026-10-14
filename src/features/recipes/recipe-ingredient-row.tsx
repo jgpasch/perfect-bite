@@ -14,15 +14,17 @@ type Props = {
   ingredient: RecipeIngredient;
   /** The ingredient's aisle `dot` colour. */
   dotColor: string;
+  /** The amount to show in place of the ingredient's own, e.g. scaled to other servings. */
+  amount?: string;
   onEdit: () => void;
   onDelete: () => void;
 };
 
 /** A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, swipe left to delete. */
-export function RecipeIngredientRow({ ingredient, dotColor, onEdit, onDelete }: Props) {
+export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete }: Props) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
-  const amount = formatAmount(ingredient);
+  const amount = shown ?? formatAmount(ingredient);
   const name = displayItemName(ingredient.displayName);
   const label = [amount, name, ingredient.note].filter(Boolean).join(' ');
 

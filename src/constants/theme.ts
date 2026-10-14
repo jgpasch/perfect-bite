@@ -213,6 +213,9 @@ export const Sizes = {
   segmentInset: 3,
   /** the list screen's view button pill (its hit area is still 44) */
   viewButton: 32,
+  /** the round − and + in a `Stepper`, and the track's inset around them */
+  stepperButton: 34,
+  stepperInset: 3,
   /** primary CTA */
   cta: 54,
   /** soft destructive button */

@@ -1,5 +1,7 @@
 // What the recipe screens show (boards 05–07). Pure: no React, SQLite or network.
 
+import { formatAmount, type Amount } from '@/domain/quantity-display';
+
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
 /** Recipes under their household's name, households in order of their first recipe, recipes in order. */
@@ -47,6 +49,42 @@ export function recipeCardLabel(name: string, count: number, onList?: string | n
 /** A servings multiplier's pill: "½×", "1×", "2×". */
 export function servingsLabel(servings: number): string {
   return `${servings === 0.5 ? '½' : servings}×`;
+}
+
+/** A recipe's servings, and the recipe screen's stepper, run 1–100. */
+export const SERVINGS_MIN = 1;
+export const SERVINGS_MAX = 100;
+
+export const SERVINGS_ERROR = 'Servings must be a whole number from 1 to 100';
+
+/** The recipe band's servings: "Serves 4". */
+export function servesLabel(servings: number): string {
+  return `Serves ${servings}`;
+}
+
+/** The Ingredients stepper's value: "For 6". */
+export function forServingsLabel(servings: number): string {
+  return `For ${servings}`;
+}
+
+/**
+ * The servings prompt's text: a whole number 1–100, or null when it's empty (clearing them). An error
+ * for anything else ("0", "2.5", "four").
+ */
+export function parseServings(text: string): { servings: number | null } | { error: string } {
+  const trimmed = text.trim();
+  if (!trimmed) return { servings: null };
+  if (!/^\d+$/.test(trimmed)) return { error: SERVINGS_ERROR };
+  const servings = Number(trimmed);
+  return servings >= SERVINGS_MIN && servings <= SERVINGS_MAX ? { servings } : { error: SERVINGS_ERROR };
+}
+
+/**
+ * An ingredient's amount for `chosen` people when the recipe serves `base`: quantity × chosen ÷ base,
+ * formatted as Add to list does. Empty when it has no quantity.
+ */
+export function scaledAmount(amount: Amount, chosen: number, base: number): string {
+  return formatAmount({ quantity: amount.quantity === null ? null : (amount.quantity * chosen) / base, unit: amount.unit });
 }
 
 /** The add-to-list CTA: "Add 8 to Groceries", or "Nothing selected". */

@@ -141,6 +141,11 @@ export function updateRecipe(id: string, edit: RecipeEdit): void {
   });
 }
 
+/** Sets how many the recipe serves (1–100), or clears it with null. */
+export function updateRecipeServings(id: string, servings: number | null): void {
+  updateRows(db, recipes, eq(recipes.id, id), { servings });
+}
+
 /**
  * Saves the Tags sheet (spec 4.14): the tags, the total time and `tagsEdited` in one update, so the
  * "Tagged when you imported it" note goes. `tags` is the whole stored value, unknown slugs included.

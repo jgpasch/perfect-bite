@@ -9,6 +9,7 @@ import { CheckCircle } from '../check-circle';
 import { Pill } from '../pill';
 import { SegmentedControl } from '../segmented-control';
 import { SettingsRow, SettingsSection } from '../settings-group';
+import { Stepper } from '../stepper';
 
 jest.mock('@/global.css', () => ({}));
 // Icons render as host elements so a test can see which glyph shows.
@@ -120,6 +121,77 @@ describe('SegmentedControl', () => {
     expect(onChange).not.toHaveBeenCalled();
     click(tabs[2]);
     expect(onChange).toHaveBeenCalledWith('newest');
+  });
+});
+
+describe('Stepper', () => {
+  const stepper = (value: number, onChange = jest.fn(), buttonSize?: number) =>
+    render(
+      <Stepper
+        value={value}
+        min={1}
+        max={100}
+        onChange={onChange}
+        label={`For ${value}`}
+        accessibilityLabel="Servings"
+        buttonSize={buttonSize}
+      />,
+    );
+  const button = (root: ReactTestRenderer, label: string) => byRole(root, 'button').find((b) => b.props.accessibilityLabel === label)!;
+
+  it('shows the value between − and +, and VoiceOver reads it as one adjustable control', () => {
+    const root = stepper(4);
+    expect(icons(root)).toEqual(['minus', 'plus']);
+    expect(root.root.findAll((n) => (n.type as string) === 'Text').map((n) => n.props.children)).toEqual(['For 4']);
+    const [control] = byRole(root, 'adjustable');
+    expect(control.props.accessibilityLabel).toBe('Servings');
+    expect(control.props.accessibilityValue).toEqual({ text: 'For 4' });
+    expect(byRole(root, 'button').map((b) => b.props.accessibilityLabel)).toEqual(['Fewer', 'More']);
+  });
+
+  it('− and + step by one', () => {
+    const onChange = jest.fn();
+    const root = stepper(4, onChange);
+    click(button(root, 'Fewer'));
+    click(button(root, 'More'));
+    expect(onChange.mock.calls).toEqual([[3], [5]]);
+  });
+
+  it('VoiceOver increment and decrement step too', () => {
+    const onChange = jest.fn();
+    const root = stepper(4, onChange);
+    const [control] = byRole(root, 'adjustable');
+    act(() => control.props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }));
+    act(() => control.props.onAccessibilityAction({ nativeEvent: { actionName: 'decrement' } }));
+    act(() => control.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } }));
+    expect(onChange.mock.calls).toEqual([[5], [3]]);
+  });
+
+  it('at the minimum, − is disabled and does nothing', () => {
+    const onChange = jest.fn();
+    const root = stepper(1, onChange);
+    expect(button(root, 'Fewer').props.accessibilityState).toEqual({ disabled: true });
+    expect(button(root, 'More').props.accessibilityState).toEqual({ disabled: false });
+    click(button(root, 'Fewer'));
+    act(() => byRole(root, 'adjustable')[0].props.onAccessibilityAction({ nativeEvent: { actionName: 'decrement' } }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('at the maximum, + is disabled and does nothing', () => {
+    const onChange = jest.fn();
+    const root = stepper(100, onChange);
+    expect(button(root, 'More').props.accessibilityState).toEqual({ disabled: true });
+    click(button(root, 'More'));
+    act(() => byRole(root, 'adjustable')[0].props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('buttons are 34 pt with their hit area brought to 44, or the size given', () => {
+    const style = (b: ReactTestInstance) => Object.assign({}, ...[b.props.style].flat(Infinity).filter(Boolean));
+    const small = button(stepper(4), 'More');
+    expect([style(small).width, style(small).height, small.props.hitSlop]).toEqual([34, 34, 5]);
+    const big = button(stepper(4, jest.fn(), 40), 'More');
+    expect([style(big).width, big.props.hitSlop]).toEqual([40, 2]);
   });
 });
 

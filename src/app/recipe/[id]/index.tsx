@@ -1,11 +1,14 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
+import { Icon } from '@/components/icon';
+import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
+import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast } from '@/components/toast';
@@ -30,6 +33,14 @@ import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
+  forServingsLabel,
+  parseServings,
+  scaledAmount,
+  servesLabel,
+  SERVINGS_MAX,
+  SERVINGS_MIN,
+} from '@/features/recipes/recipe-view';
+import {
   addRecipeIngredient,
   deleteRecipe,
   deleteRecipeIngredient,
@@ -38,6 +49,7 @@ import {
   undeleteRecipeIngredient,
   updateRecipe,
   updateRecipeIngredient,
+  updateRecipeServings,
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { displayItemName } from '@/shared';
@@ -63,10 +75,29 @@ export default function RecipeScreen() {
   );
   const [deleted, setDeleted] = useState<RecipeIngredient | null>(null);
   const dismissToast = useCallback(() => setDeleted(null), []);
+  // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
+  const [chosen, setChosen] = useState<number | null>(null);
 
   if (!recipe) return <Screen />;
 
   const hue = recipeHue(recipe.id);
+  const base = recipe.servings;
+  const servings = base === null ? null : (chosen ?? base);
+
+  const editServings = () =>
+    Alert.prompt(
+      'Servings',
+      'How many people it serves, 1 to 100. Leave it empty to remove.',
+      (text) => {
+        const parsed = parseServings(text ?? '');
+        if ('error' in parsed) return Alert.alert(parsed.error);
+        updateRecipeServings(recipe.id, parsed.servings);
+        setChosen(null);
+      },
+      'plain-text',
+      base === null ? '' : String(base),
+      'number-pad',
+    );
 
   const edit = (ingredient: RecipeIngredient) => {
     const amount = formatAmount(ingredient);
@@ -120,7 +151,7 @@ export default function RecipeScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} />
+          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} />
           <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }}>
             <PrimaryButton
               label="Add to a list"
@@ -130,7 +161,25 @@ export default function RecipeScreen() {
             />
           </View>
           <Card>
-            <SectionHeader title="Ingredients" count={ingredients.length} />
+            <SectionHeader
+              title="Ingredients"
+              count={ingredients.length}
+              trailing={
+                base !== null && servings !== null ? (
+                  <View style={[styles.row, { gap: spacing.xxs }]}>
+                    {servings !== base ? <Button variant="plain" label="Reset" onPress={() => setChosen(null)} /> : null}
+                    <Stepper
+                      value={servings}
+                      min={SERVINGS_MIN}
+                      max={SERVINGS_MAX}
+                      onChange={setChosen}
+                      label={forServingsLabel(servings)}
+                      accessibilityLabel="Servings"
+                    />
+                  </View>
+                ) : undefined
+              }
+            />
             {ingredients.length === 0 ? (
               <ThemedText
                 variant="callout"
@@ -144,6 +193,7 @@ export default function RecipeScreen() {
                   key={item.id}
                   ingredient={item}
                   dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
+                  amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
                   onEdit={() => edit(item)}
                   onDelete={() => {
                     deleteRecipeIngredient(item.id);
@@ -176,11 +226,22 @@ export default function RecipeScreen() {
 }
 
 /**
- * The header band in the recipe's soft tint: its name, source link, tags and notes. The notes are edited
- * in place and saved when the field loses focus; the link row is RecipeLinkRow.
+ * The header band in the recipe's soft tint: its name, source link and servings, tags and notes. The notes
+ * are edited in place and saved when the field loses focus; the link row is RecipeLinkRow. "Serves 4", or a
+ * dashed "Add servings" without them, opens the servings prompt (`onEditServings`).
  */
-function RecipeBand({ recipe, hue, hasIngredients }: { recipe: Recipe; hue: AisleHue; hasIngredients: boolean }) {
-  const { colors, aisles, spacing, typography, sizes } = useTheme();
+function RecipeBand({
+  recipe,
+  hue,
+  hasIngredients,
+  onEditServings,
+}: {
+  recipe: Recipe;
+  hue: AisleHue;
+  hasIngredients: boolean;
+  onEditServings: () => void;
+}) {
+  const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
   const canSuggest = useFeature('recipe_tags') && hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
   const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
@@ -204,7 +265,30 @@ function RecipeBand({ recipe, hue, hasIngredients }: { recipe: Recipe; hue: Aisl
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>
-      <RecipeLinkRow value={sourceUrl} hue={hue} onSave={saveLink} />
+      {/* The link and the servings share a line (boards 13 and 15). */}
+      <View style={[styles.row, { gap: spacing.md + spacing.xxs }]}>
+        <View style={styles.flex}>
+          <RecipeLinkRow value={sourceUrl} hue={hue} onSave={saveLink} />
+        </View>
+        {recipe.servings !== null ? (
+          <Pressable
+            onPress={onEditServings}
+            accessibilityRole="button"
+            accessibilityLabel={servesLabel(recipe.servings)}
+            accessibilityHint="Edits the servings"
+            style={({ pressed }) => [
+              styles.row,
+              { gap: spacing.xs + spacing.xxs, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+            ]}>
+            <Icon name="person.2" tint={tint.strong} weight="semibold" />
+            <ThemedText variant="amount" style={{ color: tint.strong }}>
+              {servesLabel(recipe.servings)}
+            </ThemedText>
+          </Pressable>
+        ) : (
+          <Pill dashed icon="person.2" label="Add servings" onPress={onEditServings} />
+        )}
+      </View>
       <RecipeTagRow
         recipe={recipe}
         hue={hue}

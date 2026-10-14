@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 
 import { Button } from '@/components/button';
 import { Pill } from '@/components/pill';
+import { Stepper } from '@/components/stepper';
 import { db, households, lists, outbox, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { resolveCurrentListId } from '@/features/lists/current-list';
@@ -26,9 +27,16 @@ import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 
 import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
-import { IMPORT_TAGS_NOTE } from '../recipe-tag-row';
+import { IMPORT_TAGS_NOTE, RecipeTagRow } from '../recipe-tag-row';
 import { NOTHING_SUGGESTED_NOTE, SUGGESTED_NOTE, type SuggestTagsResult } from '../suggest-tags';
-import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery, updateRecipe } from '../recipes';
+import {
+  addRecipeIngredient,
+  createRecipe,
+  getRecipe,
+  recipeIngredientsQuery,
+  updateRecipe,
+  updateRecipeServings,
+} from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -489,6 +497,174 @@ const outboxRecipeUpdates = () =>
     // An insert sends every column, `household_id` included; an update only what changed.
     .filter((m) => m.table === 'recipes' && m.id === tacos && !('household_id' in m.fields));
 
+describe('RecipeScreen servings', () => {
+  const stepper = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === Stepper);
+  // Presses the stepper's − or + button.
+  const step = (root: ReactTestRenderer, label: 'More' | 'Fewer') =>
+    press(stepper(root)[0].find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function'));
+  /** What VoiceOver reads for each ingredient row: its amount as shown, then its name. */
+  const amounts = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => n.type === RecipeIngredientRow)
+      .map((r) => r.find((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Double-tap to edit').props.accessibilityLabel as string);
+  const servingsPrompt = () => {
+    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+    return {
+      prompt,
+      submit: (text: string) => act(() => (prompt.mock.calls[prompt.mock.calls.length - 1][2] as (t: string) => void)(text)),
+    };
+  };
+
+  test('without servings: a dashed Add servings pill and no stepper', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    const root = render(<RecipeScreen />);
+    const pill = byLabel(root, 'Add servings');
+    expect(pill.type).toBe(Pill);
+    expect(pill.props.dashed).toBe(true);
+    expect(pill.props.icon).toBe('person.2');
+    expect(texts(root)).not.toContain('Serves 4');
+    expect(stepper(root)).toHaveLength(0);
+    expect(queryA11y(root, 'Reset')).toHaveLength(0);
+  });
+
+  test('with servings: "Serves 4" in the band and a stepper at the base, amounts as written', () => {
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    addRecipeIngredient(tacos, '1 can chipotle');
+    updateRecipeServings(tacos, 4);
+    const root = render(<RecipeScreen />);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 4', 'For 4']));
+    expect(queryA11y(root, 'Add servings')).toHaveLength(0);
+    expect(byA11y(root, 'Serves 4').props.accessibilityHint).toBe('Edits the servings');
+    const [s] = stepper(root);
+    expect([s.props.value, s.props.min, s.props.max, s.props.accessibilityLabel]).toEqual([4, 1, 100, 'Servings']);
+    expect(amounts(root)).toEqual(['2 lb Chicken thighs', '1 can Chipotle']);
+    expect(queryA11y(root, 'Reset')).toHaveLength(0);
+  });
+
+  test('stepping scales the amounts shown, and Reset goes back to the base', () => {
+    addRecipeIngredient(tacos, '2 lb chicken thighs');
+    addRecipeIngredient(tacos, '1 can chipotle');
+    addRecipeIngredient(tacos, '1 tsp cumin');
+    addRecipeIngredient(tacos, 'cilantro');
+    updateRecipeServings(tacos, 4);
+    const root = render(<RecipeScreen />);
+    step(root, 'More');
+    step(root, 'More');
+    expect(texts(root)).toContain('For 6');
+    expect(amounts(root)).toEqual(['3 lb Chicken thighs', '1½ can Chipotle', '1½ tsp Cumin', 'Cilantro']);
+    expect(texts(root)).toEqual(expect.arrayContaining(['3 lb', '1½ can', '1½ tsp']));
+    // Only what's shown: the recipe's own amounts are unchanged.
+    expect(recipeIngredientsQuery(tacos).all().map((i) => i.quantity)).toEqual([2, 1, 1, null]);
+    const reset = byLabel(root, 'Reset');
+    expect(reset.type).toBe(Button);
+    expect(reset.props.variant).toBe('plain');
+    press(reset);
+    expect(texts(root)).toContain('For 4');
+    expect(amounts(root)).toEqual(['2 lb Chicken thighs', '1 can Chipotle', '1 tsp Cumin', 'Cilantro']);
+    expect(queryA11y(root, 'Reset')).toHaveLength(0);
+  });
+
+  test('fewer than the base scales down', () => {
+    addRecipeIngredient(tacos, '1 cup rice');
+    updateRecipeServings(tacos, 4);
+    const root = render(<RecipeScreen />);
+    step(root, 'Fewer');
+    step(root, 'Fewer');
+    expect(amounts(root)).toEqual(['½ cup Rice']);
+    expect(queryA11y(root, 'Reset')).toHaveLength(1);
+  });
+
+  test('editing a scaled ingredient prompts with its own amount', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    updateRecipeServings(tacos, 2);
+    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+    const root = render(<RecipeScreen />);
+    step(root, 'More');
+    press(byA11y(root, '3 Limes'));
+    expect(prompt.mock.calls[0][4]).toBe('2 limes');
+  });
+
+  test('the stepper starts at the base again when the screen is opened again', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    updateRecipeServings(tacos, 2);
+    let root = render(<RecipeScreen />);
+    step(root, 'More');
+    expect(texts(root)).toContain('For 3');
+    act(() => root.unmount());
+    root = render(<RecipeScreen />);
+    expect(texts(root)).toContain('For 2');
+    expect(amounts(root)).toEqual(['2 Limes']);
+  });
+
+  test('Add servings prompts for a number and saves it', () => {
+    const { prompt, submit } = servingsPrompt();
+    const root = render(<RecipeScreen />);
+    press(byLabel(root, 'Add servings'));
+    const [title, message, , type, defaultValue, keyboard] = prompt.mock.calls[0];
+    expect([title, message, type, defaultValue, keyboard]).toEqual([
+      'Servings',
+      'How many people it serves, 1 to 100. Leave it empty to remove.',
+      'plain-text',
+      '',
+      'number-pad',
+    ]);
+    submit(' 6 ');
+    expect(getRecipe(tacos)!.servings).toBe(6);
+    // The live query re-renders on the write in the app; the mock reads on render.
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
+    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 6', 'For 6']));
+    expect(queryA11y(root, 'Add servings')).toHaveLength(0);
+  });
+
+  test('saving servings goes through the outbox', () => {
+    const { submit } = servingsPrompt();
+    const root = render(<RecipeScreen />);
+    press(byLabel(root, 'Add servings'));
+    submit('3');
+    expect(outboxRecipeUpdates().at(-1)?.fields).toEqual(expect.objectContaining({ servings: 3 }));
+  });
+
+  test('tapping "Serves 4" edits it: a new number saves and the stepper starts at it', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    updateRecipeServings(tacos, 4);
+    const { prompt, submit } = servingsPrompt();
+    const root = render(<RecipeScreen />);
+    step(root, 'More');
+    press(byA11y(root, 'Serves 4'));
+    expect(prompt.mock.calls[0][4]).toBe('4');
+    submit('8');
+    expect(getRecipe(tacos)!.servings).toBe(8);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 8', 'For 8']));
+    expect(amounts(root)).toEqual(['2 Limes']);
+    expect(queryA11y(root, 'Reset')).toHaveLength(0);
+  });
+
+  test('clearing the prompt removes the servings and the stepper', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    updateRecipeServings(tacos, 4);
+    const { submit } = servingsPrompt();
+    const root = render(<RecipeScreen />);
+    step(root, 'More');
+    press(byA11y(root, 'Serves 4'));
+    submit('  ');
+    expect(getRecipe(tacos)!.servings).toBeNull();
+    expect(stepper(root)).toHaveLength(0);
+    expect(queryA11y(root, 'Add servings')).toHaveLength(1);
+    expect(amounts(root)).toEqual(['2 Limes']);
+  });
+
+  test.each(['0', '101', '2.5', 'four'])('"%s" shows the error and saves nothing', (text) => {
+    updateRecipeServings(tacos, 4);
+    const { submit } = servingsPrompt();
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const root = render(<RecipeScreen />);
+    press(byA11y(root, 'Serves 4'));
+    submit(text);
+    expect(alert).toHaveBeenCalledWith('Servings must be a whole number from 1 to 100');
+    expect(getRecipe(tacos)!.servings).toBe(4);
+  });
+});
+
 describe('RecipeScreen tags', () => {
   /** The tag pills' VoiceOver labels in order, then the dashed pill's. */
   const tagRow = (root: ReactTestRenderer) =>
@@ -554,7 +730,10 @@ describe('RecipeScreen tags', () => {
       const root = render(<RecipeScreen />);
       const [suggest] = suggestPills(root);
       expect(suggest.props).toMatchObject({ dashed: true, icon: 'sparkles', accessibilityHint: 'Opens the tags, with AI suggestions.' });
-      const labels = root.root.findAll((n) => n.type === Pill && n.props.dashed).map((n) => n.props.label);
+      const labels = root.root
+        .find((n) => n.type === RecipeTagRow)
+        .findAll((n) => n.type === Pill && n.props.dashed)
+        .map((n) => n.props.label);
       expect(labels).toEqual(['Add tags', 'Suggest tags']);
       press(suggest);
       expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/tags', params: { id: tacos, suggest: '1' } });
