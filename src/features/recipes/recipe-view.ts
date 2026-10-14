@@ -113,15 +113,19 @@ const SKIPPED_NAMES_SHOWN = 3;
 /**
  * The add bar's recipe toast (spec 4.2) when it left the household's staples (Always have) out: "Added Tacos · 6
  * items" with a second line "Skipped salt, pepper" ("Skipped salt, pepper and 2 more" past three). With every
- * ingredient a staple nothing was added: "You always have everything in Tacos".
+ * ingredient a staple nothing was added: "You always have everything in Tacos". With `listName` (the Recipes tab's
+ * quick add, which adds away from the list) the first line names it: "Added Tacos to Groceries · 6 items".
  */
 export function addedRecipeWithStaplesToast(
   recipeName: string,
   count: number,
   skipped: readonly string[],
+  listName?: string,
 ): { message: string; emphasis: string } {
   if (count === 0 && skipped.length > 0) return { message: `You always have everything in ${recipeName}`, emphasis: recipeName };
-  const added = addedRecipeToListToast(recipeName, count);
+  const added = listName
+    ? { message: `Added ${recipeName} to ${listName} · ${count} ${count === 1 ? 'item' : 'items'}`, emphasis: recipeName }
+    : addedRecipeToListToast(recipeName, count);
   if (skipped.length === 0) return added;
   const names =
     skipped.length > SKIPPED_NAMES_SHOWN

@@ -10,10 +10,12 @@ import { EmptyState } from '@/components/empty-state';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
-import { failedImports } from '@/db';
+import { failedImports, households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { openList } from '@/features/lists/current-list';
-import { getList } from '@/features/lists/lists';
+import { getAccount } from '@/features/auth/account';
+import { categorizePending } from '@/features/categories/categorization';
+import { openList, resolveCurrentListId, useCurrentListVersion } from '@/features/lists/current-list';
+import { getList, listsWithCountsQuery } from '@/features/lists/lists';
 import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
@@ -21,7 +23,15 @@ import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
-import { groupRecipesByHousehold, ingredientCountLabel, onListByRecipe, recipeCardLabel } from '@/features/recipes/recipe-view';
+import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
+import {
+  addedRecipeWithStaplesToast,
+  groupRecipesByHousehold,
+  ingredientCountLabel,
+  onListByRecipe,
+  recipeCardLabel,
+} from '@/features/recipes/recipe-view';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import {
@@ -88,6 +98,33 @@ export default function RecipesScreen() {
   const untaggedHidden =
     filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
+
+  // Spec 4.5: the card menu's quick add goes to the current list (the List tab's), re-resolved as lists change.
+  const { data: allLists } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
+  const userId = getAccount()?.userId ?? null;
+  const listVersion = useCurrentListVersion();
+  const currentList = useMemo((): QuickAddCandidate | null => {
+    const id = resolveCurrentListId(allLists.filter((l) => l.archivedAt === null), userId);
+    return id ? (allLists.find((l) => l.id === id) ?? getList(id) ?? null) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `listVersion`: another screen picked a list
+  }, [allLists, userId, listVersion]);
+
+  // Adds at 1× as the add bar does (staples left out) and stays here, with Undo and Open list.
+  const quickAdd = (recipeId: string, list: { id: string; name: string }) => {
+    const added = addWholeRecipeToList(list.id, recipeId, userId);
+    if (!added) return;
+    void categorizePending(added.pendingNames);
+    const nothingAdded = added.count === 0 && added.skipped.length > 0;
+    setToast({
+      key: `quick-add-${recipeId}-${Date.now()}`,
+      recipeId,
+      ...addedRecipeWithStaplesToast(added.recipeName, added.count, added.skipped, list.name),
+      actions: [
+        ...(nothingAdded ? [] : [{ label: 'Undo', onPress: () => (undoRecipeAdd(added), setToast(null)) }]),
+        { label: 'Open list', onPress: () => (setToast(null), openList(list.id)) },
+      ],
+    });
+  };
 
   // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
   const addRecipe = () => router.push('/add-recipe');
@@ -250,6 +287,8 @@ export default function RecipesScreen() {
                     ingredientMatch={r.ingredientMatch}
                     onList={onList.get(r.id) ?? null}
                     highlighted={toast?.recipeId === r.id}
+                    quickAddTo={quickAddList(currentList, r)}
+                    onQuickAdd={quickAdd}
                   />
                 ))}
               </View>
@@ -283,6 +322,8 @@ function RecipeCard({
   ingredientMatch,
   onList,
   highlighted,
+  quickAddTo,
+  onQuickAdd,
 }: {
   recipe: RecipeSummary;
   /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the count. */
@@ -290,6 +331,9 @@ function RecipeCard({
   onList: string | null;
   /** Just imported: outlined in `primary` while the toast shows. */
   highlighted: boolean;
+  /** The list the menu's Add to <list> adds to (`quickAddList`), or null to leave it out. */
+  quickAddTo: { id: string; name: string } | null;
+  onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
 }) {
   const { colors, spacing, sizes, rounded } = useTheme();
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
@@ -346,6 +390,14 @@ function RecipeCard({
         </Pressable>
       </Link.Trigger>
       <Link.Menu>
+        {/* Spec 4.5: one-step add to the current list, when it's open and in the recipe's household. */}
+        {quickAddTo ? (
+          <Link.MenuAction
+            title={quickAddTitle(quickAddTo.name)}
+            icon="cart.badge.plus"
+            onPress={() => onQuickAdd(recipe.id, quickAddTo)}
+          />
+        ) : null}
         {/* The recipe screen's Add to a list sheet (spec 4.5); left out, as that button is disabled, with no ingredients. */}
         {recipe.ingredientCount > 0 ? (
           <Link.MenuAction

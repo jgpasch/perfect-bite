@@ -6,13 +6,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households, lists, recipeIngredients, recipes } from '@/db';
-import { addItemsBulk } from '@/features/lists/items';
+import { setStaple } from '@/features/households/staples';
+import { addItemsBulk, listItemsQuery } from '@/features/lists/items';
 import {
   createList,
   ensureStarterData,
   getDefaultListId,
   LAST_OPENED_LIST_KEY,
   setLastOpenedList,
+  setListArchived,
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { setFeatures } from '@/features/plans/features';
@@ -740,25 +742,26 @@ describe('RecipesScreen', () => {
       expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
     });
 
-    test('with ingredients: Add to a list first, with the cart symbol', () => {
+    // The current list (Groceries) is in the recipe's household, so its quick add comes first.
+    test('with ingredients: Add to a list after the quick add, with the cart symbol', () => {
       const tacos = createRecipe('Tacos');
       addRecipeIngredient(tacos, '8 tortillas');
       const soup = createRecipe('Soup');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to a list', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Rename', 'Delete']);
       // Only the recipe with ingredients has it.
       expect(titles(root, soup)).toEqual(['Rename', 'Delete']);
-      const add = menuOf(root, tacos)[0];
+      const add = menuOf(root, tacos)[1];
       expect(add.props.icon).toBe('cart');
       expect(add.props.destructive).toBeUndefined();
     });
 
-    test('with ingredients and a link: Add to a list, Visit recipe on web, Rename, Delete', () => {
+    test('with ingredients and a link: Add to Groceries, Add to a list, Visit recipe on web, Rename, Delete', () => {
       const tacos = createRecipe('Tacos');
       addRecipeIngredient(tacos, 'salsa');
       updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://example.com/tacos' });
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to a list', 'Visit recipe on web', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Visit recipe on web', 'Rename', 'Delete']);
     });
 
     test("choosing it pushes the add-to-list sheet with the recipe's id, and nothing else", () => {
@@ -766,7 +769,7 @@ describe('RecipesScreen', () => {
       addRecipeIngredient(tacos, '8 tortillas');
       updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://example.com/tacos' });
       const root = render(<RecipesScreen />);
-      act(() => menuOf(root, tacos)[0].props.onPress());
+      act(() => menuOf(root, tacos)[1].props.onPress());
       expect(mockPush).toHaveBeenCalledTimes(1);
       expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos } });
       expect(mockOpenLink).not.toHaveBeenCalled();
@@ -778,6 +781,139 @@ describe('RecipesScreen', () => {
       deleteRecipeIngredient(ingredient.id);
       const root = render(<RecipesScreen />);
       expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
+    });
+  });
+
+  describe("a card's Add to <current list>", () => {
+    const menuOf = (root: ReactTestRenderer, recipeId: string) => {
+      const card = byType(root, 'Link').find((l) => l.props.href.params.id === recipeId)!;
+      return card.findAll((n) => n.type === ('LinkMenuAction' as never));
+    };
+    const titles = (root: ReactTestRenderer, recipeId: string) => menuOf(root, recipeId).map((a) => a.props.title);
+    const quickAdd = (root: ReactTestRenderer, recipeId: string, title = 'Add to Groceries') =>
+      act(() => menuOf(root, recipeId).find((a) => a.props.title === title)!.props.onPress());
+    const onList = (listId: string) =>
+      listItemsQuery(listId)
+        .all()
+        .map((i) => i.ingredientName)
+        .sort();
+    const tacosWith = (...ingredients: string[]) => {
+      const tacos = createRecipe('Tacos');
+      for (const i of ingredients) addRecipeIngredient(tacos, i);
+      return tacos;
+    };
+
+    test('first in the menu, with cart.badge.plus, naming the current list', () => {
+      const tacos = tacosWith('8 tortillas');
+      const root = render(<RecipesScreen />);
+      const [quick] = menuOf(root, tacos);
+      expect(quick.props.title).toBe('Add to Groceries');
+      expect(quick.props.icon).toBe('cart.badge.plus');
+      expect(quick.props.destructive).toBeUndefined();
+    });
+
+    test('names the list last opened on this device, not the default', () => {
+      const party = createList('Party');
+      setLastOpenedList(party);
+      const tacos = tacosWith('8 tortillas');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)[0]).toBe('Add to Party');
+    });
+
+    test('left out with no current list (every list archived)', () => {
+      const tacos = tacosWith('8 tortillas');
+      setListArchived(groceries, true);
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Rename', 'Delete']);
+    });
+
+    test('left out when the current list was archived (falls back to an open one in the household)', () => {
+      const party = createList('Party');
+      setLastOpenedList(party);
+      setListArchived(party, true);
+      const tacos = tacosWith('8 tortillas');
+      const root = render(<RecipesScreen />);
+      // Party is archived, so the current list is Groceries again.
+      expect(titles(root, tacos)[0]).toBe('Add to Groceries');
+    });
+
+    test("left out when the current list is another household's", () => {
+      db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
+      const cabin = createList('Cabin', 'lake');
+      setLastOpenedList(cabin);
+      const tacos = tacosWith('8 tortillas');
+      db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili' }).run();
+      addRecipeIngredient('chili', 'beans');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Rename', 'Delete']);
+      // The Lake house recipe does get it.
+      expect(titles(root, 'chili')[0]).toBe('Add to Cabin');
+    });
+
+    test('left out with no ingredients', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      expect(titles(root, tacos)).toEqual(['Rename', 'Delete']);
+    });
+
+    test('adds every ingredient at 1× and stays here, with "Added Tacos to Groceries · 2 items"', () => {
+      const tacos = tacosWith('8 tortillas', '1 jar salsa');
+      const root = render(<RecipesScreen />);
+      quickAdd(root, tacos);
+      expect(onList(groceries)).toEqual(['salsa', 'tortilla']);
+      const tortillas = listItemsQuery(groceries).all().find((i) => i.ingredientName === 'tortilla')!;
+      expect(tortillas.quantity).toBe(8);
+      expect(texts(root)).toContain('Added Tacos to Groceries · 2 items');
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(allByA11y(root, 'Undo')).toHaveLength(1);
+      expect(allByA11y(root, 'Open list')).toHaveLength(1);
+      const highlighted = root.root.findAll((n) => typeof n.type !== 'string' && n.props.highlighted === true);
+      expect(highlighted.map((n) => n.props.recipe.id)).toEqual([tacos]);
+    });
+
+    test('skips the household\'s staples and says so on a second line', () => {
+      const tacos = tacosWith('8 tortillas', 'salt', 'pepper');
+      setStaple(getRecipe(tacos)!.householdId, 'salt', true, USER);
+      setStaple(getRecipe(tacos)!.householdId, 'pepper', true, USER);
+      const root = render(<RecipesScreen />);
+      quickAdd(root, tacos);
+      expect(onList(groceries)).toEqual(['tortilla']);
+      expect(texts(root)).toContain('Added Tacos to Groceries · 1 item\nSkipped salt, pepper');
+    });
+
+    test('every ingredient a staple: nothing added, "You always have everything in Tacos", no Undo', () => {
+      const tacos = tacosWith('salt');
+      setStaple(getRecipe(tacos)!.householdId, 'salt', true, USER);
+      const root = render(<RecipesScreen />);
+      quickAdd(root, tacos);
+      expect(onList(groceries)).toEqual([]);
+      expect(texts(root)).toContain('You always have everything in Tacos');
+      expect(allByA11y(root, 'Undo')).toHaveLength(0);
+      expect(allByA11y(root, 'Open list')).toHaveLength(1);
+    });
+
+    test('Undo takes the whole add back and closes the toast', () => {
+      const tacos = tacosWith('8 tortillas', 'salsa');
+      const root = render(<RecipesScreen />);
+      quickAdd(root, tacos);
+      press(byA11y(root, 'Undo'));
+      expect(onList(groceries)).toEqual([]);
+      expect(texts(root).join(' ')).not.toContain('Added Tacos');
+    });
+
+    test('Open list shows the List tab on the list it added to', () => {
+      const party = createList('Party');
+      setLastOpenedList(party);
+      const tacos = tacosWith('8 tortillas');
+      const root = render(<RecipesScreen />);
+      quickAdd(root, tacos, 'Add to Party');
+      expect(onList(party)).toEqual(['tortilla']);
+      expect(onList(groceries)).toEqual([]);
+      press(byA11y(root, 'Open list'));
+      expect(mockNavigate).toHaveBeenCalledWith('/lists');
+      expect(currentList()).toBe(party);
+      expect(texts(root).join(' ')).not.toContain('Added Tacos');
     });
   });
 
