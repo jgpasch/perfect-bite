@@ -17,6 +17,12 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
+jest.mock('react-native-worklets', () => ({ scheduleOnRN: (fn: (...a: unknown[]) => void, ...args: unknown[]) => fn(...args) }));
+// The card's swipe as a host element: these tests don't swipe.
+jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
+  const { createElement } = require('react');
+  return { __esModule: true, default: ({ children }: { children?: unknown }) => createElement('Swipeable', null, children) };
+});
 // Reanimated's own mock needs the native worklets module; the screens only need views and no-ops.
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');

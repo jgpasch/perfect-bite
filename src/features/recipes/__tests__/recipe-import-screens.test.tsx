@@ -50,6 +50,21 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
+jest.mock('react-native-worklets', () => ({ scheduleOnRN: (fn: (...a: unknown[]) => void, ...args: unknown[]) => fn(...args) }));
+// A card's swipe as a host element, so a test can "swipe" by calling its callbacks; close() reports the card's recipe.
+const mockCloseCard = jest.fn((_recipeId: string) => {});
+jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
+  const { createElement, forwardRef, useImperativeHandle } = require('react');
+  const Swipeable = forwardRef(function Swipeable(
+    { children, ...props }: { children: { props: { href: { params: { id: string } } } } },
+    ref: unknown,
+  ) {
+    const id = children.props.href.params.id;
+    useImperativeHandle(ref, () => ({ close: () => mockCloseCard(id) }), [id]);
+    return createElement('Swipeable', props, children);
+  });
+  return { __esModule: true, default: Swipeable };
+});
 jest.mock('expo-image', () => {
   const { createElement } = require('react');
   return { Image: (props: object) => createElement('ExpoImage', props) };
@@ -147,7 +162,7 @@ beforeEach(() => {
   ensureStarterData(USER);
   groceries = getDefaultListId(USER)!;
   for (const k of Object.keys(mockParams)) delete mockParams[k];
-  for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink]) fn.mockClear();
+  for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink, mockCloseCard]) fn.mockClear();
   mockImport.mockReset();
   mockClipboard.mockReset();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
@@ -689,6 +704,137 @@ describe('RecipesScreen', () => {
     expect(title).toBe('Delete “Tacos”?');
     act(() => (buttons as AlertButton[]).find((b) => b.text === 'Delete')!.onPress!());
     expect(getRecipe(tacos)).toBeUndefined();
+  });
+
+  describe("a card's swipe to delete (spec 4.5)", () => {
+    const swipeOf = (root: ReactTestRenderer, recipeId: string) =>
+      byType(root, 'Swipeable').find((s) => s.props.children.props.href.params.id === recipeId)!;
+    /** The Delete revealed behind the card, as its swipe renders it. */
+    const deleteAction = (root: ReactTestRenderer, recipeId: string) =>
+      swipeOf(root, recipeId).props.renderRightActions({ value: 0 }, { value: 0 }) as React.ReactElement<{
+        onPress: () => void;
+        onFull: (full: boolean) => void;
+        fullAt: number;
+      }>;
+    const alertButton = (alert: jest.SpiedFunction<typeof Alert.alert>, text: string) =>
+      (alert.mock.calls[0][2] as AlertButton[]).find((b) => b.text === text)!;
+
+    test('only left: the trash action is on the right, nothing on the left', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      const swipe = swipeOf(root, tacos);
+      expect(swipe.props.renderLeftActions).toBeUndefined();
+      expect(swipe.props.overshootLeft).toBe(false);
+      expect(swipe.props.friction).toBe(1);
+      // Not measured yet: no swipe counts as full.
+      expect(deleteAction(root, tacos).props.fullAt).toBe(Infinity);
+    });
+
+    test('tapping Delete asks first, with the same alert as the menu', () => {
+      const tacos = createRecipe('Tacos');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipesScreen />);
+      act(() => deleteAction(root, tacos).props.onPress());
+      expect(alert).toHaveBeenCalledTimes(1);
+      expect(alert.mock.calls[0].slice(0, 2)).toEqual(['Delete “Tacos”?', 'Items already on your lists stay there.']);
+      expect((alert.mock.calls[0][2] as AlertButton[]).map((b) => [b.text, b.style])).toEqual([
+        ['Cancel', 'cancel'],
+        ['Delete', 'destructive'],
+      ]);
+      expect(getRecipe(tacos)).toBeDefined();
+    });
+
+    test('Cancel deletes nothing and closes the card', () => {
+      const tacos = createRecipe('Tacos');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipesScreen />);
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      act(() => deleteAction(root, tacos).props.onPress());
+      act(() => alertButton(alert, 'Cancel').onPress!());
+      expect(getRecipe(tacos)).toBeDefined();
+      expect(mockCloseCard.mock.calls).toEqual([[tacos]]);
+      expect(cards(root)).toHaveLength(1);
+    });
+
+    test('confirming deletes that recipe and leaves the others', () => {
+      const tacos = createRecipe('Tacos');
+      const soup = createRecipe('Soup');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipesScreen />);
+      act(() => deleteAction(root, tacos).props.onPress());
+      act(() => alertButton(alert, 'Delete').onPress!());
+      expect(getRecipe(tacos)).toBeUndefined();
+      expect(getRecipe(soup)).toBeDefined();
+    });
+
+    test('a short swipe only shows Delete; a full one asks at once', () => {
+      const tacos = createRecipe('Tacos');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipesScreen />);
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      expect(alert).not.toHaveBeenCalled();
+
+      act(() => deleteAction(root, tacos).props.onFull(true));
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      expect(alert).toHaveBeenCalledTimes(1);
+      expect(alert.mock.calls[0][0]).toBe('Delete “Tacos”?');
+      expect(getRecipe(tacos)).toBeDefined();
+
+      // Dragged back short of full before letting go: no alert.
+      act(() => deleteAction(root, tacos).props.onFull(false));
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      expect(alert).toHaveBeenCalledTimes(1);
+    });
+
+    test('a full swipe is past most of the card once it is measured', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      const measured = swipeOf(root, tacos).find((n) => typeof n.props.onLayout === 'function');
+      act(() => measured.props.onLayout({ nativeEvent: { layout: { width: 350, height: 80, x: 0, y: 0 } } }));
+      expect(deleteAction(root, tacos).props.fullAt).toBe(210);
+    });
+
+    test('one card open at a time: opening another closes the first; reopening the same closes nothing', () => {
+      const tacos = createRecipe('Tacos');
+      const soup = createRecipe('Soup');
+      const root = render(<RecipesScreen />);
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      expect(mockCloseCard).not.toHaveBeenCalled();
+      act(() => swipeOf(root, soup).props.onSwipeableWillOpen('left'));
+      expect(mockCloseCard.mock.calls).toEqual([[tacos]]);
+    });
+
+    test('scrolling closes the open card; with none open, or once it closed, nothing', () => {
+      const tacos = createRecipe('Tacos');
+      const root = render(<RecipesScreen />);
+      const scroll = () => act(() => root.root.find((n) => typeof n.props.onScrollBeginDrag === 'function').props.onScrollBeginDrag());
+      scroll();
+      expect(mockCloseCard).not.toHaveBeenCalled();
+      act(() => swipeOf(root, tacos).props.onSwipeableWillOpen('left'));
+      scroll();
+      expect(mockCloseCard.mock.calls).toEqual([[tacos]]);
+      act(() => swipeOf(root, tacos).props.onSwipeableClose('left'));
+      scroll();
+      expect(mockCloseCard).toHaveBeenCalledTimes(1);
+    });
+
+    test("VoiceOver: the card's Delete action asks first, and confirming deletes", () => {
+      const tacos = createRecipe('Tacos');
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = render(<RecipesScreen />);
+      const card = root.root.find(
+        (n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityLabel?.startsWith('Tacos'),
+      );
+      expect(card.props.accessibilityActions).toEqual([{ name: 'delete', label: 'Delete' }]);
+      act(() => card.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } }));
+      expect(alert).not.toHaveBeenCalled();
+      act(() => card.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
+      expect(alert.mock.calls[0][0]).toBe('Delete “Tacos”?');
+      expect(getRecipe(tacos)).toBeDefined();
+      act(() => alertButton(alert, 'Delete').onPress!());
+      expect(getRecipe(tacos)).toBeUndefined();
+    });
   });
 
   describe("a card's Visit recipe on web", () => {
