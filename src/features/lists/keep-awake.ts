@@ -27,6 +27,15 @@ function isForeground(state: AppStateStatus): boolean {
  * in the foreground and Keep screen on is on; otherwise the system's normal auto-lock applies.
  */
 export function useKeepListAwake(listId: string, wanted: boolean): void {
+  // One tag per list screen, so two mounted screens can't release each other's lock.
+  useKeepAwake(`list:${listId}:${useId()}`, wanted);
+}
+
+/**
+ * Keeps the screen on under `tag` while `wanted`, the app is in the foreground and Keep screen on is on.
+ * Each screen passes its own tag, so one closing doesn't release another's lock.
+ */
+export function useKeepAwake(tag: string, wanted: boolean): void {
   const setting = useKeepScreenOnSetting();
   const [foreground, setForeground] = useState(() => isForeground(AppState.currentState));
   useEffect(() => {
@@ -34,8 +43,6 @@ export function useKeepListAwake(listId: string, wanted: boolean): void {
     return () => subscription.remove();
   }, []);
   const on = wanted && setting && foreground;
-  // One tag per list screen, so two mounted screens can't release each other's lock.
-  const tag = `list:${listId}:${useId()}`;
   useEffect(() => {
     if (!on) return;
     // Best effort: a device that can't keep the screen on just locks as usual.

@@ -38,9 +38,21 @@ export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon
   );
 }
 
-/** The main action on the `header` green (the sign-in screen): a 54 pt `onHeader` pill with `header` text, in both schemes. */
-export function SurfaceButton({ label, icon, disabled, ...rest }: Props & { icon?: IconName }) {
+/**
+ * The main action on the `header` green (the sign-in screen): a 54 pt `onHeader` pill with `header` text, in both schemes.
+ * On `surface` it's the action beside a `PrimaryButton` on the screen's ground (Cook): a `surface` pill with `ink` text.
+ * `iconTint` colours the glyph alone, e.g. the recipe hue's `strong`.
+ */
+export function SurfaceButton({
+  label,
+  icon,
+  iconTint,
+  on = 'header',
+  disabled,
+  ...rest
+}: Props & { icon?: IconName; iconTint?: string; on?: 'header' | 'surface' }) {
   const { colors, spacing, rounded, sizes, opacity } = useTheme();
+  const text: ColorToken = on === 'header' ? 'header' : 'ink';
   return (
     <Pressable
       accessibilityRole="button"
@@ -54,13 +66,13 @@ export function SurfaceButton({ label, icon, disabled, ...rest }: Props & { icon
           paddingHorizontal: spacing.lg,
           gap: spacing.sm,
           borderRadius: rounded.full,
-          backgroundColor: colors.onHeader,
+          backgroundColor: on === 'header' ? colors.onHeader : colors.surface,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}
       {...rest}>
-      {icon ? <Icon name={icon} color="header" weight="semibold" /> : null}
-      <ThemedText variant="headline" color="header">
+      {icon ? <Icon name={icon} color={text} tint={iconTint} weight="semibold" /> : null}
+      <ThemedText variant="headline" color={text}>
         {label}
       </ThemedText>
     </Pressable>

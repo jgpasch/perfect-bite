@@ -178,3 +178,14 @@ export function stepsToText(steps: readonly string[] | null | undefined): string
 export function stepLabel(index: number, count: number, text: string): string {
   return `Step ${index + 1} of ${count}, ${text}`;
 }
+
+/** The cook screen's line under the name (board 19): "For 6 · 2 of 6 steps done", or without servings "2 of 6 steps done". */
+export function cookProgressLabel(servings: number | null, done: number, total: number): string {
+  const progress = `${done} of ${total} ${total === 1 ? 'step' : 'steps'} done`;
+  return servings === null ? progress : `${forServingsLabel(servings)} · ${progress}`;
+}
+
+/** The cook screen's "Up next" step: the first one not ticked, or -1 when every step is. */
+export function upNextIndex(ticked: readonly boolean[]): number {
+  return ticked.indexOf(false);
+}

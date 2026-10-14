@@ -148,6 +148,8 @@ export const Typography = {
   body: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
   /** An unchecked item's name on the list screen. */
   itemName: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '600', lineHeight: 22 },
+  /** A step's text and an ingredient's name on the cook screen, big enough to read from the counter. */
+  cookStep: { fontFamily: Fonts.body, fontSize: 20, fontWeight: '500', lineHeight: 28 },
   callout: { fontFamily: Fonts.body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
   /** Quantities and values at the end of a row. */
   amount: { fontFamily: Fonts.body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
@@ -261,6 +263,8 @@ export const Sizes = {
   grip: 20,
   /** the numbered circle before each step in a recipe's Method card */
   stepNumber: 26,
+  /** the numbered circle before each step on the cook screen, which fills with a check when ticked */
+  cookStepCheck: 30,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */

@@ -99,6 +99,8 @@ export default function RootLayout() {
                   name="recipe/[id]/steps"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Board 19: cooking mode, full screen with its own top bar (✕ is Done). */}
+                <Stack.Screen name="recipe/[id]/cook" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
                 {/* Spec 4.10: a small sheet; from the Recipes tab it also picks the list. */}
                 <Stack.Screen
                   name="import-recipe"

@@ -38,6 +38,7 @@ Sizes are at the default Dynamic Type setting.
 | `headline` | Figtree | 17 / 700 | Buttons, CTAs, emphasised rows. |
 | `body` | Figtree | 17 / 500 | Item names, row labels, inputs. |
 | `itemName` | Figtree | 17 / 600 | An unchecked item's name on the list screen, when its row carries its aisle colour. |
+| `cookStep` | Figtree | 20 / 500, line height 28 | The cook screen's step text and ingredient names, read from the counter. |
 | `callout` | Figtree | 16 / 500 | Secondary buttons, empty-state messages. |
 | `amount` | Figtree | 15 / 600 | Quantities and values at the end of a row ("2 lb", "Groceries"), "12 to get". |
 | `sectionLabel` | Figtree | 13 / 700 | Labels above a card ("Members", "Added", "Aisle"). |
@@ -93,7 +94,7 @@ The rule: pick the hue with `aisleColor(slug)` from `src/domain/aisle-color.ts`,
 - `spacing`: 4 pt base (`xxs` 2 … `xxxl` 48). Cards sit `lg` (16) in from the screen edge; titles sit 20 in (`lg` + `xs`).
 - `rounded`: `card` 22, `sheet` 28 (top corners), `row` 16 (aisle-order rows), `md` 12 (segmented track, icon wells), `full` for pills, round checks, round buttons and CTAs.
 - `sizes.minTapTarget` 44. Rows inside cards are at least 50 pt tall (`sizes.cardRowMin`).
-- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `viewButton` 32 (the list header's view pill, 44 pt hit area), `stepperButton` 34 (a `Stepper`'s round − and +, 44 pt hit area; `stepperInset` 3; `stepperButtonLarge` 40 on Add to list's servings card), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `iconWell` 36 (recipe icon tiles in card headers), `sheetIcon` 52 (the item sheet's icon tile), `recipeTile` 56 (a recipe's icon tile on its card in the Recipes tab), `removeButton` 32 (round − on "Added" rows), `fieldLabel` 76 (the label column of Name / Amount / Note rows, a minimum), `settingsIcon` 32 (the icon tile at the start of a settings row), `accountAvatar` 52, `avatar` 48 with a 3 pt `avatarRing` (household members), `signInHero` 270, `aisleRow` 52 (a minimum) and `grip` 20 (Aisle order rows). Radii `badge` 10 and `segment` 11.
+- Component sizes: `check` 24 (`checkBorder` 2), `dot` 10, `pill` 40, `segment` 34 (`segmentInset` 3), `viewButton` 32 (the list header's view pill, 44 pt hit area), `stepperButton` 34 (a `Stepper`'s round − and +, 44 pt hit area; `stepperInset` 3; `stepperButtonLarge` 40 on Add to list's servings card), `cookStepCheck` 30 (a step's number circle on the cook screen, which fills with a check), `cta` 54, `softButton` 48, `bar` 52 (add bar input, toast), `barButton` 40 (the + and Undo), `focusRing` 2, `iconWell` 36 (recipe icon tiles in card headers), `sheetIcon` 52 (the item sheet's icon tile), `recipeTile` 56 (a recipe's icon tile on its card in the Recipes tab), `removeButton` 32 (round − on "Added" rows), `fieldLabel` 76 (the label column of Name / Amount / Note rows, a minimum), `settingsIcon` 32 (the icon tile at the start of a settings row), `accountAvatar` 52, `avatar` 48 with a 3 pt `avatarRing` (household members), `signInHero` 270, `aisleRow` 52 (a minimum) and `grip` 20 (Aisle order rows). Radii `badge` 10 and `segment` 11.
 - `shadows.lifted`: the row being dragged on the Aisle order screen (14 pt down, 30 pt blur, 22%, `ink`).
 
 ## Components (`src/components/`)

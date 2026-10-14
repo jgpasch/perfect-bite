@@ -3,7 +3,7 @@ import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { Button, PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
@@ -168,19 +168,38 @@ export default function RecipeScreen() {
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
           {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} onError={photo.onError} /> : null}
           <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} />
-          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }}>
-            <PrimaryButton
-              label="Add to a list"
-              icon="cart"
-              disabled={ingredients.length === 0}
-              onPress={() =>
-                router.push({
-                  pathname: '/recipe/[id]/add-to-list',
-                  // Board 17: the sheet starts at the stepper's servings when it's off the base.
-                  params: servings !== null && servings !== base ? { id, servings: String(servings) } : { id },
-                })
-              }
-            />
+          {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps. */}
+          <View style={[styles.row, { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }]}>
+            <View style={styles.flex}>
+              <PrimaryButton
+                label="Add to a list"
+                icon="cart"
+                disabled={ingredients.length === 0}
+                onPress={() =>
+                  router.push({
+                    pathname: '/recipe/[id]/add-to-list',
+                    // Board 17: the sheet starts at the stepper's servings when it's off the base.
+                    params: servings !== null && servings !== base ? { id, servings: String(servings) } : { id },
+                  })
+                }
+              />
+            </View>
+            {recipe.steps && recipe.steps.length > 0 ? (
+              <SurfaceButton
+                label="Cook"
+                accessibilityLabel="Start cooking"
+                icon="flame"
+                iconTint={aisles[hue].strong}
+                on="surface"
+                onPress={() =>
+                  router.push({
+                    pathname: '/recipe/[id]/cook',
+                    // Board 19: the ingredients are scaled to the stepper's servings.
+                    params: servings !== null ? { id, servings: String(servings) } : { id },
+                  })
+                }
+              />
+            ) : null}
           </View>
           <Card>
             <SectionHeader
