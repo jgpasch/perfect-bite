@@ -5,9 +5,9 @@ import { ActionSheetIOS } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, lists } from '@/db';
-import { loadCatalogSeed } from '@/features/categories/categories';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
 import { ItemAddBar } from '../add-bar';
 import { addItem, clearChecked, setItemChecked, undoAdd, type AddItemResult } from '../items';
@@ -128,7 +128,7 @@ describe('ItemAddBar', () => {
   });
 
   test('the catalog fills in when history has little; catalog chips have no remove menu', () => {
-    loadCatalogSeed();
+    seedCatalog();
     renderBar();
     type('bana');
     expect(chipLabels()).toContain('Add Bananas');

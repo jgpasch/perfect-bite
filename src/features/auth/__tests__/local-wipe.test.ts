@@ -10,7 +10,7 @@ import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import { categories, db, deviceSettings, households, ingredients, lists } from '@/db';
 import * as schema from '@/db/schema';
-import { createCategory, loadCatalogSeed, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
+import { createCategory, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
 import { clearMyInvites, getMyInvites, refreshMyInvites } from '@/features/households/my-invites';
 import { addItem, checkItems } from '@/features/lists/items';
 import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, manualOrderKey, viewModeKey } from '@/features/lists/list-view';
@@ -29,6 +29,7 @@ import { normalizeIngredientName } from '@/shared';
 import { upsertRow } from '@/sync/mutate';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 import { resetDb, sqlite } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { setAppGroupRoot } from '@/test/fake-file-system';
 import { respondToRpc, resetSupabase } from '@/test/fake-supabase';
 
@@ -71,7 +72,7 @@ let homeList: string;
 beforeEach(async () => {
   resetDb();
   resetSupabase();
-  loadCatalogSeed();
+  seedCatalog();
   backfillUsage();
   backfillUnitUsage();
   ensureStarterData(USER);

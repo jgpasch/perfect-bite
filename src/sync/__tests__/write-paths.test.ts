@@ -18,7 +18,6 @@ import {
 import {
   clearCategoryOverride,
   createCategory,
-  loadCatalogSeed,
   moveCategory,
   setCategoryOverride,
 } from '@/features/categories/categories';
@@ -62,6 +61,7 @@ import {
 import { emptyRecipeTags } from '@/shared/recipe-tags';
 import { updateRows, upsertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { clearOutbox, outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -326,7 +326,7 @@ describe('list items', () => {
   });
 
   test("editing the category enqueues the household's override in the same save", () => {
-    loadCatalogSeed();
+    seedCatalog();
     const { itemId } = addItem(listId, 'milk', USER)!;
     const produce = db.select().from(categories).where(eq(categories.slug, 'produce')).get()!;
     clearOutbox();
@@ -522,7 +522,7 @@ describe('usage and per-user preferences', () => {
   });
 
   test("a custom category enqueues the household's category and the user's order rows it needs", () => {
-    loadCatalogSeed();
+    seedCatalog();
     const id = createCategory(USER, householdId, ' Bulk  bin ');
     const patches = outboxPatches();
     const orders = patches.filter((p) => p.table === 'user_category_order');
@@ -550,7 +550,7 @@ describe('usage and per-user preferences', () => {
   });
 
   test('overrides upsert; reset writes a null category rather than deleting', () => {
-    loadCatalogSeed();
+    seedCatalog();
     const id = createCategory(USER, householdId, 'Bulk');
     clearOutbox();
     setCategoryOverride(householdId, 'rice', id);
@@ -597,7 +597,7 @@ describe('usage and per-user preferences', () => {
   });
 
   test("renaming a household's custom category isn't a patchable slug", () => {
-    loadCatalogSeed();
+    seedCatalog();
     const id = createCategory(USER, householdId, 'Bulk');
     clearOutbox();
     updateRows(db, categories, eq(categories.id, id), { name: 'Bulk bins' });

@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { eq } from 'drizzle-orm';
 
 import { db, households, ingredientUsage, lists } from '@/db';
-import { loadCatalogSeed, searchCatalog } from '@/features/categories/categories';
+import { searchCatalog } from '@/features/categories/categories';
 import { addRecipeToList, buildRecipeAdds } from '@/features/recipes/add-to-list';
 import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
 import { addItem, setItemChecked, usualItems } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
@@ -25,7 +26,7 @@ let householdId: string;
 
 beforeEach(() => {
   resetDb();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   listId = getDefaultListId(USER)!;
   householdId = db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
@@ -66,7 +67,7 @@ describe('getSuggestions (spec 4.2)', () => {
 
     // A history entry the catalog also has appears once, as history.
     resetDb();
-    loadCatalogSeed();
+    seedCatalog();
     ensureStarterData(USER);
     listId = getDefaultListId(USER)!;
     householdId = db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;

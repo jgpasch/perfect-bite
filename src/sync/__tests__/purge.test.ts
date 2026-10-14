@@ -23,7 +23,7 @@ import {
   userSettings,
   type OutboxRow,
 } from '@/db';
-import { createCategory, loadCatalogSeed, setCategoryOverride } from '@/features/categories/categories';
+import { createCategory, setCategoryOverride } from '@/features/categories/categories';
 import { addItem, checkItems } from '@/features/lists/items';
 import { viewModeKey } from '@/features/lists/list-view';
 import {
@@ -39,6 +39,7 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 import { newId } from '@/lib/id';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { outboxRows } from '@/test/outbox';
 
 import { insertRow, upsertRow } from '../mutate';
@@ -73,7 +74,7 @@ const householdIds = () =>
 /** Two households with lists, items, recipes, usage and queued mutations in each. */
 beforeEach(() => {
   resetDb();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   home = db.select().from(households).get()!.id;
   homeList = getDefaultListId(USER)!;

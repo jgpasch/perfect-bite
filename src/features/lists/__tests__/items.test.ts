@@ -13,6 +13,7 @@ import {
   type ListItem,
 } from '@/db';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
 import {
   addItem,
@@ -45,7 +46,7 @@ import {
 import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
-import { getOrderedCategories, loadCatalogSeed, moveCategory, setCategoryOverride } from '@/features/categories/categories';
+import { getOrderedCategories, moveCategory, setCategoryOverride } from '@/features/categories/categories';
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
@@ -1261,7 +1262,7 @@ describe('Sorting section (spec 4.3.1)', () => {
       s.items.map((i) => i.displayName),
     ]);
 
-  beforeEach(() => loadCatalogSeed());
+  beforeEach(() => seedCatalog());
 
   test('an unknown item is grouped under Sorting and a seed item under its category', () => {
     addItem(listId, 'milk', USER);
@@ -1463,7 +1464,7 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
   });
 
   describe('By recipe on a list', () => {
-    beforeEach(() => loadCatalogSeed());
+    beforeEach(() => seedCatalog());
     afterEach(() => {
       jest.useRealTimers();
     });

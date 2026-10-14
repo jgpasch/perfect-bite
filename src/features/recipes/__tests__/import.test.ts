@@ -12,7 +12,6 @@ import {
   recipeIngredients,
   recipes,
 } from '@/db';
-import { loadCatalogSeed } from '@/features/categories/categories';
 import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
@@ -20,6 +19,7 @@ import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import {
   makeSession,
   resetSupabase,
@@ -193,7 +193,7 @@ const snapshot = () => ({
 beforeEach(() => {
   resetDb();
   resetSupabase();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   listId = getDefaultListId(USER)!;
   signIn();

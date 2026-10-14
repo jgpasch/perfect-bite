@@ -5,9 +5,10 @@ import { eq } from 'drizzle-orm';
 import { db, householdCategoryOverrides, households, ingredients } from '@/db';
 import { OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 
-import { getIngredientCategory, loadCatalogSeed, setCategoryOverride } from '../categories';
+import { getIngredientCategory, setCategoryOverride } from '../categories';
 import { CATEGORIZED_BY_SERVER, categorizePending, catchUpNames, MAX_NAMES_PER_REQUEST } from '../categorization';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -37,7 +38,7 @@ function respond(
 beforeEach(() => {
   resetDb();
   resetSupabase();
-  loadCatalogSeed();
+  seedCatalog();
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null });
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });

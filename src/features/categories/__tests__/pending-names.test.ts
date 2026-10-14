@@ -16,8 +16,9 @@ import {
 } from '@/features/recipes/recipes';
 import { normalizeIngredientName, OTHER_CATEGORY_ID } from '@/shared';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
-import { collectPendingNames, loadCatalogSeed } from '../categories';
+import { collectPendingNames } from '../categories';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -29,7 +30,7 @@ let listId: string;
 
 beforeEach(() => {
   resetDb();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(A);
   listId = getDefaultListId(A)!;
 });

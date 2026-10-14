@@ -18,6 +18,7 @@ import {
 } from '@/features/recipes/recipes';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
 import {
   clearCategoryOverride,
@@ -48,7 +49,7 @@ const names = (userId: string, households: string | string[] = home) =>
 
 beforeEach(() => {
   resetDb();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(A);
   listId = getDefaultListId(A)!;
   home = getList(listId)!.householdId;

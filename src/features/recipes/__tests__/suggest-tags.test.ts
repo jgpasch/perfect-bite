@@ -3,12 +3,12 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 
 import { db, outbox, recipes } from '@/db';
-import { loadCatalogSeed } from '@/features/categories/categories';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import type { RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import {
   makeSession,
   resetSupabase,
@@ -75,7 +75,7 @@ const recipeRow = () => db.select().from(recipes).where(eq(recipes.id, recipeId)
 beforeEach(() => {
   resetDb();
   resetSupabase();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   mockNetwork.state = { isConnected: true, isInternetReachable: true };
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });

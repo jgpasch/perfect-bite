@@ -8,11 +8,12 @@ import { db, households } from '@/db';
 import { Sizes, Spacing } from '@/constants/theme';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 
 import CategoryOrderScreen from '@/app/category-order';
 
 import { AisleOrderList, type AisleOrderItem } from '../aisle-order-list';
-import { createCategory, getOrderedCategories, loadCatalogSeed } from '../categories';
+import { createCategory, getOrderedCategories } from '../categories';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -232,7 +233,7 @@ describe('AisleOrderList', () => {
 describe('the Aisle order screen', () => {
   beforeEach(() => {
     resetDb();
-    loadCatalogSeed();
+    seedCatalog();
   });
 
   function render() {

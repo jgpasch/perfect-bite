@@ -13,9 +13,10 @@ import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, refreshFeatures, startFeatures } from '@/features/plans/load';
 import { OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { makeSession, respondToRpc, resetSupabase, rpcCallsFor, supabase } from '@/test/fake-supabase';
 
-import { ensureMissingIngredients, getOrderedCategories, loadCatalogSeed } from '../categories';
+import { ensureMissingIngredients, getOrderedCategories } from '../categories';
 import { categorizePending, isNotEntitled, startCategorizeOnGain } from '../categorization';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -67,7 +68,7 @@ beforeEach(() => {
   resetDb();
   resetSupabase();
   clearFeatures();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   listId = getDefaultListId(USER)!;
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });

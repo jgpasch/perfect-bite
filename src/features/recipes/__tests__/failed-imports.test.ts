@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { db, failedImports, households, lists, outbox, recipes } from '@/db';
-import { loadCatalogSeed } from '@/features/categories/categories';
 import { listItemsQuery } from '@/features/lists/items';
 import { createList, deleteList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { SHARE_PENDING_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
 import { resetDb } from '@/test/db';
+import { seedCatalog } from '@/test/seed';
 import { setAppGroupRoot } from '@/test/fake-file-system';
 import { makeSession, resetSupabase, supabase } from '@/test/fake-supabase';
 
@@ -69,7 +69,7 @@ let costco: string;
 beforeEach(() => {
   resetDb();
   resetSupabase();
-  loadCatalogSeed();
+  seedCatalog();
   ensureStarterData(USER);
   groceries = getDefaultListId(USER)!;
   costco = createList('Costco');
