@@ -287,6 +287,18 @@ export const es = {
       untagged_other: 'No se muestran {{count}} recetas sin etiquetas',
       untaggedHint: 'Quita los filtros y muestra solo las recetas sin etiquetas.',
     },
+    sort: {
+      menuTitle: 'Ordenar y agrupar',
+      recent: 'Agregadas recientemente',
+      name: 'A–Z',
+      meal: 'Por comida',
+      recentShort: 'Recientes',
+      button: 'Ordenar: {{choice}}',
+      buttonHint: 'Cambia cómo se ordenan y agrupan las recetas',
+      noMeal: 'Sin comida',
+      unit_one: 'receta',
+      unit_other: 'recetas',
+    },
     filters: {
       title: 'Filtros',
       pill: 'Filtros · {{count}}',

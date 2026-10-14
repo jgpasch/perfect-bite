@@ -7,13 +7,14 @@ import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } fro
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { listHeaderColors, prominentButtonTint } from '@/components/appearance';
+import { hueHeaderBand, listHeaderColors, prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { HeaderPill } from '@/components/header-pill';
 import { Icon } from '@/components/icon';
+import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
@@ -39,7 +40,19 @@ import {
   recipeMetaLine,
   recipeRowLabel,
 } from '@/features/recipes/recipe-view';
+import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
+import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
+import {
+  groupRecipesByMeal,
+  mealSectionKey,
+  mealSectionUnit,
+  readRecipeSort,
+  RECIPE_SORT_KEY,
+  sortRecipes,
+  type RecipeSort,
+} from '@/features/recipes/recipe-sort';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import {
   activeFilterCount,
@@ -102,15 +115,28 @@ export default function RecipesScreen() {
   const filters = useRecipeFilters();
   const filtering = activeFilterCount(filters) > 0;
   const searched = useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
-  // A household with no matches has no group, so it's hidden.
+  // Spec 4.5: Recently added, A–Z or By meal, remembered on this device.
+  const [sort, setSortState] = useState<RecipeSort>(() => readRecipeSort(getDeviceSetting<unknown>(RECIPE_SORT_KEY, null)));
+  const setSort = (next: RecipeSort) => {
+    setSortState(next);
+    setDeviceSetting(RECIPE_SORT_KEY, next);
+  };
+  // By meal's folded sections, kept for the app session.
+  const folded = useFoldedMealSections();
+  // A household with no matches has no group, so it's hidden. Search and filters apply first; households
+  // keep their order whatever the sort.
   const groups = useMemo(
     () =>
       groupRecipesByHousehold(
         searched
           .filter(({ recipe }) => matchesRecipeFilters(recipe, filters))
           .map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
-      ),
-    [searched, filters],
+      ).map((group) => ({
+        ...group,
+        recipes: sortRecipes(group.recipes, sort),
+        meals: sort === 'meal' ? groupRecipesByMeal(group.recipes) : [],
+      })),
+    [searched, filters, sort],
   );
   // Recipes the search found that tag filters hide for having no tags (none with Untagged on).
   const untaggedHidden =
@@ -246,6 +272,32 @@ export default function RecipesScreen() {
   // Spec 4.5: household names only tell recipes apart when there's more than one household.
   const labelHouseholds = new Set(data.map((r) => r.householdId)).size > 1;
 
+  // A card's recipe rows, separated by hairlines.
+  const renderRows = (rows: readonly (RecipeSummary & { ingredientMatch: string | null })[]) =>
+    rows.map((r, j) => (
+      <View key={r.id}>
+        {j > 0 ? (
+          <View
+            style={{
+              height: StyleSheet.hairlineWidth,
+              marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
+              backgroundColor: colors.border,
+            }}
+          />
+        ) : null}
+        <RecipeRow
+          recipe={r}
+          ingredientMatch={r.ingredientMatch}
+          onList={onList.get(r.id) ?? null}
+          highlighted={toast?.recipeId === r.id}
+          quickAddTo={quickAddList(currentList, r)}
+          onQuickAdd={quickAdd}
+          onSwipeOpen={cardOpened}
+          onSwipeClose={cardClosed}
+        />
+      </View>
+    ));
+
   return (
     <Screen>
       {onRecipes ? <StatusBar style="light" /> : null}
@@ -277,13 +329,16 @@ export default function RecipesScreen() {
                   <ThemedText variant="amount" color="onHeaderSecondary">
                     {t('recipes.tab.count', { count: data.length })}
                   </ThemedText>
-                  <HeaderPill
-                    label={filtersPillLabel(activeFilterCount(filters))}
-                    accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
-                    accessibilityHint={t('recipes.filters.pillHint')}
-                    selected={filtering}
-                    onPress={openFilters}
-                  />
+                  <View style={[styles.headerPills, { gap: spacing.sm }]}>
+                    <HeaderPill
+                      label={filtersPillLabel(activeFilterCount(filters))}
+                      accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
+                      accessibilityHint={t('recipes.filters.pillHint')}
+                      selected={filtering}
+                      onPress={openFilters}
+                    />
+                    <RecipeSortButton value={sort} onChange={setSort} />
+                  </View>
                 </View>
               </>
             ) : null}
@@ -330,33 +385,31 @@ export default function RecipesScreen() {
                 {group.name}
               </ThemedText>
             ) : null}
-            <View style={{ paddingHorizontal: spacing.lg }}>
-              <Card>
-                {group.recipes.map((r, j) => (
-                  <View key={r.id}>
-                    {j > 0 ? (
-                      <View
-                        style={{
-                          height: StyleSheet.hairlineWidth,
-                          marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
-                          backgroundColor: colors.border,
-                        }}
-                      />
-                    ) : null}
-                    <RecipeRow
-                      recipe={r}
-                      ingredientMatch={r.ingredientMatch}
-                      onList={onList.get(r.id) ?? null}
-                      highlighted={toast?.recipeId === r.id}
-                      quickAddTo={quickAddList(currentList, r)}
-                      onQuickAdd={quickAdd}
-                      onSwipeOpen={cardOpened}
-                      onSwipeClose={cardClosed}
-                    />
-                  </View>
-                ))}
-              </Card>
-            </View>
+            {sort === 'meal' ? (
+              // Spec 4.5: a folding card per meal, its header tinted in the meal's hue.
+              <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
+                {group.meals.map((section) => {
+                  const key = mealSectionKey(group.householdId, section.meal);
+                  return (
+                    <Card key={key}>
+                      <FoldingSection
+                        title={section.title}
+                        band={hueHeaderBand(section.hue, scheme)}
+                        count={section.recipes.length}
+                        countUnit={mealSectionUnit()}
+                        collapsed={folded.has(key)}
+                        onToggle={() => toggleMealSection(key)}>
+                        {renderRows(section.recipes)}
+                      </FoldingSection>
+                    </Card>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={{ paddingHorizontal: spacing.lg }}>
+                <Card>{renderRows(group.recipes)}</Card>
+              </View>
+            )}
           </View>
         ))}
         {untaggedHidden > 0 ? (
@@ -622,6 +675,7 @@ const styles = StyleSheet.create({
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   row: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   headerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
+  headerPills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flexShrink: 1 },
   search: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
   sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },

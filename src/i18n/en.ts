@@ -309,6 +309,22 @@ export const en = {
       untagged_other: "{{count}} recipes without tags aren't shown",
       untaggedHint: 'Clears the filters and shows only recipes without tags.',
     },
+    /** The sort pill on the green header and its menu (spec 4.5). */
+    sort: {
+      menuTitle: 'Sort and group',
+      recent: 'Recently added',
+      name: 'A–Z',
+      meal: 'By meal',
+      /** The pill's short label for Recently added. */
+      recentShort: 'Recent',
+      button: 'Sort: {{choice}}',
+      buttonHint: 'Changes how recipes are sorted and grouped',
+      /** By meal's last section, for recipes without a meal tag. */
+      noMeal: 'No meal',
+      /** What a section's count counts, for VoiceOver: "Dinner, 3 recipes". */
+      unit_one: 'recipe',
+      unit_other: 'recipes',
+    },
     /** The Filters pill, its chips and its sheet (spec 4.14). */
     filters: {
       title: 'Filters',

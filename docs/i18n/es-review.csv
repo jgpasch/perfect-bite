@@ -238,6 +238,16 @@ recipes.tab.deleteMessage,Items already on your lists stay there.,Los artículos
 recipes.tab.untagged_one,{{count}} recipe without tags isn't shown,No se muestra {{count}} receta sin etiquetas,Plural form for a count of 1.
 recipes.tab.untagged_other,{{count}} recipes without tags aren't shown,No se muestran {{count}} recetas sin etiquetas,Plural form for every other count.
 recipes.tab.untaggedHint,Clears the filters and shows only recipes without tags.,Quita los filtros y muestra solo las recetas sin etiquetas.,
+recipes.sort.menuTitle,Sort and group,Ordenar y agrupar,
+recipes.sort.recent,Recently added,Agregadas recientemente,
+recipes.sort.name,A–Z,A–Z,
+recipes.sort.meal,By meal,Por comida,
+recipes.sort.recentShort,Recent,Recientes,
+recipes.sort.button,Sort: {{choice}},Ordenar: {{choice}},
+recipes.sort.buttonHint,Changes how recipes are sorted and grouped,Cambia cómo se ordenan y agrupan las recetas,
+recipes.sort.noMeal,No meal,Sin comida,
+recipes.sort.unit_one,recipe,receta,Plural form for a count of 1.
+recipes.sort.unit_other,recipes,recetas,Plural form for every other count.
 recipes.filters.title,Filters,Filtros,
 recipes.filters.pill,Filters · {{count}},Filtros · {{count}},
 recipes.filters.pillLabel,"Filters, {{count}} active","Filtros, {{count}} activos",

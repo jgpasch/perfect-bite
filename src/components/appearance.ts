@@ -87,9 +87,14 @@ export function categoryColors(
  * under 4.5:1. Unknown slugs, custom aisles and no slug get the neutral grey.
  */
 export function aisleHeaderBand(slug: string | null | undefined, scheme: ColorScheme): { ground: string; text: string } {
-  const hue = AisleTokens[scheme][aisleColor(slug)];
-  const text = contrastRatio(hue.strong, hue.soft) >= 4.5 ? hue.strong : Palette[scheme].ink;
-  return { ground: hue.soft, text };
+  return hueHeaderBand(aisleColor(slug), scheme);
+}
+
+/** A section header band in a hue (an aisle's, or a By meal section's on the Recipes tab): as `aisleHeaderBand`. */
+export function hueHeaderBand(hue: AisleHue, scheme: ColorScheme): { ground: string; text: string } {
+  const tokens = AisleTokens[scheme][hue];
+  const text = contrastRatio(tokens.strong, tokens.soft) >= 4.5 ? tokens.strong : Palette[scheme].ink;
+  return { ground: tokens.soft, text };
 }
 
 /** The white wash behind controls on the green header. */
