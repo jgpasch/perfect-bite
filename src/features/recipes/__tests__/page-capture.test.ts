@@ -102,9 +102,19 @@ describe('CAPTURE_SCRIPT', () => {
     jest.useRealTimers();
   });
 
-  /** Runs the script against a fake page and returns every page it posted. */
-  function runScript(page: { title?: string; blocks?: string[]; text?: string | null }) {
+  /**
+   * Runs the script against a fake page and returns every page it posted. `meta` maps a selector
+   * (`meta[property="og:image"]`) to its tag's `content`; `null` is a tag without one.
+   */
+  function runScript(page: {
+    title?: string;
+    blocks?: string[];
+    text?: string | null;
+    meta?: Record<string, string | null>;
+    noQuerySelector?: boolean;
+  }) {
     const posted: unknown[] = [];
+    const meta = page.meta ?? {};
     const document = {
       title: page.title ?? '',
       body: page.text === null ? null : { innerText: page.text ?? '' },
@@ -112,15 +122,45 @@ describe('CAPTURE_SCRIPT', () => {
         expect(selector).toBe('script[type="application/ld+json"]');
         return (page.blocks ?? []).map((textContent) => ({ textContent }));
       },
+      ...(page.noQuerySelector
+        ? {}
+        : {
+            querySelector: (selector: string) =>
+              selector in meta ? { getAttribute: (name: string) => (name === 'content' ? meta[selector] : null) } : null,
+          }),
     };
     const window = { ReactNativeWebView: { postMessage: (data: string) => posted.push(JSON.parse(data)) } };
     new Function('document', 'window', CAPTURE_SCRIPT)(document, window);
     return { posted };
   }
 
-  test('posts the title, JSON-LD blocks and text at once', () => {
-    const { posted } = runScript({ title: 'Tikka', blocks: ['{"@type":"Recipe"}'], text: '2 lb chicken' });
-    expect(posted).toEqual([{ title: 'Tikka', jsonLd: ['{"@type":"Recipe"}'], text: '2 lb chicken' }]);
+  test('posts the title, JSON-LD blocks, text and image at once', () => {
+    const { posted } = runScript({
+      title: 'Tikka',
+      blocks: ['{"@type":"Recipe"}'],
+      text: '2 lb chicken',
+      meta: { 'meta[property="og:image"]': 'https://cdn.example.com/tikka.jpg' },
+    });
+    expect(posted).toEqual([
+      { title: 'Tikka', jsonLd: ['{"@type":"Recipe"}'], text: '2 lb chicken', imageUrl: 'https://cdn.example.com/tikka.jpg' },
+    ]);
+  });
+
+  test('the image is og:image, else twitter:image, trimmed and as written', () => {
+    const image = (meta: Record<string, string | null>) => (runScript({ meta }).posted[0] as CapturedPage).imageUrl;
+    const og = 'meta[property="og:image"]';
+    const twitter = 'meta[name="twitter:image"]';
+    expect(image({ [og]: ' /images/og.jpg ', [twitter]: 'https://cdn.example.com/tw.jpg' })).toBe('/images/og.jpg');
+    expect(image({ [twitter]: 'https://cdn.example.com/tw.jpg' })).toBe('https://cdn.example.com/tw.jpg');
+    // An og:image tag with no content falls back too.
+    expect(image({ [og]: null, [twitter]: 'https://cdn.example.com/tw.jpg' })).toBe('https://cdn.example.com/tw.jpg');
+    expect(image({ [og]: '  ' })).toBe('');
+    expect(image({})).toBe('');
+  });
+
+  test('a page whose meta tags can’t be read still posts, with no image', () => {
+    const { posted } = runScript({ title: 'Tikka', text: 'x', noQuerySelector: true });
+    expect(posted).toEqual([{ title: 'Tikka', jsonLd: [], text: 'x', imageUrl: '' }]);
   });
 
   test('ends with `true`, as react-native-webview asks of injected scripts', () => {
@@ -165,7 +205,7 @@ describe('CAPTURE_SCRIPT', () => {
   });
 
   test('a page with no body posts empty text', () => {
-    expect(runScript({ title: 'Loading', text: null }).posted).toEqual([{ title: 'Loading', jsonLd: [], text: '' }]);
+    expect(runScript({ title: 'Loading', text: null }).posted).toEqual([{ title: 'Loading', jsonLd: [], text: '', imageUrl: '' }]);
   });
 });
 
@@ -194,6 +234,16 @@ describe('parseCapturedPage', () => {
     expect(parseCapturedPage('{}')).toEqual({ title: '', jsonLd: [], text: '' });
   });
 
+  test('keeps the image URL trimmed; leaves out an empty, non-string or over-2048-character one', () => {
+    const image = (imageUrl: unknown) => parseCapturedPage(JSON.stringify({ title: 'T', imageUrl }))!;
+    expect(image(' /tikka.jpg ')).toEqual({ title: 'T', jsonLd: [], text: '', imageUrl: '/tikka.jpg' });
+    const atCap = `https://cdn.example.com/${'a'.repeat(2048 - 'https://cdn.example.com/'.length)}`;
+    expect(image(atCap).imageUrl).toBe(atCap);
+    for (const bad of ['', '   ', 42, null, `${atCap}a`]) {
+      expect(image(bad)).not.toHaveProperty('imageUrl');
+    }
+  });
+
   test('anything that isn’t a JSON object is null', () => {
     expect(parseCapturedPage('not json')).toBeNull();
     expect(parseCapturedPage('null')).toBeNull();
@@ -209,6 +259,15 @@ describe('toRequestPage', () => {
       text: 'chicken',
     });
     expect(toRequestPage({ title: ' ', jsonLd: [], text: '' })).toEqual({});
+    expect(toRequestPage({ title: ' ', jsonLd: [], text: '', imageUrl: ' ' })).toEqual({});
+  });
+
+  test('passes the image URL on as written, for the server to clean', () => {
+    expect(toRequestPage({ title: 'Tikka', jsonLd: [], text: 'chicken', imageUrl: '/tikka.jpg' })).toEqual({
+      title: 'Tikka',
+      text: 'chicken',
+      imageUrl: '/tikka.jpg',
+    });
   });
 });
 

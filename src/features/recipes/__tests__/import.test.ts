@@ -79,6 +79,8 @@ const TIKKA: RecipeImportResponse = {
   ],
   tags: { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] },
   totalMinutes: 50,
+  steps: [],
+  imageUrl: null,
 };
 
 let listId: string;

@@ -109,6 +109,8 @@ Deno.test('MemoryRecipeStore: no limits, cache keyed by URL and prompt version, 
     ingredients: [],
     tags: { meal: ['lunch'], cuisine: [], protein: [], diet: [], method: [] },
     total_minutes: 30,
+    steps: ['Simmer.'],
+    image_url: null,
   };
   await store.saveCached('https://a.com/r', 'v1', recipe);
   const row = await store.getCached('https://a.com/r', 'v1');
@@ -131,6 +133,8 @@ Deno.test('formatRecipe: header, rounded quantities, dashes for blanks, slug or 
     ],
     tags: null,
     totalMinutes: null,
+    steps: [],
+    imageUrl: null,
   };
   assertEquals(
     formatRecipe(response),
@@ -154,7 +158,7 @@ Deno.test('formatRecipe and formatTags: time in minutes, tags by facet label in 
   assertEquals(formatTags(tags), 'Meal: Dinner · Cuisine: peruvian · Protein: Chicken · Protein: Beans & lentils · Method: Instant Pot');
   assertEquals(formatTags({ meal: [], cuisine: [], protein: [], diet: [], method: [] }), '-');
   assertEquals(formatTags(null), '-');
-  const out = formatRecipe({ name: 'Stew', sourceUrl: 'https://a.com/s', servings: 4, ingredients: [], tags, totalMinutes: 95 });
+  const out = formatRecipe({ name: 'Stew', sourceUrl: 'https://a.com/s', servings: 4, ingredients: [], tags, totalMinutes: 95, steps: [], imageUrl: null });
   assertStringIncludes(out, 'servings: 4\ntime:     95 min\ntags:     Meal: Dinner · Cuisine: peruvian');
 });
 

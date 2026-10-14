@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { UNITS } from '../quantity-parser.ts';
+import { MAX_IMAGE_URL_LENGTH, MAX_RECIPE_STEP_LENGTH, MAX_RECIPE_STEPS } from '../recipe-jsonld.ts';
 import {
   emptyRecipeTags,
   MAX_TOTAL_MINUTES,
@@ -75,6 +76,12 @@ export const RecipeImportPageSchema = z.object({
     .string()
     .refine((t) => utf8Bytes(t) <= MAX_PAGE_TEXT_BYTES, 'Page text too large')
     .optional(),
+  /**
+   * The page's `og:image` (else `twitter:image`) as the page gave it; the server cleans it with
+   * `cleanImageUrl`. One that isn't a string or is too long to be usable is left out rather than
+   * failing the import.
+   */
+  imageUrl: z.string().max(MAX_IMAGE_URL_LENGTH).optional().catch(undefined),
 });
 export type RecipeImportPage = z.infer<typeof RecipeImportPageSchema>;
 
@@ -112,7 +119,17 @@ export const ExtractedRecipeTagsSchema = z
 /** `recipes.total_minutes`: whole minutes, 1 to 2880 (spec 4.14). */
 export const TotalMinutesSchema = z.number().int().min(MIN_TOTAL_MINUTES).max(MAX_TOTAL_MINUTES);
 
-/** The extract-recipe LLM output. A unit the app doesn't support is null, its wording in `note`. */
+/** One method step as `recipes.steps` holds it: 1 to 2000 characters, counted as Postgres does (code points). */
+const RecipeStepSchema = z.string().refine((step) => {
+  const length = Array.from(step).length;
+  return length >= 1 && length <= MAX_RECIPE_STEP_LENGTH;
+}, 'A step is 1 to 2000 characters');
+
+/**
+ * The extract-recipe result, as cached in `recipe_imports`. A unit the app doesn't support is null,
+ * its wording in `note`. `steps` and `image_url` (v3) are JSON-LD's when the page has a recipe
+ * there; otherwise the steps are the model's and the image is the page's og:image.
+ */
 export const ExtractedRecipeSchema = z.object({
   is_recipe: z.boolean(),
   name: z.string().max(MAX_RECIPE_NAME_LENGTH),
@@ -129,6 +146,9 @@ export const ExtractedRecipeSchema = z.object({
     .max(MAX_RECIPE_INGREDIENTS),
   tags: ExtractedRecipeTagsSchema,
   total_minutes: TotalMinutesSchema.nullable(),
+  steps: z.array(RecipeStepSchema).max(MAX_RECIPE_STEPS),
+  /** `recipes.image_url`: `https://`, at most 2048 characters. */
+  image_url: z.string().max(MAX_IMAGE_URL_LENGTH).startsWith('https://').nullable(),
 });
 export type ExtractedRecipe = z.infer<typeof ExtractedRecipeSchema>;
 
@@ -156,6 +176,10 @@ export const RecipeImportResponseSchema = z.object({
   tags: RecipeTagsSchema.nullable().catch(null),
   /** Minutes, from the page's JSON-LD or the model; null when neither said, or it's out of range. */
   totalMinutes: TotalMinutesSchema.nullable().catch(null),
+  /** The method, in order; `[]` when there's none, or from an older server that sends none. */
+  steps: z.array(z.string()).catch([]),
+  /** The photo (JSON-LD's `image`, else the page's og:image); null when none, or from an older server. */
+  imageUrl: z.string().nullable().catch(null),
 });
 export type RecipeImportResponse = z.infer<typeof RecipeImportResponseSchema>;
 

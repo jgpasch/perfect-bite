@@ -4,7 +4,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v2.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v3.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage } from '../_shared/fetch-page.ts';
@@ -49,6 +49,40 @@ const NEWS_URL = 'https://news.example.net/story';
 const NEWS_PAGE = `<html><head><title>Town council meets</title></head><body><article>
 <p>The council met on Tuesday to discuss parking.</p></article></body></html>`;
 
+// JSON-LD with steps and a relative image, and an og:image that loses to it.
+const STEW_URL = 'https://www.example.com/beef-stew';
+const STEW_KEY = 'https://example.com/beef-stew';
+const STEW_JSON_LD = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Recipe',
+  name: 'Beef Stew',
+  image: { '@type': 'ImageObject', url: '/img/stew-jsonld.jpg' },
+  recipeIngredient: ['2 lb beef chuck', '3 carrots'],
+  recipeInstructions: [
+    { '@type': 'HowToStep', text: '1. Brown the beef.' },
+    { '@type': 'HowToSection', name: 'Simmer', itemListElement: [{ '@type': 'HowToStep', text: 'Add the carrots &amp; simmer for 2 hours.' }] },
+  ],
+});
+const STEW_PAGE = `<html><head><title>Beef Stew</title><meta property="og:image" content="https://cdn.example.com/stew-og.jpg">
+<script type="application/ld+json">${STEW_JSON_LD}</script></head><body><article><p>Cozy.</p></article></body></html>`;
+const STEW_STEPS = ['Brown the beef.', 'Add the carrots & simmer for 2 hours.'];
+
+// JSON-LD without steps or an image: the page's og:image (relative) is the photo.
+const TART_URL = 'https://example.com/tart';
+const TART_PAGE = `<html><head><title>Tart</title><meta property="og:image" content="/img/tart.jpg">
+<script type="application/ld+json">${JSON.stringify({ '@type': 'Recipe', name: 'Tart', recipeIngredient: ['1 cup flour'] })}</script></head><body></body></html>`;
+
+// No JSON-LD: the model reads the steps; twitter:image stands in for a missing og:image.
+const SOUP_URL = 'https://bakes.example.org/soup';
+const SOUP_PAGE = `<html><head><title>Leek Soup</title><meta name="twitter:image" content="https://cdn.example.org/soup.jpg"></head><body>
+<article><h1>Leek Soup</h1><ul><li>2 leeks</li><li>1 cup stock</li></ul><ol><li>Slice the leeks.</li><li>Simmer in the stock.</li></ol>
+<p>Tip: freezes well.</p></article></body></html>`;
+
+// An og:image that isn't https is no photo.
+const BAD_IMAGE_URL = 'https://example.com/bad-image';
+const BAD_IMAGE_PAGE = `<html><head><title>Toast</title><meta property="og:image" content="http://cdn.example.com/toast.jpg"></head>
+<body><p>2 slices bread</p></body></html>`;
+
 const EMPTY_URL = 'https://example.com/empty';
 const EMPTY_PAGE = '<html><head><title>Nothing</title></head><body></body></html>';
 
@@ -67,6 +101,10 @@ const PAGES: Record<string, string> = {
   [BARS_URL]: BARS_PAGE,
   [NEWS_URL]: NEWS_PAGE,
   [EMPTY_URL]: EMPTY_PAGE,
+  [STEW_URL]: STEW_PAGE,
+  [TART_URL]: TART_PAGE,
+  [SOUP_URL]: SOUP_PAGE,
+  [BAD_IMAGE_URL]: BAD_IMAGE_PAGE,
 };
 
 // --- Fakes --------------------------------------------------------------------------------------
@@ -233,9 +271,11 @@ const PASTA_RESPONSE: RecipeImportResponse = {
     { ingredientName: 'olive oil', displayName: 'olive oil', quantity: 2, unit: 'tbsp', note: '', categoryId: cat('pantry'), status: 'categorized' },
     { ingredientName: 'salt', displayName: 'Salt', quantity: null, unit: null, note: 'to taste', categoryId: cat('spices'), status: 'categorized' },
   ],
-  // The mock never tags, and the page gives no time.
+  // The mock never tags, and the page gives no time, steps or photo.
   tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
   totalMinutes: null,
+  steps: [],
+  imageUrl: null,
 };
 
 // --- JSON-LD and text -----------------------------------------------------------------------------
@@ -286,6 +326,8 @@ test('text fallback: no JSON-LD sends the page text and takes the name from the 
     ],
     tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
     totalMinutes: null,
+    steps: [],
+    imageUrl: null,
   });
   assertEquals(calls('extractRecipe'), 1);
   assertEquals(calls('categorize'), 1);
@@ -405,23 +447,117 @@ test('v2: a model time out of range is null', async () => {
   }
 });
 
-test('v2: the cache key is the v2 prompt version; a cached v1 result (no tags) is not served', async () => {
-  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v2');
+test('v3: the cache key is the v3 prompt version; cached v1 and v2 results are not served', async () => {
+  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v3');
   const { post, store, calls } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
-  store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, {
-    result: { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] },
+  const old = { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] };
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, { result: old, is_recipe: true, created_at: new Date(NOW).toISOString() });
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v2`, {
+    result: { ...old, tags: TAGS, total_minutes: 20 },
     is_recipe: true,
     created_at: new Date(NOW).toISOString(),
   });
   const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals([body.name, body.tags], ['Garlic Pasta', TAGS]);
   assertEquals(calls('extractRecipe'), 1);
-  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v2']]);
+  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v3']]);
 
-  // A cached v2 result is served with its tags and time, with no call.
+  // A cached v3 result is served with its tags and time, with no call.
   const again: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals(again.tags, TAGS);
   assertEquals(calls('extractRecipe'), 1);
+});
+
+test('v3: a v2-shaped row under the v3 key (no steps or photo) fails the schema and is a miss', async () => {
+  const { post, store, calls } = setup();
+  const v2Shaped = {
+    is_recipe: true,
+    name: 'Old Pasta',
+    servings: 2,
+    ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }],
+    tags: TAGS,
+    total_minutes: 20,
+  };
+  store.cache.set(`${PASTA_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: v2Shaped, is_recipe: true, created_at: new Date(NOW).toISOString() });
+  assertEquals(await (await post({ url: PASTA_URL })).json(), PASTA_RESPONSE);
+  assertEquals(calls('extractRecipe'), 1);
+});
+
+// --- Steps and photo (prompt v3) ----------------------------------------------------------------------
+
+test('v3: JSON-LD’s steps and image win over the model’s steps and the og:image', async () => {
+  const { post, aiCalls, store } = setup({ model: editedModel((a) => ({ ...a, steps: ['Model step one.', 'Model step two.'] })) });
+  const body: RecipeImportResponse = await (await post({ url: STEW_URL })).json();
+  assertEquals(body.steps, STEW_STEPS);
+  assertEquals(body.imageUrl, 'https://www.example.com/img/stew-jsonld.jpg', 'resolved against the page it came from');
+  const prompt = aiCalls.find((c) => c.task === 'extractRecipe')!.prompt;
+  assert(!prompt.includes('Brown the beef'), 'JSON-LD steps are not sent to the model');
+  assertStringIncludes(prompt, '"ingredient_lines":["2 lb beef chuck","3 carrots"]');
+  // The cached result carries both, and a cache hit serves them.
+  assertEquals([store.saves[0].result.steps, store.saves[0].result.image_url], [STEW_STEPS, 'https://www.example.com/img/stew-jsonld.jpg']);
+  const again: RecipeImportResponse = await (await post({ url: 'https://example.com/beef-stew' })).json();
+  assertEquals([again.steps, again.imageUrl], [STEW_STEPS, 'https://www.example.com/img/stew-jsonld.jpg']);
+  assertEquals(store.saves.map((s) => s.urlKey), [STEW_KEY]);
+});
+
+test('v3: JSON-LD without steps gives none, even if the model answers some', async () => {
+  const { post } = setup({ model: editedModel((a) => ({ ...a, steps: ['Made up.'] })) });
+  const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+  assertEquals([body.steps, body.imageUrl], [[], null]);
+});
+
+test('v3: without JSON-LD the model’s steps are used, cleaned and in order', async () => {
+  const { post, aiCalls, store } = setup({
+    model: editedModel((a) => ({ ...a, steps: ['1. Slice the leeks.', ' ', 'Step 2: Simmer in the  stock.'] })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: SOUP_URL })).json();
+  assertEquals(body.steps, ['Slice the leeks.', 'Simmer in the stock.']);
+  assertStringIncludes(aiCalls[0].prompt, 'Slice the leeks.', 'the page text with the method goes to the model');
+  assertEquals(store.saves[0].result.steps, ['Slice the leeks.', 'Simmer in the stock.']);
+  // The mock gives none.
+  assertEquals(((await (await setup().post({ url: SOUP_URL })).json()) as RecipeImportResponse).steps, []);
+});
+
+test('v3: the page’s og:image (else twitter:image) is the photo when JSON-LD has none', async () => {
+  const { post } = setup();
+  const tart: RecipeImportResponse = await (await post({ url: TART_URL })).json();
+  assertEquals(tart.imageUrl, 'https://example.com/img/tart.jpg', 'a relative og:image resolves against the page');
+  const soup: RecipeImportResponse = await (await post({ url: SOUP_URL })).json();
+  assertEquals(soup.imageUrl, 'https://cdn.example.org/soup.jpg');
+});
+
+test('v3: an image URL that isn’t usable https is null', async () => {
+  const { post } = setup();
+  assertEquals(((await (await post({ url: BAD_IMAGE_URL })).json()) as RecipeImportResponse).imageUrl, null);
+  // A bad JSON-LD image falls back to a good og:image, and to null without one.
+  const httpJsonLd = JSON.stringify({ ...JSON.parse(STEW_JSON_LD), image: 'http://cdn.example.com/stew.jpg' });
+  const withOg: RecipeImportResponse = await (
+    await post({ url: STEW_URL, page: { jsonLd: [httpJsonLd], imageUrl: 'https://cdn.example.com/stew-og.jpg' } })
+  ).json();
+  assertEquals(withOg.imageUrl, 'https://cdn.example.com/stew-og.jpg');
+  const without: RecipeImportResponse = await (await post({ url: STEW_URL, page: { jsonLd: [httpJsonLd] } })).json();
+  assertEquals(without.imageUrl, null);
+});
+
+test('v3: a client-supplied page’s imageUrl is cleaned like a fetched one', async () => {
+  const { post, fetched } = setup();
+  const page = (imageUrl: unknown) => ({ title: 'Leek Soup', text: '2 leeks\n1 cup stock', imageUrl });
+  const image = async (imageUrl: unknown) => ((await (await post({ url: SOUP_URL, page: page(imageUrl) })).json()) as RecipeImportResponse).imageUrl;
+  assertEquals(await image(' /img/soup.jpg?w=1&amp;h=2 '), 'https://bakes.example.org/img/soup.jpg?w=1&h=2');
+  assertEquals(await image('https://cdn.example.org/soup.jpg'), 'https://cdn.example.org/soup.jpg');
+  assertEquals(await image('http://cdn.example.org/soup.jpg'), null);
+  assertEquals(await image('javascript:alert(1)'), null);
+  assertEquals(await image(''), null);
+  // Not a string, or too long: left out by the request schema, and the import still succeeds.
+  assertEquals(await image(42), null);
+  assertEquals(await image(`https://cdn.example.org/${'a'.repeat(2048)}`), null);
+  assertEquals(fetched, []);
+});
+
+test('v3: not a recipe has no steps or photo', async () => {
+  const { post, store } = setup({ model: editedModel((a) => ({ ...a, steps: ['Read the news.'] })) });
+  await expectError(await post({ url: NEWS_URL }), 422, 'not_a_recipe');
+  assertEquals(store.saves.map((s) => [s.result.is_recipe, s.result.steps, s.result.image_url]), [[false, [], null]]);
 });
 
 // --- Cache ------------------------------------------------------------------------------------------

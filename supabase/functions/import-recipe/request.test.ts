@@ -20,6 +20,8 @@ const OK: RecipeImportResponse = {
   ingredients: [{ ingredientName: 'bread', displayName: 'bread', quantity: 2, unit: null, note: 'slices', categoryId: null, status: 'pending' }],
   tags: null,
   totalMinutes: null,
+  steps: [],
+  imageUrl: null,
 };
 
 /** Deps with AI_MODEL_RECIPE=mock and an importRecipe that records what it was called with. */

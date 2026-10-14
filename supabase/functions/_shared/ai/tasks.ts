@@ -1,6 +1,7 @@
 // Every AI task and its model, in one place (spec §6.4). Switch a model with
 // `supabase secrets set AI_MODEL_CATEGORIZE=google:gemini-3.8-flash`; no code change.
 import {
+  cleanRecipeSteps,
   ExtractedRecipeSchema,
   ExtractedRecipeTagsSchema,
   MAX_RECIPE_INGREDIENT_NAME_LENGTH,
@@ -22,7 +23,7 @@ import { z } from 'zod';
 
 import { mockCategorizeModel, mockRecipeModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v2.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v2.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v3.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
@@ -118,6 +119,8 @@ export const ExtractRecipeOutputSchema = z.object({
     method: z.array(z.string()),
   }),
   total_minutes: z.number().nullable(),
+  /** v3: the method from page text; `[]` when the model got JSON-LD ingredient lines. */
+  steps: z.array(z.string()),
 });
 export type ExtractRecipeOutput = z.infer<typeof ExtractRecipeOutputSchema>;
 
@@ -153,7 +156,9 @@ function supportedUnit(raw: string | null): { unit: Unit | null; unsupported: st
  * notes are cut to 120 characters and the list to 80 entries; a quantity or servings that isn't
  * positive is null. Tags go through `ExtractedRecipeTagsSchema` (a facet with a slug the list
  * doesn't have is `[]`, one over its maximum is cut), and `total_minutes` is rounded, null outside
- * 1 to 2880. The result always passes `ExtractedRecipeSchema`.
+ * 1 to 2880. Steps go through `cleanRecipeSteps` (no numbering, blanks or repeats; at most 100 of
+ * 2000 characters). `image_url` is null: the model never reads the photo, the handler sets it. The
+ * result always passes `ExtractedRecipeSchema`.
  */
 export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe {
   const ingredients: ExtractedRecipe['ingredients'] = [];
@@ -177,6 +182,8 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe 
     ingredients,
     tags: ExtractedRecipeTagsSchema.parse(raw.tags),
     total_minutes: totalMinutes(raw.total_minutes),
+    steps: cleanRecipeSteps(raw.steps),
+    image_url: null,
   });
 }
 

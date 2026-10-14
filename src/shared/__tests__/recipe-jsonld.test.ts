@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
-import { cleanImageUrl, cleanJsonLdText, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
+import { cleanImageUrl, cleanJsonLdText, cleanRecipeSteps, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -571,6 +571,26 @@ describe('cleanImageUrl', () => {
   });
 });
 
+describe('cleanRecipeSteps (the model’s steps)', () => {
+  it('keeps the wording, dropping numbering, HTML, blanks and a repeat of the step before', () => {
+    expect(
+      cleanRecipeSteps(['1. Preheat the oven to 200°C.', '  ', 'Step 2: Mix the  flour\nand <b>salt</b> well.', 'Mix the flour and salt well.', '2 eggs go in last.']),
+    ).toEqual(['Preheat the oven to 200°C.', 'Mix the flour and salt well.', '2 eggs go in last.']);
+  });
+
+  it('caps at 100 steps of 2000 characters', () => {
+    const many = Array.from({ length: 120 }, (_, i) => `Stir ${i}`);
+    expect(cleanRecipeSteps(many)).toHaveLength(100);
+    expect(cleanRecipeSteps(many).at(-1)).toBe('Stir 99');
+    expect(Array.from(cleanRecipeSteps(['🍜'.repeat(2100)])[0])).toHaveLength(2000);
+  });
+
+  it('is empty for no steps', () => {
+    expect(cleanRecipeSteps([])).toEqual([]);
+    expect(cleanRecipeSteps(['', ' <br> '])).toEqual([]);
+  });
+});
+
 describe('findRecipe: real pages', () => {
   it.each(FIXTURES)('%s', (_site, blocks, name, lineCount, first, last, servings, totalMinutes) => {
     const found = findRecipe(blocks);
@@ -613,5 +633,6 @@ describe('exports', () => {
     expect(shared.decodeHtmlEntities).toBe(decodeHtmlEntities);
     expect(shared.parseIsoDuration).toBe(parseIsoDuration);
     expect(shared.cleanImageUrl).toBe(cleanImageUrl);
+    expect(shared.cleanRecipeSteps).toBe(cleanRecipeSteps);
   });
 });

@@ -1,8 +1,9 @@
 // Device capture of a recipe page (spec 4.10, 6.6). Many recipe sites answer a server fetch with a
 // bot check; a real WebKit view on the phone gets through. When `import-recipe` answers
 // `fetch_failed`, the page is loaded in a hidden WebView (`PageCaptureHost`), `CAPTURE_SCRIPT` reads
-// `{ title, jsonLd, text }` from it, and the import is retried with that `page`.
+// `{ title, jsonLd, text, imageUrl }` from it, and the import is retried with that `page`.
 
+import { MAX_IMAGE_URL_LENGTH } from '@/shared/recipe-jsonld';
 import {
   MAX_JSON_LD_BLOCK_BYTES,
   MAX_JSON_LD_BLOCKS,
@@ -10,7 +11,8 @@ import {
   type RecipeImportRequest,
 } from '@/shared/schemas/recipe-import';
 
-export type CapturedPage = { title: string; jsonLd: string[]; text: string };
+/** `imageUrl` is the page's og:image (else twitter:image) as written; the server cleans it. */
+export type CapturedPage = { title: string; jsonLd: string[]; text: string; imageUrl?: string };
 
 /** How long a capture waits for the real page behind a bot check before giving up. */
 export const CAPTURE_TIMEOUT_MS = 20_000;
@@ -20,10 +22,12 @@ export const CAPTURE_INTERVAL_MS = 1_000;
 
 /**
  * Injected at document end of every page the hidden WebView loads, so it runs again when a
- * challenge reloads into the real page. It posts `{ title, jsonLd, text }` as JSON now and every
- * second. The caps are those of `RecipeImportRequest.page` (each JSON-LD block ≤ 200 KB, at most 10;
- * `document.body.innerText` ≤ 50 KB, UTF-8 bytes); a block over its cap is dropped, since cut JSON
- * doesn't parse. Self-contained plain ES2017 so the share extension's `Preprocess.js` can copy it.
+ * challenge reloads into the real page. It posts `{ title, jsonLd, text, imageUrl }` as JSON now and
+ * every second. The caps are those of `RecipeImportRequest.page` (each JSON-LD block ≤ 200 KB, at
+ * most 10; `document.body.innerText` ≤ 50 KB, UTF-8 bytes); a block over its cap is dropped, since
+ * cut JSON doesn't parse. `imageUrl` is the `content` of `<meta property="og:image">`, else of
+ * `<meta name="twitter:image">`, or '' (the server's `fetchPage` reads the same tags). Self-contained
+ * plain ES2017 so the share extension's `Preprocess.js` can copy it.
  */
 export const CAPTURE_SCRIPT = `(function () {
   var MAX_BLOCKS = ${MAX_JSON_LD_BLOCKS};
@@ -45,7 +49,18 @@ export const CAPTURE_SCRIPT = `(function () {
       if (block.trim() && bytes(block) <= MAX_BLOCK_BYTES) jsonLd.push(block);
     }
     var text = document.body ? document.body.innerText || '' : '';
-    return { title: document.title || '', jsonLd: jsonLd, text: cut(text, MAX_TEXT_BYTES) };
+    return { title: document.title || '', jsonLd: jsonLd, text: cut(text, MAX_TEXT_BYTES), imageUrl: metaImage() };
+  }
+  function metaContent(selector) {
+    var meta = document.querySelector(selector);
+    return meta ? (meta.getAttribute('content') || '').trim() : '';
+  }
+  function metaImage() {
+    try {
+      return metaContent('meta[property="og:image"]') || metaContent('meta[name="twitter:image"]');
+    } catch (e) {
+      return '';
+    }
   }
   function post() {
     try {
@@ -80,13 +95,16 @@ export function parseCapturedPage(data: string): CapturedPage | null {
     return null;
   }
   if (typeof raw !== 'object' || raw === null) return null;
-  const { title, jsonLd, text } = raw as Record<string, unknown>;
+  const { title, jsonLd, text, imageUrl } = raw as Record<string, unknown>;
+  const image = typeof imageUrl === 'string' ? imageUrl.trim() : '';
   return {
     title: typeof title === 'string' ? title : '',
     jsonLd: (Array.isArray(jsonLd) ? jsonLd : [])
       .filter((b): b is string => typeof b === 'string' && b.trim() !== '' && utf8Bytes(b) <= MAX_JSON_LD_BLOCK_BYTES)
       .slice(0, MAX_JSON_LD_BLOCKS),
     text: typeof text === 'string' ? cutToBytes(text, MAX_PAGE_TEXT_BYTES) : '',
+    // One too long to keep is left out, so it can't fail the request.
+    ...(image !== '' && image.length <= MAX_IMAGE_URL_LENGTH ? { imageUrl: image } : {}),
   };
 }
 
@@ -134,6 +152,7 @@ export function toRequestPage(page: CapturedPage): NonNullable<RecipeImportReque
     ...(page.title.trim() ? { title: page.title } : {}),
     ...(page.jsonLd.length ? { jsonLd: page.jsonLd } : {}),
     ...(page.text.trim() ? { text: page.text } : {}),
+    ...(page.imageUrl?.trim() ? { imageUrl: page.imageUrl } : {}),
   };
 }
 

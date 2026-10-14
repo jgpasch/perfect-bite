@@ -50,6 +50,8 @@ const TIKKA: RecipeImportResponse = {
   })),
   tags: null,
   totalMinutes: null,
+  steps: [],
+  imageUrl: null,
 };
 
 const httpError = (status: number, error: string) => ({

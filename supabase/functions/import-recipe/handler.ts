@@ -2,6 +2,7 @@
 // fake store, a fake fetch and MockLanguageModelV4. index.ts wires the real store.
 import {
   canonicalRecipeUrl,
+  cleanImageUrl,
   emptyRecipeTags,
   ExtractedRecipeSchema,
   findRecipe,
@@ -14,7 +15,7 @@ import {
 } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v2.ts';
+import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v3.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
@@ -79,8 +80,11 @@ export class ImportRecipeError extends Error {
   }
 }
 
-/** The page to extract from: what the client sent, or what the server fetched. */
-type Page = { title: string | null; jsonLd: string[]; text: string };
+/**
+ * The page to extract from: what the client sent, or what the server fetched. `url` resolves a
+ * relative JSON-LD image; `imageUrl` is the page's og:image, already cleaned.
+ */
+type Page = { url: string; title: string | null; jsonLd: string[]; text: string; imageUrl: string | null };
 
 /** Unsafe or unparseable URLs are the request's fault; anything else about the fetch isn't. */
 function fetchFailure(err: FetchPageError): ImportRecipeError {
@@ -93,12 +97,22 @@ function fetchFailure(err: FetchPageError): ImportRecipeError {
 /**
  * One extract-recipe call: JSON-LD ingredient lines when `findRecipe` finds a recipe, otherwise
  * the page text. A page with neither is not a recipe, without a call. Any model failure (provider
- * error, timeout, invalid output) is `unavailable`.
+ * error, timeout, invalid output) is `unavailable`. Steps are JSON-LD's when it has the recipe (the
+ * model gets none to read), else the model's; the photo is JSON-LD's, else the page's og:image.
  */
 async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
-  const jsonLd = findRecipe(page.jsonLd);
+  const jsonLd = findRecipe(page.jsonLd, page.url);
   if (!jsonLd && !page.text.trim()) {
-    return { is_recipe: false, name: '', servings: null, ingredients: [], tags: emptyRecipeTags(), total_minutes: null };
+    return {
+      is_recipe: false,
+      name: '',
+      servings: null,
+      ingredients: [],
+      tags: emptyRecipeTags(),
+      total_minutes: null,
+      steps: [],
+      image_url: null,
+    };
   }
   const input = jsonLd
     ? { title: jsonLd.name ?? page.title, ingredientLines: jsonLd.ingredientLines }
@@ -116,7 +130,7 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
     throw new ImportRecipeError({ code: 'unavailable', reason: 'ai_failed' }, `Recipe extraction failed: ${what}`);
   }
   const recipe = cleanExtractedRecipe(output);
-  if (!recipe.is_recipe) return recipe;
+  if (!recipe.is_recipe) return { ...recipe, steps: [] };
   // JSON-LD's own name, yield and time are what the site published; the model's fill the gaps.
   const fallbackName = (jsonLd?.name ?? page.title ?? '').replace(/\s+/g, ' ').trim();
   return {
@@ -124,6 +138,8 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
     name: recipe.name || truncateText(fallbackName, MAX_RECIPE_NAME_LENGTH).trimEnd(),
     servings: jsonLd?.servings ?? recipe.servings,
     total_minutes: jsonLd?.totalMinutes ?? recipe.total_minutes,
+    steps: jsonLd ? jsonLd.steps : recipe.steps,
+    image_url: jsonLd?.imageUrl ?? page.imageUrl,
   };
 }
 
@@ -163,10 +179,18 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
   if (!recipe) {
     let page: Page;
     if (request.page) {
-      page = { title: request.page.title ?? null, jsonLd: request.page.jsonLd ?? [], text: request.page.text ?? '' };
+      const url = request.url.trim();
+      page = {
+        url,
+        title: request.page.title ?? null,
+        jsonLd: request.page.jsonLd ?? [],
+        text: request.page.text ?? '',
+        imageUrl: cleanImageUrl(request.page.imageUrl, url),
+      };
     } else {
       try {
-        page = await deps.fetchPage(request.url.trim());
+        const fetched = await deps.fetchPage(request.url.trim());
+        page = { ...fetched, url: fetched.finalUrl };
       } catch (err) {
         if (err instanceof FetchPageError) throw fetchFailure(err);
         throw err;
@@ -209,5 +233,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
     })),
     tags: recipe.tags,
     totalMinutes: recipe.total_minutes,
+    steps: recipe.steps,
+    imageUrl: recipe.image_url,
   };
 }

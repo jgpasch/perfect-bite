@@ -298,12 +298,20 @@ export async function runEval(pages: readonly ExpectedPage[], readFixture: (file
   const calls: AiCallRecord[] = [];
   for (const page of pages) {
     const html = await readFixture(page.file);
-    const read = readPage(html);
+    const read = readPage(html, page.url);
     const store = new MemoryRecipeStore();
     let got: GotPage;
     try {
       const response = await importRecipe(
-        { url: page.url, page: { ...(read.title === null ? {} : { title: read.title }), jsonLd: read.jsonLd, text: read.text } },
+        {
+          url: page.url,
+          page: {
+            ...(read.title === null ? {} : { title: read.title }),
+            jsonLd: read.jsonLd,
+            text: read.text,
+            ...(read.imageUrl === null ? {} : { imageUrl: read.imageUrl }),
+          },
+        },
         {
           store,
           // Only extraction is scored; categories would cost a second call per page.

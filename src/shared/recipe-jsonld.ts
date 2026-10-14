@@ -160,12 +160,21 @@ function collectStepTexts(raw: unknown, out: string[]): void {
   }
 }
 
-/** Clean steps: no HTML, no leading numbering, no blanks or repeats, within `recipes.steps` bounds. */
+/** Clean steps from `recipeInstructions`, as `cleanRecipeSteps` leaves them. */
 function readSteps(raw: unknown): string[] {
   const texts: string[] = [];
   // A single string holds every step; in an array or HowToStep each string is one step.
   if (typeof raw === 'string') texts.push(...raw.split(STEP_BREAK));
   else collectStepTexts(raw, texts);
+  return cleanRecipeSteps(texts);
+}
+
+/**
+ * Steps as `recipes.steps` keeps them: no HTML, no leading numbering, no blanks or repeats of the
+ * step before, at most 100 of at most 2000 characters (code points). Shared by JSON-LD's steps and
+ * the model's.
+ */
+export function cleanRecipeSteps(texts: readonly string[]): string[] {
   const steps: string[] = [];
   for (const text of texts) {
     let step = cleanJsonLdText(text).replace(STEP_NUMBERING, '').trim();

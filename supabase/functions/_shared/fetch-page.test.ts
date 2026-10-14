@@ -132,7 +132,7 @@ Deno.test('fetchPage returns the final URL, title, JSON-LD and text of an HTML p
   const fetch = fakeFetch({ 'https://kitchen.example/soup': () => html(PAGE) });
   const resolve = fakeResolve();
   const page = await fetchPage('https://kitchen.example/soup', { fetch: fetch.fn, resolve: resolve.fn });
-  assertEquals(page, { finalUrl: 'https://kitchen.example/soup', title: 'Soup', jsonLd: [], text: 'Hello' });
+  assertEquals(page, { finalUrl: 'https://kitchen.example/soup', title: 'Soup', jsonLd: [], text: 'Hello', imageUrl: null });
   assertEquals(resolve.lookups, ['kitchen.example']);
   const init = fetch.calls[0].init!;
   assertEquals(init.redirect, 'manual');
@@ -189,6 +189,15 @@ Deno.test('fetchPage re-checks DNS on every redirect hop', async () => {
   const page = await fetchPage('https://a.example/', { fetch: fetch.fn, resolve: resolve.fn });
   assertEquals(page.finalUrl, 'https://b.example/y');
   assertEquals(resolve.lookups, ['a.example', 'b.example', 'b.example']);
+});
+
+Deno.test('fetchPage resolves a relative og:image against the final URL, after redirects', async () => {
+  const fetch = fakeFetch({
+    'https://a.example/': () => redirect('https://b.example/recipes/soup/', 301),
+    'https://b.example/recipes/soup/': () => html('<html><head><meta property="og:image" content="img/soup.jpg"></head><body>Hi</body></html>'),
+  });
+  const page = await fetchPage('https://a.example/', { fetch: fetch.fn, resolve: fakeResolve().fn });
+  assertEquals(page.imageUrl, 'https://b.example/recipes/soup/img/soup.jpg');
 });
 
 Deno.test('fetchPage follows 5 redirects and refuses the 6th', async () => {
@@ -465,6 +474,31 @@ Deno.test('fetchPage returns the fixture page end to end', async () => {
   assertEquals(page.title, 'Weeknight Chickpea Curry & Rice | Example Kitchen');
   assertEquals(page.jsonLd.length, 2);
   assert(page.text.startsWith('Weeknight Chickpea Curry\nIngredients\n1 (15 oz) can chickpeas'));
+});
+
+Deno.test('readPage: the image is og:image, else twitter:image, cleaned', () => {
+  const PAGE_URL = 'https://kitchen.example/curry/';
+  const image = (head: string, pageUrl: string | null = PAGE_URL) =>
+    readPage(`<html><head>${head}</head><body>x</body></html>`, pageUrl ?? undefined).imageUrl;
+  const og = '<meta property="og:image" content="https://cdn.example/og.jpg">';
+  const twitter = '<meta name="twitter:image" content="https://cdn.example/tw.jpg" />';
+  assertEquals(image(og + twitter), 'https://cdn.example/og.jpg');
+  assertEquals(image(twitter + og), 'https://cdn.example/og.jpg', 'og:image wins wherever it is');
+  assertEquals(image(twitter), 'https://cdn.example/tw.jpg');
+  // Attribute order, quotes, case and entities don't matter.
+  assertEquals(image(`<META content='https://cdn.example/a.jpg?w=1&amp;h=2' PROPERTY='OG:Image'>`), 'https://cdn.example/a.jpg?w=1&h=2');
+  // Relative against the page; http, junk or a blank one falls back to twitter:image, else null.
+  assertEquals(image('<meta property="og:image" content="/img/curry.jpg">'), 'https://kitchen.example/img/curry.jpg');
+  assertEquals(image('<meta property="og:image" content="/img/curry.jpg">', null), null, 'without a page URL only an absolute one is kept');
+  assertEquals(image(`<meta property="og:image" content="http://cdn.example/og.jpg">${twitter}`), 'https://cdn.example/tw.jpg');
+  assertEquals(image(`<meta property="og:image" content="  ">${twitter}`), 'https://cdn.example/tw.jpg');
+  assertEquals(image('<meta property="og:image" content="http://cdn.example/og.jpg">'), null);
+  assertEquals(image(`<meta property="og:image" content="https://cdn.example/${'a'.repeat(2048)}">`), null);
+  // Other tags and meta keys are not the image.
+  assertEquals(image('<meta property="og:image:width" content="https://cdn.example/w.jpg"><meta name="og:image" content="https://cdn.example/n.jpg"><link rel="image_src" href="https://cdn.example/l.jpg">'), null);
+  assertEquals(image(''), null);
+  // A meta tag inside a script or comment isn't read.
+  assertEquals(image(`<!-- ${og} --><script>var s = '${og}';</script>`), null);
 });
 
 Deno.test('readPage prefers schema.org Recipe microdata, then <article>, then <body>', () => {

@@ -1,14 +1,14 @@
 // Spec 6.6 step 4 and "Fetching". Fetches a shared recipe link on the server without letting it
 // reach anything private: http(s) only, every hop's addresses checked (at most 5 redirects), a
 // 10 s timeout and text/html only. A body over 1 MB is cut there, not refused: on a big recipe page
-// it's the comments after the recipe that run long. Returns the page's title, JSON-LD blocks and
-// readable text. DNS and fetch are injected so tests need no network.
+// it's the comments after the recipe that run long. Returns the page's title, JSON-LD blocks,
+// readable text and og:image. DNS and fetch are injected so tests need no network.
 //
 // Caveat: fetch resolves the host again after the check, so a DNS server that answers differently
 // a moment later (rebinding) isn't fully stopped. Pinning the checked address needs a custom client.
 //
 // Relative import, not `@shared/`: this file is tested from `_shared/`, which has no import map.
-import { decodeHtmlEntities } from '../../../src/shared/recipe-jsonld.ts';
+import { cleanImageUrl, decodeHtmlEntities } from '../../../src/shared/recipe-jsonld.ts';
 
 export const FETCH_TIMEOUT_MS = 10_000;
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -48,6 +48,8 @@ export type ReadablePage = {
   title: string | null;
   jsonLd: string[];
   text: string;
+  /** `<meta property="og:image">`, else `name="twitter:image"`, cleaned by `cleanImageUrl`; null when neither is usable. */
+  imageUrl: string | null;
 };
 
 export type FetchedPage = ReadablePage & { finalUrl: string };
@@ -268,7 +270,7 @@ async function load(url: string, resolve: ResolveHost, fetchFn: typeof fetch, si
       throw new FetchPageError('not_html', `Not an HTML page (${contentType || 'no content type'})`);
     }
     const html = decodeBody(await readBody(response, signal), contentType);
-    return { finalUrl: current.href, ...readPage(html) };
+    return { finalUrl: current.href, ...readPage(html, current.href) };
   }
 }
 
@@ -428,9 +430,11 @@ function capText(text: string): string {
  * `template`, `svg`) and comment sections (`#comments`, `#respond`, `.comments`, `.comment-list`,
  * `.commentlist`, `.wprm-comments`). Lines are kept, other whitespace collapsed, and it's capped at
  * 30,000 characters. A JSON-LD block counts only if its `</script>` is there: one cut off by a
- * truncated body can't be whole.
+ * truncated body can't be whole. The image is the first `<meta property="og:image">`, else the
+ * first `<meta name="twitter:image">`, resolved against `pageUrl` (without it only an absolute URL
+ * is kept) and cleaned by `cleanImageUrl`.
  */
-export function readPage(html: string): ReadablePage {
+export function readPage(html: string, pageUrl?: string): ReadablePage {
   const jsonLd: string[] = [];
   const markup = html.replace(COMMENT_OR_RAW, (_match, element: string | undefined, attrs: string, content: string, closed: string | undefined) => {
     if (closed && element?.toLowerCase() === 'script' && /(?:^|\s)type\s*=\s*["']?\s*application\/ld\+json/i.test(attrs)) {
@@ -455,5 +459,17 @@ export function readPage(html: string): ReadablePage {
     text = toText(candidate);
     if (text !== '') break;
   }
-  return { title, jsonLd, text: capText(text) };
+  const imageUrl = cleanImageUrl(metaContent(markup, 'property', 'og:image'), pageUrl) ?? cleanImageUrl(metaContent(markup, 'name', 'twitter:image'), pageUrl);
+  return { title, jsonLd, text: capText(text), imageUrl };
+}
+
+/** The `content` of the first `<meta>` whose `key` attribute is `value` (any case); null if none. */
+function metaContent(markup: string, key: 'property' | 'name', value: string): string | null {
+  const tags = new RegExp(TAG.source, 'g');
+  for (let m = tags.exec(markup); m; m = tags.exec(markup)) {
+    const [, slash, name, attrs] = m;
+    if (slash || name.toLowerCase() !== 'meta') continue;
+    if ((attribute(attrs, key) ?? '').trim().toLowerCase() === value) return attribute(attrs, 'content');
+  }
+  return null;
 }

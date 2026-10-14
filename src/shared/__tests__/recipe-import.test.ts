@@ -141,15 +141,63 @@ describe('RecipeImportRequestSchema', () => {
     expect(RecipeImportRequestSchema.safeParse({ url, page: { text: half } }).success).toBe(true);
     expect(RecipeImportRequestSchema.safeParse({ url, page: { text: `${half}é` } }).success).toBe(false);
   });
+
+  it('takes the page’s image URL as given (the server cleans it)', () => {
+    const page = { title: 'Pad Thai', imageUrl: '/images/pad-thai.jpg' };
+    expect(RecipeImportRequestSchema.parse({ url, page })).toEqual({ url, page });
+  });
+
+  it('leaves out an image URL that isn’t a string or is over 2048 characters, without failing the request', () => {
+    for (const imageUrl of [42, null, { url: 'https://example.com/a.jpg' }, `https://example.com/${'a'.repeat(2048)}`]) {
+      const parsed = RecipeImportRequestSchema.safeParse({ url, page: { title: 'Pad Thai', imageUrl } });
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.page).toEqual({ title: 'Pad Thai' });
+    }
+  });
 });
 
 describe('ExtractedRecipeSchema', () => {
   const ingredient = { name: 'garlic', quantity: 2, unit: 'clove', note: 'minced' };
   const tags = { meal: ['dinner'], cuisine: ['thai'], protein: ['shellfish', 'eggs'], diet: [], method: ['one-pot'] };
-  const recipe = { is_recipe: true, name: 'Pad Thai', servings: 4, ingredients: [ingredient], tags, total_minutes: 30 };
+  const recipe = {
+    is_recipe: true,
+    name: 'Pad Thai',
+    servings: 4,
+    ingredients: [ingredient],
+    tags,
+    total_minutes: 30,
+    steps: ['Soak the noodles.', 'Fry the garlic.'],
+    image_url: 'https://example.com/pad-thai.jpg',
+  };
 
   it('accepts a recipe', () => {
     expect(ExtractedRecipeSchema.parse(recipe)).toEqual(recipe);
+  });
+
+  it('steps: at most 100, each 1 to 2000 characters counted in code points', () => {
+    const steps = (s: unknown) => ExtractedRecipeSchema.safeParse({ ...recipe, steps: s }).success;
+    expect(steps([])).toBe(true);
+    expect(steps(Array.from({ length: 100 }, (_, i) => `Step ${i}`))).toBe(true);
+    expect(steps(Array.from({ length: 101 }, (_, i) => `Step ${i}`))).toBe(false);
+    expect(steps(['a'.repeat(2000)])).toBe(true);
+    expect(steps(['a'.repeat(2001)])).toBe(false);
+    // 2000 emoji are 4000 UTF-16 units but 2000 characters, as Postgres counts them.
+    expect(steps(['🍜'.repeat(2000)])).toBe(true);
+    expect(steps(['🍜'.repeat(2001)])).toBe(false);
+    expect(steps([''])).toBe(false);
+    expect(steps('Soak the noodles.')).toBe(false);
+  });
+
+  it('image_url: https only, at most 2048 characters, or null', () => {
+    const image = (u: unknown) => ExtractedRecipeSchema.safeParse({ ...recipe, image_url: u }).success;
+    const at = (n: number) => `https://example.com/${'a'.repeat(n - 'https://example.com/'.length)}`;
+    expect([null, at(2048), 'https://x.example/a.png'].map(image)).toEqual([true, true, true]);
+    expect([at(2049), 'http://example.com/a.jpg', '/a.jpg', ''].map(image)).toEqual([false, false, false, false]);
+  });
+
+  it('a cached v2 result (no steps or photo) fails, so it is a miss', () => {
+    const { steps: _s, image_url: _i, ...v2 } = recipe;
+    expect(ExtractedRecipeSchema.safeParse(v2).success).toBe(false);
   });
 
   it('accepts a non-recipe answer and null quantity, unit, servings and time', () => {
@@ -160,6 +208,8 @@ describe('ExtractedRecipeSchema', () => {
       ingredients: [{ name: 'salt', quantity: null, unit: null, note: 'to taste' }],
       tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
       total_minutes: null,
+      steps: [],
+      image_url: null,
     };
     expect(ExtractedRecipeSchema.parse(answer)).toEqual(answer);
   });
@@ -264,6 +314,8 @@ describe('RecipeImportResponseSchema', () => {
     ingredients: [ingredient],
     tags,
     totalMinutes: 30,
+    steps: ['Soak the noodles.', 'Fry the garlic.'],
+    imageUrl: 'https://example.com/pad-thai.jpg',
   };
 
   it('carries tags (unknown slugs kept, as stored) and the time', () => {
@@ -271,9 +323,28 @@ describe('RecipeImportResponseSchema', () => {
     expect(RecipeImportResponseSchema.parse({ ...response, tags: newer })).toMatchObject({ tags: newer, totalMinutes: 30 });
   });
 
+  it('carries the steps and the photo', () => {
+    expect(RecipeImportResponseSchema.parse(response)).toMatchObject({
+      steps: ['Soak the noodles.', 'Fry the garlic.'],
+      imageUrl: 'https://example.com/pad-thai.jpg',
+    });
+    expect(RecipeImportResponseSchema.parse({ ...response, steps: [], imageUrl: null })).toMatchObject({ steps: [], imageUrl: null });
+  });
+
+  it('missing or unreadable steps and photo are [] and null (an older server), and the rest still parses', () => {
+    const { steps: _s, imageUrl: _i, ...older } = response;
+    expect(RecipeImportResponseSchema.parse(older)).toEqual({ ...older, steps: [], imageUrl: null });
+    expect(RecipeImportResponseSchema.parse({ ...response, steps: 'Soak.', imageUrl: 42 })).toEqual({
+      ...response,
+      steps: [],
+      imageUrl: null,
+    });
+    expect(RecipeImportResponseSchema.parse({ ...response, steps: ['Soak.', 3] }).steps).toEqual([]);
+  });
+
   it('missing or unreadable tags and time are null (an older server), and the rest still parses', () => {
-    const { tags: _t, totalMinutes: _m, ...older } = response;
-    expect(RecipeImportResponseSchema.parse(older)).toEqual({ ...older, tags: null, totalMinutes: null });
+    const { tags: _t, totalMinutes: _m, steps: _s, imageUrl: _i, ...older } = response;
+    expect(RecipeImportResponseSchema.parse(older)).toEqual({ ...older, tags: null, totalMinutes: null, steps: [], imageUrl: null });
     expect(RecipeImportResponseSchema.parse({ ...response, tags: 'dinner', totalMinutes: 0 })).toEqual({
       ...response,
       tags: null,

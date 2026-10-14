@@ -241,8 +241,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       io.err(`Can't read ${args.file}: ${err instanceof Error ? err.message : String(err)}`);
       return 2;
     }
-    const page = readPage(html);
-    request.page = { ...(page.title === null ? {} : { title: page.title }), jsonLd: page.jsonLd, text: page.text };
+    const page = readPage(html, request.url);
+    request.page = {
+      ...(page.title === null ? {} : { title: page.title }),
+      jsonLd: page.jsonLd,
+      text: page.text,
+      ...(page.imageUrl === null ? {} : { imageUrl: page.imageUrl }),
+    };
   }
 
   // With --json, stdout is only the response; everything else goes to stderr.
