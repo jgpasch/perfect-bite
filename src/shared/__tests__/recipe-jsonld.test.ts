@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
-import { cleanJsonLdText, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
+import { cleanImageUrl, cleanJsonLdText, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -28,6 +28,8 @@ describe('findRecipe: block shapes', () => {
       ingredientLines: ['200 g rice noodles', '2 eggs'],
       servings: 2,
       totalMinutes: null,
+      steps: [],
+      imageUrl: null,
     });
   });
 
@@ -295,6 +297,280 @@ const FIXTURES: [string, string[], string, number, string, string, number, numbe
   ],
 ];
 
+// Steps (count, first, last) and image from each fixture.
+const FIXTURE_STEPS_AND_IMAGE: [string, string[], number, string, string, string][] = [
+  [
+    'bbc.co.uk/food (array of strings, ImageObject)',
+    bbcfood,
+    9,
+    'Preheat the oven to 180C/160C Fan/Gas 4. Grease and line two 20cm/8in sandwich tins.',
+    'Transfer the cake to a serving plate and ice the cake all over with the chocolate ganache, using a palette knife.',
+    'https://ichef.bbci.co.uk/food/ic/food_16x9_1600/recipes/easy_chocolate_cake_31070_16x9.jpg',
+  ],
+  [
+    'bbcgoodfood (HowToSteps, array of ImageObjects)',
+    bbcgoodfood,
+    5,
+    'Put 100g plain flour, 2 large eggs, 300ml milk, 1 tbsp sunflower or vegetable oil and a pinch of salt into a bowl or large jug, then whisk to a smooth batter. This should be similar in consistency to single cream.',
+    'Serve with lemon wedges and caster sugar, or your favourite filling. Once cold, you can layer the pancakes between baking parchment, then wrap in cling film and freeze for up to two months.',
+    'https://images.immediate.co.uk/production/volatile/sites/30/2020/08/recipe-image-legacy-id-1273477_8-ad36e3b.jpg?resize=440,400',
+  ],
+  [
+    'bonappetit (HowToSteps, array of strings)',
+    bonappetit,
+    4,
+    'Place racks in upper and lower thirds of oven; preheat to 375°. Whisk 1½ cups plus 1 Tbsp. (200 g) all-purpose flour, 1¼ tsp. (4 g) Diamond Crystal or ¾ tsp. (4 g) Morton kosher salt, and ¾ tsp. (4 g) baking soda in a small bowl; set flour mixture aside.',
+    expect.stringMatching(/^Using a 1½-oz\. scoop .* more easy cookie recipes →$/) as unknown as string,
+    'https://assets.bonappetit.com/photos/5ca534485e96521ff23b382b/16:9/w_4800,h_2700,c_limit/chocolate-chip-cookie.jpg',
+  ],
+  [
+    'delish (HowToSteps, array of ImageObjects)',
+    delish,
+    4,
+    'In a large skillet over medium heat, heat oil. Sprinkle chicken all over with salt, pepper, and oregano. Cook, turning halfway through, until browned on both sides and an instant-read thermometer inserted into thickest part registers 165°, about 8 minutes per side. Transfer to a plate.',
+    'Divide chicken among plates. Spoon sauce over. Serve with lemon wedges alongside.',
+    'https://hips.hearstapps.com/hmg-prod/images/1d09a24f-5b76-49f4-9ad6-496acdc03933.jpg?crop=0.502xw:1.00xh;0.250xw,0&resize=1200:*',
+  ],
+  [
+    'kingarthurbaking (array of strings, ImageObject)',
+    kingarthur,
+    7,
+    'Weigh your flour; or measure it by gently spooning it into a cup, then sweeping off any excess.',
+    'Remove the bread from the oven, and cool it on a rack before slicing. Store the bread in a plastic bag at room temperature for several days; freeze for longer storage.',
+    'https://www.kingarthurbaking.com/sites/default/files/2026-02/Classic-Sandwich-Bread-12.jpg',
+  ],
+  [
+    'recipetineats (HowToSections, array of strings)',
+    recipetineats,
+    10,
+    'Season and flour the chicken, then brown in oil and butter. Remove. Sauté mushrooms and onion, add garlic briefly, then pour in brandy and wine to reduce. Stir in tomato paste for 1 minute, then stock, salt, and pepper. Return chicken, simmer covered 10 minutes then uncovered for 20 minutes until tender. Finish with cold butter and fresh tarragon.',
+    'Serve - Bring the sauce to a gentle simmer again. Return the chicken to the sauce and sprinkle over the fresh tarragon. Take it to the table and serve out of the pan with creamy mashed potato.',
+    'https://www.recipetineats.com/tachyon/2025/10/Chicken-Chasseur-JB_7.jpg',
+  ],
+  [
+    'tasty (HowToSteps, string)',
+    tasty,
+    6,
+    'Heat unsalted butter in a large skillet over medium high heat. Add garlic and cook, stirring frequently, until fragrant, about 1-2 minutes.',
+    'Enjoy!',
+    'https://img.buzzfeed.com/thumbnailer-prod-us-east-1/f69a7f4192b94d8395757b365ac6d866/GarlicParmPasta.jpg?resize=1200:*',
+  ],
+];
+
+describe('findRecipe: real pages, steps and image', () => {
+  it.each(FIXTURE_STEPS_AND_IMAGE)('%s', (_site, blocks, stepCount, first, last, imageUrl) => {
+    const found = findRecipe(blocks, 'https://example.com/recipe/');
+    expect(found?.steps).toHaveLength(stepCount);
+    expect(found?.steps[0]).toBe(first);
+    expect(found?.steps.at(-1)).toEqual(last);
+    expect(found?.imageUrl).toBe(imageUrl);
+  });
+});
+
+describe('findRecipe: steps', () => {
+  const steps = (recipeInstructions: unknown) => findRecipe([block(recipe({ recipeInstructions }))])?.steps;
+
+  it('splits a single string on line breaks', () => {
+    expect(steps('Boil the noodles.\nFry the eggs.\r\nToss together.\rServe.')).toEqual([
+      'Boil the noodles.',
+      'Fry the eggs.',
+      'Toss together.',
+      'Serve.',
+    ]);
+  });
+
+  it('splits a single HTML string on <br> and paragraph and list ends', () => {
+    expect(steps('<ol><li>Boil.</li><li>Fry.</li></ol><p>Toss.</p><p>Serve.<br/>Eat.</p>')).toEqual([
+      'Boil.',
+      'Fry.',
+      'Toss.',
+      'Serve.',
+      'Eat.',
+    ]);
+  });
+
+  it('reads an array of strings', () => {
+    expect(steps(['Boil.', 'Fry.'])).toEqual(['Boil.', 'Fry.']);
+  });
+
+  it('keeps each string of an array as one step', () => {
+    expect(steps(['Boil the noodles.\nDrain.', 'Fry.<br>Season.'])).toEqual(['Boil the noodles. Drain.', 'Fry. Season.']);
+  });
+
+  it('reads HowToSteps by text, else name', () => {
+    expect(
+      steps([
+        { '@type': 'HowToStep', text: 'Boil.', name: 'Ignored' },
+        { '@type': 'HowToStep', name: 'Fry.' },
+        { '@type': 'HowToStep', text: '  ', name: 'Toss.' },
+        { '@type': 'HowToStep', text: 5 },
+        { '@type': 'HowToStep' },
+      ]),
+    ).toEqual(['Boil.', 'Fry.', 'Toss.']);
+  });
+
+  it('flattens HowToSections in order and drops the section names', () => {
+    expect(
+      steps([
+        {
+          '@type': 'HowToSection',
+          name: 'For the sauce',
+          itemListElement: [
+            { '@type': 'HowToStep', text: 'Whisk the sauce.' },
+            { '@type': 'HowToStep', text: 'Set aside.' },
+          ],
+        },
+        'Boil the noodles.',
+        {
+          '@type': 'HowToSection',
+          name: 'To finish',
+          itemListElement: { '@type': 'HowToStep', text: 'Toss with the sauce.' },
+        },
+      ]),
+    ).toEqual(['Whisk the sauce.', 'Set aside.', 'Boil the noodles.', 'Toss with the sauce.']);
+  });
+
+  it('strips HTML tags and entities and collapses whitespace', () => {
+    expect(steps(['<p>Add salt&nbsp;&amp;\t <b>pepper</b>&hellip;</p>'])).toEqual(['Add salt & pepper …']);
+  });
+
+  it('drops leading numbering', () => {
+    expect(
+      steps(['1. Boil.', '2) Fry.', 'Step 3: Toss.', 'STEP 4 - Plate.', 'step 5 Serve.', '6- Eat.', '7 : Rest.']),
+    ).toEqual(['Boil.', 'Fry.', 'Toss.', 'Plate.', 'Serve.', 'Eat.', 'Rest.']);
+  });
+
+  it('keeps a leading quantity that is not numbering', () => {
+    expect(steps(['2 eggs go in now.', '1.5 cups of stock.', '10-12 minutes more.'])).toEqual([
+      '2 eggs go in now.',
+      '1.5 cups of stock.',
+      '10-12 minutes more.',
+    ]);
+  });
+
+  it('drops empty steps, bare numbering and a step identical to the one before', () => {
+    expect(steps(['Boil.', '', '  ', '<br>', 'Step 2', '3.', 'Boil.', '1. Fry.', 'Fry.', 'Boil.'])).toEqual([
+      'Boil.',
+      'Fry.',
+      'Boil.',
+    ]);
+  });
+
+  it('caps at 100 steps', () => {
+    const many = Array.from({ length: 150 }, (_, i) => `Do thing ${i + 1}.`);
+    const result = steps(many);
+    expect(result).toHaveLength(100);
+    expect(result?.at(-1)).toBe('Do thing 100.');
+  });
+
+  it('caps each step at 2000 characters without splitting an emoji', () => {
+    expect(steps(['a'.repeat(2500)])).toEqual(['a'.repeat(2000)]);
+    expect(steps(['a'.repeat(1999) + '🍳🍳'])).toEqual(['a'.repeat(1999) + '🍳']);
+    expect(steps(['a'.repeat(1999) + ' b'])).toEqual(['a'.repeat(1999)]);
+  });
+
+  it('is empty when missing or unusable', () => {
+    expect(steps(undefined)).toEqual([]);
+    expect(steps(null)).toEqual([]);
+    expect(steps(42)).toEqual([]);
+    expect(steps('')).toEqual([]);
+    expect(steps([])).toEqual([]);
+    expect(steps({ '@type': 'HowToSection', name: 'Empty', itemListElement: [] })).toEqual([]);
+  });
+});
+
+describe('findRecipe: image', () => {
+  const PAGE = 'https://cook.example.com/recipes/pad-thai/';
+  const image = (value: unknown, pageUrl: string | null = PAGE) =>
+    findRecipe([block(recipe({ image: value }))], pageUrl)?.imageUrl;
+
+  it('reads a string', () => {
+    expect(image('https://cdn.example.com/pad-thai.jpg')).toBe('https://cdn.example.com/pad-thai.jpg');
+  });
+
+  it('reads an ImageObject by url, else contentUrl', () => {
+    expect(image({ '@type': 'ImageObject', url: 'https://cdn.example.com/a.jpg', contentUrl: 'https://cdn.example.com/b.jpg' })).toBe(
+      'https://cdn.example.com/a.jpg',
+    );
+    expect(image({ '@type': 'ImageObject', contentUrl: 'https://cdn.example.com/b.jpg' })).toBe(
+      'https://cdn.example.com/b.jpg',
+    );
+    expect(image({ '@type': 'ImageObject', url: 'http://cdn.example.com/a.jpg', contentUrl: 'https://cdn.example.com/b.jpg' })).toBe(
+      'https://cdn.example.com/b.jpg',
+    );
+  });
+
+  it('reads the first usable entry of an array', () => {
+    expect(image(['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'])).toBe('https://cdn.example.com/1.jpg');
+    expect(image([null, 'http://cdn.example.com/1.jpg', { url: 7 }, { url: 'https://cdn.example.com/3.jpg' }])).toBe(
+      'https://cdn.example.com/3.jpg',
+    );
+  });
+
+  it('resolves a relative URL against the page URL', () => {
+    expect(image('/images/pad-thai.jpg')).toBe('https://cook.example.com/images/pad-thai.jpg');
+    expect(image('pad-thai.jpg')).toBe('https://cook.example.com/recipes/pad-thai/pad-thai.jpg');
+    expect(image('//cdn.example.com/pad-thai.jpg')).toBe('https://cdn.example.com/pad-thai.jpg');
+    expect(image({ url: '../hero.jpg' })).toBe('https://cook.example.com/recipes/hero.jpg');
+  });
+
+  it('drops a relative URL with no page URL', () => {
+    expect(image('/images/pad-thai.jpg', null)).toBeNull();
+    expect(image('https://cdn.example.com/pad-thai.jpg', null)).toBe('https://cdn.example.com/pad-thai.jpg');
+    expect(findRecipe([block(recipe({ image: '/images/pad-thai.jpg' }))])?.imageUrl).toBeNull();
+  });
+
+  it('drops http:// and other schemes, including a relative URL on an http page', () => {
+    expect(image('http://cdn.example.com/pad-thai.jpg')).toBeNull();
+    expect(image('/images/pad-thai.jpg', 'http://cook.example.com/recipes/')).toBeNull();
+    expect(image('data:image/png;base64,AAAA')).toBeNull();
+    expect(image('javascript:alert(1)')).toBeNull();
+  });
+
+  it('is null when missing or unusable', () => {
+    expect(image(undefined)).toBeNull();
+    expect(image('')).toBeNull();
+    expect(image(42)).toBeNull();
+    expect(image([])).toBeNull();
+    expect(image({ '@id': 'https://cook.example.com/#primaryimage' })).toBeNull();
+  });
+});
+
+describe('cleanImageUrl', () => {
+  const PAGE = 'https://cook.example.com/recipes/pad-thai/';
+
+  it('keeps an https URL as is', () => {
+    expect(cleanImageUrl('https://cdn.example.com/a.jpg?w=1200&h=800', PAGE)).toBe('https://cdn.example.com/a.jpg?w=1200&h=800');
+  });
+
+  it('trims and decodes entities', () => {
+    expect(cleanImageUrl('  https://cdn.example.com/a.jpg?w=1&amp;h=2 ', PAGE)).toBe('https://cdn.example.com/a.jpg?w=1&h=2');
+  });
+
+  it('resolves relative URLs against the page URL', () => {
+    expect(cleanImageUrl('/a.jpg', PAGE)).toBe('https://cook.example.com/a.jpg');
+    expect(cleanImageUrl('a.jpg', PAGE)).toBe('https://cook.example.com/recipes/pad-thai/a.jpg');
+  });
+
+  it('keeps at most 2048 characters', () => {
+    const base = 'https://cdn.example.com/';
+    const fits = base + 'a'.repeat(2048 - base.length);
+    expect(cleanImageUrl(fits, PAGE)).toBe(fits);
+    expect(cleanImageUrl(fits + 'a', PAGE)).toBeNull();
+  });
+
+  it('is null for http, other schemes, garbage and non-strings', () => {
+    expect(cleanImageUrl('http://cdn.example.com/a.jpg', PAGE)).toBeNull();
+    expect(cleanImageUrl('ftp://cdn.example.com/a.jpg', PAGE)).toBeNull();
+    expect(cleanImageUrl('https://', PAGE)).toBeNull();
+    expect(cleanImageUrl('a.jpg', 'not a url')).toBeNull();
+    expect(cleanImageUrl('a.jpg', null)).toBeNull();
+    expect(cleanImageUrl('   ', PAGE)).toBeNull();
+    expect(cleanImageUrl(null, PAGE)).toBeNull();
+    expect(cleanImageUrl({ url: 'https://cdn.example.com/a.jpg' }, PAGE)).toBeNull();
+  });
+});
+
 describe('findRecipe: real pages', () => {
   it.each(FIXTURES)('%s', (_site, blocks, name, lineCount, first, last, servings, totalMinutes) => {
     const found = findRecipe(blocks);
@@ -336,5 +612,6 @@ describe('exports', () => {
     expect(shared.findRecipe).toBe(findRecipe);
     expect(shared.decodeHtmlEntities).toBe(decodeHtmlEntities);
     expect(shared.parseIsoDuration).toBe(parseIsoDuration);
+    expect(shared.cleanImageUrl).toBe(cleanImageUrl);
   });
 });
