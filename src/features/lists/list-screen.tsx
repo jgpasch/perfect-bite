@@ -925,6 +925,12 @@ export function ListScreen({ id }: { id: string }) {
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => router.push({ pathname: '/list/[id]/edit', params: { id } })}>
               Edit list…
             </Stack.Toolbar.MenuAction>
+            {/* By aisle: a way to the aisle order (also in Settings). */}
+            {viewMode === 'category' ? (
+              <Stack.Toolbar.MenuAction icon="arrow.up.arrow.down" onPress={() => router.push('/category-order')}>
+                Reorder aisles…
+              </Stack.Toolbar.MenuAction>
+            ) : null}
           </Stack.Toolbar.Menu>
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
@@ -985,14 +991,6 @@ export function ListScreen({ id }: { id: string }) {
                 ]}
               />
             </View>
-          }
-          // By aisle: a way to the aisle order after the last section (also in Settings).
-          ListFooterComponent={
-            viewMode === 'category' && blocks.some((b) => b.kind === 'aisle') ? (
-              <View style={[styles.row, styles.center, { paddingTop: spacing.md }]}>
-                <Button label="Reorder aisles" variant="plain" onPress={() => router.push('/category-order')} />
-              </View>
-            ) : null
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
           // Add mode: scrolling or checking off rows keeps the keyboard up.

@@ -133,7 +133,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 
 #### 4.3.3 Category order (req 9)
 - Each user has their own category order, used in every list's grouped-by-category view. Default order follows a typical store walk (section 6.2 order).
-- The user reorders sections by drag on the Aisle order screen, opened from Settings ("Store aisle order") or, in By aisle, from "Reorder aisles" at the end of the list.
+- The user reorders sections by drag on the Aisle order screen, opened from Settings ("Store aisle order") or, in By aisle, from "Reorder aisles…" in the list's ⋯ menu.
 - Stored per user and synced to all of that user's devices [Default]. Not shared with household members.
 - Custom categories belong to a household (4.3.2); a new one goes at the end of its creator's order, and at the end for other members until they move it. The "Aisle order" screen shows the system aisles plus the custom aisles of every household the user is in; when the user is in more than one household, each custom aisle shows its household's name as a second line (`footnote`, `inkSecondary`; VoiceOver reads "Costco, Test home, 3 of 20") so two "Costco" aisles can be told apart. With one household there's no second line.
 

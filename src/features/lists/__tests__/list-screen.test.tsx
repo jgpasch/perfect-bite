@@ -1293,12 +1293,12 @@ describe('the Checked header', () => {
 });
 
 describe('Reorder aisles', () => {
-  test('By aisle ends with Reorder aisles, which opens the aisle order', () => {
+  test('By aisle has Reorder aisles… in the list menu, which opens the aisle order', () => {
     put('milk');
     render();
-    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Reorder aisles')).toHaveLength(0);
+    expect(menuAction('Reorder aisles…')).toBeUndefined();
     setView('category');
-    press(pressable('Reorder aisles'));
+    press(menuAction('Reorder aisles…'));
     expect(mockPush).toHaveBeenCalledWith('/category-order');
   });
 
@@ -1306,6 +1306,13 @@ describe('Reorder aisles', () => {
     put('milk');
     render();
     setView('recipe');
+    expect(menuAction('Reorder aisles…')).toBeUndefined();
+  });
+
+  test('not at the end of the list', () => {
+    put('milk');
+    render();
+    setView('category');
     expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Reorder aisles')).toHaveLength(0);
   });
 });
