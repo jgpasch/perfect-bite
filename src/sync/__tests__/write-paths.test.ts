@@ -53,10 +53,13 @@ import {
   createRecipe,
   deleteRecipe,
   deleteRecipeIngredient,
+  getRecipe,
   undeleteRecipeIngredient,
   updateRecipe,
   updateRecipeIngredient,
+  updateRecipeTags,
 } from '@/features/recipes/recipes';
+import { emptyRecipeTags } from '@/shared/recipe-tags';
 import { updateRows, upsertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
@@ -400,7 +403,7 @@ describe('recipes', () => {
       {
         table: 'recipes',
         id,
-        // A recipe made by hand starts untagged (spec 4.14).
+        // A recipe made by hand starts untagged (spec 4.14), with no steps, servings or photo (spec 5).
         fields: {
           household_id: householdId,
           name: 'Tacos',
@@ -409,6 +412,9 @@ describe('recipes', () => {
           tags: null,
           tags_edited: false,
           total_minutes: null,
+          steps: null,
+          servings: null,
+          image_url: null,
           deleted_at: null,
           created_at: ISO,
         },
@@ -416,6 +422,22 @@ describe('recipes', () => {
       { table: 'recipes', id, fields: { name: 'Fish tacos', notes: null, source_url: 'https://example.com' } },
       { table: 'recipes', id, fields: { deleted_at: ISO } },
     ]);
+  });
+
+  test('editing the name, notes or tags leaves steps, servings and photo out of the patch', () => {
+    const id = createRecipe('Tacos');
+    const steps = ['Toast the tortillas.', 'Fill and fold.'];
+    updateRows(db, recipes, eq(recipes.id, id), { steps, servings: 4, imageUrl: 'https://example.com/t.jpg' });
+    clearOutbox();
+
+    updateRecipe(id, { name: 'Fish tacos', notes: 'Spicy', sourceUrl: '' });
+    updateRecipeTags(id, emptyRecipeTags(), 30);
+
+    expect(outboxPatches().map((p) => Object.keys(p.fields))).toEqual([
+      ['name', 'notes', 'source_url'],
+      ['tags', 'total_minutes', 'tags_edited'],
+    ]);
+    expect(getRecipe(id)).toMatchObject({ steps, servings: 4, imageUrl: 'https://example.com/t.jpg' });
   });
 
   test('deleting a recipe unlinks its amounts on lists', () => {

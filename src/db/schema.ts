@@ -164,6 +164,11 @@ export const recipes = sqliteTable(
     /** A person has edited the tags (hides "Tagged when you imported it"). */
     tagsEdited: integer('tags_edited', { mode: 'boolean' }).notNull().default(false),
     totalMinutes: integer('total_minutes'),
+    /** Method steps in order (spec 5). Null = none. */
+    steps: text('steps', { mode: 'json' }).$type<string[]>(),
+    servings: integer('servings'),
+    /** The site's own photo URL, loaded remotely; we store no image. */
+    imageUrl: text('image_url'),
     /** Set by the server to whoever inserted it; never sent (spec 5). */
     addedBy: text('added_by'),
     deletedAt,

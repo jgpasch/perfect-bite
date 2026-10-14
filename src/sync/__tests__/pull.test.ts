@@ -795,6 +795,161 @@ describe('recipe tags (spec 4.14)', () => {
   });
 });
 
+describe('recipe steps, servings and photo (spec 5)', () => {
+  const STEPS = ['Toast the tortillas.', 'Fill and fold.'];
+  const PHOTO = 'https://example.com/tacos.jpg';
+  const RECIPE_CLOCK = {
+    household_id: OLD,
+    name: OLD,
+    notes: OLD,
+    source_url: OLD,
+    tags: OLD,
+    tags_edited: OLD,
+    total_minutes: OLD,
+    steps: OLD,
+    servings: OLD,
+    image_url: OLD,
+    deleted_at: OLD,
+  };
+  const remoteRecipe = (updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
+    id: 'r1',
+    household_id: H1,
+    name: 'Tacos',
+    notes: null,
+    source_url: 'https://example.com/tacos',
+    tags: null,
+    tags_edited: false,
+    total_minutes: null,
+    steps: STEPS,
+    servings: 4,
+    image_url: PHOTO,
+    added_by: 'u2',
+    deleted_at: null,
+    field_clock: RECIPE_CLOCK,
+    created_at: ts(0),
+    updated_at: updated,
+    ...extra,
+  });
+  const recipeRow = () => db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!;
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('recipes', remoteRecipe(ts(2)));
+    await pullNow();
+  });
+
+  test('a pull applies steps, servings and image_url', () => {
+    expect(recipeRow()).toMatchObject({ steps: STEPS, servings: 4, imageUrl: PHOTO, updatedAt: new Date(ts(2)) });
+  });
+
+  test('a recipe with none of them pulls as nulls', async () => {
+    put('recipes', { ...remoteRecipe(ts(3), { steps: null, servings: null, image_url: null }), id: 'r2' });
+
+    await pullNow();
+
+    expect(db.select().from(recipes).where(eq(recipes.id, 'r2')).get()).toMatchObject({
+      steps: null,
+      servings: null,
+      imageUrl: null,
+    });
+  });
+
+  test('a newer remote edit to each replaces the value and its clock', async () => {
+    const steps = ['Warm the tortillas.', 'Fill.', 'Fold.'];
+    server.recipes = [
+      remoteRecipe(ts(10), {
+        steps,
+        servings: 8,
+        image_url: 'https://example.com/tacos-2.jpg',
+        field_clock: { ...RECIPE_CLOCK, steps: NEW, servings: NEW, image_url: NEW },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ steps, servings: 8, imageUrl: 'https://example.com/tacos-2.jpg' });
+    expect(recipeRow().fieldClock).toMatchObject({ steps: NEW, servings: NEW, image_url: NEW, name: OLD });
+  });
+
+  test('a remote clear of steps applies', async () => {
+    server.recipes = [remoteRecipe(ts(10), { steps: null, field_clock: { ...RECIPE_CLOCK, steps: NEW } })];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ steps: null, servings: 4, imageUrl: PHOTO });
+  });
+
+  // The remote row also carries the old value of the locally edited field (its clock unchanged).
+  const crossEdits = [
+    {
+      field: 'steps',
+      local: { steps: ['Mine.'] },
+      pushed: { steps: ['Mine.'] },
+      other: 'servings',
+      remote: { servings: 2 },
+      pulled: { servings: 2 },
+    },
+    {
+      field: 'servings',
+      local: { servings: 10 },
+      pushed: { servings: 10 },
+      other: 'image_url',
+      remote: { image_url: null },
+      pulled: { imageUrl: null },
+    },
+    {
+      field: 'image_url',
+      local: { imageUrl: 'https://example.com/mine.jpg' },
+      pushed: { image_url: 'https://example.com/mine.jpg' },
+      other: 'steps',
+      remote: { steps: ['Theirs.'] },
+      pulled: { steps: ['Theirs.'] },
+    },
+  ];
+  test.each(crossEdits)(
+    "a newer remote $other edit doesn't overwrite an unpushed local $field edit",
+    async ({ field, local, pushed, other, remote, pulled }) => {
+      updateRows(db, recipes, eq(recipes.id, 'r1'), local);
+      server.recipes = [remoteRecipe(ts(10), { ...remote, field_clock: { ...RECIPE_CLOCK, [other]: NEW } })];
+
+      await pullNow();
+
+      expect(recipeRow()).toMatchObject({ ...local, ...pulled });
+      expect(outboxRows().map((r) => r.mutation.fields)).toEqual([pushed]);
+      expect(recipeRow().fieldClock[other]).toBe(NEW);
+      expect(recipeRow().fieldClock[field]).not.toBe(OLD);
+    },
+  );
+
+  test('a local unpushed steps edit beats an older remote one', async () => {
+    updateRows(db, recipes, eq(recipes.id, 'r1'), { steps: ['Mine.'] });
+    server.recipes = [
+      remoteRecipe(ts(10), { steps: ['Theirs.'], field_clock: { ...RECIPE_CLOCK, steps: '1500000000000-0000-remote' } }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow().steps).toEqual(['Mine.']);
+  });
+
+  test('the same steps again are no change', async () => {
+    server.recipes = [remoteRecipe(ts(10), { steps: [...STEPS] })];
+
+    await pullNow();
+
+    expect(recipeRow().updatedAt).toEqual(new Date(ts(2)));
+  });
+
+  test('a server without the columns yet leaves them alone', async () => {
+    const { steps: _s, servings: _n, image_url: _i, ...older } = remoteRecipe(ts(10), { name: 'Tacos!' });
+    server.recipes = [{ ...older, field_clock: { ...RECIPE_CLOCK, name: NEW } }];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ name: 'Tacos!', steps: STEPS, servings: 4, imageUrl: PHOTO });
+  });
+});
+
 describe("the household's aisles (spec 4.3.2)", () => {
   const customCategory = (id: string, name: string, updated: string, householdId = H1): ServerRow => ({
     id,

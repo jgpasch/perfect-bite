@@ -296,6 +296,9 @@ test('a recipe insert sends its tags, tags_edited and total_minutes but never ad
     tags,
     tags_edited: false,
     total_minutes: 40,
+    steps: null,
+    servings: null,
+    image_url: null,
     deleted_at: null,
     created_at: AT.toISOString(),
   });
@@ -307,6 +310,62 @@ test('an untagged recipe insert sends null tags and time', () => {
   insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup' });
 
   expect(outboxMutations().at(-1)!.fields).toMatchObject({ tags: null, tags_edited: false, total_minutes: null });
+});
+
+test('a recipe insert sends its steps, servings and image_url (spec 5)', () => {
+  addHousehold();
+  const steps = ['Brown the beef.', 'Add the beans and simmer for 20 minutes.'];
+  insertRow(db, recipes, {
+    id: 'r1',
+    householdId: H,
+    name: 'Chili',
+    steps,
+    servings: 6,
+    imageUrl: 'https://example.com/chili.jpg',
+  });
+
+  const row = db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!;
+  expect(row).toMatchObject({ steps, servings: 6, imageUrl: 'https://example.com/chili.jpg' });
+  expect(Object.keys(row.fieldClock)).toEqual(expect.arrayContaining(['steps', 'servings', 'image_url']));
+  expect(outboxMutations().at(-1)!.fields).toMatchObject({
+    steps,
+    servings: 6,
+    image_url: 'https://example.com/chili.jpg',
+  });
+});
+
+test('a recipe without steps, servings or a photo sends nulls', () => {
+  addHousehold();
+  insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup' });
+
+  expect(outboxMutations().at(-1)!.fields).toMatchObject({ steps: null, servings: null, image_url: null });
+});
+
+test('a recipe update sends only the steps, servings or image_url it changed', () => {
+  addHousehold();
+  insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup', servings: 2 });
+
+  updateRows(db, recipes, eq(recipes.id, 'r1'), { steps: ['Simmer.'] });
+  expect(outboxPatches().at(-1)).toEqual({ table: 'recipes', id: 'r1', fields: { steps: ['Simmer.'] } });
+
+  updateRows(db, recipes, eq(recipes.id, 'r1'), { servings: 4, imageUrl: 'https://example.com/soup.png' });
+  expect(outboxPatches().at(-1)).toEqual({
+    table: 'recipes',
+    id: 'r1',
+    fields: { servings: 4, image_url: 'https://example.com/soup.png' },
+  });
+
+  updateRows(db, recipes, eq(recipes.id, 'r1'), { steps: null, servings: null, imageUrl: null });
+  expect(outboxPatches().at(-1)).toEqual({
+    table: 'recipes',
+    id: 'r1',
+    fields: { steps: null, servings: null, image_url: null },
+  });
+  expect(db.select().from(recipes).where(eq(recipes.id, 'r1')).get()).toMatchObject({
+    steps: null,
+    servings: null,
+    imageUrl: null,
+  });
 });
 
 test("a recipe tags update sends exactly the tag fields; added_by can't be patched", () => {
