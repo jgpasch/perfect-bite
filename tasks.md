@@ -25,7 +25,7 @@ Goal: plurals and accents match when typing Spanish, and the same thing typed in
 
 Goal: a list of seed names to cut, for the user to review before anything is removed. Applying it, the Spanish twins and translating the catalog stay in `future/i18n-es-mx-tasks.md` until the list is reviewed.
 
-- [ ] Write the prune list (spec 6.2). No code changes. Write `docs/seed-prune.md`: every name in `src/shared/seed/ingredients.ts`, by category, as a Markdown checklist in two lists per category: **Suggested to remove** (ticked) and **Keep** (unticked). Suggest removing brands, prepared foods and gifts (`fruit tray`, `chocolate covered strawberries`, `candy apple`), near-duplicates of a name that stays (`ears of corn` beside `corn`), and things rarely on a US grocery list; when in doubt, keep. The file starts with the counts, how to use it (ticked = remove; tick or untick anything, move nothing) and a line `Reviewed: no` for the user to change to `yes` when done. NEEDS A MANUAL CHECK: the user goes through the list.
+- [x] Write the prune list (spec 6.2). No code changes. Write `docs/seed-prune.md`: every name in `src/shared/seed/ingredients.ts`, by category, as a Markdown checklist in two lists per category: **Suggested to remove** (ticked) and **Keep** (unticked). Suggest removing brands, prepared foods and gifts (`fruit tray`, `chocolate covered strawberries`, `candy apple`), near-duplicates of a name that stays (`ears of corn` beside `corn`), and things rarely on a US grocery list; when in doubt, keep. The file starts with the counts, how to use it (ticked = remove; tick or untick anything, move nothing) and a line `Reviewed: no` for the user to change to `yes` when done. NEEDS A MANUAL CHECK: the user goes through the list.
 
 ## Recipe source credit
 
