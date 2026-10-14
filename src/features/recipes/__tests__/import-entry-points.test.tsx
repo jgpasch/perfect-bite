@@ -1,5 +1,6 @@
-// Recipe import needs plus (spec 4.12): without `recipe_import`, both of the Recipes tab's "Import from
-// link" buttons are hidden. The list menu no longer offers it at all; the Recipes tab is the way in.
+// Recipe import needs plus (spec 4.12): without `recipe_import`, the Recipes tab's empty-state "Import
+// from link" is hidden; the toolbar's one + opens the Add recipe sheet either way. The list menu no
+// longer offers import at all; the Recipes tab is the way in.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -133,39 +134,46 @@ describe('the Recipes tab', () => {
       .filter((n) => label(n) === 'Import from link');
   const toolbarLabels = (root: ReactTestRenderer) => byType(root, 'ToolbarButton').map(label);
 
-  test('plus with no recipes shows both: the empty-state button and the toolbar button', () => {
+  test('plus with no recipes: the empty state imports through the Add recipe sheet, link field first', () => {
     const root = render(() => <RecipesScreen />, PLUS);
-    expect(toolbarLabels(root)).toEqual(['Import from link', 'New recipe']);
+    expect(toolbarLabels(root)).toEqual(['Add recipe']);
     const buttons = importButtons(root);
-    expect(buttons).toHaveLength(2);
-    for (const button of buttons) press(button);
-    expect(mockPush.mock.calls).toEqual([['/import-recipe'], ['/import-recipe']]);
+    expect(buttons).toHaveLength(1);
+    press(buttons[0]);
+    expect(mockPush.mock.calls).toEqual([[{ pathname: '/add-recipe', params: { focus: 'link' } }]]);
   });
 
-  test('without recipe_import neither shows, and New recipe stays', () => {
+  test('without recipe_import no Import from link shows, and New recipe stays', () => {
     const root = render(() => <RecipesScreen />, STANDARD);
     expect(importButtons(root)).toEqual([]);
-    expect(toolbarLabels(root)).toEqual(['New recipe']);
+    expect(toolbarLabels(root)).toEqual(['Add recipe']);
     expect(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'New recipe')).not.toHaveLength(0);
   });
 
-  test('the base plan hides them too', () => {
+  test('the base plan hides it too', () => {
     const root = render(() => <RecipesScreen />, []);
     expect(importButtons(root)).toEqual([]);
   });
 
-  test('with recipes, plus keeps the toolbar button; without it, it is gone', () => {
+  test('with recipes the toolbar has only Add recipe, with or without plus', () => {
     createRecipe('Tacos');
     let root = render(() => <RecipesScreen />, PLUS);
-    expect(toolbarLabels(root)).toEqual(['Import from link', 'New recipe']);
+    expect(toolbarLabels(root)).toEqual(['Add recipe']);
     act(() => tree?.unmount());
     root = render(() => <RecipesScreen />, STANDARD);
-    expect(toolbarLabels(root)).toEqual(['New recipe']);
+    expect(toolbarLabels(root)).toEqual(['Add recipe']);
   });
 
-  test('gaining recipe_import shows them without leaving the tab', () => {
+  test('the toolbar Add recipe and the empty New recipe open the same sheet', () => {
+    const root = render(() => <RecipesScreen />, PLUS);
+    press(byType(root, 'ToolbarButton')[0]);
+    press(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'New recipe')[0]);
+    expect(mockPush.mock.calls).toEqual([['/add-recipe'], ['/add-recipe']]);
+  });
+
+  test('gaining recipe_import shows it without leaving the tab', () => {
     const root = render(() => <RecipesScreen />, STANDARD);
     act(() => setFeatures(PLUS));
-    expect(importButtons(root)).toHaveLength(2);
+    expect(importButtons(root)).toHaveLength(1);
   });
 });

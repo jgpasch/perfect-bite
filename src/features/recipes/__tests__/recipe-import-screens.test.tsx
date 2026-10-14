@@ -611,26 +611,21 @@ describe('RecipesScreen', () => {
       .map((n) => n.props.accessibilityLabel as string)
       .filter((l, i, all) => all.indexOf(l) === i);
 
-  test('empty: "No recipes yet." with New recipe, which creates one and opens it', () => {
+  test('empty: "No recipes yet." with New recipe, which opens the Add recipe sheet', () => {
     const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
     const root = render(<RecipesScreen />);
     expect(texts(root)).toContain('No recipes yet.');
     press(byLabel(root, 'New recipe'));
-    const create = (prompt.mock.calls[0][2] as AlertButton[]).find((b) => b.text === 'Create')!;
-    // A blank name creates nothing.
-    act(() => (create.onPress as (n: string) => void)('  '));
-    expect(mockPush).not.toHaveBeenCalled();
-    act(() => (create.onPress as (n: string) => void)('Tacos'));
-    const [[route]] = mockPush.mock.calls as [[{ pathname: string; params: { id: string } }]];
-    expect(route.pathname).toBe('/recipe/[id]');
-    expect(getRecipe(route.params.id)!.name).toBe('Tacos');
+    expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
+    expect(prompt).not.toHaveBeenCalled();
   });
 
-  test('the toolbar New recipe prompts too', () => {
+  test('the toolbar Add recipe opens the sheet too, not a prompt', () => {
     const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
     const root = render(<RecipesScreen />);
-    act(() => byType(root, 'ToolbarButton').find((n) => n.props.accessibilityLabel === 'New recipe')!.props.onPress());
-    expect(prompt.mock.calls[0][0]).toBe('New recipe');
+    act(() => byType(root, 'ToolbarButton').find((n) => n.props.accessibilityLabel === 'Add recipe')!.props.onPress());
+    expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
+    expect(prompt).not.toHaveBeenCalled();
   });
 
   test('a card per recipe under its household, with its count and the list it is on', () => {

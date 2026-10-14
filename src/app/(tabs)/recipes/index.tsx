@@ -89,19 +89,19 @@ export default function RecipesScreen() {
     filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
-  const create = () => promptRecipeName(null, '', (id) => router.push({ pathname: '/recipe/[id]', params: { id } }));
-  // Spec 4.10: the sheet asks for the household, and a list if the user wants one.
-  const importFromLink = () => router.push('/import-recipe');
+  // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
+  const addRecipe = () => router.push('/add-recipe');
+  const importFromLink = () => router.push({ pathname: '/add-recipe', params: { focus: 'link' } });
   // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
   const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
-  // Spec 4.12: recipe import is a plus feature; without it neither button shows.
+  // Spec 4.12: recipe import is a plus feature; without it the empty state has no Import from link.
   const canImport = useFeature('recipe_import');
   const empty = (
     <EmptyState
       message="No recipes yet."
       action={
         <View style={{ gap: spacing.sm }}>
-          <PrimaryButton label="New recipe" onPress={create} />
+          <PrimaryButton label="New recipe" onPress={addRecipe} />
           {canImport ? <Button label="Import from link" variant="plain" onPress={importFromLink} /> : null}
         </View>
       }
@@ -180,15 +180,12 @@ export default function RecipesScreen() {
   return (
     <Screen>
       <Stack.Toolbar placement="right">
-        {canImport ? (
-          <Stack.Toolbar.Button icon="link" accessibilityLabel="Import from link" onPress={importFromLink} />
-        ) : null}
         <Stack.Toolbar.Button
           icon="plus"
           variant="prominent"
           tintColor={prominentButtonTint(scheme, colors)}
-          accessibilityLabel="New recipe"
-          onPress={create}
+          accessibilityLabel="Add recipe"
+          onPress={addRecipe}
         />
       </Stack.Toolbar>
       {data.length > 0 ? (
