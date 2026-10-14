@@ -10,6 +10,7 @@ import {
   deviceSettings,
   householdCategoryOverrides,
   households,
+  householdStaples,
   ingredientUnitUsage,
   ingredientUsage,
   listItemContributions,
@@ -40,7 +41,7 @@ import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 import { resetDb } from '@/test/db';
 import { outboxRows } from '@/test/outbox';
 
-import { insertRow } from '../mutate';
+import { insertRow, upsertRow } from '../mutate';
 import { purgeHousehold } from '../purge';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -198,6 +199,31 @@ describe('purgeHousehold', () => {
     expect(getDefaultListId(USER)).toBe(homeList);
   });
 
+  test("removes the household's staples, marked and unmarked, with their queued mutations", () => {
+    const mark = (householdId: string, ingredientName: string, deletedAt: Date | null = null) =>
+      upsertRow(db, householdStaples, { householdId, ingredientName, createdBy: USER, deletedAt }, { deletedAt });
+    mark(home, 'salt');
+    mark(CABIN, 'salt');
+    mark(CABIN, 'pepper');
+    mark(CABIN, 'pepper', new Date());
+    const staplesIn = (householdId: string) =>
+      db.select().from(householdStaples).where(eq(householdStaples.householdId, householdId)).all();
+    const homeStaples = staplesIn(home);
+    const stapleMutations = (householdId: string) =>
+      outboxRows().filter((r) => r.householdId === householdId && r.mutation.table === 'household_staples');
+    expect(staplesIn(CABIN)).toHaveLength(2);
+    expect(stapleMutations(CABIN)).toHaveLength(3);
+    const homeMutations = stapleMutations(home);
+
+    db.transaction((tx) => purgeHousehold(tx, CABIN));
+
+    expect(staplesIn(CABIN)).toEqual([]);
+    expect(stapleMutations(CABIN)).toEqual([]);
+    expect(staplesIn(home)).toEqual(homeStaples);
+    expect(homeStaples.map((s) => s.ingredientName)).toEqual(['salt']);
+    expect(stapleMutations(home)).toEqual(homeMutations);
+  });
+
   test('a Siri default list in the household is cleared locally, without a mutation', () => {
     setDefaultList(USER, cabinList);
     const perUser = outboxRows().filter((r) => r.householdId === null);
@@ -266,6 +292,7 @@ describe('purgeHousehold', () => {
   });
 
   test('purging every household leaves an empty database apart from per-user rows', () => {
+    upsertRow(db, householdStaples, { householdId: home, ingredientName: 'salt' }, {});
     db.transaction((tx) => {
       purgeHousehold(tx, CABIN);
       purgeHousehold(tx, home);
@@ -274,6 +301,7 @@ describe('purgeHousehold', () => {
     expect(householdIds()).toEqual([]);
     expect(db.select().from(lists).all()).toEqual([]);
     expect(db.select().from(householdCategoryOverrides).all()).toEqual([]);
+    expect(db.select().from(householdStaples).all()).toEqual([]);
     // Only the system aisles are left.
     expect(db.select().from(categories).all()).toHaveLength(SYSTEM_CATEGORIES.length);
     expect(outboxRows().every((r) => r.householdId === null)).toBe(true);

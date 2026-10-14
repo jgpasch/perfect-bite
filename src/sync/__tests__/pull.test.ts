@@ -7,6 +7,7 @@ import {
   deviceSettings,
   householdCategoryOverrides,
   households,
+  householdStaples,
   ingredients,
   ingredientUnitUsage,
   ingredientUsage,
@@ -34,6 +35,7 @@ import { resetDb } from '@/test/db';
 import { clearOutbox, outboxRows } from '@/test/outbox';
 
 import { getDeviceId, nextHlc } from '../clock';
+import { compareHlc } from '../hlc';
 import { deleteRows, insertRow, updateRows, upsertRow } from '../mutate';
 import {
   applyRemoteDelete,
@@ -215,6 +217,7 @@ describe('first pull of a household', () => {
       'households',
       'categories',
       'household_category_overrides',
+      'household_staples',
       'lists',
       'recipes',
       'list_items',
@@ -917,6 +920,96 @@ describe("the household's aisles (spec 4.3.2)", () => {
   });
 });
 
+describe("the household's staples (Always have)", () => {
+  /** A staple another member (or device) wrote, its deleted_at set at `hlc`. */
+  const staple = (deletedAt: string | null, updated: string, hlc = OLD, householdId = H1): ServerRow => ({
+    household_id: householdId,
+    ingredient_name: 'salt',
+    created_by: 'u2',
+    deleted_at: deletedAt,
+    field_clock: { deleted_at: hlc },
+    created_at: ts(0),
+    updated_at: updated,
+  });
+  const stapleRow = (householdId = H1) =>
+    db.select().from(householdStaples).where(eq(householdStaples.householdId, householdId)).get();
+  /** This device marks (or unmarks) salt, as the staples helpers will. */
+  const markHere = (deletedAt: Date | null) =>
+    upsertRow(db, householdStaples, { householdId: H1, ingredientName: 'salt', createdBy: 'u1', deletedAt }, { deletedAt });
+
+  beforeEach(() => {
+    seedPulledList();
+  });
+
+  test("another member's staples come down with the household, after overrides, with their own cursor", async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H2, ts(1), 'Cabin'));
+    put('household_staples', staple(null, ts(6)), staple(ts(4), ts(7), OLD, H2));
+
+    await pullNow();
+
+    const tables = queries.map((q) => q.table);
+    expect(tables.indexOf('household_staples')).toBe(tables.indexOf('household_category_overrides') + 1);
+    expect(tableQueries('household_staples').map((ops) => ops[1])).toEqual([
+      ['eq', 'household_id', H1],
+      ['eq', 'household_id', H2],
+    ]);
+    expect(stapleRow(H1)).toMatchObject({
+      ingredientName: 'salt',
+      createdBy: 'u2',
+      deletedAt: null,
+      createdAt: new Date(ts(0)),
+      updatedAt: new Date(ts(6)),
+      fieldClock: { deleted_at: OLD },
+    });
+    expect(stapleRow(H2)!.deletedAt).toEqual(new Date(ts(4)));
+    expect(getPullState().cursors).toMatchObject({
+      [householdCursorKey(H1, 'household_staples')]: ts(6),
+      [householdCursorKey(H2, 'household_staples')]: ts(7),
+    });
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('a remote unmark beats an older local mark', async () => {
+    await pullNow();
+    markHere(null);
+    clearOutbox(); // pushed
+    expect(compareHlc(NEW, stapleRow()!.fieldClock.deleted_at)).toBeGreaterThan(0);
+    put('household_staples', staple(ts(10), ts(10), NEW));
+
+    await pullNow();
+
+    expect(stapleRow()).toMatchObject({ deletedAt: new Date(ts(10)), fieldClock: { deleted_at: NEW } });
+  });
+
+  test("an unpushed local mark isn't overwritten by an older remote unmark", async () => {
+    put('household_staples', staple(null, ts(5)));
+    await pullNow();
+    markHere(new Date(ts(8)));
+    markHere(null); // marked again here, not pushed yet
+    const mine = stapleRow()!.fieldClock.deleted_at;
+    server.household_staples = [staple(ts(9), ts(20), OLD)];
+
+    await pullNow();
+
+    expect(stapleRow()).toMatchObject({ deletedAt: null, fieldClock: { deleted_at: mine } });
+    expect(outboxRows()).toHaveLength(2);
+  });
+
+  test('a mark, unmark and mark again from the server ends marked', async () => {
+    put('household_staples', staple(null, ts(5), OLD));
+    await pullNow();
+    server.household_staples = [staple(ts(6), ts(6), '5000000000000-0000-remote')];
+    await pullNow();
+    expect(stapleRow()!.deletedAt).toEqual(new Date(ts(6)));
+
+    server.household_staples = [staple(null, ts(7), NEW)];
+    await pullNow();
+
+    expect(stapleRow()).toMatchObject({ deletedAt: null, fieldClock: { deleted_at: NEW } });
+  });
+});
+
 describe("the user's own preferences", () => {
   beforeEach(() => {
     seedPulledList();
@@ -1349,6 +1442,7 @@ describe('scoped pulls (for Realtime)', () => {
     'households',
     'categories',
     'household_category_overrides',
+    'household_staples',
     'lists',
     'recipes',
     'list_items',

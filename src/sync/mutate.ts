@@ -3,7 +3,7 @@
 // failure leaves none of them.
 //
 // Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage,
-// custom categories, category overrides) and per-user tables (order, settings) go through here.
+// custom categories, category overrides, staples) and per-user tables (order, settings) go through here.
 // The catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
 import { and, eq, getTableColumns, getTableName, SQL, sql, type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
@@ -12,6 +12,7 @@ import {
   categories,
   householdCategoryOverrides,
   households,
+  householdStaples,
   ingredientUnitUsage,
   ingredientUsage,
   listItemContributions,
@@ -53,6 +54,8 @@ const SPECS = new Map<SQLiteTable, Spec>([
   [categories, { key: ['id'], household: true, unsent: ['slug', 'defaultRank'] }],
   // Only the category is the client's to set; the server stamps created_at.
   [householdCategoryOverrides, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdAt'] }],
+  // Only deleted_at is the client's to set; the server stamps created_by and created_at.
+  [householdStaples, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdBy', 'createdAt'] }],
   [userCategoryOrder, { key: ['userId', 'categoryId'], household: false }],
   [userSettings, { key: ['userId'], household: false }],
 ]);
@@ -68,6 +71,7 @@ export type SyncedTable =
   | typeof ingredientUnitUsage
   | typeof categories
   | typeof householdCategoryOverrides
+  | typeof householdStaples
   | typeof userCategoryOrder
   | typeof userSettings;
 

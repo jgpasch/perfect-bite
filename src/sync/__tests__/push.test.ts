@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, lists, userCategoryOrder, userSettings } from '@/db';
+import { categories, db, householdCategoryOverrides, households, householdStaples, lists, userCategoryOrder, userSettings } from '@/db';
 import { onQuery, onRpc, queries, resetSupabase, respondTo, respondToRpc, rpcCalls, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxRows } from '@/test/outbox';
@@ -169,6 +169,27 @@ describe('order', () => {
       ['user_category_order', ['upsert', { user_id: 'u1', category_id: 'c1', position: 2 }, { onConflict: 'user_id,category_id' }]],
       ['user_category_order', ['delete'], ['match', { user_id: 'u1', category_id: 'c1' }]],
     ]);
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('staples go through apply_mutations by key, with deleted_at and never created_by', async () => {
+    applyAll();
+    const mark = (deletedAt: Date | null) =>
+      upsertRow(db, householdStaples, { householdId: H, ingredientName: 'salt', createdBy: 'u1', deletedAt }, { deletedAt });
+    mark(null);
+    mark(new Date('2026-10-01T12:00:00.000Z'));
+    mark(null);
+
+    await expect(pushNow()).resolves.toEqual({ pushed: 3, rejected: 0, failed: false });
+
+    expect(applyCalls()).toHaveLength(1);
+    const key = { household_id: H, ingredient_name: 'salt' };
+    expect(sent(0).map((m) => [m.table, m.key, m.fields])).toEqual([
+      ['household_staples', key, { deleted_at: null }],
+      ['household_staples', key, { deleted_at: '2026-10-01T12:00:00.000Z' }],
+      ['household_staples', key, { deleted_at: null }],
+    ]);
+    expect(queries).toEqual([]);
     expect(outboxRows()).toEqual([]);
   });
 

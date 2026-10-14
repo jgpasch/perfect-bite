@@ -7,6 +7,7 @@ import {
   deviceSettings,
   householdCategoryOverrides,
   households,
+  householdStaples,
   ingredientUnitUsage,
   ingredientUsage,
   ingredients,
@@ -189,6 +190,34 @@ test("a household's custom categories and overrides are household rows, keyed li
   expect(override.fieldClock.category_id).toBe(outboxMutations().at(-1)!.hlc);
   expect(() => updateRows(db, categories, eq(categories.id, 'bulk'), { defaultRank: 3 })).toThrow(
     "categories.defaultRank can't be patched",
+  );
+});
+
+test('staples are household rows by key: unmark sets deleted_at, mark again clears it, created_by never goes up', () => {
+  addHousehold();
+  const key = { household_id: H, ingredient_name: 'salt' };
+  const values = { householdId: H, ingredientName: 'salt', createdBy: 'u1', deletedAt: null };
+  upsertRow(db, householdStaples, values, { deletedAt: null });
+  upsertRow(db, householdStaples, values, { deletedAt: AT });
+  upsertRow(db, householdStaples, values, { deletedAt: null });
+
+  expect(outboxPatches().slice(1)).toEqual([
+    { table: 'household_staples', key, fields: { deleted_at: null } },
+    { table: 'household_staples', key, fields: { deleted_at: AT.toISOString() } },
+    { table: 'household_staples', key, fields: { deleted_at: null } },
+  ]);
+  expect(outboxRows().map((r) => r.householdId)).toEqual([H, H, H, H]);
+  const [mark, unmark, remark] = outboxMutations().slice(1);
+  expect(compareHlc(unmark.hlc, mark.hlc)).toBeGreaterThan(0);
+  expect(compareHlc(remark.hlc, unmark.hlc)).toBeGreaterThan(0);
+
+  // One row, marked again, with deleted_at at the latest HLC; created_by stays local.
+  const rows = db.select().from(householdStaples).all();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ householdId: H, ingredientName: 'salt', createdBy: 'u1', deletedAt: null });
+  expect(rows[0].fieldClock).toEqual({ deleted_at: remark.hlc });
+  expect(() => updateRows(db, householdStaples, eq(householdStaples.householdId, H), { createdBy: 'u2' })).toThrow(
+    "household_staples.createdBy can't be patched",
   );
 });
 

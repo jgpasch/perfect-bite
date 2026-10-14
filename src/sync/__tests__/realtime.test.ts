@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, listItems, lists, userCategoryOrder } from '@/db';
+import { categories, db, householdCategoryOverrides, households, householdStaples, listItems, lists, userCategoryOrder } from '@/db';
 import {
   emitChange,
   onQuery,
@@ -163,6 +163,7 @@ describe('channels', () => {
       expect.arrayContaining([
         ['categories', `household_id=eq.${H2}`],
         ['household_category_overrides', `household_id=eq.${H2}`],
+        ['household_staples', `household_id=eq.${H2}`],
       ]),
     );
     expect(channelNamed(`household:${H1}`)).toBeDefined();
@@ -281,6 +282,36 @@ describe('events pull what they touched', () => {
     expect(queries.find((q) => q.table === 'household_category_overrides')!.ops).toContainEqual(['eq', 'household_id', H1]);
     expect(db.select().from(householdCategoryOverrides).get()).toMatchObject({ householdId: H1, categoryId: 'cat-snacks' });
     expect(db.select().from(categories).where(eq(categories.id, 'cat-snacks')).get()!.householdId).toBe(H1);
+  });
+
+  test("another member's staple, marked or unmarked, pulls that household", async () => {
+    const staple = {
+      household_id: H1,
+      ingredient_name: 'salt',
+      created_by: 'u2',
+      deleted_at: null,
+      field_clock: { deleted_at: OLD },
+      created_at: ts(0),
+      updated_at: ts(10),
+    };
+    server.household_staples = [staple];
+
+    emitChange({ table: 'household_staples', eventType: 'INSERT', new: staple });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(queries.find((q) => q.table === 'household_staples')!.ops).toContainEqual(['eq', 'household_id', H1]);
+    expect(db.select().from(householdStaples).get()).toMatchObject({ householdId: H1, ingredientName: 'salt', deletedAt: null });
+
+    // Unmarking is an update (deleted_at), not a delete event.
+    queries.length = 0;
+    const unmarked = { ...staple, deleted_at: ts(20), field_clock: { deleted_at: NEW }, updated_at: ts(20) };
+    server.household_staples = [unmarked];
+    emitChange({ table: 'household_staples', eventType: 'UPDATE', new: unmarked });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(db.select().from(householdStaples).get()!.deletedAt).toEqual(new Date(ts(20)));
   });
 
   test("a deleted order row is applied from the event's key, without a pull", async () => {

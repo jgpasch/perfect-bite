@@ -8,6 +8,7 @@ import {
   db,
   householdCategoryOverrides,
   households,
+  householdStaples,
   listItemContributions,
   listItems,
   lists,
@@ -56,7 +57,7 @@ import {
   updateRecipe,
   updateRecipeIngredient,
 } from '@/features/recipes/recipes';
-import { updateRows } from '@/sync/mutate';
+import { updateRows, upsertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
 
@@ -542,6 +543,35 @@ describe('usage and per-user preferences', () => {
     expect(db.select().from(householdCategoryOverrides).all()).toMatchObject([
       { householdId, ingredientName: 'rice', categoryId: null },
     ]);
+  });
+
+  test('staples upsert by key; unmark sets deleted_at rather than deleting, and mark again clears it', () => {
+    const mark = (ingredientName: string, deletedAt: Date | null) =>
+      upsertRow(db, householdStaples, { householdId, ingredientName, createdBy: USER, deletedAt }, { deletedAt });
+    mark('salt', null);
+    mark('salt', null);
+    mark('salt', new Date('2026-10-01T12:00:00.000Z'));
+    mark('pepper', null);
+    mark('salt', null);
+    const key = { household_id: householdId, ingredient_name: 'salt' };
+    expect(outboxPatches()).toEqual([
+      { table: 'household_staples', key, fields: { deleted_at: null } },
+      { table: 'household_staples', key, fields: { deleted_at: null } },
+      { table: 'household_staples', key, fields: { deleted_at: '2026-10-01T12:00:00.000Z' } },
+      { table: 'household_staples', key: { household_id: householdId, ingredient_name: 'pepper' }, fields: { deleted_at: null } },
+      { table: 'household_staples', key, fields: { deleted_at: null } },
+    ]);
+    expect(outboxRows().map((r) => r.householdId)).toEqual(Array(5).fill(householdId));
+    expect(db.select().from(householdStaples).orderBy(householdStaples.ingredientName).all()).toMatchObject([
+      { householdId, ingredientName: 'pepper', createdBy: USER, deletedAt: null },
+      { householdId, ingredientName: 'salt', createdBy: USER, deletedAt: null },
+    ]);
+  });
+
+  test("a staple for a household this device doesn't have writes neither the row nor a mutation", () => {
+    expect(() => upsertRow(db, householdStaples, { householdId: 'household-unknown', ingredientName: 'salt' }, {})).toThrow();
+    expect(db.select().from(householdStaples).all()).toEqual([]);
+    expect(outboxRows()).toEqual([]);
   });
 
   test("renaming a household's custom category isn't a patchable slug", () => {

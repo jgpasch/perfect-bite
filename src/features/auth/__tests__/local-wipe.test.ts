@@ -26,6 +26,7 @@ import { getShareQueueStatus, setShareQueueStatus } from '@/features/recipes/sha
 import { getDeviceSetting, setAisleColorStyle, setDeviceSetting, setKeepScreenOn, KEEP_SCREEN_ON_KEY } from '@/features/settings/device-settings';
 import { LISTS_FILE, LOG_FILE, PENDING_DIR, SHARE_PENDING_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName } from '@/shared';
+import { upsertRow } from '@/sync/mutate';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 import { resetDb, sqlite } from '@/test/db';
 import { setAppGroupRoot } from '@/test/fake-file-system';
@@ -96,6 +97,7 @@ beforeEach(async () => {
   const aisle = createCategory(USER, home, 'Farm stand');
   setCategoryOverride(home, 'onions', aisle);
   setCategoryOverride(home, 'milk', PRODUCE);
+  upsertRow(db, schema.householdStaples, { householdId: home, ingredientName: 'salt', createdBy: USER }, {});
   recordFailedImport({ url: 'https://example.com/ramen', title: 'Ramen', reason: 'not_a_recipe' });
 
   // Device settings: list state and sync state (user data) next to device-only preferences.

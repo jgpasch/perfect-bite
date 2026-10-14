@@ -283,6 +283,26 @@ export const householdCategoryOverrides = sqliteTable(
   (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
 );
 
+/**
+ * The household's staples, "Always have": ingredients left off when a recipe is added to a list.
+ * Unmarking sets `deleted_at`; marking again clears it, so the later change wins (7.3).
+ */
+export const householdStaples = sqliteTable(
+  'household_staples',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** Ingredient key (`normalizeIngredientName`). */
+    ingredientName: text('ingredient_name').notNull(),
+    /** Who marked it; set by the server, never sent. */
+    createdBy: text('created_by'),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
+);
+
 /** Per-user settings (spec 5). Synced in M5. */
 export const userSettings = sqliteTable('user_settings', {
   userId: text('user_id').primaryKey(),

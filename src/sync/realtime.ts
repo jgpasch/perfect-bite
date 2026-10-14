@@ -32,6 +32,7 @@ export const HOUSEHOLD_TABLES = [
   'households',
   'categories',
   'household_category_overrides',
+  'household_staples',
   'lists',
   'recipes',
   'list_items',

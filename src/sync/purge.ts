@@ -13,6 +13,7 @@ import {
   deviceSettings,
   householdCategoryOverrides,
   households,
+  householdStaples,
   ingredientUnitUsage,
   ingredientUsage,
   listItemContributions,
@@ -63,6 +64,7 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
   tx.delete(recipeIngredients).where(eq(recipeIngredients.householdId, householdId)).run();
   tx.delete(ingredientUsage).where(eq(ingredientUsage.householdId, householdId)).run();
   tx.delete(ingredientUnitUsage).where(eq(ingredientUnitUsage.householdId, householdId)).run();
+  tx.delete(householdStaples).where(eq(householdStaples.householdId, householdId)).run();
   // Its aisles (spec 4.3.2): overrides, custom categories, and the user's order rows for them,
   // with their queued order mutations (per-user, so the household filter below misses them).
   tx.delete(householdCategoryOverrides).where(eq(householdCategoryOverrides.householdId, householdId)).run();
