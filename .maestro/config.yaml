@@ -1,0 +1,4 @@
+# Maestro workspace (end-to-end tests). Run them with `yarn e2e`, which starts what they need.
+# Top-level files in this folder are the tests; subflows/ and scripts/ are pieces they share.
+flows:
+  - '*'

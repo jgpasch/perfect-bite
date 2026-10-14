@@ -4,10 +4,10 @@ import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
 import { signOutLocally } from '@/features/auth/account';
 import { wipeLocalData } from '@/features/auth/local-wipe';
+import { pushBriefly } from '@/features/auth/sign-out';
 import { isOnline } from '@/features/categories/catch-up';
 import { fetchHouseholdMembers, householdsWithCountsQuery } from '@/features/households/households';
 import { supabase } from '@/lib/supabase';
-import { pushNow } from '@/sync/push';
 
 /** One of the user's households, for the confirm: its counts and how many members it has. */
 export type HouseholdForDeletion = { name: string; listCount: number; recipeCount: number; memberCount: number };
@@ -75,19 +75,6 @@ export async function householdsForDeletion(userId: string): Promise<HouseholdFo
 
 /** How long the pending outbox gets to go up before the account is deleted anyway. */
 export const PUSH_BEFORE_DELETE_MS = 3000;
-
-/** Pushes the outbox, so shared households get the user's last changes; gives up after `ms`. Never throws. */
-async function pushBriefly(ms: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, ms);
-  });
-  try {
-    await Promise.race([pushNow({ force: true }).catch(() => {}), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 export class DeleteAccountError extends Error {
   constructor(readonly kind: 'offline' | 'failed', message: string) {

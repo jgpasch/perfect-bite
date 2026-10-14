@@ -104,9 +104,26 @@ export function launchListId(
 
 // --- List screen ---------------------------------------------------------------------------
 
-/** "12 to get" beside the list's title; nothing when the list has nothing to get. */
-export function toGetLabel(uncheckedCount: number): string | null {
-  return uncheckedCount > 0 ? `${uncheckedCount} to get` : null;
+/** "12 to get" beside the list's title, "All done" once everything on it is checked; nothing on an empty list. */
+export function toGetLabel(uncheckedCount: number, checkedCount = 0): string | null {
+  if (uncheckedCount > 0) return `${uncheckedCount} to get`;
+  return checkedCount > 0 ? 'All done' : null;
+}
+
+/**
+ * Spec 4.6: the Checked section is open by the user's own choice (a tap on its header), or else while
+ * nothing is left to get, or always with Settings > Shopping > Always show checked items on.
+ */
+export function checkedSectionOpen(choice: boolean | null, allDone: boolean, alwaysShow: boolean): boolean {
+  return choice ?? (alwaysShow || allDone);
+}
+
+/**
+ * The user's choice once the list becomes all done, or stops being: a fold by hand is forgotten, so the
+ * section opens when the last item is checked and folds again when something is added; an open by hand stays.
+ */
+export function checkedChoiceAfterAllDoneChange(choice: boolean | null): boolean | null {
+  return choice === true ? true : null;
 }
 
 export type ListViewMode = 'newest' | 'category' | 'recipe';
@@ -134,8 +151,8 @@ export function viewButtonAccessibilityLabel(mode: ListViewMode): string {
 export const VIEW_BUTTON_HINT = 'Changes how the list is grouped';
 
 /** The compact add-mode header's second line: the count and the view, `8 to get · As added`. */
-export function compactHeaderSubtitle(uncheckedCount: number, mode: ListViewMode): string {
-  return [toGetLabel(uncheckedCount), viewModeLabel(mode)].filter(Boolean).join(' · ');
+export function compactHeaderSubtitle(uncheckedCount: number, mode: ListViewMode, checkedCount = 0): string {
+  return [toGetLabel(uncheckedCount, checkedCount), viewModeLabel(mode)].filter(Boolean).join(' · ');
 }
 
 /**
@@ -226,11 +243,13 @@ export const DEFAULT_ITEM_ROW_STYLE: ItemRowStyle = 'bands';
 /** The choices on Settings > Aisle colours > Item rows, in order. */
 export const ITEM_ROW_STYLES: readonly { value: ItemRowStyle; label: string }[] = [
   { value: 'bands', label: 'Colour bands' },
-  { value: 'tiles', label: 'White tiles' },
+  { value: 'white', label: 'White rows' },
 ];
 
 /** The saved item row style, read defensively: anything unknown is the default. */
 export function readItemRowStyle(saved: unknown): ItemRowStyle {
+  // White tiles became White rows.
+  if (saved === 'tiles') return 'white';
   return ITEM_ROW_STYLES.some((s) => s.value === saved) ? (saved as ItemRowStyle) : DEFAULT_ITEM_ROW_STYLE;
 }
 

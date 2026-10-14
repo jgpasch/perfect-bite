@@ -162,6 +162,14 @@ describe('pillLook', () => {
     });
   });
 
+  it('outlines an outline pill (Show all) in primary with primary text', () => {
+    for (const scheme of ['light', 'dark'] as const) {
+      const c = Palette[scheme];
+      expect(pillLook({ outline: true }, c, AisleColors[scheme])).toEqual({ fill: 'transparent', text: c.primary, border: c.primary });
+      expect(contrastRatio(c.primary, c.background)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('leaves an unselected aisle pill white', () => {
     expect(pillLook({ selected: false, hue: 'rose' }, colors, aisles)).toEqual({
       fill: '#FFFFFF',
@@ -603,23 +611,22 @@ describe('aisleHeaderBand', () => {
 
 describe('categoryColors', () => {
   const SLUGS = [...SYSTEM_CATEGORIES.map((c) => c.slug), 'my-corner-shop', null];
-  const STYLES = ['bands', 'tiles'] as const;
+  const STYLES = ['bands', 'white'] as const;
 
-  it('fills colour bands with the aisle soft, and white tiles with surface and a soft amount pill', () => {
+  it('fills colour bands with the aisle soft, and leaves white rows white with a grey amount', () => {
     expect(categoryColors('produce', 'light')).toEqual({
       ring: '#2E6B45',
       checkFill: '#FFFFFF',
       tint: AisleColors.light.green.soft,
       text: AisleColors.light.green.strong,
     });
-    expect(categoryColors('meat-seafood', 'light', 'tiles')).toEqual({
+    expect(categoryColors('meat-seafood', 'light', 'white')).toEqual({
       ring: AisleColors.light.rose.dot,
       checkFill: '#FFFFFF',
       tint: '#FFFFFF',
-      text: AisleColors.light.rose.strong,
-      pill: AisleColors.light.rose.soft,
+      text: Palette.light.inkSecondary,
     });
-    expect(categoryColors('bakery', 'dark', 'tiles').tint).toBe(Palette.dark.surface);
+    expect(categoryColors('bakery', 'dark', 'white').tint).toBe(Palette.dark.surface);
   });
 
   it('is neutral grey for Sorting… (no slug) and custom aisles', () => {
@@ -632,7 +639,7 @@ describe('categoryColors', () => {
 
   it('uses the full aisle colour for the ring', () => {
     expect(categoryColors('dairy-eggs', 'light').ring).toBe(AisleColors.light.blue.dot);
-    expect(categoryColors('dairy-eggs', 'dark', 'tiles').ring).toBe(AisleColors.dark.blue.dot);
+    expect(categoryColors('dairy-eggs', 'dark', 'white').ring).toBe(AisleColors.dark.blue.dot);
   });
 
   describe.each(SCHEMES)('%s scheme', (scheme) => {
@@ -640,17 +647,17 @@ describe('categoryColors', () => {
 
     it.each(SLUGS)('keeps every text on the %s row at 4.5:1 or better', (slug) => {
       for (const style of STYLES) {
-        const { tint, text, pill } = categoryColors(slug, scheme, style);
+        const { tint, text } = categoryColors(slug, scheme, style);
         for (const fg of [colors.ink, colors.inkSecondary, colors.pending]) {
           expect(contrastRatio(fg, tint)).toBeGreaterThanOrEqual(4.5);
         }
-        expect(contrastRatio(text, pill ?? tint)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(text, tint)).toBeGreaterThanOrEqual(4.5);
       }
     });
 
-    it('makes white tiles stand apart from the screen ground', () => {
+    it('keeps white rows the card colour, so they get hairlines', () => {
       for (const slug of SLUGS) {
-        expect(categoryColors(slug, scheme, 'tiles').tint).not.toBe(colors.background);
+        expect(categoryColors(slug, scheme, 'white').tint).toBe(colors.surface);
       }
     });
   });

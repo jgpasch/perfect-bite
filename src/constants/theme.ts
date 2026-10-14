@@ -289,8 +289,6 @@ export const Shadows = {
   floating: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 6, shadowOpacity: Opacity.shadow },
   /** The add bar's input. */
   soft: { shadowOffset: { width: 0, height: 4 }, shadowRadius: 14, shadowOpacity: 0.08 },
-  /** An item tile on the list screen (the White tiles row style). */
-  tile: { shadowOffset: { width: 0, height: 1 }, shadowRadius: 3, shadowOpacity: 0.1 },
   /** A row being dragged on the Aisle order screen. */
   lifted: { shadowOffset: { width: 0, height: 14 }, shadowRadius: 30, shadowOpacity: 0.22 },
 } as const;

@@ -1,0 +1,22 @@
+# Signs out from Settings, from any tab, and waits for the sign-in screen.
+appId: com.jgp.perfectbite
+---
+# With the keyboard up, a tap on a tab only dismisses it (hideKeyboard can't dismiss the add field),
+# so tap until Settings shows. "Siri adds to" begins its first row; a text match must cover the whole
+# label ("Siri adds to, Groceries"), hence the .*.
+- repeat:
+    while:
+      notVisible: 'Siri adds to.*'
+    times: 4
+    commands:
+      - tapOn: 'Settings'
+      - waitForAnimationToEnd
+- assertVisible: 'Siri adds to.*'
+# Sign out can sit under the tab bar, so bring it to the middle before tapping.
+- scrollUntilVisible:
+    element: 'Sign out'
+    centerElement: true
+- tapOn: 'Sign out'
+- extendedWaitUntil:
+    visible: 'Send code'
+    timeout: 15000

@@ -15,8 +15,12 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   dashed?: boolean;
   /** Fill the selected pill in `primary` instead of ink (the Recipes tab's active Filters pill). */
   primary?: boolean;
+  /** A solid `primary` outline with `primary` text: an action among choices (the aisle picker's "Show all"). */
+  outline?: boolean;
   /** A leading SF Symbol in the label's colour (the recipe band's "Suggest tags"). */
   icon?: IconName;
+  /** A trailing SF Symbol in the label's colour (the "Show all" chevron). */
+  trailingIcon?: IconName;
 };
 
 /** A 40 pt choice pill: `surface` when off, an ink (or aisle) fill with light text when on. */
@@ -26,13 +30,15 @@ export function Pill({
   hue,
   dashed = false,
   primary = false,
+  outline = false,
   icon,
+  trailingIcon,
   disabled,
   accessibilityState,
   ...rest
 }: Props) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
-  const look = pillLook({ selected, hue, dashed, primary }, colors, aisles);
+  const look = pillLook({ selected, hue, dashed, primary, outline }, colors, aisles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -50,13 +56,20 @@ export function Pill({
           backgroundColor: look.fill,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
-        look.border ? { borderWidth: sizes.checkBorder, borderStyle: 'dashed', borderColor: look.border } : null,
+        look.border
+          ? {
+              borderWidth: dashed ? sizes.checkBorder : sizes.chipBorder,
+              borderStyle: dashed ? 'dashed' : 'solid',
+              borderColor: look.border,
+            }
+          : null,
       ]}
       {...rest}>
       {icon ? <Icon name={icon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
       <ThemedText variant="amount" style={[{ color: look.text }, selected ? styles.selected : undefined]}>
         {label}
       </ThemedText>
+      {trailingIcon ? <Icon name={trailingIcon} tint={look.text} size={sizes.iconSmall} weight="semibold" /> : null}
     </Pressable>
   );
 }

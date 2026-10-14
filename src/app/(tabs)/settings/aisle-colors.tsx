@@ -33,8 +33,8 @@ export default function AisleColorsScreen() {
         variant="footnote"
         color="inkSecondary"
         style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
-        Colour bands fill each item with its aisle’s colour. White tiles keep items white, with the colour on the
-        check and the amount.
+        Colour bands fill each item with its aisle’s colour. White rows keep items white, with the colour on the
+        check.
       </ThemedText>
       <SettingsSection title="In By aisle, colour">
         {AISLE_COLOR_STYLES.map((s, i) => (

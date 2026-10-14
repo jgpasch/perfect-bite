@@ -45,22 +45,20 @@ export function checkAppearance(
 
 /**
  * How unchecked item rows on the list screen carry their aisle colour (Settings > Aisle colours > Item rows):
- * `bands` fills each row with its aisle's `soft`, 2 pt apart in the card; `tiles` makes each row a white
- * tile, 4 pt apart on the screen's ground, with the colour in the check's ring and a pill behind the amount.
+ * `bands` fills each row with its aisle's `soft`, 2 pt apart in the card; `white` keeps rows white in the card,
+ * with hairlines between, the colour only in the check's ring and a grey amount.
  */
-export type ItemRowStyle = 'bands' | 'tiles';
+export type ItemRowStyle = 'bands' | 'white';
 
 export type CategoryColors = {
   /** The round check's ring. */
   ring: string;
   /** The inside of the round check while it's off, so it stands out on the row. */
   checkFill: string;
-  /** The row's ground: the aisle's `soft` (bands) or `surface` (tiles). Opaque, so it covers a swipe action. */
+  /** The row's ground: the aisle's `soft` (bands) or `surface` (white). Opaque, so it covers a swipe action. */
   tint: string;
-  /** The amount at the end of the row: the aisle's `strong`, or a neutral where that's under 4.5:1. */
+  /** The amount at the end of the row: the aisle's `strong` (bands, a neutral where that's under 4.5:1) or `inkSecondary` (white). */
   text: string;
-  /** Tiles: the pill behind the amount, the aisle's `soft`. */
-  pill?: string;
 };
 
 /**
@@ -73,11 +71,11 @@ export function categoryColors(
   style: ItemRowStyle = 'bands',
 ): CategoryColors {
   const hue = AisleTokens[scheme][aisleColor(slug)];
-  const { surface, ink, inkSecondary } = Palette[scheme];
+  const { surface, inkSecondary } = Palette[scheme];
   // Dark grey's `strong` is under 4.5:1 on its own `soft`; the neutral amount falls back to an ink.
   const strongOnSoft = contrastRatio(hue.strong, hue.soft) >= 4.5;
-  if (style === 'tiles') {
-    return { ring: hue.dot, checkFill: surface, tint: surface, text: strongOnSoft ? hue.strong : ink, pill: hue.soft };
+  if (style === 'white') {
+    return { ring: hue.dot, checkFill: surface, tint: surface, text: inkSecondary };
   }
   return { ring: hue.dot, checkFill: surface, tint: hue.soft, text: strongOnSoft ? hue.strong : inkSecondary };
 }
@@ -127,7 +125,8 @@ export type PillLook = { fill: string; text: string; border: string | null };
  * A pill's colours. Off: `surface` with `ink`. On: the ink fill, or with a `hue` (the item sheet's
  * aisle picker) that aisle's `strong` fill, both with light text; `primary` (the Recipes tab's
  * active Filters pill) is `primary` with `onPrimary`. Dashed ("+ New"): no fill, a
- * `controlBorder` outline and `inkSecondary` text.
+ * `controlBorder` outline and `inkSecondary` text. Outline (the aisle picker's "Show all"): no fill,
+ * a `primary` outline and `primary` text.
  */
 export function pillLook(
   {
@@ -135,11 +134,13 @@ export function pillLook(
     hue,
     dashed = false,
     primary = false,
-  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean },
+    outline = false,
+  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean; outline?: boolean },
   colors: ThemeColors,
   aisles: Aisles,
 ): PillLook {
   if (dashed) return { fill: 'transparent', text: colors.inkSecondary, border: colors.controlBorder };
+  if (outline) return { fill: 'transparent', text: colors.primary, border: colors.primary };
   if (selected && primary) return { fill: colors.primary, text: colors.onPrimary, border: null };
   if (selected && hue) return { fill: aisles[hue].strong, text: colors.onPrimary, border: null };
   const look = pillColors(selected);

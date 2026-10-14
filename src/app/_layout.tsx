@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DatabaseProvider } from '@/db';
 import { AppDataGate } from '@/features/app-data';
 import { startAccount, useAccountState } from '@/features/auth/account';
+import { wipeIfOtherUser } from '@/features/auth/sign-out';
 import { NotificationHost } from '@/features/notifications/notification-host';
 import { clearNotifications } from '@/features/notifications/notifications';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
@@ -19,7 +20,7 @@ export { ErrorBoundary } from 'expo-router';
 export const unstable_settings = { initialRouteName: '(tabs)' };
 
 SplashScreen.preventAutoHideAsync();
-startAccount();
+startAccount({ beforeReady: wipeIfOtherUser });
 
 export default function RootLayout() {
   const navigationTheme = useNavigationTheme();

@@ -20,7 +20,14 @@ import DeveloperScreen from '@/app/(tabs)/settings/developer';
 import SiriDefaultListScreen from '@/app/(tabs)/settings/siri';
 import SyncStatusScreen from '@/app/(tabs)/settings/sync';
 
-import { getAisleColorStyle, getItemRowStyle, getKeepScreenOn, setAisleColorStyle, setKeepScreenOn } from '../device-settings';
+import {
+  getAisleColorStyle,
+  getAlwaysShowChecked,
+  getItemRowStyle,
+  getKeepScreenOn,
+  setAisleColorStyle,
+  setKeepScreenOn,
+} from '../device-settings';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -61,7 +68,11 @@ const mockSignOut = jest.fn(() => Promise.resolve());
 jest.mock('@/features/auth/account', () => ({
   useAccountState: () => mockAccount.state,
   getAccount: () => (mockAccount.state.status === 'ready' ? mockAccount.state.account : null),
-  signOut: () => mockSignOut(),
+}));
+// Sign-out's push and wipe are tested in sign-out.test.ts; here only that the button calls it.
+jest.mock('@/features/auth/sign-out', () => ({
+  ...jest.requireActual<object>('@/features/auth/sign-out'),
+  signOutAndWipe: () => mockSignOut(),
 }));
 
 // Delete account's server work is tested in delete-account.test.ts; here only the screen's flow.
@@ -267,6 +278,18 @@ describe('Settings', () => {
     expect(root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Keep screen on').props.value).toBe(false);
   });
 
+  it('Always show checked items is a switch, off by default, that turns the device setting on and off', () => {
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).toContain("Always show checked items Otherwise they show once everything's checked");
+    const toggle = () => root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Always show checked items');
+    expect(toggle().props.value).toBe(false);
+    act(() => toggle().props.onValueChange(true));
+    expect(getAlwaysShowChecked()).toBe(true);
+    expect(toggle().props.value).toBe(true);
+    act(() => toggle().props.onValueChange(false));
+    expect(getAlwaysShowChecked()).toBe(false);
+  });
+
   it('follows the Siri default list', () => {
     const other = createList('Costco');
     const root = render(<SettingsScreen />);
@@ -406,9 +429,9 @@ describe('Aisle colours', () => {
   it('saves the item row style on this device, Colour bands by default', () => {
     const root = render(<AisleColorsScreen />);
     expect(button(root, 'Colour bands').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
-    click(button(root, 'White tiles'));
-    expect(getItemRowStyle()).toBe('tiles');
-    expect(button(root, 'White tiles').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
+    click(button(root, 'White rows'));
+    expect(getItemRowStyle()).toBe('white');
+    expect(button(root, 'White rows').props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
     expect(button(root, 'Colour bands').props.accessibilityState).toEqual(expect.objectContaining({ selected: false }));
   });
 

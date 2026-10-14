@@ -15,7 +15,8 @@ import { Screen } from '@/components/themed-view';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
-import { signOut, useAccountState } from '@/features/auth/account';
+import { useAccountState } from '@/features/auth/account';
+import { signOutAndWipe } from '@/features/auth/sign-out';
 import {
   DELETE_ACCOUNT_FAILED,
   DELETE_ACCOUNT_OFFLINE,
@@ -32,7 +33,12 @@ import { avatarInitial, deletedHouseholdToast, householdsQuery } from '@/feature
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
-import { getAisleColorStyle, setKeepScreenOn } from '@/features/settings/device-settings';
+import {
+  getAisleColorStyle,
+  getAlwaysShowChecked,
+  setAlwaysShowChecked,
+  setKeepScreenOn,
+} from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -56,6 +62,7 @@ export default function SettingsScreen() {
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
+  const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
   const [toast, setToast] = useState<{ key: number; message: string; emphasis?: string } | null>(null);
@@ -133,6 +140,23 @@ export default function SettingsScreen() {
             }
           />
           <SettingsRow
+            label="Always show checked items"
+            detail="Otherwise they show once everything's checked"
+            icon={{ name: 'checklist', hue: 'teal' }}
+            trailing={
+              <Switch
+                value={alwaysShowChecked}
+                onValueChange={(on) => {
+                  setAlwaysShowChecked(on);
+                  setAlwaysShowCheckedState(on);
+                }}
+                trackColor={{ true: colors.primary }}
+                accessibilityLabel="Always show checked items"
+                accessibilityHint="Keeps the Checked section open on your lists"
+              />
+            }
+          />
+          <SettingsRow
             label="Sync status"
             value={sync.label}
             icon={{ name: 'arrow.triangle.2.circlepath', hue: 'grey' }}
@@ -171,7 +195,7 @@ export default function SettingsScreen() {
             label="Sign out"
             variant="plain"
             color="danger"
-            onPress={() => signOut().catch((err) => console.warn('[settings] sign out failed', err))}
+            onPress={() => signOutAndWipe().catch((err) => console.warn('[settings] sign out failed', err))}
           />
           <Button
             label="Delete account"

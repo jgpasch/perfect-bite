@@ -5,8 +5,9 @@ import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
-import { Button, PrimaryButton, SoftDangerButton } from '@/components/button';
+import { Button, SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
+import { CheckCircle } from '@/components/check-circle';
 import { Icon, type IconName } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
@@ -55,12 +56,12 @@ import { useTheme } from '@/hooks/use-theme';
 import { displayItemName, OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
 /**
- * Item edit sheet (spec 4.2, 4.3.2, board 04): the name (the title, edited in place), Got it / Still need it, amount, note, the
+ * Item edit sheet (spec 4.2, 4.3.2, board 04): the name (the title, edited in place) and its check, amount, note, the
  * amounts added (a recipe's opens it), aisle, and Move to another list.
  */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
-  const { spacing, sizes, scheme, colors, opacity, typography } = useTheme();
+  const { spacing, sizes, scheme, colors, aisles, opacity, typography } = useTheme();
   const userId = getAccount()?.userId ?? null;
   const [initial] = useState(() => getItemEdit(itemId));
   const [householdName] = useState(() => getItemHouseholdName(itemId));
@@ -177,7 +178,7 @@ export default function ItemEditSheet() {
     if (next) saveAmount(() => setItemAmount(itemId, next));
   };
 
-  /** Saves the sheet's edits (Save, and before Got it, Move or opening a recipe). False if they can't be saved. */
+  /** Saves the sheet's edits (Save, and before Move or opening a recipe). False if they can't be saved. */
   const persist = (): boolean => {
     try {
       if (steppable && commitQuantity() === false) return false;
@@ -197,12 +198,11 @@ export default function ItemEditSheet() {
     if (persist()) router.back();
   };
 
-  // The row's check (same write, so sync behaves the same). Got it closes the sheet; Still need it
-  // stays, unless the item folded into the same one opened since (spec 4.2), which closes it too.
+  // The row's check (same write, so sync behaves the same). It saves right away, like the stepper, and the
+  // sheet stays, unless unchecking folded the item into the same one opened since (spec 4.2).
   const setChecked = (checked: boolean) => {
-    if (!persist()) return;
     setItemChecked(itemId, checked, userId);
-    if (checked || !itemStatusQuery(itemId).get()) router.back();
+    if (!itemStatusQuery(itemId).get()) router.back();
   };
 
   const openRecipe = (recipeId: string) => {
@@ -230,6 +230,7 @@ export default function ItemEditSheet() {
   };
 
   const now = new Date();
+  const checked = !!status?.checkedAt;
   const labelInset = { paddingHorizontal: spacing.xxl };
 
   return (
@@ -260,7 +261,11 @@ export default function ItemEditSheet() {
             submitBehavior="blurAndSubmit"
             returnKeyType="done"
             selectionColor={colors.primary}
-            style={[typography.sheetTitle, styles.title, { color: colors.ink }]}
+            style={[
+              typography.sheetTitle,
+              styles.title,
+              checked && !editingName ? { color: colors.inkSecondary, textDecorationLine: 'line-through' } : { color: colors.ink },
+            ]}
           />
           {amount ? (
             <ThemedText variant="amount" color="inkSecondary">
@@ -273,24 +278,22 @@ export default function ItemEditSheet() {
             </ThemedText>
           ) : null}
         </View>
-      </View>
-
-      <View style={{ paddingHorizontal: spacing.lg }}>
-        {status?.checkedAt ? (
-          <Button label="Still need it" accessibilityHint="Puts it back on the list" onPress={() => setChecked(false)} />
-        ) : (
-          <PrimaryButton
-            label="Got it"
-            icon="checkmark"
-            accessibilityHint="Checks it off and closes"
-            onPress={() => setChecked(true)}
+        {/* Centred on the title's first line, so it stays put when the name wraps. */}
+        <View style={[styles.centered, styles.top, { height: typography.sheetTitle.lineHeight }]}>
+          <CheckCircle
+            checked={checked}
+            pending={sorting}
+            ring={sorting ? undefined : aisles[hue].dot}
+            fill={colors.surface}
+            onPress={() => setChecked(!checked)}
+            accessibilityLabel="Got it"
           />
-        )}
+        </View>
       </View>
 
       <Card>
         <FieldRow label="Amount" first>
-          <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingVertical: spacing.xs }]}>
+          <View style={[styles.row, styles.wrap, { gap: spacing.sm }]}>
             <View style={[styles.grow, { minWidth: sizes.fieldLabel }]}>
               {shown ? (
                 <InlineField
@@ -414,6 +417,8 @@ export default function ItemEditSheet() {
             {hiddenAisles > 0 ? (
               <Pill
                 label="Show all"
+                outline
+                trailingIcon="chevron.down"
                 accessibilityHint={`Shows ${hiddenAisles} more aisles`}
                 onPress={() => setAislesOpen(true)}
               />
@@ -706,17 +711,20 @@ function CardRow({ first, children }: { first?: boolean; children: ReactNode }) 
 
 /** A labelled field inside the card: the label in a 76 pt column, the input (and any extras) beside it. */
 function FieldRow({ label, first, children }: { label: string; first?: boolean; children: ReactNode }) {
-  const { sizes, spacing } = useTheme();
+  const { sizes, spacing, typography } = useTheme();
+  // Top-aligned with the input's first line, so it stays put beside a multiline note or the stepper:
+  // row + input padding, the input's line height, and the size difference so the smaller label's
+  // baseline lands on the value's.
+  const paddingTop = spacing.xs + spacing.md + (typography.body.fontSize - typography.amount.fontSize);
   return (
     <CardRow first={first}>
-      {/* Top-aligned with the input's first line, so it stays put beside a multiline note or the stepper. */}
       <ThemedText
         variant="amount"
         color="inkSecondary"
-        style={[styles.label, { minWidth: sizes.fieldLabel, paddingTop: spacing.md }]}>
+        style={[styles.label, { minWidth: sizes.fieldLabel, paddingTop, lineHeight: typography.body.lineHeight }]}>
         {label}
       </ThemedText>
-      <View style={styles.flex}>{children}</View>
+      <View style={[styles.flex, { paddingVertical: spacing.xs }]}>{children}</View>
     </CardRow>
   );
 }
@@ -734,6 +742,7 @@ const styles = StyleSheet.create({
   centered: { alignItems: 'center', justifyContent: 'center' },
   label: { alignSelf: 'flex-start' },
   start: { alignItems: 'flex-start' },
+  top: { alignSelf: 'flex-start' },
   inline: { borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
   title: { padding: 0 },
 });

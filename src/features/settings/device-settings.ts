@@ -64,3 +64,14 @@ export function onKeepScreenOnChange(listener: () => void): () => void {
   keepScreenOnListeners.add(listener);
   return () => void keepScreenOnListeners.delete(listener);
 }
+
+/** Settings > Shopping > Always show checked items (spec 4.6): off unless turned on on this device. */
+export const ALWAYS_SHOW_CHECKED_KEY = 'list.alwaysShowChecked';
+
+export function getAlwaysShowChecked(): boolean {
+  return getDeviceSetting<unknown>(ALWAYS_SHOW_CHECKED_KEY, false) === true;
+}
+
+export function setAlwaysShowChecked(on: boolean): void {
+  setDeviceSetting(ALWAYS_SHOW_CHECKED_KEY, on);
+}

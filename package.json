@@ -72,6 +72,7 @@
     "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",
     "ai:tags": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/suggest-recipe-tags/cli.ts",
     "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
+    "e2e": "scripts/e2e.sh",
     "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts"
   },
   "private": true,

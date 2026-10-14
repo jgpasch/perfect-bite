@@ -13,7 +13,13 @@ import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
-import { getDeviceSetting, setAisleColorStyle, setItemRowStyle, setKeepScreenOn } from '@/features/settings/device-settings';
+import {
+  getDeviceSetting,
+  setAisleColorStyle,
+  setAlwaysShowChecked,
+  setItemRowStyle,
+  setKeepScreenOn,
+} from '@/features/settings/device-settings';
 import type { MyInvite } from '@/features/households/invites';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { SYSTEM_CATEGORIES } from '@/shared';
@@ -371,22 +377,21 @@ describe('the list', () => {
     expect(row('milk').props.look).toBeDefined();
   });
 
-  test('Item rows "tiles" makes rows white tiles with a pill behind the amount', () => {
+  test('Item rows "white" keeps rows the card colour, with the aisle colour on the check', () => {
     put('milk');
-    setItemRowStyle('tiles');
+    setItemRowStyle('white');
     render();
     setView('category');
-    expect(row('milk').props.tile).toBe(true);
-    expect(row('milk').props.look.pill).toBeDefined();
+    expect(row('milk').props.look.tint).toBe(row('milk').props.background);
+    expect(row('milk').props.look.ring).toBeDefined();
   });
 
-  test('tiles give way to plain rows under a coloured aisle header', () => {
+  test('white rows give way to plain rows under a coloured aisle header', () => {
     put('milk');
-    setItemRowStyle('tiles');
+    setItemRowStyle('white');
     setAisleColorStyle('header');
     render();
     setView('category');
-    expect(row('milk').props.tile).toBe(false);
     expect(row('milk').props.look).toBeUndefined();
   });
 });
@@ -424,7 +429,7 @@ describe('checking off', () => {
     const { itemId } = put('milk')!;
     setItemChecked(itemId, true, USER);
     render();
-    press(pressable('Checked, 1 item'));
+    // Nothing left to get, so Checked is already open.
     act(() => row('milk').props.onToggle());
     expect(text()).not.toContain('Checked,');
     expect(rowNames()).toEqual(['milk']);
@@ -923,6 +928,55 @@ describe('the list menu', () => {
     render();
     press(menuAction('Edit list…'));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/list/[id]/edit', params: { id: listId } });
+  });
+});
+
+describe('the Checked section opening by itself', () => {
+  test('opens once the last item is checked, and folds again when something is added', () => {
+    put('milk');
+    render();
+    act(() => row('milk').props.onToggle());
+    act(() => jest.advanceTimersByTime(1000));
+    expect(rowNames()).toEqual(['milk']);
+    expect(pressable('Checked, 1 item').props.accessibilityState).toEqual({ expanded: true });
+    expect(text()).toContain('All done');
+    put('eggs');
+    refresh();
+    expect(rowNames()).toEqual(['eggs']);
+    expect(text()).toContain('1 to get');
+  });
+
+  test('stays folded after a fold by hand until the list changes', () => {
+    const { itemId } = put('milk')!;
+    setItemChecked(itemId, true, USER);
+    render();
+    press(pressable('Checked, 1 item'));
+    expect(rowNames()).toEqual([]);
+    refresh();
+    expect(rowNames()).toEqual([]);
+  });
+
+  test('stays open after an open by hand when something is added', () => {
+    const { itemId } = put('milk')!;
+    put('eggs');
+    setItemChecked(itemId, true, USER);
+    render();
+    press(pressable('Checked, 1 item'));
+    expect(rowNames()).toEqual(['eggs', 'milk']);
+    put('bread');
+    refresh();
+    expect(rowNames()).toEqual(['bread', 'eggs', 'milk']);
+  });
+
+  test('is open while shopping with Always show checked items on', () => {
+    setAlwaysShowChecked(true);
+    const { itemId } = put('milk')!;
+    put('eggs');
+    setItemChecked(itemId, true, USER);
+    render();
+    expect(rowNames()).toEqual(['eggs', 'milk']);
+    press(pressable('Checked, 1 item'));
+    expect(rowNames()).toEqual(['eggs']);
   });
 });
 

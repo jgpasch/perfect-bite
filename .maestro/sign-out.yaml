@@ -1,0 +1,47 @@
+# Sign out (spec 4.8): the next person to sign in on the phone sees none of your data, and yours is
+# still there when you come back. This doesn't tell sign-out's wipe apart from the wipe when another
+# user signs in (wipeIfOtherUser); unit tests cover each, and pushing before sign-out.
+appId: com.jgp.perfectbite
+name: Sign out leaves nothing for the next user
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailA
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailB
+
+# A adds Bananas and signs out.
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.emailA}
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- runFlow: subflows/sign-out.yaml
+
+# B, on the same phone, gets their own Groceries list without A's Bananas. A's would show from the
+# device's database at once, so waiting for the list to settle is enough.
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.emailB}
+- assertVisible: 'Add an item'
+- waitForAnimationToEnd
+- assertNotVisible: 'Check off Bananas'
+- runFlow: subflows/sign-out.yaml
+
+# A again: Bananas comes back down from the server.
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.emailA}
+- extendedWaitUntil:
+    visible: 'Check off Bananas'
+    timeout: 15000

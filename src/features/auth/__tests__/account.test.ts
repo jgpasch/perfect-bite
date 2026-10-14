@@ -256,3 +256,20 @@ describe('signOut', () => {
     await expect(mod.signOut()).resolves.toBeUndefined();
   });
 });
+
+it('runs beforeReady once per user change, before the account is ready', async () => {
+  const seen: [string, string][] = [];
+  mod.startAccount({ beforeReady: (userId) => seen.push([userId, mod.getAccountState().status]) });
+  fake.emitAuthEvent('SIGNED_IN', fake.makeSession('u1'));
+  await flush();
+  fake.emitAuthEvent('USER_UPDATED', fake.makeSession('u1'));
+  await flush();
+  fake.emitAuthEvent('SIGNED_OUT', null);
+  await flush();
+  fake.emitAuthEvent('SIGNED_IN', fake.makeSession('u2'));
+  await flush();
+  expect(seen).toEqual([
+    ['u1', 'loading'],
+    ['u2', 'signedOut'],
+  ]);
+});

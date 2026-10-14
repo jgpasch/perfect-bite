@@ -41,22 +41,26 @@ export function getAccount(): Account | null {
   return state.status === 'ready' ? state.account : null;
 }
 
-function load(session: Session | null) {
+function load(session: Session | null, beforeReady?: (userId: string) => void) {
   if (!session) return setState({ status: 'signedOut' });
+  if (state.status !== 'ready' || state.account.userId !== session.user.id) beforeReady?.(session.user.id);
   setState({ status: 'ready', account: { userId: session.user.id, email: session.user.email } });
 }
 
 let started = false;
 
-/** Subscribes to Supabase auth once. Safe to call repeatedly. */
-export function startAccount() {
+/**
+ * Subscribes to Supabase auth once. Safe to call repeatedly. `beforeReady` runs each time a user
+ * is about to become the signed-in account (the root layout wipes another user's data there).
+ */
+export function startAccount(options: { beforeReady?: (userId: string) => void } = {}) {
   if (started || !isSupabaseConfigured) return;
   started = true;
   supabase.auth.onAuthStateChange((event, session) => {
     // INITIAL_SESSION fires on subscribe with the stored session (or null).
     if (event === 'TOKEN_REFRESHED') return;
     // Don't await Supabase calls inside the callback (supabase-js deadlock caveat).
-    setTimeout(() => load(session), 0);
+    setTimeout(() => load(session, options.beforeReady), 0);
   });
 }
 

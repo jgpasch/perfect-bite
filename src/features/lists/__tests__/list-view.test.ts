@@ -20,6 +20,8 @@ import {
   clearCheckedLabel,
   clearedToast,
   uncheckedAllToast,
+  checkedChoiceAfterAllDoneChange,
+  checkedSectionOpen,
   compactHeaderSubtitle,
   deletedToast,
   duplicateQuery,
@@ -131,6 +133,35 @@ describe('toGetLabel', () => {
 
   it('is null when there is nothing to get', () => {
     expect(toGetLabel(0)).toBeNull();
+  });
+
+  it('reads "All done" when everything on the list is checked', () => {
+    expect(toGetLabel(0, 2)).toBe('All done');
+    expect(toGetLabel(3, 2)).toBe('3 to get');
+  });
+});
+
+describe('checkedSectionOpen', () => {
+  it('opens by itself only once nothing is left to get', () => {
+    expect(checkedSectionOpen(null, false, false)).toBe(false);
+    expect(checkedSectionOpen(null, true, false)).toBe(true);
+  });
+
+  it('is always open with Always show checked items on', () => {
+    expect(checkedSectionOpen(null, false, true)).toBe(true);
+  });
+
+  it("follows the user's own choice over either", () => {
+    expect(checkedSectionOpen(false, true, true)).toBe(false);
+    expect(checkedSectionOpen(true, false, false)).toBe(true);
+  });
+});
+
+describe('checkedChoiceAfterAllDoneChange', () => {
+  it('forgets a fold by hand and keeps an open by hand', () => {
+    expect(checkedChoiceAfterAllDoneChange(false)).toBeNull();
+    expect(checkedChoiceAfterAllDoneChange(null)).toBeNull();
+    expect(checkedChoiceAfterAllDoneChange(true)).toBe(true);
   });
 });
 
@@ -495,6 +526,7 @@ describe('add mode', () => {
     expect(compactHeaderSubtitle(8, 'newest')).toBe('8 to get · As added');
     expect(compactHeaderSubtitle(1, 'category')).toBe('1 to get · By aisle');
     expect(compactHeaderSubtitle(0, 'recipe')).toBe('By recipe');
+    expect(compactHeaderSubtitle(0, 'newest', 2)).toBe('All done · As added');
   });
 
   it('checks the typed name, without its amount, against items', () => {
@@ -579,8 +611,12 @@ describe('add mode', () => {
 
 describe('readItemRowStyle', () => {
   it('reads a saved choice', () => {
-    expect(readItemRowStyle('tiles')).toBe('tiles');
+    expect(readItemRowStyle('white')).toBe('white');
     expect(readItemRowStyle('bands')).toBe('bands');
+  });
+
+  it('reads the old White tiles choice as White rows', () => {
+    expect(readItemRowStyle('tiles')).toBe('white');
   });
 
   it('is the colour bands default for nothing saved or anything unknown', () => {

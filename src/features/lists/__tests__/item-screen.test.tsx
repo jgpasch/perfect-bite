@@ -1,5 +1,5 @@
-// The item sheet (spec 4.2, 4.3.2, 4.4, board 04), against the real in-memory database: name, Got it /
-// Still need it, amount stepper and unit, note, the amounts added, aisle, Move, Delete.
+// The item sheet (spec 4.2, 4.3.2, 4.4, board 04), against the real in-memory database: name, its check
+// (Got it), amount stepper and unit, note, the amounts added, aisle, Move, Delete.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { ActionSheetIOS, Alert } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -136,6 +136,8 @@ const press = (label: string) => {
     found[0].props.onPress();
   });
 };
+/** The title's check, as VoiceOver sees it. */
+const gotIt = () => pressables('Got it').find((n) => n.props.accessibilityRole === 'checkbox')!;
 const toolbar = (title: string) =>
   tree!.root.find((n) => n.type === ('ToolbarButton' as never) && n.props.children === title);
 const tapToolbar = (title: string) =>
@@ -151,13 +153,12 @@ describe('the item sheet', () => {
     expect(inputs('Name')).toHaveLength(0);
   });
 
-  test('shows the name capitalized, the amount and Got it', () => {
+  test('shows the name capitalized, the amount and an unticked check', () => {
     const { itemId } = addItem(listId, '2 milk', USER)!;
     open(itemId);
     expect(input('Name').props.value).toBe('Milk');
     expect(lines()).toContain('2');
-    expect(pressables('Got it')).toHaveLength(1);
-    expect(pressables('Still need it')).toHaveLength(0);
+    expect(gotIt().props.accessibilityState).toEqual({ checked: false });
   });
 
   test('the name shows as typed while it is being edited', () => {
@@ -170,24 +171,38 @@ describe('the item sheet', () => {
     expect(input('Name').props.value).toBe('Oat milk');
   });
 
-  test('Got it checks the item off and closes', () => {
+  test('the check ticks the item off right away, and the sheet stays', () => {
     const { itemId } = addItem(listId, 'milk', USER)!;
     open(itemId);
     press('Got it');
     expect(item(itemId).checkedAt).not.toBeNull();
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockBack).not.toHaveBeenCalled();
+    refresh();
+    expect(text()).toMatch(/Checked .* by you/);
+    expect(gotIt().props.accessibilityState).toEqual({ checked: true });
   });
 
-  test('a checked item says when, and Still need it puts it back without closing', () => {
+  test('ticking keeps unsaved edits for Save, and Cancel still drops them', () => {
+    const { itemId } = addItem(listId, 'milk', USER)!;
+    open(itemId);
+    typeIn('Note', 'the big one');
+    press('Got it');
+    expect(item(itemId).note).toBeNull();
+    tapToolbar('Cancel');
+    expect(item(itemId)).toMatchObject({ note: null });
+    expect(item(itemId).checkedAt).not.toBeNull();
+  });
+
+  test('a checked item says when, and unticking puts it back without closing', () => {
     const { itemId } = addItem(listId, 'milk', USER)!;
     setItemChecked(itemId, true, USER);
     open(itemId);
     expect(text()).toMatch(/Checked .* by you/);
-    press('Still need it');
+    press('Got it');
     expect(item(itemId).checkedAt).toBeNull();
     expect(mockBack).not.toHaveBeenCalled();
     refresh();
-    expect(pressables('Got it')).toHaveLength(1);
+    expect(gotIt().props.accessibilityState).toEqual({ checked: false });
   });
 
   test('Save writes the name and note and closes; Cancel leaves them', () => {

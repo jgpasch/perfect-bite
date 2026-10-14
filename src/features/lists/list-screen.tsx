@@ -77,6 +77,8 @@ import {
   alsoInHint,
   CHECK_LINGER_MS,
   checkedAllToast,
+  checkedChoiceAfterAllDoneChange,
+  checkedSectionOpen,
   clearCheckedLabel,
   clearedToast,
   collapsedSectionsKey,
@@ -116,7 +118,13 @@ import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
-import { getAisleColorStyle, getDeviceSetting, getItemRowStyle, setDeviceSetting } from '@/features/settings/device-settings';
+import {
+  getAisleColorStyle,
+  getAlwaysShowChecked,
+  getDeviceSetting,
+  getItemRowStyle,
+  setDeviceSetting,
+} from '@/features/settings/device-settings';
 import { onSiriAdds } from '@/features/siri/drain';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
@@ -225,7 +233,15 @@ export function ListScreen({ id }: { id: string }) {
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
 
-  const [showChecked, setShowChecked] = useState(false);
+  // Spec 4.6: Checked opens by itself once nothing is left to get (the last check's linger is the pause
+  // before it does), or always with Always show checked items on; a tap on its header overrides either.
+  const allDone = placed.length === 0;
+  const [checkedChoice, setCheckedChoice] = useState<boolean | null>(null);
+  const [wasAllDone, setWasAllDone] = useState(allDone);
+  if (wasAllDone !== allDone) {
+    setWasAllDone(allDone);
+    setCheckedChoice(checkedChoiceAfterAllDoneChange);
+  }
   const [selection, setSelection] = useState<Set<string> | null>(null);
   // Spec 4.6: the last choice per list is remembered on this device.
   const [viewMode, setViewModeState] = useState<ListViewMode>(() => getDeviceSetting(viewModeKey(id), DEFAULT_LIST_VIEW_MODE));
@@ -236,17 +252,18 @@ export function ListScreen({ id }: { id: string }) {
   // Settings > Aisle colours: By aisle tints each row (the default) or only the aisle's header. Read on
   // focus, since it's changed on the Settings tab.
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
-  // Settings > Aisle colours > Item rows: colour bands (the default) or white tiles.
+  // Settings > Aisle colours > Item rows: colour bands (the default) or white rows.
   const [rowStyle, setRowStyle] = useState(getItemRowStyle);
+  // Settings > Shopping > Always show checked items.
+  const [alwaysShowChecked, setAlwaysShowChecked] = useState(getAlwaysShowChecked);
   useFocusEffect(
     useCallback(() => {
       setAisleColors(getAisleColorStyle());
       setRowStyle(getItemRowStyle());
+      setAlwaysShowChecked(getAlwaysShowChecked());
     }, []),
   );
-  // White tiles: a card whose rows take their aisle colours is just its tiles on the screen's ground.
-  const tiles = rowStyle === 'tiles';
-  const tintedGround = tiles ? colors.background : colors.surface;
+  const showChecked = checkedSectionOpen(checkedChoice, allDone, alwaysShowChecked);
   // Spec 4.6: sections folded away in By aisle and By recipe, remembered per list and mode on this device.
   // The device setting is the source of truth; this state mirrors it so the list re-renders.
   const readCollapsed = useCallback(
@@ -663,7 +680,6 @@ export function ListScreen({ id }: { id: string }) {
     sorting = false,
     aisle?: { name: string },
     plain = false,
-    tile = false,
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     return (
@@ -675,7 +691,6 @@ export function ListScreen({ id }: { id: string }) {
         // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
         // as do rows under a coloured aisle header.
         look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
-        tile={tile}
         alreadyOnList={query !== null && isAlreadyOnList(item, query) ? { query } : undefined}
         first={index === 0}
         sorting={sorting}
@@ -694,30 +709,28 @@ export function ListScreen({ id }: { id: string }) {
   // As added and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
   const renderEntryWithAisle = (e: Entry, i: number) => {
     const categoryId = e.item.categoryId;
-    return renderEntry(e, i, tintedGround, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' }, false, tiles);
+    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' });
   };
 
   const renderBlock = (block: Block) => {
     if (block.kind === 'newest') {
-      return <Card background={tiles ? 'background' : undefined}>{block.entries.map(renderEntryWithAisle)}</Card>;
+      return <Card>{block.entries.map(renderEntryWithAisle)}</Card>;
     }
     if (block.kind === 'aisle') {
       if (block.sorting) {
         // No header: the dashed checks and each row's "Sorting…" label say what this card is.
         return (
-          <Card background={tiles ? 'background' : undefined}>
-            {block.entries.map((e, i) => renderEntry(e, i, tintedGround, true, undefined, false, tiles))}
+          <Card>
+            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, true))}
           </Card>
         );
       }
       const plain = aisleColors === 'header';
-      const tiled = tiles && !plain;
       return (
-        <Card background={tiled ? 'background' : undefined}>
+        <Card>
           <FoldingSection
             title={block.title}
             accessibilityLabel={block.accessibilityLabel}
-            ground={tiled ? colors.background : undefined}
             dotColor={aisles[aisleColor(block.slug)].dot}
             band={plain ? aisleHeaderBand(block.slug, scheme) : undefined}
             count={block.entries.length}
@@ -726,7 +739,7 @@ export function ListScreen({ id }: { id: string }) {
             // Spec 4.6: swipe right to check the aisle off; no swipe to delete. VoiceOver gets it as an action.
             onSwipeCheck={selection ? undefined : () => checkAll(block.entries.map((e) => e.item.id))}
             actions={selection ? undefined : [{ label: 'Check all', onPress: () => checkAll(block.entries.map((e) => e.item.id)) }]}>
-            {block.entries.map((e, i) => renderEntry(e, i, tiled ? colors.background : colors.surface, false, undefined, plain, tiled))}
+            {block.entries.map((e, i) => renderEntry(e, i, colors.surface, false, undefined, plain))}
           </FoldingSection>
         </Card>
       );
@@ -734,10 +747,9 @@ export function ListScreen({ id }: { id: string }) {
     if (block.kind === 'recipe') {
       const recipeId = block.recipeId;
       return (
-        <Card background={tiles ? 'background' : undefined}>
+        <Card>
           <FoldingSection
             title={block.title}
-            ground={tiles ? colors.background : undefined}
             leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
             onLongPress={block.recipeId ? () => recipeMenu(block) : undefined}
             actions={recipeActions(block)}
@@ -763,7 +775,7 @@ export function ListScreen({ id }: { id: string }) {
             accessibilityRole="button"
             accessibilityState={{ expanded: showChecked }}
             accessibilityLabel={`Checked, ${block.count} ${block.count === 1 ? 'item' : 'items'}`}
-            onPress={() => setShowChecked((v) => !v)}
+            onPress={() => setCheckedChoice(!showChecked)}
             onLongPress={() => checkedMenu(block.count)}
             style={({ pressed }) => [
               styles.row,
@@ -799,7 +811,7 @@ export function ListScreen({ id }: { id: string }) {
       {onThisList ? <StatusBar style="light" /> : null}
       {addMode ? (
         <Stack.Title asChild>
-          <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode)} />
+          <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode, checked.length)} />
         </Stack.Title>
       ) : null}
       {/* At rest the list's name sits in the header's left slot, on one row with ⋯; add mode swaps it for CompactTitle. */}
@@ -857,9 +869,9 @@ export function ListScreen({ id }: { id: string }) {
                       styles.title,
                       { columnGap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs },
                     ]}>
-                    {toGetLabel(unchecked.length) ? (
+                    {toGetLabel(unchecked.length, checked.length) ? (
                       <ThemedText variant="amount" color="onHeaderSecondary">
-                        {toGetLabel(unchecked.length)}
+                        {toGetLabel(unchecked.length, checked.length)}
                       </ThemedText>
                     ) : null}
                     <ViewMenuButton

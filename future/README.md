@@ -15,9 +15,8 @@ When a feature is fully moved into `tasks.md`, delete its file here. When you pa
 |---|---|---|
 | [push-notifications-tasks.md](push-notifications-tasks.md) | ready | 11.1 |
 | [recipe-import-tasks.md](recipe-import-tasks.md) | ideas | 4.5 |
-| [recipes-tasks.md](recipes-tasks.md) | ideas | 4.5, 4.10, 6.6 |
 | [siri-tasks.md](siri-tasks.md) | ideas | 4.9, 11.3 |
 | [copy-to-household-tasks.md](copy-to-household-tasks.md) | ideas | 4.5, 4.14, 11.4 |
-| [lists-tasks.md](lists-tasks.md) | ideas | 11.4 |
 | [web-app-tasks.md](web-app-tasks.md) | ideas | 11.2 |
 | [universal-links-tasks.md](universal-links-tasks.md) | ready | 4.7 |
+| [e2e-tasks.md](e2e-tasks.md) | ready | 7.2, 8.3 |

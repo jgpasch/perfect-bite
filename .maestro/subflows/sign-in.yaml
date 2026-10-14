@@ -1,0 +1,24 @@
+# Signs in as EMAIL with the dev email + code stub, from the sign-in screen. This is setup, not a
+# test of sign-in: what users see (Google) can't be automated, and nothing after sign-in depends on
+# the method (spec 5). New emails get a household and a Groceries list.
+appId: com.jgp.perfectbite
+---
+- extendedWaitUntil:
+    visible: 'Email'
+    timeout: 30000
+- tapOn: 'Email'
+- inputText: ${EMAIL}
+- tapOn: 'Send code'
+- extendedWaitUntil:
+    visible: 'Sign-in code'
+    timeout: 15000
+- runScript:
+    file: ../scripts/sign-in-code.js
+    env:
+      EMAIL: ${EMAIL}
+- tapOn: 'Sign-in code'
+- inputText: ${output.code}
+- tapOn: 'Sign in'
+- extendedWaitUntil:
+    visible: 'Groceries, switch list'
+    timeout: 30000
