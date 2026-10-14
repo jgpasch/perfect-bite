@@ -1,7 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
@@ -14,14 +15,26 @@ import { categorizePending } from '@/features/categories/categorization';
 import { listQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { addItemsToRecipe, makeRecipeFromItems } from '@/features/recipes/from-list';
+import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
+import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
+import {
+  activeFilterCount,
+  matchesRecipeFilters,
+  noRecipeFilters,
+  removeFilterChip,
+  type RecipeFilters,
+} from '@/features/recipes/recipe-filters';
+import { NO_RECIPES_MATCH, recipeSearchPlaceholder, searchRecipes } from '@/features/recipes/recipe-search';
 import { addToRecipeTitle, ingredientCountLabel, recipeCardLabel } from '@/features/recipes/recipe-view';
-import { recipesForPicker } from '@/features/recipes/recipes';
+import { recipeIngredientNamesQuery, recipesForPicker } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
  * "Add to recipe" (spec 4.5): the selected list items go into a new recipe (name it, Return) or an
  * existing one of the list's household, most recently used first. The list screen under the sheet
  * then leaves Select mode, switches to By recipe and shows the toast (`takeRecipeAddResult`).
+ * The recipes can be searched and filtered as on the Recipes tab (spec 4.14), but the search and
+ * filters are the sheet's own: they don't touch the tab's, and go when the sheet closes.
  */
 export default function AddToRecipeSheet() {
   const { id, items } = useLocalSearchParams<{ id: string; items: string }>();
@@ -32,9 +45,35 @@ export default function AddToRecipeSheet() {
   const [itemIds] = useState(() => (items ? items.split(',').filter(Boolean) : []));
   const [list] = useState(() => listQuery(id).get());
   const [recipes] = useState(() => (list ? recipesForPicker(list.householdId) : []));
+  const [ingredientNames] = useState(() => (recipes.length > 0 ? recipeIngredientNamesQuery().all() : []));
   const [name, setName] = useState('');
+  const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState<RecipeFilters>(noRecipeFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const searching = query.trim() !== '';
+  const filtering = activeFilterCount(filters) > 0;
+  // Search and filters keep the recipes' order: most recently used first.
+  const results = useMemo(
+    () => searchRecipes(recipes, ingredientNames, query).filter(({ recipe }) => matchesRecipeFilters(recipe, filters)),
+    [recipes, ingredientNames, query, filters],
+  );
 
   if (!list || itemIds.length === 0) return <Screen />;
+
+  // The Filters pill shows the filter sheet's body in place; Show N recipes comes back.
+  if (filtersOpen) {
+    return (
+      <Screen>
+        <RecipeFilterPanel
+          recipes={recipes}
+          filters={filters}
+          onChange={setFilters}
+          count={results.length}
+          onDone={() => setFiltersOpen(false)}
+        />
+      </Screen>
+    );
+  }
 
   const finish = (recipeId: string, recipeName: string, pendingNames: string[]) => {
     void categorizePending(pendingNames);
@@ -81,12 +120,43 @@ export default function AddToRecipeSheet() {
         </Card>
 
         {recipes.length > 0 ? (
+          <View style={{ gap: spacing.xs }}>
+            <View style={{ paddingHorizontal: spacing.lg }}>
+              <TextField
+                value={query}
+                onChangeText={setQuery}
+                placeholder={recipeSearchPlaceholder(recipes.length)}
+                accessibilityLabel="Search recipes"
+                returnKeyType="search"
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+              />
+            </View>
+            <RecipeFilterBar
+              filters={filters}
+              onOpen={() => setFiltersOpen(true)}
+              onRemove={(chip) => setFilters(removeFilterChip(filters, chip))}
+            />
+          </View>
+        ) : null}
+
+        {recipes.length > 0 && (searching || filtering) && results.length === 0 ? (
+          <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+            <ThemedText variant="callout" color="inkSecondary" style={styles.centerText}>
+              {NO_RECIPES_MATCH}
+            </ThemedText>
+            {filtering ? <Button label="Clear filters" variant="plain" onPress={() => setFilters(noRecipeFilters())} /> : null}
+          </View>
+        ) : null}
+
+        {results.length > 0 ? (
           <Card>
-            {recipes.map((r, i) => (
+            {results.map(({ recipe: r, ingredientMatch }, i) => (
               <Pressable
                 key={r.id}
                 accessibilityRole="button"
-                accessibilityLabel={recipeCardLabel(r.name, r.ingredientCount)}
+                accessibilityLabel={recipeCardLabel(r.name, r.ingredientCount, null, ingredientMatch)}
                 onPress={() => finish(r.id, r.name, addItemsToRecipe(r.id, itemIds, userId))}
                 style={({ pressed }) => [
                   styles.row,
@@ -103,9 +173,19 @@ export default function AddToRecipeSheet() {
                 <IconTile hue={recipeHue(r.id)} name="fork.knife" />
                 <View style={styles.flex}>
                   <ThemedText variant="body">{r.name}</ThemedText>
-                  <ThemedText variant="footnote" color="inkSecondary">
-                    {ingredientCountLabel(r.ingredientCount)}
-                  </ThemedText>
+                  {/* Spec 4.14: matched only through an ingredient, "Has …" in place of the count. */}
+                  {ingredientMatch ? (
+                    <ThemedText variant="footnote" color="inkSecondary">
+                      Has{' '}
+                      <ThemedText variant="footnote" color="inkSecondary" style={styles.match}>
+                        {ingredientMatch}
+                      </ThemedText>
+                    </ThemedText>
+                  ) : (
+                    <ThemedText variant="footnote" color="inkSecondary">
+                      {ingredientCountLabel(r.ingredientCount)}
+                    </ThemedText>
+                  )}
                 </View>
               </Pressable>
             ))}
@@ -119,4 +199,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { alignItems: 'center', justifyContent: 'center' },
+  centerText: { textAlign: 'center' },
+  match: { fontWeight: '700' },
 });
