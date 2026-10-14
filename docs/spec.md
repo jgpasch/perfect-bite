@@ -855,6 +855,9 @@ src/
   db/               Drizzle schema mirroring section 5, migrations, live queries
   sync/             outbox, hlc, drain, push (apply_mutations), pull, realtime
   lib/              supabase client, google sign-in, secure store
+  i18n/             strings (4.15): en.ts (the source, grouped by feature), es.ts (exactly en's keys),
+                    languages (SUPPORTED_LANGUAGES, resolveLanguage), initI18n (root layout), useT,
+                    formatDate/formatNumber
 targets/
   add-intent/       AddToPerfectBiteIntent.swift, ListEntity, App Group queue writer
   share-recipe/     share extension (4.10): SwiftUI sheet, Preprocess.js, share queue writer

@@ -7,6 +7,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import type { AccountState } from '@/features/auth/account';
 
 import SignInScreen from '@/app/sign-in';
+import { initI18n } from '@/i18n';
 
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
@@ -280,5 +281,39 @@ describe('the sign-in screen', () => {
       const root = await toCodeStep();
       expect(buttons(root).map((b) => b.props.accessibilityLabel)).not.toContain('Continue with Google');
     });
+  });
+});
+
+// The worked example of moving a screen's strings into src/i18n/ (spec 4.15).
+describe('the sign-in screen in Spanish', () => {
+  // Unmount before switching back, so the screen doesn't re-render outside act.
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+    initI18n('en');
+  });
+
+  it('shows its strings from es.ts', () => {
+    initI18n('es');
+    mockGoogle.configured = true;
+    const root = render();
+    expect(textOf(root)).toContain('La app de lista del súper que te ayuda a lograr el bocado perfecto.');
+    expect(textOf(root)).toContain('¿Eres nuevo? Vamos a crear tu hogar y una lista del súper.');
+    expect(buttons(root).map((b) => b.props.accessibilityLabel)).toEqual(
+      expect.arrayContaining(['Continuar con Google', 'Enviar código']),
+    );
+    expect(field(root, 'Correo').props.placeholder).toBe('Correo');
+  });
+
+  it('fills the address into the code step’s Spanish prompt', async () => {
+    initI18n('es');
+    const root = render();
+    type(field(root, 'Correo'), 'ana@example.mx');
+    await act(async () => field(root, 'Correo').props.onSubmitEditing());
+    expect(textOf(root)).toContain('Escribe el código de 6 dígitos que enviamos a ana@example.mx.');
+    expect(field(root, 'Código de inicio de sesión')).toBeDefined();
+    expect(buttons(root).map((b) => b.props.accessibilityLabel)).toEqual(
+      expect.arrayContaining(['Iniciar sesión', 'Usar otro correo']),
+    );
   });
 });

@@ -132,7 +132,8 @@
           "iosUrlScheme": "com.googleusercontent.apps.1031126351526-q2tn88imviuf5j9stsjqmb34pisoc7ng"
         }
       ],
-      "expo-mail-composer"
+      "expo-mail-composer",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,

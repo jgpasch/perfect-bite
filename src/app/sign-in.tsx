@@ -22,6 +22,7 @@ import { signInHeroSize, signInOverflows } from '@/features/auth/sign-in-layout'
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { isGoogleConfigured } from '@/lib/google-sign-in';
 import { useTheme } from '@/hooks/use-theme';
+import { useT } from '@/i18n';
 
 /**
  * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and the gold cloche
@@ -30,6 +31,7 @@ import { useTheme } from '@/hooks/use-theme';
  * (http://127.0.0.1:55324).
  */
 export default function SignInScreen() {
+  const t = useT();
   const account = useAccountState();
   const { colors, spacing } = useTheme();
   const look = signInColors(colors);
@@ -103,15 +105,19 @@ export default function SignInScreen() {
           },
         ]}>
         <View style={{ gap: spacing.md }}>
-          <ThemedText variant="hero" accessibilityRole="header" accessibilityLabel="The Perfect Bite" style={{ color: look.text }}>
-            The <ThemedText variant="hero" style={{ color: look.accent }}>Perfect</ThemedText> Bite
+          <ThemedText variant="hero" accessibilityRole="header" accessibilityLabel={t('signIn.appName')} style={{ color: look.text }}>
+            {t('signIn.appNameStart')}
+            <ThemedText variant="hero" style={{ color: look.accent }}>
+              {t('signIn.appNameAccent')}
+            </ThemedText>
+            {t('signIn.appNameEnd')}
           </ThemedText>
           <ThemedText variant="lead" style={{ color: look.text }}>
             {account.status === 'unconfigured'
-              ? 'Backend not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local, then restart the dev server.'
+              ? t('signIn.unconfigured')
               : step === 'email'
-                ? 'The shopping list app that helps you get the perfect bite.'
-                : `Enter the 6-digit code sent to ${email.trim()}.`}
+                ? t('signIn.tagline')
+                : t('signIn.codeSent', { email: email.trim() })}
           </ThemedText>
         </View>
 
@@ -120,15 +126,15 @@ export default function SignInScreen() {
         {account.status === 'unconfigured' ? null : (
           <View style={{ gap: spacing.md }}>
             {step === 'email' && isGoogleConfigured ? (
-              <SurfaceButton label={busy ? 'Signing in…' : 'Continue with Google'} onPress={onGoogle} disabled={busy} />
+              <SurfaceButton label={busy ? t('signIn.signingIn') : t('signIn.continueWithGoogle')} onPress={onGoogle} disabled={busy} />
             ) : null}
 
             {!__DEV__ ? null : step === 'email' ? (
               <TextField
                 value={email}
                 onChangeText={setEmail}
-                placeholder="Email"
-                accessibilityLabel="Email"
+                placeholder={t('signIn.email')}
+                accessibilityLabel={t('signIn.email')}
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
@@ -141,8 +147,8 @@ export default function SignInScreen() {
               <TextField
                 value={code}
                 onChangeText={setCode}
-                placeholder="123456"
-                accessibilityLabel="Sign-in code"
+                placeholder={t('signIn.codePlaceholder')}
+                accessibilityLabel={t('signIn.code')}
                 keyboardType="number-pad"
                 textContentType="oneTimeCode"
                 autoComplete="one-time-code"
@@ -161,16 +167,16 @@ export default function SignInScreen() {
 
             {!__DEV__ ? null : step === 'email' ? (
               <SurfaceButton
-                label={busy ? 'Sending…' : 'Send code'}
+                label={busy ? t('signIn.sending') : t('signIn.sendCode')}
                 icon="envelope"
                 onPress={onSendCode}
                 disabled={busy || !email.includes('@')}
               />
             ) : (
               <>
-                <SurfaceButton label={busy ? 'Signing in…' : 'Sign in'} onPress={onVerify} disabled={busy || code.trim().length < 6} />
+                <SurfaceButton label={busy ? t('signIn.signingIn') : t('signIn.signIn')} onPress={onVerify} disabled={busy || code.trim().length < 6} />
                 <Button
-                  label="Use a different email"
+                  label={t('signIn.differentEmail')}
                   variant="plain"
                   color="onHeader"
                   onPress={() => setStep('email')}
@@ -179,7 +185,7 @@ export default function SignInScreen() {
               </>
             )}
             <ThemedText variant="footnote" style={[styles.center, { color: look.text }]}>
-              New here? We’ll set up your household and a Groceries list.
+              {t('signIn.newHere')}
             </ThemedText>
           </View>
         )}
