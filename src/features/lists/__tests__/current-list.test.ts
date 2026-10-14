@@ -8,7 +8,7 @@ import { getDeviceSetting } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
 import { openList, resolveCurrentListId, setCurrentList, useCurrentListVersion } from '../current-list';
-import { createList, ensureStarterData, getDefaultListId, LAST_OPENED_LIST_KEY, setDefaultList, setLastOpenedList } from '../lists';
+import { createList, ensureStarterData, getDefaultListId, LAST_OPENED_LIST_KEY, setDefaultList, setLastOpenedList, setListArchived } from '../lists';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -77,8 +77,22 @@ describe('resolveCurrentListId', () => {
     expect(resolveCurrentListId(ids(groceries, costco), null)).toBe(groceries);
   });
 
+  test('is the list last shown even before the open lists include it (just made)', () => {
+    const costco = createList('Costco');
+    setLastOpenedList(costco);
+    expect(resolveCurrentListId(ids(groceries), USER)).toBe(costco);
+  });
+
+  test('is not an archived list the open lists leave out', () => {
+    const costco = createList('Costco');
+    setLastOpenedList(costco);
+    setListArchived(costco, true);
+    expect(resolveCurrentListId(ids(groceries), USER)).toBe(groceries);
+  });
+
   test('is null with no open lists', () => {
     setLastOpenedList(groceries);
+    setListArchived(groceries, true);
     expect(resolveCurrentListId([], USER)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 
 import { getAccount } from '@/features/auth/account';
 import { launchListId } from '@/features/lists/list-view';
-import { getDefaultListId, LAST_OPENED_LIST_KEY } from '@/features/lists/lists';
+import { getDefaultListId, getList, LAST_OPENED_LIST_KEY } from '@/features/lists/lists';
 import { getDeviceSetting } from '@/features/settings/device-settings';
 import { recordListOpened } from '@/features/siri/list-snapshot';
 
@@ -27,8 +27,14 @@ export function useCurrentListVersion(): number {
 
 /** The current list among `open` (the unarchived lists, in order), or null when there are none. */
 export function resolveCurrentListId(open: readonly { id: string }[], userId: string | null): string | null {
+  const lastOpenedId = getDeviceSetting<string | null>(LAST_OPENED_LIST_KEY, null);
+  // A list picked the moment it was made (New list in Your lists) isn't in `open` until the caller's
+  // live query re-runs. Falling back meanwhile would let the old list's focus effect re-record itself.
+  if (lastOpenedId !== null && !open.some((l) => l.id === lastOpenedId) && getList(lastOpenedId)?.archivedAt === null) {
+    return lastOpenedId;
+  }
   const defaultId = userId && open.length > 0 ? getDefaultListId(userId) : null;
-  return launchListId(getDeviceSetting<string | null>(LAST_OPENED_LIST_KEY, null), defaultId, open);
+  return launchListId(lastOpenedId, defaultId, open);
 }
 
 /** Makes `listId` the current list, without navigating. */
