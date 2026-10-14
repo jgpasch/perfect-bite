@@ -3,6 +3,8 @@
 import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { i18n, onLanguageChanged } from '@/i18n';
+import { tagLabel } from '@/i18n/vocabulary';
+import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
@@ -46,6 +48,49 @@ export function recipeCardLabel(name: string, count: number, onList?: string | n
   return [
     name,
     ingredientMatch ? i18n.t('recipes.tab.cardHas', { name: ingredientMatch }) : ingredientCountLabel(count),
+    onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** A recipe's total time on its row: "35 min", "1 hr", "1 hr 20 min". Null without a time. */
+export function recipeTimeLabel(totalMinutes: number | null | undefined): string | null {
+  if (totalMinutes == null || !Number.isFinite(totalMinutes) || totalMinutes <= 0) return null;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.round(totalMinutes % 60);
+  if (hours === 0) return i18n.t('recipes.tab.timeMinutes', { minutes });
+  if (minutes === 0) return i18n.t('recipes.tab.timeHours', { hours });
+  return i18n.t('recipes.tab.timeHoursMinutes', { hours, minutes });
+}
+
+/**
+ * The parts of a recipe row's meta line (spec 4.5): its first `meal` tag's label (in the facet's order)
+ * and its time, ["Dinner", "35 min"]. Either alone if the other is missing; none if both are.
+ */
+export function recipeMetaParts(recipe: { tags: RecipeTags | null; totalMinutes: number | null }): string[] {
+  const meal = knownTags(recipe.tags)?.meal[0];
+  return [meal ? tagLabel('meal', meal) : null, recipeTimeLabel(recipe.totalMinutes)].filter((p): p is string => !!p);
+}
+
+/** A recipe row's meta line: "Dinner · 35 min", "Dinner", "35 min", or null. */
+export function recipeMetaLine(recipe: { tags: RecipeTags | null; totalMinutes: number | null }): string | null {
+  const parts = recipeMetaParts(recipe);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Dinner, 35 min, on Groceries". A row a search
+ * matched only through an ingredient reads that in place of the meta: "Tacos, has chicken thighs".
+ */
+export function recipeRowLabel(
+  recipe: { name: string; tags: RecipeTags | null; totalMinutes: number | null },
+  onList?: string | null,
+  ingredientMatch?: string | null,
+): string {
+  return [
+    recipe.name,
+    ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe)),
     onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,
   ]
     .filter(Boolean)

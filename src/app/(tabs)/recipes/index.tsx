@@ -1,15 +1,18 @@
-import { Link, router, Stack, useFocusEffect } from 'expo-router';
+import { Link, router, Stack, useFocusEffect, usePathname } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { prominentButtonTint } from '@/components/appearance';
+import { listHeaderColors, prominentButtonTint } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
+import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
+import { HeaderPill } from '@/components/header-pill';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
@@ -32,14 +35,16 @@ import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/
 import {
   addedRecipeWithStaplesToast,
   groupRecipesByHousehold,
-  ingredientCountLabel,
   onListByRecipe,
-  recipeCardLabel,
+  recipeMetaLine,
+  recipeRowLabel,
 } from '@/features/recipes/recipe-view';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import {
   activeFilterCount,
+  filtersPillAccessibilityLabel,
+  filtersPillLabel,
   isUntaggedRecipe,
   matchesRecipeFilters,
   noRecipeFilters,
@@ -62,10 +67,17 @@ import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/shar
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
-/** Recipes tab (spec 4.5, board 05): a card per recipe under each household's name. */
+/**
+ * Recipes tab (spec 4.5): the List tab's green header (title, search, "N recipes" and Filters) over a card of
+ * recipe rows per household.
+ */
 export default function RecipesScreen() {
   const t = useT();
-  const { spacing, scheme, colors, sizes } = useTheme();
+  const { spacing, scheme, colors, sizes, rounded } = useTheme();
+  const header = listHeaderColors(colors);
+  // Light status bar content on the green header, also while the Filters sheet is up over it.
+  const pathname = usePathname();
+  const onRecipes = pathname === '/recipes' || pathname === '/recipes/filter';
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
@@ -231,8 +243,12 @@ export default function RecipesScreen() {
     ),
   );
 
+  // Spec 4.5: household names only tell recipes apart when there's more than one household.
+  const labelHouseholds = new Set(data.map((r) => r.householdId)).size > 1;
+
   return (
     <Screen>
+      {onRecipes ? <StatusBar style="light" /> : null}
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
           icon="plus"
@@ -242,91 +258,119 @@ export default function RecipesScreen() {
           onPress={addRecipe}
         />
       </Stack.Toolbar>
-      {data.length > 0 ? (
-        <Stack.SearchBar
-          placeholder={recipeSearchPlaceholder(data.length)}
-          hideWhenScrolling={false}
-          // Results update live under the field, so they aren't dimmed while it has focus.
-          obscureBackground={false}
-          autoCapitalize="none"
-          onChangeText={(e) => setQuery(e.nativeEvent.text)}
-          onCancelButtonPress={() => setQuery('')}
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        onScrollBeginDrag={closeOpenCard}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
+        <View style={{ backgroundColor: header.ground }}>
+          {/* Pulling down past the top shows more green, not the tab's ground. */}
+          <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
+          <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
+            <ThemedText variant="largeTitle" color="onHeader" accessibilityRole="header" style={{ paddingHorizontal: spacing.xs }}>
+              {t('recipes.tab.title')}
+            </ThemedText>
+            {data.length > 0 ? (
+              <>
+                <RecipeSearchField count={data.length} query={query} onChange={setQuery} />
+                <View style={[styles.headerRow, { gap: spacing.md, paddingHorizontal: spacing.xs }]}>
+                  <ThemedText variant="amount" color="onHeaderSecondary">
+                    {t('recipes.tab.count', { count: data.length })}
+                  </ThemedText>
+                  <HeaderPill
+                    label={filtersPillLabel(activeFilterCount(filters))}
+                    accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
+                    accessibilityHint={t('recipes.filters.pillHint')}
+                    selected={filtering}
+                    onPress={openFilters}
+                  />
+                </View>
+              </>
+            ) : null}
+          </View>
+          <View style={{ height: rounded.card }} />
+        </View>
+        {/* The tab's ground: rounded top corners over the bottom of the green. */}
+        <View
+          style={[
+            styles.sheetTop,
+            {
+              height: rounded.card,
+              marginTop: -rounded.card,
+              borderTopLeftRadius: rounded.card,
+              borderTopRightRadius: rounded.card,
+              backgroundColor: colors.background,
+            },
+          ]}
         />
-      ) : null}
-      {data.length === 0 && !showImports ? (
-        empty
-      ) : (
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          onScrollBeginDrag={closeOpenCard}
-          contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
-          {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
-          {showImports ? (
-            <View style={{ paddingTop: spacing.xs }}>
-              <ImportsCard failed={failed} queue={queue} />
-            </View>
-          ) : null}
-          {data.length === 0 ? empty : null}
-          {data.length > 0 ? (
-            <RecipeFilterBar
-              filters={filters}
-              onOpen={openFilters}
-              onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
-            />
-          ) : null}
-          {data.length > 0 && (searching || filtering) && groups.length === 0 ? (
-            <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
-              <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
-                {NO_RECIPES_MATCH}
-              </ThemedText>
-              {filtering ? (
-                <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
-              ) : null}
-            </View>
-          ) : null}
-          {groups.map((group, i) => (
-            <View key={group.householdId}>
+        {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
+        {showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
+        {data.length === 0 ? empty : null}
+        {data.length > 0 ? (
+          <RecipeFilterBar filters={filters} onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))} />
+        ) : null}
+        {data.length > 0 && (searching || filtering) && groups.length === 0 ? (
+          <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
+            <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
+              {NO_RECIPES_MATCH}
+            </ThemedText>
+            {filtering ? (
+              <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
+            ) : null}
+          </View>
+        ) : null}
+        {groups.map((group, i) => (
+          <View key={group.householdId} style={{ paddingTop: i === 0 ? spacing.xs : spacing.lg + spacing.xxs }}>
+            {labelHouseholds ? (
               <ThemedText
                 variant="sectionLabel"
                 color="inkSecondary"
                 accessibilityRole="header"
-                style={{
-                  paddingHorizontal: spacing.lg + spacing.xs,
-                  paddingTop: i === 0 ? spacing.xs : spacing.lg + spacing.xxs,
-                  paddingBottom: spacing.sm,
-                }}>
+                style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.sm }}>
                 {group.name}
               </ThemedText>
-              <View style={{ gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg }}>
-                {group.recipes.map((r) => (
-                  <RecipeCard
-                    key={r.id}
-                    recipe={r}
-                    ingredientMatch={r.ingredientMatch}
-                    onList={onList.get(r.id) ?? null}
-                    highlighted={toast?.recipeId === r.id}
-                    quickAddTo={quickAddList(currentList, r)}
-                    onQuickAdd={quickAdd}
-                    onSwipeOpen={cardOpened}
-                    onSwipeClose={cardClosed}
-                  />
+            ) : null}
+            <View style={{ paddingHorizontal: spacing.lg }}>
+              <Card>
+                {group.recipes.map((r, j) => (
+                  <View key={r.id}>
+                    {j > 0 ? (
+                      <View
+                        style={{
+                          height: StyleSheet.hairlineWidth,
+                          marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
+                          backgroundColor: colors.border,
+                        }}
+                      />
+                    ) : null}
+                    <RecipeRow
+                      recipe={r}
+                      ingredientMatch={r.ingredientMatch}
+                      onList={onList.get(r.id) ?? null}
+                      highlighted={toast?.recipeId === r.id}
+                      quickAddTo={quickAddList(currentList, r)}
+                      onQuickAdd={quickAdd}
+                      onSwipeOpen={cardOpened}
+                      onSwipeClose={cardClosed}
+                    />
+                  </View>
                 ))}
-              </View>
+              </Card>
             </View>
-          ))}
-          {untaggedHidden > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityHint={t('recipes.tab.untaggedHint')}
-              onPress={() => setRecipeFilters(untaggedOnlyFilters())}
-              style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
-              <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
-                {untaggedFootnote(untaggedHidden)}
-              </ThemedText>
-            </Pressable>
-          ) : null}
-        </ScrollView>
-      )}
+          </View>
+        ))}
+        {untaggedHidden > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint={t('recipes.tab.untaggedHint')}
+            onPress={() => setRecipeFilters(untaggedOnlyFilters())}
+            style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+            <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
+              {untaggedFootnote(untaggedHidden)}
+            </ThemedText>
+          </Pressable>
+        ) : null}
+      </ScrollView>
       {toast ? (
         // Above the tab bar: the bottom safe area here includes it.
         <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
@@ -337,7 +381,56 @@ export default function RecipesScreen() {
   );
 }
 
-function RecipeCard({
+/**
+ * The search field on the green header (spec 4.14): "Search 52 recipes" in a white wash, results updating
+ * live under it. Kept only while the screen is mounted.
+ */
+function RecipeSearchField({ count, query, onChange }: { count: number; query: string; onChange: (text: string) => void }) {
+  const t = useT();
+  const { colors, typography, spacing, sizes, rounded } = useTheme();
+  return (
+    <View
+      style={[
+        styles.search,
+        {
+          minHeight: sizes.minTapTarget,
+          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
+          borderRadius: rounded.md,
+          backgroundColor: listHeaderColors(colors).viewButton.fill,
+        },
+      ]}>
+      <Icon name="magnifyingglass" color="onHeaderSecondary" />
+      <TextInput
+        value={query}
+        onChangeText={onChange}
+        placeholder={recipeSearchPlaceholder(count)}
+        placeholderTextColor={colors.onHeaderSecondary}
+        selectionColor={colors.onHeader}
+        accessibilityLabel={t('recipes.tab.searchLabel')}
+        returnKeyType="search"
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={[typography.body, styles.flex, { color: colors.onHeader, paddingVertical: spacing.sm + spacing.xxs }]}
+      />
+      {query ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('recipes.tab.clearSearch')}
+          hitSlop={spacing.md}
+          onPress={() => onChange('')}>
+          <Icon name="xmark.circle.fill" color="onHeaderSecondary" />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * A recipe's row in its household's card (spec 4.5): the photo tile, the name on one line, and under it the
+ * meta line ("Dinner · 35 min"), or "Has …" when a search matched only an ingredient.
+ */
+function RecipeRow({
   recipe,
   ingredientMatch,
   onList,
@@ -348,7 +441,7 @@ function RecipeCard({
   onSwipeClose,
 }: {
   recipe: RecipeSummary;
-  /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the count. */
+  /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the meta line. */
   ingredientMatch: string | null;
   onList: string | null;
   /** Just imported: outlined in `primary` while the toast shows. */
@@ -370,6 +463,7 @@ function RecipeCard({
   const setFullSwipe = useCallback((full: boolean) => (fullSwipe.current = full), []);
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
   const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
+  const meta = recipeMetaLine(recipe);
 
   // The menu's Delete, the swipe's and VoiceOver's; Cancel closes a swiped card.
   const confirmDelete = () =>
@@ -383,26 +477,29 @@ function RecipeCard({
       <Link.Trigger>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={recipeCardLabel(recipe.name, recipe.ingredientCount, onList, ingredientMatch)}
+          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch)}
           accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
           onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && confirmDelete()}>
           {/* Layout lives on a View: Link's trigger replaces the Pressable's style. */}
           <View
             onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
             style={[
-              styles.card,
+              styles.row,
               {
-                padding: spacing.md + spacing.xxs,
-                gap: spacing.md + spacing.xxs,
-                borderRadius: rounded.card,
+                minHeight: sizes.recipeTile + spacing.md * 2,
+                paddingVertical: spacing.md - sizes.focusRing,
+                paddingHorizontal: spacing.lg - sizes.focusRing,
+                gap: spacing.md,
                 backgroundColor: colors.surface,
                 borderWidth: sizes.focusRing,
+                // The outline follows the card's corners, so it isn't clipped on the first and last rows.
+                borderRadius: highlighted ? rounded.card : 0,
                 borderColor: highlighted ? colors.primary : 'transparent',
               },
             ]}>
             <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
             <View style={styles.flex}>
-              <ThemedText variant="headline" numberOfLines={2}>
+              <ThemedText variant="headline" numberOfLines={1}>
                 {recipe.name}
               </ThemedText>
               {ingredientMatch ? (
@@ -412,11 +509,11 @@ function RecipeCard({
                     {ingredientMatch}
                   </ThemedText>
                 </ThemedText>
-              ) : (
+              ) : meta ? (
                 <ThemedText variant="footnote" color="inkSecondary">
-                  {ingredientCountLabel(recipe.ingredientCount)}
+                  {meta}
                 </ThemedText>
-              )}
+              ) : null}
             </View>
             {onList ? (
               // Badge pins itself to the top; the wrapper centres it in the row.
@@ -459,7 +556,6 @@ function RecipeCard({
       // Follows the finger like a list row; a short swipe leaves Delete showing, a full one asks at once.
       friction={1}
       overshootLeft={false}
-      containerStyle={{ borderRadius: rounded.card, borderCurve: 'continuous' }}
       onSwipeableWillOpen={() => {
         if (swipeable.current) onSwipeOpen(swipeable.current);
         if (fullSwipe.current) confirmDelete();
@@ -524,7 +620,11 @@ const styles = StyleSheet.create({
   center: { textAlign: 'center' },
   grow: { flexGrow: 1 },
   toast: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  card: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  row: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  headerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
+  search: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
+  sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
   action: { alignItems: 'center', justifyContent: 'center' },
   fill: { position: 'absolute', top: 0, bottom: 0, right: 0 },
 });

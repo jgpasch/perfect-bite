@@ -21,7 +21,11 @@ import { setFeatures } from '@/features/plans/features';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
+import { StatusBar } from 'expo-status-bar';
+
 import ImportRecipeSheet from '@/app/import-recipe';
+import { Card } from '@/components/card';
+import { HeaderPill } from '@/components/header-pill';
 import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
 import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
@@ -82,7 +86,8 @@ jest.mock('react-native-reanimated', () => {
     useReducedMotion: () => false,
   };
 });
-jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
+jest.mock('expo-network',() => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
@@ -147,6 +152,7 @@ jest.mock('expo-router', () => {
     // Focus is mount: subscribe on mount, unsubscribe on unmount.
     useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
     useLocalSearchParams: () => mockParams,
+    usePathname: () => '/recipes',
   };
 });
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
@@ -622,11 +628,11 @@ describe('ImportRecipeSheet', () => {
 });
 
 describe('RecipesScreen', () => {
+  /** Each recipe row's VoiceOver label, in order. */
   const cards = (root: ReactTestRenderer) =>
-    root.root
-      .findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && /ingredient/.test(n.props.accessibilityLabel ?? ''))
-      .map((n) => n.props.accessibilityLabel as string)
-      .filter((l, i, all) => all.indexOf(l) === i);
+    byType(root, 'Link').map((l) => l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string);
+  const headers = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header').map((n) => n.props.children as string);
 
   test('empty: "No recipes yet." with New recipe, which opens the Add recipe sheet', () => {
     const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
@@ -645,26 +651,86 @@ describe('RecipesScreen', () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
-  test('a card per recipe under its household, with its count and the list it is on', () => {
+  test('a row per recipe in its household’s card, with its meal and time and the list it is on', () => {
     const tacos = createRecipe('Tacos');
     addRecipeIngredient(tacos, '8 tortillas');
     addRecipeIngredient(tacos, 'salsa');
+    updateRecipeTags(tacos, { ...emptyRecipeTags(), meal: ['dinner'] }, 35);
     createRecipe('Soup');
     db.insert(households).values({ id: 'lake', name: 'Lake house' }).run();
-    db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili' }).run();
+    db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili', totalMinutes: 80 }).run();
     addItemsBulk(groceries, [{ text: 'tortillas', source: 'recipe', recipeId: tacos }], USER);
     const name = db.select().from(lists).all().find((l) => l.id === groceries)!.name;
 
     const root = render(<RecipesScreen />);
     expect(texts(root)).not.toContain('No recipes yet.');
-    const headers = root.root
-      .findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header')
-      .map((n) => n.props.children);
-    expect([...headers].sort()).toEqual(['Lake house', 'Personal']);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Tacos', '2 ingredients', `On ${name}`, 'Soup', 'Campfire chili']));
-    expect(cards(root).length).toBe(3);
+    // Two households: each card has its household's name above it.
+    expect([...headers(root)].sort()).toEqual(['Lake house', 'Personal', 'Recipes']);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Tacos', 'Dinner · 35 min', `On ${name}`, 'Soup', 'Campfire chili', '1 hr 20 min']));
+    // The ingredient count is gone.
+    expect(texts(root)).not.toContain('2 ingredients');
+    expect(cards(root).sort()).toEqual(['Campfire chili, 1 hr 20 min', 'Soup', `Tacos, Dinner, 35 min, on ${name}`]);
     const links = byType(root, 'Link').map((l) => l.props.href.params.id);
     expect(links).toEqual(expect.arrayContaining([tacos, 'chili']));
+    // Recipes in each household share one card.
+    expect(root.root.findAll((n) => n.type === Card)).toHaveLength(2);
+  });
+
+  test('one household: no household name above its card, and every row in one card', () => {
+    createRecipe('Tacos');
+    createRecipe('Soup');
+    const root = render(<RecipesScreen />);
+    expect(headers(root)).toEqual(['Recipes']);
+    expect(texts(root)).not.toContain('Personal');
+    const [card] = root.root.findAll((n) => n.type === Card);
+    expect(card.findAll((n) => String(n.type) === 'Link')).toHaveLength(2);
+  });
+
+  test('the meta line: the first meal in facet order, the time, either alone, or nothing', () => {
+    const both = createRecipe('Pancakes');
+    updateRecipeTags(both, { ...emptyRecipeTags(), meal: ['dinner', 'breakfast'] }, 60);
+    const mealOnly = createRecipe('Salad');
+    updateRecipeTags(mealOnly, { ...emptyRecipeTags(), meal: ['side'], cuisine: ['mexican'] }, null);
+    const timeOnly = createRecipe('Stew');
+    updateRecipeTags(timeOnly, { ...emptyRecipeTags(), cuisine: ['indian'] }, 125);
+    createRecipe('Toast');
+    const root = render(<RecipesScreen />);
+    const rowTexts = (recipe: string) =>
+      byType(root, 'Link')
+        .find((l) => l.props.href.params.id === recipe)!
+        .findAll((n) => String(n.type) === 'Text' && typeof n.props.children === 'string')
+        .map((n) => n.props.children as string);
+    expect(rowTexts(both)).toEqual(['Pancakes', 'Breakfast · 1 hr']);
+    expect(rowTexts(mealOnly)).toEqual(['Salad', 'Side']);
+    expect(rowTexts(timeOnly)).toEqual(['Stew', '2 hr 5 min']);
+    expect(cards(root)).toContain('Toast');
+  });
+
+  test('a row: a 48 pt tile, the name on one line', () => {
+    createRecipe('A very long recipe name that would need two lines on a phone');
+    const root = render(<RecipesScreen />);
+    const [link] = byType(root, 'Link');
+    expect(link.find((n) => n.type === IconTile).props.size).toBe(48);
+    const title = link.find((n) => String(n.type) === 'Text' && n.props.children === 'A very long recipe name that would need two lines on a phone');
+    expect(title.props.numberOfLines).toBe(1);
+  });
+
+  test('the green header: "Recipes", search, "N recipes" and Filters; light status bar', () => {
+    createRecipe('Tacos');
+    createRecipe('Soup');
+    const root = render(<RecipesScreen />);
+    expect(texts(root).slice(0, 3)).toEqual(['Recipes', '2 recipes', 'Filters']);
+    const field = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Search recipes');
+    expect(field.props.placeholder).toBe('Search 2 recipes');
+    expect(root.root.findAll((n) => n.type === StatusBar).map((n) => n.props.style)).toEqual(['light']);
+  });
+
+  test('without recipes: the header has only the title, no search or Filters', () => {
+    const root = render(<RecipesScreen />);
+    expect(headers(root)).toEqual(['Recipes']);
+    expect(root.root.findAll((n) => String(n.type) === 'TextInput')).toHaveLength(0);
+    expect(texts(root)).not.toContain('0 recipes');
+    expect(texts(root)).not.toContain('Filters');
   });
 
   test("a card shows the recipe's photo in its tile, else the icon tile; a failed photo falls back (board 18)", () => {
@@ -1174,9 +1240,10 @@ describe('RecipesScreen', () => {
 });
 
 describe('RecipesScreen search', () => {
-  const searchBar = (root: ReactTestRenderer) => byType(root, 'SearchBar')[0];
-  const search = (root: ReactTestRenderer, text: string) =>
-    act(() => searchBar(root).props.onChangeText({ nativeEvent: { text } }));
+  const searchFields = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Search recipes');
+  const searchBar = (root: ReactTestRenderer) => searchFields(root)[0];
+  const search = (root: ReactTestRenderer, text: string) => act(() => searchBar(root).props.onChangeText(text));
   const headers = (root: ReactTestRenderer) =>
     root.root
       .findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header')
@@ -1197,53 +1264,59 @@ describe('RecipesScreen search', () => {
     db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili' }).run();
   });
 
-  test('a native search bar with the recipe count, and none without recipes', () => {
+  test('a search field on the header with the recipe count, and none without recipes', () => {
     const root = render(<RecipesScreen />);
     expect(searchBar(root).props.placeholder).toBe('Search 3 recipes');
+    expect(searchBar(root).props.value).toBe('');
     act(() => tree!.unmount());
     resetDb();
     ensureStarterData(USER);
     const empty = render(<RecipesScreen />);
-    expect(byType(empty, 'SearchBar')).toHaveLength(0);
+    expect(searchFields(empty)).toHaveLength(0);
   });
 
   test('matches names; households with no matches are hidden', () => {
     const root = render(<RecipesScreen />);
     search(root, 'taco');
-    expect(cardLabels(root)).toEqual(['Weeknight tacos, 2 ingredients']);
-    expect(headers(root)).toEqual(['Personal']);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Weeknight tacos', '2 ingredients']));
+    expect(searchBar(root).props.value).toBe('taco');
+    expect(cardLabels(root)).toEqual(['Weeknight tacos']);
+    expect(headers(root)).toEqual(['Recipes', 'Personal']);
+    expect(texts(root)).toContain('Weeknight tacos');
     expect(texts(root)).not.toContain('Campfire chili');
 
     search(root, 'chili');
-    expect(headers(root)).toEqual(['Lake house']);
-    expect(cardLabels(root)).toEqual(['Campfire chili, 0 ingredients']);
+    expect(headers(root)).toEqual(['Recipes', 'Lake house']);
+    expect(cardLabels(root)).toEqual(['Campfire chili']);
   });
 
-  test('an ingredient-only match shows "Has" with the ingredient in 700, in place of the count', () => {
+  test('an ingredient-only match shows "Has" with the ingredient in 700, in place of the meta line', () => {
+    updateRecipeTags(tacos, { ...emptyRecipeTags(), meal: ['dinner'] }, 20);
     const root = render(<RecipesScreen />);
+    expect(texts(root)).toContain('Dinner · 20 min');
     search(root, 'THIGH');
     expect(cardLabels(root)).toEqual(['Weeknight tacos, has chicken thighs']);
     expect(texts(root)).toContain('Has chicken thighs');
-    expect(texts(root)).not.toContain('2 ingredients');
+    expect(texts(root)).not.toContain('Dinner · 20 min');
     const bold = root.root.findAll(
       (n) => String(n.type) === 'Text' && n.props.children === 'chicken thighs' && JSON.stringify(n.props.style).includes('"fontWeight":"700"'),
     );
     expect(bold).toHaveLength(1);
   });
 
-  test('a name match shows the count even when an ingredient matches too', () => {
+  test('a name match shows the meta line even when an ingredient matches too', () => {
     const tortillaSoup = createRecipe('Tortilla soup');
     addRecipeIngredient(tortillaSoup, 'tortillas');
+    updateRecipeTags(tortillaSoup, { ...emptyRecipeTags(), meal: ['lunch'] }, 45);
     const root = render(<RecipesScreen />);
     search(root, 'tortilla');
-    expect(cardLabels(root).sort()).toEqual(['Tortilla soup, 1 ingredient', 'Weeknight tacos, has tortillas']);
+    expect(cardLabels(root).sort()).toEqual(['Tortilla soup, Lunch, 45 min', 'Weeknight tacos, has tortillas']);
+    expect(texts(root)).toContain('Lunch · 45 min');
   });
 
   test('ignores case and accents', () => {
     const root = render(<RecipesScreen />);
     search(root, 'CREME');
-    expect(cardLabels(root)).toEqual(['Crème soup, 2 ingredients']);
+    expect(cardLabels(root)).toEqual(['Crème soup']);
     search(root, 'Jalapeno');
     expect(cardLabels(root)).toEqual(['Crème soup, has jalapeño']);
   });
@@ -1253,13 +1326,16 @@ describe('RecipesScreen search', () => {
     expect(texts(root)).not.toContain('No recipes match');
     search(root, 'lasagne');
     expect(cardLabels(root)).toEqual([]);
-    expect(headers(root)).toEqual([]);
+    expect(headers(root)).toEqual(['Recipes']);
     expect(texts(root)).toContain('No recipes match');
     expect(texts(root)).not.toContain('No recipes yet.');
 
-    act(() => searchBar(root).props.onCancelButtonPress());
+    press(byA11y(root, 'Clear search'));
+    expect(searchBar(root).props.value).toBe('');
     expect(texts(root)).not.toContain('No recipes match');
     expect(cardLabels(root)).toHaveLength(3);
+    // Nothing to clear: no clear button.
+    expect(allByA11y(root, 'Clear search')).toHaveLength(0);
   });
 
   test("a deleted recipe or ingredient doesn't match", () => {
@@ -1286,13 +1362,13 @@ describe('RecipesScreen search', () => {
 });
 
 describe('RecipesScreen filters', () => {
-  const searchBar = (root: ReactTestRenderer) => byType(root, 'SearchBar')[0];
-  const search = (root: ReactTestRenderer, text: string) =>
-    act(() => searchBar(root).props.onChangeText({ nativeEvent: { text } }));
+  const searchBar = (root: ReactTestRenderer) =>
+    root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Search recipes');
+  const search = (root: ReactTestRenderer, text: string) => act(() => searchBar(root).props.onChangeText(text));
   const cardNames = (root: ReactTestRenderer) =>
     byType(root, 'Link').map((l) => (l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string).split(',')[0]);
-  const filtersPill = (root: ReactTestRenderer) =>
-    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Opens the filters.');
+  /** The Filters pill, on the green header. */
+  const filtersPill = (root: ReactTestRenderer) => root.root.findByType(HeaderPill);
   const chipLabels = (root: ReactTestRenderer) =>
     root.root
       .findAll((n) => typeof n.type !== 'string' && /^Remove .* filter$/.test(n.props.accessibilityLabel ?? '') && n.props.onPress)
@@ -1332,6 +1408,16 @@ describe('RecipesScreen filters', () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipes/filter', params: { q: 'taco' } });
   });
 
+  test('active filter chips sit under the header, after the search field and Filters; none without filters', () => {
+    const root = render(<RecipesScreen />);
+    expect(chipLabels(root)).toEqual([]);
+    act(() => setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner')));
+    expect(chipLabels(root)).toEqual(['Remove Dinner filter']);
+    const all = texts(root);
+    expect(all.indexOf('Filters · 1')).toBeLessThan(all.indexOf('Dinner'));
+    expect(all.indexOf('Dinner')).toBeLessThan(all.indexOf('Tacos'));
+  });
+
   test('no Filters pill without recipes', () => {
     resetDb();
     ensureStarterData(USER);
@@ -1346,7 +1432,8 @@ describe('RecipesScreen filters', () => {
     expect(filtersPill(root).props.label).toBe('Filters · 1');
     expect(filtersPill(root).props.accessibilityLabel).toBe('Filters, 1 active');
     expect(filtersPill(root).props.selected).toBe(true);
-    expect(filtersPill(root).props.primary).toBe(true);
+    // On the header only: the chips under it have no second Filters pill.
+    expect(root.root.findAll((n) => n.type === Pill && /^Filters/.test(n.props.label))).toHaveLength(0);
 
     act(() => setRecipeFilters(toggleRecipeFilter(getRecipeFilters(), 'meal', 'breakfast')));
     expect(cardNames(root).sort()).toEqual(['Curry', 'Pancakes', 'Tacos']);

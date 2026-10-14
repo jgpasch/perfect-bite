@@ -243,8 +243,8 @@ export const Sizes = {
   iconWell: 36,
   /** the item's icon tile beside its name at the top of the item sheet */
   sheetIcon: 52,
-  /** a recipe's tinted icon tile on its card in the Recipes tab */
-  recipeTile: 56,
+  /** a recipe's photo (or tinted icon tile) at the start of its row in the Recipes tab */
+  recipeTile: 48,
   /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */
   removeButton: 32,
   /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */

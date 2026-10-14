@@ -41,7 +41,10 @@ import {
   methodTab,
   parseServings,
   recipeCardLabel,
+  recipeMetaLine,
+  recipeRowLabel,
   recipeSuggestionDetail,
+  recipeTimeLabel,
   servesLabel,
   SERVINGS_ERROR,
   stepLabel,
@@ -55,7 +58,7 @@ import {
   type QueuedShare,
 } from '@/features/recipes/share-queue-status';
 import { NOTHING_SUGGESTED_NOTE, SUGGEST_TAGS_MESSAGES, SUGGESTED_NOTE, suggestTagsMessage } from '@/features/recipes/suggest-tags';
-import { initI18n } from '@/i18n';
+import { i18n, initI18n } from '@/i18n';
 import { emptyRecipeTags } from '@/shared/recipe-tags';
 
 jest.mock('@/global.css', () => ({}));
@@ -185,6 +188,18 @@ describe('recipes strings in Spanish', () => {
     expect(recipeCardLabel('Tacos', 9, 'Súper')).toBe('Tacos, 9 ingredientes, en Súper');
     expect(recipeCardLabel('Tacos', 9, null, 'pollo')).toBe('Tacos, lleva pollo');
     expect(quickAddTitle('Súper')).toBe('Agregar a Súper');
+  });
+
+  it('labels the Recipes tab rows: meal, time and the header count', () => {
+    initI18n('es');
+    const tacos = { name: 'Tacos', tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 80 };
+    expect(recipeTimeLabel(35)).toBe('35 min');
+    expect(recipeTimeLabel(60)).toBe('1 h');
+    expect(recipeMetaLine(tacos)).toBe('Cena · 1 h 20 min');
+    expect(recipeRowLabel(tacos, 'Súper')).toBe('Tacos, Cena, 1 h 20 min, en Súper');
+    expect(recipeRowLabel(tacos, null, 'pollo')).toBe('Tacos, lleva pollo');
+    expect(i18n.t('recipes.tab.count', { count: 1 })).toBe('1 receta');
+    expect(i18n.t('recipes.tab.count', { count: 52 })).toBe('52 recetas');
   });
 
   it('says servings, and rejects ones out of range', () => {

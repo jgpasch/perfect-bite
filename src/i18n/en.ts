@@ -280,6 +280,10 @@ export const en = {
       search_one: 'Search {{count}} recipe',
       search_other: 'Search {{count}} recipes',
       searchLabel: 'Search recipes',
+      clearSearch: 'Clear search',
+      /** Under the search field on the green header: "52 recipes". */
+      count_one: '{{count}} recipe',
+      count_other: '{{count}} recipes',
       noMatch: 'No recipes match',
       empty: 'No recipes yet.',
       newRecipe: 'New recipe',
@@ -289,6 +293,10 @@ export const en = {
       has: 'Has',
       ingredients_one: '{{count}} ingredient',
       ingredients_other: '{{count}} ingredients',
+      /** A row's time, after its meal: "Dinner · 35 min", "1 hr 20 min". */
+      timeMinutes: '{{minutes}} min',
+      timeHours: '{{hours}} hr',
+      timeHoursMinutes: '{{hours}} hr {{minutes}} min',
       cardHas: 'has {{name}}',
       cardOn: 'on {{name}}',
       onList: 'On {{name}}',

@@ -11,7 +11,11 @@ import {
   onListByRecipe,
   orderByLastUse,
   recipeCardLabel,
+  recipeMetaLine,
+  recipeMetaParts,
+  recipeRowLabel,
   recipeSuggestionDetail,
+  recipeTimeLabel,
   recipeSuggestionLabel,
   forServingsLabel,
   parseServings,
@@ -23,6 +27,7 @@ import {
   stepsFromText,
   stepsToText,
 } from '../recipe-view';
+import { emptyRecipeTags } from '@/shared/recipe-tags';
 
 describe('servings', () => {
   test('the band and stepper labels', () => {
@@ -268,6 +273,48 @@ describe('labels', () => {
     expect(recipeCardLabel('Tacos', 9, 'Groceries', 'chicken thighs')).toBe('Tacos, has chicken thighs, on Groceries');
     expect(recipeCardLabel('Tacos', 9, null, 'chicken thighs')).toBe('Tacos, has chicken thighs');
     expect(recipeCardLabel('Tacos', 9, null, null)).toBe('Tacos, 9 ingredients');
+  });
+
+  test('a row’s time: minutes, whole hours, or both; none for no time, zero or nonsense', () => {
+    expect(recipeTimeLabel(35)).toBe('35 min');
+    expect(recipeTimeLabel(1)).toBe('1 min');
+    expect(recipeTimeLabel(59)).toBe('59 min');
+    expect(recipeTimeLabel(60)).toBe('1 hr');
+    expect(recipeTimeLabel(120)).toBe('2 hr');
+    expect(recipeTimeLabel(80)).toBe('1 hr 20 min');
+    expect(recipeTimeLabel(125)).toBe('2 hr 5 min');
+    expect(recipeTimeLabel(null)).toBeNull();
+    expect(recipeTimeLabel(undefined)).toBeNull();
+    expect(recipeTimeLabel(0)).toBeNull();
+    expect(recipeTimeLabel(-5)).toBeNull();
+    expect(recipeTimeLabel(Number.NaN)).toBeNull();
+  });
+
+  test('a row’s meta line: the first meal (facet order) and the time, either alone, or nothing', () => {
+    const tags = (meal: string[], cuisine: string[] = []) => ({ ...emptyRecipeTags(), meal, cuisine });
+    expect(recipeMetaLine({ tags: tags(['dinner']), totalMinutes: 35 })).toBe('Dinner · 35 min');
+    // Stored order doesn't matter: Breakfast comes before Dinner in the Meal facet.
+    expect(recipeMetaLine({ tags: tags(['dinner', 'breakfast']), totalMinutes: 35 })).toBe('Breakfast · 35 min');
+    expect(recipeMetaLine({ tags: tags(['side']), totalMinutes: null })).toBe('Side');
+    expect(recipeMetaLine({ tags: tags([], ['mexican']), totalMinutes: 90 })).toBe('1 hr 30 min');
+    expect(recipeMetaLine({ tags: null, totalMinutes: 20 })).toBe('20 min');
+    expect(recipeMetaLine({ tags: null, totalMinutes: null })).toBeNull();
+    expect(recipeMetaLine({ tags: tags([], ['mexican']), totalMinutes: null })).toBeNull();
+    // An unknown meal slug isn't shown; the next known one is.
+    expect(recipeMetaLine({ tags: tags(['brunch']), totalMinutes: null })).toBeNull();
+    expect(recipeMetaLine({ tags: tags(['brunch', 'snack']), totalMinutes: 10 })).toBe('Snack · 10 min');
+    expect(recipeMetaParts({ tags: tags(['dessert']), totalMinutes: 60 })).toEqual(['Dessert', '1 hr']);
+  });
+
+  test('a row reads its name, meal, time and list; no ingredient count', () => {
+    const tacos = { name: 'Chicken tacos', tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 35 };
+    expect(recipeRowLabel(tacos, 'Groceries')).toBe('Chicken tacos, Dinner, 35 min, on Groceries');
+    expect(recipeRowLabel(tacos)).toBe('Chicken tacos, Dinner, 35 min');
+    expect(recipeRowLabel({ ...tacos, totalMinutes: null }, null)).toBe('Chicken tacos, Dinner');
+    expect(recipeRowLabel({ name: 'Dal', tags: null, totalMinutes: null }, '')).toBe('Dal');
+    // Matched only through an ingredient: that in place of the meta.
+    expect(recipeRowLabel(tacos, 'Groceries', 'chicken thighs')).toBe('Chicken tacos, has chicken thighs, on Groceries');
+    expect(recipeRowLabel(tacos, null, null)).toBe('Chicken tacos, Dinner, 35 min');
   });
 
   test('servings use ½ for a half and × after the number', () => {

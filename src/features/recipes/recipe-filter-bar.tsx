@@ -15,8 +15,9 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 /**
- * Under the Recipes tab's search field (spec 4.14): the Filters pill ("Filters · 2", filled
- * `primary` while some are on), then a chip per active filter ("Dinner ✕") that removes it. Wraps.
+ * Under a recipe search field (spec 4.14): the Filters pill ("Filters · 2", filled `primary` while
+ * some are on), then a chip per active filter ("Dinner ✕") that removes it. Wraps. Without `onOpen`
+ * (the Recipes tab, whose Filters pill is on the green header) just the chips, and nothing without any.
  */
 export function RecipeFilterBar({
   filters,
@@ -24,23 +25,27 @@ export function RecipeFilterBar({
   onRemove,
 }: {
   filters: RecipeFilters;
-  onOpen: () => void;
+  onOpen?: () => void;
   onRemove: (chip: FilterChip) => void;
 }) {
   const t = useT();
   const { spacing } = useTheme();
   const count = activeFilterCount(filters);
+  const chips = recipeFilterChips(filters);
+  if (!onOpen && chips.length === 0) return null;
   return (
     <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs }]}>
-      <Pill
-        label={filtersPillLabel(count)}
-        accessibilityLabel={filtersPillAccessibilityLabel(count)}
-        accessibilityHint={t('recipes.filters.pillHint')}
-        selected={count > 0}
-        primary
-        onPress={onOpen}
-      />
-      {recipeFilterChips(filters).map((chip) => (
+      {onOpen ? (
+        <Pill
+          label={filtersPillLabel(count)}
+          accessibilityLabel={filtersPillAccessibilityLabel(count)}
+          accessibilityHint={t('recipes.filters.pillHint')}
+          selected={count > 0}
+          primary
+          onPress={onOpen}
+        />
+      ) : null}
+      {chips.map((chip) => (
         <RemovableChip key={chip.key} chip={chip} onPress={() => onRemove(chip)} />
       ))}
     </View>

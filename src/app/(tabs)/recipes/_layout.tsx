@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 
+import { listHeaderColors } from '@/components/appearance';
 import { useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
@@ -7,20 +8,13 @@ import { useT } from '@/i18n';
 export default function RecipesStackLayout() {
   const t = useT();
   const screenOptions = useStackScreenOptions();
-  const { colors, typography } = useTheme();
-  const { fontFamily, fontSize, fontWeight } = typography.largeTitle;
+  const header = listHeaderColors(useTheme().colors);
   return (
     <Stack screenOptions={screenOptions}>
+      {/* Spec 4.5: the List tab's green header; "Recipes" is in the green band below it, not the header. */}
       <Stack.Screen
         name="index"
-        options={{
-          title: t('recipes.tab.title'),
-          headerLargeTitleEnabled: true,
-          // A header background colour hides the large title on iOS 26+; the screen's own background shows through.
-          headerStyle: { backgroundColor: 'transparent' },
-          // The native large title, set in the display face (board 05).
-          headerLargeTitleStyle: { color: colors.ink, fontFamily, fontSize, fontWeight },
-        }}
+        options={{ title: '', headerStyle: { backgroundColor: header.ground }, headerTintColor: header.title }}
       />
       {/* Spec 4.14, mockup C: the tab's filters. */}
       <Stack.Screen

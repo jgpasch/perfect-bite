@@ -17,14 +17,14 @@ export function usePhotoFailed(imageUrl: string | null) {
 }
 
 /**
- * A recipe card's tile (board 18): the site's photo filling the icon tile's square at its radius, over the
+ * A recipe row's tile (board 18): the site's photo filling the icon tile's square at its radius, over the
  * icon tile, which shows while it loads and stays if loading fails. Without a photo, just the icon tile.
- * Decorative.
+ * `size` is the side, `sizes.recipeTile` (48) by default. Decorative.
  */
-export function RecipePhotoTile({ recipeId, imageUrl }: { recipeId: string; imageUrl: string | null }) {
+export function RecipePhotoTile({ recipeId, imageUrl, size }: { recipeId: string; imageUrl: string | null; size?: number }) {
   const { sizes, rounded } = useTheme();
   const { failed, onError } = usePhotoFailed(imageUrl);
-  const tile = <IconTile hue={recipeHue(recipeId)} name="fork.knife" size={sizes.recipeTile} />;
+  const tile = <IconTile hue={recipeHue(recipeId)} name="fork.knife" size={size ?? sizes.recipeTile} />;
   if (imageUrl === null || failed) return tile;
   return (
     <View accessible={false} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>

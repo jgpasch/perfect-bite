@@ -213,6 +213,9 @@ recipes.tab.addRecipe,Add recipe,Agregar receta,
 recipes.tab.search_one,Search {{count}} recipe,Buscar en {{count}} receta,Plural form for a count of 1.
 recipes.tab.search_other,Search {{count}} recipes,Buscar en {{count}} recetas,Plural form for every other count.
 recipes.tab.searchLabel,Search recipes,Buscar recetas,
+recipes.tab.clearSearch,Clear search,Borrar la búsqueda,
+recipes.tab.count_one,{{count}} recipe,{{count}} receta,Plural form for a count of 1.
+recipes.tab.count_other,{{count}} recipes,{{count}} recetas,Plural form for every other count.
 recipes.tab.noMatch,No recipes match,Ninguna receta coincide,
 recipes.tab.empty,No recipes yet.,Todavía no hay recetas.,
 recipes.tab.newRecipe,New recipe,Nueva receta,
@@ -221,6 +224,9 @@ recipes.tab.openList,Open list,Abrir lista,
 recipes.tab.has,Has,Lleva,
 recipes.tab.ingredients_one,{{count}} ingredient,{{count}} ingrediente,Plural form for a count of 1.
 recipes.tab.ingredients_other,{{count}} ingredients,{{count}} ingredientes,Plural form for every other count.
+recipes.tab.timeMinutes,{{minutes}} min,{{minutes}} min,
+recipes.tab.timeHours,{{hours}} hr,{{hours}} h,
+recipes.tab.timeHoursMinutes,{{hours}} hr {{minutes}} min,{{hours}} h {{minutes}} min,
 recipes.tab.cardHas,has {{name}},lleva {{name}},
 recipes.tab.cardOn,on {{name}},en {{name}},
 recipes.tab.onList,On {{name}},En {{name}},
@@ -456,6 +462,10 @@ settings.signOut,Sign out,Cerrar sesión,
 settings.version,Version {{version}},Versión {{version}},
 settings.alwaysHave,Always have,Siempre tengo,
 settings.siri,Siri,Siri,
+settings.general,General,General,
+settings.language,Language,Idioma,
+settings.languageScreen.phone,Same as phone,Igual que el teléfono,
+settings.languageScreen.footnote,Only this device changes. Siri and system messages stay in the phone’s language.,Solo cambia en este dispositivo. Siri y los mensajes del sistema siguen en el idioma del teléfono.,
 settings.aisleColors.itemRows,Item rows,Filas de artículos,
 settings.aisleColors.bands,Colour bands,Bandas de color,
 settings.aisleColors.white,White rows,Filas blancas,

@@ -5,8 +5,12 @@ import type { ReactElement } from 'react';
 import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
+import { Palette, type ThemeColors } from '@/constants/theme';
+
+import { listHeaderColors } from '../appearance';
 import { Button, PrimaryButton, SoftDangerButton, SurfaceButton } from '../button';
 import { CheckCircle } from '../check-circle';
+import { HeaderPill } from '../header-pill';
 import { Pill } from '../pill';
 import { SegmentedControl } from '../segmented-control';
 import { SettingsRow, SettingsSection } from '../settings-group';
@@ -95,6 +99,37 @@ describe('Pill', () => {
     expect(byRole(root, 'button')[0].props.accessibilityState).toEqual(
       expect.objectContaining({ selected: false, checked: true }),
     );
+  });
+});
+
+describe('HeaderPill', () => {
+  const look = listHeaderColors(Palette.light as ThemeColors);
+  const fill = (root: ReactTestRenderer) => StyleSheet.flatten(byRole(root, 'button')[0].props.style).backgroundColor;
+  const textColor = (root: ReactTestRenderer) =>
+    StyleSheet.flatten(root.root.findAll((n) => (n.type as string) === 'Text')[0].props.style).color;
+
+  it('is a button with its label, hint and selected state, padded to a 44 pt hit area, that fires on press', () => {
+    const onPress = jest.fn();
+    const root = render(<HeaderPill label="Filters · 2" accessibilityLabel="Filters, 2 active" accessibilityHint="Opens the filters." onPress={onPress} />);
+    const [button] = byRole(root, 'button');
+    expect([button.props.accessibilityLabel, button.props.accessibilityHint]).toEqual(['Filters, 2 active', 'Opens the filters.']);
+    expect(button.props.accessibilityState).toEqual(expect.objectContaining({ selected: false }));
+    expect(button.props.hitSlop).toBe(6);
+    click(button);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads its label without an accessibility label', () => {
+    const root = render(<HeaderPill label="Filters" onPress={() => {}} />);
+    expect(byRole(root, 'button')[0].props.accessibilityLabel).toBe('Filters');
+  });
+
+  it('is the view button’s white wash with white text, and white with header-green text when selected', () => {
+    const off = render(<HeaderPill label="Filters" onPress={() => {}} />);
+    expect([fill(off), textColor(off)]).toEqual([look.viewButton.fill, Palette.light.onHeader]);
+    const on = render(<HeaderPill label="Filters · 1" selected onPress={() => {}} />);
+    expect([fill(on), textColor(on)]).toEqual([Palette.light.onHeader, Palette.light.header]);
+    expect(byRole(on, 'button')[0].props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
   });
 });
 
