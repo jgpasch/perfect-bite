@@ -116,6 +116,11 @@ export default function RootLayout() {
                   name="import-recipe"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.16, board 2 F: filling a slot of the week; the day and meal are the title in the sheet. */}
+                <Stack.Screen
+                  name="plan-slot"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!ready}>
                 <Stack.Screen name="sign-in" options={{ headerShown: false }} />

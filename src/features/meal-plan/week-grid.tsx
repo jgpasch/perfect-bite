@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { hueHeaderBand } from '@/components/appearance';
 import { Icon } from '@/components/icon';
@@ -17,9 +17,19 @@ export const GRID_SCROLL_FONT_SCALE = 1.3;
 /**
  * The week as a grid (spec 4.16, board 1 C): days Sunday to Saturday down the side, Breakfast, Lunch and
  * Dinner across under headers in their meal hues. Today's day label is a `primary` pill; past days are
- * quieter and their empty slots have no +. Read-only for now.
+ * quieter and their empty slots have no +. Tapping a slot calls `onSlot` with what it shows.
  */
-export function WeekGrid({ days, plan, today }: { days: readonly Day[]; plan: WeekPlan; today: Day }) {
+export function WeekGrid({
+  days,
+  plan,
+  today,
+  onSlot,
+}: {
+  days: readonly Day[];
+  plan: WeekPlan;
+  today: Day;
+  onSlot?: (day: Day, meal: Meal, entry: PlanEntry | null) => void;
+}) {
   const { scheme, spacing, sizes, rounded } = useTheme();
   const scrolls = useWindowDimensions().fontScale > GRID_SCROLL_FONT_SCALE;
   // Columns share the width at the default sizes; at large ones they keep a width and the grid scrolls.
@@ -47,11 +57,14 @@ export function WeekGrid({ days, plan, today }: { days: readonly Day[]; plan: We
         return (
           <View key={day} testID={`grid-day-${day}`} style={[styles.row, { gap: spacing.xs }]}>
             <DayLabel day={day} today={day === today} past={past} />
-            {MEALS.map((meal) => (
-              <View key={meal} style={column}>
-                <GridCell day={day} meal={meal} entry={plan.slotEntries(day, meal)[0] ?? null} past={past} />
-              </View>
-            ))}
+            {MEALS.map((meal) => {
+              const entry = plan.slotEntries(day, meal)[0] ?? null;
+              return (
+                <View key={meal} style={column}>
+                  <GridCell day={day} meal={meal} entry={entry} past={past} onPress={onSlot && (() => onSlot(day, meal, entry))} />
+                </View>
+              );
+            })}
           </View>
         );
       })}
@@ -98,48 +111,50 @@ function DayLabel({ day, today, past }: { day: Day; today: boolean; past: boolea
  * A slot: a recipe's tile and name on up to two lines, a note in italic `inkSecondary` on `surfaceMuted`, or a
  * dashed `controlBorder` outline with a + (a plain cell on past days).
  */
-function GridCell({ day, meal, entry, past }: { day: Day; meal: Meal; entry: PlanEntry | null; past: boolean }) {
-  const { colors, spacing, sizes, rounded } = useTheme();
+function GridCell({
+  day,
+  meal,
+  entry,
+  past,
+  onPress,
+}: {
+  day: Day;
+  meal: Meal;
+  entry: PlanEntry | null;
+  past: boolean;
+  onPress?: () => void;
+}) {
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const cell = { minHeight: sizes.planCell, borderRadius: rounded.md, padding: spacing.xs + spacing.xxs };
-  const label = slotAccessibilityLabel(day, meal, entry);
-  const testID = `slot-${day}-${meal}`;
-  if (!entry) {
-    return (
-      <View
-        testID={testID}
-        accessible
-        accessibilityLabel={label}
-        style={[
-          styles.center,
-          cell,
-          past
-            ? null
-            : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed', borderColor: colors.controlBorder },
-        ]}>
-        {past ? null : <Icon name="plus" color="inkTertiary" size={sizes.iconSmall} weight="semibold" />}
-      </View>
-    );
-  }
-  if (entry.kind === 'recipe') {
-    return (
-      <View testID={testID} accessible accessibilityLabel={label} style={[cell, { gap: spacing.xxs, backgroundColor: colors.surface }]}>
-        <RecipePhotoTile recipeId={entry.recipeId!} imageUrl={entry.recipeImageUrl} size={sizes.planTile} />
-        <ThemedText variant="caption" color={past ? 'inkSecondary' : 'ink'} numberOfLines={2}>
+  const look = !entry
+    ? [styles.center, past ? null : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed' as const, borderColor: colors.controlBorder }]
+    : entry.kind === 'recipe'
+      ? { gap: spacing.xxs, backgroundColor: colors.surface }
+      : [styles.center, { backgroundColor: colors.surfaceMuted }];
+  return (
+    <Pressable
+      testID={`slot-${day}-${meal}`}
+      accessibilityRole="button"
+      accessibilityLabel={slotAccessibilityLabel(day, meal, entry)}
+      onPress={onPress}
+      style={({ pressed }) => [cell, look, { opacity: pressed ? opacity.pressed : 1 }]}>
+      {!entry ? (
+        past ? null : (
+          <Icon name="plus" color="inkTertiary" size={sizes.iconSmall} weight="semibold" />
+        )
+      ) : entry.kind === 'recipe' ? (
+        <>
+          <RecipePhotoTile recipeId={entry.recipeId!} imageUrl={entry.recipeImageUrl} size={sizes.planTile} />
+          <ThemedText variant="caption" color={past ? 'inkSecondary' : 'ink'} numberOfLines={2}>
+            {entryText(entry)}
+          </ThemedText>
+        </>
+      ) : (
+        <ThemedText variant="footnote" color="inkSecondary" numberOfLines={3} style={styles.note}>
           {entryText(entry)}
         </ThemedText>
-      </View>
-    );
-  }
-  return (
-    <View
-      testID={testID}
-      accessible
-      accessibilityLabel={label}
-      style={[cell, styles.center, { backgroundColor: colors.surfaceMuted }]}>
-      <ThemedText variant="footnote" color="inkSecondary" numberOfLines={3} style={styles.note}>
-        {entryText(entry)}
-      </ThemedText>
-    </View>
+      )}
+    </Pressable>
   );
 }
 

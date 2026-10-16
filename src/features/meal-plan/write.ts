@@ -1,7 +1,7 @@
 // Writing the meal plan (spec 4.16), through the sync helpers (outbox, spec 7.1). Setting a slot
 // soft-deletes its live entries and inserts the new one, so two devices filling the same slot
 // offline both keep their rows (the slot shows the newer), and the next change clears both.
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, mealPlanEntries, recipes, type MealPlanEntry } from '@/db';
 import { newId } from '@/lib/id';
@@ -75,6 +75,32 @@ export function setSlot(householdId: string, day: Day, meal: Meal, entry: EntryI
 /** Empties the slot. Returns the entries it took out (none for an empty slot), for Undo. */
 export function clearSlot(householdId: string, day: Day, meal: Meal, exec: Exec = db): MealPlanEntry[] {
   return exec.transaction((tx) => clearIn(tx, householdId, day, meal));
+}
+
+/**
+ * Clear's Undo: puts back the entries `clearSlot` took out, taking out whatever has filled the slot
+ * since, in one transaction.
+ */
+export function restoreSlot(
+  householdId: string,
+  day: Day,
+  meal: Meal,
+  entries: readonly Pick<MealPlanEntry, 'id'>[],
+  exec: Exec = db,
+): void {
+  if (entries.length === 0) return;
+  exec.transaction((tx) => {
+    clearIn(tx, householdId, day, meal);
+    updateRows(
+      tx,
+      mealPlanEntries,
+      inArray(
+        mealPlanEntries.id,
+        entries.map((e) => e.id),
+      ),
+      { deletedAt: null },
+    );
+  });
 }
 
 /** The plan modal's Done: every slot's change in one transaction, in order. Nothing is written if one fails. */

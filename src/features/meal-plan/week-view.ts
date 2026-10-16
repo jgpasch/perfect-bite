@@ -58,6 +58,16 @@ export function slotAccessibilityLabel(day: Day, meal: Meal, entry: Pick<PlanEnt
   });
 }
 
+/** A slot by name: "Thursday dinner" (the Clear toast). */
+export function slotName(day: Day, meal: Meal): string {
+  return i18n.t('mealPlan.slotName', { day: dayName(day, 'long'), meal: mealWord(meal) });
+}
+
+/** The slot sheet's day line: "Thursday 15". */
+export function sheetDayLabel(day: Day): string {
+  return i18n.t('mealPlan.sheetDay', { day: dayName(day, 'long'), date: dayOfMonth(day) });
+}
+
 /** An empty slot's line in the agenda from today on: "+ Add lunch". */
 export function addSlotLabel(meal: Meal): string {
   return i18n.t('mealPlan.add', { meal: mealWord(meal) });

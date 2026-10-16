@@ -53,6 +53,10 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   accessibilityLabel: (value: string) => ({ accessibilityLabel: value }),
 }));
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native');
+  return { __esModule: true, default: { View } };
+});
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
@@ -165,7 +169,7 @@ describe('WeekPlan without a header', () => {
     act(() => {
       tree = create(
         <SafeAreaProvider initialMetrics={METRICS}>
-          <WeekPlan />
+          <WeekPlan onToast={() => {}} />
         </SafeAreaProvider>,
       );
     });

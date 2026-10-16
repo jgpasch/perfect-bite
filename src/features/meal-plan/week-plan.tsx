@@ -16,8 +16,9 @@ import {
 } from '@/features/settings/device-settings';
 import { useTheme } from '@/hooks/use-theme';
 
-import { groupWeek, MEAL_PLAN_QUERY_TABLES, weekEntriesQuery } from './queries';
-import { addDays, today as todayOf, weekDays, weekStart } from './week';
+import { groupWeek, MEAL_PLAN_QUERY_TABLES, type PlanEntry, weekEntriesQuery } from './queries';
+import { openSlot, type SlotToast } from './slot-actions';
+import { addDays, type Day, type Meal, today as todayOf, weekDays, weekStart } from './week';
 import { WeekAgenda } from './week-agenda';
 import { WeekGrid } from './week-grid';
 import { WeekToolbar } from './week-toolbar';
@@ -26,9 +27,16 @@ import { resolvePlanHousehold } from './week-view';
 /**
  * The week screen (spec 4.16): the week toolbar over the week as a grid or an agenda, for the household
  * picked on this device. `header` places the toolbar (the Plan tab puts it on its green header);
- * without it the toolbar is the first row on the sheet. Read-only for now.
+ * without it the toolbar is the first row on the sheet. Tapping a slot opens the slot sheet or the filled
+ * slot's menu; `onToast` shows Clear's toast on the screen around it.
  */
-export function WeekPlan({ header }: { header?: (toolbar: ReactNode) => ReactNode }) {
+export function WeekPlan({
+  header,
+  onToast,
+}: {
+  header?: (toolbar: ReactNode) => ReactNode;
+  onToast: (toast: SlotToast | null) => void;
+}) {
   const { spacing } = useTheme();
   const today = todayOf();
   const thisWeek = weekStart(today);
@@ -61,6 +69,9 @@ export function WeekPlan({ header }: { header?: (toolbar: ReactNode) => ReactNod
   ]);
   const plan = useMemo(() => groupWeek(entries), [entries]);
   const days = weekDays(start);
+  const onSlot = householdId
+    ? (day: Day, meal: Meal, entry: PlanEntry | null) => openSlot(householdId, day, meal, entry, onToast)
+    : undefined;
 
   const toolbar = (
     <WeekToolbar
@@ -79,7 +90,11 @@ export function WeekPlan({ header }: { header?: (toolbar: ReactNode) => ReactNod
   return (
     <>
       {header ? header(toolbar) : <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>{toolbar}</View>}
-      {view === 'grid' ? <WeekGrid days={days} plan={plan} today={today} /> : <WeekAgenda days={days} plan={plan} today={today} />}
+      {view === 'grid' ? (
+        <WeekGrid days={days} plan={plan} today={today} onSlot={onSlot} />
+      ) : (
+        <WeekAgenda days={days} plan={plan} today={today} onSlot={onSlot} />
+      )}
     </>
   );
 }

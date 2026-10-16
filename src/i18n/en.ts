@@ -632,6 +632,27 @@ export const en = {
     earlierHint: 'Shows the days before today',
     /** The Recipes tab's switch while the Plan tab is off. */
     segments: { all: 'All recipes', week: 'This week' },
+    /** A slot by name: "Thursday dinner". */
+    slotName: '{{day}} {{meal}}',
+    /** The slot sheet's day line: "Thursday 15". */
+    sheetDay: '{{day}} {{date}}',
+    searchRecipes: 'Search recipes',
+    note: 'Note…',
+    showAll: 'Show all recipes',
+    /** The slot sheet with no recipes tagged with the meal: "No recipes tagged Dinner yet". */
+    noMealRecipes: 'No recipes tagged {{meal}} yet',
+    noRecipes: 'No recipes yet',
+    /** The free-text note prompt. */
+    notePrompt: 'Note',
+    noteMessage: 'Up to {{max}} characters',
+    noteTooLong: 'That’s {{count}} characters. Notes are up to {{max}}.',
+    /** A filled slot's menu. */
+    openRecipe: 'Open recipe',
+    replace: 'Replace…',
+    editNote: 'Edit note…',
+    clear: 'Clear',
+    /** After Clear: "Cleared Thursday dinner". */
+    cleared: 'Cleared {{slot}}',
   },
   settings: {
     title: 'Settings',

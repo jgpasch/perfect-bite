@@ -438,7 +438,7 @@ export default function RecipesScreen() {
           ]}
         />
         {/* Spec 4.16: This week is the week alone, its toolbar the sheet's first row. */}
-        {week ? <WeekPlan /> : null}
+        {week ? <WeekPlan onToast={setToast} /> : null}
         {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
         {!week && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
         {!week && data.length === 0 ? empty : null}

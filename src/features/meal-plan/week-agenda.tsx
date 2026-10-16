@@ -25,9 +25,19 @@ import {
 /**
  * The week as an agenda (spec 4.16, board 1 A): a card per day, the day on the left, then a line per meal.
  * Today's card has a `primary` outline. In the current week the days before today fold into one "Earlier this
- * week" row until it's tapped (for the app session). Read-only for now.
+ * week" row until it's tapped (for the app session). Tapping a meal's line calls `onSlot` with what it shows.
  */
-export function WeekAgenda({ days, plan, today }: { days: readonly Day[]; plan: WeekPlan; today: Day }) {
+export function WeekAgenda({
+  days,
+  plan,
+  today,
+  onSlot,
+}: {
+  days: readonly Day[];
+  plan: WeekPlan;
+  today: Day;
+  onSlot?: (day: Day, meal: Meal, entry: PlanEntry | null) => void;
+}) {
   const t = useT();
   const { spacing, sizes, opacity } = useTheme();
   const unfoldedWeek = useUnfoldedWeek();
@@ -55,13 +65,25 @@ export function WeekAgenda({ days, plan, today }: { days: readonly Day[]; plan: 
         </Pressable>
       ) : null}
       {shown.map((day) => (
-        <DayCard key={day} day={day} plan={plan} today={day === today} past={isPastDay(day, today)} />
+        <DayCard key={day} day={day} plan={plan} today={day === today} past={isPastDay(day, today)} onSlot={onSlot} />
       ))}
     </View>
   );
 }
 
-function DayCard({ day, plan, today, past }: { day: Day; plan: WeekPlan; today: boolean; past: boolean }) {
+function DayCard({
+  day,
+  plan,
+  today,
+  past,
+  onSlot,
+}: {
+  day: Day;
+  plan: WeekPlan;
+  today: boolean;
+  past: boolean;
+  onSlot?: (day: Day, meal: Meal, entry: PlanEntry | null) => void;
+}) {
   const { colors, spacing, sizes, rounded } = useTheme();
   const dayColor = today ? 'primary' : past ? 'inkSecondary' : 'ink';
   return (
@@ -88,26 +110,52 @@ function DayCard({ day, plan, today, past }: { day: Day; plan: WeekPlan; today: 
         </ThemedText>
       </View>
       <View style={[styles.flex, { gap: spacing.xs }]}>
-        {MEALS.map((meal) => (
-          <MealLine key={meal} day={day} meal={meal} entry={plan.slotEntries(day, meal)[0] ?? null} past={past} />
-        ))}
+        {MEALS.map((meal) => {
+          const entry = plan.slotEntries(day, meal)[0] ?? null;
+          return (
+            <MealLine
+              key={meal}
+              day={day}
+              meal={meal}
+              entry={entry}
+              past={past}
+              onPress={onSlot && (() => onSlot(day, meal, entry))}
+            />
+          );
+        })}
       </View>
     </View>
   );
 }
 
 /** The meal's letter chip, then the recipe's name and total time, the note in italic, "+ Add lunch", or "—" before today. */
-function MealLine({ day, meal, entry, past }: { day: Day; meal: Meal; entry: PlanEntry | null; past: boolean }) {
+function MealLine({
+  day,
+  meal,
+  entry,
+  past,
+  onPress,
+}: {
+  day: Day;
+  meal: Meal;
+  entry: PlanEntry | null;
+  past: boolean;
+  onPress?: () => void;
+}) {
   const t = useT();
-  const { scheme, spacing, sizes, rounded } = useTheme();
+  const { scheme, spacing, sizes, rounded, opacity } = useTheme();
   const band = hueHeaderBand(MealHues[meal], scheme);
   const time = entry?.kind === 'recipe' ? recipeTimeLabel(entry.recipeTotalMinutes) : null;
   return (
-    <View
+    <Pressable
       testID={`slot-${day}-${meal}`}
-      accessible
+      accessibilityRole="button"
       accessibilityLabel={slotAccessibilityLabel(day, meal, entry)}
-      style={[styles.row, { minHeight: sizes.minTapTarget - spacing.sm, gap: spacing.sm }]}>
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        { minHeight: sizes.minTapTarget - spacing.sm, gap: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
+      ]}>
       <View
         style={[
           styles.center,
@@ -137,7 +185,7 @@ function MealLine({ day, meal, entry, past }: { day: Day; meal: Meal; entry: Pla
           {entryText(entry)}
         </ThemedText>
       )}
-    </View>
+    </Pressable>
   );
 }
 
