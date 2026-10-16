@@ -62,6 +62,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 | 13 | Notifications: in app now (recipe import), push someday | 4.11, 11.1 |
 | 14 | Import a recipe from a link (share sheet or in-app) onto a list | 4.10, 6.6 |
 | 15 | Recipes are tagged by meal, cuisine, protein, diet, method and time, and the Recipes tab can be searched and filtered by them | 4.14, 5 |
+| 16 | Plan the household's week: a recipe or note for breakfast, lunch and dinner each day, seen as an agenda or a grid, and shopped for in one step | 4.16, 5 |
 
 ---
 
@@ -399,6 +400,25 @@ The app speaks English and Mexican Spanish (`es-MX`). Building it is planned in 
   - Usage history and the usual unit still use the ingredient's own key.
 - **AI.** The categorizer (6.4) accepts English and Spanish names, shelves and picks units as a US supermarket would whatever the language, and returns each name's translation for linking. Recipe extraction (6.6) keeps the page's language. Push notifications (11.1), when built, use the recipient's language, which the server will need to store.
 
+### 4.16 Meal plan (req 16)
+
+A household plans its week: what's for breakfast, lunch and dinner each day. Mockups: https://claude.ai/artifact/HQKX1qKsoFgNNkgCujWewW (board 1 A and C, board 2 F, board 3 G, board 4 Idea 1, board 5, and the "Plan → tap a slot" prototype). As on the other boards, the floating tab bar is a mock; the app keeps `NativeTabs`.
+
+- **The plan belongs to the household**, like recipes: every member sees and edits the same plan, and it syncs (7) like other household data. A week runs Sunday to Saturday. A **slot** is a day and a meal: breakfast, lunch or dinner, labelled as the Meal tag's values (4.14), each in a fixed hue (breakfast `amber`, lunch `teal`, dinner `plum`; the aisle colours' `soft` and `strong`).
+- **An entry** is a recipe from the household or a note: **Leftovers** or **Eating out** (stored as slugs, shown in the app's language) or free text (**Note…**, up to 60 characters, kept as typed, 4.15). A slot holds one entry for now. The data and code allow several (`position`, and slot queries that return lists), so a later "main and side" is a UI change only. Setting a slot soft-deletes its live entries and inserts the new one. If two devices fill the same slot offline, both rows survive sync and the slot shows the one created last; the next change to the slot clears both. A recipe that's deleted drops out: its entries aren't shown, so the slot reads as empty.
+- **Which household.** With one household, its plan. With several, the week toolbar starts with the household's name and a chevron (a native menu of the user's households; VoiceOver "Household: Our place"). The choice is a device setting (`plan.householdId`), falling back to the current list's household (4.1). Planning from a recipe always uses the recipe's household.
+- **Where it lives** is a device setting (`plan.tab`, not synced, so a phone and an iPad can differ), default on: Settings > **Meal plan** > **Plan tab**, a switch with the footnote "Your week plan gets its own tab. Off, it lives in Recipes under This week."
+  - On (board 4): a **Plan** tab (SF Symbol `calendar`) between Recipes and Settings. Its root is the week screen, "This week" (`largeTitle`) on the green header, with the week toolbar on the green.
+  - Off (board 5): the Recipes tab has an **All recipes | This week** switch on the green header under the title. This week replaces the search field, Filters, sort and photo size with the week screen; the week toolbar is the first row of the sheet. The chosen segment is kept for the app session. Turning the setting off while on the Plan tab lands on Recipes > This week.
+- **The week toolbar**: the week (‹ Oct 11 – 17 ›; VoiceOver "Previous week", "Next week", "Week of October 11"), **This week** while another week shows, the cart (**Shop this week**, below) and the **view toggle** (board 4 Idea 1): two icon segments, **Agenda** (`list.bullet`) and **Grid** (`square.grid.3x3`), VoiceOver "View: Grid" with each segment's selected state. The view is a device setting (`plan.view`), default Grid, the same in both places. Weeks go back and forward without limit.
+- **Grid** (board 1 C): days Sunday to Saturday down the side, Breakfast, Lunch and Dinner across (headers in their meal hues). A recipe cell shows the recipe's tile and its name on up to two lines; a note cell is `surfaceMuted` with the note in italic `inkSecondary`; an empty cell is a dashed `controlBorder` outline with a +. Today's day label is a `primary` pill. All seven days fit at the default text size; at larger sizes the grid scrolls. VoiceOver per cell: "Thursday dinner, Chicken tacos", "Thursday lunch, empty".
+- **Agenda** (board 1 A): a card per day, the day on the left, then a line per meal: the meal's letter chip, then the recipe's name and total time, the note in italic, or "+ Add lunch" (`primary`). Today's card has a `primary` outline. In the current week, the days before today fold into one **Earlier this week · Sun – Wed** row at the top (a chevron; tapping it unfolds them for the app session; none on Sunday). Other weeks show all seven days.
+- **Past days** stay editable (to record what was actually eaten) but are quieter: names in `inkSecondary`, and an empty past slot has no + or "Add" (a plain cell, or "—" in the agenda), though tapping it still opens the slot sheet.
+- **Tapping a slot.** Empty: the **slot sheet** (board 2 F), titled with the day ("Thursday 15", in the meal's hue) over the meal (`sheetTitle`), a search field, the **Leftovers**, **Eating out** and **Note…** pills, then the household's recipes with that meal tag, A–Z, each with its tile, name and time, and **Show all recipes** to drop the meal filter. Search matches names ignoring case and accents (4.14) across all recipes. Picking fills the slot and closes the sheet. Filled: a native menu with **Open recipe** (recipes), **Replace…** (the slot sheet), **Edit note…** (free-text notes) and **Clear**, which asks nothing and shows "Cleared Thursday dinner" with **Undo**.
+- **Plan from a recipe** (the prototype): **Plan** (`calendar`, a secondary button after Add to a list and Cook) on the recipe screen, and **Plan…** in the recipe's Recipes card menu, open the **plan modal** whatever the setting: a sheet with the grid for the recipe's household on the current week (with the week arrows), the recipe's tile and name on its green header, "Tap a slot to plan it" under it, **Cancel** and **Done**. Each tap puts the recipe in that slot, replacing what's there; the cell turns `primarySoft` with a `primary` border, and a toast says "Planned for Thu dinner" or "Replaced Lemon ricotta pasta on Sat dinner", with **Undo**. Tapping a cell placed in this visit takes it out again and restores what was there. Column headers of the recipe's meal tags are highlighted. The CTA reads **Done** or **Done · 2 planned**. Nothing is written until Done, which writes every change in one transaction; Cancel or swiping the sheet away writes nothing. VoiceOver per cell adds "double-tap to plan", "to replace" or "to remove".
+- **Plan badges**: the recipe screen's header band shows a pill per upcoming entry of the recipe (today or later, the first three then "+2"), "Thu dinner", or "Oct 21 dinner" beyond this week, in the meal's `strong` hue; tapping one opens the plan modal.
+- **Shop this week** (board 3 G): the cart opens a sheet, "Shop the rest of the week" (Thursday to Saturday; for a future week, "Shop the week of Oct 18", every day; disabled for past weeks). It has the list picker (the household's lists, the current one first) and a checklist of the week's recipe entries, each with its day and meal. A recipe already on the chosen list (it has a contribution there) starts unticked with "already on Groceries". **Add N to Groceries** adds the ticked entries' ingredients at 1×, the household's staples left out, combined across recipes and with the list (4.4 bulk add), as one add with the toast "Added 3 recipes · 18 items", **Undo** and **Open list**. A recipe planned twice is added twice. **Review N items** first shows the merged ingredients as Add to list's checklist (4.5).
+
 ---
 
 ## 5. Data model
@@ -509,6 +529,23 @@ create table recipes (
 );
 -- recipes_tags_shape: tags may only have the keys meal, cuisine, protein, diet and method, each an
 -- array of strings. The values aren't checked, so adding one needs no migration.
+
+-- The household's meal plan (4.16). One row per entry in a slot (a day and a meal). A slot holds one
+-- entry for now; position orders several, so allowing more later needs no migration.
+create table meal_plan_entries (
+  id           uuid primary key,
+  household_id uuid not null references households on delete cascade,
+  plan_date    date not null,                       -- the calendar day, no time zone
+  meal         text not null check (meal in ('breakfast', 'lunch', 'dinner')),
+  position     double precision not null default 0, -- order within the slot
+  kind         text not null check (kind in ('recipe', 'leftovers', 'eating-out', 'note')),
+  recipe_id    uuid references recipes,             -- set exactly when kind = 'recipe'; same household
+  note         text check (char_length(note) <= 60), -- set exactly when kind = 'note'; kept as typed
+  added_by     uuid references auth.users on delete set null, -- the server sets it on insert
+  deleted_at   timestamptz,
+  field_clock  jsonb not null default '{}'
+);
+create index on meal_plan_entries (household_id, plan_date);
 
 create table list_items (
   id              uuid primary key,
