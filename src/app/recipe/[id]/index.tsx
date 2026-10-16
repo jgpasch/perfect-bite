@@ -29,6 +29,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { PlanBadges } from '@/features/meal-plan/plan-badges';
 import { useFeature } from '@/features/plans/features';
+import { ensureStepMatchSoon, useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
@@ -89,6 +90,8 @@ export default function RecipeScreen() {
   const [tab, setTab] = useState<RecipeTab>('ingredients');
   const scroll = useRef<ScrollView>(null);
   const scrollY = useRef(0);
+  // Opening the recipe matches its steps if they need it (spec 4.5).
+  useEnsureStepMatch(id);
   const switchY = useRef(0);
   // Switching brings the card into view when the switch has scrolled off the top.
   const switchTab = (next: RecipeTab) => {
@@ -129,6 +132,7 @@ export default function RecipeScreen() {
         if (!text?.trim()) return;
         try {
           void categorizePending(updateRecipeIngredient(ingredient.id, text, ingredient.note ?? ''));
+          ensureStepMatchSoon(id);
         } catch (err) {
           Alert.alert(err instanceof Error ? err.message : String(err));
         }
@@ -280,6 +284,7 @@ export default function RecipeScreen() {
                     onEdit={() => edit(item)}
                     onDelete={() => {
                       deleteRecipeIngredient(item.id);
+                      ensureStepMatchSoon(id);
                       setDeleted(item);
                     }}
                   />
@@ -302,14 +307,17 @@ export default function RecipeScreen() {
             <Toast
               key={deleted.id}
               message={t('recipes.screen.removed', { name: displayItemName(deleted.displayName) })}
-              actions={[{ label: t('common.undo'), onPress: () => (undeleteRecipeIngredient(deleted.id), setDeleted(null)) }]}
+              actions={[{ label: t('common.undo'), onPress: () => (undeleteRecipeIngredient(deleted.id), ensureStepMatchSoon(id), setDeleted(null)) }]}
               onDismiss={dismissToast}
             />
           </View>
         ) : null}
         <ItemAddBar
           householdId={recipe.householdId}
-          onAdd={(text) => void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? [])}
+          onAdd={(text) => {
+            void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? []);
+            ensureStepMatchSoon(id);
+          }}
           placeholder={t('recipes.screen.addPlaceholder')}
           accessibilityLabel={t('recipes.screen.addLabel')}
         />

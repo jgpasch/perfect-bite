@@ -19,6 +19,7 @@ import {
 import type { Exec } from '@/sync/clock';
 import { insertRow } from '@/sync/mutate';
 
+import { ensureStepMatch } from './ensure-step-match';
 import { capturePage, toRequestPage } from './page-capture';
 import { addParsedRecipeIngredients, deleteRecipe } from './recipes';
 
@@ -114,7 +115,9 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
   }
 
   try {
-    return save(input, recipe, userId);
+    const saved = save(input, recipe, userId);
+    void ensureStepMatch(saved.recipeId);
+    return saved;
   } catch (e) {
     console.warn('Saving the imported recipe failed', e);
     return { ok: false, error: 'failed' };

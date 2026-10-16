@@ -13,6 +13,7 @@ import { Screen } from '@/components/themed-view';
 import { formatAmount } from '@/domain/quantity-display';
 import { useKeepAwake } from '@/features/lists/keep-awake';
 import { startingServings } from '@/features/recipes/add-to-list';
+import { useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { RecipeCredit } from '@/features/recipes/recipe-credit';
 import { cookProgressLabel, scaledAmount, stepLabel, stepUnit, upNextIndex } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
@@ -37,6 +38,8 @@ export default function CookScreen() {
   const [stepsDone, setStepsDone] = useState(() => steps.map(() => false));
   const [ingredientsDone, setIngredientsDone] = useState<ReadonlySet<string>>(() => new Set());
   useKeepAwake(`cook:${id}:${useId()}`, true);
+  // Opening cook mode matches the recipe's steps if they need it (spec 4.5).
+  useEnsureStepMatch(id);
 
   if (!recipe) return <Screen />;
 

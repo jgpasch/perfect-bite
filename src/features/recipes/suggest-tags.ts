@@ -67,7 +67,7 @@ export function buildSuggestTagsRequest(recipeId: string): SuggestRecipeTagsRequ
 }
 
 /** True only when the OS says there's no connection; unknown lets the call find out. */
-async function knownOffline(): Promise<boolean> {
+export async function knownOffline(): Promise<boolean> {
   try {
     return !isOnline(await getNetworkStateAsync());
   } catch {

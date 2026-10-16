@@ -6,6 +6,7 @@ import { prominentButtonTint } from '@/components/appearance';
 import { Card } from '@/components/card';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { ensureStepMatch } from '@/features/recipes/ensure-step-match';
 import { stepsFromText, stepsToText } from '@/features/recipes/recipe-view';
 import { getRecipe, updateRecipeSteps } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
@@ -31,6 +32,7 @@ export default function RecipeStepsSheet() {
 
   const save = () => {
     updateRecipeSteps(recipe.id, stepsFromText(text));
+    void ensureStepMatch(recipe.id);
     router.back();
   };
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
