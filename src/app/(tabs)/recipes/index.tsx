@@ -50,6 +50,7 @@ import {
   onListByRecipe,
   recipeMetaLine,
   recipeRowLabel,
+  recipeSavedMarks,
   recipeTimeLabel,
 } from '@/features/recipes/recipe-view';
 import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
@@ -84,6 +85,7 @@ import {
   RECIPES_TAB_TABLES,
   recipesOnListsQuery,
   recipesQuery,
+  setRecipeSaved,
   type RecipeSummary,
 } from '@/features/recipes/recipes';
 import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
@@ -91,6 +93,7 @@ import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useTheme } from '@/hooks/use-theme';
 import { i18n, useT } from '@/i18n';
+import type { RecipeTags } from '@/shared/recipe-tags';
 
 /**
  * Recipes tab (spec 4.5): the List tab's green header (title, search, "N recipes" and Filters) over a card of
@@ -630,9 +633,12 @@ function RecipeRow({
         ]}>
         <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
         <View style={styles.flex}>
-          <ThemedText variant="headline" numberOfLines={1}>
-            {recipe.name}
-          </ThemedText>
+          <View style={[styles.nameLine, { gap: spacing.xs }]}>
+            <ThemedText variant="headline" numberOfLines={1} style={styles.shrink}>
+              {recipe.name}
+            </ThemedText>
+            <SavedMarks tags={recipe.tags} />
+          </View>
           {ingredientMatch ? (
             <ThemedText variant="footnote" color="inkSecondary">
               {t('recipes.tab.has')}{' '}
@@ -690,7 +696,7 @@ function confirmDeleteRecipe(recipe: { id: string; name: string }, onCancel?: ()
 
 /**
  * A recipe's row or tile as a link to the recipe (spec 4.5): its VoiceOver label and Delete action, and the
- * long-press menu (Add to <list>, Add to a list, Visit recipe, Rename, Delete). A plain function, so a row's
+ * long-press menu (Add to <list>, Add to a list, Visit recipe, Favorite, Want to try, Rename, Delete). A plain function, so a row's
  * swipeable wraps the Link itself. Callers re-render on a language change through `useT`.
  */
 function recipeLink({
@@ -713,6 +719,7 @@ function recipeLink({
   const t = i18n.t.bind(i18n);
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
   const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
+  const marks = recipeSavedMarks(recipe.tags);
   return (
     <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
       <Link.Trigger>
@@ -745,6 +752,17 @@ function recipeLink({
         {link ? (
           <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
         ) : null}
+        {/* Spec 4.5: the Saved marks, each toggling only its own slug. */}
+        <Link.MenuAction
+          title={t(marks.favorite ? 'recipes.tab.unfavorite' : 'recipes.tab.favorite')}
+          icon={marks.favorite ? 'heart.slash' : 'heart'}
+          onPress={() => setRecipeSaved(recipe.id, 'favorite', !marks.favorite)}
+        />
+        <Link.MenuAction
+          title={t(marks.wantToTry ? 'recipes.tab.triedIt' : 'recipes.tab.wantToTry')}
+          icon={marks.wantToTry ? 'checkmark' : 'bookmark'}
+          onPress={() => setRecipeSaved(recipe.id, 'want-to-try', !marks.wantToTry)}
+        />
         <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={onDelete} />
       </Link.Menu>
@@ -803,9 +821,12 @@ function RecipeTile({
             </View>
           ) : null}
         </View>
-        <ThemedText variant="headline" numberOfLines={2}>
-          {recipe.name}
-        </ThemedText>
+        <View style={[styles.nameLine, { gap: spacing.xs }]}>
+          <ThemedText variant="headline" numberOfLines={2} style={styles.shrink}>
+            {recipe.name}
+          </ThemedText>
+          <SavedMarks tags={recipe.tags} />
+        </View>
         {ingredientMatch ? (
           <ThemedText variant="footnote" color="inkSecondary">
             {t('recipes.tab.has')}{' '}
@@ -821,6 +842,21 @@ function RecipeTile({
       </View>
     ),
   });
+}
+
+/**
+ * After a recipe's name (spec 4.5): a small `primary` heart when it's a Favorite, a bookmark when it's Want to
+ * try. Decorative: the row's VoiceOver label says them.
+ */
+function SavedMarks({ tags }: { tags: RecipeTags | null }) {
+  const { sizes } = useTheme();
+  const marks = recipeSavedMarks(tags);
+  return (
+    <>
+      {marks.favorite ? <Icon name="heart.fill" color="primary" size={sizes.iconSmall} /> : null}
+      {marks.wantToTry ? <Icon name="bookmark" color="inkSecondary" size={sizes.iconSmall} /> : null}
+    </>
+  );
 }
 
 /** How far across the card a swipe goes before letting go asks to delete it. */
@@ -865,6 +901,8 @@ function DeleteAction({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  shrink: { flexShrink: 1 },
+  nameLine: { flexDirection: 'row', alignItems: 'center' },
   match: { fontWeight: '700' },
   center: { textAlign: 'center' },
   grow: { flexGrow: 1 },

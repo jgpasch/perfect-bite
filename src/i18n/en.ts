@@ -303,6 +303,11 @@ export const en = {
       addTo: 'Add to {{name}}',
       addToAList: 'Add to a list',
       rename: 'Rename',
+      /** The card menu's Saved marks (spec 4.5): Tried it removes Want to try. */
+      favorite: 'Favorite',
+      unfavorite: 'Unfavorite',
+      wantToTry: 'Want to try',
+      triedIt: 'Tried it',
       deleteTitle: 'Delete “{{name}}”?',
       deleteMessage: 'Items already on your lists stay there.',
       untagged_one: "{{count}} recipe without tags isn't shown",

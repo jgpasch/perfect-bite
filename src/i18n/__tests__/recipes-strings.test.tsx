@@ -198,6 +198,8 @@ describe('recipes strings in Spanish', () => {
     expect(recipeMetaLine(tacos)).toBe('Cena · 1 h 20 min');
     expect(recipeRowLabel(tacos, 'Súper')).toBe('Tacos, Cena, 1 h 20 min, en Súper');
     expect(recipeRowLabel(tacos, null, 'pollo')).toBe('Tacos, lleva pollo');
+    const saved = { ...tacos, tags: { ...tacos.tags, saved: ['favorite', 'want-to-try'] } };
+    expect(recipeRowLabel(saved, 'Súper')).toBe('Tacos, Favorita, Por probar, Cena, 1 h 20 min, en Súper');
     expect(i18n.t('recipes.tab.count', { count: 1 })).toBe('1 receta');
     expect(i18n.t('recipes.tab.count', { count: 52 })).toBe('52 recetas');
   });

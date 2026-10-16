@@ -53,6 +53,7 @@ import {
   deleteRecipe,
   deleteRecipeIngredient,
   getRecipe,
+  setRecipeSaved,
   undeleteRecipeIngredient,
   updateRecipe,
   updateRecipeIngredient,
@@ -438,6 +439,25 @@ describe('recipes', () => {
       ['tags', 'total_minutes', 'tags_edited'],
     ]);
     expect(getRecipe(id)).toMatchObject({ steps, servings: 4, imageUrl: 'https://example.com/t.jpg' });
+  });
+
+  test('a Saved mark from the Recipes tab menu sends tags and tags_edited in one patch, nothing else', () => {
+    const id = createRecipe('Tacos');
+    updateRecipeTags(id, { ...emptyRecipeTags(), meal: ['dinner'] }, 30);
+    clearOutbox();
+
+    setRecipeSaved(id, 'favorite', true);
+
+    expect(outboxPatches()).toEqual([
+      {
+        table: 'recipes',
+        id,
+        fields: {
+          tags: { saved: ['favorite'], meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] },
+          tags_edited: true,
+        },
+      },
+    ]);
   });
 
   test('deleting a recipe unlinks its amounts on lists', () => {

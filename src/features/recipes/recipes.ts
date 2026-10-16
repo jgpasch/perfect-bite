@@ -8,7 +8,7 @@ import { recordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
-import { RecipeTagsSchema, type RecipeTags } from '@/shared/recipe-tags';
+import { emptyRecipeTags, RecipeTagsSchema, type RecipeTags, type SavedTag } from '@/shared/recipe-tags';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
 
@@ -156,6 +156,22 @@ export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: num
   updateRows(db, recipes, eq(recipes.id, id), {
     tags: RecipeTagsSchema.parse(tags),
     totalMinutes,
+    tagsEdited: true,
+  });
+}
+
+/**
+ * The Recipes tab menu's Favorite / Unfavorite and Want to try / Tried it (spec 4.5, 4.14): adds or
+ * removes one Saved slug and keeps every other stored slug (unknown ones too), writing `tags` and
+ * `tagsEdited` in one update as the Tags sheet's Save does. An untagged recipe gets tags with only it.
+ */
+export function setRecipeSaved(id: string, slug: SavedTag, on: boolean): void {
+  const recipe = getRecipe(id);
+  if (!recipe) return;
+  const tags = recipe.tags ? RecipeTagsSchema.parse(recipe.tags) : emptyRecipeTags();
+  const saved = tags.saved.filter((s) => s !== slug);
+  updateRows(db, recipes, eq(recipes.id, id), {
+    tags: { ...tags, saved: on ? [...saved, slug] : saved },
     tagsEdited: true,
   });
 }

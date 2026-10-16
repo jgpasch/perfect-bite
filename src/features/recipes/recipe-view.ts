@@ -79,17 +79,27 @@ export function recipeMetaLine(recipe: { tags: RecipeTags | null; totalMinutes: 
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+/** Whether a recipe is a Favorite and Want to try (spec 4.5): its row's heart and bookmark, and its menu. */
+export function recipeSavedMarks(tags: RecipeTags | null): { favorite: boolean; wantToTry: boolean } {
+  const saved = tags?.saved ?? [];
+  return { favorite: saved.includes('favorite'), wantToTry: saved.includes('want-to-try') };
+}
+
 /**
- * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Dinner, 35 min, on Groceries". A row a search
- * matched only through an ingredient reads that in place of the meta: "Tacos, has chicken thighs".
+ * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Favorite, Dinner, 35 min, on Groceries" (Favorite
+ * and Want to try only when set). A row a search matched only through an ingredient reads that in place of the
+ * meta: "Tacos, has chicken thighs".
  */
 export function recipeRowLabel(
   recipe: { name: string; tags: RecipeTags | null; totalMinutes: number | null },
   onList?: string | null,
   ingredientMatch?: string | null,
 ): string {
+  const marks = recipeSavedMarks(recipe.tags);
   return [
     recipe.name,
+    marks.favorite ? tagLabel('saved', 'favorite') : null,
+    marks.wantToTry ? tagLabel('saved', 'want-to-try') : null,
     ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe)),
     onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,
   ]
