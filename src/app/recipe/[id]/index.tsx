@@ -27,6 +27,7 @@ import { formatAmount } from '@/domain/quantity-display';
 import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
+import { PlanBadges } from '@/features/meal-plan/plan-badges';
 import { useFeature } from '@/features/plans/features';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
@@ -137,6 +138,9 @@ export default function RecipeScreen() {
     );
   };
 
+  // Spec 4.16: the plan modal, for Plan and the plan badges.
+  const openPlan = () => router.push({ pathname: '/plan-recipe', params: { recipeId: id } });
+
   const confirmDelete = () =>
     Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
       { text: t('common.cancel'), style: 'cancel' },
@@ -185,10 +189,16 @@ export default function RecipeScreen() {
           contentInsetAdjustmentBehavior="never"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
           {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} sourceUrl={recipe.sourceUrl} onError={photo.onError} /> : null}
-          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} />
-          {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps. */}
-          <View style={[styles.row, { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md }]}>
-            <View style={styles.flex}>
+          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} onPlan={openPlan} />
+          {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps, then Plan
+              (spec 4.16). They wrap when they don't fit. */}
+          <View
+            style={[
+              styles.row,
+              styles.wrap,
+              { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md },
+            ]}>
+            <View style={styles.grow}>
               <PrimaryButton
                 label={t('recipes.screen.addToAList')}
                 icon="cart"
@@ -218,6 +228,7 @@ export default function RecipeScreen() {
                 }
               />
             ) : null}
+            <SurfaceButton label={t('recipes.screen.plan')} icon="calendar" iconTint={aisles[hue].strong} on="surface" onPress={openPlan} />
           </View>
           {/* With steps, one card at a time under the switch; without, Ingredients over the Method's Add steps. */}
           {steps > 0 ? (
@@ -310,18 +321,21 @@ export default function RecipeScreen() {
 /**
  * The header band in the recipe's soft tint: its name, source link and servings, tags and notes. The notes
  * are edited in place and saved when the field loses focus; the link row is RecipeLinkRow. "Serves 4", or a
- * dashed "Add servings" without them, opens the servings prompt (`onEditServings`).
+ * dashed "Add servings" without them, opens the servings prompt (`onEditServings`). Under the name, the
+ * recipe's upcoming plan badges open the plan modal (`onPlan`).
  */
 function RecipeBand({
   recipe,
   hue,
   hasIngredients,
   onEditServings,
+  onPlan,
 }: {
   recipe: Recipe;
   hue: AisleHue;
   hasIngredients: boolean;
   onEditServings: () => void;
+  onPlan: () => void;
 }) {
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
@@ -348,6 +362,7 @@ function RecipeBand({
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>
+      <PlanBadges recipeId={recipe.id} onOpen={onPlan} />
       {/* The link and the servings share a line (boards 13 and 15). */}
       <View style={[styles.row, { gap: spacing.md + spacing.xxs }]}>
         <View style={styles.flex}>
@@ -401,5 +416,7 @@ type RecipeTab = 'ingredients' | 'method';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  grow: { flexGrow: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
+  wrap: { flexWrap: 'wrap' },
 });

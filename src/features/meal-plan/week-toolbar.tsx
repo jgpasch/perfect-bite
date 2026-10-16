@@ -64,21 +64,26 @@ export function WeekToolbar({
       {households.length > 1 && household ? (
         <HouseholdMenu households={households} current={household} onPick={onHousehold} onGreen={onGreen} />
       ) : null}
-      <View style={styles.row}>
-        <RoundButton icon="chevron.left" label={t('mealPlan.previousWeek')} color={look.text} onPress={() => onWeek(-1)} />
-        <ThemedText
-          variant="headline"
-          accessibilityLabel={weekAccessibilityLabel(start)}
-          style={{ color: look.text, flexShrink: 1 }}>
-          {weekLabel(start)}
-        </ThemedText>
-        <RoundButton icon="chevron.right" label={t('mealPlan.nextWeek')} color={look.text} onPress={() => onWeek(1)} />
-      </View>
+      <WeekArrows start={start} color={look.text} onWeek={onWeek} />
       {isThisWeek ? null : <ToolbarPill label={t('mealPlan.thisWeek')} onPress={onThisWeek} onGreen={onGreen} />}
       <View style={[styles.row, styles.end, { gap: spacing.sm }]}>
         <RoundButton icon="cart" label={t('mealPlan.shop')} color={look.text} onPress={onShop} />
         <ViewToggle value={view} onChange={onView} onGreen={onGreen} />
       </View>
+    </View>
+  );
+}
+
+/** ‹ Oct 11 – 17 ›: the week and its arrows (VoiceOver "Previous week", "Week of October 11", "Next week"). */
+export function WeekArrows({ start, color, onWeek }: { start: Day; color: string; onWeek: (direction: -1 | 1) => void }) {
+  const t = useT();
+  return (
+    <View style={styles.row}>
+      <RoundButton icon="chevron.left" label={t('mealPlan.previousWeek')} color={color} onPress={() => onWeek(-1)} />
+      <ThemedText variant="headline" accessibilityLabel={weekAccessibilityLabel(start)} style={{ color, flexShrink: 1 }}>
+        {weekLabel(start)}
+      </ThemedText>
+      <RoundButton icon="chevron.right" label={t('mealPlan.nextWeek')} color={color} onPress={() => onWeek(1)} />
     </View>
   );
 }

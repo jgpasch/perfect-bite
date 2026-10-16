@@ -302,6 +302,8 @@ export const en = {
       onList: 'On {{name}}',
       addTo: 'Add to {{name}}',
       addToAList: 'Add to a list',
+      /** Opens the plan modal (spec 4.16). */
+      plan: 'Plan…',
       rename: 'Rename',
       /** The card menu's Saved marks (spec 4.5): Tried it removes Want to try. */
       favorite: 'Favorite',
@@ -365,6 +367,8 @@ export const en = {
       addToAList: 'Add to a list',
       cook: 'Cook',
       startCooking: 'Start cooking',
+      /** Opens the plan modal (spec 4.16). */
+      plan: 'Plan',
       ingredients: 'Ingredients',
       reset: 'Reset',
       noIngredients: 'No ingredients yet. Add them below.',
@@ -653,6 +657,22 @@ export const en = {
     clear: 'Clear',
     /** After Clear: "Cleared Thursday dinner". */
     cleared: 'Cleared {{slot}}',
+    /** A slot in short: "Thu dinner" this week, "Oct 21 dinner" after it (the plan modal's toast, the plan badges). */
+    slotShort: '{{day}} {{meal}}',
+    /** The plan modal (spec 4.16), under the recipe's name. */
+    tapSlot: 'Tap a slot to plan it',
+    plannedFor: 'Planned for {{slot}}',
+    /** "Replaced Lemon ricotta pasta on Sat dinner". */
+    replacedOn: 'Replaced {{name}} on {{slot}}',
+    donePlanned: 'Done · {{count}} planned',
+    /** VoiceOver's hint on the plan modal's cells. */
+    hintPlan: 'Double-tap to plan',
+    hintReplace: 'Double-tap to replace',
+    hintRemove: 'Double-tap to remove',
+    /** A plan badge on the recipe screen for VoiceOver: "Planned for Thu dinner". */
+    badgeLabel: 'Planned for {{slot}}',
+    badgeMore: '+{{count}}',
+    badgeMoreLabel: '{{count}} more planned',
   },
   settings: {
     title: 'Settings',

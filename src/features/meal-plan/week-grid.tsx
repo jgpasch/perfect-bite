@@ -17,18 +17,26 @@ export const GRID_SCROLL_FONT_SCALE = 1.3;
 /**
  * The week as a grid (spec 4.16, board 1 C): days Sunday to Saturday down the side, Breakfast, Lunch and
  * Dinner across under headers in their meal hues. Today's day label is a `primary` pill; past days are
- * quieter and their empty slots have no +. Tapping a slot calls `onSlot` with what it shows.
+ * quieter and their empty slots have no +. Tapping a slot calls `onSlot` with what it shows. The plan
+ * modal marks the slots it placed its recipe in (`placed`), highlights the recipe's meals' headers and adds
+ * a VoiceOver hint per cell (`slotHint`).
  */
 export function WeekGrid({
   days,
   plan,
   today,
   onSlot,
+  placed,
+  highlightMeals,
+  slotHint,
 }: {
   days: readonly Day[];
   plan: WeekPlan;
   today: Day;
   onSlot?: (day: Day, meal: Meal, entry: PlanEntry | null) => void;
+  placed?: (day: Day, meal: Meal) => boolean;
+  highlightMeals?: readonly Meal[];
+  slotHint?: (day: Day, meal: Meal, entry: PlanEntry | null) => string;
 }) {
   const { scheme, spacing, sizes, rounded } = useTheme();
   const scrolls = useWindowDimensions().fontScale > GRID_SCROLL_FONT_SCALE;
@@ -40,11 +48,19 @@ export function WeekGrid({
         <View style={{ minWidth: sizes.planDayColumn }} />
         {MEALS.map((meal) => {
           const band = hueHeaderBand(MealHues[meal], scheme);
+          const highlighted = highlightMeals?.includes(meal) ?? false;
           return (
             <View
               key={meal}
+              testID={highlighted ? `meal-header-${meal}-highlighted` : `meal-header-${meal}`}
               accessibilityRole="header"
-              style={[column, styles.center, { backgroundColor: band.ground, borderRadius: rounded.sm, paddingVertical: spacing.xxs }]}>
+              style={[
+                column,
+                styles.center,
+                { backgroundColor: band.ground, borderRadius: rounded.sm, paddingVertical: spacing.xxs },
+                // The recipe's meal tags, in the plan modal: outlined in the meal's hue.
+                highlighted ? { borderWidth: sizes.checkBorder, borderColor: band.text } : null,
+              ]}>
               <ThemedText variant="caption" numberOfLines={1} style={{ color: band.text }}>
                 {mealLabel(meal)}
               </ThemedText>
@@ -61,7 +77,15 @@ export function WeekGrid({
               const entry = plan.slotEntries(day, meal)[0] ?? null;
               return (
                 <View key={meal} style={column}>
-                  <GridCell day={day} meal={meal} entry={entry} past={past} onPress={onSlot && (() => onSlot(day, meal, entry))} />
+                  <GridCell
+                    day={day}
+                    meal={meal}
+                    entry={entry}
+                    past={past}
+                    placed={placed?.(day, meal) ?? false}
+                    hint={slotHint?.(day, meal, entry)}
+                    onPress={onSlot && (() => onSlot(day, meal, entry))}
+                  />
                 </View>
               );
             })}
@@ -109,33 +133,42 @@ function DayLabel({ day, today, past }: { day: Day; today: boolean; past: boolea
 
 /**
  * A slot: a recipe's tile and name on up to two lines, a note in italic `inkSecondary` on `surfaceMuted`, or a
- * dashed `controlBorder` outline with a + (a plain cell on past days).
+ * dashed `controlBorder` outline with a + (a plain cell on past days). A slot the plan modal placed its
+ * recipe in is `primarySoft` with a `primary` border.
  */
 function GridCell({
   day,
   meal,
   entry,
   past,
+  placed,
+  hint,
   onPress,
 }: {
   day: Day;
   meal: Meal;
   entry: PlanEntry | null;
   past: boolean;
+  placed: boolean;
+  hint?: string;
   onPress?: () => void;
 }) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const cell = { minHeight: sizes.planCell, borderRadius: rounded.md, padding: spacing.xs + spacing.xxs };
-  const look = !entry
-    ? [styles.center, past ? null : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed' as const, borderColor: colors.controlBorder }]
-    : entry.kind === 'recipe'
-      ? { gap: spacing.xxs, backgroundColor: colors.surface }
-      : [styles.center, { backgroundColor: colors.surfaceMuted }];
+  const look = placed
+    ? { gap: spacing.xxs, backgroundColor: colors.primarySoft, borderWidth: sizes.checkBorder, borderColor: colors.primary }
+    : !entry
+      ? [styles.center, past ? null : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed' as const, borderColor: colors.controlBorder }]
+      : entry.kind === 'recipe'
+        ? { gap: spacing.xxs, backgroundColor: colors.surface }
+        : [styles.center, { backgroundColor: colors.surfaceMuted }];
   return (
     <Pressable
       testID={`slot-${day}-${meal}`}
       accessibilityRole="button"
       accessibilityLabel={slotAccessibilityLabel(day, meal, entry)}
+      accessibilityHint={hint}
+      accessibilityState={placed ? { selected: true } : undefined}
       onPress={onPress}
       style={({ pressed }) => [cell, look, { opacity: pressed ? opacity.pressed : 1 }]}>
       {!entry ? (
@@ -145,7 +178,7 @@ function GridCell({
       ) : entry.kind === 'recipe' ? (
         <>
           <RecipePhotoTile recipeId={entry.recipeId!} imageUrl={entry.recipeImageUrl} size={sizes.planTile} />
-          <ThemedText variant="caption" color={past ? 'inkSecondary' : 'ink'} numberOfLines={2}>
+          <ThemedText variant="caption" color={placed ? 'onPrimarySoft' : past ? 'inkSecondary' : 'ink'} numberOfLines={2}>
             {entryText(entry)}
           </ThemedText>
         </>

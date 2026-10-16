@@ -228,12 +228,14 @@ describe('the long-press menu', () => {
     const both = addRecipe('Tacos', { ...EMPTY, saved: ['favorite', 'want-to-try'] }, 2);
     const root = render();
     expect(menu(root, plain).map((a) => [a.props.title, a.props.icon])).toEqual([
+      ['Plan…', 'calendar'],
       ['Favorite', 'heart'],
       ['Want to try', 'bookmark'],
       ['Rename', 'pencil'],
       ['Delete', 'trash'],
     ]);
     expect(menu(root, both).map((a) => [a.props.title, a.props.icon])).toEqual([
+      ['Plan…', 'calendar'],
       ['Unfavorite', 'heart.slash'],
       ['Tried it', 'checkmark'],
       ['Rename', 'pencil'],
@@ -301,7 +303,7 @@ describe('the long-press menu', () => {
     let root = render();
     expect(marks(card(root, tacos))).toEqual([['heart.fill', 'primary']]);
     expect(label(card(root, tacos))).toBe('Tacos, Favorite, Dinner, 35 min');
-    expect(menu(root, tacos)[0].props.title).toBe('Unfavorite');
+    expect(menu(root, tacos)[1].props.title).toBe('Unfavorite');
     setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorite'));
     root = render();
     expect(rowNames(root)).toEqual(['Tacos']);

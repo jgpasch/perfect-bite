@@ -13,6 +13,9 @@ import { AisleColors, Palette, Sizes, Typography } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData } from '@/features/lists/lists';
+import { today } from '@/features/meal-plan/week';
+import { dayName } from '@/features/meal-plan/week-view';
+import { setSlot } from '@/features/meal-plan/write';
 import { setKeepScreenOn } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
@@ -181,19 +184,22 @@ const byA11y = (root: ReactTestRenderer, label: string) =>
   root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function');
 
 describe('the Cook button on the recipe screen', () => {
+  // Plan (spec 4.16) is a SurfaceButton too, always there.
+  const isCook = (n: ReactTestInstance) => n.type === SurfaceButton && n.props.label === 'Cook';
+
   test('shows only when the recipe has steps', () => {
     let root = render(<RecipeScreen />);
-    expect(root.root.findAll((n) => n.type === SurfaceButton)).toHaveLength(0);
+    expect(root.root.findAll(isCook)).toHaveLength(0);
     close();
 
     setSteps([]);
     root = render(<RecipeScreen />);
-    expect(root.root.findAll((n) => n.type === SurfaceButton)).toHaveLength(0);
+    expect(root.root.findAll(isCook)).toHaveLength(0);
     close();
 
     setSteps(STEPS);
     root = render(<RecipeScreen />);
-    const cook = root.root.find((n) => n.type === SurfaceButton);
+    const cook = root.root.find(isCook);
     expect(cook.props).toMatchObject({
       label: 'Cook',
       accessibilityLabel: 'Start cooking',
@@ -211,12 +217,12 @@ describe('the Cook button on the recipe screen', () => {
     expect(StyleSheet.flatten(textIn(host, 'Cook').props.style).color).toBe(Palette.light.ink);
     const glyph = host.find((n) => String(n.type) === 'Icon');
     expect(glyph.props).toMatchObject({ name: 'flame', tint: AisleColors.light[recipeHue(tacos)].strong });
-    // Same row as Add to a list, which is wrapped to flex.
+    // Same row as Add to a list, which grows to take the rest; the row wraps when Plan doesn't fit too.
     const add = root.root.find((n) => n.type === PrimaryButton && n.props.label === 'Add to a list');
-    const cook = root.root.find((n) => n.type === SurfaceButton);
+    const cook = root.root.find(isCook);
     expect(cook.parent!.findAll((n) => n.type === PrimaryButton).map((n) => n.props.label)).toEqual(['Add to a list']);
-    expect(StyleSheet.flatten(cook.parent!.props.style)).toMatchObject({ flexDirection: 'row' });
-    expect(StyleSheet.flatten(add.parent!.props.style)).toMatchObject({ flex: 1 });
+    expect(StyleSheet.flatten(cook.parent!.props.style)).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
+    expect(StyleSheet.flatten(add.parent!.props.style)).toMatchObject({ flexGrow: 1 });
   });
 
   test('opens the cook screen with the stepper\'s servings, or just the id without servings', () => {
@@ -234,6 +240,39 @@ describe('the Cook button on the recipe screen', () => {
     act(() => byA11y(root, 'More').props.onPress());
     act(() => byA11y(root, 'Start cooking').props.onPress());
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/cook', params: { id: tacos, servings: '6' } });
+  });
+});
+
+describe('Plan on the recipe screen (spec 4.16)', () => {
+  test('a surface button after Add to a list and Cook, opening the plan modal for the recipe', () => {
+    setSteps(STEPS);
+    const root = render(<RecipeScreen />);
+    const row = root.root.find((n) => n.type === SurfaceButton && n.props.label === 'Plan').parent!;
+    expect(
+      row.findAll((n) => n.type === PrimaryButton || n.type === SurfaceButton).map((n) => [n.props.label, n.props.icon]),
+    ).toEqual([
+      ['Add to a list', 'cart'],
+      ['Cook', 'flame'],
+      ['Plan', 'calendar'],
+    ]);
+    act(() => byA11y(root, 'Plan').props.onPress());
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/plan-recipe', params: { recipeId: tacos } });
+  });
+
+  test('without steps, Plan still shows; no badges until the recipe is planned', () => {
+    const root = render(<RecipeScreen />);
+    expect(byA11y(root, 'Plan')).toBeTruthy();
+    expect(root.root.findAll((n) => n.props.testID === 'plan-badges')).toHaveLength(0);
+  });
+
+  test('the band shows a badge per upcoming entry, which opens the plan modal', () => {
+    const householdId = db.select().from(recipes).where(eq(recipes.id, tacos)).get()!.householdId;
+    const day = today();
+    setSlot(householdId, day, 'dinner', { kind: 'recipe', recipeId: tacos });
+    const root = render(<RecipeScreen />);
+    const label = `Planned for ${dayName(day, 'short')} dinner`;
+    act(() => byA11y(root, label).props.onPress());
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/plan-recipe', params: { recipeId: tacos } });
   });
 });
 

@@ -121,6 +121,11 @@ export default function RootLayout() {
                   name="plan-slot"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.16: planning a recipe; its name is on the sheet's green header. Swiping it away writes nothing. */}
+                <Stack.Screen
+                  name="plan-recipe"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!ready}>
                 <Stack.Screen name="sign-in" options={{ headerShown: false }} />

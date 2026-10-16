@@ -696,7 +696,7 @@ function confirmDeleteRecipe(recipe: { id: string; name: string }, onCancel?: ()
 
 /**
  * A recipe's row or tile as a link to the recipe (spec 4.5): its VoiceOver label and Delete action, and the
- * long-press menu (Add to <list>, Add to a list, Visit recipe, Favorite, Want to try, Rename, Delete). A plain function, so a row's
+ * long-press menu (Add to <list>, Add to a list, Plan…, Visit recipe, Favorite, Want to try, Rename, Delete). A plain function, so a row's
  * swipeable wraps the Link itself. Callers re-render on a language change through `useT`.
  */
 function recipeLink({
@@ -749,6 +749,12 @@ function recipeLink({
             onPress={() => router.push({ pathname: '/recipe/[id]/add-to-list', params: { id: recipe.id } })}
           />
         ) : null}
+        {/* Spec 4.16: the plan modal, whatever the Plan tab setting. */}
+        <Link.MenuAction
+          title={t('recipes.tab.plan')}
+          icon="calendar"
+          onPress={() => router.push({ pathname: '/plan-recipe', params: { recipeId: recipe.id } })}
+        />
         {link ? (
           <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
         ) : null}
