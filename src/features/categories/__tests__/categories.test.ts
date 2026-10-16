@@ -90,6 +90,47 @@ describe('seed', () => {
     addItem(listId, 'milk', A);
     expect(categoryOf('milk')).toBe(id('snacks'));
   });
+
+  test('drops seed rows the seed no longer lists, unless this device uses them or a row links to them', () => {
+    const seedRow = (name: string, extra: Partial<typeof ingredients.$inferInsert> = {}) => ({
+      normalizedName: name,
+      displayName: name,
+      defaultCategoryId: id('produce'),
+      status: 'categorized' as const,
+      isGroceryItem: true,
+      categorizedBy: 'seed',
+      lang: 'en' as const,
+      ...extra,
+    });
+    // Names an older seed had.
+    db.insert(ingredients)
+      .values([
+        seedRow('fruit tray'),
+        seedRow('candy apple'),
+        seedRow('durian', { categorizedBy: 'gemini-test' }),
+        seedRow('octopus'),
+        seedRow('pulpo', { lang: 'es', sameAs: 'octopus', linkedBy: 'seed' }),
+        seedRow('squid'),
+        seedRow('kraken', { categorizedBy: 'gemini-test', sameAs: 'squid', linkedBy: 'gemini-test' }),
+      ])
+      .run();
+    addItem(listId, 'candy apple', A);
+    require('@/features/settings/device-settings').setDeviceSetting('catalog.seedFingerprint', 0);
+    loadCatalogSeed();
+    const left = db
+      .select({ name: ingredients.normalizedName })
+      .from(ingredients)
+      .all()
+      .map((r) => r.name);
+    // Unused, owned by the seed: gone, and a Spanish row with the English one it linked to.
+    expect(left).not.toEqual(expect.arrayContaining(['fruit tray']));
+    expect(left).not.toEqual(expect.arrayContaining(['pulpo']));
+    expect(left).not.toEqual(expect.arrayContaining(['octopus']));
+    // On a list, categorized by the model, or a model link's target: kept.
+    expect(left).toEqual(expect.arrayContaining(['candy apple', 'durian', 'squid', 'kraken']));
+    // The current seed is untouched.
+    expect(left).toEqual(expect.arrayContaining(['milk', 'leche']));
+  });
 });
 
 describe('Spanish seed and links (spec 4.15)', () => {
@@ -116,7 +157,7 @@ describe('Spanish seed and links (spec 4.15)', () => {
     expect(row('milk')).toMatchObject({ lang: 'en', sameAs: null, linkedBy: null });
     expect(row('limones')).toMatchObject({ normalizedName: 'limon', lang: 'es', sameAs: null, linkedBy: null });
     expect(row('tomate')).toMatchObject({ lang: 'es', sameAs: null });
-    expect(row('crema')).toMatchObject({ lang: 'en', sameAs: null });
+    expect(row('chorizo')).toMatchObject({ lang: 'en', sameAs: null });
     addItem(listId, '2 pepinos', A);
     expect(categoryOf('pepinos')).toBe(id('produce'));
   });
@@ -446,12 +487,12 @@ describe('system aisles in either language (spec 4.15)', () => {
 describe('autocomplete', () => {
   test('searches the catalog by name or word prefix', () => {
     // Whole-name prefix matches first, shortest first, then word matches, up to the limit.
-    expect(searchCatalog('chicken th', 5).map((r) => r.displayName)).toEqual([
-      'chicken thighs',
-      'frozen chicken thighs',
-      'bone in chicken thighs',
-      'boneless chicken thighs',
-      'boneless skinless chicken thighs',
+    expect(searchCatalog('chicken b', 5).map((r) => r.displayName)).toEqual([
+      'chicken base',
+      'chicken broth',
+      'chicken breasts',
+      'chicken bouillon',
+      'frozen chicken breasts',
     ]);
     expect(searchCatalog('thigh', 5).map((r) => r.displayName)).toContain('chicken thighs');
     expect(searchCatalog('%', 5)).toEqual([]);
@@ -459,18 +500,18 @@ describe('autocomplete', () => {
 
   test("names in the app's language come first (spec 4.15)", () => {
     const shown = (q: string, language?: string) => searchCatalog(q, 5, language).map((r) => r.displayName);
-    // English: whole-name prefix first, so `dulce de leche` and `tres leches cake` (English names) come first.
-    expect(shown('lech', 'en')).toEqual(['dulce de leche', 'tres leches cake', 'leche', 'lechuga', 'leche de soya']);
-    expect(shown('lech', 'es')).toEqual(['leche', 'lechuga', 'leche de soya', 'leche de avena', 'leche evaporada']);
-    expect(shown('tomat', 'en')).toEqual(['tomatoes', 'tomato jam', 'tomato soup', 'tomato juice', 'tomato paste']);
+    // English names first in English, Spanish ones first in Spanish.
+    expect(shown('pap', 'en')).toEqual(['papaya', 'paprika', 'paper cups', 'paper plates', 'paper towels']);
+    expect(shown('pap', 'es')).toEqual(['papas', 'papitas', 'papel de baño', 'papel aluminio', 'papel higiénico']);
+    expect(shown('tomat', 'en')).toEqual(['tomatoes', 'tomato soup', 'tomato juice', 'tomato paste', 'tomato sauce']);
     // Spanish names first, a word match included, before the English prefix matches.
     expect(shown('tomat', 'es')).toEqual(['tomate', 'tomate verde', 'puré de tomate', 'pasta de tomate', 'tomatoes']);
     // No Spanish match: the English names as before.
     expect(shown('cuc', 'es')).toEqual(shown('cuc', 'en'));
     // The default is the app's language.
-    expect(shown('lech')).toEqual(shown('lech', 'en'));
+    expect(shown('pap')).toEqual(shown('pap', 'en'));
     initI18n('es');
-    expect(shown('lech')).toEqual(shown('lech', 'es'));
+    expect(shown('pap')).toEqual(shown('pap', 'es'));
     initI18n('en');
   });
 
@@ -567,7 +608,7 @@ describe('pending ingredients (spec 4.3.1, 6.3)', () => {
 
   test('adding the same unknown name twice creates one row, keeping the first display name', () => {
     addItem(listId, 'kashk', A);
-    addItem(listId, '2 Dukkah', A);
+    addItem(listId, '2 Kashk', A);
     expect(pendingNames()).toEqual([{ name: key('kashk'), displayName: 'kashk' }]);
   });
 

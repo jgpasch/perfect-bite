@@ -1,6 +1,6 @@
 // A fast stand-in for `loadCatalogSeed()` in tests.
 //
-// The real seed inserts ~7,000 ingredient rows one query at a time (~1.5s). This runs it once per
+// The real seed inserts ~1,600 ingredient rows one query at a time. This runs it once per
 // test file, keeps a copy of the result in an attached in-memory database, and restores from that
 // copy on later calls, which takes milliseconds. Use it after `resetDb()`:
 //

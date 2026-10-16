@@ -12,9 +12,8 @@
 //
 // Names whose singular ends in a consonant (`limón`, `frijol`, `nuez`, `camarón`) are written in
 // the singular: their `-es` plurals are generated from them into `../spanish-plurals.ts`
-// (`yarn seed:es-plurals`). Spanish words the English seed already has (`epazote`, `crema`,
-// `bolillo`, `queso oaxaca`, `crema`, `chorizo`, `cilantro`, `queso fresco`) are left there: one
-// name is one ingredient.
+// (`yarn seed:es-plurals`). Spanish words the English seed already has (`chorizo`, `cilantro`,
+// `queso fresco`, `cotija`) are left there: one name is one ingredient.
 
 import type { UnitKey } from '../quantity-parser.ts';
 import { seedEntries, type SeedCategory } from './ingredients.ts';
@@ -37,9 +36,8 @@ export const SEED_INGREDIENTS_ES: Partial<Record<SeedCategory, Partial<Record<Un
       ['betabel', 'beets'], ['camote', 'sweet potatoes'], ['cebolla blanca', 'white onions'],
       ['cebolla morada', 'red onions'], ['cebollas', 'onions'], ['cerezas', 'cherries'], ['chabacanos', 'apricots'],
       ['champiñón', 'mushrooms'], ['chile habanero', 'habanero peppers'], ['chile jalapeño', 'jalapeno'],
-      ['chile poblano', 'poblano peppers'], ['chile serrano', 'serrano peppers'], ['ciruelas', 'plums'],
-      ['col de bruselas', 'brussels sprouts'], ['duraznos', 'peaches'], ['echalote', 'shallots'],
-      ['ejotes', 'green beans'], ['espárragos', 'asparagus'], ['guayabas', 'guava'], ['jengibre', 'ginger'],
+      ['ciruelas', 'plums'], ['col de bruselas', 'brussels sprouts'], ['duraznos', 'peaches'], ['echalote', 'shallots'],
+      ['ejotes', 'green beans'], ['espárragos', 'asparagus'], ['jengibre', 'ginger'],
       ['jitomates', 'tomatoes'], ['mandarinas', 'tangerines'], ['nabo', 'turnips'], ['naranjas', 'oranges'],
       ['papas', 'potatoes'], ['peras', 'pears'], ['plátano macho', 'plantains'], ['plátanos', 'bananas'],
       ['uvas', 'grapes'], ['zanahorias', 'carrots'],
@@ -48,7 +46,6 @@ export const SEED_INGREDIENTS_ES: Partial<Record<SeedCategory, Partial<Record<Un
     ],
     pt: [['frambuesas', 'raspberries']],
     bag: [['espinacas', 'spinach']],
-    box: [['tamarindo', 'tamarind']],
     bunch: [
       ['albahaca', 'basil'], ['apio', 'celery'], ['brócoli', 'broccoli'],
       ['menta', 'mint'], ['perejil', 'parsley'], ['poro', 'leeks'], ['rábanos', 'radishes'], ['tomillo', 'thyme'],
@@ -70,11 +67,11 @@ export const SEED_INGREDIENTS_ES: Partial<Record<SeedCategory, Partial<Record<Un
     count: [['pollo entero', 'whole chicken'], ['tocino', 'bacon'], 'salchicha'],
     lb: [
       ['alitas de pollo', 'chicken wings'], ['almejas', 'clams'], ['bacalao', 'cod'], ['bagre', 'catfish'],
-      ['calamar', 'squid'], ['camarón', 'shrimp'], ['cangrejo', 'crab'], ['carne molida', 'ground beef'],
+      ['camarón', 'shrimp'], ['cangrejo', 'crab'], ['carne molida', 'ground beef'],
       ['carne molida de cerdo', 'ground pork'], ['carne molida de pavo', 'ground turkey'],
-      ['chuletas de cerdo', 'pork chops'], ['jamón', 'ham'], ['lengua de res', 'beef tongue'],
-      ['mejillón', 'mussels'], ['muslos de pollo', 'chicken thighs'], ['pavo', 'turkey'],
-      ['pechuga de pollo', 'chicken breasts'], ['pollo', 'chicken'], ['pulpo', 'octopus'],
+      ['chuletas de cerdo', 'pork chops'], ['jamón', 'ham'], ['mejillón', 'mussels'],
+      ['muslos de pollo', 'chicken thighs'], ['pavo', 'turkey'], ['pechuga de pollo', 'chicken breasts'],
+      ['pollo', 'chicken'],
       'arrachera', 'barbacoa', 'bistec', 'carne al pastor', 'carne de cerdo', 'carne de res', 'carne para asar',
       'carnitas', 'cecina', 'chamorro', 'chorizo verde', 'costilla de cerdo', 'espinazo', 'filete de pescado',
       'longaniza', 'milanesa de pollo', 'milanesa de res', 'pancita', 'pescado', 'retazo', 'suadero',
@@ -142,7 +139,6 @@ export const SEED_INGREDIENTS_ES: Partial<Record<SeedCategory, Partial<Record<Un
       'chile en polvo', 'pimienta',
     ],
     bag: [
-      ['chile ancho', 'dried ancho chiles'], ['chile guajillo', 'dried guajillo chiles'],
       'chile cascabel', 'chile de árbol', 'chile morita', 'chile mulato', 'chile pasilla',
     ],
   },

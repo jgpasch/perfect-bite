@@ -12,7 +12,6 @@ export const SPANISH_ES_PLURALS: Readonly<Record<string, string>> = {
   azucares: 'azucar',
   betabeles: 'betabel',
   brocolis: 'brocoli',
-  calamares: 'calamar',
   camarones: 'camaron',
   cambrayes: 'cambray',
   cascabeles: 'cascabel',

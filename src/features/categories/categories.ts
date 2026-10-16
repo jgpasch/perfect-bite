@@ -36,7 +36,8 @@ export const SEED_KEY = 'catalog.seedFingerprint';
  * Loads the bundled system categories and the English and Spanish seed ingredients (spec 6.2,
  * 4.15) into the local catalog, as the seed migration does on the server. Cheap when already
  * loaded. Seed rows never overwrite an ingredient the server categorized, but every seed name gets
- * its language where it has none, and the Spanish seed's links replace any but an admin's.
+ * its language where it has none, and the Spanish seed's links replace any but an admin's. Seed
+ * rows the seed has dropped are deleted unless this device uses them (spec 6.2).
  */
 export function loadCatalogSeed(): void {
   if (getDeviceSetting(SEED_KEY, 0) === SEED_FINGERPRINT) return;
@@ -98,6 +99,25 @@ export function loadCatalogSeed(): void {
           ),
         )
         .run();
+    }
+    // A seed row the seed no longer lists goes, as the prune migration does on the server: only
+    // while the seed still owns it, nothing on this device uses it and nothing that stays links to
+    // it. Pull never deletes, so this is how a pruned name leaves the phone. Twice: a Spanish row
+    // that goes first frees the English row it linked to.
+    const allKeys = JSON.stringify(seeds.map((e) => normalizeIngredientName(e.name)));
+    for (let pass = 0; pass < 2; pass++) {
+      tx.run(sql`
+        delete from ingredients
+        where categorized_by = 'seed'
+          and normalized_name not in (select value from json_each(${allKeys}))
+          and normalized_name not in (select ingredient_name from list_items)
+          and normalized_name not in (select ingredient_name from recipe_ingredients)
+          and normalized_name not in (select ingredient_name from ingredient_usage)
+          and normalized_name not in (select ingredient_name from ingredient_unit_usage)
+          and normalized_name not in (select ingredient_name from household_category_overrides)
+          and normalized_name not in (select ingredient_name from household_staples)
+          and normalized_name not in (select same_as from ingredients where same_as is not null)
+      `);
     }
   });
   setDeviceSetting(SEED_KEY, SEED_FINGERPRINT);

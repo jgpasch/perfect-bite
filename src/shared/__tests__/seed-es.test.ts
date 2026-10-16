@@ -66,7 +66,7 @@ describe('Spanish seed', () => {
     expect(byName.get('huevos')).toEqual({ name: 'huevos', category: 'dairy-eggs', unit: 'dozen', sameAs: 'eggs' });
     expect(byName.get('jitomates')).toMatchObject({ category: 'produce', sameAs: 'tomatoes' });
     // The English seed's rows already: one name is one ingredient.
-    for (const name of ['epazote', 'bolillo', 'queso oaxaca']) expect(byName.get(name)).toBeUndefined();
+    for (const name of ['cilantro', 'chorizo', 'queso fresco']) expect(byName.get(name)).toBeUndefined();
     for (const name of ['flor de jamaica', 'tomate verde', 'tomate', 'chile', 'limón', 'calabacita']) {
       expect(byName.get(name)).toMatchObject({ sameAs: null });
     }

@@ -33,7 +33,7 @@ select results_eq(
             ('tomate', 'es', null), ('tomate verde', 'es', null) $$,
   'ambiguous and Mexico-only names stay unlinked');
 select results_eq(
-  $$ select lang, same_as from public.ingredients where normalized_name in ('crema', 'queso fresco') order by normalized_name $$,
+  $$ select lang, same_as from public.ingredients where normalized_name in ('chorizo', 'queso fresco') order by normalized_name $$,
   $$ values ('en'::text, null::text), ('en', null) $$,
   'Spanish words the English seed has stay its unlinked rows');
 select is((select count(*)::int from public.ingredients t join public.ingredients s on s.same_as = t.normalized_name

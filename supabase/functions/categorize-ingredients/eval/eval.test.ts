@@ -130,7 +130,7 @@ Deno.test('golden.json: every case lists its accepted units, and non-groceries a
 
 Deno.test('golden.json: only the spec examples are in the seed catalog, apart from the Spanish names', async () => {
   const seed = new Set(seedEntries().map((e) => normalizeIngredientName(e.name)));
-  // The task's Spanish names are the commonest, so several are seed names (epazote, crema...).
+  // The task's Spanish names are the commonest, so several are seed names (cilantro, chorizo...).
   const inSeed = parseGolden(await goldenJson())
     .filter((c) => c.lang !== 'es' && seed.has(normalizeIngredientName(c.name)))
     .map((c) => c.name);
