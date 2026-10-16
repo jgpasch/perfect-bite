@@ -100,6 +100,26 @@ describe('ItemRow', () => {
     byLabel(tree, 'Limes, 3, ripe, Also in Tacos');
   });
 
+  test('a new row (spec 4.1): NEW after the name, who and when ahead of its second line, and VoiceOver says so', () => {
+    const tree = render({
+      item: item({ note: 'ripe' }),
+      hint: 'from Chicken tacos',
+      news: { line: 'Alex · yesterday', label: 'new, added by Alex' },
+    });
+    const badges = tree.root.findAll((n) => n.props.label === 'NEW' && typeof n.type !== 'string');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].props.tone ?? 'positive').toBe('positive');
+    expect(text(tree)).toContain('Alex · yesterday · ripe · from Chicken tacos');
+    byLabel(tree, 'Limes, new, added by Alex, 3, ripe, from Chicken tacos');
+  });
+
+  test('a row with no news has no badge and its own second line only', () => {
+    const tree = render({ hint: 'from Chicken tacos' });
+    expect(text(tree)).not.toContain('NEW');
+    expect(text(tree)).toContain('"from Chicken tacos"');
+    byLabel(tree, 'Limes, 3, from Chicken tacos');
+  });
+
   test('amountText overrides the item total (By recipe shows one recipe\'s share)', () => {
     const tree = render({ amountText: '1' });
     expect(text(tree)).not.toContain('"3"');

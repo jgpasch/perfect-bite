@@ -9,7 +9,7 @@ import { activateKeepAwakeAsync } from 'expo-keep-awake';
 import { AccessibilityInfo, ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { categories, db, households, ingredients } from '@/db';
+import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
@@ -31,7 +31,8 @@ import { resetDb } from '@/test/db';
 
 import { addItem, listItemsQuery, moveItemToList, setItemChecked } from '../items';
 import type { RowMove } from '../item-row';
-import { addedAt, collapsedSectionsKey, manualOrderKey, viewModeKey } from '../list-view';
+import { getListSeenAt, markListSeen } from '../last-seen';
+import { addedAt, collapsedSectionsKey, listSeenAtKey, manualOrderKey, viewModeKey } from '../list-view';
 import { ListScreen } from '../list-screen';
 import { createList, ensureStarterData, getDefaultListId, getList } from '../lists';
 import { setMoveResult } from '../move-result';
@@ -1831,5 +1832,171 @@ describe('the list screen in Spanish', () => {
     render();
     press(menuAction('Compartir lista'));
     expect(share).toHaveBeenCalledWith({ message: 'Groceries\n- 2 Milk' });
+  });
+});
+
+describe('since you looked (spec 4.1)', () => {
+  const ALEX = 'user-alex';
+  const SAM = 'user-sam';
+  /** An add by another member, as pull leaves it, `minutesAgo` before now by the server's clock. */
+  function addAs(value: string, by: string, minutesAgo: number) {
+    const result = addItem(listId, value, by)!;
+    db.update(listItemContributions)
+      .set({ createdAt: new Date(Date.now() - minutesAgo * 60_000) })
+      .where(eq(listItemContributions.id, result.contributionId))
+      .run();
+    return result;
+  }
+  /** Lets the visit's one news read settle. */
+  const settle = () => act(async () => {});
+  const cards = () =>
+    tree!.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityActions?.[0]?.name === 'dismiss');
+  const newRows = () => rows().filter((r) => r.props.news !== undefined).map((r) => r.props.item.displayName as string);
+  const lookedAgo = (minutes: number) => markListSeen(listId, new Date(Date.now() - minutes * 60_000));
+
+  beforeEach(() => {
+    const householdId = getList(listId)!.householdId;
+    for (const [userId, displayName] of [
+      [USER, 'Me Myself'],
+      [ALEX, 'Alex Rivera'],
+      [SAM, 'Sam Lee'],
+    ]) {
+      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+    }
+    lookedAgo(120);
+  });
+
+  test('a card above the first section and NEW rows, in every view mode', async () => {
+    put('bread');
+    addAs('eggs', ALEX, 60);
+    addAs('limes', ALEX, 50);
+    addAs('corn tortillas', ALEX, 40);
+    addAs('milk', ALEX, 30);
+    for (const mode of ['category', 'newest', 'recipe'] as const) {
+      setDeviceSetting(viewModeKey(listId), mode);
+      render();
+      await settle();
+      expect(cards()).toHaveLength(1);
+      expect(text()).toContain('Alex added 4 items');
+      expect(text()).toContain('Since you looked, today at');
+      expect(text()).toContain('Milk, corn tortillas, limes and 1 more');
+      expect(cards()[0].props.accessibilityLabel).toMatch(
+        /^Alex added 4 items since today, .+: milk, corn tortillas, limes and 1 more$/,
+      );
+      // My own add isn't news.
+      expect(newRows().sort()).toEqual(['corn tortillas', 'eggs', 'limes', 'milk']);
+      expect(row('eggs').props.news).toEqual({ line: 'Alex · today', label: 'new, added by Alex' });
+      // Closing the screen moves the marker; put it back for the next mode.
+      act(() => tree!.unmount());
+      tree = null;
+      lookedAgo(120);
+    }
+  });
+
+  test("two members, and another member's Combine into my item", async () => {
+    put('bread');
+    addAs('eggs', ALEX, 60);
+    addAs('bread', SAM, 50);
+    render();
+    await settle();
+    // Most items first, then the most recent.
+    expect(text()).toContain('Sam and Alex added 2 items');
+    expect(all('View').filter((n) => typeof n.props.testID === 'string' && n.props.testID.startsWith('news-avatar-')).map((n) => n.props.testID)).toEqual([
+      `news-avatar-${SAM}`,
+      `news-avatar-${ALEX}`,
+    ]);
+    expect(row('bread').props.news).toEqual({ line: 'Sam · 50 min ago', label: 'new, added by Sam' });
+  });
+
+  test('the card and badges are frozen for the visit: a live add gets neither', async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    expect(text()).toContain('Alex added 1 item');
+    addAs('limes', ALEX, 0);
+    refresh();
+    await settle();
+    expect(text()).toContain('Alex added 1 item');
+    expect(text()).not.toContain('Alex added 2 items');
+    expect(newRows()).toEqual(['eggs']);
+  });
+
+  test('✕ hides the card for this visit; the rows stay NEW', async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    press(pressable('Dismiss'));
+    expect(cards()).toHaveLength(0);
+    expect(newRows()).toEqual(['eggs']);
+  });
+
+  test("VoiceOver's Dismiss action does the same", async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    act(() => cards()[0].props.onAccessibilityAction({ nativeEvent: { actionName: 'dismiss' } }));
+    expect(cards()).toHaveLength(0);
+  });
+
+  test('leaving clears the card and badges; coming back shows only what came since', async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    expect(newRows()).toEqual(['eggs']);
+    mockPath.current = '/recipes';
+    refresh();
+    expect(cards()).toHaveLength(0);
+    expect(newRows()).toEqual([]);
+    jest.setSystemTime(Date.now() + 10 * 60_000);
+    addAs('limes', SAM, 0);
+    mockPath.current = '/lists';
+    refresh();
+    await settle();
+    expect(text()).toContain('Sam added 1 item');
+    expect(newRows()).toEqual(['limes']);
+  });
+
+  test('a dismissed card stays gone only for that visit', async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    press(pressable('Dismiss'));
+    mockPath.current = '/recipes';
+    refresh();
+    addAs('limes', SAM, -1);
+    mockPath.current = '/lists';
+    refresh();
+    await settle();
+    expect(cards()).toHaveLength(1);
+    expect(text()).toContain('Sam added 1 item');
+  });
+
+  test('a list with no marker shows nothing, and is marked', async () => {
+    db.delete(deviceSettings).where(eq(deviceSettings.key, listSeenAtKey(listId))).run();
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    expect(cards()).toHaveLength(0);
+    expect(newRows()).toEqual([]);
+    expect(getListSeenAt(listId)).not.toBeNull();
+  });
+
+  test('no news shows nothing at all', async () => {
+    put('bread');
+    addAs('eggs', ALEX, 600);
+    render();
+    await settle();
+    expect(cards()).toHaveLength(0);
+    expect(newRows()).toEqual([]);
+    expect(text()).not.toContain('Since you looked');
+  });
+
+  test('a new item checked off during the visit loses its badge', async () => {
+    addAs('eggs', ALEX, 60);
+    render();
+    await settle();
+    act(() => row('eggs').props.onToggle());
+    refresh();
+    expect(row('eggs').props.news).toBeUndefined();
   });
 });

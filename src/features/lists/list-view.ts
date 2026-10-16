@@ -504,10 +504,10 @@ export function withLingering<I extends { id: string; checkedAt: Date | null }>(
  * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
  */
 export function itemRowLabel(
-  parts: { name: string; amountText?: string; note?: string | null; hint?: string; aisle?: string },
+  parts: { name: string; news?: string; amountText?: string; note?: string | null; hint?: string; aisle?: string },
   sorting = false,
 ): string {
-  return [parts.name, parts.amountText, parts.note, parts.hint, sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle]
+  return [parts.name, parts.news, parts.amountText, parts.note, parts.hint, sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle]
     .filter(Boolean)
     .join(', ');
 }

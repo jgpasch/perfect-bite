@@ -5,6 +5,7 @@ import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'reac
 import Animated from 'react-native-reanimated';
 
 import { itemNameColor, type CategoryColors } from '@/components/appearance';
+import { Badge } from '@/components/badge';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
@@ -42,6 +43,11 @@ type Props = {
   amountText?: string;
   /** A second line, e.g. "Also in Weeknight dal" (spec 4.6). */
   hint?: string;
+  /**
+   * Added by another member since the list was last seen (spec 4.1): a NEW badge after the name, `line`
+   * ("Alex · yesterday") ahead of the second line, and `label` ("new, added by Alex") for VoiceOver.
+   */
+  news?: { line: string; label: string };
   /** As added and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
   aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
@@ -81,6 +87,7 @@ export function ItemRow({
   sorting = false,
   amountText = item.amountText,
   hint,
+  news,
   aisle,
   selected,
   onToggle,
@@ -98,10 +105,10 @@ export function ItemRow({
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
   const name = displayItemName(item.displayName);
-  const secondLine = [item.note, hint].filter(Boolean).join(' · ');
+  const secondLine = [news?.line, item.note, hint].filter(Boolean).join(' · ');
   const banded = look !== undefined && look.tint !== background;
   const label = [
-    itemRowLabel({ name, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
+    itemRowLabel({ name, news: news?.label, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
     alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
   ]
     .filter(Boolean)
@@ -124,22 +131,25 @@ export function ItemRow({
   const content = (
     <>
       <View style={styles.text}>
-        <ThemedText
-          variant={look && !checked ? 'itemName' : 'body'}
-          color={itemNameColor(checked)}
-          style={checked ? styles.checked : undefined}>
-          {match ? (
-            <>
-              {match.before}
-              <ThemedText variant="headline" color="onPrimarySoft">
-                {match.match}
-              </ThemedText>
-              {match.after}
-            </>
-          ) : (
-            name
-          )}
-        </ThemedText>
+        <View style={news ? [styles.nameRow, { columnGap: spacing.sm }] : undefined}>
+          <ThemedText
+            variant={look && !checked ? 'itemName' : 'body'}
+            color={itemNameColor(checked)}
+            style={checked ? styles.checked : undefined}>
+            {match ? (
+              <>
+                {match.before}
+                <ThemedText variant="headline" color="onPrimarySoft">
+                  {match.match}
+                </ThemedText>
+                {match.after}
+              </>
+            ) : (
+              name
+            )}
+          </ThemedText>
+          {news ? <Badge label={t('lists.news.badge')} /> : null}
+        </View>
         {secondLine ? (
           <ThemedText variant="footnote" color="inkSecondary">
             {secondLine}
@@ -257,6 +267,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
+  nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   checked: { textDecorationLine: 'line-through' },
   action: { flex: 1, justifyContent: 'center' },
   leading: { alignItems: 'flex-start' },

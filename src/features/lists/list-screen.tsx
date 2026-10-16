@@ -42,6 +42,7 @@ import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { combineLanguagesQuery } from '@/features/households/households';
+import { useMemberNames } from '@/features/households/member-names';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
@@ -49,7 +50,8 @@ import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useKeepListAwake } from '@/features/lists/keep-awake';
-import { useListSeenMarker } from '@/features/lists/last-seen';
+import { newsNames, rowNews, useListVisitNews } from '@/features/lists/list-news';
+import { NewsCard } from '@/features/lists/news-card';
 import {
   addItem,
   checkItems,
@@ -246,8 +248,10 @@ export function ListScreen({ id }: { id: string }) {
 
   // Spec 4.1: the screen stays on while shopping this list and something on it is still to get.
   useKeepListAwake(id, shoppingOnList(pathname, id) && unchecked.length > 0);
-  // Spec 4.1: by the same rule, leaving the list moves its last-seen marker.
-  useListSeenMarker(id, shoppingOnList(pathname, id));
+  // Spec 4.1: by the same rule, leaving the list moves its last-seen marker. What others added since it
+  // shows as a card and NEW rows for this visit.
+  const { news, dismissed: newsDismissed, dismiss: dismissNews } = useListVisitNews(id, shoppingOnList(pathname, id));
+  const memberNames = useMemberNames(list?.householdId);
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
@@ -778,6 +782,8 @@ export function ListScreen({ id }: { id: string }) {
         sorting={sorting}
         amountText={entry.amountText}
         hint={entry.hint}
+        // Spec 4.1: another member's add since the list was last seen, until it leaves the screen.
+        news={item.checkedAt === null ? rowNews(news, item.id, memberNames, userId) : undefined}
         aisle={aisle}
         selected={selection ? selection.has(entry.item.id) : undefined}
         onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
@@ -1015,6 +1021,12 @@ export function ListScreen({ id }: { id: string }) {
                   },
                 ]}
               />
+              {/* Spec 4.1: "since you looked", above the first section in every view, until ✕. */}
+              {news && !newsDismissed ? (
+                <View style={{ paddingBottom: spacing.sm + spacing.xxs }}>
+                  <NewsCard news={news} names={newsNames(news, memberNames, userId)} onDismiss={dismissNews} />
+                </View>
+              ) : null}
             </View>
           }
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}

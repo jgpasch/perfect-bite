@@ -1,7 +1,7 @@
 // Last seen per list (spec 4.1): when this device last had a list on screen, and what the rest of
 // the household added to it since, for the "since you looked" card.
 import { and, desc, eq, gt, isNotNull, isNull, ne } from 'drizzle-orm';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { db, listItemContributions, listItems, lists } from '@/db';
 import { getAccount } from '@/features/auth/account';
@@ -27,20 +27,43 @@ export function markListSeen(listId: string, at: Date = new Date()): void {
   setDeviceSetting(listSeenAtKey(listId), at.getTime());
 }
 
+/** One visit to a list: the marker it started from and the news since it, read once (`at`) as it began. */
+export type ListVisit = { listId: string; since: Date; at: Date; news: MemberNews[] };
+
 /**
  * Keeps the list's marker: set to now whenever the list stops being on screen after being shown in
  * the foreground (`onScreen` going false, the app going to the background, or the screen closing:
  * another list, or this one deleted or archived). A list shown for the first time on this device has
  * no marker, so it's set at once and shows no news.
+ *
+ * Returns the current visit: `listNewsSince` the marker, read once as the list came on screen and
+ * kept while it stays there (null before it's read, off screen, or with no marker), for the "since
+ * you looked" card.
  */
-export function useListSeenMarker(listId: string, onScreen: boolean): void {
+export function useListSeenMarker(listId: string, onScreen: boolean): ListVisit | null {
   const foreground = useForeground();
   const shown = onScreen && foreground;
+  const [visit, setVisit] = useState<ListVisit | null>(null);
   useEffect(() => {
     if (!shown) return;
-    if (getListSeenAt(listId) === null) markListSeen(listId);
-    return () => markListSeen(listId);
+    const since = getListSeenAt(listId);
+    let live = true;
+    if (since === null) markListSeen(listId);
+    else {
+      listNewsSince(listId, since).then(
+        (news) => {
+          if (live) setVisit({ listId, since, at: new Date(), news });
+        },
+        (err: unknown) => console.warn(`[lists] couldn't read the news on ${listId}`, err),
+      );
+    }
+    return () => {
+      live = false;
+      markListSeen(listId);
+      setVisit(null);
+    };
   }, [listId, shown]);
+  return shown && visit?.listId === listId ? visit : null;
 }
 
 export type NewsItem = { itemId: string; displayName: string; addedAt: Date };

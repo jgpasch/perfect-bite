@@ -88,6 +88,31 @@ export const en = {
       opensDetails: 'Opens details',
       selectHint: 'Double-tap to select',
     },
+    /** The "since you looked" card and NEW rows (spec 4.1): what other members added since this device last showed the list. */
+    news: {
+      titleOne_one: '{{name}} added {{count}} item',
+      titleOne_other: '{{name}} added {{count}} items',
+      titleTwo_one: '{{first}} and {{second}} added {{count}} item',
+      titleTwo_other: '{{first}} and {{second}} added {{count}} items',
+      /** `others`: "2 others". */
+      titleMany_one: '{{first}}, {{second}} and {{others}} added {{count}} item',
+      titleMany_other: '{{first}}, {{second}} and {{others}} added {{count}} items',
+      others_one: '{{count}} other',
+      others_other: '{{count}} others',
+      /** `when` as the Added rows read it ("yesterday", "Tuesday", "Mar 4"); `time` like "6:40 PM". */
+      sinceAt: 'Since you looked, {{when}} at {{time}}',
+      /** Under an hour ago: "5 min ago". */
+      since: 'Since you looked, {{when}}',
+      namesLast: '{{names}} and {{last}}',
+      namesMore: '{{names}} and {{count}} more',
+      /** The card for VoiceOver: "Alex added 4 items since yesterday, 6:40 PM: eggs, limes, corn tortillas and 1 more". */
+      label: '{{title}} since {{since}}: {{names}}',
+      labelSinceAt: '{{when}}, {{time}}',
+      badge: 'NEW',
+      /** A new row's line before its own second line: "Alex · yesterday". */
+      rowLine: '{{name}} · {{when}}',
+      rowLabel: 'new, added by {{name}}',
+    },
     toasts: {
       addedTo: 'Added to {{name}}',
       addedToNow: 'Added to {{name}}, now {{amount}}',
