@@ -49,6 +49,7 @@ import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useKeepListAwake } from '@/features/lists/keep-awake';
+import { useListSeenMarker } from '@/features/lists/last-seen';
 import {
   addItem,
   checkItems,
@@ -245,6 +246,8 @@ export function ListScreen({ id }: { id: string }) {
 
   // Spec 4.1: the screen stays on while shopping this list and something on it is still to get.
   useKeepListAwake(id, shoppingOnList(pathname, id) && unchecked.length > 0);
+  // Spec 4.1: by the same rule, leaving the list moves its last-seen marker.
+  useListSeenMarker(id, shoppingOnList(pathname, id));
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));

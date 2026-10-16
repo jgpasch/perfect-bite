@@ -27,7 +27,7 @@ import {
 } from '@/db';
 import { createCategory, setCategoryOverride } from '@/features/categories/categories';
 import { addItem, checkItems } from '@/features/lists/items';
-import { viewModeKey } from '@/features/lists/list-view';
+import { listSeenAtKey, viewModeKey } from '@/features/lists/list-view';
 import {
   createList,
   ensureStarterData,
@@ -296,6 +296,16 @@ describe('purgeHousehold', () => {
     expect(getDeviceSetting(LAST_OPENED_LIST_KEY, null)).toBeNull();
     expect(getDeviceSetting(`household.${CABIN}.registeredFor`, null)).toBeNull();
     expect(getDeviceSetting(`household.${home}.registeredFor`, null)).toBe(USER);
+  });
+
+  test('clears the last-seen markers of its lists (spec 4.1) and keeps the other household\'s', () => {
+    setDeviceSetting(listSeenAtKey(cabinList), 1_000);
+    setDeviceSetting(listSeenAtKey(homeList), 2_000);
+
+    db.transaction((tx) => purgeHousehold(tx, CABIN));
+
+    expect(getDeviceSetting(listSeenAtKey(cabinList), null)).toBeNull();
+    expect(getDeviceSetting(listSeenAtKey(homeList), null)).toBe(2_000);
   });
 
   test('a last-opened list in another household stays', () => {

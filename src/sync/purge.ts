@@ -28,7 +28,7 @@ import {
   userSettings,
 } from '@/db';
 import { LAST_OPENED_LIST_KEY } from '@/features/lists/lists';
-import { viewModeKey } from '@/features/lists/list-view';
+import { listSeenAtKey, viewModeKey } from '@/features/lists/list-view';
 
 import type { Exec } from './clock';
 
@@ -101,7 +101,7 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
 
   if (listIds.length) {
     tx.delete(deviceSettings)
-      .where(inArray(deviceSettings.key, listIds.map(viewModeKey)))
+      .where(inArray(deviceSettings.key, [...listIds.map(viewModeKey), ...listIds.map(listSeenAtKey)]))
       .run();
     const lastOpened = tx.select().from(deviceSettings).where(eq(deviceSettings.key, LAST_OPENED_LIST_KEY)).get();
     if (lastOpened && listIds.includes(lastOpened.value as string)) {

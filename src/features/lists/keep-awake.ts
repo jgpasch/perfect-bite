@@ -22,6 +22,16 @@ function isForeground(state: AppStateStatus): boolean {
   return state !== 'background';
 }
 
+/** Whether the app is in the foreground (anything but `background`), kept current. */
+export function useForeground(): boolean {
+  const [foreground, setForeground] = useState(() => isForeground(AppState.currentState));
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => setForeground(isForeground(state)));
+    return () => subscription.remove();
+  }, []);
+  return foreground;
+}
+
 /**
  * Keeps the screen from auto-locking while `wanted` (a list on screen with items to get), the app is
  * in the foreground and Keep screen on is on; otherwise the system's normal auto-lock applies.
@@ -37,11 +47,7 @@ export function useKeepListAwake(listId: string, wanted: boolean): void {
  */
 export function useKeepAwake(tag: string, wanted: boolean): void {
   const setting = useKeepScreenOnSetting();
-  const [foreground, setForeground] = useState(() => isForeground(AppState.currentState));
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => setForeground(isForeground(state)));
-    return () => subscription.remove();
-  }, []);
+  const foreground = useForeground();
   const on = wanted && setting && foreground;
   useEffect(() => {
     if (!on) return;

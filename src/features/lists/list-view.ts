@@ -244,6 +244,9 @@ export function alreadyOnListParts(name: string, query: string): MatchParts | nu
 /** Where the device setting for a list's view mode lives. Saved choices from before As added still read. */
 export const viewModeKey = (listId: string) => `list.${listId}.viewMode`;
 
+/** Device setting: when list `listId` last stopped being on screen here (ms), unset until it's first shown (spec 4.1). */
+export const listSeenAtKey = (listId: string) => `list.seenAt.${listId}`;
+
 /**
  * Where By aisle shows each aisle's colour: tinting every unchecked row (the default), or only the card's
  * header, with plain rows under it. A device setting, like the view mode.
