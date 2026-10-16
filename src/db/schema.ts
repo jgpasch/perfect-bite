@@ -102,6 +102,8 @@ const deletedAt = integer('deleted_at', { mode: 'timestamp_ms' });
 export const households = sqliteTable('households', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  /** Combine English and Spanish names (spec 4.15): its lists compare family keys. Set by `set_combine_languages`. */
+  combineLanguages: integer('combine_languages', { mode: 'boolean' }).notNull().default(false),
   ...timestamps,
 });
 

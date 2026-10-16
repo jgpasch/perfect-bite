@@ -1,0 +1,1 @@
+ALTER TABLE `households` ADD `combine_languages` integer DEFAULT false NOT NULL;

@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -28,7 +28,13 @@ import {
   isOffline,
 } from '@/features/auth/delete-account';
 import { takeDeletedHousehold } from '@/features/households/deleted-household-notice';
-import { avatarInitial, deletedHouseholdToast, householdsQuery } from '@/features/households/households';
+import {
+  avatarInitial,
+  deletedHouseholdToast,
+  householdActionAlert,
+  householdsQuery,
+  setCombineLanguages,
+} from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
@@ -182,14 +188,16 @@ export default function SettingsScreen() {
 
         {householdRows.length > 0 ? (
           <SettingsSection title={t('settings.households')}>
+            {/* Each household's row, then its Combine English and Spanish names switch (spec 4.15). */}
             {householdRows.map((h, i) => (
-              <SettingsRow
-                key={h.id}
-                label={h.name}
-                icon={{ name: 'house', hue: recipeHue(h.id) }}
-                onPress={() => router.push({ pathname: '/settings/households/[id]', params: { id: h.id } })}
-                last={i === householdRows.length - 1}
-              />
+              <Fragment key={h.id}>
+                <SettingsRow
+                  label={h.name}
+                  icon={{ name: 'house', hue: recipeHue(h.id) }}
+                  onPress={() => router.push({ pathname: '/settings/households/[id]', params: { id: h.id } })}
+                />
+                <CombineLanguagesRow household={h} last={i === householdRows.length - 1} />
+              </Fragment>
             ))}
           </SettingsSection>
         ) : null}
@@ -271,6 +279,49 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
         ]),
     },
   ]);
+}
+
+/**
+ * A household's Combine English and Spanish names switch (spec 4.15). It shows the new value while
+ * the server is asked; a failure (offline included) puts it back and says why.
+ */
+function CombineLanguagesRow({
+  household,
+  last,
+}: {
+  household: { id: string; name: string; combineLanguages: boolean };
+  last: boolean;
+}) {
+  const { colors } = useTheme();
+  const t = useT();
+  const [pending, setPending] = useState<boolean | null>(null);
+  const change = (on: boolean) => {
+    setPending(on);
+    setCombineLanguages(household.id, on)
+      .catch((err) => {
+        const alert = householdActionAlert('combine-languages', err, { householdName: household.name });
+        Alert.alert(alert.title, alert.message);
+      })
+      .finally(() => setPending(null));
+  };
+  return (
+    <SettingsRow
+      label={t('settings.combineLanguages')}
+      detail={t('settings.combineLanguagesDetail')}
+      icon={{ name: 'globe', hue: 'teal' }}
+      trailing={
+        <Switch
+          value={pending ?? household.combineLanguages}
+          onValueChange={change}
+          disabled={pending !== null}
+          trackColor={{ true: colors.primary }}
+          accessibilityLabel={t('settings.combineLanguagesLabel', { household: household.name })}
+          accessibilityHint={t('settings.combineLanguagesDetail')}
+        />
+      }
+      last={last}
+    />
+  );
 }
 
 /** Full screen while the account is deleted; it can't be dismissed. */

@@ -207,8 +207,9 @@ type AlreadyOnListItem = { ingredientName: string; familyKey?: string; checkedAt
  * An unchecked item whose key is the typed key, or has it as a run of whole words, is already on the list:
  * `cumin` marks Cumin and Ground cumin, `cum` marks nothing, `pea` marks Peas but not Peanut butter. So is one
  * whose family key (spec 4.15) has the typed key's family key that way: `family` is the typed key's
- * (`localFamilyKey`), so `pepino` marks Cucumber and `cucumber` marks Pepino. Returns the key that matched, to
- * highlight in the name (`cucumber` for Cucumber when `pepino` was typed), or null.
+ * (`localFamilyKey`), so `pepino` marks Cucumber and `cucumber` marks Pepino. A null `family` (the household
+ * doesn't combine languages) compares the item's own key only. Returns the key that matched, to highlight in the
+ * name (`cucumber` for Cucumber when `pepino` was typed), or null.
  */
 export function alreadyOnListMatch(item: AlreadyOnListItem, query: string | null, family: string | null = query): string | null {
   if (query === null || item.checkedAt !== null) return null;

@@ -28,6 +28,7 @@ import {
   getItemHouseholdName,
   groupItems,
   listItemsQuery,
+  moveItemToList,
   orderByAisle,
   recheckItems,
   restoreItems,
@@ -198,17 +199,25 @@ describe('bulk add (spec 4.4)', () => {
   });
 });
 
+// `pepino` is linked to `cucumber`; `tomate` and `tomato` are not.
+const insertTwins = () =>
+  db
+    .insert(ingredients)
+    .values([
+      { normalizedName: 'cucumber', displayName: 'cucumber', status: 'categorized', lang: 'en' },
+      { normalizedName: 'pepino', displayName: 'pepino', status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
+      { normalizedName: 'tomato', displayName: 'tomato', status: 'categorized', lang: 'en' },
+      { normalizedName: 'tomate', displayName: 'tomate', status: 'categorized', lang: 'es' },
+    ])
+    .run();
+/** Turns a household's Combine English and Spanish names on or off locally, as a pull would (spec 4.15). */
+const setCombine = (householdId: string, on: boolean) =>
+  db.update(households).set({ combineLanguages: on }).where(eq(households.id, householdId)).run();
+
 describe('combine across a family (spec 4.4, 4.15)', () => {
-  // `pepino` is linked to `cucumber`; `tomate` and `tomato` are not.
   beforeEach(() => {
-    db.insert(ingredients)
-      .values([
-        { normalizedName: 'cucumber', displayName: 'cucumber', status: 'categorized', lang: 'en' },
-        { normalizedName: 'pepino', displayName: 'pepino', status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
-        { normalizedName: 'tomato', displayName: 'tomato', status: 'categorized', lang: 'en' },
-        { normalizedName: 'tomate', displayName: 'tomate', status: 'categorized', lang: 'es' },
-      ])
-      .run();
+    insertTwins();
+    setCombine(listHousehold(), true);
   });
   const unlinkPepino = () =>
     db.update(ingredients).set({ sameAs: null, linkedBy: null }).where(eq(ingredients.normalizedName, 'pepino')).run();
@@ -342,6 +351,138 @@ describe('combine across a family (spec 4.4, 4.15)', () => {
     });
     expect(rows(view().unchecked)).toEqual(['3 cucumber']);
     expect(rows(view(other).unchecked)).toEqual(['2 pepino']);
+  });
+});
+
+describe('Combine English and Spanish names is off (spec 4.15)', () => {
+  // Off is the default: each item is compared by its own key, as before links existed.
+  beforeEach(() => {
+    insertTwins();
+  });
+
+  test('a new household starts with it off', () => {
+    expect(db.select({ on: households.combineLanguages }).from(households).where(eq(households.id, listHousehold())).get()).toEqual({
+      on: false,
+    });
+  });
+
+  test('pepino beside an open cucumber is a new item, and cucumber beside pepino too', () => {
+    const cucumber = addItem(listId, '1 cucumber', USER)!;
+    const pepino = addItem(listId, '2 pepinos', USER)!;
+    expect(pepino.kind).toBe('new');
+    expect(pepino.itemId).not.toBe(cucumber.itemId);
+    const other = createList('Costco');
+    addItem(other, 'pepino', USER);
+    expect(addItem(other, 'cucumber', USER)!.kind).toBe('new');
+    expect(rows(view().unchecked)).toEqual(['1 cucumber', '2 pepinos']);
+    expect(rows(view(other).unchecked)).toEqual(['pepino', 'cucumber']);
+  });
+
+  test('the same key still combines', () => {
+    const first = addItem(listId, '1 pepino', USER)!;
+    expect(addItem(listId, '2 pepinos', USER)).toMatchObject({ itemId: first.itemId, kind: 'combine', totalAmountText: '3' });
+  });
+
+  test("a checked twin isn't reopened: the add is a new item", () => {
+    const cucumber = addItem(listId, '3 cucumbers', USER)!;
+    setItemChecked(cucumber.itemId, true, USER);
+    expect(addItem(listId, '1 pepino', USER)!.kind).toBe('new');
+    expect(rows(view().unchecked)).toEqual(['1 pepino']);
+    expect(rows(view().checked)).toEqual(['3 cucumbers']);
+  });
+
+  test('a Siri add stays its own item, both ways', () => {
+    addItem(listId, 'cucumber', USER);
+    const at = new Date('2026-10-14T10:00:00Z');
+    expect(addSiriItem(listId, 'dos pepinos', USER, { itemId: 's-item', contributionId: 's-c' }, at)).toMatchObject({
+      itemId: 's-item',
+      kind: 'new',
+    });
+    const other = createList('Costco');
+    addItem(other, 'pepino', USER);
+    expect(addSiriItem(other, 'cucumber', USER, { itemId: 's-item-2', contributionId: 's-c-2' }, at)).toMatchObject({
+      itemId: 's-item-2',
+      kind: 'new',
+    });
+    expect(view().unchecked).toHaveLength(2);
+    expect(view(other).unchecked).toHaveLength(2);
+  });
+
+  test("a recipe's Add to a list keeps twins apart, with the list and within the recipe", () => {
+    const recipe = createRecipe('Salad');
+    addItem(listId, '1 cucumber', USER);
+    const results = addItemsBulk(
+      listId,
+      [
+        { text: '2 pepinos', source: 'recipe', recipeId: recipe },
+        { text: '1 cucumber', source: 'recipe', recipeId: recipe },
+        { text: '1 pepino', source: 'recipe', recipeId: recipe },
+      ],
+      USER,
+    );
+    expect(results.map((r) => r?.kind)).toEqual(['new', 'combine', 'combine']);
+    expect(results[2]!.itemId).toBe(results[0]!.itemId);
+    expect(rows(view().unchecked)).toEqual(['2 cucumber', '3 pepinos']);
+  });
+
+  test('unchecking an item beside its open twin leaves it its own item', () => {
+    const cucumber = addItem(listId, '2 cucumbers', USER)!;
+    setItemChecked(cucumber.itemId, true, USER);
+    addItem(listId, '1 pepino', USER);
+    setItemChecked(cucumber.itemId, false, USER);
+    expect(rows(view().unchecked)).toEqual(['2 cucumbers', '1 pepino']);
+  });
+
+  test('undeleting an item beside its open twin leaves it its own item', () => {
+    const pepino = addItem(listId, 'pepino', USER)!;
+    deleteItem(pepino.itemId);
+    addItem(listId, 'cucumber', USER);
+    undeleteItem(pepino.itemId);
+    expect(view().unchecked).toHaveLength(2);
+  });
+
+  test('one household on and another off in one account', () => {
+    db.insert(households).values({ id: 'h-cabin', name: 'Cabin', combineLanguages: true }).run();
+    const cabin = createList('Cabin list', 'h-cabin');
+    addItem(listId, 'cucumber', USER);
+    addItem(cabin, 'cucumber', USER);
+    expect(addItem(listId, 'pepino', USER)!.kind).toBe('new');
+    expect(addItem(cabin, 'pepino', USER)!.kind).toBe('combine');
+    expect(view().unchecked).toHaveLength(2);
+    expect(rows(view(cabin).unchecked)).toEqual(['2 cucumber']);
+  });
+
+  test('turning it on leaves open twins as they are until one is reopened', () => {
+    const cucumber = addItem(listId, '1 cucumber', USER)!;
+    const pepino = addItem(listId, '2 pepinos', USER)!;
+    setCombine(listHousehold(), true);
+    expect(view().unchecked).toHaveLength(2);
+    // An add goes to the item with its own key; both stay.
+    expect(addItem(listId, 'cucumber', USER)).toMatchObject({ itemId: cucumber.itemId, kind: 'combine' });
+    expect(view().unchecked).toHaveLength(2);
+    // Reopened, pepino folds into its twin.
+    setItemChecked(pepino.itemId, true, USER);
+    setItemChecked(pepino.itemId, false, USER);
+    expect(rows(view().unchecked)).toEqual(['4 cucumber']);
+  });
+
+  test('turning it off leaves combined items as they are, and stops new combines', () => {
+    setCombine(listHousehold(), true);
+    addItem(listId, '1 cucumber', USER);
+    addItem(listId, '2 pepinos', USER);
+    setCombine(listHousehold(), false);
+    expect(rows(view().unchecked)).toEqual(['3 cucumber']);
+    expect(addItem(listId, 'pepino', USER)!.kind).toBe('new');
+    expect(rows(view().unchecked)).toEqual(['3 cucumber', 'pepino']);
+  });
+
+  test("moving an item compares its own key, even with it on (spec 4.4)", () => {
+    setCombine(listHousehold(), true);
+    const other = createList('Costco');
+    addItem(other, 'pepino', USER);
+    const cucumber = addItem(listId, 'cucumber', USER)!;
+    expect(moveItemToList(cucumber.itemId, other).kind).toBe('new');
+    expect(view(other).unchecked).toHaveLength(2);
   });
 });
 

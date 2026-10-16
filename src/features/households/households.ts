@@ -2,7 +2,8 @@
 // and the push sends it to the server with `create_household` (src/sync/push.ts). Members are
 // fetched online for the Households screen, which also leaves a household, removes members,
 // changes roles and deletes the household through the server (`leave_household`, `remove_member`,
-// `rename_household`, `set_member_role`, `delete_household`).
+// `rename_household`, `set_member_role`, `delete_household`). Any member turns Combine English and
+// Spanish names on or off (`set_combine_languages`).
 import { asc, eq, sql } from 'drizzle-orm';
 import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
@@ -16,9 +17,19 @@ import { pullNow } from '@/sync/pull';
 /** Local households, oldest first (live query). */
 export function householdsQuery() {
   return db
-    .select({ id: households.id, name: households.name, createdAt: households.createdAt })
+    .select({
+      id: households.id,
+      name: households.name,
+      createdAt: households.createdAt,
+      combineLanguages: households.combineLanguages,
+    })
     .from(households)
     .orderBy(asc(households.createdAt), asc(households.id));
+}
+
+/** Whether a household combines English and Spanish names (spec 4.15; live query, one row or none). */
+export function combineLanguagesQuery(householdId: string) {
+  return db.select({ on: households.combineLanguages }).from(households).where(eq(households.id, householdId));
 }
 
 /** Tables `householdsWithCountsQuery` reads, for `useLiveQueryOn`. */
@@ -177,11 +188,11 @@ export function toHouseholdActionError(error: unknown): HouseholdActionError {
 export type RoleChange = 'make-owner' | 'remove-owner' | 'step-down';
 
 /**
- * The alert for a failed leave, removal, rename, role change or delete. Nothing changed, so it only
- * says why.
+ * The alert for a failed leave, removal, rename, Combine English and Spanish names switch, role
+ * change or delete. Nothing changed, so it only says why.
  */
 export function householdActionAlert(
-  action: 'leave' | 'remove' | 'rename' | 'delete' | RoleChange,
+  action: 'leave' | 'remove' | 'rename' | 'combine-languages' | 'delete' | RoleChange,
   error: unknown,
   names: { householdName?: string | null; memberName?: string | null } = {},
 ): { title: string; message: string } {
@@ -192,6 +203,7 @@ export function householdActionAlert(
   const titles: Record<typeof action, string> = {
     leave: i18n.t('households.errors.leave', { household }),
     rename: i18n.t('households.errors.rename', { household }),
+    'combine-languages': i18n.t('households.errors.combineLanguages', { household }),
     delete: i18n.t('households.errors.delete', { household }),
     remove: i18n.t('households.errors.remove', { member }),
     'make-owner': i18n.t('households.errors.makeOwner', { member }),
@@ -329,6 +341,18 @@ export async function renameHousehold(householdId: string, name: string, userId?
   await callRpc('rename_household', { p_household_id: householdId, p_name: trimmed });
   db.update(households).set({ name: trimmed, updatedAt: new Date() }).where(eq(households.id, householdId)).run();
   if (userId) syncListSnapshot(userId);
+}
+
+/**
+ * Turns a household's Combine English and Spanish names on or off (spec 4.15,
+ * `set_combine_languages`; any member). Like a rename, it asks the server first, then the local row
+ * takes the new value (the next pull agrees with the server). Throws a `HouseholdActionError`
+ * (offline before asking the server); a failure changes nothing locally.
+ */
+export async function setCombineLanguages(householdId: string, on: boolean): Promise<void> {
+  await assertOnline();
+  await callRpc('set_combine_languages', { p_household_id: householdId, p_on: on });
+  db.update(households).set({ combineLanguages: on, updatedAt: new Date() }).where(eq(households.id, householdId)).run();
 }
 
 /**

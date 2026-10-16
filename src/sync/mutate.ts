@@ -41,7 +41,8 @@ type Spec = {
 };
 
 const SPECS = new Map<SQLiteTable, Spec>([
-  [households, { key: ['id'], household: true }],
+  // Only `set_combine_languages` changes the setting; the device takes it from pulls.
+  [households, { key: ['id'], household: true, unsent: ['combineLanguages'] }],
   [lists, { key: ['id'], household: true }],
   [listItems, { key: ['id'], household: true }],
   [listItemContributions, { key: ['id'], household: true }],

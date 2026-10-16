@@ -47,7 +47,7 @@ import {
   type FieldClock,
 } from '@/db';
 import { getAccount } from '@/features/auth/account';
-import { ensureMissingIngredients, localFamilyKey } from '@/features/categories/categories';
+import { ensureMissingIngredients, householdCombinesLanguages, localFamilyKey } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -218,12 +218,15 @@ const LOCAL_ONLY = new Set(['fieldClock', 'createdAt', 'updatedAt']);
 /**
  * Merges every other local open item for `item`'s ingredient on its list into it (a silent
  * Combine, 4.4). So is one for another name of its family (4.15) that this device opened and hasn't
- * pushed (added, unchecked or restored), since that's when `apply_mutations` merges across a family.
- * Returns the merged ids; their contributions move once `item` is written.
+ * pushed (added, unchecked or restored), since that's when `apply_mutations` merges across a family,
+ * but only when the household combines languages. Returns the merged ids; their contributions move
+ * once `item` is written.
  */
 function closeClashingItems(tx: Exec, item: Row, pending: PendingIndex): string[] {
   if (item.deletedAt != null || item.checkedAt != null) return [];
   const name = item.ingredientName as string;
+  const sameName = eq(listItems.ingredientName, name);
+  const combine = householdCombinesLanguages(tx, item.householdId as string);
   const opensOnPush = (id: string) => {
     const fields = pending.get(refKey(getTableName(listItems), id, undefined))?.fields;
     return !!fields && (fields.has('checked_at') || fields.has('deleted_at'));
@@ -235,10 +238,9 @@ function closeClashingItems(tx: Exec, item: Row, pending: PendingIndex): string[
     .where(
       and(
         eq(listItems.listId, item.listId as string),
-        or(
-          eq(listItems.ingredientName, name),
-          eq(sql`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`, localFamilyKey(tx, name)),
-        ),
+        combine
+          ? or(sameName, eq(sql`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`, localFamilyKey(tx, name)))
+          : sameName,
         isNull(listItems.deletedAt),
         isNull(listItems.checkedAt),
         ne(listItems.id, item.id as string),

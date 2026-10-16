@@ -9,7 +9,7 @@ import { activateKeepAwakeAsync } from 'expo-keep-awake';
 import { AccessibilityInfo, ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { categories, db, ingredients } from '@/db';
+import { categories, db, households, ingredients } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
@@ -632,20 +632,68 @@ describe('adding', () => {
     expect(row('milk').props.alreadyOnList).toBeUndefined();
   });
 
-  describe('add mode across a family (spec 4.15)', () => {
-    // `pepino` is linked to `cucumber`; `tomate` and `tomato` are not linked.
-    beforeEach(() => {
-      const produce = cat('produce');
-      db.insert(ingredients)
-        .values([
-          { normalizedName: 'cucumber', displayName: 'cucumber', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
-          { normalizedName: 'pepino', displayName: 'pepino', defaultCategoryId: produce, status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
-          { normalizedName: 'tomato', displayName: 'tomato', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
-          { normalizedName: 'tomate', displayName: 'tomate', defaultCategoryId: produce, status: 'categorized', lang: 'es' },
-        ])
-        .run();
+  // `pepino` is linked to `cucumber`; `tomate` and `tomato` are not linked.
+  const insertTwins = () => {
+    const produce = cat('produce');
+    db.insert(ingredients)
+      .values([
+        { normalizedName: 'cucumber', displayName: 'cucumber', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
+        { normalizedName: 'pepino', displayName: 'pepino', defaultCategoryId: produce, status: 'categorized', lang: 'es', sameAs: 'cucumber', linkedBy: 'seed' },
+        { normalizedName: 'tomato', displayName: 'tomato', defaultCategoryId: produce, status: 'categorized', lang: 'en' },
+        { normalizedName: 'tomate', displayName: 'tomate', defaultCategoryId: produce, status: 'categorized', lang: 'es' },
+      ])
+      .run();
+  };
+  /** Combine English and Spanish names (spec 4.15) for every household, as a pull would set it. */
+  const setCombine = (on: boolean) => db.update(households).set({ combineLanguages: on }).run();
+  const type = (value: string) => act(() => addBar().props.onTextChange(value));
+
+  describe('add mode across a family, Combine English and Spanish names off (spec 4.15)', () => {
+    beforeEach(insertTwins);
+
+    test('typing pepino marks nothing beside Cucumber, and cucumber nothing beside Pepino', () => {
+      put('Cucumber');
+      put('Pepino');
+      render();
+      act(() => addBar().props.onFocusChange(true));
+      type('2 pepinos');
+      expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
+      expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'pepino' });
+      type('cucumber');
+      expect(row('Cucumber').props.alreadyOnList).toEqual({ query: 'cucumber' });
+      expect(row('Pepino').props.alreadyOnList).toBeUndefined();
     });
-    const type = (value: string) => act(() => addBar().props.onTextChange(value));
+
+    test('adding pepino beside Cucumber, and cucumber beside Pepino, makes new items', () => {
+      put('Cucumber');
+      render();
+      add('2 pepinos');
+      expect(rowNames()).toEqual(['Cucumber', 'pepinos']);
+      expect(text()).not.toContain('Added to Cucumber');
+      add('cucumber');
+      expect(rowNames()).toEqual(['Cucumber', 'pepinos']);
+      expect(text()).toContain('Added to Cucumber, now 2');
+    });
+
+    test('turning it on marks the twin at once, and leaves open twins as two items', () => {
+      put('Cucumber');
+      put('Pepino');
+      render();
+      act(() => addBar().props.onFocusChange(true));
+      type('pepino');
+      expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
+      setCombine(true);
+      refresh();
+      expect(row('Cucumber').props.alreadyOnList).toEqual({ query: 'cucumber' });
+      expect(rowNames()).toEqual(['Pepino', 'Cucumber']);
+    });
+  });
+
+  describe('add mode across a family (spec 4.15)', () => {
+    beforeEach(() => {
+      insertTwins();
+      setCombine(true);
+    });
 
     test('typing pepino marks an unchecked Cucumber, highlighting its own name', () => {
       put('Cucumber');

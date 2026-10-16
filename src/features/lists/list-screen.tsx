@@ -29,7 +29,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
-import { categories, db, lists, userCategoryOrder } from '@/db';
+import { categories, db, households, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor, recipeHue } from '@/domain/aisle-color';
 import {
@@ -41,6 +41,7 @@ import {
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
+import { combineLanguagesQuery } from '@/features/households/households';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
@@ -330,8 +331,10 @@ export function ListScreen({ id }: { id: string }) {
   const [addText, setAddText] = useState('');
   const addMode = adding && !selection;
   const query = addMode ? duplicateQuery(addText) : null;
-  // Its family key (spec 4.15), so `pepino` marks Cucumber too.
-  const queryFamily = useMemo(() => (query === null ? null : localFamilyKey(db, query)), [query]);
+  // Its family key (spec 4.15), so `pepino` marks Cucumber too, when the household combines languages.
+  const { data: combineRows } = useLiveQueryOn(combineLanguagesQuery(householdId), [households], [householdId]);
+  const combine = combineRows[0]?.on ?? false;
+  const queryFamily = useMemo(() => (query === null || !combine ? null : localFamilyKey(db, query)), [query, combine]);
   // Leaving add mode scrolls back to where it started: adds scroll to their section, which would leave the
   // re-expanded title above the fold.
   const scrollOffset = useRef(0);

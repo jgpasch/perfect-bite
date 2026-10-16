@@ -614,6 +614,11 @@ export const en = {
     alwaysShowCheckedHint: 'Keeps the Checked section open on your lists',
     syncStatus: 'Sync status',
     households: 'Households',
+    /** One switch per household, under its row (spec 4.15). */
+    combineLanguages: 'Combine English and Spanish names',
+    combineLanguagesDetail: 'Leche and milk become one item on your lists.',
+    /** VoiceOver: "Combine English and Spanish names in Home". */
+    combineLanguagesLabel: 'Combine English and Spanish names in {{household}}',
     developer: 'Developer',
     developerRow: 'Siri queue and log',
     signOut: 'Sign out',
@@ -720,6 +725,7 @@ export const en = {
       them: 'them',
       leave: "Couldn't leave {{household}}",
       rename: "Couldn't rename {{household}}",
+      combineLanguages: "Couldn't change {{household}}'s setting",
       delete: "Couldn't delete {{household}}",
       remove: "Couldn't remove {{member}}",
       makeOwner: "Couldn't make {{member}} an owner",

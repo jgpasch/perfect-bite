@@ -831,6 +831,14 @@ describe('add mode', () => {
       const cucumber = item('cucumber', 'cucumber');
       const pepino = item('pepino', 'cucumber');
 
+      it('with no family (the household doesn\'t combine languages), compares own keys only', () => {
+        expect(alreadyOnListMatch(cucumber, 'pepino', null)).toBeNull();
+        expect(alreadyOnListMatch(pepino, 'cucumber', null)).toBeNull();
+        expect(alreadyOnListMatch(pepino, 'pepino', null)).toBe('pepino');
+        expect(alreadyOnListMatch(item('english cucumber', 'english cucumber'), 'cucumber', null)).toBe('cucumber');
+        expect(isAlreadyOnList(cucumber, 'pepino', null)).toBe(false);
+      });
+
       it('marks Cucumber when pepino is typed, matching the family key', () => {
         expect(alreadyOnListMatch(cucumber, 'pepino', 'cucumber')).toBe('cucumber');
         expect(isAlreadyOnList(cucumber, 'pepino', 'cucumber')).toBe(true);

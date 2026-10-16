@@ -9,7 +9,8 @@ select plan(13);
 -- Fixtures (as postgres) ------------------------------------------------------
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated');
-insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'A');
+-- The household combines languages (4.15); 29_combine_languages covers it off.
+insert into public.households (id, name, combine_languages) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'A', true);
 insert into public.household_members (household_id, user_id, role, position) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1);
 insert into public.lists (id, household_id, name, position) values

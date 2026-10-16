@@ -3,7 +3,7 @@
 // through the sync helpers (outbox, spec 7.1); the catalog is local here and pull fills it.
 import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
-import { categories, db, householdCategoryOverrides, ingredients, userCategoryOrder } from '@/db';
+import { categories, db, householdCategoryOverrides, households, ingredients, userCategoryOrder } from '@/db';
 import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
 import { fingerprint } from '@/domain/fingerprint';
 import { positionBetween, positionForMove } from '@/domain/position';
@@ -291,6 +291,16 @@ export function createCategory(userId: string, householdId: string, name: string
 export function localFamilyKey(tx: Exec, ingredientName: string): string {
   const row = tx.select({ sameAs: ingredients.sameAs }).from(ingredients).where(eq(ingredients.normalizedName, ingredientName)).get();
   return familyKey(ingredientName, row?.sameAs);
+}
+
+/**
+ * Whether a household combines English and Spanish names (spec 4.15, `households.combine_languages`):
+ * its lists' "already on list" tint and Combine compare family keys. Off (and for a household this
+ * device doesn't have), each item's own key. Aisle overrides use the family key either way.
+ */
+export function householdCombinesLanguages(tx: Exec, householdId: string): boolean {
+  const row = tx.select({ on: households.combineLanguages }).from(households).where(eq(households.id, householdId)).get();
+  return row?.on ?? false;
 }
 
 /**

@@ -95,9 +95,10 @@ const put = (table: string, ...rows: ServerRow[]) => {
   server[table] = [...(server[table] ?? []), ...rows];
 };
 
-const remoteHousehold = (id: string, updated: string, name = 'Home'): ServerRow => ({
+const remoteHousehold = (id: string, updated: string, name = 'Home', combineLanguages = false): ServerRow => ({
   id,
   name,
+  combine_languages: combineLanguages,
   created_by: 'u2',
   created_at: ts(0),
   updated_at: updated,
@@ -253,7 +254,7 @@ describe('first pull of a household', () => {
     expect(tableQueries('household_category_overrides')[0][1]).toEqual(['eq', 'household_id', H1]);
 
     expect(db.select().from(households).all()).toEqual([
-      { id: H1, name: 'Home', createdAt: new Date(ts(0)), updatedAt: new Date(ts(1)), fieldClock: {} },
+      { id: H1, name: 'Home', combineLanguages: false, createdAt: new Date(ts(0)), updatedAt: new Date(ts(1)), fieldClock: {} },
     ]);
     expect(itemRow('i1')).toMatchObject({
       listId: L,
@@ -540,6 +541,23 @@ describe('LWW on pull', () => {
   });
 });
 
+describe("a household's Combine English and Spanish names (4.15)", () => {
+  const combineOf = (id: string) => db.select({ on: households.combineLanguages }).from(households).where(eq(households.id, id)).get()?.on;
+
+  test('comes down with the household, and follows later changes both ways', async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H1, ts(1), 'Home', true), remoteHousehold(H2, ts(1), 'Cabin', false));
+    await pullNow();
+    expect(combineOf(H1)).toBe(true);
+    expect(combineOf(H2)).toBe(false);
+
+    server.households = [remoteHousehold(H1, ts(10), 'Home', false), remoteHousehold(H2, ts(10), 'Cabin', true)];
+    await pullNow();
+    expect(combineOf(H1)).toBe(false);
+    expect(combineOf(H2)).toBe(true);
+  });
+});
+
 describe('Combine on clash (4.4)', () => {
   beforeEach(async () => {
     seedPulledList();
@@ -596,8 +614,10 @@ describe('Combine on clash (4.4)', () => {
   });
 
   describe('across a family (4.15)', () => {
-    // `leche` is linked to `milk`; `tomate` and `tomato` are not.
-    beforeEach(() => {
+    // `leche` is linked to `milk`; `tomate` and `tomato` are not. The household combines languages.
+    beforeEach(async () => {
+      server.households = [remoteHousehold(H1, ts(2), 'Home', true)];
+      await pullNow();
       db.insert(ingredients)
         .values([
           { normalizedName: 'milk', displayName: 'milk', status: 'categorized' },
@@ -663,6 +683,46 @@ describe('Combine on clash (4.4)', () => {
       await pullNow();
 
       expect(itemRow('mine')!.deletedAt).toBeNull();
+    });
+
+    describe('with Combine English and Spanish names off', () => {
+      beforeEach(async () => {
+        server.households = [remoteHousehold(H1, ts(3), 'Home', false)];
+        await pullNow();
+      });
+
+      test("a remote open milk keeps this device's unpushed leche", async () => {
+        mine('leche');
+        insertRow(db, listItemContributions, { id: 'c-mine', listItemId: 'mine', householdId: H1, quantity: 2 });
+        const queued = outboxRows();
+        put('list_items', remoteItem('theirs', ts(20)));
+
+        await pullNow();
+
+        expect(itemRow('theirs')!.deletedAt).toBeNull();
+        expect(itemRow('mine')!.deletedAt).toBeNull();
+        expect(contributionsOf('mine')).toEqual(['c-mine']);
+        expect(outboxRows()).toEqual(queued);
+      });
+
+      test("a remote open leche keeps this device's unpushed milk", async () => {
+        mine('milk');
+        put('list_items', remoteItem('theirs', ts(20), { ingredient_name: 'leche', display_name: 'leche' }));
+
+        await pullNow();
+
+        expect(itemRow('theirs')!.deletedAt).toBeNull();
+        expect(itemRow('mine')!.deletedAt).toBeNull();
+      });
+
+      test('the same ingredient still merges', async () => {
+        mine('leche');
+        put('list_items', remoteItem('theirs', ts(20), { ingredient_name: 'leche', display_name: 'leche' }));
+
+        await pullNow();
+
+        expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
+      });
     });
   });
 });

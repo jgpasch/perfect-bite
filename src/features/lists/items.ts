@@ -23,6 +23,7 @@ import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
 import {
   clearCategoryOverride,
   ensureLocalIngredient,
+  householdCombinesLanguages,
   localFamilyKey,
   setCategoryOverride,
 } from '@/features/categories/categories';
@@ -61,8 +62,12 @@ function findOpenItem(tx: Tx, listId: string, ingredientName: string, exceptId?:
     .get();
 }
 
-/** The oldest open item on `item`'s list for another name of its family (spec 4.15), if any. */
+/**
+ * The oldest open item on `item`'s list for another name of its family (spec 4.15), if any. None
+ * when the household doesn't combine languages.
+ */
 function findOpenTwin(tx: Tx, item: ListItem) {
+  if (!householdCombinesLanguages(tx, item.householdId)) return undefined;
   return tx
     .select({ id: listItems.id })
     .from(listItems)
@@ -108,13 +113,18 @@ export type AddItemResult = {
   ingredientName?: string;
 };
 
-/** A list's live items, each with its family key (spec 4.15) for `detectDuplicate`. */
-function liveItemsForList(tx: Tx, listId: string) {
+/**
+ * A list's live items for `detectDuplicate`, each with its family key (spec 4.15) when `combine`
+ * (the household combines languages), else its own key.
+ */
+function liveItemsForList(tx: Tx, listId: string, combine: boolean) {
   return tx
     .select({
       id: listItems.id,
       ingredientName: listItems.ingredientName,
-      familyKey: sql<string>`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`,
+      familyKey: combine
+        ? sql<string>`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`
+        : listItems.ingredientName,
       checkedAt: listItems.checkedAt,
     })
     .from(listItems)
@@ -280,6 +290,16 @@ function getListForAdd(tx: Tx, listId: string) {
 }
 
 /**
+ * Spec 4.4 for one add to `list`, matching twins by family key (4.15) only when the list's
+ * household combines languages.
+ */
+function decideAdd(tx: Tx, list: { id: string; householdId: string }, ingredientName: string): AddDecision {
+  const combine = householdCombinesLanguages(tx, list.householdId);
+  const family = combine ? localFamilyKey(tx, ingredientName) : ingredientName;
+  return detectDuplicate(ingredientName, liveItemsForList(tx, list.id, combine), family);
+}
+
+/**
  * Adds typed or dictated text to a list: `2 lbs chicken thighs` → item `chicken thighs` with a
  * 2 lb amount. Duplicates follow spec 4.4: an open match gets the amount added (Combine); a
  * checked match is unchecked with its amounts replaced. Returns null for text with nothing to add.
@@ -294,7 +314,7 @@ export function addItem(
   if (!add) return null;
   return db.transaction((tx) => {
     const list = getListForAdd(tx, listId);
-    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId), localFamilyKey(tx, add.ingredientName));
+    const decision = decideAdd(tx, list, add.ingredientName);
     return applyAdd(tx, list, add, decision, { userId, source });
   });
 }
@@ -325,7 +345,7 @@ export function addSiriItem(
       .get();
     if (contribution) return 'applied';
     const list = getListForAdd(tx, listId);
-    const decision = detectDuplicate(add.ingredientName, liveItemsForList(tx, listId), localFamilyKey(tx, add.ingredientName));
+    const decision = decideAdd(tx, list, add.ingredientName);
     // The derived item id is taken only if an earlier add made that item, whose amount would exist.
     const taken = tx.select({ id: listItems.id }).from(listItems).where(eq(listItems.id, ids.itemId)).get();
     const itemId = taken ? newId() : ids.itemId;
@@ -418,10 +438,12 @@ export function addItemsBulk(
   return exec.transaction((tx) => {
     const list = getListForAdd(tx, listId);
     const parsed = adds.map(parseBulkAdd);
+    // Twins (spec 4.15) fold together only when the household combines languages.
+    const combine = householdCombinesLanguages(tx, list.householdId);
     const decisions = planBulkAdd(
       parsed.map((p) => p?.ingredientName ?? ''),
-      liveItemsForList(tx, listId),
-      parsed.map((p) => (p ? localFamilyKey(tx, p.ingredientName) : '')),
+      liveItemsForList(tx, listId, combine),
+      parsed.map((p) => (p ? (combine ? localFamilyKey(tx, p.ingredientName) : p.ingredientName) : '')),
     );
     const results: (AddItemResult | null)[] = [];
     const at = new Date();
@@ -1208,8 +1230,9 @@ export function moveItemToList(itemId: string, toListId: string): MoveItemResult
     const moved = liveContributions(tx, itemId);
     const contributionIds = moved.map((c) => c.id);
     const base = { itemId, fromListId: item.listId, fromListName: from?.name ?? '', toListId, contributionIds };
+    // A move compares the item's own key only (spec 4.4), whatever the household's setting.
     const decision: AddDecision =
-      item.checkedAt === null ? detectDuplicate(item.ingredientName, liveItemsForList(tx, toListId)) : { kind: 'new' };
+      item.checkedAt === null ? detectDuplicate(item.ingredientName, liveItemsForList(tx, toListId, false)) : { kind: 'new' };
 
     if (decision.kind === 'new') {
       updateRows(tx, listItems, eq(listItems.id, itemId), { listId: toListId });

@@ -8,6 +8,7 @@ import { respondToRpc, resetSupabase, rpcCalls, supabase } from '@/test/fake-sup
 import { setDeletedHousehold, takeDeletedHousehold } from '../deleted-household-notice';
 import {
   avatarInitial,
+  combineLanguagesQuery,
   deletedHouseholdToast,
   deleteHousehold,
   deleteHouseholdConfirmation,
@@ -30,6 +31,7 @@ import {
   roleAfter,
   roleChangeConfirmation,
   roleLabel,
+  setCombineLanguages,
   setMemberRole,
   toHouseholdActionError,
   type HouseholdMember,
@@ -87,12 +89,12 @@ afterEach(() => warn.mockRestore());
 
 describe('householdsQuery', () => {
   test('returns local households oldest first', () => {
-    db.insert(households).values({ id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') }).run();
+    db.insert(households).values({ id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z'), combineLanguages: true }).run();
     db.insert(households).values({ id: 'h0', name: 'Cabin', createdAt: new Date('2026-09-01T00:00:00Z') }).run();
     expect(householdsQuery().all()).toEqual([
-      { id: 'h0', name: 'Cabin', createdAt: new Date('2026-09-01T00:00:00Z') },
-      { id: 'h1', name: 'Personal', createdAt: new Date('2026-10-01T00:00:00Z') },
-      { id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') },
+      { id: 'h0', name: 'Cabin', createdAt: new Date('2026-09-01T00:00:00Z'), combineLanguages: false },
+      { id: 'h1', name: 'Personal', createdAt: new Date('2026-10-01T00:00:00Z'), combineLanguages: false },
+      { id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z'), combineLanguages: true },
     ]);
   });
 
@@ -959,6 +961,77 @@ describe('renameHousehold', () => {
     });
     expect(householdActionAlert('rename', { message: 'boom' }, {})).toEqual({
       title: "Couldn't rename this household",
+      message: 'Something went wrong. Try again.',
+    });
+  });
+});
+
+describe('setCombineLanguages (spec 4.15)', () => {
+  const localSettings = () =>
+    db.select({ id: households.id, on: households.combineLanguages }).from(households).orderBy(households.id).all();
+
+  test('a household starts with it off', () => {
+    expect(localSettings()).toEqual([{ id: 'h1', on: false }]);
+    expect(combineLanguagesQuery('h1').all()).toEqual([{ on: false }]);
+    expect(combineLanguagesQuery('nope').all()).toEqual([]);
+  });
+
+  test('calls set_combine_languages, then sets the local row, both ways, leaving other households alone', async () => {
+    db.insert(households).values({ id: 'h2', name: 'Work', createdAt: new Date('2026-10-05T00:00:00Z') }).run();
+    respondToRpc('set_combine_languages', { data: null });
+    await expect(setCombineLanguages('h1', true)).resolves.toBeUndefined();
+    expect(rpcCalls).toEqual([{ fn: 'set_combine_languages', args: { p_household_id: 'h1', p_on: true } }]);
+    expect(localSettings()).toEqual([
+      { id: 'h1', on: true },
+      { id: 'h2', on: false },
+    ]);
+    expect(combineLanguagesQuery('h1').all()).toEqual([{ on: true }]);
+
+    respondToRpc('set_combine_languages', { data: null });
+    await setCombineLanguages('h1', false);
+    expect(rpcCalls[1]).toEqual({ fn: 'set_combine_languages', args: { p_household_id: 'h1', p_on: false } });
+    expect(localSettings()).toEqual([
+      { id: 'h1', on: false },
+      { id: 'h2', on: false },
+    ]);
+    // Nothing goes in the outbox and nothing is pulled: the server has it and the row is right.
+    expect(mockPull.calls).toEqual([]);
+  });
+
+  test.each([
+    ['not a member', 'not-member'],
+    ['boom', 'failed'],
+  ])('a server error %j is thrown as %s and changes nothing', async (message, kind) => {
+    respondToRpc('set_combine_languages', { error: { message, code: '42501' } });
+    await expect(setCombineLanguages('h1', true)).rejects.toMatchObject({ kind });
+    expect(localSettings()).toEqual([{ id: 'h1', on: false }]);
+  });
+
+  test('offline: says so without asking the server and changes nothing', async () => {
+    mockNetwork.state = { isConnected: false, isInternetReachable: false };
+    await expect(setCombineLanguages('h1', true)).rejects.toMatchObject({ kind: 'offline' });
+    expect(rpcCalls).toEqual([]);
+    expect(localSettings()).toEqual([{ id: 'h1', on: false }]);
+  });
+
+  test('a rejected call (lost connection mid-call) maps to offline and changes nothing', async () => {
+    supabase.rpc.mockRejectedValueOnce(new TypeError('Network request failed'));
+    await expect(setCombineLanguages('h1', true)).rejects.toMatchObject({ kind: 'offline' });
+    expect(localSettings()).toEqual([{ id: 'h1', on: false }]);
+  });
+
+  test('the alerts', () => {
+    const names = { householdName: 'Cabin' };
+    expect(householdActionAlert('combine-languages', new HouseholdActionError('offline', ''), names)).toEqual({
+      title: "You're offline",
+      message: 'Connect to the internet and try again.',
+    });
+    expect(householdActionAlert('combine-languages', { message: 'not a member' }, names)).toEqual({
+      title: "Couldn't change Cabin's setting",
+      message: "You're no longer in Cabin.",
+    });
+    expect(householdActionAlert('combine-languages', { message: 'boom' }, {})).toEqual({
+      title: "Couldn't change this household's setting",
       message: 'Something went wrong. Try again.',
     });
   });

@@ -2,6 +2,7 @@
 // Developer. Rendered against the in-memory database; the device and user settings they write are
 // read back from it.
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 import type { ReactElement } from 'react';
 import { AccessibilityInfo, Alert, Modal, Switch } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -9,6 +10,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { db, households } from '@/db';
 import type { AccountState } from '@/features/auth/account';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
+import { HouseholdActionError } from '@/features/households/households';
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setListArchived } from '@/features/lists/lists';
 import type { PendingSiriAdd } from '@/features/siri/app-group';
 import { currentLanguage, initI18n } from '@/i18n';
@@ -124,6 +126,13 @@ jest.mock('@/features/siri/app-group', () => ({
   },
   readNativeLog: () => mockAppGroup.log,
   writeListSnapshot: (snapshot: unknown) => mockWriteSnapshot(snapshot),
+}));
+
+// The server call is tested in households.test.ts; here only the switch's flow.
+const mockSetCombine = jest.fn<(householdId: string, on: boolean) => Promise<void>>();
+jest.mock('@/features/households/households', () => ({
+  ...jest.requireActual<object>('@/features/households/households'),
+  setCombineLanguages: (householdId: string, on: boolean) => mockSetCombine(householdId, on),
 }));
 
 let tree: ReactTestRenderer | null = null;
@@ -292,6 +301,80 @@ describe('Settings', () => {
     expect(toggle().props.value).toBe(true);
     act(() => toggle().props.onValueChange(false));
     expect(getAlwaysShowChecked()).toBe(false);
+  });
+
+  describe('Combine English and Spanish names (spec 4.15)', () => {
+    const combineSwitch = (root: ReactTestRenderer, household: string) =>
+      root.root.find(
+        (n) => n.type === Switch && n.props.accessibilityLabel === `Combine English and Spanish names in ${household}`,
+      );
+    const personalId = () => db.select().from(households).get()!.id;
+    const setLocal = (id: string, on: boolean) =>
+      db.update(households).set({ combineLanguages: on }).where(eq(households.id, id)).run();
+
+    beforeEach(() => {
+      mockSetCombine.mockReset();
+    });
+
+    it('is a switch under each household, off by default, with its footnote', () => {
+      db.insert(households).values({ id: 'h-cabin', name: 'Cabin', combineLanguages: true }).run();
+      const root = render(<SettingsScreen />);
+      expect(textOf(root)).toContain(
+        'Personal Combine English and Spanish names Leche and milk become one item on your lists. Cabin Combine English and Spanish names Leche and milk become one item on your lists.',
+      );
+      expect(combineSwitch(root, 'Personal').props.value).toBe(false);
+      expect(combineSwitch(root, 'Personal').props.accessibilityHint).toBe('Leche and milk become one item on your lists.');
+      expect(combineSwitch(root, 'Cabin').props.value).toBe(true);
+    });
+
+    it('turns it on for that household only, showing the new value while the server is asked', async () => {
+      db.insert(households).values({ id: 'h-cabin', name: 'Cabin' }).run();
+      let finish!: () => void;
+      mockSetCombine.mockImplementation(
+        (id, on) =>
+          new Promise<void>((resolve) => {
+            finish = () => {
+              setLocal(id, on);
+              resolve();
+            };
+          }),
+      );
+      const root = render(<SettingsScreen />);
+      act(() => combineSwitch(root, 'Personal').props.onValueChange(true));
+      expect(mockSetCombine.mock.calls).toEqual([[personalId(), true]]);
+      expect(combineSwitch(root, 'Personal').props).toMatchObject({ value: true, disabled: true });
+      expect(combineSwitch(root, 'Cabin').props).toMatchObject({ value: false, disabled: false });
+      await act(async () => finish());
+      // The live query picks up the row.
+      rerender(<SettingsScreen />);
+      expect(combineSwitch(root, 'Personal').props).toMatchObject({ value: true, disabled: false });
+      expect(combineSwitch(root, 'Cabin').props.value).toBe(false);
+    });
+
+    it('turns it off', async () => {
+      setLocal(personalId(), true);
+      mockSetCombine.mockImplementation(async (id, on) => {
+        setLocal(id, on);
+      });
+      const root = render(<SettingsScreen />);
+      await act(async () => combineSwitch(root, 'Personal').props.onValueChange(false));
+      expect(mockSetCombine.mock.calls).toEqual([[personalId(), false]]);
+      rerender(<SettingsScreen />);
+      expect(combineSwitch(root, 'Personal').props.value).toBe(false);
+    });
+
+    it('a failure puts the switch back and says why', async () => {
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      mockSetCombine.mockRejectedValue(new HouseholdActionError('offline', 'offline'));
+      const root = render(<SettingsScreen />);
+      await act(async () => combineSwitch(root, 'Personal').props.onValueChange(true));
+      expect(alert).toHaveBeenCalledWith("You're offline", 'Connect to the internet and try again.');
+      expect(combineSwitch(root, 'Personal').props).toMatchObject({ value: false, disabled: false });
+
+      mockSetCombine.mockRejectedValue({ message: 'not a member' });
+      await act(async () => combineSwitch(root, 'Personal').props.onValueChange(true));
+      expect(alert).toHaveBeenLastCalledWith("Couldn't change Personal's setting", "You're no longer in Personal.");
+    });
   });
 
   it('follows the Siri default list', () => {
