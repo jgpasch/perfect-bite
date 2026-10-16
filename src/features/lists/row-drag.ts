@@ -52,3 +52,22 @@ export function clampDrag(rows: readonly RowBox[], from: number, offset: number)
   // `|| 0`: the top row's limit is -0, which shouldn't leak out.
   return Math.min(last.y + last.h - a.y - a.h, Math.max(-a.y, offset)) || 0;
 }
+
+// Below what they call: the worklets plugin makes these consts, which aren't hoisted.
+
+/**
+ * Where the row dragged from `from` is while the finger has moved `translation` and the list has scrolled
+ * `scrolled` under it since the lift (the row stays under the finger either way): its offset, kept in its
+ * card, and the place it would drop into.
+ */
+export function dragTo(rows: readonly RowBox[], from: number, translation: number, scrolled: number): { offset: number; to: number } {
+  'worklet';
+  const offset = clampDrag(rows, from, translation + scrolled);
+  return { offset, to: dropSlot(rows, from, offset) };
+}
+
+/** The rows' boxes by id, with row `id`'s new box. A new object, so it can be swapped in on the UI thread. */
+export function withBox(boxes: Readonly<Record<string, RowBox>>, id: string, box: RowBox): Record<string, RowBox> {
+  'worklet';
+  return { ...boxes, [id]: box };
+}

@@ -31,11 +31,23 @@ function mockFlushReactions() {
     if (!changed) return;
   }
 }
+// As in Reanimated, a shared value written from the JS thread (`mockThread.js`, set while rows report
+// their layout) only changes once the UI thread runs the write (`mockRunUI`); a read sees the value now.
+const mockThread = { js: false, queue: [] as (() => void)[] };
+function mockRunUI() {
+  mockThread.queue.splice(0).forEach((write) => write());
+}
 jest.mock('react-native-reanimated', () => {
   const { useEffect, useRef } = require('react');
   const { View } = require('react-native');
+  const onUI = (write: () => void) => (mockThread.js ? void mockThread.queue.push(write) : write());
   const shared = (initial: unknown) => {
-    const box = { value: initial, get: () => box.value, set: (v: unknown) => void (box.value = v) };
+    const box = {
+      value: initial,
+      get: () => box.value,
+      set: (v: unknown) => onUI(() => void (box.value = v)),
+      modify: (fn: (v: unknown) => unknown) => onUI(() => void (box.value = fn(box.value))),
+    };
     return box;
   };
   const useShared = (initial: unknown) => {
@@ -134,11 +146,24 @@ function render(rows = ROWS) {
 function layOut() {
   const boxes = tree!.root.findAll((n) => n.type === ('View' as never) && typeof n.props.onLayout === 'function');
   let y = 0;
+  // All in one go on the JS thread, before the UI thread gets to any of it.
+  mockThread.js = true;
   boxes.forEach((box: ReactTestInstance, i) => {
     box.props.onLayout({ nativeEvent: { layout: { x: 0, y, width: 320, height: HEIGHTS[i] } } });
     y += HEIGHTS[i];
   });
+  mockThread.js = false;
+  mockRunUI();
   act(() => mockFlushReactions());
+}
+
+/** Each row's offset from its place, as drawn now. */
+function shifts(): number[] {
+  const views = tree!.root.findAll((n) => n.type === ('View' as never) && typeof n.props.onLayout === 'function');
+  return views.map((v: ReactTestInstance) => {
+    const style = (v.props.style as object[]).at(-1) as { transform: [{ translateY: number }, { scale: number }] };
+    return style.transform[0].translateY;
+  });
 }
 
 const pan = (index: number): Pan =>
@@ -171,6 +196,31 @@ describe('ReorderableRows', () => {
     expect(onDragChange).toHaveBeenLastCalledWith(false);
     // Only the lift's haptic: no drop.
     expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
+  });
+
+  test('while dragged, the row follows the finger and the rows it passes make room at once', () => {
+    const { onMove, rerender } = render();
+    act(() => pan(0).onStart());
+    // Down past b (80) and c's middle: both move up by a's height.
+    act(() => pan(0).onUpdate({ translationX: 0, translationY: 110, absoluteY: 410 }));
+    act(() => mockFlushReactions());
+    rerender(ROWS);
+    expect(shifts()).toEqual([110, -50, -50]);
+    // Back up over b: c returns to its place, b still makes room.
+    act(() => pan(0).onUpdate({ translationX: 0, translationY: 60, absoluteY: 360 }));
+    act(() => mockFlushReactions());
+    rerender(ROWS);
+    expect(shifts()).toEqual([60, -50, 0]);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  test('dragged up, the rows above make room by the dragged row\'s height', () => {
+    const { rerender } = render();
+    act(() => pan(2).onStart());
+    act(() => pan(2).onUpdate({ translationX: 0, translationY: -110, absoluteY: 190 }));
+    act(() => mockFlushReactions());
+    rerender(ROWS);
+    expect(shifts()).toEqual([50, 50, -110]);
   });
 
   test('a drop past a row moves it there, once, with a light impact', () => {

@@ -21,7 +21,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { autoScrollStep } from '@/features/categories/aisle-order';
 import { useTheme } from '@/hooks/use-theme';
 
-import { clampDrag, dropSlot, makeRoomShift, settleOffset, type RowBox } from './row-drag';
+import { dragTo, makeRoomShift, settleOffset, withBox, type RowBox } from './row-drag';
 
 export type ReorderableRow = {
   id: string;
@@ -120,15 +120,13 @@ export function ReorderableRows<T>({ rows, scrollRef, onMove, onSelect, onDragCh
   useAnimatedReaction(
     () => {
       if (activeId.get() === null || dropping.get()) return null;
-      return drag.translation.get() + drag.scroll.get() - drag.startScroll.get();
+      return { translation: drag.translation.get(), scrolled: drag.scroll.get() - drag.startScroll.get() };
     },
-    (raw) => {
-      if (raw === null) return;
-      const boxes = startBoxes.get();
-      const f = from.get();
-      const next = clampDrag(boxes, f, raw);
-      offset.set(next);
-      to.set(dropSlot(boxes, f, next));
+    (moved) => {
+      if (moved === null) return;
+      const next = dragTo(startBoxes.get(), from.get(), moved.translation, moved.scrolled);
+      offset.set(next.offset);
+      to.set(next.to);
     },
   );
 
@@ -282,7 +280,13 @@ function DragRow({ id, index, draggable, lifted, reduceMotion, drag, onStart, on
       <Animated.View
         onLayout={(e) => {
           const { y, height } = e.nativeEvent.layout;
-          drag.boxes.set({ ...drag.boxes.get(), [id]: { y, h: height } });
+          // On the UI thread, after any box queued before it. The rows lay out together, and a `set` from
+          // here only lands on the UI thread later while a `get` reads what's there now: read-then-set
+          // kept just the last row's box, so the others had no height and never made room.
+          drag.boxes.modify((all) => {
+            'worklet';
+            return withBox(all, id, { y, h: height });
+          });
         }}
         style={[lifted && { ...shadows.lifted, shadowColor: colors.ink, backgroundColor: colors.surface }, style]}>
         {children}

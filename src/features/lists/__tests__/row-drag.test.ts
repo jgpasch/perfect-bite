@@ -1,7 +1,7 @@
 // The drag-to-reorder maths for As added (spec 4.6): rows of different heights in one card.
 import { describe, expect, test } from '@jest/globals';
 
-import { clampDrag, dropSlot, makeRoomShift, settleOffset, type RowBox } from '../row-drag';
+import { clampDrag, dragTo, dropSlot, makeRoomShift, settleOffset, withBox, type RowBox } from '../row-drag';
 
 /** Rows stacked from the top with these heights. */
 function stack(...heights: number[]): RowBox[] {
@@ -96,5 +96,58 @@ describe('clampDrag', () => {
 
   test('no rows, no offset', () => {
     expect(clampDrag([], 0, 30)).toBe(0);
+  });
+});
+
+describe('dragTo', () => {
+  // Ten rows, a note making the fourth taller. Middles: 25, 75, 125, 190, 255, 305, 355, 405, 455, 505.
+  const rows = stack(50, 50, 50, 80, 50, 50, 50, 50, 50, 50);
+
+  test('down past several rows, one at a time as its bottom passes each middle', () => {
+    expect(dragTo(rows, 1, 24, 0)).toEqual({ offset: 24, to: 1 });
+    expect(dragTo(rows, 1, 26, 0)).toEqual({ offset: 26, to: 2 });
+    // Past the tall row's middle (190): bottom 100 + 91.
+    expect(dragTo(rows, 1, 91, 0)).toEqual({ offset: 91, to: 3 });
+    expect(dragTo(rows, 1, 206, 0)).toEqual({ offset: 206, to: 5 });
+  });
+
+  test('up past several rows, as its top passes each middle', () => {
+    // Row 7 (top 380) over row 4's middle (255) but not the tall row's (190).
+    expect(dragTo(rows, 7, -130, 0)).toEqual({ offset: -130, to: 4 });
+    expect(dragTo(rows, 7, -200, 0)).toEqual({ offset: -200, to: 3 });
+    expect(dragTo(rows, 7, -310, 0)).toEqual({ offset: -310, to: 1 });
+  });
+
+  test('the list scrolling under a still finger carries the row on', () => {
+    // Auto-scrolled 120 down with the finger 30 down: the row is 150 down, past three rows.
+    expect(dragTo(rows, 0, 30, 120)).toEqual({ offset: 150, to: 3 });
+    // Scrolled back up past where the drag began.
+    expect(dragTo(rows, 6, -10, -200)).toEqual({ offset: -210, to: 2 });
+    // Finger up as far as the list scrolled down: back over its own place.
+    expect(dragTo(rows, 4, -90, 90)).toEqual({ offset: 0, to: 4 });
+  });
+
+  test('never out of its card, so it takes an end place', () => {
+    expect(dragTo(rows, 2, 0, 5000)).toEqual({ offset: 380, to: 9 });
+    expect(dragTo(rows, 2, -40, -5000)).toEqual({ offset: -100, to: 0 });
+  });
+
+  test('no boxes measured: nowhere to go', () => {
+    expect(dragTo([], 0, 100, 50)).toEqual({ offset: 0, to: 0 });
+  });
+});
+
+describe('withBox', () => {
+  test('adds or replaces one row\'s box and keeps the rest', () => {
+    const before = { a: { y: 0, h: 50 }, b: { y: 50, h: 80 } };
+    expect(withBox(before, 'c', { y: 130, h: 50 })).toEqual({ a: { y: 0, h: 50 }, b: { y: 50, h: 80 }, c: { y: 130, h: 50 } });
+    expect(withBox(before, 'a', { y: 80, h: 50 })).toEqual({ a: { y: 80, h: 50 }, b: { y: 50, h: 80 } });
+  });
+
+  test('a new object, the old one untouched', () => {
+    const before = { a: { y: 0, h: 50 } };
+    const after = withBox(before, 'b', { y: 50, h: 50 });
+    expect(after).not.toBe(before);
+    expect(before).toEqual({ a: { y: 0, h: 50 } });
   });
 });
