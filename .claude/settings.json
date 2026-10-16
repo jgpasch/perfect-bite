@@ -5,6 +5,8 @@
   "permissions": {
     "allow": [
       "Bash(supabase:*)",
+      "Bash(deno test:*)",
+      "Bash(cd supabase/functions/* && deno test:*)",
       "Bash(xcrun simctl:*)",
       "Bash(yarn expo run:ios:*)"
     ],
