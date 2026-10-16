@@ -8,6 +8,7 @@ import {
   CliUsageError,
   formatCallStats,
   formatRecipe,
+  formatStepMatch,
   formatTags,
   MemoryRecipeStore,
   parseArgs,
@@ -110,6 +111,7 @@ Deno.test('MemoryRecipeStore: no limits, cache keyed by URL and prompt version, 
     tags: { meal: ['lunch'], cuisine: [], protein: [], diet: [], method: [] },
     total_minutes: 30,
     steps: ['Simmer.'],
+    step_ingredients: [[]],
     image_url: null,
   };
   await store.saveCached('https://a.com/r', 'v1', recipe);
@@ -134,6 +136,7 @@ Deno.test('formatRecipe: header, rounded quantities, dashes for blanks, slug or 
     tags: null,
     totalMinutes: null,
     steps: [],
+    stepIngredients: null,
     imageUrl: null,
   };
   assertEquals(
@@ -158,8 +161,49 @@ Deno.test('formatRecipe and formatTags: time in minutes, tags by facet label in 
   assertEquals(formatTags(tags), 'Meal: Dinner · Cuisine: peruvian · Protein: Chicken · Protein: Beans & lentils · Method: Instant Pot');
   assertEquals(formatTags({ meal: [], cuisine: [], protein: [], diet: [], method: [] }), '-');
   assertEquals(formatTags(null), '-');
-  const out = formatRecipe({ name: 'Stew', sourceUrl: 'https://a.com/s', servings: 4, ingredients: [], tags, totalMinutes: 95, steps: [], imageUrl: null });
+  const out = formatRecipe({ name: 'Stew', sourceUrl: 'https://a.com/s', servings: 4, ingredients: [], tags, totalMinutes: 95, steps: [], stepIngredients: null, imageUrl: null });
   assertStringIncludes(out, 'servings: 4\ntime:     95 min\ntags:     Meal: Dinner · Cuisine: peruvian');
+});
+
+Deno.test('formatRecipe: the step match under the ingredient table, as ai:steps prints it', () => {
+  const response: RecipeImportResponse = {
+    name: 'Tacos',
+    sourceUrl: 'https://a.com/t',
+    servings: null,
+    ingredients: [
+      { ingredientName: 'chicken thigh', displayName: 'chicken thighs', quantity: 2, unit: 'lb', note: '', categoryId: null, status: 'pending' },
+      { ingredientName: 'lime', displayName: 'limes', quantity: 3, unit: null, note: '', categoryId: null, status: 'pending' },
+      { ingredientName: 'cilantro', displayName: 'cilantro', quantity: null, unit: null, note: 'to serve', categoryId: null, status: 'pending' },
+    ],
+    tags: null,
+    totalMinutes: null,
+    steps: ['Marinate the chicken in lime.', 'Serve.'],
+    stepIngredients: [[{ index: 0, quantity: null }, { index: 1, quantity: 1 }], []],
+    imageUrl: null,
+  };
+  const out = formatRecipe(response);
+  assertStringIncludes(
+    out,
+    [
+      'limes           3         -     -         (pending)',
+      'cilantro        -         -     to serve  (pending)',
+      '',
+      'step match:',
+      '',
+      ' 1. Marinate the chicken in lime.',
+      '      Chicken thighs  2 lb',
+      '      Limes           1 of 3',
+      '',
+      ' 2. Serve.',
+      '      (no ingredients)',
+      '',
+      'Not in a step',
+      '      Cilantro',
+    ].join('\n'),
+  );
+  assertEquals(formatStepMatch({ ...response, stepIngredients: null }), 'step match: none (the app matches the recipe after it saves)');
+  assertEquals(formatStepMatch({ ...response, steps: [], stepIngredients: null }), '');
+  assert(!formatRecipe({ ...response, steps: [], stepIngredients: null }).includes('step match'));
 });
 
 Deno.test('formatCallStats: one block per task, or none', () => {

@@ -79,6 +79,7 @@ const recipeFor = (name: string, sourceUrl: string, ...names: string[]): RecipeI
   tags: null,
   totalMinutes: null,
   steps: [],
+  stepIngredients: null,
   imageUrl: null,
 });
 const TIKKA = recipeFor('Chicken tikka masala', TIKKA_URL, 'garlic', 'onion');

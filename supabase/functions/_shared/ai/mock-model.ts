@@ -100,8 +100,8 @@ export function namesFromPrompt(prompt: string): string[] {
   }
 }
 
-/** The page the extract-recipe prompt carries (`buildExtractRecipePrompt`). */
-export type MockRecipePage = { title: string | null; ingredient_lines?: string[]; text?: string };
+/** The page the extract-recipe prompt carries (`buildExtractRecipePrompt`); `steps` are JSON-LD's (v4). */
+export type MockRecipePage = { title: string | null; ingredient_lines?: string[]; steps?: string[]; text?: string };
 
 /** A line in page text that starts with an amount: `2 cups flour`, `½ tsp salt`. */
 const AMOUNT_LINE = /^\s*[\d½⅓⅔¼¾⅛]/;
@@ -111,7 +111,7 @@ const AMOUNT_LINE = /^\s*[\d½⅓⅔¼¾⅛]/;
  * page text, each line that starts with an amount). Lines ending in `:` are headings and are
  * dropped; anything after the first comma is the note. No ingredients means not a recipe. It
  * never tags and gives no time or steps, so an import shows the JSON-LD time and steps (the
- * handler's) or none.
+ * handler's) or none. The JSON-LD steps it's given are matched as `mockMatchSteps` matches them.
  */
 export function mockExtractRecipe(page: MockRecipePage): ExtractRecipeOutput {
   const tags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
@@ -123,8 +123,11 @@ export function mockExtractRecipe(page: MockRecipePage): ExtractRecipeOutput {
       const [name, ...rest] = parsed.name.split(',');
       return { name: name.trim(), quantity: parsed.quantity, unit: parsed.unit, note: rest.join(',').trim() };
     });
-  if (ingredients.length === 0) return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [] };
-  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients, tags, total_minutes: null, steps: [] };
+  if (ingredients.length === 0) {
+    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [] };
+  }
+  const { steps: stepIngredients } = mockMatchSteps({ steps: page.steps ?? [], ingredients: ingredients.map((i) => i.name) });
+  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients, tags, total_minutes: null, steps: [], step_ingredients: stepIngredients };
 }
 
 /** The page is the first JSON object in the user prompt; anything else is an empty page. */
@@ -136,10 +139,12 @@ export function pageFromPrompt(prompt: string): MockRecipePage {
   try {
     const parsed: unknown = JSON.parse(prompt.slice(start, end + 1));
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return empty;
-    const { title, ingredient_lines: lines, text } = parsed as Record<string, unknown>;
+    const { title, ingredient_lines: lines, steps, text } = parsed as Record<string, unknown>;
+    const stepText = (s: unknown) => (s && typeof s === 'object' ? (s as Record<string, unknown>).text : null);
     return {
       title: typeof title === 'string' ? title : null,
       ...(Array.isArray(lines) ? { ingredient_lines: lines.filter((l): l is string => typeof l === 'string') } : {}),
+      ...(Array.isArray(steps) ? { steps: steps.map(stepText).map((t) => (typeof t === 'string' ? t : '')) } : {}),
       ...(typeof text === 'string' ? { text } : {}),
     };
   } catch {

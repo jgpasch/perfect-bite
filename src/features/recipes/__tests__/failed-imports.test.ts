@@ -51,6 +51,7 @@ const TIKKA: RecipeImportResponse = {
   tags: null,
   totalMinutes: null,
   steps: [],
+  stepIngredients: null,
   imageUrl: null,
 };
 

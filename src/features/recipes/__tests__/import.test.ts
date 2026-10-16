@@ -16,7 +16,7 @@ import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
-import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@/shared';
+import { normalizeIngredientName, OTHER_CATEGORY_ID, stepIngredientsBasis, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
@@ -80,8 +80,22 @@ const TIKKA: RecipeImportResponse = {
   tags: { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] },
   totalMinutes: 50,
   steps: ['Marinate the chicken.', 'Grill it.', 'Simmer in the sauce.'],
+  stepIngredients: null,
   imageUrl: 'https://example.com/tikka.jpg',
 };
+
+/** TIKKA's steps matched: chicken and garlic to marinate, chicken to grill, methi and paste to simmer. */
+const TIKKA_MATCH: NonNullable<RecipeImportResponse['stepIngredients']> = [
+  [
+    { index: 0, quantity: null },
+    { index: 1, quantity: 2 },
+  ],
+  [{ index: 0, quantity: null }],
+  [
+    { index: 2, quantity: null },
+    { index: 3, quantity: null },
+  ],
+];
 
 let listId: string;
 let warn: ReturnType<typeof jest.spyOn>;
@@ -362,6 +376,63 @@ describe('a new recipe', () => {
     expect(result.combined).toBe(1);
     expect(rows()).toEqual(['3 tbsp butter']);
     expect(ingredientRows(result.recipeId)).toHaveLength(2);
+  });
+});
+
+describe('the step match (spec 4.5, 4.10)', () => {
+  const stepIngredientsOf = (id: string) => db.select().from(recipes).where(eq(recipes.id, id)).get()!.stepIngredients;
+  const idsOf = (id: string) =>
+    db
+      .select({ id: recipeIngredients.id })
+      .from(recipeIngredients)
+      .where(eq(recipeIngredients.recipeId, id))
+      .orderBy(asc(recipeIngredients.position))
+      .all()
+      .map((i) => i.id);
+
+  test('a new recipe saves it by its new ingredient ids, with a basis that makes it fresh', async () => {
+    respond({ ...TIKKA, stepIngredients: TIKKA_MATCH });
+    const { recipeId } = await importOk();
+    const [chicken, garlic, methi, paste] = idsOf(recipeId);
+    expect(stepIngredientsOf(recipeId)).toEqual({
+      v: 1,
+      basis: stepIngredientsBasis(TIKKA.steps, [chicken, garlic, methi, paste]),
+      steps: [
+        [
+          { id: chicken, quantity: null },
+          { id: garlic, quantity: 2 },
+        ],
+        [{ id: chicken, quantity: null }],
+        [
+          { id: methi, quantity: null },
+          { id: paste, quantity: null },
+        ],
+      ],
+    });
+  });
+
+  test('null, or an older server that sends none, leaves the recipe unmatched', async () => {
+    const { recipeId } = await importOk();
+    expect(stepIngredientsOf(recipeId)).toBeNull();
+    respond({ ...TIKKA, sourceUrl: 'https://example.com/other', stepIngredients: undefined });
+    const other = await importOk({ url: 'https://example.com/other' });
+    expect(stepIngredientsOf(other.recipeId)).toBeNull();
+  });
+
+  test('a match that doesn’t line up with the steps or ingredients isn’t saved', async () => {
+    respond({ ...TIKKA, stepIngredients: TIKKA_MATCH.slice(0, 2) });
+    expect(stepIngredientsOf((await importOk()).recipeId)).toBeNull();
+    respond({ ...TIKKA, sourceUrl: 'https://example.com/b', stepIngredients: [[{ index: 4, quantity: null }], [], []] });
+    expect(stepIngredientsOf((await importOk({ url: 'https://example.com/b' })).recipeId)).toBeNull();
+  });
+
+  test('a reused recipe keeps its own match (or none)', async () => {
+    const existing = createRecipe('Mum’s tikka');
+    updateRecipe(existing, { name: 'Mum’s tikka', notes: '', sourceUrl: 'https://example.com/tikka/' });
+    respond({ ...TIKKA, stepIngredients: TIKKA_MATCH });
+    const { recipeId } = await importOk();
+    expect(recipeId).toBe(existing);
+    expect(stepIngredientsOf(existing)).toBeNull();
   });
 });
 

@@ -167,6 +167,7 @@ describe('ExtractedRecipeSchema', () => {
     tags,
     total_minutes: 30,
     steps: ['Soak the noodles.', 'Fry the garlic.'],
+    step_ingredients: [[], [{ ingredient: 0, quantity: 1 }]],
     image_url: 'https://example.com/pad-thai.jpg',
   };
 
@@ -200,6 +201,14 @@ describe('ExtractedRecipeSchema', () => {
     expect(ExtractedRecipeSchema.safeParse(v2).success).toBe(false);
   });
 
+  it('a cached v3 result (no step_ingredients) fails, so it is a miss; null is no match', () => {
+    const { step_ingredients: _m, ...v3 } = recipe;
+    expect(ExtractedRecipeSchema.safeParse(v3).success).toBe(false);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, step_ingredients: null }).success).toBe(true);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, step_ingredients: [[{ ingredient: -1, quantity: null }]] }).success).toBe(false);
+    expect(ExtractedRecipeSchema.safeParse({ ...recipe, step_ingredients: [[{ ingredient: 0, quantity: 0 }]] }).success).toBe(false);
+  });
+
   it('accepts a non-recipe answer and null quantity, unit, servings and time', () => {
     const answer = {
       is_recipe: false,
@@ -209,6 +218,7 @@ describe('ExtractedRecipeSchema', () => {
       tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
       total_minutes: null,
       steps: [],
+      step_ingredients: null,
       image_url: null,
     };
     expect(ExtractedRecipeSchema.parse(answer)).toEqual(answer);
@@ -315,6 +325,7 @@ describe('RecipeImportResponseSchema', () => {
     tags,
     totalMinutes: 30,
     steps: ['Soak the noodles.', 'Fry the garlic.'],
+    stepIngredients: [[], [{ index: 0, quantity: 1 }]],
     imageUrl: 'https://example.com/pad-thai.jpg',
   };
 
@@ -340,6 +351,13 @@ describe('RecipeImportResponseSchema', () => {
       imageUrl: null,
     });
     expect(RecipeImportResponseSchema.parse({ ...response, steps: ['Soak.', 3] }).steps).toEqual([]);
+  });
+
+  it('carries the step match; missing or unreadable is null (an older server), and the rest still parses', () => {
+    expect(RecipeImportResponseSchema.parse(response).stepIngredients).toEqual([[], [{ index: 0, quantity: 1 }]]);
+    const { stepIngredients: _m, ...older } = response;
+    expect(RecipeImportResponseSchema.parse(older)).toEqual({ ...older, stepIngredients: null });
+    expect(RecipeImportResponseSchema.parse({ ...response, stepIngredients: [[{ index: 'a', quantity: null }]] }).stepIngredients).toBeNull();
   });
 
   it('missing or unreadable tags and time are null (an older server), and the rest still parses', () => {

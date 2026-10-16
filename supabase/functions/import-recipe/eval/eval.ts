@@ -3,8 +3,9 @@
 // and cleanup, as the page a client sent, so nothing is fetched. Scores each page against
 // expected.json: is_recipe, the name, precision and recall on normalized ingredient keys, unit
 // and quantity accuracy on the matched ones, and per-facet precision and recall on tags (spec
-// 4.14), then prints every miss. Categorize isn't called. It costs real tokens, so it isn't part of
-// CI or `deno test`.
+// 4.14), and on pages the steps eval labels (match-recipe-steps/eval/recipes.json) the import's own
+// step match (prompt v4) as that eval scores it, then prints every miss. Categorize isn't called. It
+// costs real tokens, so it isn't part of CI or `deno test`.
 import {
   normalizeIngredientName,
   AI_TAG_FACETS,
@@ -16,17 +17,26 @@ import {
 } from '@shared/index.ts';
 import { z } from 'zod';
 
-import { AI_OFF } from '../../_shared/ai/tasks.ts';
+import { AI_OFF, type StepMatch } from '../../_shared/ai/tasks.ts';
 import type { AiCallRecord } from '../../_shared/ai/run-ai-task.ts';
 import { readPage } from '../../_shared/fetch-page.ts';
 import { formatStats } from '../../categorize-ingredients/cli.ts';
+import {
+  BAR as STEPS_BAR,
+  parseRecipes,
+  recipeMisses,
+  scoreRecipe,
+  type EvalRecipe,
+  type RecipeOutcome,
+} from '../../match-recipe-steps/eval/eval.ts';
 import { MemoryRecipeStore } from '../cli.ts';
 import { ImportRecipeError, importRecipe } from '../handler.ts';
 
 export const USAGE = `Usage: yarn ai:eval:recipe [options]
 
 Runs every page in eval/fixtures/ against the configured model and prints precision, recall, unit
-and quantity accuracy per page, tag precision and recall per facet, and every miss.
+and quantity accuracy per page, tag precision and recall per facet, the step match's precision
+and recall on the pages the steps eval labels, and every miss.
 
 Options:
   --model <provider:model|mock>  Use this model instead of AI_MODEL_RECIPE
@@ -152,7 +162,14 @@ export function parseArgs(argv: readonly string[]): EvalArgs {
 
 /** What importRecipe() returned for a page, reduced to what's scored. */
 export type GotPage =
-  | { kind: 'recipe'; name: string; ingredients: RecipeImportResponse['ingredients']; tags?: AiRecipeTags | null }
+  | {
+      kind: 'recipe';
+      name: string;
+      ingredients: RecipeImportResponse['ingredients'];
+      tags?: AiRecipeTags | null;
+      steps?: string[];
+      stepIngredients?: RecipeImportResponse['stepIngredients'];
+    }
   | { kind: 'not_a_recipe' }
   | { kind: 'error'; message: string };
 
@@ -287,15 +304,117 @@ export function scorePage(page: ExpectedPage, got: GotPage): PageOutcome {
   };
 }
 
-export type EvalReport = { outcomes: PageOutcome[]; calls: AiCallRecord[] };
+/**
+ * A page's step match, scored against the steps eval's labels for the same page (`yarn ai:eval:steps`,
+ * match-recipe-steps/eval/recipes.json). `unmapped` counts uses of an ingredient the import returned
+ * that isn't one of the eval's frozen ingredients, so it can't be scored either way.
+ */
+export type StepPageOutcome = { file: string; outcome: RecipeOutcome; unmapped: number };
+
+/** The steps eval's recipe for each import fixture, by file name. */
+export function stepRecipesByFile(recipes: readonly EvalRecipe[]): Map<string, EvalRecipe> {
+  const prefix = 'import-recipe/eval/fixtures/';
+  return new Map(recipes.filter((r) => r.source.startsWith(prefix)).map((r) => [r.source.slice(prefix.length), r]));
+}
+
+/**
+ * Pure: the import's match against the steps eval's labels. Each returned ingredient maps to the
+ * first unused eval ingredient with the same key, in order, and then those left to the first whose
+ * key holds theirs as whole words, or the other way round. Steps that differ from the eval's (in
+ * number or wording) or no match at all score as a failure: every needed pair missed.
+ */
+export function scoreStepMatch(file: string, recipe: EvalRecipe, got: GotPage): StepPageOutcome {
+  const fail = (error: string): StepPageOutcome => ({ file, outcome: scoreRecipe(recipe, null, [], error), unmapped: 0 });
+  if (got.kind !== 'recipe') return fail(got.kind === 'error' ? got.message : 'not a recipe');
+  const steps = got.steps ?? [];
+  if (steps.length !== recipe.steps.length || steps.some((s, i) => s !== recipe.steps[i])) {
+    return fail(`the import's ${steps.length} steps aren't the eval's ${recipe.steps.length}`);
+  }
+  if (!got.stepIngredients) return fail('no step match came back');
+  // Keys as words, without punctuation: "green, red, or yellow peppers" is "green, red or yellow peppers".
+  const words = (name: string) => normalizeIngredientName(name).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const keys = recipe.ingredients.map((e) => words(e.name));
+  // Same words first; then one inside the other ("freshly cracked black pepper" is "black pepper"),
+  // the longest such eval name winning, so "bell peppers" doesn't take the spice "pepper".
+  const contains = (a: string, b: string) => ` ${a} `.includes(` ${b} `) || ` ${b} `.includes(` ${a} `);
+  const used = new Set<number>();
+  const toEval: (number | null)[] = got.ingredients.map(() => null);
+  for (const same of [(a: string, b: string) => a === b, contains]) {
+    got.ingredients.forEach((g, i) => {
+      if (toEval[i] !== null) return;
+      const key = words(g.displayName);
+      let best = -1;
+      keys.forEach((k, j) => {
+        if (!used.has(j) && same(k, key) && (best < 0 || k.length > keys[best].length)) best = j;
+      });
+      if (best < 0) return;
+      used.add(best);
+      toEval[i] = best;
+    });
+  }
+  let unmapped = 0;
+  const match: StepMatch = got.stepIngredients.map((uses) =>
+    uses.flatMap((use) => {
+      const j = toEval[use.index];
+      if (j === null || j === undefined) {
+        unmapped++;
+        return [];
+      }
+      return [{ ingredient: j, quantity: use.quantity }];
+    }),
+  );
+  return { file, outcome: scoreRecipe(recipe, match), unmapped };
+}
+
+/** Pure: the step-match scores, as the steps eval prints its overall numbers, then every miss. */
+export function formatStepScores(scores: readonly StepPageOutcome[]): string[] {
+  if (scores.length === 0) return [];
+  const rows = [['page', 'precision', 'recall', 'shares', 'unplaced', 'unscored']];
+  for (const { file, outcome: o, unmapped } of scores) {
+    rows.push([
+      file.replace(/\.html$/, ''),
+      o.error ? 'FAIL' : ratio(o.right + o.wrong === 0 ? null : o.right / (o.right + o.wrong)),
+      ratio(o.right + o.missed === 0 ? null : o.right / (o.right + o.missed)),
+      o.sharesScored === 0 ? '-' : `${o.sharesRight}/${o.sharesScored}`,
+      `${o.unplaced}/${o.recipe.ingredients.length}`,
+      String(unmapped),
+    ]);
+  }
+  const sum = (pick: (o: RecipeOutcome) => number) => scores.reduce((n, s) => n + pick(s.outcome), 0);
+  const right = sum((o) => o.right);
+  const lines = [
+    `step match (${scores.length} pages labelled in the steps eval; bar ${STEPS_BAR.precision * 100}% precision, ${STEPS_BAR.recall * 100}% recall):`,
+    ...table(rows),
+    `  precision:  ${pct(right, right + sum((o) => o.wrong))}`,
+    `  recall:     ${pct(right, right + sum((o) => o.missed))}`,
+    `  shares:     ${pct(sum((o) => o.sharesRight), sum((o) => o.sharesScored))} right`,
+    `  unplaced:   ${pct(sum((o) => o.unplaced), sum((o) => o.recipe.ingredients.length))} ingredients in no step`,
+    `  failures:   ${scores.filter((s) => s.outcome.error).length} of ${scores.length} pages`,
+    `  unscored:   ${scores.reduce((n, s) => n + s.unmapped, 0)} uses of an ingredient the eval doesn't have`,
+  ];
+  const missed = scores.map((s) => ({ s, misses: recipeMisses(s.outcome) })).filter((m) => m.misses.length > 0);
+  for (const { s, misses } of missed) {
+    lines.push(`  ${s.file}`);
+    for (const miss of misses) lines.push(`    ${miss}`);
+  }
+  return lines;
+}
+
+export type EvalReport = { outcomes: PageOutcome[]; calls: AiCallRecord[]; steps?: StepPageOutcome[] };
 
 /**
  * Runs every page through importRecipe() as a client-sent page, one fresh in-memory store each,
- * in file order. Import failures (not a recipe, the model failing) are scored, not thrown.
+ * in file order. Import failures (not a recipe, the model failing) are scored, not thrown. Pages
+ * the steps eval labels (`stepRecipes`) also have their step match scored.
  */
-export async function runEval(pages: readonly ExpectedPage[], readFixture: (file: string) => Promise<string>): Promise<EvalReport> {
+export async function runEval(
+  pages: readonly ExpectedPage[],
+  readFixture: (file: string) => Promise<string>,
+  stepRecipes: ReadonlyMap<string, EvalRecipe> = new Map(),
+): Promise<EvalReport> {
   const outcomes: PageOutcome[] = [];
   const calls: AiCallRecord[] = [];
+  const steps: StepPageOutcome[] = [];
   for (const page of pages) {
     const html = await readFixture(page.file);
     const read = readPage(html, page.url);
@@ -319,15 +438,24 @@ export async function runEval(pages: readonly ExpectedPage[], readFixture: (file
           fetchPage: () => Promise.reject(new Error('The eval never fetches')),
         },
       );
-      got = { kind: 'recipe', name: response.name, ingredients: response.ingredients, tags: response.tags };
+      got = {
+        kind: 'recipe',
+        name: response.name,
+        ingredients: response.ingredients,
+        tags: response.tags,
+        steps: response.steps,
+        stepIngredients: response.stepIngredients,
+      };
     } catch (err) {
       if (!(err instanceof ImportRecipeError)) throw err;
       got = err.failure.code === 'not_a_recipe' ? { kind: 'not_a_recipe' } : { kind: 'error', message: `${err.failure.code}: ${err.message}` };
     }
     outcomes.push(scorePage(page, got));
+    const stepRecipe = stepRecipes.get(page.file);
+    if (stepRecipe) steps.push(scoreStepMatch(page.file, stepRecipe, got));
     calls.push(...store.aiCalls);
   }
-  return { outcomes, calls };
+  return { outcomes, calls, steps };
 }
 
 function pct(n: number, total: number): string {
@@ -420,6 +548,8 @@ export function formatReport(report: EvalReport): string {
   }
   const tagLines = formatTagScores(outcomes);
   if (tagLines.length > 0) lines.push('', ...tagLines);
+  const stepLines = formatStepScores(report.steps ?? []);
+  if (stepLines.length > 0) lines.push('', ...stepLines);
 
   const missed = outcomes.map((o) => ({ o, misses: pageMisses(o) })).filter((m) => m.misses.length > 0);
   lines.push('');
@@ -444,6 +574,8 @@ export type EvalIo = {
   readExpected?: () => Promise<string>;
   /** Returns a fixture's HTML. Defaults to the file in fixtures/. */
   readFixture?: (file: string) => Promise<string>;
+  /** Returns the steps eval's recipes.json text. Defaults to match-recipe-steps/eval/recipes.json. */
+  readStepRecipes?: () => Promise<string>;
   /** Reads an env var. Defaults to `Deno.env.get`. */
   env?: (key: string) => string | undefined;
 };
@@ -456,6 +588,7 @@ export type EvalIo = {
 export async function run(argv: readonly string[], io: EvalIo): Promise<number> {
   let args: EvalArgs;
   let pages: ExpectedPage[];
+  let stepRecipes: Map<string, EvalRecipe>;
   try {
     args = parseArgs(argv);
     if (args.help) {
@@ -470,6 +603,13 @@ export async function run(argv: readonly string[], io: EvalIo): Promise<number> 
       throw new EvalUsageError('expected.json is not valid JSON');
     }
     pages = parseExpected(json);
+    const stepsText = await (io.readStepRecipes ??
+      (() => Deno.readTextFile(new URL('../../match-recipe-steps/eval/recipes.json', import.meta.url))))();
+    try {
+      stepRecipes = stepRecipesByFile(parseRecipes(JSON.parse(stepsText)));
+    } catch (err) {
+      throw new EvalUsageError(err instanceof SyntaxError ? "The steps eval's recipes.json is not valid JSON" : String((err as Error).message));
+    }
   } catch (err) {
     if (!(err instanceof EvalUsageError)) throw err;
     io.err(`${err.message}\n\n${USAGE}`);
@@ -489,7 +629,7 @@ export async function run(argv: readonly string[], io: EvalIo): Promise<number> 
   Deno.env.set('AI_MODEL_RECIPE', model);
   let report: EvalReport;
   try {
-    report = await runEval(pages, readFixture);
+    report = await runEval(pages, readFixture, stepRecipes);
   } catch (err) {
     io.err(`Eval failed: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
     return 2;

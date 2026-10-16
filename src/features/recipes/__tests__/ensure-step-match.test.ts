@@ -439,6 +439,7 @@ describe('after an import saves', () => {
     tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
     totalMinutes: null,
     steps: ['Grill the chicken.', 'Squeeze the limes over.'],
+    stepIngredients: null,
     imageUrl: null,
   };
 
@@ -457,6 +458,20 @@ describe('after an import saves', () => {
     expect(matchCalls()).toHaveLength(1);
     const [chicken, limes] = ingredientIds(result.recipeId);
     expect(saved(result.recipeId)!.steps).toEqual([[{ id: chicken, quantity: null }], [{ id: limes, quantity: null }]]);
+  });
+
+  test('an import that comes back matched saves it fresh and makes no match-recipe-steps call', async () => {
+    const matched = { ...IMPORTED, stepIngredients: [[{ index: 0, quantity: null }], [{ index: 1, quantity: 2 }]] };
+    invoke.mockImplementation(async (name: unknown, args: unknown) =>
+      name === 'import-recipe' ? { data: matched, error: null } : { data: modelAnswer(args as Body), error: null },
+    );
+    const result = await importRecipe({ url: IMPORTED.sourceUrl, listId: getDefaultListId(USER)! });
+    if (!result.ok) throw new Error('import failed');
+    await ensureStepMatch(result.recipeId);
+    expect(matchCalls()).toHaveLength(0);
+    expect(matchState(result.recipeId)).toBe('fresh');
+    const [chicken, limes] = ingredientIds(result.recipeId);
+    expect(saved(result.recipeId)!.steps).toEqual([[{ id: chicken, quantity: null }], [{ id: limes, quantity: 2 }]]);
   });
 
   test('a failed import matches nothing', async () => {

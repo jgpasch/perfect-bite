@@ -23,8 +23,8 @@ import { z } from 'zod';
 
 import { mockCategorizeModel, mockRecipeModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v3.ts';
-import { MATCH_RECIPE_STEPS_PROMPT_VERSION, type StepMatchRecipe } from './prompts/match-recipe-steps.v1.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v4.ts';
+import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
@@ -111,6 +111,17 @@ export const CATEGORIZE_THINKING: ThinkingSetting = 'low';
 export const RECIPE_THINKING: ThinkingSetting = CATEGORIZE_THINKING;
 
 /**
+ * Per step, its number and the ingredients it uses, by number (both from 1, as the prompts number
+ * them): match-recipe-steps' whole answer, and extract-recipe's `step_ingredients` (v4).
+ */
+const StepUsesOutputSchema = z.array(
+  z.object({
+    step: z.number(),
+    uses: z.array(z.object({ ingredient: z.number(), quantity: z.number().nullable() })),
+  }),
+);
+
+/**
  * What the extract-recipe model may answer. Looser than `ExtractedRecipeSchema` (no length caps,
  * any unit string, any tag string), so one long name, odd unit or made-up tag doesn't throw away
  * the whole call; `cleanExtractedRecipe` then enforces the caps and the tag list.
@@ -137,12 +148,20 @@ export const ExtractRecipeOutputSchema = z.object({
   total_minutes: z.number().nullable(),
   /** v3: the method from page text; `[]` when the model got JSON-LD ingredient lines. */
   steps: z.array(z.string()),
+  /**
+   * v4: which ingredients each step uses: the JSON-LD steps it was given, else its own `steps`.
+   * Malformed is `[]`, so a bad match costs only the match (`cleanExtractedRecipe` makes it null).
+   */
+  step_ingredients: StepUsesOutputSchema.catch([]),
 });
 export type ExtractRecipeOutput = z.infer<typeof ExtractRecipeOutputSchema>;
 
-/** About 60 output tokens per ingredient line plus 300, capped at 6,000 (spec §6.6: call limits). */
-export function recipeMaxOutputTokens(lineCount: number): number {
-  return Math.min(6_000, 300 + 60 * Math.max(0, lineCount));
+/**
+ * About 60 output tokens per item plus 300, capped at 10,000 (spec §6.6: call limits). v4's items
+ * are the ingredient lines and the steps it matches (`buildExtractRecipePrompt`'s `itemCount`).
+ */
+export function recipeMaxOutputTokens(itemCount: number): number {
+  return Math.min(10_000, 300 + 60 * Math.max(0, itemCount));
 }
 
 function collapse(s: string): string {
@@ -173,17 +192,23 @@ function supportedUnit(raw: string | null): { unit: Unit | null; unsupported: st
  * positive is null. Tags go through `ExtractedRecipeTagsSchema` (a facet with a slug the list
  * doesn't have is `[]`, one over its maximum is cut), and `total_minutes` is rounded, null outside
  * 1 to 2880. Steps go through `cleanRecipeSteps` (no numbering, blanks or repeats; at most 100 of
- * 2000 characters). `image_url` is null: the model never reads the photo, the handler sets it. The
- * result always passes `ExtractedRecipeSchema`.
+ * 2000 characters), unless `givenSteps` (JSON-LD's, sent to the model to match) are the steps.
+ * `step_ingredients` goes through `cleanImportStepMatch`. `image_url` is null: the model never reads
+ * the photo, the handler sets it. The result always passes `ExtractedRecipeSchema`.
  */
-export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe {
+export function cleanExtractedRecipe(raw: ExtractRecipeOutput, givenSteps: readonly string[] | null = null): ExtractedRecipe {
   const ingredients: ExtractedRecipe['ingredients'] = [];
+  /** Per entry the model gave, its index in `ingredients`; null when it was dropped. */
+  const kept: (number | null)[] = [];
   for (const item of raw.ingredients) {
-    if (ingredients.length === MAX_RECIPE_INGREDIENTS) break;
     const name = collapse(item.name);
-    if (name.length > MAX_RECIPE_INGREDIENT_NAME_LENGTH || normalizeIngredientName(name) === '') continue;
+    if (ingredients.length === MAX_RECIPE_INGREDIENTS || name.length > MAX_RECIPE_INGREDIENT_NAME_LENGTH || normalizeIngredientName(name) === '') {
+      kept.push(null);
+      continue;
+    }
     const { unit, unsupported } = supportedUnit(item.unit);
     const note = [unsupported, collapse(item.note)].filter(Boolean).join(', ');
+    kept.push(ingredients.length);
     ingredients.push({
       name,
       quantity: positive(item.quantity),
@@ -191,6 +216,9 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe 
       note: truncateText(note, MAX_RECIPE_NOTE_LENGTH).trimEnd(),
     });
   }
+  const steps = givenSteps ? [...givenSteps] : cleanRecipeSteps(raw.steps);
+  // The model numbered the steps it copied out before cleaning: a step cleaning dropped shifts them.
+  const stepsLineUp = givenSteps !== null || steps.length === raw.steps.length;
   return ExtractedRecipeSchema.parse({
     is_recipe: raw.is_recipe,
     name: truncateText(collapse(raw.name), MAX_RECIPE_NAME_LENGTH).trimEnd(),
@@ -198,9 +226,29 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput): ExtractedRecipe 
     ingredients,
     tags: ExtractedRecipeTagsSchema.parse(raw.tags),
     total_minutes: totalMinutes(raw.total_minutes),
-    steps: cleanRecipeSteps(raw.steps),
+    steps,
+    step_ingredients: stepsLineUp ? cleanImportStepMatch(raw, steps.length, kept, ingredients) : null,
     image_url: null,
   });
+}
+
+/**
+ * The import's step match (v4), checked as match-recipe-steps checks its own (`cleanStepMatch`)
+ * against the model's ingredient entries, then mapped to the kept ones: a use of an entry the caps
+ * dropped goes. Null when there are no steps, or the answer's steps don't line up with the
+ * `stepCount` final steps: the import still succeeds, unmatched.
+ */
+function cleanImportStepMatch(
+  raw: ExtractRecipeOutput,
+  stepCount: number,
+  kept: readonly (number | null)[],
+  ingredients: ExtractedRecipe['ingredients'],
+): StepMatch | null {
+  if (!raw.is_recipe || stepCount === 0) return null;
+  const quantities = kept.map((index) => ({ quantity: index === null ? null : ingredients[index].quantity }));
+  const match = cleanStepMatch({ steps: raw.step_ingredients }, { steps: Array.from({ length: stepCount }), ingredients: quantities });
+  if (match === null) return null;
+  return match.map((uses) => uses.flatMap((use) => (kept[use.ingredient] === null ? [] : [{ ...use, ingredient: kept[use.ingredient]! }])));
 }
 
 /** Whole minutes within `recipes.total_minutes` bounds, else null. */
@@ -234,14 +282,7 @@ function tagsModel(): string | null {
  * What the match-recipe-steps model may answer: per step, its number and the ingredients it uses,
  * by number (both from 1, as the prompt numbers them). Run it through `cleanStepMatch`.
  */
-export const MatchRecipeStepsOutputSchema = z.object({
-  steps: z.array(
-    z.object({
-      step: z.number(),
-      uses: z.array(z.object({ ingredient: z.number(), quantity: z.number().nullable() })),
-    }),
-  ),
-});
+export const MatchRecipeStepsOutputSchema = z.object({ steps: StepUsesOutputSchema });
 export type MatchRecipeStepsOutput = z.infer<typeof MatchRecipeStepsOutputSchema>;
 
 /** One ingredient a step uses: its index in the recipe's ingredients (from 0) and the step's share. */
@@ -261,7 +302,10 @@ export type StepMatch = StepIngredientUse[][];
  * of an ingredient with no quantity). Shares are rounded to 3 decimals, and each step's
  * ingredients are in the recipe's order.
  */
-export function cleanStepMatch(raw: MatchRecipeStepsOutput, recipe: StepMatchRecipe): StepMatch | null {
+export function cleanStepMatch(
+  raw: MatchRecipeStepsOutput,
+  recipe: { steps: readonly unknown[]; ingredients: readonly { quantity: number | null }[] },
+): StepMatch | null {
   const count = recipe.steps.length;
   if (raw.steps.length !== count) return null;
   const byNumber = new Map(raw.steps.map((s) => [s.step, s]));

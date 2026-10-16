@@ -17,12 +17,15 @@ import { today } from '@/features/meal-plan/week';
 import { dayName } from '@/features/meal-plan/week-view';
 import { setSlot } from '@/features/meal-plan/write';
 import { setKeepScreenOn } from '@/features/settings/device-settings';
+import { stepIngredientsBasis } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import CookScreen from '@/app/recipe/[id]/cook';
 import RecipeScreen from '@/app/recipe/[id]/index';
 
-import { addRecipeIngredient, createRecipe } from '../recipes';
+import { allTicked, toggleAllUses, tickUses, stepAmount, tickKey, usesByIngredient } from '../cook-match';
+import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
+import { stepMatch } from '../step-match';
 import { cookProgressLabel, upNextIndex } from '../recipe-view';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -498,6 +501,173 @@ describe('the cook screen keeps the screen on', () => {
     expect(activateKeepAwakeAsync).not.toHaveBeenCalled();
     act(() => setKeepScreenOn(true));
     expect(mockAwake.size).toBe(1);
+  });
+});
+
+describe('the cook screen with a step match (spec 4.5)', () => {
+  const MATCH_STEPS = ['Toss the chicken with the garlic and lime juice.', 'Rest it.', 'Grill, then squeeze over the limes.'];
+
+  /** Saves a match: per step, [ingredient name, share] pairs. `stale` saves a basis that doesn't match. */
+  function setMatch(steps: [string, number | null][][], { stale = false } = {}) {
+    const rows = recipeIngredientsQuery(tacos).all();
+    const id = (name: string) => rows.find((r) => r.displayName === name)!.id;
+    const basis = stale ? 'old' : stepIngredientsBasis(MATCH_STEPS, rows.map((r) => r.id));
+    const stepIngredients = { v: 1 as const, basis, steps: steps.map((uses) => uses.map(([name, quantity]) => ({ id: id(name), quantity }))) };
+    db.update(recipes).set({ stepIngredients }).where(eq(recipes.id, tacos)).run();
+  }
+
+  beforeEach(() => {
+    setSteps(MATCH_STEPS);
+    addIngredients('2 lb chicken thighs', '4 cloves garlic', '3 limes', '2 tbsp oil');
+    setMatch([
+      [
+        ['chicken thighs', null],
+        ['garlic', null],
+        ['limes', 1],
+      ],
+      [],
+      [
+        ['chicken thighs', null],
+        ['limes', 2],
+      ],
+    ]);
+  });
+
+  const fold = (root: ReactTestRenderer) => byA11y(root, fold.label(root));
+  fold.label = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && /^All ingredients, /.test(n.props.accessibilityLabel ?? '') && n.props.onPress)
+      .props.accessibilityLabel as string;
+  const stepIngredientLabels = (root: ReactTestRenderer) =>
+    ingredientRows(root)
+      .map((r) => r.props.accessibilityLabel as string)
+      .filter((l) => / for step \d+$/.test(l));
+
+  test('All ingredients is folded to one row with a count, and unfolds to the checklist for the visit', () => {
+    const root = render(<CookScreen />);
+    expect(hostTexts(root)).toEqual(expect.arrayContaining(['All ingredients', '4 · 0 ticked']));
+    expect(hostTexts(root)).not.toContain('Ingredients');
+    expect(fold.label(root)).toBe('All ingredients, 4, 0 ticked');
+    expect(fold(root).props.accessibilityState).toEqual({ expanded: false });
+    expect(ingredientRows(root).map((r) => r.props.accessibilityLabel)).not.toContain('Chicken thighs, 2 lb');
+
+    tap(fold(root));
+    expect(fold(root).props.accessibilityState).toEqual({ expanded: true });
+    expect(checkbox(root, 'Chicken thighs, 2 lb')).toBeDefined();
+    expect(checkbox(root, 'Limes, 3')).toBeDefined();
+    tap(fold(root));
+    expect(ingredientRows(root).map((r) => r.props.accessibilityLabel)).not.toContain('Chicken thighs, 2 lb');
+  });
+
+  test('each step lists its ingredients with shares and "part"; a step with none lists nothing', () => {
+    const root = render(<CookScreen />);
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
+      `Step 1 of 3, ${MATCH_STEPS[0]}, uses chicken thighs, garlic, limes`,
+      `Step 2 of 3, ${MATCH_STEPS[1]}`,
+      `Step 3 of 3, ${MATCH_STEPS[2]}, uses chicken thighs, limes`,
+    ]);
+    expect(stepIngredientLabels(root)).toEqual([
+      'Chicken thighs, 2 lb, part, for step 1',
+      'Garlic, 4 clove, for step 1',
+      'Limes, 1 of 3 limes, for step 1',
+      'Chicken thighs, 2 lb, part, for step 3',
+      'Limes, 2 of 3 limes, for step 3',
+    ]);
+    const limes = checkbox(root, 'Limes, 1 of 3 limes, for step 1');
+    expect(textsIn(limes)).toEqual(['Limes', '1 of 3']);
+    expect(textsIn(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'))).toEqual(['Chicken thighs', '2 lb · part']);
+    // A 22 pt check, a 44 pt row.
+    expect(rowStyle(limes).minHeight).toBe(44);
+  });
+
+  test('split amounts scale with the servings', () => {
+    setServings(4);
+    mockParams.servings = '8';
+    const root = render(<CookScreen />);
+    expect(stepIngredientLabels(root)).toEqual([
+      'Chicken thighs, 4 lb, part, for step 1',
+      'Garlic, 8 clove, for step 1',
+      'Limes, 2 of 6 limes, for step 1',
+      'Chicken thighs, 4 lb, part, for step 3',
+      'Limes, 4 of 6 limes, for step 3',
+    ]);
+  });
+
+  test('Also needed lists the ingredients in no step, after Method', () => {
+    const root = render(<CookScreen />);
+    const texts = hostTexts(root);
+    expect(texts).toEqual(expect.arrayContaining(['Also needed', 'Not in a step']));
+    expect(texts.indexOf('Also needed')).toBeGreaterThan(texts.indexOf('Method'));
+    expect(checkbox(root, 'Oil, 2 tbsp')).toBeDefined();
+  });
+
+  test('ticking a step ticks its ingredients; unticking it leaves them; All ingredients follows its uses', () => {
+    const root = render(<CookScreen />);
+    tap(fold(root));
+    tap(stepRows(root)[0]);
+    expect(isChecked(checkbox(root, 'Garlic, 4 clove, for step 1'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(false);
+    // Garlic's only use is ticked; chicken and limes still have one to go.
+    expect(isChecked(checkbox(root, 'Garlic, 4 clove'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Limes, 3'))).toBe(false);
+    expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
+
+    tap(stepRows(root)[0]);
+    expect(isChecked(stepRows(root)[0])).toBe(false);
+    expect(isChecked(checkbox(root, 'Garlic, 4 clove, for step 1'))).toBe(true);
+
+    // Ticking an All ingredients row ticks every use; again unticks them all.
+    tap(checkbox(root, 'Limes, 3'));
+    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Limes, 3'))).toBe(true);
+    tap(checkbox(root, 'Limes, 3'));
+    expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(false);
+    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(false);
+
+    // Also needed's tick is oil's only use.
+    tap(checkbox(root, 'Oil, 2 tbsp'));
+    expect(fold.label(root)).toBe('All ingredients, 4, 2 ticked');
+    // Steps count as before; ingredients don't.
+    expect(progress(root)).toBe('0 of 3 steps done');
+  });
+
+  test('a stale match is still shown', () => {
+    setMatch([[['garlic', null]], [], []], { stale: true });
+    const root = render(<CookScreen />);
+    expect(stepIngredientLabels(root)).toEqual(['Garlic, 4 clove, for step 1']);
+    expect(hostTexts(root)).toContain('All ingredients');
+  });
+
+  test('with no match, the screen is today\'s', () => {
+    db.update(recipes).set({ stepIngredients: null }).where(eq(recipes.id, tacos)).run();
+    const root = render(<CookScreen />);
+    expect(hostTexts(root)).toContain('Ingredients');
+    expect(hostTexts(root)).not.toContain('All ingredients');
+    expect(hostTexts(root)).not.toContain('Also needed');
+    expect(stepIngredientLabels(root)).toEqual([]);
+    expect(stepRows(root)[0].props.accessibilityLabel).toBe(`Step 1 of 3, ${MATCH_STEPS[0]}`);
+  });
+
+  test('cook-match helpers', () => {
+    const recipe = db.select().from(recipes).where(eq(recipes.id, tacos)).get()!;
+    const match = stepMatch(recipe, recipeIngredientsQuery(tacos).all());
+    const uses = usesByIngredient(match);
+    const limes = match.steps[0][2].ingredient;
+    expect(uses.get(limes.id)).toEqual([tickKey(0, limes.id), tickKey(2, limes.id)]);
+    const oil = match.unplaced[0];
+    expect(uses.get(oil.id)).toEqual([tickKey('also', oil.id)]);
+    let ticked = tickUses(new Set(), [tickKey(0, limes.id)]);
+    expect(allTicked(ticked, uses.get(limes.id)!)).toBe(false);
+    ticked = toggleAllUses(ticked, uses.get(limes.id)!);
+    expect(allTicked(ticked, uses.get(limes.id)!)).toBe(true);
+    expect(allTicked(toggleAllUses(ticked, uses.get(limes.id)!), uses.get(limes.id)!)).toBe(false);
+    expect(allTicked(ticked, [])).toBe(false);
+
+    const salt = { displayName: 'salt', quantity: null, unit: null };
+    expect(stepAmount(salt, null, true, null, null)).toEqual({ text: '', spoken: '' });
+    const flour = { displayName: 'flour', quantity: 2, unit: 'cup' as const };
+    expect(stepAmount(flour, 0.5, true, null, null)).toEqual({ text: '½ cup of 2', spoken: '½ cup of 2 cup flour' });
+    expect(stepAmount(flour, null, false, 4, 2)).toEqual({ text: '4 cup', spoken: '4 cup' });
   });
 });
 

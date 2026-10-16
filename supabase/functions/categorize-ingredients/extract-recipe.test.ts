@@ -1,6 +1,7 @@
 // The extract-recipe AI task (spec §6.6): prompt, output cleaning, mock and task options. Lives
 // here for the import map, like ai.test.ts, until import-recipe has its own folder. The prompt tests
-// here are v2's (kept, as v2 is); v3's are in import-recipe/prompt-v3.test.ts. The task runs v3.
+// here are v2's (kept, as v2 is); v3's and v4's are in import-recipe/prompt-v3.test.ts and
+// prompt-v4.test.ts. The task runs v4.
 import { AI_TAG_FACETS, ExtractedRecipeSchema, UNITS } from '@shared/index.ts';
 import { assertEquals, assertRejects } from '@std/assert';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -53,10 +54,11 @@ const raw = (ingredients: Ingredient[], over: Partial<ExtractRecipeOutput> = {})
   tags: NO_TAGS,
   total_minutes: null,
   steps: [],
+  step_ingredients: [],
   ...over,
 });
 
-const NOT_A_RECIPE = { is_recipe: false, name: '', servings: null, ingredients: [], tags: NO_TAGS, total_minutes: null, steps: [] };
+const NOT_A_RECIPE = { is_recipe: false, name: '', servings: null, ingredients: [], tags: NO_TAGS, total_minutes: null, steps: [], step_ingredients: [] };
 
 /** The JSON page after the prompt's first line. */
 function promptPage(prompt: string): unknown {
@@ -251,7 +253,7 @@ Deno.test('clean: quantity and servings must be positive, otherwise null', () =>
 });
 
 Deno.test('clean: a not-a-recipe answer passes through, with no photo', () => {
-  assertEquals(cleanExtractedRecipe(NOT_A_RECIPE), { ...NOT_A_RECIPE, image_url: null });
+  assertEquals(cleanExtractedRecipe(NOT_A_RECIPE), { ...NOT_A_RECIPE, step_ingredients: null, image_url: null });
 });
 
 Deno.test('clean v3: the model’s steps keep their wording, without numbering, blanks or repeats', () => {
@@ -337,6 +339,7 @@ Deno.test('mock: the quantity parser over each line; headings dropped, the note 
     tags: NO_TAGS,
     total_minutes: null,
     steps: [],
+    step_ingredients: [],
   });
 });
 
@@ -359,18 +362,19 @@ Deno.test('pageFromPrompt: reads the built prompt; anything else is an empty pag
 
 // --- Task options and runAiTask -----------------------------------------------------------------
 
-Deno.test('recipeMaxOutputTokens: 60 per line plus 300, capped at 6,000', () => {
+Deno.test('recipeMaxOutputTokens: 60 per item plus 300, capped at 10,000 (v4: lines and steps)', () => {
   assertEquals(recipeMaxOutputTokens(0), 300);
   assertEquals(recipeMaxOutputTokens(1), 360);
   assertEquals(recipeMaxOutputTokens(80), 5_100);
   assertEquals(recipeMaxOutputTokens(95), 6_000);
-  assertEquals(recipeMaxOutputTokens(200), 6_000);
+  assertEquals(recipeMaxOutputTokens(161), 9_960);
+  assertEquals(recipeMaxOutputTokens(200), 10_000);
   assertEquals(recipeMaxOutputTokens(-4), 300);
 });
 
 Deno.test('extractRecipe task: temperature 0, 30 s timeout, its own model and fallback env vars', async () => {
   const task = aiTasks.extractRecipe;
-  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v3']);
+  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v4']);
   assertEquals(RECIPE_THINKING, 'low');
   await withEnv({}, () => assertEquals([task.model(), task.fallbackModel()], [null, null]));
   await withEnv({ AI_MODEL_RECIPE: ' google:gemini-3.8-flash ', AI_MODEL_RECIPE_FALLBACK: 'anthropic:claude-haiku-5-5' }, () =>
@@ -428,10 +432,11 @@ Deno.test('mock model end to end: an injection line stays an ingredient, and the
       tags: NO_TAGS,
       total_minutes: null,
       steps: [],
+      step_ingredients: null,
       image_url: null,
     });
-    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v3']);
-    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v3']]);
+    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v4']);
+    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v4']]);
     assertEquals([calls[0].instructions, calls[0].prompt], [built.instructions, built.prompt]);
   });
 });
@@ -454,6 +459,7 @@ Deno.test('runAiTask: an unknown unit or long name from the model is accepted, t
     tags: NO_TAGS,
     total_minutes: null,
     steps: [],
+    step_ingredients: null,
     image_url: null,
   });
 });
@@ -495,7 +501,7 @@ Deno.test('runAiTask v3: an answer without steps (a v2 answer) fails the schema 
       onCall: async (c) => void calls.push(c),
     }),
   );
-  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v3']]);
+  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v4']]);
 });
 
 Deno.test('runAiTask: output that fails the schema is an invalid_output call', async () => {

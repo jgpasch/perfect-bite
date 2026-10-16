@@ -15,7 +15,7 @@ import {
 } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v3.ts';
+import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v4.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
@@ -95,10 +95,11 @@ function fetchFailure(err: FetchPageError): ImportRecipeError {
 }
 
 /**
- * One extract-recipe call: JSON-LD ingredient lines when `findRecipe` finds a recipe, otherwise
- * the page text. A page with neither is not a recipe, without a call. Any model failure (provider
- * error, timeout, invalid output) is `unavailable`. Steps are JSON-LD's when it has the recipe (the
- * model gets none to read), else the model's; the photo is JSON-LD's, else the page's og:image.
+ * One extract-recipe call: JSON-LD ingredient lines and steps when `findRecipe` finds a recipe,
+ * otherwise the page text. A page with neither is not a recipe, without a call. Any model failure
+ * (provider error, timeout, invalid output) is `unavailable`. Steps are JSON-LD's when it has the
+ * recipe (the model gets them only to match), else the model's; either way the model's step match
+ * comes with them, or null when it doesn't line up. The photo is JSON-LD's, else the page's og:image.
  */
 async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   const jsonLd = findRecipe(page.jsonLd, page.url);
@@ -111,11 +112,12 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
       tags: emptyAiRecipeTags(),
       total_minutes: null,
       steps: [],
+      step_ingredients: null,
       image_url: null,
     };
   }
   const input = jsonLd
-    ? { title: jsonLd.name ?? page.title, ingredientLines: jsonLd.ingredientLines }
+    ? { title: jsonLd.name ?? page.title, ingredientLines: jsonLd.ingredientLines, steps: jsonLd.steps }
     : { title: page.title, text: page.text };
   let output;
   try {
@@ -129,8 +131,8 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
     const what = invalid ? 'invalid output' : 'provider error or timeout';
     throw new ImportRecipeError({ code: 'unavailable', reason: 'ai_failed' }, `Recipe extraction failed: ${what}`);
   }
-  const recipe = cleanExtractedRecipe(output);
-  if (!recipe.is_recipe) return { ...recipe, steps: [] };
+  const recipe = cleanExtractedRecipe(output, jsonLd ? jsonLd.steps : null);
+  if (!recipe.is_recipe) return { ...recipe, steps: [], step_ingredients: null };
   // JSON-LD's own name, yield and time are what the site published; the model's fill the gaps.
   const fallbackName = (jsonLd?.name ?? page.title ?? '').replace(/\s+/g, ' ').trim();
   return {
@@ -138,7 +140,6 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
     name: recipe.name || truncateText(fallbackName, MAX_RECIPE_NAME_LENGTH).trimEnd(),
     servings: jsonLd?.servings ?? recipe.servings,
     total_minutes: jsonLd?.totalMinutes ?? recipe.total_minutes,
-    steps: jsonLd ? jsonLd.steps : recipe.steps,
     image_url: jsonLd?.imageUrl ?? page.imageUrl,
   };
 }
@@ -234,6 +235,19 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
     tags: recipe.tags,
     totalMinutes: recipe.total_minutes,
     steps: recipe.steps,
+    stepIngredients: stepIngredients(recipe),
     imageUrl: recipe.image_url,
   };
+}
+
+/**
+ * The step match as the app reads it: indexes into the response's `ingredients`, which are the
+ * extraction's in the same order. Null with no match, or when it no longer lines up with the steps
+ * and ingredients (a cached row is checked again here).
+ */
+function stepIngredients(recipe: ExtractedRecipe): RecipeImportResponse['stepIngredients'] {
+  const match = recipe.step_ingredients;
+  if (!match || match.length === 0 || match.length !== recipe.steps.length) return null;
+  if (match.some((uses) => uses.some((use) => use.ingredient >= recipe.ingredients.length))) return null;
+  return match.map((uses) => uses.map((use) => ({ index: use.ingredient, quantity: use.quantity })));
 }

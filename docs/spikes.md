@@ -177,3 +177,20 @@ A recipe costs about 1,000 input and 200 output tokens. Pass `--price-in` and `-
 **Go.** Keep matching on the recipe model, so `AI_MODEL_STEPS` stays unset and follows `AI_MODEL_RECIPE` (`google:gemini-3.8-flash`, thinking `low`). Matching runs in the background after a recipe is saved, so Flash's occasional slow call doesn't matter, and the 20 s timeout covers its p95. Flash-Lite is the cheaper fallback if cost ever matters: set `AI_MODEL_STEPS=google:gemini-3.5-flash-lite`.
 
 The set is small and its labels are lenient where a recipe is ambiguous, so 100% means the bar is met, not that matching is perfect. Add a recipe to `recipes.json` whenever cook mode shows a wrong match, and re-run the eval before changing the prompt or the model.
+
+### Matching inside the import (extract-recipe v4)
+
+Run 2026-10-16: `yarn ai:eval:recipe` on `google:gemini-3.8-flash` (thinking `low`), v3 on `main` against v4, same 20 pages, one run each.
+
+| | v3 | v4 |
+|---|---|---|
+| Ingredient precision / recall | 236/244 (96.7%) / 232/239 (97.1%) | 238/246 (96.7%) / 231/239 (96.7%) |
+| Unit / quantity | 236/236 / 236/236 | 236/238 / 236/238 |
+| Tags precision / recall (all facets) | 66/74 (89.2%) / 42/44 (95.5%) | 70/78 (89.7%) / 43/44 (97.7%) |
+| Name, is_recipe, injection | 17/18, 20/20, 2/2 | 17/18, 20/20, 2/2 |
+| Tokens in / out (20 pages) | 45,412 / 14,004 | 58,791 / 22,885 |
+| Latency (20 pages, in turn) | 110 s | 147 s |
+
+Step match on the 13 pages the steps eval labels: precision 191/191 (100%), recall 191/192 (99.5%), shares 187/187, 2 of 191 ingredients placed nowhere, no failures. The miss is one ingredient on the stuffed-peppers page.
+
+v4's ingredient and tag scores are within one item of v3's. Its two amount misses are the pad thai page's tamarind and palm sugar read as 5 tbsp instead of 75 ml, the same amount. Matching inside the import is as good as the standalone call (100% / 100% on the steps eval's own frozen ingredients), so **imports keep `step_ingredients`** and the app saves it as the recipe's match, with no `match-recipe-steps` call. The cost is about 30% more input tokens, 63% more output and about a third more latency per import.

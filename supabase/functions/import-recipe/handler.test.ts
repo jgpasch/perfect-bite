@@ -4,7 +4,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v3.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v4.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage } from '../_shared/fetch-page.ts';
@@ -289,6 +289,7 @@ const PASTA_RESPONSE: RecipeImportResponse = {
   tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
   totalMinutes: null,
   steps: [],
+  stepIngredients: null,
   imageUrl: null,
 };
 
@@ -341,6 +342,7 @@ test('text fallback: no JSON-LD sends the page text and takes the name from the 
     tags: { meal: [], cuisine: [], protein: [], diet: [], method: [] },
     totalMinutes: null,
     steps: [],
+    stepIngredients: null,
     imageUrl: null,
   });
   assertEquals(calls('extractRecipe'), 1);
@@ -471,8 +473,8 @@ test('v2: a model time out of range is null', async () => {
   }
 });
 
-test('v3: the cache key is the v3 prompt version; cached v1 and v2 results are not served', async () => {
-  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v3');
+test('v4: the cache key is the v4 prompt version; cached v1, v2 and v3 results are not served', async () => {
+  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v4');
   const { post, store, calls } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
   const old = { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] };
   store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, { result: old, is_recipe: true, created_at: new Date(NOW).toISOString() });
@@ -481,28 +483,35 @@ test('v3: the cache key is the v3 prompt version; cached v1 and v2 results are n
     is_recipe: true,
     created_at: new Date(NOW).toISOString(),
   });
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v3`, {
+    result: { ...old, tags: TAGS, total_minutes: 20, steps: ['Boil.'], image_url: null },
+    is_recipe: true,
+    created_at: new Date(NOW).toISOString(),
+  });
   const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals([body.name, body.tags], ['Garlic Pasta', TAGS]);
   assertEquals(calls('extractRecipe'), 1);
-  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v3']]);
+  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v4']]);
 
-  // A cached v3 result is served with its tags and time, with no call.
+  // A cached v4 result is served with its tags and time, with no call.
   const again: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals(again.tags, TAGS);
   assertEquals(calls('extractRecipe'), 1);
 });
 
-test('v3: a v2-shaped row under the v3 key (no steps or photo) fails the schema and is a miss', async () => {
+test('v4: a v3-shaped row under the v4 key (no step_ingredients) fails the schema and is a miss', async () => {
   const { post, store, calls } = setup();
-  const v2Shaped = {
+  const v3Shaped = {
     is_recipe: true,
     name: 'Old Pasta',
     servings: 2,
     ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }],
     tags: TAGS,
     total_minutes: 20,
+    steps: [],
+    image_url: null,
   };
-  store.cache.set(`${PASTA_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: v2Shaped, is_recipe: true, created_at: new Date(NOW).toISOString() });
+  store.cache.set(`${PASTA_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: v3Shaped, is_recipe: true, created_at: new Date(NOW).toISOString() });
   assertEquals(await (await post({ url: PASTA_URL })).json(), PASTA_RESPONSE);
   assertEquals(calls('extractRecipe'), 1);
 });
@@ -515,8 +524,8 @@ test('v3: JSON-LD’s steps and image win over the model’s steps and the og:im
   assertEquals(body.steps, STEW_STEPS);
   assertEquals(body.imageUrl, 'https://www.example.com/img/stew-jsonld.jpg', 'resolved against the page it came from');
   const prompt = aiCalls.find((c) => c.task === 'extractRecipe')!.prompt;
-  assert(!prompt.includes('Brown the beef'), 'JSON-LD steps are not sent to the model');
-  assertStringIncludes(prompt, '"ingredient_lines":["2 lb beef chuck","3 carrots"]');
+  // v4: the JSON-LD steps go to the model too, numbered, to match.
+  assertStringIncludes(prompt, '"ingredient_lines":["2 lb beef chuck","3 carrots"],"steps":[{"step":1,"text":"Brown the beef."}');
   // The cached result carries both, and a cache hit serves them.
   assertEquals([store.saves[0].result.steps, store.saves[0].result.image_url], [STEW_STEPS, 'https://www.example.com/img/stew-jsonld.jpg']);
   const again: RecipeImportResponse = await (await post({ url: 'https://example.com/beef-stew' })).json();
@@ -582,6 +591,86 @@ test('v3: not a recipe has no steps or photo', async () => {
   const { post, store } = setup({ model: editedModel((a) => ({ ...a, steps: ['Read the news.'] })) });
   await expectError(await post({ url: NEWS_URL }), 422, 'not_a_recipe');
   assertEquals(store.saves.map((s) => [s.result.is_recipe, s.result.steps, s.result.image_url]), [[false, [], null]]);
+});
+
+// --- Step match (prompt v4) ----------------------------------------------------------------------------
+
+const uses = (n: number, ...pairs: [number, number | null][]) => ({ step: n, uses: pairs.map(([ingredient, quantity]) => ({ ingredient, quantity })) });
+
+test('v4: JSON-LD steps go to the model and are kept; its match maps to the response’s ingredients', async () => {
+  const { post, aiCalls, store, calls } = setup({
+    model: editedModel((a) => ({ ...a, steps: ['Rewritten by the model.'], step_ingredients: [uses(1, [1, null]), uses(2, [2, 1], [1, null])] })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: STEW_URL })).json();
+  assertEquals(body.steps, STEW_STEPS, 'the JSON-LD steps, not the model’s');
+  assertEquals(body.ingredients.map((i) => i.displayName), ['beef chuck', 'carrots']);
+  assertEquals(body.stepIngredients, [[{ index: 0, quantity: null }], [{ index: 0, quantity: null }, { index: 1, quantity: 1 }]]);
+  const page = JSON.parse(aiCalls[0].prompt.slice(aiCalls[0].prompt.indexOf('\n') + 1));
+  assertEquals(page.steps, [
+    { step: 1, text: 'Brown the beef.' },
+    { step: 2, text: 'Add the carrots & simmer for 2 hours.' },
+  ]);
+  // Cached with the extraction, and served from the cache.
+  assertEquals(store.saves[0].result.step_ingredients, [[{ ingredient: 0, quantity: null }], [{ ingredient: 0, quantity: null }, { ingredient: 1, quantity: 1 }]]);
+  const again: RecipeImportResponse = await (await post({ url: STEW_KEY })).json();
+  assertEquals(again.stepIngredients, body.stepIngredients);
+  assertEquals(calls('extractRecipe'), 1);
+});
+
+test('v4: the mock returns a match for the JSON-LD steps', async () => {
+  const body: RecipeImportResponse = await (await setup().post({ url: STEW_URL })).json();
+  // "carrots" is named in step 2; the mock matches "beef chuck" by "chuck", which no step says.
+  assertEquals(body.stepIngredients, [[], [{ index: 1, quantity: null }]]);
+});
+
+test('v4: from page text the model’s own steps are matched', async () => {
+  const { post } = setup({
+    model: editedModel((a) => ({ ...a, steps: ['Slice the leeks.', 'Simmer in the stock.'], step_ingredients: [uses(1, [1, null]), uses(2, [2, null])] })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: SOUP_URL })).json();
+  assertEquals(body.steps, ['Slice the leeks.', 'Simmer in the stock.']);
+  assertEquals(body.stepIngredients, [[{ index: 0, quantity: null }], [{ index: 1, quantity: null }]]);
+});
+
+test('v4: a bad match is dropped and the import still succeeds', async () => {
+  for (const [what, bad] of [
+    ['one step short', [uses(1, [1, null])]],
+    ['a step numbered twice', [uses(1), uses(1)]],
+    ['a step out of range', [uses(1), uses(5)]],
+    ['not a list', 'garbage'],
+    ['a step that isn’t an object', [7, 8]],
+  ] as const) {
+    const { post, store } = setup({ model: editedModel((a) => ({ ...a, step_ingredients: bad })) });
+    const res = await post({ url: STEW_URL });
+    assertEquals(res.status, 200, what);
+    const body: RecipeImportResponse = await res.json();
+    assertEquals([body.stepIngredients, body.steps, body.ingredients.length], [null, STEW_STEPS, 2], what);
+    assertEquals(store.saves[0].result.step_ingredients, null, what);
+  }
+});
+
+test('v4: no steps, no match', async () => {
+  const body: RecipeImportResponse = await (await setup({ model: editedModel((a) => ({ ...a, step_ingredients: [uses(1, [1, null])] })) }).post({ url: PASTA_URL })).json();
+  assertEquals([body.steps, body.stepIngredients], [[], null]);
+});
+
+test('v4: a cached match that no longer lines up with its steps or ingredients is sent as none', async () => {
+  const { post, store, calls } = setup();
+  const cached = {
+    is_recipe: true,
+    name: 'Stew',
+    servings: null,
+    ingredients: [{ name: 'beef', quantity: 2, unit: 'lb', note: '' }],
+    tags: TAGS,
+    total_minutes: null,
+    steps: ['Brown.', 'Simmer.'],
+    image_url: null,
+  };
+  store.cache.set(`${STEW_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: { ...cached, step_ingredients: [[{ ingredient: 3, quantity: null }], []] }, is_recipe: true, created_at: new Date(NOW).toISOString() });
+  assertEquals(((await (await post({ url: STEW_URL })).json()) as RecipeImportResponse).stepIngredients, null);
+  store.cache.set(`${STEW_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: { ...cached, step_ingredients: [[]] }, is_recipe: true, created_at: new Date(NOW).toISOString() });
+  assertEquals(((await (await post({ url: STEW_URL })).json()) as RecipeImportResponse).stepIngredients, null);
+  assertEquals(calls('extractRecipe'), 0, 'both served from the cache');
 });
 
 // --- Cache ------------------------------------------------------------------------------------------

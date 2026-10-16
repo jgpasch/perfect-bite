@@ -18,10 +18,12 @@ type Props = {
    */
   onPress?: () => void;
   accessibilityLabel?: string;
+  /** The circle's size; defaults to `check`. */
+  size?: number;
 };
 
 /** The 24 pt round check. */
-export function CheckCircle({ checked, pending, ring, fill, onPress, accessibilityLabel }: Props) {
+export function CheckCircle({ checked, pending, ring, fill, onPress, accessibilityLabel, size }: Props) {
   const { colors, aisles, sizes, rounded, opacity } = useTheme();
   const look = checkAppearance(checkState(checked, pending), colors, aisles, ring, fill);
 
@@ -30,8 +32,8 @@ export function CheckCircle({ checked, pending, ring, fill, onPress, accessibili
       style={[
         styles.circle,
         {
-          width: sizes.check,
-          height: sizes.check,
+          width: size ?? sizes.check,
+          height: size ?? sizes.check,
           borderRadius: rounded.full,
           borderWidth: sizes.checkBorder,
           borderColor: look.border,
@@ -58,7 +60,7 @@ export function CheckCircle({ checked, pending, ring, fill, onPress, accessibili
       accessibilityState={{ checked }}
       accessibilityLabel={accessibilityLabel}
       // Grown to 44 pt with hit slop, so the circle and the row's layout stay as drawn.
-      hitSlop={(sizes.minTapTarget - sizes.check) / 2}
+      hitSlop={(sizes.minTapTarget - (size ?? sizes.check)) / 2}
       style={({ pressed }) => ({ opacity: pressed ? opacity.pressed : 1 })}>
       {circle}
     </Pressable>

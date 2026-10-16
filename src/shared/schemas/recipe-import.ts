@@ -129,9 +129,24 @@ const RecipeStepSchema = z.string().refine((step) => {
 }, 'A step is 1 to 2000 characters');
 
 /**
+ * Which ingredients each step uses (v4, cook mode, spec 4.5): one list per step, each use by its
+ * index into the recipe's `ingredients` (from 0), with the step's share in the ingredient's own
+ * unit (null for all of it or not stated).
+ */
+export const ExtractedStepIngredientsSchema = z
+  .array(
+    z
+      .array(z.object({ ingredient: z.number().int().min(0), quantity: z.number().positive().nullable() }))
+      .max(MAX_RECIPE_INGREDIENTS),
+  )
+  .max(MAX_RECIPE_STEPS);
+
+/**
  * The extract-recipe result, as cached in `recipe_imports`. A unit the app doesn't support is null,
  * its wording in `note`. `steps` and `image_url` (v3) are JSON-LD's when the page has a recipe
  * there; otherwise the steps are the model's and the image is the page's og:image.
+ * `step_ingredients` (v4) has one entry per step; null when there are no steps or the model's match
+ * didn't line up with them.
  */
 export const ExtractedRecipeSchema = z.object({
   is_recipe: z.boolean(),
@@ -150,6 +165,7 @@ export const ExtractedRecipeSchema = z.object({
   tags: ExtractedRecipeTagsSchema,
   total_minutes: TotalMinutesSchema.nullable(),
   steps: z.array(RecipeStepSchema).max(MAX_RECIPE_STEPS),
+  step_ingredients: ExtractedStepIngredientsSchema.nullable(),
   /** `recipes.image_url`: `https://`, at most 2048 characters. */
   image_url: z.string().max(MAX_IMAGE_URL_LENGTH).startsWith('https://').nullable(),
 });
@@ -182,6 +198,16 @@ export const RecipeImportResponseSchema = z.object({
   totalMinutes: TotalMinutesSchema.nullable().catch(null),
   /** The method, in order; `[]` when there's none, or from an older server that sends none. */
   steps: z.array(z.string()).catch([]),
+  /**
+   * Which ingredients each step uses (spec 4.5, 4.10): one list per step, each use by its index
+   * into `ingredients`, with the step's share (null for all of it). Null when the server matched
+   * nothing, or sent something unreadable (an older server sends none), so the recipe stays
+   * unmatched and `ensureStepMatch` matches it later.
+   */
+  stepIngredients: z
+    .array(z.array(z.object({ index: z.number().int().min(0), quantity: z.number().positive().nullable() })))
+    .nullable()
+    .catch(null),
   /** The photo (JSON-LD's `image`, else the page's og:image); null when none, or from an older server. */
   imageUrl: z.string().nullable().catch(null),
 });

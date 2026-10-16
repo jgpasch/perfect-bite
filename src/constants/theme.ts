@@ -281,6 +281,8 @@ export const Sizes = {
   stepNumber: 26,
   /** the numbered circle before each step on the cook screen, which fills with a check when ticked */
   cookStepCheck: 30,
+  /** the check on an ingredient row under a step on the cook screen */
+  cookIngredientCheck: 22,
   /** The week grid (spec 4.16): the day column, a cell's height and its recipe tile (minimums, for Dynamic Type) */
   planDayColumn: 52,
   planCell: 64,

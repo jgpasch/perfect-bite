@@ -1,14 +1,15 @@
 // Recipe import from a link (spec 4.10, 6.6): calls the `import-recipe` Edge Function, then saves
 // the recipe and puts its ingredients on a list in one local transaction.
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { v5 } from 'uuid';
 
-import { db, households, lists, recipes } from '@/db';
+import { db, households, lists, recipeIngredients, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { stepIngredientsBasis, type StepIngredients } from '@/shared';
 import {
   canonicalRecipeUrl,
   RecipeImportErrorSchema,
@@ -17,7 +18,7 @@ import {
   type RecipeImportResponse,
 } from '@/shared/schemas/recipe-import';
 import type { Exec } from '@/sync/clock';
-import { insertRow } from '@/sync/mutate';
+import { insertRow, updateRows } from '@/sync/mutate';
 
 import { ensureStepMatch } from './ensure-step-match';
 import { capturePage, toRequestPage } from './page-capture';
@@ -200,6 +201,9 @@ function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: 
         { countUsage: false },
         tx,
       );
+      // The import's own step match makes the recipe's match fresh, so ensureStepMatch skips it.
+      const stepIngredients = importedStepIngredients(tx, recipeId, imported);
+      if (stepIngredients) updateRows(tx, recipes, eq(recipes.id, recipeId), { stepIngredients });
     }
 
     // A recipe-only import adds nothing to a list.
@@ -283,6 +287,31 @@ function createImportedRecipe(
     imageUrl: imported.imageUrl,
   });
   return id;
+}
+
+/**
+ * The response's step match (indexes into its ingredients) as `recipes.step_ingredients` for the
+ * recipe the import just created, whose ingredients are the response's in the same order. Null
+ * when there's none, or it doesn't line up with the saved steps and ingredients: the recipe stays
+ * unmatched and ensureStepMatch matches it.
+ */
+function importedStepIngredients(exec: Exec, recipeId: string, imported: RecipeImportResponse): StepIngredients | null {
+  const match = imported.stepIngredients;
+  if (!match || imported.steps.length === 0 || match.length !== imported.steps.length) return null;
+  const ids = exec
+    .select({ id: recipeIngredients.id })
+    .from(recipeIngredients)
+    .where(and(eq(recipeIngredients.recipeId, recipeId), isNull(recipeIngredients.deletedAt)))
+    .orderBy(asc(recipeIngredients.position))
+    .all()
+    .map((i) => i.id);
+  if (ids.length !== imported.ingredients.length) return null;
+  if (match.some((uses) => uses.some((use) => use.index >= ids.length))) return null;
+  return {
+    v: 1,
+    basis: stepIngredientsBasis(imported.steps, ids),
+    steps: match.map((uses) => uses.map((use) => ({ id: ids[use.index], quantity: use.quantity }))),
+  };
 }
 
 /** `recipes.servings`: a whole number from 1 to 100, else null. */

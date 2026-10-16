@@ -6,6 +6,7 @@ import {
   acceptedKeys,
   EvalUsageError,
   formatReport,
+  formatStepScores,
   formatTagScores,
   pageMisses,
   parseArgs,
@@ -13,10 +14,13 @@ import {
   run,
   runEval,
   scorePage,
+  scoreStepMatch,
+  stepRecipesByFile,
   type EvalIo,
   type ExpectedPage,
   type GotPage,
 } from './eval.ts';
+import type { EvalRecipe } from '../../match-recipe-steps/eval/eval.ts';
 
 type Got = Extract<GotPage, { kind: 'recipe' }>['ingredients'][number];
 
@@ -425,6 +429,117 @@ Deno.test('run: exit 2 for usage, bad expected.json, no model, off, and a missin
   const t = io(JSON.stringify({ pages: [{ file: 'gone.html', url: 'https://a.com/r', is_recipe: false, names: [], ingredients: [] }] }));
   assertEquals(await withEnvModel(null, () => run(['--model', 'mock'], t.evalIo)), 2);
   assertStringIncludes(t.err(), 'Eval failed: NotFound');
+});
+
+// --- Step match (prompt v4), scored with the steps eval's labels ------------------------------------
+
+const STEP_RECIPE: EvalRecipe = {
+  id: 'tacos',
+  source: 'import-recipe/eval/fixtures/jsonld-x-tacos.html',
+  name: 'Tacos',
+  steps: ['Marinate the chicken in lime.', 'Warm the tortillas.'],
+  ingredients: [
+    { name: 'chicken thighs', quantity: 2, unit: 'lb', note: '' },
+    { name: 'limes', quantity: 3, unit: null, note: '' },
+    { name: 'tortillas', quantity: 8, unit: null, note: '' },
+  ],
+  expected: [{ uses: [0, 1], shares: { '1': 1 } }, { uses: [2] }],
+};
+
+const recipeGot = (stepIngredients: Extract<GotPage, { kind: 'recipe' }>['stepIngredients'], over: Partial<Extract<GotPage, { kind: 'recipe' }>> = {}): GotPage => ({
+  kind: 'recipe',
+  name: 'Tacos',
+  // The import's order differs from the eval's, and it has one the eval doesn't.
+  ingredients: [got('tortilla', 8, null), got('salt', null, null), got('chicken thigh', 2, 'lb'), got('lime', 3, null)],
+  steps: STEP_RECIPE.steps,
+  stepIngredients,
+  ...over,
+});
+
+Deno.test('stepRecipesByFile: the steps eval’s recipes from import fixtures, by file; typed ones left out', () => {
+  const typed = { ...STEP_RECIPE, id: 'typed', source: 'typed: by hand' };
+  assertEquals([...stepRecipesByFile([STEP_RECIPE, typed]).keys()], ['jsonld-x-tacos.html']);
+});
+
+Deno.test('scoreStepMatch: the import’s indexes map to the eval’s ingredients by key', () => {
+  const right = scoreStepMatch('x.html', STEP_RECIPE, recipeGot([[{ index: 2, quantity: null }, { index: 3, quantity: 1 }], [{ index: 0, quantity: null }]]));
+  assertEquals([right.outcome.right, right.outcome.wrong, right.outcome.missed, right.outcome.sharesRight, right.unmapped], [3, 0, 0, 3, 0]);
+  // Tortillas on step 1 are wrong, salt can't be scored, and step 2 misses the tortillas.
+  const off = scoreStepMatch('x.html', STEP_RECIPE, recipeGot([[{ index: 2, quantity: null }, { index: 3, quantity: null }, { index: 0, quantity: null }, { index: 1, quantity: null }], []]));
+  assertEquals([off.outcome.right, off.outcome.wrong, off.outcome.missed, off.unmapped], [2, 1, 1, 1]);
+  assertEquals(off.outcome.shareMisses, [{ step: 1, ingredient: 1, expected: 1, got: null }]);
+  // Same key wins over a longer name holding it; then whole words inside count ("corn tortilla" is
+  // "tortilla"), but not part of a word ("time" isn't "lime").
+  const named = recipeGot([[{ index: 0, quantity: null }, { index: 1, quantity: 1 }], [{ index: 2, quantity: null }]], {
+    ingredients: [got('boneless chicken thigh', 2, 'lb'), got('lime', 3, null), got('corn tortilla', 8, null)],
+  });
+  assertEquals(scoreStepMatch('x.html', STEP_RECIPE, named).outcome.right, 3);
+  const partWord = recipeGot([[{ index: 0, quantity: 1 }], []], { ingredients: [got('time', 3, null)] });
+  assertEquals(scoreStepMatch('x.html', STEP_RECIPE, partWord).unmapped, 1);
+});
+
+Deno.test('scoreStepMatch: punctuation doesn’t count, and the longest name holding a key wins', () => {
+  const peppers: EvalRecipe = {
+    ...STEP_RECIPE,
+    steps: ['Halve the peppers.', 'Season with pepper.'],
+    ingredients: [
+      { name: 'green, red or yellow peppers', quantity: 5, unit: null, note: '' },
+      { name: 'pepper', quantity: null, unit: null, note: '' },
+    ],
+    expected: [{ uses: [0] }, { uses: [1] }],
+  };
+  // The import wrote an extra comma, and its spice isn't "pepper" alone.
+  const page = recipeGot([[{ index: 0, quantity: null }], [{ index: 1, quantity: null }]], {
+    steps: peppers.steps,
+    ingredients: [got('green, red, or yellow pepper', 5, null), got('black pepper', null, null)],
+  });
+  const { outcome } = scoreStepMatch('x.html', peppers, page);
+  assertEquals([outcome.right, outcome.wrong, outcome.missed], [2, 0, 0]);
+});
+
+Deno.test('scoreStepMatch: no match, other steps or a failed import miss every needed pair', () => {
+  for (const [what, page] of [
+    ['no step match came back', recipeGot(null)],
+    ["the import's 2 steps aren't the eval's 2", recipeGot([[], []], { steps: ['Marinate.', 'Warm the tortillas.'] })],
+    ["the import's 1 steps aren't the eval's 2", recipeGot([[]], { steps: ['Marinate the chicken in lime.'] })],
+    ['not a recipe', { kind: 'not_a_recipe' } as GotPage],
+    ['unavailable: down', { kind: 'error', message: 'unavailable: down' } as GotPage],
+  ] as const) {
+    const { outcome } = scoreStepMatch('x.html', STEP_RECIPE, page);
+    assertStringIncludes(outcome.error ?? '', what);
+    assertEquals([outcome.right, outcome.missed], [0, 3], what);
+  }
+});
+
+Deno.test('formatStepScores: per page, then the totals against the steps eval’s bar, then the misses', () => {
+  const right = scoreStepMatch('jsonld-a.html', STEP_RECIPE, recipeGot([[{ index: 2, quantity: null }, { index: 3, quantity: 1 }], [{ index: 0, quantity: null }]]));
+  const none = scoreStepMatch('jsonld-b.html', STEP_RECIPE, recipeGot(null));
+  const lines = formatStepScores([right, none]).join('\n');
+  assertStringIncludes(lines, 'step match (2 pages labelled in the steps eval; bar 95% precision, 85% recall):');
+  assertStringIncludes(lines, '  jsonld-a  100%       100%    3/3     0/3       0');
+  assertStringIncludes(lines, '  jsonld-b  FAIL       0%      -       3/3       0');
+  assertStringIncludes(lines, '  precision:  3/3 (100%)\n  recall:     3/6 (50%)');
+  assertStringIncludes(lines, '  failures:   1 of 2 pages');
+  assertStringIncludes(lines, '  jsonld-b.html\n    error: no step match came back\n    step 1: missed chicken thighs');
+  assertEquals(formatStepScores([]), []);
+  assertStringIncludes(formatReport({ outcomes: [], calls: [], steps: [right] }), 'step match (1 pages');
+});
+
+Deno.test('run: the mock’s step match is scored on the pages the steps eval labels', async () => {
+  const t = io(await Deno.readTextFile(new URL('./expected.json', import.meta.url)));
+  assertEquals(await withEnvModel(null, () => run(['--model', 'mock'], t.evalIo)), 0, t.err());
+  assertStringIncludes(t.out(), 'step match (13 pages labelled in the steps eval');
+  assertStringIncludes(t.out(), '  failures:   0 of 13 pages');
+});
+
+Deno.test('run: exit 2 for a bad steps eval file', async () => {
+  const good = await Deno.readTextFile(new URL('./expected.json', import.meta.url));
+  for (const [text, message] of [['{', 'not valid JSON'], ['{"recipes":[]}', 'recipes.json is invalid']]) {
+    const t = io(good, { AI_MODEL_RECIPE: 'mock' });
+    t.evalIo.readStepRecipes = () => Promise.resolve(text);
+    assertEquals(await run([], t.evalIo), 2, message);
+    assertStringIncludes(t.err(), message);
+  }
 });
 
 Deno.test('run: --help', async () => {

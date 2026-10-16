@@ -19,6 +19,7 @@ import { traceAiCalls } from '../_shared/ai/trace.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
 import { formatStats, MemoryStore } from '../categorize-ingredients/cli.ts';
 import { categorize } from '../categorize-ingredients/handler.ts';
+import { formatMatch } from '../match-recipe-steps/format.ts';
 import { ImportRecipeError, importRecipe, type CachedImport, type RecipeImportStore } from './handler.ts';
 
 export const USAGE = `Usage: yarn ai:recipe [options] <url>
@@ -152,7 +153,22 @@ export function formatTags(tags: AiRecipeTags | null): string {
   return parts.length === 0 ? '-' : parts.join(' · ');
 }
 
-/** Pure: name, servings, time, tags, source and the ingredient table. */
+/**
+ * Pure: the import's step match as `yarn ai:steps` prints one, under a heading; a line saying there
+ * is none when the import sent no match. Empty for a recipe with no steps.
+ */
+export function formatStepMatch(response: RecipeImportResponse): string {
+  if (response.steps.length === 0) return '';
+  if (response.stepIngredients === null) return 'step match: none (the app matches the recipe after it saves)';
+  const recipe = {
+    steps: response.steps,
+    ingredients: response.ingredients.map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit })),
+  };
+  const match = response.stepIngredients.map((uses) => uses.map((use) => ({ ingredient: use.index, quantity: use.quantity })));
+  return `step match:\n\n${formatMatch(recipe, match)}`;
+}
+
+/** Pure: name, servings, time, tags, source, the ingredient table and the step match. */
 export function formatRecipe(response: RecipeImportResponse): string {
   const rows = [['name', 'quantity', 'unit', 'note', 'category']];
   for (const i of response.ingredients) {
@@ -165,6 +181,7 @@ export function formatRecipe(response: RecipeImportResponse): string {
       i.status === 'categorized' && slug ? slug : `(${i.status})`,
     ]);
   }
+  const stepMatch = formatStepMatch(response);
   return [
     `name:     ${response.name}`,
     `servings: ${response.servings ?? '-'}`,
@@ -173,6 +190,7 @@ export function formatRecipe(response: RecipeImportResponse): string {
     `source:   ${response.sourceUrl}`,
     '',
     response.ingredients.length === 0 ? 'No ingredients.' : table(rows),
+    ...(stepMatch ? ['', stepMatch] : []),
   ].join('\n');
 }
 
