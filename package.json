@@ -72,6 +72,7 @@
     "ai:categorize": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/cli.ts",
     "ai:eval": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/eval.ts",
     "ai:unlink": "deno run --allow-env --allow-net --allow-read --allow-sys supabase/functions/categorize-ingredients/unlink.ts",
+    "ai:translations": "deno run --allow-env --allow-net --allow-read --allow-write --allow-sys supabase/functions/categorize-ingredients/translations.ts",
     "ai:prune-twins": "deno run --allow-env --allow-net --allow-read --allow-sys supabase/functions/categorize-ingredients/prune-twins.ts",
     "ai:check-seed": "deno run --allow-env --allow-net --allow-read --allow-write=supabase/functions/categorize-ingredients/eval/results --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/check-seed.ts",
     "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",

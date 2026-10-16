@@ -51,3 +51,6 @@ example
 
 # ralph run logs
 logs/
+
+# yarn ai:translations exports: names typed by real households
+exports/
