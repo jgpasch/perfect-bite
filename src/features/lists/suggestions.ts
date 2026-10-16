@@ -1,5 +1,5 @@
-import { rankRecipes } from '@/domain/suggestion-rank';
-import { searchCatalog } from '@/features/categories/categories';
+import { mergeSuggestions, rankRecipes } from '@/domain/suggestion-rank';
+import { catalogEntry, searchCatalog } from '@/features/categories/categories';
 import { recipeAddTimes, recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
 import { displayItemName, parseQuantity } from '@/shared';
 
@@ -11,27 +11,22 @@ export type Suggestion = { key: string; displayName: string; source: 'history' |
 const HISTORY_ONLY_MIN = 2;
 
 /**
- * Add-bar autocomplete (spec 4.2): household history wins. With 2 or more history matches only history is shown;
- * with fewer, the catalog fills the remaining slots. Matches the name part of the text, so `2 lbs chi` suggests
- * chicken thighs. A match identical to the typed name is still shown, so typing a whole name (`dill`) keeps it first.
+ * Add-bar autocomplete (spec 4.2), in `mergeSuggestions`' order: the suggestion that is the typed name (normalized as
+ * an add, so `coffees` gives Coffee) first, from history or the catalog; then shorter names before longer ones, from
+ * either source; at equal length a prefix match before a word match, then frecency, history before the catalog, then
+ * alphabetical. With 2 or more history matches the catalog is left out, except its entry for the typed name, which
+ * always shows. Matches the name part of the text, so `2 lbs chi` suggests chicken thighs.
  * TODO(M6): limit catalog suggestions per spec 6.5 once server rows are cached.
  */
 export function getSuggestions(householdId: string, text: string, limit = 5): Suggestion[] {
   const { name } = parseQuantity(text);
   if (name.trim().length < 2) return [];
-  const seen = new Set<string>();
-  const out: Suggestion[] = [];
-  const push = (rows: { key: string; displayName: string }[], source: Suggestion['source']) => {
-    for (const r of rows) {
-      if (out.length === limit) return;
-      if (seen.has(r.key)) continue;
-      seen.add(r.key);
-      out.push({ key: r.key, displayName: r.displayName, source });
-    }
-  };
-  push(searchRecentItems(householdId, name, limit), 'history');
-  if (out.length < HISTORY_ONLY_MIN) push(searchCatalog(name, limit), 'catalog');
-  return out;
+  const history = searchRecentItems(householdId, name, limit);
+  const exact = catalogEntry(name);
+  const catalog = history.length < HISTORY_ONLY_MIN ? searchCatalog(name, limit) : [];
+  return mergeSuggestions(history, exact ? [exact, ...catalog] : catalog, name, limit).map(
+    ({ key, displayName, source }) => ({ key, displayName, source }),
+  );
 }
 
 /** The add text with its name replaced by a suggestion, keeping a typed amount: `2 lbs chi` → `2 lbs chicken thighs`. */
@@ -73,8 +68,8 @@ export type SuggestionChip =
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
 /**
- * The chip row above the add bar (spec 4.2): matching recipes, then autocomplete (household history, then the
- * catalog), each adding the typed amount with its name. Empty while the field is empty (whitespace counts) and when
+ * The chip row above the add bar (spec 4.2): matching recipes, then autocomplete (household history and the
+ * catalog, in `getSuggestions`' order), each adding the typed amount with its name. Empty while the field is empty (whitespace counts) and when
  * nothing matches, so the row collapses.
  */
 export function suggestionChips(

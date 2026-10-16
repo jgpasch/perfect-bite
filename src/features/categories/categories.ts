@@ -394,3 +394,16 @@ export function searchCatalog(
     .all();
   return rankCatalog(matches, p, language, limit).map(({ key, displayName }) => ({ key, displayName }));
 }
+
+/** The catalog grocery ingredient that is `name` normalized as an add (`coffees` → coffee), or null. */
+export function catalogEntry(name: string): { key: string; displayName: string } | null {
+  const key = normalizeIngredientName(name);
+  if (!key) return null;
+  return (
+    db
+      .select({ key: ingredients.normalizedName, displayName: ingredients.displayName })
+      .from(ingredients)
+      .where(and(eq(ingredients.normalizedName, key), eq(ingredients.isGroceryItem, true)))
+      .get() ?? null
+  );
+}

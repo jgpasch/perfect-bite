@@ -837,7 +837,16 @@ describe('searchRecentItems (spec 4.2)', () => {
     seed('chive', 'chives', 1, daysAgo(1));
     seed('chili', 'chili', 2, daysAgo(1));
     seed('chicken thigh', 'chicken thighs', 9, daysAgo(1));
-    expect(search('chi', 2).map((s) => s.key)).toEqual(['chicken thigh', 'chili']);
+    // Shorter names first, however often the longer one is bought.
+    expect(search('chi', 2).map((s) => s.key)).toEqual(['chili', 'chive']);
+  });
+
+  test('a row whose key is the typed name normalized as an add comes first', () => {
+    seed('coffee filter', 'Coffee filters', 9, daysAgo(1));
+    seed('coffee', 'Coffee', 1, daysAgo(40));
+    expect(search('coffee').map((s) => s.key)).toEqual(['coffee', 'coffee filter']);
+    // `coffees` is no prefix of Coffee, but it is Coffee once normalized.
+    expect(search('coffees')).toEqual([{ key: 'coffee', displayName: 'Coffee' }]);
   });
 
   test('case and surrounding space in the query are ignored', () => {

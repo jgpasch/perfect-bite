@@ -1,5 +1,7 @@
 // Spec 4.2: orders the household's ingredient history, the catalog and the household's recipes, for autocomplete. Pure.
 
+import { normalizeIngredientName } from '@/shared';
+
 export type HistoryRow = {
   /** Ingredient key. */
   ingredientName: string;
@@ -27,28 +29,87 @@ function matchKind(rawNames: readonly string[], query: string): 'prefix' | 'word
   return null;
 }
 
+/** How a suggestion matches the typed text: `exact` when it is the typed name, plus its prefix or word match. */
+type SuggestionMatch = { exact: boolean; kind: 'prefix' | 'word' };
+
 /**
- * The visible rows whose display name or key starts with `query` (case-insensitive), or has a
- * word that does, highest frecency first. At equal score a whole-name prefix match beats a word
- * match, then the shorter name, then alphabetical. An empty query matches nothing.
+ * Matches `names` against the typed `query`: exact when one of them is the typed name, both normalized as an add
+ * (`coffees` is `Coffee`), and a whole-name prefix or word match as `matchKind`. Null when neither applies.
+ */
+function matchSuggestion(names: readonly string[], query: string): SuggestionMatch | null {
+  const typed = normalizeIngredientName(query);
+  const exact = typed !== '' && names.some((n) => normalizeIngredientName(n) === typed);
+  const kind = matchKind(names, query.trim().toLowerCase());
+  if (kind) return { exact, kind };
+  return exact ? { exact, kind: 'prefix' } : null;
+}
+
+type Matched = { match: SuggestionMatch; displayName: string };
+
+/** The exact match first, then the shorter display name, then a whole-name prefix match before a word match. */
+function compareMatches(a: Matched, b: Matched): number {
+  return (
+    Number(b.match.exact) - Number(a.match.exact) ||
+    a.displayName.length - b.displayName.length ||
+    (a.match.kind === b.match.kind ? 0 : a.match.kind === 'prefix' ? -1 : 1)
+  );
+}
+
+const alphabetical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The visible rows whose display name or key starts with `query` (case-insensitive), has a word that does, or is
+ * the typed name normalized as an add (`coffees` matches Coffee). The row that is the typed name comes first, then
+ * shorter display names before longer ones (`chi`: Chives before Chicken thighs, however often they're bought); at
+ * equal length a whole-name prefix match beats a word match, then higher frecency, then alphabetical. An empty
+ * query matches nothing.
  */
 export function rankHistory<T extends HistoryRow>(rows: readonly T[], query: string, now: Date): T[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
+  if (!query.trim()) return [];
   return rows
     .flatMap((row) => {
       if (row.hiddenAt !== null) return [];
-      const kind = matchKind([row.displayName, row.ingredientName], q);
-      return kind ? [{ row, kind, score: frecency(row, now) }] : [];
+      const match = matchSuggestion([row.displayName, row.ingredientName], query);
+      return match ? [{ row, match, displayName: row.displayName, score: frecency(row, now) }] : [];
+    })
+    .sort((a, b) => compareMatches(a, b) || b.score - a.score || alphabetical(a.displayName, b.displayName))
+    .map((m) => m.row);
+}
+
+/**
+ * Merges autocomplete's two sources into the item chips' order (spec 4.2), deduped by key (history wins). The
+ * suggestion that is the typed name (normalized as an add) comes first, from either source; then shorter names
+ * before longer ones; at equal length a whole-name prefix match beats a word match, then history (in `history`'s
+ * order, i.e. `rankHistory`'s frecency) before the catalog, then alphabetical. Rows that don't match `query` are
+ * dropped; at most `limit`.
+ */
+export function mergeSuggestions<T extends { key: string; displayName: string }>(
+  history: readonly T[],
+  catalog: readonly T[],
+  query: string,
+  limit: number,
+): (T & { source: 'history' | 'catalog' })[] {
+  if (!query.trim()) return [];
+  const seen = new Set<string>();
+  const tagged = [
+    ...history.map((row) => ({ row, source: 'history' as const })),
+    ...catalog.map((row) => ({ row, source: 'catalog' as const })),
+  ];
+  return tagged
+    .flatMap(({ row, source }, index) => {
+      if (seen.has(row.key)) return [];
+      seen.add(row.key);
+      const match = matchSuggestion([row.displayName, row.key], query);
+      return match ? [{ row, source, index, match, displayName: row.displayName }] : [];
     })
     .sort(
       (a, b) =>
-        b.score - a.score ||
-        (a.kind === b.kind ? 0 : a.kind === 'prefix' ? -1 : 1) ||
-        a.row.displayName.length - b.row.displayName.length ||
-        (a.row.displayName < b.row.displayName ? -1 : a.row.displayName > b.row.displayName ? 1 : 0),
+        compareMatches(a, b) ||
+        (a.source === b.source ? 0 : a.source === 'history' ? -1 : 1) ||
+        (a.source === 'history' ? a.index - b.index : alphabetical(a.displayName, b.displayName)),
     )
-    .map((m) => m.row);
+    .slice(0, Math.max(0, limit))
+    .map(({ row, source }) => ({ ...row, source }));
 }
 
 /** A catalog name as autocomplete sees it (spec 4.2), with its language (4.15; null when not known). */

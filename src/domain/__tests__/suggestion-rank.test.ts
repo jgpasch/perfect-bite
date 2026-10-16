@@ -2,6 +2,7 @@ import { describe, expect, it, test } from '@jest/globals';
 
 import {
   frecency,
+  mergeSuggestions,
   rankCatalog,
   rankHistory,
   rankRecipes,
@@ -85,16 +86,43 @@ describe('rankUsual', () => {
 });
 
 describe('rankHistory', () => {
-  it('ranks a frequent old item above a once-used recent one', () => {
-    // 5 uses 30 days ago scores 2.5; 1 use yesterday scores ~0.98.
-    const rows = [usage('chicken breasts', 1, 1), usage('chicken thighs', 5, 30)];
-    expect(names(rankHistory(rows, 'chi', now))).toEqual(['chicken thighs', 'chicken breasts']);
+  it('at equal length ranks a frequent old item above a once-used recent one', () => {
+    // 5 uses 30 days ago scores 2.5; 1 use yesterday scores ~0.98. Both names are 14 characters.
+    const rows = [usage('chicken breast', 1, 1), usage('chicken thighs', 5, 30)];
+    expect(names(rankHistory(rows, 'chi', now))).toEqual(['chicken thighs', 'chicken breast']);
   });
 
-  it('lets recency win once the old uses have decayed enough', () => {
+  it('at equal length lets recency win once the old uses have decayed enough', () => {
     // 5 uses 120 days ago scores 0.3125; 1 use today scores 1.
-    const rows = [usage('chicken thighs', 5, 120), usage('chicken breasts', 1, 0)];
-    expect(names(rankHistory(rows, 'chi', now))).toEqual(['chicken breasts', 'chicken thighs']);
+    const rows = [usage('chicken thighs', 5, 120), usage('chicken breast', 1, 0)];
+    expect(names(rankHistory(rows, 'chi', now))).toEqual(['chicken breast', 'chicken thighs']);
+  });
+
+  it('puts the typed name first, however often the others are bought', () => {
+    const rows = [usage('Coffee filters', 9, 0), usage('Coffee', 1, 60)];
+    expect(names(rankHistory(rows, 'coffee', now))).toEqual(['Coffee', 'Coffee filters']);
+    expect(names(rankHistory(rows, ' COFFEE ', now))).toEqual(['Coffee', 'Coffee filters']);
+  });
+
+  it('counts the typed name normalized as an add, so a plural finds the singular', () => {
+    const rows = [usage('Coffee filters', 9, 0), usage('Coffee', 1, 60)];
+    // `coffees` isn't a prefix of either name, but it is Coffee once normalized.
+    expect(names(rankHistory(rows, 'coffees', now))).toEqual(['Coffee']);
+    // Accents fold too: `limon` is Limón.
+    const limon = usage('Limón', 1, 0, { ingredientName: 'limon' });
+    expect(rankHistory([limon], 'limon', now)).toEqual([limon]);
+    expect(rankHistory([usage('Coffee', 1, 0)], 'coffeez', now)).toEqual([]);
+  });
+
+  it('puts the typed name ahead of a shorter match', () => {
+    // `Tea!!` is `tea` normalized as an add; `teal` is shorter but only a prefix match.
+    const rows = [usage('teal', 9, 0), usage('Tea!!', 1, 0, { ingredientName: 'tea' })];
+    expect(names(rankHistory(rows, 'tea', now))).toEqual(['Tea!!', 'teal']);
+  });
+
+  it('puts shorter names first, whatever their frecency (`chi`: Chives before Chicken thighs)', () => {
+    const rows = [usage('Chicken thighs', 20, 0), usage('Chives', 1, 90), usage('Chili', 1, 90)];
+    expect(names(rankHistory(rows, 'chi', now))).toEqual(['Chili', 'Chives', 'Chicken thighs']);
   });
 
   it('matches a later word in the name', () => {
@@ -107,17 +135,16 @@ describe('rankHistory', () => {
     expect(rankHistory([usage('chicken thighs', 2, 0)], 'hick', now)).toEqual([]);
   });
 
-  it('puts a prefix match ahead of a word match at equal score', () => {
-    const rows = [usage('green onion', 2, 3), usage('onion', 2, 3)];
-    expect(names(rankHistory(rows, 'on', now))).toEqual(['onion', 'green onion']);
-    // The prefix match wins even when it is the longer name.
-    const longer = [usage('red onion', 1, 0), usage('onion rings', 1, 0)];
-    expect(names(rankHistory(longer, 'onion', now))).toEqual(['onion rings', 'red onion']);
+  it('at equal length puts a prefix match ahead of a higher-scoring word match', () => {
+    const rows = [usage('red onions', 9, 0), usage('onion soup', 1, 30)];
+    expect(names(rankHistory(rows, 'onion', now))).toEqual(['onion soup', 'red onions']);
   });
 
-  it('lets a higher-scoring word match beat a prefix match', () => {
-    const rows = [usage('onion', 1, 0), usage('green onion', 3, 0)];
-    expect(names(rankHistory(rows, 'on', now))).toEqual(['green onion', 'onion']);
+  it('puts a shorter word match ahead of a longer prefix match', () => {
+    const rows = [usage('onion rings', 1, 0), usage('red onion', 1, 0)];
+    expect(names(rankHistory(rows, 'onion', now))).toEqual(['red onion', 'onion rings']);
+    const scored = [usage('onion', 1, 0), usage('green onion', 3, 0)];
+    expect(names(rankHistory(scored, 'on', now))).toEqual(['onion', 'green onion']);
   });
 
   it('breaks ties by shorter name, then alphabetically', () => {
@@ -161,6 +188,62 @@ describe('rankHistory', () => {
     const ranked = rankHistory(rows, 'chi', now);
     expect(ranked[0]).toBe(rows[1]);
     expect(rows).toEqual(before);
+  });
+});
+
+describe('mergeSuggestions', () => {
+  const s = (displayName: string, key = displayName.toLowerCase()) => ({ key, displayName });
+  const shown = (out: { displayName: string; source: string }[]) => out.map((r) => `${r.displayName} (${r.source})`);
+
+  it('puts the typed name first, from either source', () => {
+    expect(shown(mergeSuggestions([s('Coffee filters')], [s('Coffee')], 'coffee', 5))).toEqual([
+      'Coffee (catalog)',
+      'Coffee filters (history)',
+    ]);
+    // A plural typed name counts.
+    expect(shown(mergeSuggestions([s('Coffee filters')], [s('Coffee')], 'coffees', 5))).toEqual(['Coffee (catalog)']);
+  });
+
+  it('puts shorter names first across sources', () => {
+    const out = mergeSuggestions([s('Chicken thighs'), s('Chicken breasts')], [s('Chives'), s('Chili')], 'chi', 5);
+    expect(shown(out)).toEqual([
+      'Chili (catalog)',
+      'Chives (catalog)',
+      'Chicken thighs (history)',
+      'Chicken breasts (history)',
+    ]);
+  });
+
+  it('at equal length puts a prefix match before a word match, whatever the source', () => {
+    expect(shown(mergeSuggestions([s('red onions')], [s('onion soup')], 'onion', 5))).toEqual([
+      'onion soup (catalog)',
+      'red onions (history)',
+    ]);
+  });
+
+  it('at equal length and match keeps history in its frecency order, ahead of the catalog', () => {
+    // History arrives in rankHistory's order (frecency), which isn't alphabetical.
+    const out = mergeSuggestions([s('milk b'), s('milk a')], [s('milk c'), s('milk 0')], 'mil', 5);
+    expect(shown(out)).toEqual(['milk b (history)', 'milk a (history)', 'milk 0 (catalog)', 'milk c (catalog)']);
+  });
+
+  it('dedupes by key, keeping the history row', () => {
+    const out = mergeSuggestions([s('Chickpeas', 'chickpea')], [s('chickpeas', 'chickpea'), s('chicken')], 'chick', 5);
+    expect(out).toEqual([
+      { key: 'chicken', displayName: 'chicken', source: 'catalog' },
+      { key: 'chickpea', displayName: 'Chickpeas', source: 'history' },
+    ]);
+  });
+
+  it('applies the limit after ordering', () => {
+    const out = mergeSuggestions([s('cheese sticks'), s('cheddar')], [s('cheese'), s('chervil')], 'che', 2);
+    expect(shown(out)).toEqual(['cheese (catalog)', 'cheddar (history)']);
+    expect(mergeSuggestions([s('cheese')], [], 'che', 0)).toEqual([]);
+  });
+
+  it('drops rows that do not match and returns [] for a blank query', () => {
+    expect(shown(mergeSuggestions([s('milk')], [s('pistachio')], 'chi', 5))).toEqual([]);
+    expect(mergeSuggestions([s('milk')], [s('mint')], '  ', 5)).toEqual([]);
   });
 });
 

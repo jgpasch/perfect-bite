@@ -54,16 +54,17 @@ describe('getSuggestions (spec 4.2)', () => {
     expect(out.every((s) => s.source === 'history')).toBe(true);
   });
 
-  test('with one history match, the catalog fills the rest after it, deduped by key', () => {
-    addItem(listId, 'chicken sausage from the butcher', USER);
+  test('with one history match, the catalog fills the rest, shorter names first, deduped by key', () => {
+    addItem(listId, 'chicken legs', USER);
     const out = getSuggestions(householdId, 'chick');
-    expect(out[0]).toEqual({
-      key: 'chicken sausage from the butcher',
-      displayName: 'chicken sausage from the butcher',
-      source: 'history',
-    });
-    expect(out.slice(1)).toEqual(catalog('chick').slice(0, 4));
-    expect(out).toHaveLength(5);
+    // `chicken legs` is history and the catalog's; it shows once, as history, among names of its length.
+    expect(out).toEqual([
+      { key: 'chicken', displayName: 'chicken', source: 'catalog' },
+      { key: 'chickpea', displayName: 'chickpeas', source: 'catalog' },
+      { key: 'chicken leg', displayName: 'chicken legs', source: 'history' },
+      { key: 'chicken base', displayName: 'chicken base', source: 'catalog' },
+      { key: 'chicken broth', displayName: 'chicken broth', source: 'catalog' },
+    ]);
 
     // A history entry the catalog also has appears once, as history.
     resetDb();
@@ -73,9 +74,12 @@ describe('getSuggestions (spec 4.2)', () => {
     householdId = db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
     addItem(listId, 'Chickpeas', USER);
     const deduped = getSuggestions(householdId, 'chick');
-    expect(deduped[0]).toEqual({ key: 'chickpea', displayName: 'Chickpeas', source: 'history' });
+    expect(deduped.slice(0, 2)).toEqual([
+      { key: 'chicken', displayName: 'chicken', source: 'catalog' },
+      { key: 'chickpea', displayName: 'Chickpeas', source: 'history' },
+    ]);
     expect(deduped.filter((s) => s.key === 'chickpea')).toHaveLength(1);
-    expect(deduped.slice(1).every((s) => s.source === 'catalog')).toBe(true);
+    expect(deduped.filter((s) => s.source === 'history')).toHaveLength(1);
   });
 
   test('with no history, returns the catalog results unchanged', () => {
@@ -115,11 +119,74 @@ describe('getSuggestions (spec 4.2)', () => {
     expect(getSuggestions(householdId, 'Chicken')[0]?.key).toBe('chicken');
   });
 
+  test('`coffee` with history Coffee filters (often bought) and Coffee gives Coffee, then Coffee filters', () => {
+    for (let i = 0; i < 6; i++) addItem(listId, 'Coffee filters', USER);
+    addItem(listId, 'Coffee', USER);
+    expect(getSuggestions(householdId, 'coffee')).toEqual([
+      { key: 'coffee', displayName: 'Coffee', source: 'history' },
+      { key: 'coffee filter', displayName: 'Coffee filters', source: 'history' },
+    ]);
+    // A plural is the typed name too, and an amount doesn't change it.
+    expect(getSuggestions(householdId, 'coffees')).toEqual([{ key: 'coffee', displayName: 'Coffee', source: 'history' }]);
+    expect(getSuggestions(householdId, '2 bags coffee')[0]?.key).toBe('coffee');
+  });
+
+  test('the catalog entry for the typed name shows first even with 2 or more history matches', () => {
+    for (let i = 0; i < 6; i++) addItem(listId, 'Coffee filters', USER);
+    addItem(listId, 'coffee pods', USER);
+    expect(getSuggestions(householdId, 'coffee')).toEqual([
+      { key: 'coffee', displayName: 'coffee', source: 'catalog' },
+      { key: 'coffee pod', displayName: 'coffee pods', source: 'history' },
+      { key: 'coffee filter', displayName: 'Coffee filters', source: 'history' },
+    ]);
+    // Typed as a plural, it isn't a prefix match of the catalog name but is still the typed name.
+    expect(getSuggestions(householdId, 'Coffees')).toEqual([{ key: 'coffee', displayName: 'coffee', source: 'catalog' }]);
+    // Short of the whole name, the catalog stays out (coffee beans, coffee creamer).
+    expect(getSuggestions(householdId, 'cof').every((s) => s.source === 'history')).toBe(true);
+  });
+
+  test('`chi` gives Chives before Chicken thighs, however often the thighs are bought', () => {
+    for (let i = 0; i < 6; i++) addItem(listId, 'Chicken thighs', USER);
+    addItem(listId, 'Chives', USER);
+    expect(getSuggestions(householdId, 'chi')).toEqual([
+      { key: 'chive', displayName: 'Chives', source: 'history' },
+      { key: 'chicken thigh', displayName: 'Chicken thighs', source: 'history' },
+    ]);
+  });
+
+  test('with fewer than 2 history matches, shorter catalog names come before a longer history name', () => {
+    addItem(listId, 'coffee filters', USER);
+    expect(getSuggestions(householdId, 'coffee f')).toEqual([{ key: 'coffee filter', displayName: 'coffee filters', source: 'history' }]);
+    expect(getSuggestions(householdId, 'coffee')).toEqual([
+      { key: 'coffee', displayName: 'coffee', source: 'catalog' },
+      { key: 'coffee pod', displayName: 'coffee pods', source: 'catalog' },
+      { key: 'coffee bean', displayName: 'coffee beans', source: 'catalog' },
+      // Both 14 letters and prefix matches: history first.
+      { key: 'coffee filter', displayName: 'coffee filters', source: 'history' },
+      { key: 'coffee creamer', displayName: 'coffee creamer', source: 'catalog' },
+    ]);
+    // A longer history name is left out once five shorter names fill the slots.
+    expect(getSuggestions(householdId, 'coffee', 3).map((s) => s.source)).toEqual(['catalog', 'catalog', 'catalog']);
+  });
+
+  test('at equal length history comes before the catalog', () => {
+    // History `chile` and the catalog's `chili` and `chips` are all 5 letters, all prefix matches.
+    addItem(listId, 'chile', USER);
+    const out = getSuggestions(householdId, 'chi');
+    expect(out.slice(0, 3)).toEqual([
+      { key: 'chile', displayName: 'chile', source: 'history' },
+      { key: 'chili', displayName: 'chili', source: 'catalog' },
+      { key: 'chip', displayName: 'chips', source: 'catalog' },
+    ]);
+  });
+
   test('hidden history rows and other households are not history matches', () => {
     addItem(listId, 'chicken thighs', USER);
     addItem(listId, 'chicken breasts', USER);
     db.update(ingredientUsage).set({ hiddenAt: new Date() }).where(eq(ingredientUsage.ingredientName, 'chicken breast')).run();
-    const out = getSuggestions(householdId, 'chi');
+    // One history match left, so the catalog fills in; `chicken th` keeps the history row in view.
+    expect(getSuggestions(householdId, 'chi').every((s) => s.source === 'catalog')).toBe(true);
+    const out = getSuggestions(householdId, 'chicken th');
     expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
     expect(out.slice(1).every((s) => s.source === 'catalog')).toBe(true);
     // The hidden key can still come back from the catalog.
@@ -142,9 +209,9 @@ describe('getSuggestions (spec 4.2)', () => {
 
   test('applySuggestion keeps the typed amount for either source', () => {
     addItem(listId, 'chicken thighs', USER);
-    const [history] = getSuggestions(householdId, '2 lbs chi');
+    const [history] = getSuggestions(householdId, '2 lbs chicken thi');
     expect(history.source).toBe('history');
-    expect(applySuggestion('2 lbs chi', history)).toBe('2 lbs chicken thighs');
+    expect(applySuggestion('2 lbs chicken thi', history)).toBe('2 lbs chicken thighs');
     const [catalogHit] = getSuggestions(householdId, '1 can chickp');
     expect(catalogHit.source).toBe('catalog');
     expect(applySuggestion('1 can chickp', catalogHit)).toBe('1 can chickpeas');
@@ -172,10 +239,13 @@ describe('Remove from suggestions (spec 4.2)', () => {
     addItem(listId, 'chicken sausage from the butcher', USER);
     expect(getSuggestions(householdId, 'chi').every((s) => s.source === 'history')).toBe(true);
     hideFromSuggestions(householdId, 'chicken sausage from the butcher');
-    const out = getSuggestions(householdId, 'chi');
-    expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
+    const out = getSuggestions(householdId, 'chicken t');
     expect(out.map((s) => s.key)).not.toContain('chicken sausage from the butcher');
-    expect(out.slice(1)).toEqual(catalog('chi').filter((s) => s.key !== 'chicken thigh').slice(0, 4));
+    // The catalog is back (chicken tenders), after the shorter history name.
+    expect(out[0]).toEqual({ key: 'chicken thigh', displayName: 'chicken thighs', source: 'history' });
+    expect(out.slice(1).map((s) => s.source)).toContain('catalog');
+    expect(out.slice(1).every((s) => s.source === 'catalog')).toBe(true);
+    expect(getSuggestions(householdId, 'chi').map((s) => s.source)).toContain('catalog');
   });
 
   test('a hidden row comes back as history after a new use', () => {

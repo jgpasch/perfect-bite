@@ -1026,8 +1026,9 @@ function listItemsQueryForItem(tx: Tx, itemId: string) {
 
 /**
  * Autocomplete, first source (spec 4.2): the household's ingredient history, ordered by
- * `rankHistory` (frecency). SQL only pre-filters on the start of the display name or key, or of
- * one of their words, so every row `rankHistory` could match reaches it.
+ * `rankHistory` (the typed name first, then shorter names). SQL only pre-filters on the start of the
+ * display name or key, or of one of their words, or the key being the typed name's, so every row
+ * `rankHistory` could match reaches it.
  */
 export function searchRecentItems(householdId: string, prefix: string, limit: number, now = new Date()) {
   const p = prefix.trim().toLowerCase().replace(/[%_]/g, '');
@@ -1044,6 +1045,7 @@ export function searchRecentItems(householdId: string, prefix: string, limit: nu
           like(ingredientUsage.displayName, `% ${p}%`),
           like(ingredientUsage.ingredientName, `${p}%`),
           like(ingredientUsage.ingredientName, `% ${p}%`),
+          eq(ingredientUsage.ingredientName, normalizeIngredientName(p)),
         ),
       ),
     )

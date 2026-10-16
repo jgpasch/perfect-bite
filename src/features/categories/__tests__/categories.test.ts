@@ -515,14 +515,14 @@ describe('autocomplete', () => {
     initI18n('en');
   });
 
-  test('suggests recent household items first, then the catalog, keeping a typed amount', () => {
-    addItem(listId, 'chicken sausage from the butcher', A);
+  test('suggests household items and the catalog, shorter names first, keeping a typed amount', () => {
+    addItem(listId, 'chickens', A);
     const household = groupItems(listItemsQuery(listId).all()); // ensure the add landed
     expect(household.unchecked).toHaveLength(1);
     const list = require('@/features/lists/lists').getList(listId);
     const suggestions = getSuggestions(list.householdId, '2 lbs chick');
-    expect(suggestions[0].displayName).toBe('chicken sausage from the butcher');
-    expect(suggestions.map((s) => s.displayName)).toContain('chicken');
+    expect(suggestions[0]).toEqual({ key: 'chicken', displayName: 'chickens', source: 'history' });
+    expect(suggestions.map((s) => s.displayName)).toContain('chickpeas');
     expect(applySuggestion('2 lbs chick', { key: 'chicken thigh', displayName: 'chicken thighs' })).toBe(
       '2 lbs chicken thighs',
     );
