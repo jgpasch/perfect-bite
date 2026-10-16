@@ -7,7 +7,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, households, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
-import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { getDeviceSetting, setDeviceSetting, setPlanTab } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { Palette } from '@/constants/theme';
 import { resetDb } from '@/test/db';
@@ -185,6 +185,8 @@ beforeEach(() => {
   resetDb();
   ensureStarterData('user-1');
   resetFoldedMealSections();
+  // The Recipes header without All recipes | This week.
+  setPlanTab(true);
   setRecipeFilters(noRecipeFilters());
   mockWindow.fontScale = 1;
   db.insert(households).values({ id: 'home', name: 'Home' }).run();

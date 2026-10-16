@@ -18,7 +18,7 @@ import {
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { setFeatures } from '@/features/plans/features';
-import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { getDeviceSetting, setDeviceSetting, setPlanTab } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
 import { StatusBar } from 'expo-status-bar';
@@ -167,6 +167,8 @@ beforeEach(() => {
   resetDb();
   ensureStarterData(USER);
   groceries = getDefaultListId(USER)!;
+  // The Recipes header without All recipes | This week.
+  setPlanTab(true);
   for (const k of Object.keys(mockParams)) delete mockParams[k];
   for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink, mockCloseCard]) fn.mockClear();
   mockImport.mockReset();

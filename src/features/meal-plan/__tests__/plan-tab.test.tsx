@@ -183,13 +183,21 @@ afterEach(() => {
 });
 
 describe('the Plan trigger', () => {
-  test('shows between Recipes and Settings by default', () => {
+  test('is hidden by default', () => {
+    const root = render(<TabsLayout />);
+    expect(visibleTabs(root)).toEqual(['lists', 'recipes', 'settings']);
+    expect(planTrigger(root).props.hidden).toBe(true);
+  });
+
+  test('shows between Recipes and Settings once Plan tab is turned on', () => {
+    setPlanTab(true);
     const root = render(<TabsLayout />);
     expect(visibleTabs(root)).toEqual(['lists', 'recipes', 'plan', 'settings']);
     expect(planTrigger(root).props.hidden).toBe(false);
   });
 
   test('hides when Plan tab is turned off from Settings, and comes back when it is turned on', () => {
+    setPlanTab(true);
     mockPathname = '/settings';
     const root = render(<TabsLayout />);
     act(() => setPlanTab(false));
@@ -207,6 +215,7 @@ describe('the Plan trigger', () => {
   });
 
   test('turned off while on the Plan tab: lands on Recipes > This week, and only then hides', () => {
+    setPlanTab(true);
     mockPathname = '/plan';
     const root = render(<TabsLayout />);
     act(() => setPlanTab(false));
@@ -228,6 +237,7 @@ describe('the Plan trigger', () => {
   });
 
   test('on the Plan tab with the setting on, nothing moves', () => {
+    setPlanTab(true);
     mockPathname = '/plan';
     render(<TabsLayout />);
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -236,6 +246,7 @@ describe('the Plan trigger', () => {
 
 describe('the Recipes tab', () => {
   test('has no All recipes | This week while the Plan tab is on', () => {
+    setPlanTab(true);
     const root = render(<RecipesScreen />);
     expect(segments(root)).toHaveLength(0);
     // The photo-size toggle is the only tab list.
@@ -244,6 +255,7 @@ describe('the Recipes tab', () => {
   });
 
   test('ignores a remembered This week while the Plan tab is on', () => {
+    setPlanTab(true);
     setRecipesSegment('week');
     const root = render(<RecipesScreen />);
     expect(segments(root)).toHaveLength(0);

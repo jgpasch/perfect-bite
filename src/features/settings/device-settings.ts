@@ -114,14 +114,14 @@ export function setPlanView(view: PlanView): void {
 }
 
 /**
- * Settings > Meal plan > Plan tab (spec 4.16): on unless turned off on this device. Off, the week lives in
+ * Settings > Meal plan > Plan tab (spec 4.16): off unless turned on on this device. Off, the week lives in
  * Recipes under This week.
  */
 export const PLAN_TAB_KEY = 'plan.tab';
 const planTabListeners = new Set<() => void>();
 
 export function getPlanTab(): boolean {
-  return getDeviceSetting<unknown>(PLAN_TAB_KEY, true) !== false;
+  return getDeviceSetting<unknown>(PLAN_TAB_KEY, false) === true;
 }
 
 export function setPlanTab(on: boolean): void {

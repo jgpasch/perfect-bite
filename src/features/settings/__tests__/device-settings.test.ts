@@ -131,15 +131,15 @@ test('plan.householdId is null until picked, and reads garbage as null', () => {
   expect(getPlanHouseholdId()).toBeNull();
 });
 
-test('plan.tab is on until turned off, and only a stored false turns it off', () => {
-  expect(getPlanTab()).toBe(true);
-  setPlanTab(false);
+test('plan.tab is off until turned on, and only a stored true turns it on', () => {
   expect(getPlanTab()).toBe(false);
-  expect(getDeviceSetting(PLAN_TAB_KEY, null)).toBe(false);
   setPlanTab(true);
   expect(getPlanTab()).toBe(true);
-  setDeviceSetting(PLAN_TAB_KEY, 'off');
-  expect(getPlanTab()).toBe(true);
+  expect(getDeviceSetting(PLAN_TAB_KEY, null)).toBe(true);
+  setPlanTab(false);
+  expect(getPlanTab()).toBe(false);
+  setDeviceSetting(PLAN_TAB_KEY, 'on');
+  expect(getPlanTab()).toBe(false);
 });
 
 test('onPlanTabChange tells listeners each time Plan tab is set, until unsubscribed', () => {
