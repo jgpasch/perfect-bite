@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
@@ -6,7 +6,7 @@ import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending, startCategorizeOnGain } from '@/features/categories/categorization';
 import { foldAccentKeys } from '@/features/categories/fold-accents';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
-import { startMyInvites } from '@/features/households/my-invites';
+import { refreshMyInvites, startMyInvites, useMyInvites } from '@/features/households/my-invites';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
@@ -74,11 +74,23 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   }, [userId]);
   // Pull (spec 7.2): on launch, foreground, reconnect and sign-in. The starter household waits for
   // the sign-in pull, so an account that already has households (another device, a reinstall)
-  // gets those instead of a new one. Offline, the pull is skipped and the starter is made anyway.
+  // gets those instead of a new one, and for the invites fetch: while invites are waiting it isn't
+  // made, so someone invited can join without a household of their own (declining the last one
+  // makes it). Offline, the pull and fetch are skipped and the starter is made anyway.
   useEffect(() => startPull(), []);
+  const [settledFor, setSettledFor] = useState<string | null>(null);
   useEffect(() => {
-    if (userId) void pullNow().then(() => ensureStarterData(userId));
+    if (!userId) return;
+    let live = true;
+    void Promise.all([pullNow(), refreshMyInvites()]).then(() => live && setSettledFor(userId));
+    return () => {
+      live = false;
+    };
   }, [userId]);
+  const invited = useMyInvites().length > 0;
+  useEffect(() => {
+    if (userId && settledFor === userId && !invited) ensureStarterData(userId);
+  }, [userId, settledFor, invited]);
   // Realtime (spec 7.2): live changes while signed in and in the foreground.
   useEffect(() => (userId ? startRealtime(userId) : undefined), [userId]);
   // Invites sent to the user's email (spec 4.7): fetched on sign-in, foreground and reconnect;

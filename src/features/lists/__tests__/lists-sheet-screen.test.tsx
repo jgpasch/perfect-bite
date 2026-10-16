@@ -79,11 +79,21 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
 // Invites: a scripted store, with join and decline as mocks. The row itself is tested with the
 // household screens; here it's a marker carrying its props.
 const mockInvites: { current: MyInvite[] } = { current: [] };
-const mockJoin = jest.fn<(invite: MyInvite) => Promise<{ ok: true } | { ok: false; message: string }>>();
+const mockJoin = jest.fn<
+  (invite: MyInvite, replacing?: { id: string; name: string }) => Promise<{ ok: true; notice?: string } | { ok: false; message: string }>
+>();
+const mockReplaceable: { current: { id: string; name: string } | null } = { current: null };
 const mockDecline = jest.fn<(invite: MyInvite) => Promise<{ ok: true } | { ok: false; message: string }>>();
 jest.mock('@/features/households/my-invites', () => ({
   useMyInvites: () => mockInvites.current,
-  joinMyInvite: (invite: MyInvite) => mockJoin(invite),
+  joinMyInvite: (...args: [MyInvite, { id: string; name: string }?]) => mockJoin(...args),
+  householdToReplace: async () => mockReplaceable.current,
+  replaceHouseholdPrompt: (joining: string, replacing: { name: string }) => ({
+    title: `Keep ${replacing.name}?`,
+    message: `Joining ${joining}.`,
+    keep: 'Join and keep it',
+    remove: `Join and delete ${replacing.name}`,
+  }),
   declineMyInvite: (invite: MyInvite) => mockDecline(invite),
   declineInvitePrompt: (invite: MyInvite) => ({ title: `Decline ${invite.householdName}?`, message: 'They can send a new one.' }),
 }));
@@ -130,6 +140,7 @@ beforeEach(() => {
   mockBack.mockClear();
   mockJoin.mockReset();
   mockDecline.mockReset();
+  mockReplaceable.current = null;
 });
 
 afterEach(() => {
@@ -518,7 +529,7 @@ describe('invites', () => {
     let settle!: (r: { ok: true }) => void;
     mockJoin.mockImplementation(() => new Promise((resolve) => (settle = resolve)));
     render();
-    act(() => inviteRow().props.onJoin());
+    await act(async () => inviteRow().props.onJoin());
     expect(mockJoin).toHaveBeenCalledWith(invite);
     expect(all('InviteRow').map((r) => r.props.busy)).toEqual(['join', null]);
     await act(async () => settle({ ok: true }));
@@ -532,6 +543,43 @@ describe('invites', () => {
     await act(async () => inviteRow().props.onJoin());
     expect(lines()).toContain('That invite has expired.');
     expect(inviteRow().props.busy).toBeNull();
+  });
+
+  test('with a household of your own, Join asks whether to keep it', async () => {
+    mockInvites.current = [invite];
+    mockReplaceable.current = { id: 'h-personal', name: 'Personal' };
+    mockJoin.mockResolvedValue({ ok: true });
+    const alert = spyAlert();
+    render();
+    await act(async () => inviteRow().props.onJoin());
+    expect(mockJoin).not.toHaveBeenCalled();
+    expect(alert.buttons()).toEqual(['Cancel', 'Join and keep it', 'Join and delete Personal']);
+    await act(async () => alert.tap('Join and delete Personal'));
+    expect(mockJoin).toHaveBeenCalledWith(invite, { id: 'h-personal', name: 'Personal' });
+    expect(inviteRow().props.busy).toBeNull();
+  });
+
+  test('keeping it joins without deleting; Cancel joins nothing', async () => {
+    mockInvites.current = [invite];
+    mockReplaceable.current = { id: 'h-personal', name: 'Personal' };
+    mockJoin.mockResolvedValue({ ok: true });
+    const alert = spyAlert();
+    render();
+    await act(async () => inviteRow().props.onJoin());
+    await act(async () => alert.tap('Cancel'));
+    expect(mockJoin).not.toHaveBeenCalled();
+    expect(inviteRow().props.busy).toBeNull();
+    await act(async () => inviteRow().props.onJoin());
+    await act(async () => alert.tap('Join and keep it'));
+    expect(mockJoin).toHaveBeenCalledWith(invite);
+  });
+
+  test("a join whose household couldn't be deleted shows the notice", async () => {
+    mockInvites.current = [invite];
+    mockJoin.mockResolvedValue({ ok: true, notice: "Joined, but Personal couldn't be deleted." });
+    render();
+    await act(async () => inviteRow().props.onJoin());
+    expect(lines()).toContain("Joined, but Personal couldn't be deleted.");
   });
 
   test('Decline asks first, then shows it busy until it settles', async () => {

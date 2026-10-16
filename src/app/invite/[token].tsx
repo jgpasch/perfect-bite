@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Alert, View } from 'react-native';
 
 import { Button, PrimaryButton } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
@@ -15,6 +15,8 @@ import {
   type InviteErrorKind,
   type InvitePreview,
 } from '@/features/households/invites';
+import { getAccount } from '@/features/auth/account';
+import { deleteReplaced, householdToReplace, replaceHouseholdPrompt } from '@/features/households/my-invites';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { pullNow } from '@/sync/pull';
@@ -64,14 +66,30 @@ export default function JoinHouseholdScreen() {
   const openHousehold = (householdId: string) =>
     router.replace({ pathname: '/settings/households/[id]', params: { id: householdId } });
 
+  // With a household of their own and nobody else in it, ask whether to keep it first.
   const join = async (preview: InvitePreview) => {
     setState({ status: 'ready', preview, joining: true });
+    const userId = getAccount()?.userId;
+    const replacing = userId ? await householdToReplace(preview.householdId, userId) : null;
+    if (!replacing) return accept(null);
+    const prompt = replaceHouseholdPrompt(preview.householdName, replacing);
+    Alert.alert(prompt.title, prompt.message, [
+      { text: t('common.cancel'), style: 'cancel', onPress: () => setState({ status: 'ready', preview, joining: false }) },
+      { text: prompt.keep, onPress: () => void accept(null) },
+      { text: prompt.remove, style: 'destructive', onPress: () => void accept(replacing) },
+    ]);
+  };
+
+  const accept = async (replacing: { id: string; name: string } | null) => {
     try {
       const accepted = await acceptInvite(token);
       // The new membership syncs the household in; wait for it so its lists are there.
       await pullNow();
-      if (accepted.alreadyMember) openHousehold(accepted.householdId);
-      else router.replace('/lists');
+      if (accepted.alreadyMember) return openHousehold(accepted.householdId);
+      // Joined first, so deleting it never leaves the user with no household.
+      const failed = replacing ? await deleteReplaced(replacing) : null;
+      if (failed?.ok && failed.notice) Alert.alert(failed.notice);
+      router.replace('/lists');
     } catch (err) {
       console.warn('[invite] accept failed', err);
       setState({ status: 'error', kind: errorKind(err) });
@@ -126,7 +144,7 @@ export default function JoinHouseholdScreen() {
           <PrimaryButton
             label={joining ? t('invites.join.joining') : t('invites.join.join')}
             disabled={joining}
-            onPress={() => join(preview)}
+            onPress={() => void join(preview)}
           />
         ) : preview.status === 'member' ? (
           <PrimaryButton label={t('invites.join.openHousehold')} onPress={() => openHousehold(preview.householdId)} />

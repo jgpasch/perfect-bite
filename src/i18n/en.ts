@@ -715,7 +715,8 @@ export const en = {
     planTabDetail: 'Your week plan gets its own tab. Off, it lives in Recipes under This week.',
     syncStatus: 'Sync status',
     households: 'Households',
-    /** One switch per household, under its row (spec 4.15). */
+    householdsFootnote: 'Members, invites, Always have and name matching are in each household.',
+    /** In a household's screen, under Household settings (spec 4.15). */
     combineLanguages: 'Combine English and Spanish names',
     combineLanguagesDetail: 'Leche and milk become one item on your lists.',
     /** VoiceOver: "Combine English and Spanish names in Home". */
@@ -808,6 +809,8 @@ export const en = {
       members: 'Members',
       loadingMembers: 'Loading members',
       invited: 'Invited',
+      settings: 'Household settings',
+      settingsFootnote: 'These change it for everyone in {{name}}.',
       pending: 'Pending',
       inviteSomeone: 'Invite someone',
       delete: 'Delete household',
@@ -966,6 +969,14 @@ export const en = {
       declineTitle: 'Decline the invite to {{household}}?',
       declineMessage: '{{name}} can send a new one.',
       declineMessageUnnamed: 'They can send a new one.',
+    },
+    /** Joining while you have a household of your own and nobody else (spec 4.7). */
+    replace: {
+      title: 'Keep {{name}}?',
+      message: "You'll share {{household}}'s lists and recipes. You can keep {{name}} too, or delete it with its lists and recipes.",
+      keep: 'Join and keep it',
+      delete: 'Join and delete {{name}}',
+      deleteFailed: "Joined, but {{name}} couldn't be deleted. You can delete it in Settings.",
     },
   },
   /** Deleting your account (spec 4.8). */

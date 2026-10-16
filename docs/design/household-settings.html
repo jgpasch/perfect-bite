@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Household settings</title>
+<!-- Household settings move into the household screen (tasks.md). Canvas: https://claude.ai/artifact/5Xw99jfDg8Lo2w1dzz8wYT -->
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.av:first-child{margin-left:0}
+.av{width:48px;height:48px;border-radius:50%;border:3px solid #ECE3F5;display:flex;align-items:center;justify-content:center;font:800 20px 'Bricolage Grotesque',sans-serif;margin-left:-10px;box-sizing:border-box}
+.badge{font:700 12px Figtree,sans-serif;padding:4px 8px;border-radius:10px}
+.card{margin:0 16px;background:#fff;border-radius:22px;overflow:hidden}
+.chev{flex:none}
+.det{font:400 13px Figtree,sans-serif;color:#55635A;margin-top:2px}
+.lbl{font:700 13px Figtree,sans-serif;color:#55635A;padding:20px 20px 8px}
+.name{flex:1;font:500 17px Figtree,sans-serif;color:#1D2A22}
+.row:last-child{border-bottom:0}
+.row{display:flex;align-items:center;gap:12px;min-height:50px;padding:8px 16px;border-bottom:1px solid #EEF1EC;box-sizing:border-box}
+.sw.off{background:#DCE4DA}.sw.off::after{right:auto;left:2px}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:27px;height:27px;border-radius:50%;background:#fff}
+.sw{width:51px;height:31px;border-radius:16px;background:#2E6B45;position:relative;flex:none}
+.tile{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:none}
+.val{font:600 15px Figtree,sans-serif;color:#55635A}
+.boards{display:flex;flex-wrap:wrap;gap:48px;padding:40px;background:#D5DDD3;font-family:Figtree,sans-serif}
+.board h2{margin:0 0 12px;font:700 15px Figtree,sans-serif;color:#1D2A22}
+.board>div{border-radius:36px;overflow:hidden;box-shadow:0 10px 30px rgba(29,42,34,.18)}
+</style>
+</head>
+<body>
+<div class="boards">
+<section class="board" id="today-settings">
+<h2>Today: Settings</h2>
+<div style="width:390px;height:1060px;background:#EEF3EC;font-family:Figtree,sans-serif;color:#1D2A22;box-sizing:border-box;padding-top:56px;overflow:hidden">
+<h1 style="margin:0;padding:0 20px 16px;font:800 40px 'Bricolage Grotesque',sans-serif;letter-spacing:-0.025em">Settings</h1>
+<div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
+<div style="width:52px;height:52px;border-radius:50%;background:#DFEAF6;color:#2F6396;display:flex;align-items:center;justify-content:center;font:800 20px 'Bricolage Grotesque',sans-serif">S</div>
+<div style="flex:1"><div style="font:700 17px Figtree,sans-serif">sam@example.com</div><div class="det">Signed in with Google</div></div>
+<span style="font:700 12px Figtree,sans-serif;background:#DDEFE2;color:#1F5233;padding:4px 8px;border-radius:10px">Synced</span>
+</div>
+<div class="lbl">Shopping</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DDEFE2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></div><div class="name">Siri adds to</div><div class="val">Groceries</div></div>
+<div class="row"><div class="tile" style="background:#F6EBD4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A5C0C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"></path></svg></div><div class="name">Keep screen on</div><div class="sw"></div></div>
+<div class="row"><div class="tile" style="background:#DCEFEC"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F6E68" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7l2 2 3-3M4 15l2 2 3-3M13 8h7M13 16h7"></path></svg></div><div class="name">Always show checked</div><div class="sw off"></div></div>
+</div>
+<div class="lbl">Aisles</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DFEAF6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6396" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"></path></svg></div><div class="name">Aisle order</div></div>
+<div class="row"><div class="tile" style="background:#F7E1E6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A33D53" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="9" cy="10" r="1.2"></circle><circle cx="14" cy="9" r="1.2"></circle></svg></div><div class="name">Aisle colours</div><div class="val">Colour bands</div></div>
+</div>
+<div class="lbl">General</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DFEAF6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6396" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"></path></svg></div><div class="name">Language</div><div class="val">English</div></div>
+<div class="row"><div class="tile" style="background:#EEF3EC"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#55635A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5M4 12a8 8 0 0 1 14-5M18 3v4h-4M6 21v-4h4"></path></svg></div><div class="name">Sync status</div><div class="val">Synced</div></div>
+</div>
+<div class="lbl">Households</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DDEFE2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z"></path></svg></div><div class="name">Personal</div></div>
+<div class="row" style="align-items:flex-start;padding-top:12px;padding-bottom:12px"><div style="flex:1"><div class="name">Combine English and Spanish names</div><div class="det">Leche and milk become one item on your lists.</div></div><div class="sw off"></div></div>
+<div class="row"><div class="tile" style="background:#ECE3F5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6E4594" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z"></path></svg></div><div class="name">Smith household</div></div>
+<div class="row" style="align-items:flex-start;padding-top:12px;padding-bottom:12px"><div style="flex:1"><div class="name">Combine English and Spanish names</div><div class="det">Leche and milk become one item on your lists.</div></div><div class="sw"></div></div>
+</div>
+</div>
+</section>
+<section class="board" id="proposed-settings">
+<h2>Proposed: Settings</h2>
+<div style="width:390px;height:1060px;background:#EEF3EC;font-family:Figtree,sans-serif;color:#1D2A22;box-sizing:border-box;padding-top:56px;overflow:hidden">
+<h1 style="margin:0;padding:0 20px 16px;font:800 40px 'Bricolage Grotesque',sans-serif;letter-spacing:-0.025em">Settings</h1>
+<div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
+<div style="width:52px;height:52px;border-radius:50%;background:#DFEAF6;color:#2F6396;display:flex;align-items:center;justify-content:center;font:800 20px 'Bricolage Grotesque',sans-serif">S</div>
+<div style="flex:1"><div style="font:700 17px Figtree,sans-serif">sam@example.com</div><div class="det">Signed in with Google</div></div>
+<span style="font:700 12px Figtree,sans-serif;background:#DDEFE2;color:#1F5233;padding:4px 8px;border-radius:10px">Synced</span>
+</div>
+<div class="lbl">Households</div>
+<div class="card">
+<div class="row" style="padding-top:10px;padding-bottom:10px"><div class="tile" style="background:#DDEFE2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z"></path></svg></div><div style="flex:1"><div class="name">Personal</div><div class="det">Just you · 2 lists · 5 recipes</div></div><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#7C877F" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l6 6-6 6"></path></svg></div>
+<div class="row" style="padding-top:10px;padding-bottom:10px"><div class="tile" style="background:#ECE3F5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6E4594" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z"></path></svg></div><div style="flex:1"><div class="name">Smith household</div><div class="det">3 members · 4 lists · 21 recipes</div></div><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#7C877F" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l6 6-6 6"></path></svg></div>
+</div>
+<div class="det" style="padding:8px 20px 0">Members, invites, Always have and name matching are in each household.</div>
+<div class="lbl">Shopping</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DDEFE2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></div><div class="name">Siri adds to</div><div class="val">Groceries</div></div>
+<div class="row"><div class="tile" style="background:#F6EBD4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A5C0C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"></path></svg></div><div class="name">Keep screen on</div><div class="sw"></div></div>
+<div class="row"><div class="tile" style="background:#DCEFEC"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F6E68" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7l2 2 3-3M4 15l2 2 3-3M13 8h7M13 16h7"></path></svg></div><div class="name">Always show checked</div><div class="sw off"></div></div>
+</div>
+<div class="lbl">Aisles</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DFEAF6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6396" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"></path></svg></div><div class="name">Aisle order</div></div>
+<div class="row"><div class="tile" style="background:#F7E1E6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A33D53" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="9" cy="10" r="1.2"></circle><circle cx="14" cy="9" r="1.2"></circle></svg></div><div class="name">Aisle colours</div><div class="val">Colour bands</div></div>
+</div>
+<div class="lbl">General</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#DFEAF6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6396" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"></path></svg></div><div class="name">Language</div><div class="val">English</div></div>
+<div class="row"><div class="tile" style="background:#EEF3EC"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#55635A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5M4 12a8 8 0 0 1 14-5M18 3v4h-4M6 21v-4h4"></path></svg></div><div class="name">Sync status</div><div class="val">Synced</div></div>
+</div>
+</div>
+</section>
+<section class="board" id="proposed-household">
+<h2>Proposed: household screen</h2>
+<div style="width:390px;height:1060px;background:#EEF3EC;font-family:Figtree,sans-serif;color:#1D2A22;overflow:hidden">
+<div style="background:#ECE3F5;padding:56px 20px 26px;display:flex;flex-direction:column;gap:18px">
+<a href="#proposed-settings" aria-label="Back to Settings" style="width:44px;height:44px;margin:-6px 0 -6px -10px;display:flex;align-items:center;justify-content:center"><svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="#6E4594" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2 2 10l8 8"></path></svg></a>
+<div style="display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;gap:8px"><h1 style="margin:0;font:800 36px 'Bricolage Grotesque',sans-serif;letter-spacing:-0.025em;color:#4E2F6B">Smith household</h1><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4E2F6B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Rename"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></div>
+<div style="font:600 15px Figtree,sans-serif;color:#6E4594">4 lists · 21 recipes</div>
+</div>
+<div style="display:flex">
+<div class="av" style="background:#DDEFE2;color:#1F5233">J</div>
+<div class="av" style="background:#DFEAF6;color:#2F6396">S</div>
+<div class="av" style="background:#FAE4D6;color:#A04A1C">M</div>
+</div>
+</div>
+
+<div class="lbl">Members</div>
+<div class="card">
+<div class="row"><div class="name">John</div><span class="badge" style="background:#DDEFE2;color:#1F5233">Owner</span></div>
+<div class="row"><div class="name">Sam (You)</div><div class="val">Member</div></div>
+<div class="row"><div class="name">Maya</div><div class="val">Member</div></div>
+</div>
+
+<div class="lbl">Invited</div>
+<div class="card">
+<div class="row" style="padding-top:10px;padding-bottom:10px"><div style="flex:1"><div class="name">ana@example.com</div><div class="det">Sent by John · expires Oct 22</div></div><span class="badge" style="background:#FFF7E6;color:#8A5C0C">Pending</span></div>
+</div>
+
+<div class="lbl">Household settings</div>
+<div class="card">
+<div class="row"><div class="tile" style="background:#F6EBD4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A5C0C" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 9h14l-1 11H6zM9 9V6a3 3 0 0 1 6 0v3"></path></svg></div><div class="name">Always have</div><div class="val">12 items</div><svg class="chev" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#7C877F" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l6 6-6 6"></path></svg></div>
+<div class="row" style="align-items:flex-start;padding-top:12px;padding-bottom:12px"><div class="tile" style="background:#DFEAF6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6396" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h7M7.5 4v2M5 14c3-1 5-4 5.5-8M6 10c1 2 3 3.5 5 4M13 20l3.5-9 3.5 9M14.2 17h4.6"></path></svg></div><div style="flex:1"><div class="name">Combine English and Spanish names</div><div class="det">Leche and milk become one item on your lists.</div></div><div class="sw"></div></div>
+</div>
+<div class="det" style="padding:8px 20px 0">These change it for everyone in Smith household.</div>
+
+<div style="padding:20px 16px 0">
+<button type="button" style="width:100%;height:54px;border:0;border-radius:27px;background:#2E6B45;color:#fff;font:700 17px Figtree,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="4"></circle><path d="M2 20c1-4 4-6 7-6s6 2 7 6M19 8v6M16 11h6"></path></svg>Invite someone</button>
+</div>
+
+<div style="padding-top:16px">
+<div class="card">
+<div class="row"><div class="name" style="color:#A33D53">Leave household</div></div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>
