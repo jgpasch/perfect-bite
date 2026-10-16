@@ -1,7 +1,7 @@
 // Tests for `yarn ai:steps` with the mock models; nothing touches the network.
 import { assert, assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 
-import { CliUsageError, formatAmount, formatMatch, parseArgs, run, type CliIo } from './cli.ts';
+import { CliUsageError, formatAmount, formatMatch, matchIndexes, parseArgs, run, type CliIo } from './cli.ts';
 
 const MODEL_VARS = ['AI_MODEL_STEPS', 'AI_MODEL_RECIPE', 'AI_MODEL_CATEGORIZE'] as const;
 
@@ -100,9 +100,29 @@ Deno.test('run reads a page through the import, and --json prints only JSON on s
   assertEquals(code, 0, err());
   const json = JSON.parse(out());
   assertEquals(json.name, 'Lime chicken');
-  assertEquals(json.steps, ['Toss the thighs with the limes.', 'Grill the chicken.']);
-  assertEquals(json.match, [[{ ingredient: 0, quantity: null }, { ingredient: 1, quantity: null }], []]);
+  assertEquals(json.request.steps, ['Toss the thighs with the limes.', 'Grill the chicken.']);
+  assertEquals(json.request.ingredients.map((i: { id: string }) => i.id), ['1', '2']);
+  assertEquals(json.response, {
+    steps: [[{ id: '1', quantity: null }, { id: '2', quantity: null }], []],
+    promptVersion: 'match-recipe-steps.v1',
+  });
   assertStringIncludes(err(), 'extract-recipe');
+});
+
+Deno.test('run goes through the function handler: ids for a typed recipe, and --model off is the 503 path', async () => {
+  const typedJson = io();
+  const code = await withEnv({ AI_MODEL_STEPS: null, AI_MODEL_RECIPE: null, AI_MODEL_CATEGORIZE: null }, () => run([...typed, '--model', 'mock', '--json', '--quiet'], typedJson.cliIo));
+  assertEquals(code, 0, typedJson.err());
+  assertEquals(JSON.parse(typedJson.out()).response.steps, [[{ id: '1', quantity: null }, { id: '2', quantity: null }], []]);
+
+  const off = io();
+  assertEquals(await withEnv({ AI_MODEL_STEPS: null, AI_MODEL_RECIPE: null, AI_MODEL_CATEGORIZE: null }, () => run([...typed, '--model', 'off', '--quiet'], off.cliIo)), 1);
+  assertStringIncludes(off.err(), 'Match failed: unavailable (ai_off): Step matching is turned off');
+});
+
+Deno.test('matchIndexes maps the response ids back to the request order', () => {
+  const request = { steps: ['A.', 'B.'], ingredients: [{ id: 'x', name: 'salt', quantity: null, unit: null, note: '' }, { id: 'y', name: 'oil', quantity: 2, unit: null, note: '' }] };
+  assertEquals(matchIndexes(request, [[{ id: 'y', quantity: 1 }], [{ id: 'x', quantity: null }]]), [[{ ingredient: 1, quantity: 1 }], [{ ingredient: 0, quantity: null }]]);
 });
 
 Deno.test('run explains bad usage, a missing model, and a recipe with nothing to match', async () => {

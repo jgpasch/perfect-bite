@@ -1,6 +1,6 @@
 // match-recipe-steps (cook mode, spec 4.5): which ingredients each step of a recipe uses, from one
-// model call. Pure logic with no store, so the eval, the CLI and Deno tests run it with no
-// database. The Edge Function around it (entitlement, limits, index.ts) comes in a later task.
+// model call. Pure logic with no store, so the eval and Deno tests run it with no database. The
+// Edge Function (handler.ts: the plan, the off switch, the limits and the ids) wraps it.
 import { MAX_RECIPE_INGREDIENTS, MAX_RECIPE_STEP_LENGTH, MAX_RECIPE_STEPS, SuggestRecipeTagsIngredientSchema } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { z } from 'zod';

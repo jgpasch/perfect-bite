@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** The features a plan can grant (`plan_features.feature`). */
-export type Feature = 'categorize' | 'recipe_import' | 'recipe_import_photo' | 'recipe_tags';
+export type Feature = 'categorize' | 'recipe_import' | 'recipe_import_photo' | 'recipe_tags' | 'step_ingredients';
 
 /** The caller's plan doesn't include `feature`. Functions answer 403 `not_entitled`. */
 export class NotEntitledError extends Error {

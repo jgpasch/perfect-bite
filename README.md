@@ -236,7 +236,7 @@ cd supabase/functions/categorize-ingredients
 deno test --allow-env --allow-read --allow-sys    # or: yarn dlx deno test ...
 ```
 
-`supabase/functions/import-recipe` and `supabase/functions/suggest-recipe-tags` run the same way from their own folders.
+`supabase/functions/import-recipe`, `supabase/functions/suggest-recipe-tags` and `supabase/functions/match-recipe-steps` run the same way from their own folders.
 
 `supabase/functions/_shared/fetch-page.test.ts` has no import map, so run it from `_shared/`: `deno test --allow-read fetch-page.test.ts`.
 

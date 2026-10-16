@@ -1,22 +1,32 @@
 // `yarn ai:steps https://example.com/some-recipe`, `yarn ai:steps --file page.html` or
 // `yarn ai:steps --step "Toss the chicken with the lime" --ingredient "2 lb chicken thighs" …`: runs
-// matchRecipeSteps() on one recipe by hand and prints each step with the ingredients it uses. A
-// link or file goes through the import's own fetch and extraction first (import-recipe's
-// importRecipe, with categorize on the mock), with nothing cached or written. Every LLM call is
-// printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
-import { displayItemName, type RecipeImportRequest } from '@shared/index.ts';
+// the function's own matchSteps() on one recipe by hand, with the same request schema, prompt,
+// validation and id mapping, against an in-memory store (no plans, no limits), and prints each
+// step with the ingredients it uses. A link or file goes through the import's own fetch and
+// extraction first (import-recipe's importRecipe, with categorize on the mock), with nothing cached
+// or written. Ingredients get the ids "1", "2", … in order. Every LLM call is printed in full
+// (instructions, prompt, response, tokens, latency) unless --quiet.
+import {
+  displayItemName,
+  MatchRecipeStepsRequestSchema,
+  type MatchRecipeStepsRequest,
+  type MatchRecipeStepsRequestInput,
+  type MatchRecipeStepsResponse,
+  type RecipeImportRequest,
+} from '@shared/index.ts';
 
 import { buildMatchRecipeStepsPrompt, MATCH_RECIPE_STEPS_PROMPT_VERSION, type StepMatchRecipe } from '../_shared/ai/prompts/match-recipe-steps.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import type { StepMatch } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
+import type { Feature } from '../_shared/entitlements.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
 import { formatStats, MemoryStore } from '../categorize-ingredients/cli.ts';
 import { categorize } from '../categorize-ingredients/handler.ts';
 import { MemoryRecipeStore, placeholderUrl } from '../import-recipe/cli.ts';
 import { ImportRecipeError, importRecipe } from '../import-recipe/handler.ts';
 import { ingredientFromLine } from '../suggest-recipe-tags/cli.ts';
-import { matchRecipeSteps, StepMatchError, StepMatchRecipeSchema } from './match.ts';
+import { matchSteps, MatchStepsError, type StepMatchStore } from './handler.ts';
 
 export const USAGE = `Usage: yarn ai:steps [options] <url>
        yarn ai:steps [options] --file <page.html>
@@ -35,7 +45,7 @@ Options:
   --raw                              Also print the raw HTTP request and response bodies
   --quiet                            Only the match and totals, not each call's prompt and response
   --dry-run                          Print the matching instructions and prompt, and make no match call
-  --json                             Print the recipe and match as JSON
+  --json                             Print the request and the function's response as JSON
   -h, --help                         Show this help
 
 Each LLM call is printed as it finishes: instructions, prompt, response, finish reason, input,
@@ -194,14 +204,44 @@ function setEnv(values: Record<string, string | null>): () => void {
   };
 }
 
-type Loaded = { name: string | null; source: string | null; recipe: StepMatchRecipe; extractCalls: AiCallRecord[] };
+/** The response's ids mapped back to indexes into the request's ingredients, for `formatMatch`. */
+export function matchIndexes(request: MatchRecipeStepsRequest, steps: MatchRecipeStepsResponse['steps']): StepMatch {
+  const index = new Map(request.ingredients.map((item, i) => [item.id, i]));
+  return steps.map((uses) => uses.map((use) => ({ ingredient: index.get(use.id)!, quantity: use.quantity })));
+}
+
+/** `ai_calls` in memory; there are no limits or plans. */
+export class MemoryStepMatchStore implements StepMatchStore {
+  aiCalls: AiCallRecord[] = [];
+
+  /** No database, so no plans: every feature is granted. */
+  async requireFeature(_feature: Feature) {}
+
+  /** Local and manual: no rate limits, no global cap. */
+  async checkLimit() {
+    return 'ok' as const;
+  }
+
+  async logAiCall(call: AiCallRecord) {
+    this.aiCalls.push(call);
+  }
+}
+
+type Loaded = { name: string | null; source: string | null; input: MatchRecipeStepsRequestInput; extractCalls: AiCallRecord[] };
+
+/** The request for these steps and ingredients, with the ids "1", "2", … */
+const requestInput = (steps: string[], ingredients: Omit<MatchRecipeStepsRequestInput['ingredients'][number], 'id'>[]): MatchRecipeStepsRequestInput => ({
+  steps,
+  ingredients: ingredients.map((item, i) => ({ id: String(i + 1), ...item })),
+});
 
 /** A link or file through the import, or the typed steps and ingredients. Throws CliUsageError or ImportRecipeError. */
 async function loadRecipe(args: CliArgs, io: CliIo, recipeModel: string | null): Promise<Loaded> {
   if (args.url === null && args.file === null) {
-    const parsed = StepMatchRecipeSchema.safeParse({ steps: args.steps, ingredients: args.ingredients.map(ingredientFromLine) });
+    const input = requestInput(args.steps, args.ingredients.map(ingredientFromLine));
+    const parsed = MatchRecipeStepsRequestSchema.safeParse(input);
     if (!parsed.success) throw new CliUsageError(parsed.error.issues[0].message);
-    return { name: null, source: null, recipe: parsed.data, extractCalls: [] };
+    return { name: null, source: null, input, extractCalls: [] };
   }
   if (!recipeModel) throw new CliUsageError('AI_MODEL_RECIPE is not set. Add it to supabase/functions/.env or pass --recipe-model.');
   const request: RecipeImportRequest = { url: args.url ?? placeholderUrl(args.file!) };
@@ -225,11 +265,11 @@ async function loadRecipe(args: CliArgs, io: CliIo, recipeModel: string | null):
       categorize: (names) => categorize(names, categorizeStore),
       fetchPage: io.fetchPage ?? realFetchPage,
     });
-    const recipe: StepMatchRecipe = {
-      steps: response.steps,
-      ingredients: response.ingredients.map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit, note: i.note })),
-    };
-    return { name: response.name, source: args.file ?? response.sourceUrl, recipe, extractCalls: store.aiCalls };
+    const input = requestInput(
+      response.steps,
+      response.ingredients.map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit, note: i.note })),
+    );
+    return { name: response.name, source: args.file ?? response.sourceUrl, input, extractCalls: store.aiCalls };
   } finally {
     restore();
   }
@@ -280,30 +320,32 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       }
       throw err;
     }
-    const { recipe } = loaded;
-    if (recipe.steps.length === 0 || recipe.ingredients.length === 0) {
-      io.err(`Nothing to match: the recipe has ${recipe.steps.length} steps and ${recipe.ingredients.length} ingredients.`);
+    const parsed = MatchRecipeStepsRequestSchema.safeParse(loaded.input);
+    if (!parsed.success) {
+      const { steps, ingredients } = loaded.input;
+      io.err(`Nothing to match: the recipe has ${steps.length} steps and ${ingredients.length} ingredients (${parsed.error.issues[0].message}).`);
       return 1;
     }
+    const request = parsed.data;
     if (loaded.name !== null) info(`${loaded.name}\n${loaded.source}\n`);
 
     if (args.dryRun) {
-      const { instructions, prompt } = buildMatchRecipeStepsPrompt(recipe);
+      const { instructions, prompt } = buildMatchRecipeStepsPrompt({ steps: request.steps.filter((s) => s !== ''), ingredients: request.ingredients });
       io.out(`--- instructions (${MATCH_RECIPE_STEPS_PROMPT_VERSION}) ---\n${instructions}\n--- prompt ---\n${prompt}\n---`);
       io.out(`Dry run: no match call made (would use ${model}).`);
       return 0;
     }
 
-    const calls: AiCallRecord[] = [];
+    const store = new MemoryStepMatchStore();
     const restore = setEnv({ AI_MODEL_STEPS: model });
-    let steps: StepMatch;
-    let promptVersion: string;
+    let response: MatchRecipeStepsResponse;
     try {
-      ({ steps, promptVersion } = await matchRecipeSteps(recipe, { onCall: async (call) => void calls.push(call) }));
+      response = await matchSteps(request, { store });
     } catch (err) {
-      if (err instanceof StepMatchError) {
-        io.err(`Match failed: ${err.reason}: ${err.message}`);
-        info(formatStats(calls));
+      if (err instanceof MatchStepsError) {
+        const reason = err.failure.code === 'unavailable' ? `unavailable (${err.failure.reason})` : err.failure.code;
+        io.err(`Match failed: ${reason}: ${err.message}`);
+        info(formatStats(store.aiCalls));
         return 1;
       }
       throw err;
@@ -312,12 +354,12 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     }
 
     if (args.json) {
-      io.out(JSON.stringify({ name: loaded.name, source: loaded.source, ...recipe, match: steps, promptVersion }, null, 2));
+      io.out(JSON.stringify({ name: loaded.name, source: loaded.source, request, response }, null, 2));
     } else {
-      io.out(`${formatMatch(recipe, steps)}\n`);
+      io.out(`${formatMatch(request, matchIndexes(request, response.steps))}\n`);
     }
     if (loaded.extractCalls.length > 0) info(`extract-recipe\n${formatStats(loaded.extractCalls)}\n`);
-    info(`match-recipe-steps\n${formatStats(calls)}`);
+    info(`match-recipe-steps\n${formatStats(store.aiCalls)}`);
     return 0;
   } catch (err) {
     io.err(`Failed: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);

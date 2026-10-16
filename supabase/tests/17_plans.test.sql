@@ -2,7 +2,7 @@
 -- and the user_plans row's rules.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(42);
+select plan(46);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex (unassigned), Sam (base) and Kim (plus) share one household; Lee is unassigned and in none.
@@ -31,8 +31,9 @@ select results_eq(
 select results_eq(
   $$ select plan_id, feature from public.plan_features order by plan_id, feature $$,
   $$ values ('plus', 'categorize'), ('plus', 'recipe_import'), ('plus', 'recipe_import_photo'),
-            ('plus', 'recipe_tags'), ('standard', 'categorize') $$,
-  'base has no features, standard has categorize and plus has all four');
+            ('plus', 'recipe_tags'), ('plus', 'step_ingredients'), ('standard', 'categorize'),
+            ('standard', 'step_ingredients') $$,
+  'base has no features, standard has categorize and step_ingredients, and plus has all five');
 select is_empty(
   $$ select p.id from public.plans p
      where exists (select 1 from public.plan_features f where f.plan_id = p.id and f.feature = 'recipe_import')
@@ -53,7 +54,8 @@ select ok(not public.has_feature('22222222-2222-2222-2222-222222222222', 'recipe
 select ok(public.has_feature('33333333-3333-3333-3333-333333333333', 'categorize')
   and public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_import')
   and public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_import_photo')
-  and public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_tags'),
+  and public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_tags')
+  and public.has_feature('33333333-3333-3333-3333-333333333333', 'step_ingredients'),
   'a plus user gets every feature');
 select ok(not public.has_feature('22222222-2222-2222-2222-222222222222', 'recipe_tags'),
   'a base user doesn''t get recipe_tags');
@@ -62,7 +64,13 @@ select ok(not public.has_feature('11111111-1111-1111-1111-111111111111', 'recipe
 insert into public.user_plans (user_id, plan_id) values ('44444444-4444-4444-4444-444444444444', 'standard');
 select ok(not public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_tags'),
   'a user assigned standard doesn''t get recipe_tags');
+select ok(public.has_feature('44444444-4444-4444-4444-444444444444', 'step_ingredients'),
+  'a user assigned standard gets step_ingredients');
 delete from public.user_plans where user_id = '44444444-4444-4444-4444-444444444444';
+select ok(public.has_feature('11111111-1111-1111-1111-111111111111', 'step_ingredients'),
+  'an unassigned (standard) user gets step_ingredients');
+select ok(not public.has_feature('22222222-2222-2222-2222-222222222222', 'step_ingredients'),
+  'a base user doesn''t get step_ingredients');
 select ok(not public.has_feature('33333333-3333-3333-3333-333333333333', 'teleport'),
   'an unknown feature is never granted');
 select ok(not public.has_feature('99999999-9999-9999-9999-999999999999', 'recipe_import')
@@ -85,14 +93,14 @@ select is(
 -- my_features (as authenticated) ------------------------------------------------
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
-select is(public.my_features(), array['categorize'], 'my_features for an unassigned user is the default plan''s');
-select is(public.my_features('aaaaaaaa-0000-0000-0000-00000000000a'), array['categorize'],
+select is(public.my_features(), array['categorize', 'step_ingredients'], 'my_features for an unassigned user is the default plan''s');
+select is(public.my_features('aaaaaaaa-0000-0000-0000-00000000000a'), array['categorize', 'step_ingredients'],
   'my_features with a household gives the same answer');
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
 select is(public.my_features(), '{}'::text[], 'my_features for a base user is empty');
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
-select is(public.my_features(), array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags'],
-  'my_features for a plus user is every feature, sorted, recipe_tags included');
+select is(public.my_features(), array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags', 'step_ingredients'],
+  'my_features for a plus user is every feature, sorted, recipe_tags and step_ingredients included');
 
 -- Client access -----------------------------------------------------------------
 select throws_ok($$ select * from public.plans $$, '42501', null, 'clients can''t read plans');
@@ -138,6 +146,10 @@ select lives_ok(
   $$ insert into public.plan_features values ('standard', 'recipe_tags') $$,
   'recipe_tags is a known feature');
 delete from public.plan_features where plan_id = 'standard' and feature = 'recipe_tags';
+select lives_ok(
+  $$ insert into public.plan_features values ('base', 'step_ingredients') $$,
+  'step_ingredients is a known feature');
+delete from public.plan_features where plan_id = 'base' and feature = 'step_ingredients';
 select throws_ok(
   $$ update public.plans set is_default = true where id = 'plus' $$,
   '23505', null, 'only one plan can be the default');

@@ -155,7 +155,7 @@ Before building step ingredients in cook mode, we checked that a model can say w
 ### What's built
 
 - The `matchRecipeSteps` AI task (`_shared/ai/tasks.ts`), with the prompt in `prompts/match-recipe-steps.v1.ts` and its rules in `prompts/step-match-rules.ts`, so the import prompt can share them later. `cleanStepMatch` checks the answer: unknown ingredients and repeats are dropped, a share that isn't below the total becomes none, and steps that don't line up fail the call.
-- `supabase/functions/match-recipe-steps/match.ts` (`matchRecipeSteps()`, no store yet; the Edge Function comes in a later task), `yarn ai:steps` to try one recipe, and `yarn ai:eval:steps`.
+- `supabase/functions/match-recipe-steps/match.ts` (`matchRecipeSteps()`, no store; the Edge Function around it, `handler.ts`, came next, spec 6.8), `yarn ai:steps` to try one recipe, and `yarn ai:eval:steps`.
 - The eval set, `match-recipe-steps/eval/recipes.json`: 16 recipes, 100 steps and 220 needed pairs, labelled by hand. 13 come from the import eval's JSON-LD pages, with their ingredients as the import model extracted them, frozen so the eval scores matching only. 3 are typed in: tacos that split the limes across two steps, a Mexican Spanish *sopa de fideo*, and overnight oats with a step that tries to instruct the model. Some ingredients are labelled optional, where either answer is fair: a prepared ingredient mentioned again ("add the chicken back"), or salt for "salted water".
 
 ### Results
