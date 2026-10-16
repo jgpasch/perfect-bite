@@ -258,7 +258,12 @@ export const en = {
     line: '{{who}}, {{when}}',
     checked: 'Checked {{when}}',
     checkedByYou: 'Checked {{when}} by you',
-    checkedBySomeoneElse: 'Checked {{when}} by someone else',
+    /** A member's short name ("Alex", "Alex R."). */
+    checkedBy: 'Checked {{when}} by {{name}}',
+    /** A member whose name isn't on the device: removed, deleted, or not loaded yet. */
+    checkedBySomeone: 'Checked {{when}} by someone',
+    /** Who did something when their name isn't on the device. */
+    someone: 'Someone',
   },
   /** The Aisle order screen (spec 4.3.3). */
   aisleOrder: {

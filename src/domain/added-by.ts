@@ -45,14 +45,23 @@ export function addedWhen(at: Date, now: Date): string {
 }
 
 /**
- * The line under a checked item's name on its sheet: "Checked 5 min ago by you". Other members'
- * names aren't on the device (as in `addedByLabel`), so their checks read "by someone else"; a
- * check with no one recorded leaves the "by" off.
+ * The line under a checked item's name on its sheet: "Checked 5 min ago by you", "… by Alex" for
+ * another member (`names`: the household's short names, `useMemberNames`), or "… by someone" when
+ * their name isn't on the device (removed, deleted, or not loaded yet). A check with no one
+ * recorded leaves the "by" off.
  */
-export function checkedLine(checkedAt: Date, checkedBy: string | null, userId: string | null, now: Date): string {
+export function checkedLine(
+  checkedAt: Date,
+  checkedBy: string | null,
+  userId: string | null,
+  now: Date,
+  names: ReadonlyMap<string, string> = new Map(),
+): string {
   const when = addedWhen(checkedAt, now);
   if (checkedBy === null) return i18n.t('addedBy.checked', { when });
-  return i18n.t(checkedBy === userId ? 'addedBy.checkedByYou' : 'addedBy.checkedBySomeoneElse', { when });
+  if (checkedBy === userId) return i18n.t('addedBy.checkedByYou', { when });
+  const name = names.get(checkedBy);
+  return name ? i18n.t('addedBy.checkedBy', { when, name }) : i18n.t('addedBy.checkedBySomeone', { when });
 }
 
 /** The second column of an "Added" row: "You, Tuesday". */

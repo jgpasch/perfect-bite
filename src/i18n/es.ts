@@ -242,7 +242,9 @@ export const es = {
     line: '{{who}}, {{when}}',
     checked: 'Marcado {{when}}',
     checkedByYou: 'Marcado {{when}} por ti',
-    checkedBySomeoneElse: 'Marcado {{when}} por alguien más',
+    checkedBy: 'Marcado {{when}} por {{name}}',
+    checkedBySomeone: 'Marcado {{when}} por alguien',
+    someone: 'Alguien',
   },
   aisleOrder: {
     title: 'Orden de pasillos',

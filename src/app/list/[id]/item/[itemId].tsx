@@ -33,6 +33,7 @@ import {
 import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
+import { useMemberNames } from '@/features/households/member-names';
 import { alwaysHaveFootnote, isStaple, setStaple } from '@/features/households/staples';
 import { openList } from '@/features/lists/current-list';
 import { useFeature } from '@/features/plans/features';
@@ -80,6 +81,7 @@ export default function ItemEditSheet() {
   );
   const { data: contributions } = useLiveQueryOn(contributionsQuery(itemId), [listItemContributions], [itemId]);
   const { data: statusRows } = useLiveQueryOn(itemStatusQuery(itemId), [listItems], [itemId]);
+  const memberNames = useMemberNames(initial?.householdId);
   const status = statusRows[0];
   // Move is left out when the household has no other list.
   const [moveTargets] = useState(() => getMoveTargets(itemId));
@@ -289,7 +291,7 @@ export default function ItemEditSheet() {
           ) : null}
           {status?.checkedAt ? (
             <ThemedText variant="footnote" color="inkSecondary">
-              {checkedLine(status.checkedAt, status.checkedBy, userId, now)}
+              {checkedLine(status.checkedAt, status.checkedBy, userId, now, memberNames)}
             </ThemedText>
           ) : null}
         </View>

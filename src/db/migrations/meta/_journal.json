@@ -141,6 +141,13 @@
       "when": 1792154651644,
       "tag": "0019_step_ingredients",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792155352075,
+      "tag": "0020_household_member_names",
+      "breakpoints": true
     }
   ]
 }

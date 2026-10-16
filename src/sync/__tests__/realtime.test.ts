@@ -4,7 +4,18 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, householdStaples, listItems, lists, mealPlanEntries, userCategoryOrder } from '@/db';
+import {
+  categories,
+  db,
+  householdCategoryOverrides,
+  householdMemberNames,
+  households,
+  householdStaples,
+  listItems,
+  lists,
+  mealPlanEntries,
+  userCategoryOrder,
+} from '@/db';
 import {
   emitChange,
   onQuery,
@@ -12,6 +23,8 @@ import {
   queries,
   realtimeChannels,
   resetSupabase,
+  respondToRpc,
+  rpcCalls,
   setChannelStatus,
   setSupabaseConfigured,
   supabase,
@@ -157,6 +170,8 @@ describe('channels', () => {
     expect(h2.bindings.map((b) => [b.table, b.filter])).toEqual([
       ['households', `id=eq.${H2}`],
       ...HOUSEHOLD_TABLES.slice(1).map((table) => [table, `household_id=eq.${H2}`]),
+      // Its members joining and leaving, for their names (spec 4.7).
+      ['household_members', `household_id=eq.${H2}`],
     ]);
     // The household's aisles are on its channel (spec 4.3.2).
     expect(h2.bindings.map((b) => [b.table, b.filter])).toEqual(
@@ -462,6 +477,58 @@ describe('membership changes', () => {
     emitChange({ table: 'household_members', eventType: 'DELETE', old: { household_id: H1, user_id: 'u2' } });
     await settle();
     expect(queries).toEqual([]);
+  });
+
+  describe("members' names (spec 4.7)", () => {
+    const member = (user_id: string, display_name: string) => ({ user_id, display_name, avatar_url: null, role: 'member', joined_at: ts(0) });
+    const cachedNames = () =>
+      db
+        .select({ householdId: householdMemberNames.householdId, userId: householdMemberNames.userId })
+        .from(householdMemberNames)
+        .orderBy(householdMemberNames.householdId, householdMemberNames.userId)
+        .all();
+
+    beforeEach(() => {
+      db.insert(householdMemberNames)
+        .values([
+          { householdId: H1, userId: 'u1', displayName: 'Jo', joinedAt: ts(0) },
+          { householdId: H1, userId: 'u2', displayName: 'Alex', joinedAt: ts(0) },
+          { householdId: H2, userId: 'u1', displayName: 'Jo', joinedAt: ts(0) },
+        ])
+        .onConflictDoNothing()
+        .run();
+      rpcCalls.length = 0;
+    });
+
+    test("another member joining replaces that household's names, without a pull", async () => {
+      respondToRpc('get_household_members', { data: [member('u1', 'Jo'), member('u2', 'Alex'), member('u3', 'Sam')] });
+
+      emitChange({ table: 'household_members', eventType: 'INSERT', new: { household_id: H1, user_id: 'u3' } });
+      await settle();
+
+      expect(rpcCalls).toEqual([{ fn: 'get_household_members', args: { p_household_id: H1 } }]);
+      expect(cachedNames()).toEqual([
+        { householdId: H1, userId: 'u1' },
+        { householdId: H1, userId: 'u2' },
+        { householdId: H1, userId: 'u3' },
+        { householdId: H2, userId: 'u1' },
+      ]);
+      expect(queries).toEqual([]);
+    });
+
+    test("another member leaving reloads only their household's names", async () => {
+      respondToRpc('get_household_members', { data: [member('u1', 'Jo')] });
+
+      emitChange({ table: 'household_members', eventType: 'DELETE', old: { household_id: H1, user_id: 'u2' } });
+      await settle();
+
+      // The delete reaches every household's channel; only H1's asks.
+      expect(rpcCalls).toEqual([{ fn: 'get_household_members', args: { p_household_id: H1 } }]);
+      expect(cachedNames()).toEqual([
+        { householdId: H1, userId: 'u1' },
+        { householdId: H2, userId: 'u1' },
+      ]);
+    });
   });
 });
 

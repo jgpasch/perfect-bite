@@ -12,6 +12,7 @@ import {
   categories,
   deviceSettings,
   householdCategoryOverrides,
+  householdMemberNames,
   households,
   householdStaples,
   ingredientUnitUsage,
@@ -93,6 +94,7 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
   }
   tx.delete(lists).where(eq(lists.householdId, householdId)).run();
   tx.delete(recipes).where(eq(recipes.householdId, householdId)).run();
+  tx.delete(householdMemberNames).where(eq(householdMemberNames.householdId, householdId)).run();
   tx.delete(households).where(eq(households.id, householdId)).run();
   const mutations = tx.select({ n: count() }).from(outbox).where(eq(outbox.householdId, householdId)).get()?.n ?? 0;
   tx.delete(outbox).where(eq(outbox.householdId, householdId)).run();

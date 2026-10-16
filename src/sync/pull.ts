@@ -23,6 +23,8 @@
 //   last time and doesn't now is purged from this device with its queued mutations (`purge.ts`),
 //   once the households still listed are in. Households the server has never listed (e.g. one
 //   created here and not pushed yet) are left alone.
+// - After a full pull, each household's members' names are cached again (`get_household_members`,
+//   `refreshMemberNames`), so the app can say who checked or added something.
 import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
@@ -50,6 +52,7 @@ import {
 import { getAccount } from '@/features/auth/account';
 import { ensureMissingIngredients, householdCombinesLanguages, localFamilyKey } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { refreshAllMemberNames } from '@/features/households/member-names';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 import { reportSyncActivity } from './activity';
@@ -622,6 +625,8 @@ async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullS
     if (all || scope.catalog) {
       for (const job of CATALOG_JOBS) pulled += await pullTable(job);
     }
+    // Never throws: a household whose names don't load keeps the ones it had.
+    if (all) await refreshAllMemberNames(memberships);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[pull] failed: ${message}`);

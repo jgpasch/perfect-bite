@@ -407,6 +407,24 @@ export const failedImports = sqliteTable('failed_imports', {
     .$defaultFn(() => new Date()),
 });
 
+/**
+ * Members' names (spec 4.7, 5): a cache of `get_household_members` for each household, so the app
+ * can say who added or checked an item. Never pushed (not in `mutate.ts` or the outbox); a
+ * household's rows are replaced after a full pull and on a membership event. No foreign key: it's a
+ * cache, filled from the server's answer, and `purgeHousehold` removes it with the household.
+ */
+export const householdMemberNames = sqliteTable(
+  'household_member_names',
+  {
+    householdId: text('household_id').notNull(),
+    userId: text('user_id').notNull(),
+    displayName: text('display_name').notNull(),
+    /** When they joined, as the server's ISO text. */
+    joinedAt: text('joined_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.userId] })],
+);
+
 export type Category = typeof categories.$inferSelect;
 export type FailedImport = typeof failedImports.$inferSelect;
 export type Household = typeof households.$inferSelect;

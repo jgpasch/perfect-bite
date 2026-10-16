@@ -6,6 +6,7 @@ import {
   db,
   deviceSettings,
   householdCategoryOverrides,
+  householdMemberNames,
   households,
   householdStaples,
   ingredients,
@@ -26,9 +27,11 @@ import { ensureStarterData } from '@/features/lists/lists';
 import {
   makeSession,
   onQuery,
+  onRpc,
   queries,
   queriesFor,
   resetSupabase,
+  rpcCallsFor,
   supabase,
   type RecordedQuery,
 } from '@/test/fake-supabase';
@@ -2102,6 +2105,73 @@ describe('onMemberships', () => {
 
     expect(heard).toEqual([]);
     stop();
+  });
+});
+
+describe("members' names (spec 4.7)", () => {
+  const member = (user_id: string, display_name: string) => ({ user_id, display_name, avatar_url: null, role: 'member', joined_at: ts(0) });
+  const cachedNames = () =>
+    db
+      .select({ householdId: householdMemberNames.householdId, userId: householdMemberNames.userId, name: householdMemberNames.displayName })
+      .from(householdMemberNames)
+      .orderBy(asc(householdMemberNames.householdId), asc(householdMemberNames.userId))
+      .all();
+  let serverMembers: Record<string, ReturnType<typeof member>[]>;
+  beforeEach(() => {
+    serverMembers = { [H1]: [member('u1', 'Jo Doe'), member('u2', 'Alex Rivera')], [H2]: [member('u1', 'Jo Doe'), member('u3', 'Sam Lee')] };
+    onRpc((call) =>
+      call.fn === 'get_household_members' ? { data: serverMembers[call.args!.p_household_id as string] ?? null } : undefined,
+    );
+  });
+
+  test('a full pull fills the cache for each household from get_household_members', async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H2, ts(1)));
+    await pullNow();
+
+    expect(rpcCallsFor('get_household_members').map((c) => c.args)).toEqual([{ p_household_id: H1 }, { p_household_id: H2 }]);
+    expect(cachedNames()).toEqual([
+      { householdId: H1, userId: 'u1', name: 'Jo Doe' },
+      { householdId: H1, userId: 'u2', name: 'Alex Rivera' },
+      { householdId: H2, userId: 'u1', name: 'Jo Doe' },
+      { householdId: H2, userId: 'u3', name: 'Sam Lee' },
+    ]);
+  });
+
+  test("the next full pull replaces a household's names", async () => {
+    await pullNow();
+    serverMembers[H1] = [member('u1', 'Jo Doe'), member('u4', 'Kim Park')];
+    await pullNow();
+    expect(cachedNames().map((r) => r.userId)).toEqual(['u1', 'u4']);
+  });
+
+  test("a scoped pull doesn't load names", async () => {
+    await pullNow({ scope: { households: [H1] } });
+    expect(rpcCallsFor('get_household_members')).toEqual([]);
+    expect(cachedNames()).toEqual([]);
+  });
+
+  test("a failed names call keeps the names and doesn't fail the pull", async () => {
+    await pullNow();
+    onRpc(() => ({ error: { message: 'Failed to fetch' } }));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(pullNow()).resolves.toMatchObject({ error: null });
+
+    expect(cachedNames().map((r) => r.userId)).toEqual(['u1', 'u2']);
+    warn.mockRestore();
+  });
+
+  test('a lost household is purged with its names', async () => {
+    memberships = [H1, H2];
+    put('households', remoteHousehold(H2, ts(1)));
+    await pullNow();
+    memberships = [H1];
+    server.households = server.households.filter((h) => h.id !== H2);
+
+    await pullNow();
+
+    expect(cachedNames().map((r) => r.householdId)).toEqual([H1, H1]);
   });
 });
 

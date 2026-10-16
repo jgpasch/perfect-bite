@@ -11,7 +11,7 @@ import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
-import { recipeHue } from '@/domain/aisle-color';
+import { memberHue } from '@/domain/aisle-color';
 import { useAccountState } from '@/features/auth/account';
 import { CombineLanguagesRow } from '@/features/households/combine-languages-row';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
@@ -483,7 +483,7 @@ function Avatars({ members, ring }: { members: HouseholdMember[]; ring: string }
   return (
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={styles.row}>
       {members.map((m, i) => {
-        const look = avatarColors(recipeHue(m.userId), colors, aisles);
+        const look = avatarColors(memberHue(m.userId), colors, aisles);
         return (
           <View
             key={m.userId}

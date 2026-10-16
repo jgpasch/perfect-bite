@@ -11,7 +11,9 @@
 //   null override rather than deleting one.)
 // - Channels: one per household (each table filtered to it), one for the user's rows and
 //   memberships, one for the catalog. A membership event does a full pull, which reads the user's
-//   households again; channels follow it (added and removed). Every channel catches up with a pull
+//   households again; channels follow it (added and removed). A household's channel also hears
+//   its other members join and leave, and loads its members' names again (`refreshMemberNames`;
+//   no pull). Every channel catches up with a pull
 //   once it's subscribed, covering changes made since the last pull or while it was rejoining.
 // - Leaving the foreground or going offline closes every channel; coming back opens them again
 //   (on reconnect, as new channels).
@@ -20,6 +22,7 @@ import { addNetworkStateListener } from 'expo-network';
 import { AppState } from 'react-native';
 
 import { isOnline } from '@/features/categories/catch-up';
+import { refreshMemberNames } from '@/features/households/member-names';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 import { applyRemoteDelete, mergeScopes, onMemberships, pullNow, type PullScope } from './pull';
@@ -129,11 +132,21 @@ export function startRealtime(userId: string): () => void {
     open(
       `household:${householdId}`,
       { households: [householdId] },
-      HOUSEHOLD_TABLES.map((table) => ({
-        table,
-        filter: `${table === 'households' ? 'id' : 'household_id'}=eq.${householdId}`,
-      })),
-      () => schedule({ households: [householdId] }),
+      [
+        ...HOUSEHOLD_TABLES.map((table) => ({
+          table,
+          filter: `${table === 'households' ? 'id' : 'household_id'}=eq.${householdId}`,
+        })),
+        { table: 'household_members', filter: `household_id=eq.${householdId}` },
+      ],
+      (table, payload) => {
+        if (table !== 'household_members') return schedule({ households: [householdId] });
+        // Someone joined, left or was removed: load the household's names again. Deletes arrive
+        // for every household's rows; only this one's count.
+        if (payload.eventType !== 'DELETE' || (payload.old as Record<string, unknown>).household_id === householdId) {
+          void refreshMemberNames(householdId);
+        }
+      },
     );
 
   const openCatalog = () => open('catalog', { catalog: true }, [{ table: 'ingredients' }], () => schedule({ catalog: true }));

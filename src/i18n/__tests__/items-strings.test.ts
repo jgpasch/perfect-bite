@@ -67,7 +67,8 @@ describe('item strings in Spanish', () => {
     expect(addedLine({ source: 'manual', addedBy: ME, recipeName: null, createdAt: NOW }, ME, NOW)).toBe('Tú, justo ahora');
     const fiveAgo = new Date(NOW.getTime() - 5 * 60_000);
     expect(checkedLine(fiveAgo, ME, ME, NOW)).toBe('Marcado hace 5 min por ti');
-    expect(checkedLine(fiveAgo, 'user-2', ME, NOW)).toBe('Marcado hace 5 min por alguien más');
+    expect(checkedLine(fiveAgo, 'user-2', ME, NOW, new Map([['user-2', 'Alex']]))).toBe('Marcado hace 5 min por Alex');
+    expect(checkedLine(fiveAgo, 'user-2', ME, NOW)).toBe('Marcado hace 5 min por alguien');
     expect(checkedLine(fiveAgo, null, ME, NOW)).toBe('Marcado hace 5 min');
   });
 

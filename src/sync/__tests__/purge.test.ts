@@ -9,6 +9,7 @@ import {
   db,
   deviceSettings,
   householdCategoryOverrides,
+  householdMemberNames,
   households,
   householdStaples,
   ingredientUnitUsage,
@@ -119,6 +120,23 @@ const isOrderFor = (categoryId: string) => (r: OutboxRow) =>
   r.mutation.table === 'user_category_order' && r.mutation.key?.category_id === categoryId;
 
 describe('purgeHousehold', () => {
+  test("removes the household's members' names and keeps the other household's (spec 4.7)", () => {
+    const names = (householdId: string, ...userIds: string[]) =>
+      db
+        .insert(householdMemberNames)
+        .values(userIds.map((userId) => ({ householdId, userId, displayName: userId, joinedAt: '2026-10-01T00:00:00Z' })))
+        .run();
+    names(home, USER, 'u2');
+    names(CABIN, USER, 'u3');
+
+    db.transaction((tx) => purgeHousehold(tx, CABIN));
+
+    expect(db.select({ householdId: householdMemberNames.householdId, userId: householdMemberNames.userId }).from(householdMemberNames).all()).toEqual([
+      { householdId: home, userId: USER },
+      { householdId: home, userId: 'u2' },
+    ]);
+  });
+
   test("removes every row of the household and reports what went", () => {
     expect(rowsIn(lists, CABIN)).toHaveLength(1);
     const cabinMutations = outboxRows().filter((r) => r.householdId === CABIN).length;

@@ -6,7 +6,7 @@ import { ActionSheetIOS, Alert, Switch } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import ItemEditSheet from '@/app/list/[id]/item/[itemId]';
-import { categories, db, householdCategoryOverrides, households, ingredients, listItems } from '@/db';
+import { categories, db, householdCategoryOverrides, householdMemberNames, households, ingredients, listItems } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { setFeatures } from '@/features/plans/features';
 import { initI18n } from '@/i18n';
@@ -206,6 +206,42 @@ describe('the item sheet', () => {
     expect(mockBack).not.toHaveBeenCalled();
     refresh();
     expect(gotIt().props.accessibilityState).toEqual({ checked: false });
+  });
+
+  describe('who checked it (spec 4.7)', () => {
+    const checkedBy = (itemId: string, userId: string) =>
+      db.update(listItems).set({ checkedAt: new Date(Date.now() - 5 * 60_000), checkedBy: userId }).where(eq(listItems.id, itemId)).run();
+    const cacheNames = (rows: [string, string][]) => {
+      const householdId = db.select().from(households).get()!.id;
+      db.insert(householdMemberNames)
+        .values(rows.map(([userId, displayName]) => ({ householdId, userId, displayName, joinedAt: '2026-10-01T00:00:00Z' })))
+        .run();
+    };
+
+    test('you, even with your own name cached', () => {
+      cacheNames([[USER, 'Jo Doe'], ['user-2', 'Alex Rivera']]);
+      const { itemId } = addItem(listId, 'milk', USER)!;
+      checkedBy(itemId, USER);
+      open(itemId);
+      expect(lines()).toContain('Checked 5 min ago by you');
+    });
+
+    test("another member, by the first word of their name", () => {
+      cacheNames([[USER, 'Jo Doe'], ['user-2', 'Alex Rivera']]);
+      const { itemId } = addItem(listId, 'milk', USER)!;
+      checkedBy(itemId, 'user-2');
+      open(itemId);
+      expect(lines()).toContain('Checked 5 min ago by Alex');
+      expect(text()).not.toMatch(/someone/);
+    });
+
+    test('a deleted or removed user, whose name is no longer on the device, is someone', () => {
+      cacheNames([['user-2', 'Alex Rivera']]);
+      const { itemId } = addItem(listId, 'milk', USER)!;
+      checkedBy(itemId, 'user-deleted');
+      open(itemId);
+      expect(lines()).toContain('Checked 5 min ago by someone');
+    });
   });
 
   test('Save writes the name and note and closes; Cancel leaves them', () => {

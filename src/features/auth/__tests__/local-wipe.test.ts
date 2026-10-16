@@ -12,6 +12,7 @@ import { categories, db, deviceSettings, households, ingredients, lists } from '
 import * as schema from '@/db/schema';
 import { createCategory, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
 import { FOLD_ACCENTS_KEY, foldAccentKeys } from '@/features/categories/fold-accents';
+import { refreshMemberNames } from '@/features/households/member-names';
 import { clearMyInvites, getMyInvites, refreshMyInvites } from '@/features/households/my-invites';
 import { addItem, checkItems } from '@/features/lists/items';
 import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, manualOrderKey, viewModeKey } from '@/features/lists/list-view';
@@ -103,6 +104,8 @@ beforeEach(async () => {
   setCategoryOverride(home, 'onions', aisle);
   setCategoryOverride(home, 'milk', PRODUCE);
   upsertRow(db, schema.householdStaples, { householdId: home, ingredientName: 'salt', createdBy: USER }, {});
+  respondToRpc('get_household_members', { data: [{ user_id: USER, display_name: 'Jo Doe', joined_at: '2026-10-01T00:00:00Z' }] });
+  await refreshMemberNames(home);
   recordFailedImport({ url: 'https://example.com/ramen', title: 'Ramen', reason: 'not_a_recipe' });
 
   // Device settings: list state and sync state (user data) next to device-only preferences.

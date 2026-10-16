@@ -96,9 +96,21 @@ describe('checkedLine', () => {
     expect(checkedLine(new Date(2026, 9, 8, 18), ME, ME, now)).toBe('Checked yesterday by you');
   });
 
-  it("says someone else for another member, whose name isn't on the device", () => {
-    expect(checkedLine(new Date(2026, 9, 6, 9), 'user-2', ME, now)).toBe('Checked Tuesday by someone else');
-    expect(checkedLine(now, 'user-2', null, now)).toBe('Checked just now by someone else');
+  it("names another member by their short name, even signed out", () => {
+    const names = new Map([['user-2', 'Alex'], ['user-3', 'Sam R.']]);
+    expect(checkedLine(new Date(2026, 9, 6, 9), 'user-2', ME, now, names)).toBe('Checked Tuesday by Alex');
+    expect(checkedLine(new Date(2026, 9, 9, 15, 25), 'user-3', ME, now, names)).toBe('Checked 5 min ago by Sam R.');
+    expect(checkedLine(now, 'user-2', null, now, names)).toBe('Checked just now by Alex');
+  });
+
+  it("says someone for a member whose name isn't on the device (removed, deleted, not loaded)", () => {
+    const names = new Map([['user-2', 'Alex']]);
+    expect(checkedLine(new Date(2026, 9, 6, 9), 'user-gone', ME, now, names)).toBe('Checked Tuesday by someone');
+    expect(checkedLine(now, 'user-2', ME, now)).toBe('Checked just now by someone');
+  });
+
+  it('says "by you" for your own check even when your name is cached', () => {
+    expect(checkedLine(now, ME, ME, now, new Map([[ME, 'Jo']]))).toBe('Checked just now by you');
   });
 
   it('leaves the "by" off when no one is recorded', () => {

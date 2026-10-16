@@ -75,3 +75,11 @@ export function householdColor(householdId: string): AisleHue {
   return idHue(householdId);
 }
 
+/**
+ * A member's avatar colour (with `avatarColors`), from their user id, so a member has the same
+ * colour everywhere: the Households screen, and who added or checked an item.
+ */
+export function memberHue(userId: string): AisleHue {
+  return idHue(userId);
+}
+
