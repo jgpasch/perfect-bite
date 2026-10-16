@@ -12,7 +12,7 @@ import { seedCatalog } from '@/test/seed';
 
 import { ItemAddBar } from '../add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '../add-bar-copy';
-import { addItem, clearChecked, setItemChecked, undoAdd, type AddItemResult } from '../items';
+import { addItem, clearChecked, setItemChecked } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
 import { SuggestionChips } from '../suggestion-chips';
 import type { SuggestionChip } from '../suggestions';
@@ -185,127 +185,48 @@ describe('ItemAddBar', () => {
     expect(chipLabels().filter((l) => l.startsWith('Add recipe'))).toEqual([]);
   });
 
-  describe('usual items (spec 4.2)', () => {
-    // Bought twice each, all checked off and cleared: usual, and none on the list.
+  describe('the empty field (spec 4.2)', () => {
+    // Bought twice each, checked off and cleared: well-used history, none of it on the list.
     function buyTwice(...names: string[]) {
       for (const name of [...names, ...names]) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
       clearChecked(listId);
     }
     const focus = () => act(() => input().props.onFocus());
-    const blur = () => act(() => input().props.onBlur());
-    const rowLabels = () =>
-      hosts((n) => n.props.accessibilityLabel === 'Usual items' || n.props.accessibilityLabel === 'Suggestions').map(
-        (n) => n.props.accessibilityLabel as string,
-      );
-    // The list screen's add: Combine and Undo as 4.4 (the screen's toast plays the Undo here).
-    const added: AddItemResult[] = [];
-    const listAdd = jest.fn((text: string) => {
-      const result = addItem(listId, text, USER);
-      if (result) added.push(result);
-    });
-    let props: Parameters<typeof ItemAddBar>[0];
-    const renderListBar = () => (props = renderBar({ listId, onAdd: listAdd }));
-    // A live query re-runs on a change; here a re-render reads it again.
-    const rerender = () => act(() => tree!.update(<ItemAddBar {...props} />));
+    const rows = () => hosts((n) => n.props.horizontal === true);
 
-    beforeEach(() => {
-      added.length = 0;
-      listAdd.mockClear();
-    });
-
-    test('focusing the empty field shows the usual items, most used lately first', () => {
-      buyTwice('milk', 'bananas', 'eggs');
-      // A third use puts eggs first; bananas were used after milk (or at once, and then by name).
-      setItemChecked(addItem(listId, 'eggs', USER)!.itemId, true, USER);
-      clearChecked(listId);
-      renderListBar();
-      expect(rowLabels()).toEqual([]);
+    test('focused and empty: no chips and no row, with history and recipes on hand', () => {
+      buyTwice('milk', 'eggs');
+      addRecipeIngredient(createRecipe('Milk punch', householdId), 'milk');
+      renderBar({ onAddRecipe: jest.fn() });
       focus();
-      expect(rowLabels()).toEqual(['Usual items']);
-      expect(chipLabels()).toEqual(['Add Eggs', 'Add Bananas', 'Add Milk']);
-    });
-
-    test('no row without focus, and none once the keyboard hides', () => {
-      buyTwice('milk');
-      renderListBar();
+      expect(rows()).toHaveLength(0);
       expect(chipLabels()).toEqual([]);
-      focus();
-      expect(chipLabels()).toEqual(['Add Milk']);
-      blur();
-      expect(rowLabels()).toEqual([]);
     });
 
-    test('tapping a usual chip adds its name with no amount, keeps the field, and the chip leaves the row', () => {
-      buyTwice('milk', 'eggs');
-      renderListBar();
+    test('whitespace counts as empty: no row', () => {
+      buyTwice('milk');
+      renderBar({ onAddRecipe: jest.fn() });
       focus();
-      expect(chipLabels()).toEqual(['Add Eggs', 'Add Milk']);
-      act(() => byLabel('Add Milk').props.onClick());
-      expect(listAdd).toHaveBeenCalledWith('milk');
-      expect(input().props.value).toBe('');
-      expect(chipLabels()).toEqual(['Add Eggs']);
+      type('   ');
+      expect(rows()).toHaveLength(0);
+      expect(chipLabels()).toEqual([]);
     });
 
-    test('Undo of that add brings the chip back', () => {
-      buyTwice('milk', 'eggs');
-      renderListBar();
+    test('typing shows recipe, history and catalog chips; clearing the text removes the row', () => {
+      seedCatalog();
+      buyTwice('milk');
+      addRecipeIngredient(createRecipe('Milk punch', householdId), 'milk');
+      renderBar({ onAddRecipe: jest.fn() });
       focus();
-      act(() => byLabel('Add Milk').props.onClick());
-      expect(chipLabels()).toEqual(['Add Eggs']);
-      undoAdd(added[0]);
-      rerender();
-      // Undo takes back the use but not its time, so milk may now come first.
-      expect(chipLabels().sort()).toEqual(['Add Eggs', 'Add Milk']);
-    });
-
-    test('an item added elsewhere (a sync) drops its chip on the next read', () => {
-      buyTwice('milk', 'eggs');
-      renderListBar();
-      focus();
-      addItem(listId, 'eggs', 'user-2');
-      rerender();
-      expect(chipLabels()).toEqual(['Add Milk']);
-    });
-
-    test('typing switches to autocomplete; clearing the text brings the usual chips back', () => {
-      buyTwice('oat milk', 'milk');
-      renderListBar();
-      focus();
-      expect(rowLabels()).toEqual(['Usual items']);
-      type('oat');
-      expect(rowLabels()).toEqual(['Suggestions']);
-      expect(chipLabels()).toEqual(['Add Oat milk']);
-      type('  ');
-      expect(rowLabels()).toEqual(['Usual items']);
-      expect(chipLabels()).toEqual(['Add Milk', 'Add Oat milk']);
-    });
-
-    test('long press offers Remove from suggestions, which hides the chip', () => {
-      buyTwice('milk', 'eggs');
-      jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((options, callback) => {
-        expect(options.options).toEqual(['Remove from suggestions', 'Cancel']);
-        expect(options.title).toBe('Milk');
-        callback(0);
-      });
-      renderListBar();
-      focus();
-      expect(byLabel('Add Milk').props.accessibilityHint).toBe('Long press to remove from suggestions');
-      act(() => pressable('Add Milk').props.onLongPress());
-      expect(chipLabels()).toEqual(['Add Eggs']);
-    });
-
-    test('a one-off is not usual; with nothing usual there is no row', () => {
-      setItemChecked(addItem(listId, 'saffron', USER)!.itemId, true, USER);
-      renderListBar();
-      focus();
-      expect(rowLabels()).toEqual([]);
-    });
-
-    test("without a listId (the recipe screen's bar), the empty field shows nothing", () => {
-      buyTwice('milk', 'eggs');
-      renderBar();
-      focus();
-      expect(rowLabels()).toEqual([]);
+      type('mil');
+      expect(rows()).toHaveLength(1);
+      expect(byLabel('Suggestions')).toBeDefined();
+      expect(chipLabels()[0]).toBe('Add recipe Milk punch, 1 item');
+      expect(chipLabels()).toContain('Add Milk');
+      type('bana');
+      expect(chipLabels()).toContain('Add Bananas');
+      type('');
+      expect(rows()).toHaveLength(0);
       expect(chipLabels()).toEqual([]);
     });
   });
@@ -376,15 +297,15 @@ describe('in Spanish', () => {
     expect(pressable('Agregar')).toBeDefined();
   });
 
-  test('the usual items row while the field is empty, Suggestions while typing', () => {
+  test('no row while the field is empty, Suggestions while typing', () => {
     for (const name of ['milk', 'milk']) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
     clearChecked(listId);
-    renderBar({ listId });
+    renderBar();
     act(() => input().props.onFocus());
-    expect(rowLabel()).toBe('Lo de siempre');
-    expect(byLabel('Agregar Milk').props.accessibilityHint).toBe('Mantén presionado para quitar de las sugerencias');
+    expect(rowLabel()).toBeUndefined();
     type('mil');
     expect(rowLabel()).toBe('Sugerencias');
+    expect(byLabel('Agregar Milk').props.accessibilityHint).toBe('Mantén presionado para quitar de las sugerencias');
   });
 
   test('Remove from suggestions and Cancel in the long-press menu', () => {

@@ -206,7 +206,6 @@ export const es = {
     label: 'Agregar un artículo',
     button: 'Agregar',
     suggestions: 'Sugerencias',
-    usualItems: 'Lo de siempre',
     addChip: 'Agregar {{name}}',
     addRecipeChip_one: 'Agregar receta {{name}}, {{count}} artículo',
     addRecipeChip_other: 'Agregar receta {{name}}, {{count}} artículos',

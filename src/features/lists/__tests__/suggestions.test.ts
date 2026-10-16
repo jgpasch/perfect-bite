@@ -8,7 +8,7 @@ import { addRecipeIngredient, createRecipe, deleteRecipe, recipeIngredientsQuery
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
 
-import { addItem, setItemChecked, usualItems } from '../items';
+import { addItem, setItemChecked } from '../items';
 import { ensureStarterData, getDefaultListId } from '../lists';
 import {
   applySuggestion,
@@ -357,35 +357,25 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
     expect(suggestionChips('', { recipes: [], suggestions: [] })).toEqual([]);
   });
 
-  describe('usual items (the empty field on a list)', () => {
-    const usual = [
-      { key: 'milk', displayName: 'milk' },
-      { key: 'iphone charger', displayName: 'iPhone charger' },
-    ];
-    const withUsual = { ...sources, usual };
-
-    test('with the field empty or blank: only the usual chips, adding their name, removable', () => {
-      const expected = [
-        { kind: 'item', key: 'milk', label: 'Milk', text: 'milk', removable: true },
-        { kind: 'item', key: 'iphone charger', label: 'iPhone charger', text: 'iPhone charger', removable: true },
-      ];
-      expect(suggestionChips('', withUsual)).toEqual(expected);
-      expect(suggestionChips('   ', withUsual)).toEqual(expected);
+  describe('the empty field (spec 4.2)', () => {
+    test('empty or whitespace only: no chips, even with matches on hand', () => {
+      for (const text of ['', ' ', '   ', '\t', '\n ']) expect(suggestionChips(text, sources)).toEqual([]);
     });
 
-    test('with text: autocomplete as before, no usual chips', () => {
-      expect(suggestionChips('2 lbs chi', withUsual)).toEqual(suggestionChips('2 lbs chi', sources));
-      expect(suggestionChips('mi', { recipes: [], suggestions: [], usual })).toEqual([]);
-    });
-
-    test('nothing usual: no chips', () => {
-      expect(suggestionChips('', { ...sources, usual: [] })).toEqual([]);
-    });
-
-    test('on a real household: items added twice and checked off show when the field is empty', () => {
-      for (const name of ['milk', 'eggs', 'eggs', 'milk', 'saffron']) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
-      const chips = suggestionChips('', { recipes: [], suggestions: [], usual: usualItems(householdId, listId) });
-      expect(chips.map((c) => (c.kind === 'item' ? c.label : c.key)).sort()).toEqual(['Eggs', 'Milk']);
+    test('on a real household with history and recipes: nothing until something is typed', () => {
+      for (const name of ['milk', 'eggs', 'eggs', 'milk']) setItemChecked(addItem(listId, name, USER)!.itemId, true, USER);
+      addRecipeIngredient(createRecipe('Milk punch', householdId), 'milk');
+      const chips = (text: string) =>
+        suggestionChips(text, { recipes: getRecipeSuggestions(householdId, text), suggestions: getSuggestions(householdId, text) });
+      expect(chips('')).toEqual([]);
+      expect(chips('  ')).toEqual([]);
+      // One history match, so the catalog fills the rest.
+      const typed = chips('mil');
+      expect(typed.map((c) => (c.kind === 'recipe' ? `recipe ${c.recipe.name}` : c.label)).slice(0, 2)).toEqual([
+        'recipe Milk punch',
+        'Milk',
+      ]);
+      expect(typed.slice(2).map((c) => c.kind === 'item' && c.removable)).toEqual([false, false, false, false]);
     });
   });
 });

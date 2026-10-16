@@ -229,9 +229,8 @@ export const en = {
     label: 'Add an item',
     /** The round + button. */
     button: 'Add',
-    /** The chip row's VoiceOver name: while typing, and while the field is empty. */
+    /** The chip row's VoiceOver name. */
     suggestions: 'Suggestions',
-    usualItems: 'Usual items',
     addChip: 'Add {{name}}',
     addRecipeChip_one: 'Add recipe {{name}}, {{count}} item',
     addRecipeChip_other: 'Add recipe {{name}}, {{count}} items',

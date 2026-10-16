@@ -1,5 +1,5 @@
 // List items (spec 4.2, 4.4): local reads, and writes through the sync helpers (outbox, spec 7.1).
-import { and, asc, eq, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 
 import {
   db,
@@ -18,7 +18,7 @@ import { effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-reso
 import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
-import { rankHistory, rankUsual } from '@/domain/suggestion-rank';
+import { rankHistory } from '@/domain/suggestion-rank';
 import { usualUnit, withDefaultUnit } from '@/domain/usual-unit';
 import {
   clearCategoryOverride,
@@ -1051,35 +1051,6 @@ export function searchRecentItems(householdId: string, prefix: string, limit: nu
   return rankHistory(candidates, p, now)
     .slice(0, limit)
     .map((r) => ({ key: r.ingredientName, displayName: r.displayName }));
-}
-
-/**
- * The chip row of an empty add field (spec 4.2): the household's usual items, ordered by `rankUsual`, leaving out any
- * ingredient with a live unchecked item on the list. A checked one stays, since adding it again reopens it (4.4).
- */
-export function usualItems(householdId: string, listId: string, limit = 12, now = new Date()) {
-  const candidates = db
-    .select()
-    .from(ingredientUsage)
-    .where(
-      and(
-        eq(ingredientUsage.householdId, householdId),
-        isNull(ingredientUsage.hiddenAt),
-        notInArray(ingredientUsage.ingredientName, openItemKeysQuery(listId)),
-      ),
-    )
-    .all();
-  return rankUsual(candidates, now)
-    .slice(0, Math.max(0, limit))
-    .map((r) => ({ key: r.ingredientName, displayName: r.displayName }));
-}
-
-/** What `usualItems` reads from a list: its open items. Live-queried by the add bar so the chips follow the list. */
-export function openItemKeysQuery(listId: string) {
-  return db
-    .select({ key: listItems.ingredientName })
-    .from(listItems)
-    .where(and(eq(listItems.listId, listId), liveItem, isNull(listItems.checkedAt)));
 }
 
 export type CheckedItems = { ids: string[]; checkedAt: Date };
