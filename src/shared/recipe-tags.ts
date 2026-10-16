@@ -6,6 +6,13 @@ import { z } from 'zod';
 // that needs no migration, and older apps ignore slugs they don't know (`knownTags`).
 
 /** A facet's values, in display order. */
+// A person's own marks, never the AI's: the prompts, the model's answer and its validation leave
+// this facet out (`AI_TAG_FACETS`).
+const SAVED = [
+  { slug: 'favorite', label: 'Favorite' },
+  { slug: 'want-to-try', label: 'Want to try' },
+] as const;
+
 const MEAL = [
   { slug: 'breakfast', label: 'Breakfast' },
   { slug: 'lunch', label: 'Lunch' },
@@ -67,6 +74,7 @@ const METHOD = [
 
 /** The facets in display order, each with its values and how many a recipe may have. */
 export const RECIPE_TAG_FACETS = [
+  { key: 'saved', label: 'Saved', max: 2, values: SAVED },
   { key: 'meal', label: 'Meal', max: 2, values: MEAL },
   { key: 'cuisine', label: 'Cuisine', max: 2, values: CUISINE },
   { key: 'protein', label: 'Protein', max: 3, values: PROTEIN },
@@ -78,7 +86,16 @@ export type RecipeTagFacet = (typeof RECIPE_TAG_FACETS)[number];
 export type RecipeTagFacetKey = RecipeTagFacet['key'];
 export const RECIPE_TAG_FACET_KEYS = RECIPE_TAG_FACETS.map((f) => f.key) as readonly RecipeTagFacetKey[];
 
+/** The facets the AI tags: all but `saved`, which only a person sets. */
+export type AiRecipeTagFacet = Exclude<RecipeTagFacet, { key: 'saved' }>;
+export type AiRecipeTagFacetKey = AiRecipeTagFacet['key'];
+export const AI_TAG_FACETS = RECIPE_TAG_FACETS.filter((f): f is AiRecipeTagFacet => f.key !== 'saved');
+
+export type SavedTag = (typeof SAVED)[number]['slug'];
 export type MealTag = (typeof MEAL)[number]['slug'];
+
+/** The meal slugs in display order. */
+export const MEAL_TAGS: readonly MealTag[] = MEAL.map((v) => v.slug);
 export type CuisineTag = (typeof CUISINE)[number]['slug'];
 export type ProteinTag = (typeof PROTEIN)[number]['slug'];
 export type DietTag = (typeof DIET)[number]['slug'];
@@ -123,10 +140,12 @@ export const CUISINE_REGION_LABELS: Record<CuisineRegion, string> = {
 export type RecipeTags = Record<RecipeTagFacetKey, string[]>;
 
 /**
- * Validates stored or edited tags: keeps the five facets (a missing one becomes `[]`), drops any
- * other key (the database refuses them), and keeps every slug, known or not.
+ * Validates stored or edited tags: keeps the six facets (a missing one becomes `[]`, so a value
+ * stored before `saved` existed reads as not saved), drops any other key (the database refuses
+ * them), and keeps every slug, known or not.
  */
 export const RecipeTagsSchema = z.object({
+  saved: z.array(z.string()).default([]),
   meal: z.array(z.string()).default([]),
   cuisine: z.array(z.string()).default([]),
   protein: z.array(z.string()).default([]),
@@ -135,6 +154,16 @@ export const RecipeTagsSchema = z.object({
 }) satisfies z.ZodType<RecipeTags, unknown>;
 
 export function emptyRecipeTags(): RecipeTags {
+  return { saved: [], meal: [], cuisine: [], protein: [], diet: [], method: [] };
+}
+
+/** Tags as the AI gives them: every facet but `saved`. */
+export type AiRecipeTags = Record<AiRecipeTagFacetKey, string[]>;
+
+/** `RecipeTagsSchema` without `saved`: a `saved` key in the input is dropped. */
+export const AiRecipeTagsSchema = RecipeTagsSchema.omit({ saved: true }) satisfies z.ZodType<AiRecipeTags, unknown>;
+
+export function emptyAiRecipeTags(): AiRecipeTags {
   return { meal: [], cuisine: [], protein: [], diet: [], method: [] };
 }
 

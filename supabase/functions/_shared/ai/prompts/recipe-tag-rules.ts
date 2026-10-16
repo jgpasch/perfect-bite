@@ -1,9 +1,12 @@
 // How to tag a recipe (spec 4.14), shared by the extract-recipe and suggest-recipe-tags prompts so
 // both tag the same way. Changing a line here changes both prompts: give each a new version file.
-import { RECIPE_TAG_FACETS } from '@shared/index.ts';
+import { AI_TAG_FACETS } from '@shared/index.ts';
 
-/** One line per facet: its key, how many it may have, and every value as `slug (Label)`. */
-const FACET_LINES = RECIPE_TAG_FACETS.map(
+/**
+ * One line per facet: its key, how many it may have, and every value as `slug (Label)`. Not
+ * `saved` (Favorite, Want to try): only a person sets it.
+ */
+const FACET_LINES = AI_TAG_FACETS.map(
   (facet) =>
     `- ${facet.key} (${facet.label}, at most ${facet.max}): ${facet.values.map((v) => `${v.slug} (${v.label})`).join(', ')}.`,
 );

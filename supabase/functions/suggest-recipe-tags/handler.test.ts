@@ -1,6 +1,6 @@
 // suggest-recipe-tags (spec 6.7) end to end through handleRequest, with a fake store and the mock
 // or a MockLanguageModelV4. Nothing touches the network.
-import { emptyRecipeTags, type SuggestRecipeTagsRequestInput } from '@shared/index.ts';
+import { emptyAiRecipeTags, type SuggestRecipeTagsRequestInput } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -102,7 +102,7 @@ const TIKKA: SuggestRecipeTagsRequestInput = {
   ],
 };
 
-const tags = (partial: Partial<ReturnType<typeof emptyRecipeTags>>) => ({ ...emptyRecipeTags(), ...partial });
+const tags = (partial: Partial<ReturnType<typeof emptyAiRecipeTags>>) => ({ ...emptyAiRecipeTags(), ...partial });
 
 // --- Success ------------------------------------------------------------------------------------
 
@@ -135,7 +135,7 @@ Deno.test('nothing fitting is a 200 with every facet empty', async () => {
     const { post } = setup();
     const res = await post({ name: 'Mystery dish', notes: null, ingredients: [{ name: 'salt', quantity: null, unit: null, note: '' }] });
     assertEquals(res.status, 200);
-    assertEquals((await res.json()).tags, emptyRecipeTags());
+    assertEquals((await res.json()).tags, emptyAiRecipeTags());
   });
 });
 
@@ -156,6 +156,19 @@ Deno.test('an unknown slug drops only its facet', async () => {
     const res = await post(TIKKA);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).tags, tags({ meal: ['dinner'], protein: ['chicken'], method: ['grill'] }));
+  });
+});
+
+Deno.test('saved never comes from the model: a saved facet in its answer is dropped', async () => {
+  await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
+    const { post } = setup({
+      model: answering({ saved: ['favorite', 'want-to-try'], meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] }),
+    });
+    const res = await post(TIKKA);
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.tags, tags({ meal: ['dinner'] }));
+    assertEquals('saved' in body.tags, false);
   });
 });
 

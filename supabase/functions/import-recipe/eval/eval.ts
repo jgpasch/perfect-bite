@@ -7,12 +7,12 @@
 // CI or `deno test`.
 import {
   normalizeIngredientName,
-  RECIPE_TAG_FACETS,
+  AI_TAG_FACETS,
   recipeTagLabel,
   UNITS,
+  type AiRecipeTagFacetKey,
+  type AiRecipeTags,
   type RecipeImportResponse,
-  type RecipeTagFacetKey,
-  type RecipeTags,
 } from '@shared/index.ts';
 import { z } from 'zod';
 
@@ -113,7 +113,7 @@ export function parseExpected(json: unknown): ExpectedPage[] {
       throw new EvalUsageError(`expected.json: ${p.file} is not a recipe but has tags`);
     }
     if (p.optional_tags && !p.tags) throw new EvalUsageError(`expected.json: ${p.file} has optional_tags but no tags`);
-    for (const facet of RECIPE_TAG_FACETS) {
+    for (const facet of AI_TAG_FACETS) {
       const required = p.tags?.[facet.key] ?? [];
       for (const slug of [...required, ...(p.optional_tags?.[facet.key] ?? [])]) {
         if (recipeTagLabel(facet.key, slug) === null) {
@@ -152,7 +152,7 @@ export function parseArgs(argv: readonly string[]): EvalArgs {
 
 /** What importRecipe() returned for a page, reduced to what's scored. */
 export type GotPage =
-  | { kind: 'recipe'; name: string; ingredients: RecipeImportResponse['ingredients']; tags?: RecipeTags | null }
+  | { kind: 'recipe'; name: string; ingredients: RecipeImportResponse['ingredients']; tags?: AiRecipeTags | null }
   | { kind: 'not_a_recipe' }
   | { kind: 'error'; message: string };
 
@@ -187,7 +187,7 @@ export type PageOutcome = {
  * expected ones that didn't (recall).
  */
 export type FacetScore = {
-  facet: RecipeTagFacetKey;
+  facet: AiRecipeTagFacetKey;
   returned: string[];
   right: string[];
   wrong: string[];
@@ -197,8 +197,8 @@ export type FacetScore = {
 };
 
 /** Pure: each facet's tags against the expected and optional ones. A page that isn't a recipe returned none. */
-export function scoreTags(expected: ExpectedTags, optional: ExpectedTags, got: RecipeTags | null | undefined): FacetScore[] {
-  return RECIPE_TAG_FACETS.map((facet) => {
+export function scoreTags(expected: ExpectedTags, optional: ExpectedTags, got: AiRecipeTags | null | undefined): FacetScore[] {
+  return AI_TAG_FACETS.map((facet) => {
     const returned = [...new Set(got?.[facet.key] ?? [])];
     const want = expected[facet.key] ?? [];
     const ok = new Set([...want, ...(optional[facet.key] ?? [])]);
@@ -374,12 +374,12 @@ export function formatTagScores(outcomes: readonly PageOutcome[]): string[] {
   const scored = outcomes.filter((o) => o.tags !== null);
   if (scored.length === 0) return [];
   const rows = [['facet', 'precision', 'recall']];
-  const sum = (facets: readonly RecipeTagFacetKey[], field: 'returned' | 'right' | 'expected' | 'found') =>
+  const sum = (facets: readonly AiRecipeTagFacetKey[], field: 'returned' | 'right' | 'expected' | 'found') =>
     scored.reduce((n, o) => n + o.tags!.filter((s) => facets.includes(s.facet)).reduce((m, s) => m + s[field].length, 0), 0);
-  const row = (label: string, facets: readonly RecipeTagFacetKey[]) =>
+  const row = (label: string, facets: readonly AiRecipeTagFacetKey[]) =>
     rows.push([label, pct(sum(facets, 'right'), sum(facets, 'returned')), pct(sum(facets, 'found'), sum(facets, 'expected'))]);
-  for (const facet of RECIPE_TAG_FACETS) row(facet.key, [facet.key]);
-  row('all', RECIPE_TAG_FACETS.map((f) => f.key));
+  for (const facet of AI_TAG_FACETS) row(facet.key, [facet.key]);
+  row('all', AI_TAG_FACETS.map((f) => f.key));
   return [`tags (${scored.length} pages; precision matters most: a wrong tag hides a recipe):`, ...table(rows)];
 }
 

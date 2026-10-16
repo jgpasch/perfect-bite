@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { UNITS } from '../quantity-parser.ts';
-import { RecipeTagsSchema } from '../recipe-tags.ts';
+import { AiRecipeTagsSchema } from '../recipe-tags.ts';
 import { MAX_RECIPE_INGREDIENT_NAME_LENGTH, MAX_RECIPE_INGREDIENTS, MAX_RECIPE_NAME_LENGTH, MAX_RECIPE_NOTE_LENGTH } from './recipe-import.ts';
 
 // Spec 4.14, 6.7. The suggest-recipe-tags Edge Function and the app share these: the request the
@@ -48,9 +48,12 @@ export type SuggestRecipeTagsRequest = z.infer<typeof SuggestRecipeTagsRequestSc
 /** What the app sends, before the schema trims and cuts it. */
 export type SuggestRecipeTagsRequestInput = z.input<typeof SuggestRecipeTagsRequestSchema>;
 
-/** 200. `tags` holds only known slugs, each facet within its maximum; all empty when nothing fit. */
+/**
+ * 200. `tags` holds only known slugs, each facet within its maximum; all empty when nothing fit.
+ * Never `saved`, a person's own: one in the response is dropped.
+ */
 export const SuggestRecipeTagsResponseSchema = z.object({
-  tags: RecipeTagsSchema,
+  tags: AiRecipeTagsSchema,
   promptVersion: z.string(),
 });
 export type SuggestRecipeTagsResponse = z.infer<typeof SuggestRecipeTagsResponseSchema>;

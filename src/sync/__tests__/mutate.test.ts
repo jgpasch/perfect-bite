@@ -275,7 +275,7 @@ test('deleteRows only enqueues rows it removed', () => {
 
 test('a recipe insert sends its tags, tags_edited and total_minutes but never added_by (spec 4.14)', () => {
   addHousehold();
-  const tags = { meal: ['dinner'], cuisine: [], protein: ['beef'], diet: [], method: ['grill'] };
+  const tags = { saved: ['favorite'], meal: ['dinner'], cuisine: [], protein: ['beef'], diet: [], method: ['grill'] };
   const row = insertRow(db, recipes, {
     id: 'r1',
     householdId: H,
@@ -371,7 +371,7 @@ test('a recipe update sends only the steps, servings or image_url it changed', (
 test("a recipe tags update sends exactly the tag fields; added_by can't be patched", () => {
   addHousehold();
   insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Soup' });
-  const tags = { meal: ['lunch'], cuisine: [], protein: [], diet: ['vegan'], method: [] };
+  const tags = { saved: [], meal: ['lunch'], cuisine: [], protein: [], diet: ['vegan'], method: [] };
 
   updateRows(db, recipes, eq(recipes.id, 'r1'), { tags, tagsEdited: true, totalMinutes: null });
 

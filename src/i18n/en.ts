@@ -992,6 +992,7 @@ export const en = {
     },
     /** Recipe tag facets (4.14), by key. */
     tagFacets: {
+      saved: 'Saved',
       meal: 'Meal',
       cuisine: 'Cuisine',
       protein: 'Protein',
@@ -1000,6 +1001,10 @@ export const en = {
     },
     /** Recipe tags, by facet and slug. */
     tags: {
+      saved: {
+        favorite: 'Favorite',
+        'want-to-try': 'Want to try',
+      },
       meal: {
         breakfast: 'Breakfast',
         lunch: 'Lunch',

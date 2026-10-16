@@ -34,7 +34,7 @@ export type RecipeFilters = { tags: RecipeTags; time: TimeBucket[]; untagged: bo
 /** What filtering reads from a recipe. */
 export type FilterableRecipe = { tags: RecipeTags | null; totalMinutes: number | null };
 
-/** The sheet's facets: the five tag facets, then Time. */
+/** The sheet's facets: the six tag facets (Saved first), then Time. */
 export type FilterFacetKey = RecipeTagFacetKey | 'time';
 
 export function noRecipeFilters(): RecipeFilters {

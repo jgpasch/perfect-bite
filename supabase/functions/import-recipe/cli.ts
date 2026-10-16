@@ -4,13 +4,13 @@
 // With --file the page is read from disk and sent as the client's page, so nothing is fetched.
 // Every LLM call is printed in full (instructions, prompt, response, tokens, latency) unless --quiet.
 import {
-  RECIPE_TAG_FACETS,
+  AI_TAG_FACETS,
   recipeTagLabel,
   SYSTEM_CATEGORIES,
+  type AiRecipeTags,
   type ExtractedRecipe,
   type RecipeImportRequest,
   type RecipeImportResponse,
-  type RecipeTags,
 } from '@shared/index.ts';
 
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
@@ -145,8 +145,8 @@ function table(rows: string[][]): string {
 }
 
 /** Pure: the tags as "Meal: Dinner · Cuisine: Indian", known slugs by label and others as stored; `-` for none. */
-export function formatTags(tags: RecipeTags | null): string {
-  const parts = RECIPE_TAG_FACETS.flatMap((facet) =>
+export function formatTags(tags: AiRecipeTags | null): string {
+  const parts = AI_TAG_FACETS.flatMap((facet) =>
     (tags?.[facet.key] ?? []).map((slug) => `${facet.label}: ${recipeTagLabel(facet.key, slug) ?? slug}`),
   );
   return parts.length === 0 ? '-' : parts.join(' · ');

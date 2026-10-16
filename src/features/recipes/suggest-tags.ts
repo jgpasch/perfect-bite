@@ -7,7 +7,7 @@ import { isOnline } from '@/features/categories/catch-up';
 import { lostFeature } from '@/features/plans/load';
 import { i18n, onLanguageChanged } from '@/i18n';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import type { RecipeTags } from '@/shared/recipe-tags';
+import type { AiRecipeTags } from '@/shared/recipe-tags';
 import {
   SuggestRecipeTagsErrorSchema,
   SuggestRecipeTagsResponseSchema,
@@ -23,7 +23,7 @@ import { getRecipe, recipeIngredientsQuery } from './recipes';
  */
 export type SuggestTagsError = 'offline' | 'no-ingredients' | 'not-entitled' | 'rate-limited' | 'unavailable' | 'failed';
 
-export type SuggestTagsResult = { ok: true; tags: RecipeTags } | { ok: false; error: SuggestTagsError };
+export type SuggestTagsResult = { ok: true; tags: AiRecipeTags } | { ok: false; error: SuggestTagsError };
 
 /**
  * What to tell the person for each error. The server answers both the per-minute and the per-day

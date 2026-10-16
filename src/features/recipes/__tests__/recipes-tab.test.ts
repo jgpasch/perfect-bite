@@ -61,11 +61,11 @@ describe('recipesQuery households (board 05)', () => {
 
   test("each recipe carries its tags and total time for the tab's filters (spec 4.14)", () => {
     const tacos = createRecipe('Tacos');
-    updateRecipeTags(tacos, { meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25);
+    updateRecipeTags(tacos, { saved: ['favorite'], meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25);
     createRecipe('Plain');
     const rows = Object.fromEntries(recipesQuery().all().map((r) => [r.name, [r.tags, r.totalMinutes]]));
     expect(rows).toEqual({
-      Tacos: [{ meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25],
+      Tacos: [{ saved: ['favorite'], meal: ['dinner'], cuisine: ['mexican'], protein: [], diet: [], method: [] }, 25],
       Plain: [null, null],
     });
   });

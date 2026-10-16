@@ -3,7 +3,7 @@
 import type { AisleHue } from '@/domain/aisle-color';
 import { currentLanguage, i18n } from '@/i18n';
 import { tagLabel } from '@/i18n/vocabulary';
-import { knownTags, RECIPE_TAG_FACETS, type MealTag, type RecipeTags } from '@/shared/recipe-tags';
+import { knownTags, MEAL_TAGS, type MealTag, type RecipeTags } from '@/shared/recipe-tags';
 
 export type RecipeSort = 'recent' | 'name' | 'meal';
 
@@ -62,7 +62,7 @@ export function sortRecipes<R extends { id: string; name: string }>(recipes: rea
 export type MealSectionKey = MealTag | 'none';
 
 /** The meals in facet order (Breakfast, Lunch, Dinner, Side, Dessert, Snack, Drink), then No meal. */
-export const MEAL_SECTIONS: readonly MealSectionKey[] = [...RECIPE_TAG_FACETS[0].values.map((v) => v.slug), 'none'];
+export const MEAL_SECTIONS: readonly MealSectionKey[] = [...MEAL_TAGS, 'none'];
 
 /** Each section's fixed header tint: a different hue per meal, grey for No meal. */
 export const MEAL_HUES: Readonly<Record<MealSectionKey, AisleHue>> = {

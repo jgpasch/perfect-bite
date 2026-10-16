@@ -272,8 +272,8 @@ function createImportedRecipe(
     householdId,
     name: nameOf(imported),
     sourceUrl: imported.sourceUrl,
-    // Only a recipe this import creates; a reused one keeps its own (spec 4.14).
-    tags: imported.tags,
+    // Only a recipe this import creates; a reused one keeps its own (spec 4.14). Never `saved`.
+    tags: imported.tags && { saved: [], ...imported.tags },
     totalMinutes: imported.totalMinutes,
     steps: imported.steps.length > 0 ? imported.steps : null,
     servings: servingsOf(imported.servings),

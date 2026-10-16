@@ -16,7 +16,7 @@ import {
   UNIT_KEYS,
   type CategorySlug,
   type ExtractedRecipe,
-  type RecipeTags,
+  type AiRecipeTags,
   type Unit,
 } from '@shared/index.ts';
 import { z } from 'zod';
@@ -217,7 +217,7 @@ export const SuggestTagsOutputSchema = ExtractRecipeOutputSchema.shape.tags;
 export type SuggestTagsOutput = z.infer<typeof SuggestTagsOutputSchema>;
 
 /** The tags with extract-recipe's rules (`ExtractedRecipeTagsSchema`): a facet with an unknown slug is `[]`, one over its maximum is cut. */
-export function cleanSuggestedTags(raw: SuggestTagsOutput): RecipeTags {
+export function cleanSuggestedTags(raw: SuggestTagsOutput): AiRecipeTags {
   return ExtractedRecipeTagsSchema.parse(raw);
 }
 

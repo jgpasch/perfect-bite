@@ -1,10 +1,12 @@
 // The recipe screen's tags (spec 4.14): the band's pill row and the Tags sheet. Pure: no React or SQLite.
 import {
+  AI_TAG_FACETS,
   knownTags,
   MAX_TOTAL_MINUTES,
   RECIPE_TAG_FACETS,
   recipeTagLabel,
   timeBucket,
+  type AiRecipeTags,
   type RecipeTagFacetKey,
   type RecipeTags,
 } from '@/shared/recipe-tags';
@@ -54,10 +56,12 @@ function tagPillLabel(facet: string, value: string): string {
 
 /**
  * "Tagged when you imported it": shown while no person has edited the tags of a recipe that has
- * some (from its import). Never for an untagged recipe.
+ * some (from its import). Never for an untagged recipe; `saved` (a person's, never the import's)
+ * doesn't count.
  */
 export function showImportTagsNote(recipe: { tags: RecipeTags | null; tagsEdited: boolean; totalMinutes: number | null }): boolean {
-  return !recipe.tagsEdited && recipe.tags !== null && recipeTagPills(recipe.tags, recipe.totalMinutes).length > 0;
+  if (recipe.tagsEdited || recipe.tags === null) return false;
+  return recipeTagPills({ ...recipe.tags, saved: [] }, recipe.totalMinutes).length > 0;
 }
 
 /** How many known values of a facet are selected (unknown slugs don't count against its maximum). */
@@ -88,15 +92,16 @@ export function facetLimitLabel(max: number): string {
 }
 
 /**
- * The sheet's picks after an AI suggestion (spec 4.14): each facet becomes the suggestion's known
- * values (in facet order, capped at its maximum), plus any slug this app doesn't know from the
- * current picks, so Save keeps it. Null when the suggestion has no known value: the picks stay.
+ * The sheet's picks after an AI suggestion (spec 4.14): each facet the AI tags becomes the
+ * suggestion's known values (in facet order, capped at its maximum), plus any slug this app doesn't
+ * know from the current picks, so Save keeps it. `saved` stays as picked. Null when the suggestion
+ * has no known value: the picks stay.
  */
-export function applySuggestedTags(current: RecipeTags, suggested: RecipeTags): RecipeTags | null {
-  const known = knownTags(suggested)!;
-  if (RECIPE_TAG_FACETS.every((f) => known[f.key].length === 0)) return null;
+export function applySuggestedTags(current: RecipeTags, suggested: AiRecipeTags): RecipeTags | null {
+  const known = knownTags({ ...suggested, saved: [] })!;
+  if (AI_TAG_FACETS.every((f) => known[f.key].length === 0)) return null;
   const out = { ...current };
-  for (const facet of RECIPE_TAG_FACETS) {
+  for (const facet of AI_TAG_FACETS) {
     const unknown = current[facet.key].filter((slug) => !recipeTagLabel(facet.key, slug));
     out[facet.key] = [...known[facet.key].slice(0, facet.max), ...unknown];
   }

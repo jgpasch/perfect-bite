@@ -1,7 +1,10 @@
 import { describe, expect, test } from '@jest/globals';
 
 import {
+  AI_TAG_FACETS,
+  AiRecipeTagsSchema,
   CUISINE_REGIONS,
+  emptyAiRecipeTags,
   emptyRecipeTags,
   knownTags,
   RECIPE_TAG_FACET_KEYS,
@@ -15,18 +18,25 @@ import {
 describe('the facets', () => {
   test('are in display order with their maximums', () => {
     expect(RECIPE_TAG_FACETS.map((f) => [f.key, f.label, f.max])).toEqual([
+      ['saved', 'Saved', 2],
       ['meal', 'Meal', 2],
       ['cuisine', 'Cuisine', 2],
       ['protein', 'Protein', 3],
       ['diet', 'Diet', 2],
       ['method', 'Method', 2],
     ]);
-    expect(RECIPE_TAG_FACET_KEYS).toEqual(['meal', 'cuisine', 'protein', 'diet', 'method']);
+    expect(RECIPE_TAG_FACET_KEYS).toEqual(['saved', 'meal', 'cuisine', 'protein', 'diet', 'method']);
+  });
+
+  test('the AI tags every facet but saved', () => {
+    expect(AI_TAG_FACETS.map((f) => f.key)).toEqual(['meal', 'cuisine', 'protein', 'diet', 'method']);
+    expect(emptyAiRecipeTags()).toEqual({ meal: [], cuisine: [], protein: [], diet: [], method: [] });
   });
 
   test('list their values in order', () => {
     const slugs = Object.fromEntries(RECIPE_TAG_FACETS.map((f) => [f.key, f.values.map((v) => v.slug)]));
     expect(slugs).toEqual({
+      saved: ['favorite', 'want-to-try'],
       meal: ['breakfast', 'lunch', 'dinner', 'side', 'dessert', 'snack', 'drink'],
       cuisine: [
         'american',
@@ -67,6 +77,9 @@ describe('the facets', () => {
     expect(recipeTagLabel('meal', 'brunch')).toBeNull();
     // A slug from another facet isn't this facet's.
     expect(recipeTagLabel('meal', 'chicken')).toBeNull();
+    expect(recipeTagLabel('saved', 'favorite')).toBe('Favorite');
+    expect(recipeTagLabel('saved', 'want-to-try')).toBe('Want to try');
+    expect(recipeTagLabel('saved', 'dinner')).toBeNull();
   });
 
   test('every cuisine has a region', () => {
@@ -80,12 +93,30 @@ describe('the facets', () => {
 
 describe('RecipeTagsSchema', () => {
   test('keeps known facets and values', () => {
-    const tags = { meal: ['dinner'], cuisine: ['thai'], protein: ['chicken', 'eggs'], diet: [], method: ['one-pot'] };
+    const tags = { saved: ['favorite'], meal: ['dinner'], cuisine: ['thai'], protein: ['chicken', 'eggs'], diet: [], method: ['one-pot'] };
     expect(RecipeTagsSchema.parse(tags)).toEqual(tags);
+  });
+
+  test('keeps both saved values', () => {
+    expect(RecipeTagsSchema.parse({ saved: ['favorite', 'want-to-try'] })).toEqual({
+      ...emptyRecipeTags(),
+      saved: ['favorite', 'want-to-try'],
+    });
+  });
+
+  test('a value stored before saved existed reads as not saved', () => {
+    const older = { meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] };
+    expect(RecipeTagsSchema.parse(older)).toEqual({ saved: [], ...older });
+  });
+
+  test('refuses a saved facet that isn’t an array of strings', () => {
+    expect(RecipeTagsSchema.safeParse({ saved: 'favorite' }).success).toBe(false);
+    expect(RecipeTagsSchema.safeParse({ saved: [true] }).success).toBe(false);
   });
 
   test('keeps unknown slugs (they are only dropped for display)', () => {
     expect(RecipeTagsSchema.parse({ meal: ['brunch', 'dinner'], method: ['smoker'] })).toEqual({
+      saved: [],
       meal: ['brunch', 'dinner'],
       cuisine: [],
       protein: [],
@@ -111,11 +142,47 @@ describe('RecipeTagsSchema', () => {
   });
 });
 
+describe('AiRecipeTagsSchema', () => {
+  test('drops saved', () => {
+    expect(AiRecipeTagsSchema.parse({ saved: ['favorite'], meal: ['dinner'] })).toEqual({ ...emptyAiRecipeTags(), meal: ['dinner'] });
+  });
+});
+
 describe('knownTags', () => {
   test('drops unknown slugs and orders each facet by its values', () => {
     expect(
-      knownTags({ meal: ['dinner', 'brunch', 'lunch'], cuisine: ['klingon'], protein: ['pork', 'chicken'], diet: [], method: [] }),
-    ).toEqual({ meal: ['lunch', 'dinner'], cuisine: [], protein: ['chicken', 'pork'], diet: [], method: [] });
+      knownTags({
+        saved: ['want-to-try', 'loved', 'favorite'],
+        meal: ['dinner', 'brunch', 'lunch'],
+        cuisine: ['klingon'],
+        protein: ['pork', 'chicken'],
+        diet: [],
+        method: [],
+      }),
+    ).toEqual({
+      saved: ['favorite', 'want-to-try'],
+      meal: ['lunch', 'dinner'],
+      cuisine: [],
+      protein: ['chicken', 'pork'],
+      diet: [],
+      method: [],
+    });
+  });
+
+  test('lists the facets with saved first', () => {
+    expect(Object.keys(knownTags({ ...emptyRecipeTags(), meal: ['dinner'] })!)).toEqual([
+      'saved',
+      'meal',
+      'cuisine',
+      'protein',
+      'diet',
+      'method',
+    ]);
+  });
+
+  test('older stored tags without saved show no saved values', () => {
+    const older = { meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] };
+    expect(knownTags(older as never)).toEqual({ ...emptyRecipeTags(), meal: ['dinner'] });
   });
 
   test('ignores a slug filed under the wrong facet', () => {

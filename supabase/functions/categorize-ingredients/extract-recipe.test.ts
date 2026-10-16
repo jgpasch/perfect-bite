@@ -1,7 +1,7 @@
 // The extract-recipe AI task (spec §6.6): prompt, output cleaning, mock and task options. Lives
 // here for the import map, like ai.test.ts, until import-recipe has its own folder. The prompt tests
 // here are v2's (kept, as v2 is); v3's are in import-recipe/prompt-v3.test.ts. The task runs v3.
-import { ExtractedRecipeSchema, RECIPE_TAG_FACETS, UNITS } from '@shared/index.ts';
+import { AI_TAG_FACETS, ExtractedRecipeSchema, UNITS } from '@shared/index.ts';
 import { assertEquals, assertRejects } from '@std/assert';
 import { MockLanguageModelV4 } from 'ai/test';
 
@@ -119,7 +119,7 @@ Deno.test('prompt: the instructions list every supported unit and the rules', ()
 
 Deno.test('prompt v2: the instructions list every facet with its maximum, slugs and labels, and the tag rules', () => {
   const { instructions } = buildExtractRecipePrompt({ title: null, ingredientLines: [] });
-  for (const facet of RECIPE_TAG_FACETS) {
+  for (const facet of AI_TAG_FACETS) {
     const line = instructions.split('\n').find((l) => l.startsWith(`- ${facet.key} (${facet.label}, at most ${facet.max}): `));
     assertEquals(line !== undefined, true, facet.key);
     for (const value of facet.values) assertEquals(line!.includes(`${value.slug} (${value.label})`), true, value.slug);

@@ -3,7 +3,7 @@
 import {
   canonicalRecipeUrl,
   cleanImageUrl,
-  emptyRecipeTags,
+  emptyAiRecipeTags,
   ExtractedRecipeSchema,
   findRecipe,
   MAX_RECIPE_NAME_LENGTH,
@@ -108,7 +108,7 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
       name: '',
       servings: null,
       ingredients: [],
-      tags: emptyRecipeTags(),
+      tags: emptyAiRecipeTags(),
       total_minutes: null,
       steps: [],
       image_url: null,

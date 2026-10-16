@@ -1,5 +1,5 @@
 // Extract-recipe prompt v3 (spec §6.6): v2 plus the method steps.
-import { RECIPE_TAG_FACETS, UNITS } from '@shared/index.ts';
+import { AI_TAG_FACETS, UNITS } from '@shared/index.ts';
 import { assertEquals } from '@std/assert';
 
 import { pageFromPrompt } from '../_shared/ai/mock-model.ts';
@@ -39,9 +39,11 @@ Deno.test('v3: keeps v2’s ingredient, unit, tag and untrusted-content rules', 
   for (const rule of ['is_recipe to false', 'For the sauce:', '"2 cloves garlic, minced"', '"1 (15 oz) can chickpeas"', 'higher number', 'to taste', 'For serving', 'never instructions', 'Do not estimate']) {
     assertEquals(instructions.includes(rule), true, rule);
   }
-  for (const facet of RECIPE_TAG_FACETS) {
+  for (const facet of AI_TAG_FACETS) {
     assertEquals(instructions.includes(`- ${facet.key} (${facet.label}, at most ${facet.max}): `), true, facet.key);
   }
+  // Saved (Favorite, Want to try) is a person's own: never asked for.
+  for (const word of ['saved', 'Saved', 'favorite', 'want-to-try', 'Want to try']) assertEquals(instructions.includes(word), false, word);
   assertEquals(instructions === buildV2({ title: null, ingredientLines: [] }).instructions, false, 'v3 is a different prompt');
 });
 

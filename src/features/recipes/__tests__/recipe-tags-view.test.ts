@@ -1,5 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 
+import { i18n } from '@/i18n';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import {
@@ -34,6 +35,21 @@ describe('recipeTagPills', () => {
     expect(pills.at(-1)).toEqual({ key: 'time:under-30', facet: 'Time', value: 'Under 30 min', accessibilityLabel: 'Time: Under 30 min' });
   });
 
+  test('saved pills come first, in the en and es labels', async () => {
+    const t = tags({ meal: ['dinner'], saved: ['want-to-try', 'favorite'] });
+    expect(recipeTagPills(t, null).map((p) => p.accessibilityLabel)).toEqual([
+      'Saved: Favorite',
+      'Saved: Want to try',
+      'Meal: Dinner',
+    ]);
+    await i18n.changeLanguage('es');
+    try {
+      expect(recipeTagPills(t, null).map((p) => p.value)).toEqual(['Favorita', 'Por probar', 'Cena']);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
   test('the time pill follows the buckets', () => {
     expect(recipeTagPills(null, 30).map((p) => p.value)).toEqual(['Under 1 hour']);
     expect(recipeTagPills(null, 60).map((p) => p.value)).toEqual(['Under 1 hour']);
@@ -62,6 +78,13 @@ describe('showImportTagsNote', () => {
     expect(showImportTagsNote({ tags: null, tagsEdited: false, totalMinutes: null })).toBe(false);
     expect(showImportTagsNote({ tags: emptyRecipeTags(), tagsEdited: false, totalMinutes: null })).toBe(false);
     expect(showImportTagsNote({ tags: tags({ meal: ['brunch'] }), tagsEdited: false, totalMinutes: null })).toBe(false);
+  });
+
+  test('ignores saved tags', () => {
+    const saved = tags({ saved: ['favorite', 'want-to-try'] });
+    expect(showImportTagsNote({ tags: saved, tagsEdited: false, totalMinutes: null })).toBe(false);
+    expect(showImportTagsNote({ tags: { ...saved, meal: ['dinner'] }, tagsEdited: false, totalMinutes: null })).toBe(true);
+    expect(showImportTagsNote({ tags: saved, tagsEdited: false, totalMinutes: 20 })).toBe(true);
   });
 });
 
@@ -115,6 +138,7 @@ describe('applySuggestedTags', () => {
   test('the suggestion replaces every facet’s known picks, emptying the ones it left out', () => {
     const current = tags({ meal: ['lunch'], cuisine: ['thai'], diet: ['vegan'], method: ['grill'] });
     expect(applySuggestedTags(current, tags({ meal: ['dinner'], protein: ['beef', 'chicken'] }))).toEqual({
+      saved: [],
       meal: ['dinner'],
       cuisine: [],
       protein: ['chicken', 'beef'],
@@ -126,6 +150,7 @@ describe('applySuggestedTags', () => {
   test('keeps the current picks’ unknown slugs after the suggested values', () => {
     const current = tags({ meal: ['brunch', 'lunch'], method: ['sous-vide'] });
     expect(applySuggestedTags(current, tags({ meal: ['dinner'], cuisine: ['mexican'] }))).toEqual({
+      saved: [],
       meal: ['dinner', 'brunch'],
       cuisine: ['mexican'],
       protein: [],
@@ -144,6 +169,24 @@ describe('applySuggestedTags', () => {
   test('a suggestion with no known value is null, so the picks stay', () => {
     expect(applySuggestedTags(tags({ meal: ['dinner'] }), emptyRecipeTags())).toBeNull();
     expect(applySuggestedTags(tags({ meal: ['dinner'] }), tags({ meal: ['feast'] }))).toBeNull();
+  });
+
+  test('keeps saved as picked, unknown slugs too', () => {
+    const current = tags({ saved: ['want-to-try', 'loved', 'favorite'], meal: ['lunch'], cuisine: ['thai'] });
+    expect(applySuggestedTags(current, tags({ meal: ['dinner'] }))).toEqual({
+      ...emptyRecipeTags(),
+      saved: ['want-to-try', 'loved', 'favorite'],
+      meal: ['dinner'],
+    });
+    expect(applySuggestedTags(tags({}), tags({ meal: ['dinner'] }))!.saved).toEqual([]);
+  });
+
+  test('never takes saved from the suggestion', () => {
+    const suggested = { ...tags({ meal: ['dinner'] }), saved: ['favorite'] };
+    expect(applySuggestedTags(tags({ saved: ['want-to-try'] }), suggested)!.saved).toEqual(['want-to-try']);
+    expect(applySuggestedTags(emptyRecipeTags(), suggested)!.saved).toEqual([]);
+    // Only saved in a suggestion is nothing suggested.
+    expect(applySuggestedTags(emptyRecipeTags(), tags({ saved: ['favorite'] }))).toBeNull();
   });
 
   test('doesn’t change the tags it was given', () => {

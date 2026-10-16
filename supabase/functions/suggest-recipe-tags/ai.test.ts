@@ -1,6 +1,6 @@
 // The suggest-recipe-tags AI task (spec 6.7): prompt, shared tag rules, mock and task options; and
 // extract-recipe v2's prompt, pinned so moving its tag rules out didn't change it (or its cache).
-import { RECIPE_TAG_FACETS, SuggestRecipeTagsRequestSchema } from '@shared/index.ts';
+import { AI_TAG_FACETS, SuggestRecipeTagsRequestSchema } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 
 import { mockSuggestTags, tagsRecipeFromPrompt } from '../_shared/ai/mock-model.ts';
@@ -12,7 +12,7 @@ import {
   SUGGEST_RECIPE_TAGS_PROMPT_VERSION,
 } from '../_shared/ai/prompts/suggest-recipe-tags.v1.ts';
 import { runAiTask } from '../_shared/ai/run-ai-task.ts';
-import { aiTasks, cleanSuggestedTags, isAiEnabled, TAGS_MAX_OUTPUT_TOKENS } from '../_shared/ai/tasks.ts';
+import { aiTasks, cleanSuggestedTags, isAiEnabled, SuggestTagsOutputSchema, TAGS_MAX_OUTPUT_TOKENS } from '../_shared/ai/tasks.ts';
 
 const ENV_KEYS = ['AI_MODEL_TAGS', 'AI_MODEL_TAGS_FALLBACK', 'AI_MODEL_RECIPE', 'AI_MODEL_RECIPE_FALLBACK', 'AI_THINKING_TAGS'];
 
@@ -67,9 +67,16 @@ Deno.test('both prompts carry the same tag rules and every facet value', () => {
   assertStringIncludes(rules, '- diet: only when every ingredient fits it.');
   assertStringIncludes(rules, '- meal: what the dish is usually eaten as.');
   assertStringIncludes(rules, '- method: only when the recipe needs that equipment');
-  for (const facet of RECIPE_TAG_FACETS) {
+  for (const facet of AI_TAG_FACETS) {
     assertStringIncludes(suggest, `- ${facet.key} (${facet.label}, at most ${facet.max}): `);
     for (const value of facet.values) assertStringIncludes(suggest, `${value.slug} (${value.label})`);
+  }
+});
+
+Deno.test('the tag rules never ask for saved (Favorite, Want to try): only a person sets it', () => {
+  const suggest = buildSuggestRecipeTagsPrompt(request({ name: 'Soup', ingredients: [] })).instructions;
+  for (const text of [suggest, RECIPE_TAG_RULES.join('\n')]) {
+    for (const word of ['saved', 'Saved', 'favorite', 'Favorite', 'want-to-try', 'Want to try']) assertEquals(text.includes(word), false, word);
   }
 });
 
@@ -165,6 +172,14 @@ Deno.test('cleanSuggestedTags drops a facet with an unknown slug and caps each f
     }),
     { meal: ['dinner', 'lunch'], cuisine: [], protein: ['fish', 'shellfish'], diet: [], method: [] },
   );
+});
+
+Deno.test('the answer schema has no saved facet, and cleanSuggestedTags drops one the model adds', () => {
+  assertEquals(Object.keys(SuggestTagsOutputSchema.shape), ['meal', 'cuisine', 'protein', 'diet', 'method']);
+  const answer = { ...empty, meal: ['dinner'], saved: ['favorite'] };
+  const parsed = SuggestTagsOutputSchema.parse(answer);
+  assertEquals('saved' in parsed, false);
+  assertEquals(cleanSuggestedTags(answer), { ...empty, meal: ['dinner'] });
 });
 
 // --- Task options -----------------------------------------------------------------------------------------

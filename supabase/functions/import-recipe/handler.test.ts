@@ -414,6 +414,16 @@ test('v2: a slug that isn’t in the list drops only its facet, and the import s
   assertEquals(body.ingredients.length, 4);
 });
 
+test('saved never comes from the model: a saved facet in its answer is neither returned nor cached', async () => {
+  const { post, store } = setup({ model: editedModel((a) => ({ ...a, tags: { ...TAGS, saved: ['favorite', 'want-to-try'] } })) });
+  const res = await post({ url: PASTA_URL });
+  assertEquals(res.status, 200);
+  const body: RecipeImportResponse = await res.json();
+  assertEquals(body.tags, TAGS);
+  assertEquals('saved' in body.tags!, false);
+  assertEquals('saved' in store.saves[0].result.tags, false);
+});
+
 test('v2: a facet over its maximum is capped', async () => {
   const { post } = setup({
     model: editedModel((a) => ({ ...a, tags: { ...TAGS, meal: ['lunch', 'dinner', 'side'], protein: ['chicken', 'beef', 'pork', 'lamb'] } })),

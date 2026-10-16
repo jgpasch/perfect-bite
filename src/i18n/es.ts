@@ -911,6 +911,7 @@ export const es = {
       other: 'Otros',
     },
     tagFacets: {
+      saved: 'Guardadas',
       meal: 'Comida',
       cuisine: 'Cocina',
       protein: 'Proteína',
@@ -918,6 +919,10 @@ export const es = {
       method: 'Método',
     },
     tags: {
+      saved: {
+        favorite: 'Favorita',
+        'want-to-try': 'Por probar',
+      },
       meal: {
         breakfast: 'Desayuno',
         lunch: 'Almuerzo',

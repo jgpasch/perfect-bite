@@ -879,6 +879,20 @@ describe('RecipeTagsSheet', () => {
     expect(field(root, 'Minutes').props.value).toBe('20');
   });
 
+  test('Saved comes first, both its values can be on, and Save keeps them', () => {
+    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+    const root = render(<RecipeTagsSheet />);
+    const t = texts(root);
+    expect(t.indexOf('Saved')).toBeGreaterThan(-1);
+    expect(t.indexOf('Saved')).toBeLessThan(t.indexOf('Meal'));
+    press(pill(root, 'Want to try'));
+    press(pill(root, 'Favorite'));
+    expect(selected(root)).toEqual(['Favorite', 'Want to try', 'Dinner']);
+    expect(texts(root).filter((s) => s === 'Pick up to 2')).toHaveLength(1);
+    act(() => toolbar(root, 'Save').props.onPress());
+    expect(getRecipe(tacos)!.tags).toEqual({ ...emptyRecipeTags(), saved: ['want-to-try', 'favorite'], meal: ['dinner'] });
+  });
+
   test('a facet at its maximum disables its other pills and says why; deselecting frees them', () => {
     const root = render(<RecipeTagsSheet />);
     expect(texts(root)).not.toContain('Pick up to 2');
@@ -913,7 +927,7 @@ describe('RecipeTagsSheet', () => {
     act(() => field(root, 'Hours').props.onChangeText('1'));
     act(() => field(root, 'Minutes').props.onChangeText('15'));
     act(() => toolbar(root, 'Save').props.onPress());
-    const saved = { meal: ['brunchy'], cuisine: ['mexican'], protein: [], diet: [], method: [] };
+    const saved = { saved: [], meal: ['brunchy'], cuisine: ['mexican'], protein: [], diet: [], method: [] };
     expect(getRecipe(tacos)).toMatchObject({ tags: saved, tagsEdited: true, totalMinutes: 75 });
     const updates = outboxRecipeUpdates();
     expect(updates).toHaveLength(1);
@@ -1014,13 +1028,16 @@ describe('RecipeTagsSheet', () => {
       expect(suggestButton(root)[0].props).toMatchObject({ label: 'Suggest again', disabled: false, loading: false });
     });
 
-    test('a suggestion replaces the picks, keeps unknown slugs, leaves the time, and writes nothing', async () => {
-      setTags({ tags: { ...emptyRecipeTags(), meal: ['lunch', 'brunchy'], cuisine: ['thai'], diet: ['vegan'] }, totalMinutes: 50 });
+    test('a suggestion replaces the picks but saved, keeps unknown slugs, leaves the time, and writes nothing', async () => {
+      setTags({
+        tags: { ...emptyRecipeTags(), saved: ['favorite'], meal: ['lunch', 'brunchy'], cuisine: ['thai'], diet: ['vegan'] },
+        totalMinutes: 50,
+      });
       const before = getRecipe(tacos);
       answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'] } });
       const root = render(<RecipeTagsSheet />);
       await tap(root);
-      expect(selected(root)).toEqual(['Dinner', 'Mexican', 'Beef']);
+      expect(selected(root)).toEqual(['Favorite', 'Dinner', 'Mexican', 'Beef']);
       expect(field(root, 'Minutes').props.value).toBe('50');
       expect(texts(root)).toContain(SUGGESTED_NOTE);
       const note = root.root.find((n) => typeof n.type !== 'string' && n.props.children === SUGGESTED_NOTE);
@@ -1031,7 +1048,14 @@ describe('RecipeTagsSheet', () => {
 
       // Save keeps the unknown slug it carried over.
       act(() => toolbar(root, 'Save').props.onPress());
-      expect(getRecipe(tacos)!.tags).toEqual({ meal: ['dinner', 'brunchy'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: [] });
+      expect(getRecipe(tacos)!.tags).toEqual({
+        saved: ['favorite'],
+        meal: ['dinner', 'brunchy'],
+        cuisine: ['mexican'],
+        protein: ['beef'],
+        diet: [],
+        method: [],
+      });
     });
 
     test('nothing fit: the picks stay and it says so', async () => {
@@ -1095,7 +1119,7 @@ describe('RecipeTagsSheet', () => {
       await tap(root);
       press(pill(root, 'Mexican'));
       act(() => toolbar(root, 'Save').props.onPress());
-      const saved = { meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: [] };
+      const saved = { saved: [], meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'], diet: [], method: [] };
       expect(getRecipe(tacos)).toMatchObject({ tags: saved, tagsEdited: true, totalMinutes: 30 });
       const updates = outboxRecipeUpdates();
       expect(updates).toHaveLength(1);

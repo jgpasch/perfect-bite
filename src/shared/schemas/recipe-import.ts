@@ -3,13 +3,13 @@ import { z } from 'zod';
 import { UNITS } from '../quantity-parser.ts';
 import { MAX_IMAGE_URL_LENGTH, MAX_RECIPE_STEP_LENGTH, MAX_RECIPE_STEPS } from '../recipe-jsonld.ts';
 import {
-  emptyRecipeTags,
+  AI_TAG_FACETS,
+  AiRecipeTagsSchema,
+  emptyAiRecipeTags,
   MAX_TOTAL_MINUTES,
   MIN_TOTAL_MINUTES,
-  RECIPE_TAG_FACETS,
-  RecipeTagsSchema,
-  type RecipeTagFacet,
-  type RecipeTags,
+  type AiRecipeTagFacet,
+  type AiRecipeTags,
 } from '../recipe-tags.ts';
 
 // Spec 4.10, 6.6. The import-recipe Edge Function and the app share these: the request the app
@@ -97,7 +97,7 @@ export type RecipeImportRequest = z.infer<typeof RecipeImportRequestSchema>;
  * maximum. A facet with a slug the list doesn't have, or that isn't an array of strings, is `[]`,
  * so one bad facet costs only itself and the import still succeeds.
  */
-function extractedFacetSchema(facet: RecipeTagFacet) {
+function extractedFacetSchema(facet: AiRecipeTagFacet) {
   const known = new Set<string>(facet.values.map((v) => v.slug));
   return z
     .array(z.string())
@@ -106,15 +106,18 @@ function extractedFacetSchema(facet: RecipeTagFacet) {
     .catch([]);
 }
 
-/** The extracted tags: every facet, each checked on its own; anything but an object is untagged facets. */
+/**
+ * The extracted tags: every facet the AI tags, each checked on its own; anything but an object is
+ * untagged facets. Never `saved` (a person's own): a `saved` key from the model is dropped.
+ */
 export const ExtractedRecipeTagsSchema = z
   .object(
-    Object.fromEntries(RECIPE_TAG_FACETS.map((facet) => [facet.key, extractedFacetSchema(facet)])) as Record<
-      RecipeTagFacet['key'],
+    Object.fromEntries(AI_TAG_FACETS.map((facet) => [facet.key, extractedFacetSchema(facet)])) as Record<
+      AiRecipeTagFacet['key'],
       ReturnType<typeof extractedFacetSchema>
     >,
   )
-  .catch(() => emptyRecipeTags()) satisfies z.ZodType<RecipeTags, unknown>;
+  .catch(() => emptyAiRecipeTags()) satisfies z.ZodType<AiRecipeTags, unknown>;
 
 /** `recipes.total_minutes`: whole minutes, 1 to 2880 (spec 4.14). */
 export const TotalMinutesSchema = z.number().int().min(MIN_TOTAL_MINUTES).max(MAX_TOTAL_MINUTES);
@@ -172,8 +175,9 @@ export const RecipeImportResponseSchema = z.object({
   /**
    * What the extraction tagged (spec 4.14), saved on a recipe the import creates. Null when the
    * server sent none or something unreadable (an older server), so the recipe stays untagged.
+   * Never `saved`: one in the response is dropped.
    */
-  tags: RecipeTagsSchema.nullable().catch(null),
+  tags: AiRecipeTagsSchema.nullable().catch(null),
   /** Minutes, from the page's JSON-LD or the model; null when neither said, or it's out of range. */
   totalMinutes: TotalMinutesSchema.nullable().catch(null),
   /** The method, in order; `[]` when there's none, or from an older server that sends none. */

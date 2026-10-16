@@ -255,14 +255,21 @@ describe('a new recipe', () => {
 
   test('saves the tags and time on the recipe it creates, and sends them', async () => {
     const result = await importOk();
-    expect(recipeTags(result.recipeId)).toEqual({ tags: TIKKA.tags, tagsEdited: false, totalMinutes: 50 });
+    const stored = { saved: [], ...TIKKA.tags };
+    expect(recipeTags(result.recipeId)).toEqual({ tags: stored, tagsEdited: false, totalMinutes: 50 });
     const insert = db
       .select()
       .from(outbox)
       .all()
       .map((r) => r.mutation)
       .find((m) => m.table === 'recipes' && m.id === result.recipeId)!;
-    expect(insert.fields).toMatchObject({ tags: TIKKA.tags, tags_edited: false, total_minutes: 50 });
+    expect(insert.fields).toMatchObject({ tags: stored, tags_edited: false, total_minutes: 50 });
+  });
+
+  test('never saves saved from the response', async () => {
+    respond({ ...TIKKA, tags: { ...TIKKA.tags, saved: ['favorite', 'want-to-try'] } });
+    const result = await importOk();
+    expect(recipeTags(result.recipeId)?.tags).toEqual({ saved: [], ...TIKKA.tags });
   });
 
   test('a response with no tags or time (an older server) creates an untagged recipe', async () => {
@@ -276,7 +283,7 @@ describe('a new recipe', () => {
     const none = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
     respond({ ...TIKKA, tags: none, totalMinutes: null });
     const result = await importOk();
-    expect(recipeTags(result.recipeId)).toEqual({ tags: none, tagsEdited: false, totalMinutes: null });
+    expect(recipeTags(result.recipeId)).toEqual({ tags: { saved: [], ...none }, tagsEdited: false, totalMinutes: null });
   });
 
   test('saves the steps, servings and photo on the recipe it creates, with no "Serves N" note, and sends them', async () => {
@@ -384,7 +391,7 @@ describe('an existing recipe with the same URL', () => {
   });
 
   test('keeps its own tags and time; the import’s aren’t written', async () => {
-    const own = { meal: ['lunch'], cuisine: [], protein: ['chicken'], diet: [], method: ['grill'] };
+    const own = { saved: ['favorite'], meal: ['lunch'], cuisine: [], protein: ['chicken'], diet: [], method: ['grill'] };
     db.update(recipes).set({ tags: own, tagsEdited: true, totalMinutes: 25 }).where(eq(recipes.id, existing)).run();
     const before = db.select().from(outbox).all().length;
     const result = await importOk();

@@ -881,7 +881,7 @@ describe('recipe tags (spec 4.14)', () => {
   });
 
   test('a local unpushed tags edit beats an older remote one', async () => {
-    const mine = { meal: ['snack'], cuisine: [], protein: [], diet: [], method: [] };
+    const mine = { saved: ['want-to-try'], meal: ['snack'], cuisine: [], protein: [], diet: [], method: [] };
     updateRows(db, recipes, eq(recipes.id, 'r1'), { tags: mine, tagsEdited: true });
     server.recipes = [
       remoteRecipe(ts(10), {

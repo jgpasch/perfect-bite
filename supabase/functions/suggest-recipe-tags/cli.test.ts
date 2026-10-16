@@ -1,5 +1,5 @@
 // Tests for `yarn ai:tags` with the mock model; nothing touches the network.
-import { emptyRecipeTags } from '@shared/index.ts';
+import { emptyAiRecipeTags } from '@shared/index.ts';
 import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 
 import { CliUsageError, ingredientFromLine, MemoryTagsStore, parseArgs, run, type CliIo } from './cli.ts';
@@ -90,7 +90,7 @@ Deno.test('run --json prints only the response on stdout', async () => {
   await withEnv({ AI_MODEL_TAGS: 'mock', AI_MODEL_RECIPE: null }, async () => {
     const { cliIo, out } = io();
     assertEquals(await run(['--json', '--quiet', 'Tofu bowl'], cliIo), 0);
-    assertEquals(JSON.parse(out()), { tags: { ...emptyRecipeTags(), protein: ['tofu-tempeh'] }, promptVersion: 'suggest-recipe-tags.v1' });
+    assertEquals(JSON.parse(out()), { tags: { ...emptyAiRecipeTags(), protein:['tofu-tempeh'] }, promptVersion: 'suggest-recipe-tags.v1' });
   });
 });
 

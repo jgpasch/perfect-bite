@@ -1,5 +1,5 @@
 import type { SuggestRecipeTagsRequest, SuggestRecipeTagsResponse } from '@shared/index.ts';
-import { emptyRecipeTags } from '@shared/index.ts';
+import { emptyAiRecipeTags } from '@shared/index.ts';
 import { assertEquals } from '@std/assert';
 
 import { SuggestTagsError, type SuggestFailure } from './handler.ts';
@@ -14,7 +14,7 @@ import {
 } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/suggest-recipe-tags';
-const OK: SuggestRecipeTagsResponse = { tags: { ...emptyRecipeTags(), meal: ['dinner'] }, promptVersion: 'suggest-recipe-tags.v1' };
+const OK: SuggestRecipeTagsResponse = { tags: { ...emptyAiRecipeTags(), meal: ['dinner'] }, promptVersion: 'suggest-recipe-tags.v1' };
 
 /** Deps with AI_MODEL_TAGS=mock and a suggestRecipeTags that records what it was called with. */
 function deps(overrides: Partial<RequestDeps> = {}) {

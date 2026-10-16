@@ -6,7 +6,7 @@ import { db, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
-import type { RecipeTags } from '@/shared/recipe-tags';
+import type { AiRecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
 import {
@@ -46,7 +46,7 @@ jest.mock('@/features/categories/catch-up', () => ({
 const USER = 'user-1';
 const invoke = supabase.functions.invoke;
 
-const TAGS: RecipeTags = { meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] };
+const TAGS: AiRecipeTags ={ meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] };
 
 let recipeId: string;
 let warn: ReturnType<typeof jest.spyOn>;
@@ -152,9 +152,14 @@ describe('a suggestion', () => {
   });
 
   test('returns all-empty facets when nothing fit', async () => {
-    const empty: RecipeTags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+    const empty: AiRecipeTags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
     respond({ tags: empty, promptVersion: 'v1' });
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: true, tags: empty });
+  });
+
+  test('drops saved from a response that has it', async () => {
+    respond({ tags: { ...TAGS, saved: ['favorite'] }, promptVersion: 'v1' });
+    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: true, tags: TAGS });
   });
 
   test('an unexpected response is failed', async () => {
