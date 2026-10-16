@@ -110,13 +110,13 @@ export type CategorizeResult = {
   linked_by: string | null;
 };
 
-/** A twin this request created or linked, with the display name a device needs to add it. */
+/** A twin this request linked (creating it or not), with the display name a device needs to add it. */
 export type TwinResult = CategorizeResult & { display_name: string };
 
 export type CategorizeResponse = {
   results: Record<string, CategorizeResult>;
   /**
-   * Translations' rows this request created or linked (spec 4.15), by key; never an input name.
+   * Translations' rows this request linked (spec 4.15), by key; never an input name.
    * Absent when there are none.
    */
   twins?: Record<string, TwinResult>;
@@ -205,7 +205,7 @@ export async function categorize(
 
   // Names that should have reached the LLM but didn't (kill switch, provider error): answered pending.
   const deferred = new Set<string>();
-  // Translations' rows created or linked on the way (spec 4.15).
+  // Translations' rows linked on the way (spec 4.15).
   const twinKeys = new Set<string>();
   if (!aiEnabled) {
     for (const n of toSend) deferred.add(n);
@@ -312,22 +312,29 @@ export function cleanTranslation(raw: string | null, nameKey: string): { key: st
 }
 
 /**
- * Stores one answer's translation as its twin (spec 4.15) and, for an exact equivalent, links the
- * pair: the non-English row's `same_as` is the English one. A new twin gets the name's category,
- * unit and grocery flag; one that exists keeps its own and is only linked. Nothing is linked when
- * either side already has a link (a seed link always wins), when the non-English side is already
- * a link's target, or when an existing twin's language isn't the one expected. Only English and
- * Spanish names of grocery items get a twin: an errand or an injection name can't write another
- * key's row. Returns the twin's key when it was created or linked.
+ * Links one answer to its translation's row (spec 4.15): the non-English row's `same_as` is the
+ * English one. A model-made twin is always a link, so only an exact equivalent that can be linked
+ * makes or touches a row: a twin is created (with the name's category, unit and grocery flag) just
+ * before it's linked, and one that exists keeps its own and is only linked. Nothing is created or
+ * linked when either side already has a link (a seed link always wins), when the non-English side
+ * is already a link's target, or when an existing twin's language isn't the one expected. A link
+ * the database still refuses (a concurrent link) leaves the new twin unlinked, for
+ * `yarn ai:prune-twins`. Only English and Spanish names of grocery items get a twin: an errand or
+ * an injection name can't write another key's row. Returns the twin's key when it was linked.
  */
 async function saveTwin(answer: CategorizedAnswer, raw: Answer, store: CategorizeStore, modelId: string): Promise<string | null> {
-  if (answer.lang === null || !answer.is_grocery_item) return null;
+  if (answer.lang === null || !answer.is_grocery_item || !raw.exact_equivalent) return null;
   const translation = cleanTranslation(raw.translation, answer.normalized_name);
   if (!translation) return null;
   const twinLang: IngredientLang = answer.lang === 'en' ? 'es' : 'en';
 
+  const [name] = await store.getIngredients([answer.normalized_name]);
   let [twin] = await store.getIngredients([translation.key]);
-  let created = false;
+  if (!name || name.same_as !== null) return null;
+  if (twin && (twin.same_as !== null || (twin.lang !== null && twin.lang !== twinLang))) return null;
+  const [source, target] = answer.lang === 'en' ? [translation.key, name.normalized_name] : [name.normalized_name, translation.key];
+  if ((await store.getLinkTargets([source])).length > 0) return null;
+
   if (!twin) {
     await store.insertTwins(
       [
@@ -343,16 +350,7 @@ async function saveTwin(answer: CategorizedAnswer, raw: Answer, store: Categoriz
       modelId,
     );
     [twin] = await store.getIngredients([translation.key]);
-    created = true;
   }
   if (!twin) return null;
-  if (!raw.exact_equivalent) return created ? twin.normalized_name : null;
-
-  const [name] = await store.getIngredients([answer.normalized_name]);
-  const linkable = name && name.same_as === null && twin.same_as === null && (twin.lang === null || twin.lang === twinLang);
-  if (!linkable) return created ? twin.normalized_name : null;
-  const [source, target] = answer.lang === 'en' ? [twin, name] : [name, twin];
-  if ((await store.getLinkTargets([source.normalized_name])).length > 0) return created ? twin.normalized_name : null;
-  const linked = await store.link(source.normalized_name, target.normalized_name, modelId);
-  return created || linked ? twin.normalized_name : null;
+  return (await store.link(source, target, modelId)) ? twin.normalized_name : null;
 }

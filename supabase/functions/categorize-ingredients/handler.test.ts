@@ -622,13 +622,42 @@ test('a Spanish name: linked to its new English twin, which has no link of its o
   assertEquals([store.rows.get('cucumber')!.household_count, store.rows.get('cucumber')!.categorized_by], [0, 'test:model']);
 });
 
-test('not an exact equivalent: the twin is created but nothing is linked', async () => {
+test('not an exact equivalent: no twin is created and nothing is linked', async () => {
   const store = new FakeStore();
-  const { model } = fakeModel(answering({ tomate: es('tomato', false) }));
-  const res = await categorize(['tomate'], store, model);
+  const { model } = fakeModel(answering({ tomate: es('tomato', false), 'sour cream': en('crema', false) }));
+  const res = await categorize(['tomate', 'sour cream'], store, model);
 
   assertEquals(res.results.tomate, done('produce', 'lb', { lang: 'es' }));
-  assertEquals(res.twins, { tomato: { ...done('produce', 'lb'), display_name: 'tomato' } });
+  assertEquals(res.results['sour cream'], done('produce', 'lb'));
+  assertEquals(res.twins, undefined);
+  assertEquals([...store.rows.keys()].toSorted(), ['sour cream', 'tomate']);
+});
+
+test('exact but unlinkable: no twin is created, whichever check refuses it', async () => {
+  const store = new FakeStore();
+  // `pepino` is already a link's target, and `crema agria` already has a link.
+  store.seed('pepino', { status: 'pending', default_category_id: null, lang: 'es' });
+  store.getLinkTargets = (names) => Promise.resolve(names.filter((n) => n === 'pepino'));
+  store.seed('crema agria', { status: 'pending', default_category_id: null, lang: 'es', same_as: 'sour cream', linked_by: 'seed' });
+  store.seed('sour cream', { lang: 'en' });
+  const { model } = fakeModel(answering({ pepino: es('cucumber'), 'crema agria': es('soured cream') }));
+  const res = await categorize(['pepino', 'crema agria'], store, model);
+
+  assertEquals([res.results.pepino.same_as, res.results['crema agria'].same_as], [null, 'sour cream']);
+  assertEquals(res.twins, undefined);
+  assertFalse(store.rows.has('cucumber'));
+  assertFalse(store.rows.has('soured cream'));
+});
+
+test('exact and linkable: the twin is created and linked in one step, in either direction', async () => {
+  const store = new FakeStore();
+  const { model } = fakeModel(answering({ jitomate: es('tomato'), 'sour cream': en('crema agria') }));
+  const res = await categorize(['jitomate', 'sour cream'], store, model);
+
+  assertEquals([store.rows.get('jitomate')!.same_as, store.rows.get('jitomate')!.linked_by], ['tomato', 'test:model']);
+  assertEquals([store.rows.get('crema agria')!.same_as, store.rows.get('crema agria')!.linked_by], ['sour cream', 'test:model']);
+  assertEquals([store.rows.get('tomato')!.lang, store.rows.get('tomato')!.same_as], ['en', null]);
+  assertEquals(Object.keys(res.twins ?? {}).toSorted(), ['crema agria', 'tomato']);
 });
 
 test('a twin that already exists keeps its own category and unit and is only linked', async () => {
@@ -724,24 +753,26 @@ test('two Spanish names with one new English twin: it is created once and both l
   assertEquals([store.rows.get('potato')!.display_name, store.rows.get('potato')!.default_unit], ['potato', 'lb']);
 });
 
-test("a link the store refuses (the one-level rule) leaves the name unlinked and doesn't fail the request", async () => {
+test("a link the store refuses (a concurrent link) leaves the name unlinked and doesn't fail the request", async () => {
   const store = new FakeStore();
   store.link = () => Promise.resolve(false);
   const { model } = fakeModel(answering({ pepino: es('cucumber') }));
   const res = await categorize(['pepino'], store, model);
 
   assertEquals(res.results.pepino, done('produce', 'lb', { lang: 'es' }));
-  // The twin was still created, so it comes back.
-  assertEquals(Object.keys(res.twins ?? {}), ['cucumber']);
+  // The twin was created just before the refusal: left unlinked for ai:prune-twins, not returned.
+  assertEquals(res.twins, undefined);
+  assertEquals(store.rows.get('cucumber')!.same_as, null);
 });
 
-test('a Spanish name that is already a link target is not linked onward', async () => {
+test('a Spanish name that is already a link target is not linked onward and makes no twin', async () => {
   const store = new FakeStore();
   store.getLinkTargets = (names) => Promise.resolve(names.filter((n) => n === 'pepino'));
   const { model } = fakeModel(answering({ pepino: es('cucumber') }));
   const res = await categorize(['pepino'], store, model);
 
   assertEquals(res.results.pepino.same_as, null);
+  assertEquals([...store.rows.keys()], ['pepino']);
 });
 
 for (const [label, answer] of [

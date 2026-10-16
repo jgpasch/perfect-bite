@@ -347,7 +347,7 @@ Deno.test('run --json: stdout is exactly the { results } response; stats go to s
   assertStringIncludes(t.err(), 'model:          mock');
 });
 
-Deno.test('run --json: twins the run created or linked come with the response', async () => {
+Deno.test('run --json: twins the run linked come with the response', async () => {
   const t = io();
   const code = await withEnvModel(null, () => run(['--json', '--model', 'mock', 'jitomate', 'tomate'], t.cliIo));
   assertEquals(code, 0);

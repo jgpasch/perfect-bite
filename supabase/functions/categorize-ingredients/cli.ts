@@ -268,8 +268,8 @@ export function formatTable(names: readonly string[], response: CategorizeRespon
 }
 
 /**
- * Links and translations (spec 4.15): the input names with a link, then the twins this run created
- * or linked, marked `twin`. Empty when there are none.
+ * Links and translations (spec 4.15): the input names with a link, then the twins this run linked,
+ * marked `twin`. Empty when there are none.
  */
 export function formatLinks(names: readonly string[], response: CategorizeResponse): string {
   const rows = [['name', 'lang', 'same_as', 'linked_by', '']];
