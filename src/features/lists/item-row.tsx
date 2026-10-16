@@ -1,15 +1,17 @@
 import * as Haptics from 'expo-haptics';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import { itemNameColor, type CategoryColors } from '@/components/appearance';
+import { avatarColors, itemNameColor, type CategoryColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { useMotion } from '@/hooks/use-motion';
+import { Motion } from '@/constants/theme';
+import type { AisleHue } from '@/domain/aisle-color';
+import { growIn, useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
@@ -48,6 +50,17 @@ type Props = {
    * ("Alex · yesterday") ahead of the second line, and `label` ("new, added by Alex") for VoiceOver.
    */
   news?: { line: string; label: string };
+  /**
+   * Another member's add (or Combine) arrived while the list was on screen (spec 4.1): the row flashes
+   * `pendingSoft` fading to its own tint, restarted by a new `key`; a `grow` row (new to the list to
+   * get) grows into place as it mounts, or just appears under Reduce Motion.
+   */
+  arrival?: { key: string; grow: boolean };
+  /** That member's name tag before the amount, until the list scrolls: their avatar (`initial`) and short name. */
+  tag?: { name: string; initial: string; hue: AisleHue };
+  /** An arrived row's view, so the list can tell whether it's in sight; and each time it's laid out. */
+  arrivalRef?: (node: View | null) => void;
+  onArrivalLayout?: () => void;
   /** As added and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
   aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
@@ -88,6 +101,10 @@ export function ItemRow({
   amountText = item.amountText,
   hint,
   news,
+  arrival,
+  tag,
+  arrivalRef,
+  onArrivalLayout,
   aisle,
   selected,
   onToggle,
@@ -99,7 +116,7 @@ export function ItemRow({
 }: Props) {
   const { colors, spacing, sizes, opacity } = useTheme();
   const t = useT();
-  const { entering, exiting, layout } = useMotion();
+  const { entering, exiting, layout, reduceMotion } = useMotion();
   const swipeable = useRef<SwipeableMethods>(null);
   const selecting = selected !== undefined;
   const checked = item.checkedAt !== null;
@@ -110,6 +127,7 @@ export function ItemRow({
   const label = [
     itemRowLabel({ name, news: news?.label, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
     alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
+    tag ? t('lists.arrivals.tagLabel', { name: tag.name }) : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -156,6 +174,7 @@ export function ItemRow({
           </ThemedText>
         ) : null}
       </View>
+      {tag ? <NameTag {...tag} /> : null}
       {alreadyOnList ? (
         <ThemedText variant="amount" color="onPrimarySoft">
           {ALREADY_ON_LIST_LABEL}
@@ -174,7 +193,11 @@ export function ItemRow({
   );
 
   return (
-    <Animated.View entering={entering} exiting={exiting} layout={layout}>
+    <Animated.View
+      entering={arrival?.grow && !reduceMotion ? growIn : entering}
+      exiting={exiting}
+      layout={layout}
+      style={arrival?.grow ? styles.clip : undefined}>
       <ReanimatedSwipeable
         enabled={!selecting}
         ref={swipeable}
@@ -199,6 +222,8 @@ export function ItemRow({
         )}>
         {selecting ? (
           <Pressable
+            ref={arrivalRef}
+            onLayout={onArrivalLayout}
             onPress={onToggle}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: on }}
@@ -208,11 +233,13 @@ export function ItemRow({
               rowStyle,
               { paddingRight: spacing.lg, paddingVertical: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
             ]}>
+            {arrival ? <ArrivalFlash key={arrival.key} /> : null}
             <CheckCircle checked={on} pending={sorting} ring={look?.ring} fill={look?.checkFill} />
             <View style={[styles.body, { gap: spacing.md }]}>{content}</View>
           </Pressable>
         ) : (
-          <View style={rowStyle}>
+          <View ref={arrivalRef} onLayout={onArrivalLayout} style={rowStyle}>
+            {arrival ? <ArrivalFlash key={arrival.key} /> : null}
             <CheckCircle checked={checked} pending={sorting} ring={look?.ring} fill={look?.checkFill} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
             <Pressable
               onPress={onEdit}
@@ -263,8 +290,67 @@ export function ItemRow({
   );
 }
 
+/**
+ * The arrival flash (spec 4.1): `pendingSoft` over the row's ground, fading out over `Motion.flashMs`
+ * so the row's own tint shows through. A new `key` starts it again.
+ */
+function ArrivalFlash() {
+  const { colors } = useTheme();
+  const shown = useSharedValue(1);
+  useEffect(() => {
+    shown.value = withTiming(0, { duration: Motion.flashMs });
+  }, [shown]);
+  const style = useAnimatedStyle(() => ({ opacity: shown.value }));
+  return (
+    <Animated.View
+      testID="arrival-flash"
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { backgroundColor: colors.pendingSoft }, style]}
+    />
+  );
+}
+
+/**
+ * Who just added the item (spec 4.1, board 2 E): a `surface` pill before the amount with a 20 pt
+ * avatar in the member's hue and their short name in `caption`, in the hue's `strong`.
+ */
+function NameTag({ name, initial, hue }: { name: string; initial: string; hue: AisleHue }) {
+  const { colors, aisles, spacing, sizes, rounded } = useTheme();
+  const avatar = avatarColors(hue, colors, aisles);
+  return (
+    <View
+      testID="arrival-tag"
+      style={[
+        styles.row,
+        {
+          gap: spacing.xs,
+          paddingVertical: spacing.xxs,
+          paddingLeft: spacing.xxs,
+          paddingRight: spacing.sm,
+          borderRadius: rounded.full,
+          backgroundColor: colors.surface,
+        },
+      ]}>
+      <View
+        style={[
+          styles.avatar,
+          { width: sizes.tagAvatar, height: sizes.tagAvatar, borderRadius: rounded.full, backgroundColor: avatar.fill },
+        ]}>
+        <ThemedText variant="caption" maxFontSizeMultiplier={1.2} style={{ color: avatar.text }}>
+          {initial}
+        </ThemedText>
+      </View>
+      <ThemedText variant="caption" numberOfLines={1} style={{ color: aisles[hue].strong }}>
+        {name}
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
+  clip: { overflow: 'hidden' },
+  avatar: { alignItems: 'center', justifyContent: 'center' },
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
   nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },

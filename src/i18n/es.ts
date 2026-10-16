@@ -105,6 +105,17 @@ export const es = {
       rowLine: '{{name}} · {{when}}',
       rowLabel: 'nuevo, lo agregó {{name}}',
     },
+    arrivals: {
+      pillFrom_one: '{{count}} nuevo de {{name}}',
+      pillFrom_other: '{{count}} nuevos de {{name}}',
+      pill_one: '{{count}} nuevo',
+      pill_other: '{{count}} nuevos',
+      pillHint: 'Te lleva a los artículos nuevos',
+      addedOne: '{{name}} agregó {{item}}',
+      addedMany_one: '{{name}} agregó {{count}} artículo',
+      addedMany_other: '{{name}} agregó {{count}} artículos',
+      tagLabel: 'lo agregó {{name}}',
+    },
     toasts: {
       addedTo: 'Se agregó a {{name}}',
       addedToNow: 'Se agregó a {{name}}, ahora {{amount}}',

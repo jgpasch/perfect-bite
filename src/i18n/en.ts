@@ -113,6 +113,23 @@ export const en = {
       rowLine: '{{name}} · {{when}}',
       rowLabel: 'new, added by {{name}}',
     },
+    /** Rows another member adds while the list is on screen (spec 4.1). */
+    arrivals: {
+      /** The pill above the add bar, for rows below or above what's showing: "2 new from Alex". */
+      pillFrom_one: '{{count}} new from {{name}}',
+      pillFrom_other: '{{count}} new from {{name}}',
+      /** The same pill when several people added: "3 new". */
+      pill_one: '{{count}} new',
+      pill_other: '{{count}} new',
+      pillHint: 'Scrolls to the new items',
+      /** VoiceOver, one item: "Alex added limes". */
+      addedOne: '{{name}} added {{item}}',
+      /** VoiceOver, grouped: "Alex added 3 items". */
+      addedMany_one: '{{name}} added {{count}} item',
+      addedMany_other: '{{name}} added {{count}} items',
+      /** On a row's name tag for VoiceOver: "added by Alex". */
+      tagLabel: 'added by {{name}}',
+    },
     toasts: {
       addedTo: 'Added to {{name}}',
       addedToNow: 'Added to {{name}}, now {{amount}}',

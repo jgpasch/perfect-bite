@@ -6,10 +6,20 @@ import { eq } from 'drizzle-orm';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync } from 'expo-keep-awake';
-import { AccessibilityInfo, ActionSheetIOS, AppState, Share, StyleSheet, type ActionSheetIOSOptions, type AppStateStatus } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActionSheetIOS,
+  AppState,
+  FlatList,
+  Share,
+  StyleSheet,
+  type ActionSheetIOSOptions,
+  type AppStateStatus,
+} from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
+import { memberHue } from '@/domain/aisle-color';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
@@ -1998,5 +2008,278 @@ describe('since you looked (spec 4.1)', () => {
     act(() => row('eggs').props.onToggle());
     refresh();
     expect(row('eggs').props.news).toBeUndefined();
+  });
+});
+
+describe('a row that arrives while you look (spec 4.1)', () => {
+  const ALEX = 'user-alex';
+  const SAM = 'user-sam';
+  /** Another member's add reaching this device, a second after the last, made `minutesAgo` on the server. */
+  function addAs(value: string, by: string, minutesAgo = 0) {
+    jest.setSystemTime(Date.now() + 1000);
+    const result = addItem(listId, value, by)!;
+    if (minutesAgo > 0) {
+      db.update(listItemContributions)
+        .set({ createdAt: new Date(Date.now() - minutesAgo * 60_000) })
+        .where(eq(listItemContributions.id, result.contributionId))
+        .run();
+    }
+    return result;
+  }
+  const cued = () => rows().filter((r) => r.props.arrival !== undefined).map((r) => r.props.item.displayName as string);
+  const list = () => tree!.root.findByType(FlatList);
+  const pill = () => tree!.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Scrolls to the new items' && 'onPress' in n.props);
+  /** A row's view as the list measures it, `y` down the window, 50 pt tall. */
+  const at = (y: number) => {
+    const node = { y, measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => cb(0, node.y, 390, 50) };
+    return node;
+  };
+  /** The row's view, put where the list will find it, then laid out. */
+  const place = (name: string, node: ReturnType<typeof at>) => {
+    act(() => row(name).props.arrivalRef(node));
+    act(() => row(name).props.onArrivalLayout());
+  };
+  const scroll = (y: number) => act(() => list().props.onScroll({ nativeEvent: { contentOffset: { y } } }));
+  /** The screen with its list 600 pt tall, 100 pt down the window. */
+  function renderMeasured() {
+    render();
+    const viewport = tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'list-viewport');
+    viewport.instance.measureInWindow = (cb: (x: number, y: number, w: number, h: number) => void) => cb(0, 100, 390, 600);
+  }
+
+  beforeEach(() => {
+    const householdId = getList(listId)!.householdId;
+    for (const [userId, displayName] of [
+      [USER, 'Me Myself'],
+      [ALEX, 'Alex Rivera'],
+      [SAM, 'Sam Lee'],
+    ]) {
+      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+    }
+  });
+
+  test("another member's new item grows in, flashes and wears their name tag; what was there doesn't", () => {
+    put('bread');
+    render();
+    expect(cued()).toEqual([]);
+    const limes = addAs('limes', ALEX);
+    refresh();
+    expect(cued()).toEqual(['limes']);
+    expect(row('limes').props.arrival).toEqual({ key: limes.contributionId, grow: true });
+    expect(row('limes').props.tag).toEqual({ name: 'Alex', initial: 'A', hue: memberHue(ALEX) });
+    expect(row('bread').props.tag).toBeUndefined();
+  });
+
+  test("another member's Combine into an item flashes it and tags it, without growing", () => {
+    put('milk');
+    render();
+    const more = addAs('2 milk', SAM);
+    expect(more.kind).toBe('combine');
+    refresh();
+    expect(row('milk').props.arrival).toEqual({ key: more.contributionId, grow: false });
+    expect(row('milk').props.tag).toMatchObject({ name: 'Sam' });
+  });
+
+  test('my own adds never get it, from the add bar or another of my devices', () => {
+    render();
+    add('eggs');
+    put('limes');
+    put('eggs');
+    refresh();
+    expect(cued()).toEqual([]);
+  });
+
+  test("the first load and pull catching up on what was there before the list was shown don't get it", () => {
+    addAs('eggs', ALEX);
+    render();
+    expect(cued()).toEqual([]);
+    // Pull brings an add Alex made 10 minutes ago, before the list was on screen.
+    addAs('limes', ALEX, 10);
+    refresh();
+    expect(cued()).toEqual([]);
+  });
+
+  test('in every view mode', () => {
+    render();
+    for (const mode of ['category', 'newest', 'recipe'] as const) {
+      setView(mode);
+      addAs(`bread ${mode}`, ALEX);
+      refresh();
+      expect(cued()).toContain(`bread ${mode}`);
+    }
+  });
+
+  test('scrolling the list takes the tag off; the flash stays for the visit', () => {
+    render();
+    addAs('limes', ALEX);
+    refresh();
+    act(() => list().props.onScrollBeginDrag());
+    expect(row('limes').props.tag).toBeUndefined();
+    expect(row('limes').props.arrival).toBeDefined();
+    // A later arrival gets its own tag.
+    addAs('eggs', SAM);
+    refresh();
+    expect(row('eggs').props.tag).toMatchObject({ name: 'Sam' });
+    expect(row('limes').props.tag).toBeUndefined();
+  });
+
+  test('leaving the list ends it, and what came while away gets none on return', () => {
+    render();
+    addAs('limes', ALEX);
+    refresh();
+    mockPath.current = '/recipes';
+    refresh();
+    expect(cued()).toEqual([]);
+    addAs('eggs', ALEX);
+    mockPath.current = '/lists';
+    refresh();
+    expect(cued()).toEqual([]);
+    // The list's own sheets still count as on screen.
+    mockPath.current = `/list/${listId}/edit`;
+    refresh();
+    addAs('corn', ALEX);
+    refresh();
+    expect(cued()).toEqual(['corn']);
+  });
+
+  test('the app in the background ends it too', () => {
+    let listener: ((state: AppStateStatus) => void) | undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, l) => {
+      listener = l as (state: AppStateStatus) => void;
+      return { remove: () => {} } as never;
+    });
+    render();
+    addAs('limes', ALEX);
+    refresh();
+    act(() => listener!('background'));
+    expect(cued()).toEqual([]);
+  });
+
+  test('a checked-off arrival loses its cue', () => {
+    render();
+    addAs('limes', ALEX);
+    refresh();
+    act(() => row('limes').props.onToggle());
+    jest.advanceTimersByTime(5000);
+    refresh();
+    expect(row('limes').props.arrival).toBeUndefined();
+    expect(row('limes').props.tag).toBeUndefined();
+  });
+
+  test('rows that land out of sight: the pill counts them, scrolls to the first, and goes once they are seen', () => {
+    const scrollTo = jest.spyOn(FlatList.prototype, 'scrollToOffset').mockImplementation(() => {});
+    setDeviceSetting(viewModeKey(listId), 'newest');
+    renderMeasured();
+    addAs('limes', ALEX);
+    refresh();
+    place('limes', at(900));
+    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['1 new from Alex']);
+    addAs('eggs', ALEX);
+    refresh();
+    place('eggs', at(1000));
+    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['2 new from Alex']);
+    const corn = at(1100);
+    addAs('corn', SAM);
+    refresh();
+    place('corn', corn);
+    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['3 new']);
+    expect(text()).toContain('3 new');
+    // As added puts the latest first: corn. Centred in the list: 1100 - 100 - (600 - 50) / 2.
+    press(pill()[0]);
+    expect(scrollTo).toHaveBeenCalledWith({ offset: 725, animated: true });
+    // Corn comes into sight as the list scrolls.
+    corn.y = 400;
+    scroll(725);
+    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['2 new from Alex']);
+    // Then the other two.
+    act(() => row('eggs').props.arrivalRef(at(500)));
+    act(() => row('limes').props.arrivalRef(at(600)));
+    scroll(900);
+    expect(pill()).toHaveLength(0);
+    // The tags stay: the list scrolled itself.
+    expect(row('corn').props.tag).toMatchObject({ name: 'Sam' });
+  });
+
+  test('a row that lands in sight puts nothing in the pill', () => {
+    renderMeasured();
+    addAs('limes', ALEX);
+    refresh();
+    place('limes', at(300));
+    expect(pill()).toHaveLength(0);
+    // Seen once is enough: scrolling it away doesn't bring it back.
+    row('limes').props.arrivalRef(at(2000));
+    scroll(500);
+    expect(pill()).toHaveLength(0);
+  });
+
+  test('an arrival in a folded section: the pill opens the section and scrolls to it', () => {
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
+    setDeviceSetting(viewModeKey(listId), 'category');
+    put('bread');
+    put('banana');
+    renderMeasured();
+    act(() => section('Produce').props.onToggle());
+    expect(section('Produce').props.collapsed).toBe(true);
+    addAs('limes', ALEX);
+    refresh();
+    expect(section('Produce').props.collapsed).toBe(true);
+    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['1 new from Alex']);
+    press(pill()[0]);
+    expect(section('Produce').props.collapsed).toBe(false);
+    const index = all('FoldingSection').findIndex((s) => s.props.title === 'Produce');
+    expect(scrollToIndex).toHaveBeenCalledWith({ index, animated: true, viewPosition: 0.5 });
+  });
+
+  test("VoiceOver hears who added what, at most once every 5 s, grouped; no haptic", () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    // jest-expo's own mock may already be there, with earlier tests' calls.
+    announce.mockClear();
+    jest.mocked(Haptics.selectionAsync).mockClear();
+    jest.mocked(Haptics.impactAsync).mockClear();
+    render();
+    addAs('limes', ALEX);
+    refresh();
+    expect(announce.mock.calls).toEqual([['Alex added limes']]);
+    addAs('eggs', ALEX);
+    refresh();
+    addAs('corn tortillas', ALEX);
+    refresh();
+    expect(announce).toHaveBeenCalledTimes(1);
+    // 5 s after the first, which was a second before eggs came.
+    act(() => jest.advanceTimersByTime(3999));
+    expect(announce).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(1));
+    expect(announce.mock.calls[1]).toEqual(['Alex added 2 items']);
+    // Two people within the window: a sentence each.
+    addAs('milk', SAM);
+    refresh();
+    addAs('bread', ALEX);
+    refresh();
+    act(() => jest.advanceTimersByTime(5000));
+    expect(announce.mock.calls[2]).toEqual(['Sam added milk. Alex added bread']);
+    // Long after: at once again.
+    act(() => jest.advanceTimersByTime(10_000));
+    addAs('banana', SAM);
+    refresh();
+    expect(announce.mock.calls[3]).toEqual(['Sam added banana']);
+    expect(announce).toHaveBeenCalledTimes(4);
+    expect(Haptics.selectionAsync).not.toHaveBeenCalled();
+    expect(Haptics.impactAsync).not.toHaveBeenCalled();
+  });
+
+  test('what was waiting to be announced is dropped on leaving; my adds are never announced', () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    render();
+    add('eggs');
+    expect(announce).not.toHaveBeenCalled();
+    addAs('limes', ALEX);
+    refresh();
+    addAs('corn', ALEX);
+    refresh();
+    mockPath.current = '/recipes';
+    refresh();
+    act(() => jest.advanceTimersByTime(10_000));
+    expect(announce.mock.calls).toEqual([['Alex added limes']]);
   });
 });

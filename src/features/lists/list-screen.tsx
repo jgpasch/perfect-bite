@@ -31,7 +31,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, db, households, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { aisleColor, recipeHue } from '@/domain/aisle-color';
+import { aisleColor, memberHue, recipeHue } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -41,15 +41,16 @@ import {
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
-import { combineLanguagesQuery } from '@/features/households/households';
-import { useMemberNames } from '@/features/households/member-names';
+import { avatarInitial, combineLanguagesQuery } from '@/features/households/households';
+import { nameOf, useMemberNames } from '@/features/households/member-names';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
+import { arrivalPillText, inSight, useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
-import { shoppingOnList, useKeepListAwake } from '@/features/lists/keep-awake';
+import { shoppingOnList, useForeground, useKeepListAwake } from '@/features/lists/keep-awake';
 import { newsNames, rowNews, useListVisitNews } from '@/features/lists/list-news';
 import { NewsCard } from '@/features/lists/news-card';
 import {
@@ -252,6 +253,12 @@ export function ListScreen({ id }: { id: string }) {
   // shows as a card and NEW rows for this visit.
   const { news, dismissed: newsDismissed, dismiss: dismissNews } = useListVisitNews(id, shoppingOnList(pathname, id));
   const memberNames = useMemberNames(list?.householdId);
+  // Spec 4.1: another member's add arriving while the list is on screen (in the foreground) gets a cue.
+  const foreground = useForeground();
+  const watching = shoppingOnList(pathname, id) && foreground;
+  const allItems = useMemo(() => [...unchecked, ...checked], [unchecked, checked]);
+  const arrivals = useListArrivals(id, allItems, watching, userId);
+  useArrivalAnnouncements(arrivals.latest, watching, memberNames, userId);
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
@@ -453,6 +460,83 @@ export function ListScreen({ id }: { id: string }) {
     },
     [openSection],
   );
+
+  // Arrived rows out of sight (spec 4.1): each row's view, measured against the list's, puts the ones
+  // still unseen in the pill above the add bar. A row that isn't drawn (a folded section, or far off) is
+  // out of sight too.
+  const viewportRef = useRef<View>(null);
+  const arrivalNodes = useRef(new Map<string, View>());
+  const arrivalRefs = useRef(new Map<string, (node: View | null) => void>());
+  const arrivalRefFor = (itemId: string) => {
+    let ref = arrivalRefs.current.get(itemId);
+    if (!ref) {
+      ref = (node) => (node ? arrivalNodes.current.set(itemId, node) : arrivalNodes.current.delete(itemId));
+      arrivalRefs.current.set(itemId, ref);
+    }
+    return ref;
+  };
+  const [outOfSight, setOutOfSight] = useState<ReadonlySet<string>>(new Set());
+  const unseenRef = useRef(arrivals.unseen);
+  const { markSeen } = arrivals;
+  const checkSeen = useCallback(() => {
+    const ids = [...unseenRef.current.keys()];
+    const viewport = viewportRef.current;
+    if (ids.length === 0 || !viewport) return;
+    viewport.measureInWindow((_x, top, _width, height) => {
+      const seen: string[] = [];
+      const out = new Set<string>();
+      let left = ids.length;
+      const done = () => {
+        if (--left > 0) return;
+        markSeen(seen);
+        setOutOfSight((prev) => (prev.size === out.size && [...out].every((v) => prev.has(v)) ? prev : out));
+      };
+      for (const itemId of ids) {
+        const node = arrivalNodes.current.get(itemId);
+        if (!node) {
+          out.add(itemId);
+          done();
+          continue;
+        }
+        node.measureInWindow((_rx, y, _rw, rowHeight) => {
+          if (inSight({ y, height: rowHeight }, { y: top, height })) seen.push(itemId);
+          else out.add(itemId);
+          done();
+        });
+      }
+    });
+  }, [markSeen]);
+  useEffect(() => {
+    unseenRef.current = arrivals.unseen;
+    checkSeen();
+  }, [arrivals.unseen, checkSeen]);
+  const pillIds = [...arrivals.unseen.keys()].filter((itemId) => outOfSight.has(itemId));
+  const pillText = arrivalPillText(
+    pillIds.map((itemId) => arrivals.unseen.get(itemId)!),
+    memberNames,
+    userId,
+  );
+  // The pill scrolls to the first of its rows, in the order the list shows them.
+  const showFirstArrival = () => {
+    const blockIndex = blocks.findIndex((b) => b.entries.some((e) => pillIds.includes(e.item.id)));
+    if (blockIndex === -1) return;
+    const itemId = blocks[blockIndex].entries.find((e) => pillIds.includes(e.item.id))!.item.id;
+    const node = arrivalNodes.current.get(itemId);
+    const viewport = viewportRef.current;
+    if (!node || !viewport) {
+      openSectionOf(itemId);
+      listRef.current?.scrollToIndex({ index: blockIndex, animated: true, viewPosition: 0.5 });
+      return;
+    }
+    viewport.measureInWindow((_x, top, _width, height) =>
+      node.measureInWindow((_rx, y, _rw, rowHeight) =>
+        listRef.current?.scrollToOffset({
+          offset: Math.max(0, scrollOffset.current + y - top - (height - rowHeight) / 2),
+          animated: true,
+        }),
+      ),
+    );
+  };
 
   // By aisle and By recipe put a new item in its section, so scroll that section into view once it's there.
   const revealRef = useRef<string | null>(null);
@@ -768,6 +852,9 @@ export function ListScreen({ id }: { id: string }) {
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     const match = alreadyOnListMatch(item, query, queryFamily);
+    // Spec 4.1: an add by another member that arrived during this visit; its tag until the list scrolls.
+    const cue = item.checkedAt === null ? arrivals.cues.get(item.id) : undefined;
+    const tagged = cue ? arrivals.tags.get(item.id) : undefined;
     return (
       <ItemRow
         key={entry.key}
@@ -784,6 +871,10 @@ export function ListScreen({ id }: { id: string }) {
         hint={entry.hint}
         // Spec 4.1: another member's add since the list was last seen, until it leaves the screen.
         news={item.checkedAt === null ? rowNews(news, item.id, memberNames, userId) : undefined}
+        arrival={cue ? { key: cue.contributionId, grow: cue.grow } : undefined}
+        tag={tagged ? arrivalTag(nameOf(memberNames, tagged.userId, userId), tagged.userId) : undefined}
+        arrivalRef={cue ? arrivalRefFor(item.id) : undefined}
+        onArrivalLayout={cue ? checkSeen : undefined}
         aisle={aisle}
         selected={selection ? selection.has(entry.item.id) : undefined}
         onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
@@ -977,71 +1068,84 @@ export function ListScreen({ id }: { id: string }) {
       </Stack.Toolbar>
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
-        <FlatList
-          ref={listRef}
-          scrollEnabled={!dragging}
-          style={styles.flex}
-          data={blocks}
-          keyExtractor={(block) => block.key}
-          ListHeaderComponent={
-            <View>
-              <View style={{ backgroundColor: header.ground }}>
-                {/* Pulling down past the top shows more green, not the list's ground. */}
-                <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
-                <CollapsingHeader collapsed={addMode}>
-                  <View
-                    style={[
-                      styles.title,
-                      { columnGap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs },
-                    ]}>
-                    {toGetLabel(unchecked.length, checked.length) ? (
-                      <ThemedText variant="amount" color="onHeaderSecondary">
-                        {toGetLabel(unchecked.length, checked.length)}
-                      </ThemedText>
-                    ) : null}
-                    <ViewMenuButton
-                      value={viewMode}
-                      onChange={setViewMode}
-                      onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
-                    />
-                  </View>
-                </CollapsingHeader>
-                <View style={{ height: rounded.card }} />
-              </View>
-              {/* The list's sheet: rounded top corners over the bottom of the green. */}
-              <View
-                style={[
-                  styles.sheetTop,
-                  {
-                    height: rounded.card,
-                    marginTop: -rounded.card,
-                    borderTopLeftRadius: rounded.card,
-                    borderTopRightRadius: rounded.card,
-                    backgroundColor: colors.background,
-                  },
-                ]}
-              />
-              {/* Spec 4.1: "since you looked", above the first section in every view, until ✕. */}
-              {news && !newsDismissed ? (
-                <View style={{ paddingBottom: spacing.sm + spacing.xxs }}>
-                  <NewsCard news={news} names={newsNames(news, memberNames, userId)} onDismiss={dismissNews} />
+        <View ref={viewportRef} testID="list-viewport" style={styles.flex}>
+          <FlatList
+            ref={listRef}
+            scrollEnabled={!dragging}
+            style={styles.flex}
+            data={blocks}
+            keyExtractor={(block) => block.key}
+            ListHeaderComponent={
+              <View>
+                <View style={{ backgroundColor: header.ground }}>
+                  {/* Pulling down past the top shows more green, not the list's ground. */}
+                  <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
+                  <CollapsingHeader collapsed={addMode}>
+                    <View
+                      style={[
+                        styles.title,
+                        { columnGap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs },
+                      ]}>
+                      {toGetLabel(unchecked.length, checked.length) ? (
+                        <ThemedText variant="amount" color="onHeaderSecondary">
+                          {toGetLabel(unchecked.length, checked.length)}
+                        </ThemedText>
+                      ) : null}
+                      <ViewMenuButton
+                        value={viewMode}
+                        onChange={setViewMode}
+                        onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
+                      />
+                    </View>
+                  </CollapsingHeader>
+                  <View style={{ height: rounded.card }} />
                 </View>
-              ) : null}
+                {/* The list's sheet: rounded top corners over the bottom of the green. */}
+                <View
+                  style={[
+                    styles.sheetTop,
+                    {
+                      height: rounded.card,
+                      marginTop: -rounded.card,
+                      borderTopLeftRadius: rounded.card,
+                      borderTopRightRadius: rounded.card,
+                      backgroundColor: colors.background,
+                    },
+                  ]}
+                />
+                {/* Spec 4.1: "since you looked", above the first section in every view, until ✕. */}
+                {news && !newsDismissed ? (
+                  <View style={{ paddingBottom: spacing.sm + spacing.xxs }}>
+                    <NewsCard news={news} names={newsNames(news, memberNames, userId)} onDismiss={dismissNews} />
+                  </View>
+                ) : null}
+              </View>
+            }
+            ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
+            // Add mode: scrolling or checking off rows keeps the keyboard up.
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            onScroll={(e) => {
+              scrollOffset.current = e.nativeEvent.contentOffset.y;
+              checkSeen();
+            }}
+            // Spec 4.1: scrolling the list takes arrived rows' name tags off.
+            onScrollBeginDrag={arrivals.clearTags}
+            scrollEventThrottle={16}
+            contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
+            ListEmptyComponent={<EmptyState message={t('lists.screen.empty')} />}
+            renderItem={({ item: block }) => renderBlock(block)}
+            onScrollToIndexFailed={({ index, averageItemLength }) =>
+              listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
+            }
+          />
+          {/* Spec 4.1: arrivals out of sight, 8 pt above the add bar (or the toast). */}
+          {pillText ? (
+            <View pointerEvents="box-none" style={[styles.pillSlot, { bottom: spacing.sm }]}>
+              <ArrivalPill label={pillText} onPress={showFirstArrival} />
             </View>
-          }
-          ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
-          // Add mode: scrolling or checking off rows keeps the keyboard up.
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-          onScroll={(e) => (scrollOffset.current = e.nativeEvent.contentOffset.y)}
-          scrollEventThrottle={16}
-          contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
-          ListEmptyComponent={<EmptyState message={t('lists.screen.empty')} />}
-          renderItem={({ item: block }) => renderBlock(block)}
-          onScrollToIndexFailed={({ index, averageItemLength }) =>
-            listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
-          }
-        />
+          ) : null}
+        </View>
 
         {toast ? (
           <View style={{ paddingBottom: spacing.sm }}>
@@ -1201,6 +1305,43 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
   );
 }
 
+/**
+ * "2 new from Alex ↓" (spec 4.1): rows another member added that landed out of sight. Tapping it
+ * scrolls to the first of them.
+ */
+function ArrivalPill({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const t = useT();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={t('lists.arrivals.pillHint')}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          minHeight: sizes.pill,
+          paddingHorizontal: spacing.lg,
+          gap: spacing.xs + spacing.xxs,
+          borderRadius: rounded.full,
+          backgroundColor: colors.primary,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <ThemedText variant="headline" color="onPrimary">
+        {label}
+      </ThemedText>
+      <Icon name="arrow.down" color="onPrimary" size={sizes.iconSmall} weight="bold" />
+    </Pressable>
+  );
+}
+
+/** An arrived row's name tag: the member's short name, its initial, and their avatar's hue. */
+function arrivalTag(name: string, userId: string) {
+  return { name, initial: avatarInitial(name), hue: memberHue(userId) };
+}
+
 function toggleIn(set: Set<string>, value: string): Set<string> {
   const next = new Set(set);
   if (next.has(value)) next.delete(value);
@@ -1244,4 +1385,5 @@ const styles = StyleSheet.create({
   measured: { position: 'absolute', top: 0, left: 0, right: 0 },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
   sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
+  pillSlot: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
 });

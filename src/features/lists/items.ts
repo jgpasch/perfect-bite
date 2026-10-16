@@ -788,6 +788,7 @@ export function listItemsQuery(listId: string) {
       recipeId: listItemContributions.recipeId,
       recipeName: recipes.name,
       contributedAt: listItemContributions.createdAt,
+      addedBy: listItemContributions.addedBy,
     })
     .from(listItems)
     .leftJoin(
@@ -881,6 +882,8 @@ export type ItemContribution = Amount & {
   recipeId: string | null;
   recipeName: string | null;
   createdAt: Date;
+  /** Who added it (null: unknown, or a deleted user). */
+  addedBy: string | null;
 };
 
 /**
@@ -924,6 +927,7 @@ export function groupItems(
         recipeId: row.recipeName === null ? null : row.recipeId,
         recipeName: row.recipeName,
         createdAt: row.contributedAt!,
+        addedBy: row.addedBy,
       });
     }
   }

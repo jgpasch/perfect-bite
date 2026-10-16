@@ -266,6 +266,8 @@ export const Sizes = {
   /** household member avatars (overlapping) and the ring that separates them */
   avatar: 48,
   avatarRing: 3,
+  /** the avatar in a row's name tag when another member's add arrives (spec 4.1) */
+  tagAvatar: 20,
   /** the cloche on the sign-in screen, at its largest (its glow spreads past this) */
   signInHero: 270,
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
@@ -293,6 +295,8 @@ export const Motion = {
   spring: { damping: 20, stiffness: 220, mass: 1 },
   /** Opening and folding a card's section: a near-critical spring, so the height settles without a visible gap. */
   fold: { duration: 300, dampingRatio: 0.9 },
+  /** A row's arrival flash (spec 4.1): `pendingSoft` fading to the row's own tint over this long. */
+  flashMs: 1200,
   /** Undo toasts (spec 4.2, 4.4). */
   undoTimeoutMs: 5000,
   /** In-app notification banners (spec 4.11). */
