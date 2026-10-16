@@ -116,6 +116,12 @@ export const es = {
       addedMany_other: '{{name}} agregó {{count}} artículos',
       tagLabel: 'lo agregó {{name}}',
     },
+    presence: {
+      one: '{{name}} está agregando',
+      two: '{{first}} y {{second}} están agregando',
+      many_one: '{{count}} personas están agregando',
+      many_other: '{{count}} personas están agregando',
+    },
     toasts: {
       addedTo: 'Se agregó a {{name}}',
       addedToNow: 'Se agregó a {{name}}, ahora {{amount}}',

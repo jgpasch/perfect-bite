@@ -268,6 +268,10 @@ export const Sizes = {
   avatarRing: 3,
   /** the avatar in a row's name tag when another member's add arrives (spec 4.1) */
   tagAvatar: 20,
+  /** the avatar in the list header's "Alex is adding" pill (spec 4.1) */
+  presenceAvatar: 24,
+  /** the pulsing dots after "Alex is adding" */
+  presenceDot: 4,
   /** the cloche on the sign-in screen, at its largest (its glow spreads past this) */
   signInHero: 270,
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
@@ -297,6 +301,10 @@ export const Motion = {
   fold: { duration: 300, dampingRatio: 0.9 },
   /** A row's arrival flash (spec 4.1): `pendingSoft` fading to the row's own tint over this long. */
   flashMs: 1200,
+  /** The list header's "Alex is adding" pill fading in and out (spec 4.1). */
+  presenceFadeMs: 200,
+  /** One pulse of its dots (each dot dims and brightens again over this long, a third apart). */
+  presencePulseMs: 900,
   /** Undo toasts (spec 4.2, 4.4). */
   undoTimeoutMs: 5000,
   /** In-app notification banners (spec 4.11). */

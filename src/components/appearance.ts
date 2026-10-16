@@ -111,6 +111,11 @@ export function listHeaderColors(colors: ThemeColors) {
       fill: mix(colors.onHeader, colors.header, HEADER_WASH),
       text: colors.onHeader,
     },
+    /** "Alex is adding" under it (spec 4.1): the same white wash pill and white text. */
+    presencePill: {
+      fill: mix(colors.onHeader, colors.header, HEADER_WASH),
+      text: colors.onHeader,
+    },
   };
 }
 

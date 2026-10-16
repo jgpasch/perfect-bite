@@ -152,37 +152,63 @@ export type ChannelBinding = {
   callback: (payload: Record<string, unknown>) => void;
 };
 
-/** A `supabase.channel(name)`: what it listens to and whether it's been removed. */
+/** A `supabase.channel(name, opts)`: what it listens to and whether it's been removed. */
 export type FakeChannel = {
   name: string;
+  /** The options it was created with, e.g. `{ config: { private: true } }`. */
+  opts: Record<string, unknown> | undefined;
   bindings: ChannelBinding[];
+  /** `.on('presence', { event: 'sync' }, callback)` callbacks; `setPresence` calls them. */
+  presenceListeners: (() => void)[];
+  /** Every payload passed to `track`, in order. */
+  tracked: Record<string, unknown>[];
+  /** What `presenceState()` returns; set it with `setPresence`. */
+  presence: Record<string, Record<string, unknown>[]>;
   removed: boolean;
   /** The `subscribe` callback; call it (or use `setChannelStatus`) to report a status. */
   onStatus: ((status: string, err?: Error) => void) | null;
   on: (type: string, filter: Omit<ChannelBinding, 'callback'>, callback: ChannelBinding['callback']) => FakeChannel;
   subscribe: (callback?: (status: string, err?: Error) => void) => FakeChannel;
+  track: (payload: Record<string, unknown>) => Promise<string>;
+  presenceState: () => Record<string, Record<string, unknown>[]>;
 };
 
 /** Every channel created since the last reset, removed ones included. */
 export const realtimeChannels: FakeChannel[] = [];
 
-function channel(name: string): FakeChannel {
+function channel(name: string, opts?: Record<string, unknown>): FakeChannel {
   const ch: FakeChannel = {
     name,
+    opts,
     bindings: [],
+    presenceListeners: [],
+    tracked: [],
+    presence: {},
     removed: false,
     onStatus: null,
-    on: (_type, filter, callback) => {
-      ch.bindings.push({ ...filter, callback });
+    on: (type, filter, callback) => {
+      if (type === 'presence') ch.presenceListeners.push(callback as () => void);
+      else ch.bindings.push({ ...filter, callback });
       return ch;
     },
     subscribe: (callback) => {
       ch.onStatus = callback ?? null;
       return ch;
     },
+    track: (payload) => {
+      ch.tracked.push(payload);
+      return Promise.resolve('ok');
+    },
+    presenceState: () => ch.presence,
   };
   realtimeChannels.push(ch);
   return ch;
+}
+
+/** Sets a channel's presence state (keyed by presence key, one entry per device) and reports a sync. */
+export function setPresence(ch: FakeChannel, state: Record<string, Record<string, unknown>[]>) {
+  ch.presence = state;
+  if (!ch.removed) for (const listener of ch.presenceListeners) listener();
 }
 
 /** Channels not removed yet. */

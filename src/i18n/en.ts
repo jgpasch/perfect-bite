@@ -130,6 +130,14 @@ export const en = {
       /** On a row's name tag for VoiceOver: "added by Alex". */
       tagLabel: 'added by {{name}}',
     },
+    /** The header pill while other members are adding to the list (spec 4.1). */
+    presence: {
+      one: '{{name}} is adding',
+      two: '{{first}} and {{second}} are adding',
+      /** Three or more: "3 people are adding". */
+      many_one: '{{count}} people are adding',
+      many_other: '{{count}} people are adding',
+    },
     toasts: {
       addedTo: 'Added to {{name}}',
       addedToNow: 'Added to {{name}}, now {{amount}}',

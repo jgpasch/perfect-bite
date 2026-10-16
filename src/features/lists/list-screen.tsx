@@ -48,11 +48,13 @@ import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/ai
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
+import { AddingPill } from '@/features/lists/adding-pill';
 import { arrivalPillText, inSight, useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useForeground, useKeepListAwake } from '@/features/lists/keep-awake';
 import { newsNames, rowNews, useListVisitNews } from '@/features/lists/list-news';
 import { NewsCard } from '@/features/lists/news-card';
+import { useAddingTail, useListPresence } from '@/features/lists/presence';
 import {
   addItem,
   checkItems,
@@ -345,6 +347,10 @@ export function ListScreen({ id }: { id: string }) {
   const [addText, setAddText] = useState('');
   const addMode = adding && !selection;
   const query = addMode ? duplicateQuery(addText) : null;
+  // Spec 4.1: "Alex is adding". This user counts as adding while the add field is focused and for 10 s
+  // after their last add; the header shows the other members who are.
+  const { adding: addingNow, noteAdd } = useAddingTail(adding);
+  const othersAdding = useListPresence(id, watching, userId, addingNow);
   // Its family key (spec 4.15), so `pepino` marks Cucumber too, when the household combines languages.
   const { data: combineRows } = useLiveQueryOn(combineLanguagesQuery(householdId), [households], [householdId]);
   const combine = combineRows[0]?.on ?? false;
@@ -724,7 +730,10 @@ export function ListScreen({ id }: { id: string }) {
 
   const add = (value: string) => {
     const result = addItem(id, value, userId);
-    if (result) void categorizePending(result.pendingNames);
+    if (result) {
+      noteAdd();
+      void categorizePending(result.pendingNames);
+    }
     // In As added a new or re-added item lands at the top, so bring the top into view; elsewhere, its section.
     if (viewMode === 'newest' && result && result.kind !== 'combine') listRef.current?.scrollToOffset({ offset: 0, animated: true });
     if (viewMode !== 'newest' && result) revealRef.current = result.itemId;
@@ -744,6 +753,7 @@ export function ListScreen({ id }: { id: string }) {
   const addRecipe = (recipe: RecipeSuggestion) => {
     const added = addWholeRecipeToList(id, recipe.id, userId);
     if (!added) return;
+    noteAdd();
     void categorizePending(added.pendingNames);
     if (viewMode === 'newest' && added.count > 0) listRef.current?.scrollToOffset({ offset: 0, animated: true });
     setToast({
@@ -1097,6 +1107,14 @@ export function ListScreen({ id }: { id: string }) {
                         onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
                       />
                     </View>
+                    {/* Spec 4.1: "Alex is adding", under the count and view; gone with the header in add mode. */}
+                    <AddingPill
+                      userIds={othersAdding}
+                      hidden={addMode}
+                      names={memberNames}
+                      currentUserId={userId}
+                      style={{ marginBottom: spacing.md, marginHorizontal: spacing.lg + spacing.xs }}
+                    />
                   </CollapsingHeader>
                   <View style={{ height: rounded.card }} />
                 </View>

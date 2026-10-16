@@ -38,6 +38,7 @@ import { recordListOpened } from '@/features/siri/list-snapshot';
 import { initI18n } from '@/i18n';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
+import { openChannels, realtimeChannels, resetSupabase, setChannelStatus, setPresence, type FakeChannel } from '@/test/fake-supabase';
 
 import { addItem, listItemsQuery, moveItemToList, setItemChecked } from '../items';
 import type { RowMove } from '../item-row';
@@ -71,6 +72,9 @@ jest.mock('react-native-reanimated', () => {
     useAnimatedStyle: (fn: () => object) => fn(),
     useSharedValue: (value: unknown) => ({ value }),
     withTiming: (value: unknown) => value,
+    withDelay: (_delay: number, value: unknown) => value,
+    withRepeat: (value: unknown) => value,
+    withSequence: (...values: unknown[]) => values[values.length - 1],
   };
 });
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
@@ -2281,5 +2285,151 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     refresh();
     act(() => jest.advanceTimersByTime(10_000));
     expect(announce.mock.calls).toEqual([['Alex added limes']]);
+  });
+});
+
+describe('"Alex is adding" (spec 4.1)', () => {
+  const ALEX = 'user-alex';
+  const SAM = 'user-sam';
+  const JO = 'user-jo';
+  const appStateListeners = new Set<(state: AppStateStatus) => void>();
+  const appGoes = (state: AppStateStatus) => act(() => appStateListeners.forEach((l) => l(state)));
+  /** The list's presence channel, while joined. */
+  const channel = (): FakeChannel => {
+    const open = openChannels().filter((c) => c.name === `list:${listId}`);
+    expect(open).toHaveLength(1);
+    return open[0];
+  };
+  /** The channel's presence: me, plus `userIds`, all adding. */
+  const others = (...userIds: string[]) =>
+    act(() => setPresence(channel(), Object.fromEntries([USER, ...userIds].map((id) => [id, [{ user_id: id, adding: true }]]))));
+  const pills = () => tree!.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'adding-pill');
+  const pillText = () => (pills().length === 0 ? null : (pills()[0].props.accessibilityLabel as string));
+
+  beforeEach(() => {
+    resetSupabase();
+    appStateListeners.clear();
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
+      appStateListeners.add(listener as (state: AppStateStatus) => void);
+      return { remove: () => void appStateListeners.delete(listener as (state: AppStateStatus) => void) } as never;
+    });
+    const householdId = getList(listId)!.householdId;
+    for (const [userId, displayName] of [
+      [USER, 'Me Myself'],
+      [ALEX, 'Alex Rivera'],
+      [SAM, 'Sam Lee'],
+      [JO, 'Jo Park'],
+    ]) {
+      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+    }
+  });
+
+  test('the list on screen joins its private presence topic; nothing shows while no one else is adding', () => {
+    render();
+    expect(channel().opts).toEqual({ config: { private: true, presence: { key: USER, enabled: true } } });
+    expect(pillText()).toBeNull();
+    // Only me adding (on another device, say) shows nothing.
+    others();
+    expect(pillText()).toBeNull();
+  });
+
+  test("the pill names one, two, or counts three or more, with the first adder's avatar", () => {
+    render();
+    others(ALEX);
+    expect(pillText()).toBe('Alex is adding');
+    expect(lines()).toContain('Alex is adding');
+    const avatar = tree!.root.find((n) => typeof n.type === 'string' && n.props.testID === `adding-avatar-${ALEX}`);
+    expect(textOf(avatar.findByType('Text' as never))).toBe('A');
+    others(ALEX, SAM);
+    expect(pillText()).toBe('Alex and Sam are adding');
+    others(ALEX, SAM, JO);
+    expect(pillText()).toBe('3 people are adding');
+    others();
+    expect(pills()).toHaveLength(0);
+  });
+
+  test('VoiceOver: a static text element, never announced', () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    render();
+    others(ALEX);
+    const pill = pills()[0];
+    expect(pill.props.accessible).toBe(true);
+    expect(pill.props.accessibilityRole).toBe('text');
+    expect(pill.props.accessibilityLiveRegion).toBeUndefined();
+    expect(pill.props.onPress).toBeUndefined();
+    act(() => jest.advanceTimersByTime(10_000));
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  test('hidden in add mode, when the header is collapsed', () => {
+    render();
+    others(ALEX);
+    act(() => addBar().props.onFocusChange(true));
+    expect(pills()).toHaveLength(0);
+    act(() => addBar().props.onFocusChange(false));
+    expect(pillText()).toBe('Alex is adding');
+  });
+
+  test('tracks adding while the add field is focused and for 10 s after the last add, at most once a second', () => {
+    render();
+    const ch = channel();
+    act(() => setChannelStatus('SUBSCRIBED', ch));
+    expect(ch.tracked).toEqual([{ user_id: USER, adding: false }]);
+    act(() => addBar().props.onFocusChange(true));
+    // Within a second of the last update: held back, then sent.
+    expect(ch.tracked.map((p) => p.adding)).toEqual([false]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(ch.tracked.map((p) => p.adding)).toEqual([false, true]);
+    act(() => addBar().props.onAdd('limes'));
+    act(() => addBar().props.onFocusChange(false));
+    act(() => jest.advanceTimersByTime(9_999));
+    expect(ch.tracked.map((p) => p.adding)).toEqual([false, true]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(ch.tracked.map((p) => p.adding)).toEqual([false, true, false]);
+    // What was typed never goes out.
+    expect(JSON.stringify(ch.tracked)).not.toContain('limes');
+  });
+
+  test('another tab leaves the channel and the pill goes; coming back joins again', async () => {
+    render();
+    others(ALEX);
+    const first = channel();
+    mockPath.current = '/recipes';
+    refresh();
+    expect(first.removed).toBe(true);
+    expect(pills()).toHaveLength(0);
+    await act(async () => {});
+    mockPath.current = '/lists';
+    refresh();
+    expect(channel()).not.toBe(first);
+    expect(pills()).toHaveLength(0);
+  });
+
+  test("the list's own sheets still count as on screen", () => {
+    render();
+    const first = channel();
+    mockPath.current = `/list/${listId}/edit`;
+    refresh();
+    expect(first.removed).toBe(false);
+  });
+
+  test('the app in the background leaves the channel', () => {
+    render();
+    others(ALEX);
+    const first = channel();
+    appGoes('background');
+    expect(first.removed).toBe(true);
+    expect(openChannels()).toEqual([]);
+    expect(pills()).toHaveLength(0);
+  });
+
+  test('leaving the screen leaves the channel', () => {
+    render();
+    const first = channel();
+    act(() => tree!.unmount());
+    tree = null;
+    expect(first.removed).toBe(true);
+    expect(realtimeChannels).toHaveLength(1);
   });
 });
