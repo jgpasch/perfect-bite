@@ -11,6 +11,7 @@
     "@supabase/supabase-js": "^2.117.3",
     "drizzle-orm": "^0.45.3",
     "expo": "~57.0.27",
+    "expo-build-properties": "~57.0.22",
     "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.21",
     "expo-crypto": "~57.0.3",
@@ -104,5 +105,8 @@
       "/node_modules/react-native-reanimated/plugin/",
       "/node_modules/@react-native/babel-preset/"
     ]
+  },
+  "resolutions": {
+    "expo-modules-jsi@npm:~57.1.1": "patch:expo-modules-jsi@npm%3A57.1.1#~/.yarn/patches/expo-modules-jsi-npm-57.1.1-3b93696200.patch"
   }
 }
