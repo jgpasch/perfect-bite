@@ -113,6 +113,28 @@ export function setPlanView(view: PlanView): void {
   setDeviceSetting(PLAN_VIEW_KEY, view);
 }
 
+/**
+ * Settings > Meal plan > Plan tab (spec 4.16): on unless turned off on this device. Off, the week lives in
+ * Recipes under This week.
+ */
+export const PLAN_TAB_KEY = 'plan.tab';
+const planTabListeners = new Set<() => void>();
+
+export function getPlanTab(): boolean {
+  return getDeviceSetting<unknown>(PLAN_TAB_KEY, true) !== false;
+}
+
+export function setPlanTab(on: boolean): void {
+  setDeviceSetting(PLAN_TAB_KEY, on);
+  planTabListeners.forEach((listener) => listener());
+}
+
+/** Calls `listener` whenever Plan tab is changed, so the tab bar and Recipes follow it at once. */
+export function onPlanTabChange(listener: () => void): () => void {
+  planTabListeners.add(listener);
+  return () => void planTabListeners.delete(listener);
+}
+
 /** The household whose plan this device shows (spec 4.16), or null if never picked. */
 export const PLAN_HOUSEHOLD_KEY = 'plan.householdId';
 

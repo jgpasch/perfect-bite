@@ -37,18 +37,20 @@ import {
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
+import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import {
   getAisleColorStyle,
   getAlwaysShowChecked,
   setAlwaysShowChecked,
   setKeepScreenOn,
+  setPlanTab,
 } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
-/** Settings (board 10): the account card, Shopping, Aisles, General and Households cards, then Sign out, Delete account and the version. */
+/** Settings (board 10): the account card, Shopping, Aisles, Meal plan, General and Households cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
   const t = useT();
@@ -69,6 +71,7 @@ export default function SettingsScreen() {
   const [aisleColors, setAisleColors] = useState(getAisleColorStyle);
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
+  const planTab = usePlanTabSetting();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -166,6 +169,24 @@ export default function SettingsScreen() {
             value={aisleColorStyleLabel(aisleColors)}
             icon={{ name: 'paintpalette', hue: 'rose' }}
             onPress={() => router.push('/settings/aisle-colors')}
+            last
+          />
+        </SettingsSection>
+
+        <SettingsSection title={t('settings.mealPlan')}>
+          <SettingsRow
+            label={t('settings.planTab')}
+            detail={t('settings.planTabDetail')}
+            icon={{ name: 'calendar', hue: 'green' }}
+            trailing={
+              <Switch
+                value={planTab}
+                onValueChange={setPlanTab}
+                trackColor={{ true: colors.primary }}
+                accessibilityLabel={t('settings.planTab')}
+                accessibilityHint={t('settings.planTabDetail')}
+              />
+            }
             last
           />
         </SettingsSection>

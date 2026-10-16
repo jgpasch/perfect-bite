@@ -28,10 +28,14 @@ import {
   getAisleColorStyle,
   getAlwaysShowChecked,
   getItemRowStyle,
+  getDeviceSetting,
   getKeepScreenOn,
+  getPlanTab,
+  PLAN_TAB_KEY,
   setAisleColorStyle,
   setDeviceSetting,
   setKeepScreenOn,
+  setPlanTab,
 } from '../device-settings';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
 
@@ -289,6 +293,30 @@ describe('Settings', () => {
     setKeepScreenOn(false);
     const root = render(<SettingsScreen />);
     expect(root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Keep screen on').props.value).toBe(false);
+  });
+
+  it('Meal plan > Plan tab is a switch, on by default, with its footnote, that turns the device setting off and on', () => {
+    const root = render(<SettingsScreen />);
+    expect(headers(root)).toContain('Meal plan');
+    expect(textOf(root)).toContain('Plan tab Your week plan gets its own tab. Off, it lives in Recipes under This week.');
+    const toggle = () => root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Plan tab');
+    expect(toggle().props.value).toBe(true);
+    act(() => toggle().props.onValueChange(false));
+    expect(getPlanTab()).toBe(false);
+    expect(getDeviceSetting(PLAN_TAB_KEY, null)).toBe(false);
+    expect(toggle().props.value).toBe(false);
+    act(() => toggle().props.onValueChange(true));
+    expect(getPlanTab()).toBe(true);
+    expect(toggle().props.value).toBe(true);
+  });
+
+  it('Plan tab shows off when it was turned off before, and follows a change made elsewhere', () => {
+    setPlanTab(false);
+    const root = render(<SettingsScreen />);
+    const toggle = () => root.root.find((n) => n.type === Switch && n.props.accessibilityLabel === 'Plan tab');
+    expect(toggle().props.value).toBe(false);
+    act(() => setPlanTab(true));
+    expect(toggle().props.value).toBe(true);
   });
 
   it('Always show checked items is a switch, off by default, that turns the device setting on and off', () => {

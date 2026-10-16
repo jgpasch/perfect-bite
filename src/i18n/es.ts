@@ -569,6 +569,7 @@ export const es = {
     pastEmpty: '—',
     earlier: 'Antes en la semana · {{days}}',
     earlierHint: 'Muestra los días antes de hoy',
+    segments: { all: 'Todas las recetas', week: 'Esta semana' },
   },
   settings: {
     title: 'Ajustes',
@@ -586,6 +587,9 @@ export const es = {
     alwaysShowChecked: 'Mostrar siempre los marcados',
     alwaysShowCheckedDetail: 'Si no, aparecen cuando todo está marcado',
     alwaysShowCheckedHint: 'Deja abierta la sección Marcados en tus listas',
+    mealPlan: 'Plan de comidas',
+    planTab: 'Pestaña Plan',
+    planTabDetail: 'Tu plan de la semana tiene su propia pestaña. Si no, está en Recetas, en Esta semana.',
     syncStatus: 'Estado de sincronización',
     households: 'Hogares',
     combineLanguages: 'Juntar nombres en español e inglés',

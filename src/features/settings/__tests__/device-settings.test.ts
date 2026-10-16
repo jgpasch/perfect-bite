@@ -6,18 +6,22 @@ import { resetDb } from '@/test/db';
 import {
   KEEP_SCREEN_ON_KEY,
   PLAN_HOUSEHOLD_KEY,
+  PLAN_TAB_KEY,
   PLAN_VIEW_KEY,
   clearManualOrder,
   getDeviceSetting,
   getKeepScreenOn,
   getManualOrder,
   getPlanHouseholdId,
+  getPlanTab,
   getPlanView,
   onKeepScreenOnChange,
+  onPlanTabChange,
   saveManualOrder,
   setDeviceSetting,
   setKeepScreenOn,
   setPlanHouseholdId,
+  setPlanTab,
   setPlanView,
 } from '../device-settings';
 
@@ -125,4 +129,26 @@ test('plan.householdId is null until picked, and reads garbage as null', () => {
   expect(getDeviceSetting(PLAN_HOUSEHOLD_KEY, null)).toBe('cabin');
   setDeviceSetting(PLAN_HOUSEHOLD_KEY, 42);
   expect(getPlanHouseholdId()).toBeNull();
+});
+
+test('plan.tab is on until turned off, and only a stored false turns it off', () => {
+  expect(getPlanTab()).toBe(true);
+  setPlanTab(false);
+  expect(getPlanTab()).toBe(false);
+  expect(getDeviceSetting(PLAN_TAB_KEY, null)).toBe(false);
+  setPlanTab(true);
+  expect(getPlanTab()).toBe(true);
+  setDeviceSetting(PLAN_TAB_KEY, 'off');
+  expect(getPlanTab()).toBe(true);
+});
+
+test('onPlanTabChange tells listeners each time Plan tab is set, until unsubscribed', () => {
+  const listener = jest.fn();
+  const unsubscribe = onPlanTabChange(listener);
+  setPlanTab(false);
+  setPlanTab(true);
+  expect(listener).toHaveBeenCalledTimes(2);
+  unsubscribe();
+  setPlanTab(false);
+  expect(listener).toHaveBeenCalledTimes(2);
 });

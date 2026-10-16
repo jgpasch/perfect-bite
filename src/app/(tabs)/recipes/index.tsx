@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/empty-state';
 import { HeaderPill } from '@/components/header-pill';
 import { Icon } from '@/components/icon';
 import { FoldingSection } from '@/components/section-header';
+import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
@@ -24,6 +25,8 @@ import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
 import { openList, resolveCurrentListId, useCurrentListVersion } from '@/features/lists/current-list';
 import { getList, listsWithCountsQuery } from '@/features/lists/lists';
+import { setRecipesSegment, usePlanTabSetting, useRecipesSegment } from '@/features/meal-plan/plan-tab';
+import { WeekPlan } from '@/features/meal-plan/week-plan';
 import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
@@ -100,6 +103,10 @@ export default function RecipesScreen() {
   // Light status bar content on the green header, also while the Filters sheet is up over it.
   const pathname = usePathname();
   const onRecipes = pathname === '/recipes' || pathname === '/recipes/filter';
+  // Spec 4.16: with the Plan tab off, All recipes | This week, kept for the app session.
+  const planTab = usePlanTabSetting();
+  const segment = useRecipesSegment();
+  const week = !planTab && segment === 'week';
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
@@ -370,7 +377,27 @@ export default function RecipesScreen() {
             <ThemedText variant="largeTitle" color="onHeader" accessibilityRole="header" style={{ paddingHorizontal: spacing.xs }}>
               {t('recipes.tab.title')}
             </ThemedText>
-            {data.length > 0 ? (
+            {planTab ? null : (
+              // Spec 4.16, board 5: the week lives here while the Plan tab is off. The control's own inset
+              // would double the header's.
+              <View style={{ marginHorizontal: -spacing.lg }}>
+                <SegmentedControl
+                  segments={[
+                    { value: 'all', label: t('mealPlan.segments.all') },
+                    { value: 'week', label: t('mealPlan.segments.week') },
+                  ]}
+                  value={segment}
+                  onChange={setRecipesSegment}
+                  look={{
+                    track: header.viewButton.fill,
+                    text: colors.onHeader,
+                    selected: colors.onHeader,
+                    selectedText: colors.header,
+                  }}
+                />
+              </View>
+            )}
+            {!week && data.length > 0 ? (
               <>
                 <RecipeSearchField count={data.length} query={query} onChange={setQuery} />
                 <View style={[styles.headerRow, { gap: spacing.md, paddingHorizontal: spacing.xs }]}>
@@ -407,13 +434,15 @@ export default function RecipesScreen() {
             },
           ]}
         />
+        {/* Spec 4.16: This week is the week alone, its toolbar the sheet's first row. */}
+        {week ? <WeekPlan /> : null}
         {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
-        {showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
-        {data.length === 0 ? empty : null}
-        {data.length > 0 ? (
+        {!week && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
+        {!week && data.length === 0 ? empty : null}
+        {!week && data.length > 0 ? (
           <RecipeFilterBar filters={filters} onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))} />
         ) : null}
-        {data.length > 0 && (searching || filtering) && groups.length === 0 ? (
+        {!week && data.length > 0 && (searching || filtering) && groups.length === 0 ? (
           <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
             <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
               {NO_RECIPES_MATCH}
@@ -423,7 +452,7 @@ export default function RecipesScreen() {
             ) : null}
           </View>
         ) : null}
-        {groups.map((group, i) => (
+        {(week ? [] : groups).map((group, i) => (
           <View key={group.householdId} style={{ paddingTop: i === 0 ? spacing.xs : spacing.lg + spacing.xxs }}>
             {labelHouseholds ? (
               <ThemedText
@@ -467,7 +496,7 @@ export default function RecipesScreen() {
             )}
           </View>
         ))}
-        {untaggedHidden > 0 ? (
+        {!week && untaggedHidden > 0 ? (
           <Pressable
             accessibilityRole="button"
             accessibilityHint={t('recipes.tab.untaggedHint')}

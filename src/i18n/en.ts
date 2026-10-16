@@ -625,6 +625,8 @@ export const en = {
     /** The folded days before today: "Earlier this week · Sun – Wed". */
     earlier: 'Earlier this week · {{days}}',
     earlierHint: 'Shows the days before today',
+    /** The Recipes tab's switch while the Plan tab is off. */
+    segments: { all: 'All recipes', week: 'This week' },
   },
   settings: {
     title: 'Settings',
@@ -643,6 +645,9 @@ export const en = {
     alwaysShowChecked: 'Always show checked items',
     alwaysShowCheckedDetail: "Otherwise they show once everything's checked",
     alwaysShowCheckedHint: 'Keeps the Checked section open on your lists',
+    mealPlan: 'Meal plan',
+    planTab: 'Plan tab',
+    planTabDetail: 'Your week plan gets its own tab. Off, it lives in Recipes under This week.',
     syncStatus: 'Sync status',
     households: 'Households',
     /** One switch per household, under its row (spec 4.15). */
