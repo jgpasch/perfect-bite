@@ -20,6 +20,7 @@ import { backfillUnitUsage, backfillUsage, BACKFILL_KEY, UNITS_BACKFILL_KEY } fr
 import { clearNotifications, currentNotification, notify } from '@/features/notifications/notifications';
 import { DEFAULT_FEATURES, getFeatures, setFeatures } from '@/features/plans/features';
 import { FEATURES_KEY } from '@/features/plans/load';
+import { setSlot } from '@/features/meal-plan/write';
 import { recordFailedImport } from '@/features/recipes/failed-imports';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { IMPORT_ADD_TO_LIST_KEY } from '@/features/recipes/save-choice';
@@ -97,6 +98,7 @@ beforeEach(async () => {
   );
   const recipe = createRecipe('Chili', home);
   addRecipeIngredient(recipe, '1 can beans');
+  setSlot(home, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: recipe });
   const aisle = createCategory(USER, home, 'Farm stand');
   setCategoryOverride(home, 'onions', aisle);
   setCategoryOverride(home, 'milk', PRODUCE);

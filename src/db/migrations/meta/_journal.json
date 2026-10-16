@@ -127,6 +127,13 @@
       "when": 1792111802465,
       "tag": "0017_household_combine_languages",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792116107215,
+      "tag": "0018_meal_plan",
+      "breakpoints": true
     }
   ]
 }

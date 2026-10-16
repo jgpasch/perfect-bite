@@ -32,6 +32,7 @@ const TABLES = [
   schema.ingredientUnitUsage,
   schema.ingredientUsage,
   schema.listItemContributions,
+  schema.mealPlanEntries,
   schema.listItems,
   schema.recipeIngredients,
   schema.recipes,

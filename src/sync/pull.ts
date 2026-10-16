@@ -39,6 +39,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  mealPlanEntries,
   outbox,
   recipeIngredients,
   recipes,
@@ -87,6 +88,7 @@ const HOUSEHOLD_SPECS: PullSpec[] = [
   { table: listItems, key: ['id'] },
   { table: recipeIngredients, key: ['id'] },
   { table: listItemContributions, key: ['id'] },
+  { table: mealPlanEntries, key: ['id'] },
   { table: ingredientUsage, key: ['householdId', 'ingredientName'], counters: ['useCount'] },
   {
     table: ingredientUnitUsage,

@@ -319,6 +319,35 @@ export const householdStaples = sqliteTable(
   (t) => [primaryKey({ columns: [t.householdId, t.ingredientName] })],
 );
 
+/**
+ * The household's meal plan (spec 4.16): one row per entry in a slot (a day and a meal). Setting a
+ * slot soft-deletes its live entries and inserts the new one; with two live rows (two devices
+ * offline), the slot shows the one created last. `position` orders several, for a later "main and side".
+ */
+export const mealPlanEntries = sqliteTable(
+  'meal_plan_entries',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** The calendar day, `YYYY-MM-DD`, no time zone. */
+    planDate: text('plan_date').notNull(),
+    meal: text('meal', { enum: ['breakfast', 'lunch', 'dinner'] }).notNull(),
+    position: real('position').notNull().default(0),
+    kind: text('kind', { enum: ['recipe', 'leftovers', 'eating-out', 'note'] }).notNull(),
+    /** Set exactly when kind = 'recipe'; a recipe of the same household. */
+    recipeId: text('recipe_id').references(() => recipes.id),
+    /** Set exactly when kind = 'note': trimmed, 1 to 60 characters, kept as typed. */
+    note: text('note'),
+    /** Set by the server to whoever inserted it; never sent (spec 5). */
+    addedBy: text('added_by'),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [index('meal_plan_entries_household_date_idx').on(t.householdId, t.planDate)],
+);
+
 /** Per-user settings (spec 5). Synced in M5. */
 export const userSettings = sqliteTable('user_settings', {
   userId: text('user_id').primaryKey(),
@@ -381,6 +410,7 @@ export type Household = typeof households.$inferSelect;
 export type IngredientUnitUsage = typeof ingredientUnitUsage.$inferSelect;
 export type IngredientUsage = typeof ingredientUsage.$inferSelect;
 export type List = typeof lists.$inferSelect;
+export type MealPlanEntry = typeof mealPlanEntries.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;
 export type ListItem = typeof listItems.$inferSelect;
 export type ListItemContribution = typeof listItemContributions.$inferSelect;

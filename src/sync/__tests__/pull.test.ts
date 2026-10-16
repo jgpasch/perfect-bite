@@ -14,6 +14,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  mealPlanEntries,
   recipes,
   userCategoryOrder,
   userSettings,
@@ -224,6 +225,7 @@ describe('first pull of a household', () => {
       'list_items',
       'recipe_ingredients',
       'list_item_contributions',
+      'meal_plan_entries',
       'ingredient_usage',
       'ingredient_unit_usage',
       'user_category_order',
@@ -1296,6 +1298,90 @@ describe("the household's staples (Always have)", () => {
   });
 });
 
+describe("the household's meal plan", () => {
+  const ENTRY_CLOCK = {
+    household_id: OLD,
+    plan_date: OLD,
+    meal: OLD,
+    position: OLD,
+    kind: OLD,
+    recipe_id: OLD,
+    note: OLD,
+    deleted_at: OLD,
+    created_at: OLD,
+  };
+  const remoteEntry = (id: string, updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
+    id,
+    household_id: H1,
+    plan_date: '2026-10-15',
+    meal: 'dinner',
+    position: 0,
+    kind: 'recipe',
+    recipe_id: 'r1',
+    note: null,
+    added_by: 'u2',
+    deleted_at: null,
+    field_clock: ENTRY_CLOCK,
+    created_at: ts(0),
+    updated_at: updated,
+    ...extra,
+  });
+  const entryRow = (id: string) => db.select().from(mealPlanEntries).where(eq(mealPlanEntries.id, id)).get();
+
+  beforeEach(() => {
+    seedPulledList();
+    put('recipes', {
+      id: 'r1',
+      household_id: H1,
+      name: 'Tacos',
+      deleted_at: null,
+      field_clock: {},
+      created_at: ts(0),
+      updated_at: ts(1),
+    });
+  });
+
+  test("another member's entries come down after their recipes, with their own cursor", async () => {
+    put('meal_plan_entries', remoteEntry('e1', ts(4)), remoteEntry('e2', ts(5), { kind: 'note', recipe_id: null, note: 'Pizza night', meal: 'lunch' }));
+
+    await pullNow();
+
+    const tables = queries.map((q) => q.table);
+    expect(tables.indexOf('meal_plan_entries')).toBeGreaterThan(tables.indexOf('recipes'));
+    expect(tableQueries('meal_plan_entries')[0][1]).toEqual(['eq', 'household_id', H1]);
+    expect(entryRow('e1')).toMatchObject({
+      householdId: H1,
+      planDate: '2026-10-15',
+      meal: 'dinner',
+      position: 0,
+      kind: 'recipe',
+      recipeId: 'r1',
+      note: null,
+      addedBy: 'u2',
+      deletedAt: null,
+      createdAt: new Date(ts(0)),
+      updatedAt: new Date(ts(4)),
+      fieldClock: ENTRY_CLOCK,
+    });
+    expect(entryRow('e2')).toMatchObject({ kind: 'note', recipeId: null, note: 'Pizza night', meal: 'lunch' });
+    expect(getPullState().cursors[householdCursorKey(H1, 'meal_plan_entries')]).toBe(ts(5));
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('a remote clear (deleted_at) comes down; an unpushed local edit keeps its field', async () => {
+    put('meal_plan_entries', remoteEntry('e1', ts(4)));
+    await pullNow();
+    updateRows(db, mealPlanEntries, eq(mealPlanEntries.id, 'e1'), { position: 2 });
+    server.meal_plan_entries = [
+      remoteEntry('e1', ts(10), { position: 1, deleted_at: ts(9), field_clock: { ...ENTRY_CLOCK, position: OLD, deleted_at: NEW } }),
+    ];
+
+    await pullNow();
+
+    expect(entryRow('e1')).toMatchObject({ position: 2, deletedAt: new Date(ts(9)) });
+  });
+});
+
 describe("the user's own preferences", () => {
   beforeEach(() => {
     seedPulledList();
@@ -1781,6 +1867,7 @@ describe('scoped pulls (for Realtime)', () => {
     'list_items',
     'recipe_ingredients',
     'list_item_contributions',
+    'meal_plan_entries',
     'ingredient_usage',
     'ingredient_unit_usage',
   ];

@@ -16,6 +16,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  mealPlanEntries,
   outbox,
   recipeIngredients,
   recipes,
@@ -34,6 +35,7 @@ import {
   setDefaultList,
   setLastOpenedList,
 } from '@/features/lists/lists';
+import { setSlot } from '@/features/meal-plan/write';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { newId } from '@/lib/id';
@@ -223,6 +225,31 @@ describe('purgeHousehold', () => {
     expect(staplesIn(home)).toEqual(homeStaples);
     expect(homeStaples.map((s) => s.ingredientName)).toEqual(['salt']);
     expect(stapleMutations(home)).toEqual(homeMutations);
+  });
+
+  test("removes the household's meal plan entries, live and cleared, with their queued mutations", () => {
+    const homeRecipe = createRecipe('Soup', home);
+    setSlot(home, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: homeRecipe });
+    setSlot(CABIN, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: cabinRecipe });
+    setSlot(CABIN, '2026-10-15', 'dinner', { kind: 'leftovers' }); // clears the recipe entry
+    setSlot(CABIN, '2026-10-16', 'lunch', { kind: 'note', note: 'Picnic' });
+    const entriesIn = (householdId: string) =>
+      db.select().from(mealPlanEntries).where(eq(mealPlanEntries.householdId, householdId)).all();
+    const entryMutations = (householdId: string) =>
+      outboxRows().filter((r) => r.householdId === householdId && r.mutation.table === 'meal_plan_entries');
+    const homeEntries = entriesIn(home);
+    const homeMutations = entryMutations(home);
+    expect(entriesIn(CABIN)).toHaveLength(3);
+    expect(entryMutations(CABIN)).toHaveLength(4);
+
+    db.transaction((tx) => purgeHousehold(tx, CABIN));
+
+    expect(entriesIn(CABIN)).toEqual([]);
+    expect(entryMutations(CABIN)).toEqual([]);
+    expect(db.select().from(recipes).where(eq(recipes.id, cabinRecipe)).get()).toBeUndefined();
+    expect(entriesIn(home)).toEqual(homeEntries);
+    expect(homeEntries.map((e) => e.recipeId)).toEqual([homeRecipe]);
+    expect(entryMutations(home)).toEqual(homeMutations);
   });
 
   test('a Siri default list in the household is cleared locally, without a mutation', () => {

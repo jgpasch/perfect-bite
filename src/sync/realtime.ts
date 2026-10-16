@@ -38,6 +38,7 @@ export const HOUSEHOLD_TABLES = [
   'list_items',
   'recipe_ingredients',
   'list_item_contributions',
+  'meal_plan_entries',
   'ingredient_usage',
   'ingredient_unit_usage',
 ] as const;

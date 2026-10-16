@@ -3,7 +3,8 @@
 // failure leaves none of them.
 //
 // Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage,
-// custom categories, category overrides, staples) and per-user tables (order, settings) go through here.
+// custom categories, category overrides, staples, meal plan entries) and per-user tables (order,
+// settings) go through here.
 // The catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
 import { and, eq, getTableColumns, getTableName, SQL, sql, type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
@@ -18,6 +19,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  mealPlanEntries,
   outbox,
   recipeIngredients,
   recipes,
@@ -49,6 +51,8 @@ const SPECS = new Map<SQLiteTable, Spec>([
   // The server sets added_by to whoever inserted it.
   [recipes, { key: ['id'], household: true, unsent: ['addedBy'] }],
   [recipeIngredients, { key: ['id'], household: true }],
+  // The server sets added_by to whoever inserted it.
+  [mealPlanEntries, { key: ['id'], household: true, unsent: ['addedBy'] }],
   [ingredientUsage, { key: ['householdId', 'ingredientName'], counters: ['useCount'], household: true }],
   [ingredientUnitUsage, { key: ['householdId', 'ingredientName', 'unitKey'], counters: ['useCount'], household: true }],
   // Custom categories only; slug and rank belong to system ones.
@@ -68,6 +72,7 @@ export type SyncedTable =
   | typeof listItemContributions
   | typeof recipes
   | typeof recipeIngredients
+  | typeof mealPlanEntries
   | typeof ingredientUsage
   | typeof ingredientUnitUsage
   | typeof categories

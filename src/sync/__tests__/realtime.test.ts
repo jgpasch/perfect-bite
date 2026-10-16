@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, householdStaples, listItems, lists, userCategoryOrder } from '@/db';
+import { categories, db, householdCategoryOverrides, households, householdStaples, listItems, lists, mealPlanEntries, userCategoryOrder } from '@/db';
 import {
   emitChange,
   onQuery,
@@ -312,6 +312,53 @@ describe('events pull what they touched', () => {
 
     expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
     expect(db.select().from(householdStaples).get()!.deletedAt).toEqual(new Date(ts(20)));
+  });
+
+  test("another member's plan entry, set or cleared, pulls that household", async () => {
+    server.recipes = [
+      { id: 'r1', household_id: H1, name: 'Tacos', deleted_at: null, field_clock: {}, created_at: ts(0), updated_at: ts(5) },
+    ];
+    const entry = {
+      id: 'e1',
+      household_id: H1,
+      plan_date: '2026-10-15',
+      meal: 'dinner',
+      position: 0,
+      kind: 'recipe',
+      recipe_id: 'r1',
+      note: null,
+      added_by: 'u2',
+      deleted_at: null,
+      field_clock: { kind: OLD, recipe_id: OLD, deleted_at: OLD },
+      created_at: ts(0),
+      updated_at: ts(10),
+    };
+    server.meal_plan_entries = [entry];
+
+    emitChange({ table: 'meal_plan_entries', eventType: 'INSERT', new: entry });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(queries.find((q) => q.table === 'meal_plan_entries')!.ops).toContainEqual(['eq', 'household_id', H1]);
+    expect(db.select().from(mealPlanEntries).get()).toMatchObject({
+      id: 'e1',
+      householdId: H1,
+      planDate: '2026-10-15',
+      meal: 'dinner',
+      kind: 'recipe',
+      recipeId: 'r1',
+      addedBy: 'u2',
+      deletedAt: null,
+    });
+
+    // Clearing the slot is an update (deleted_at), not a delete event.
+    queries.length = 0;
+    const cleared = { ...entry, deleted_at: ts(20), field_clock: { ...entry.field_clock, deleted_at: NEW }, updated_at: ts(20) };
+    server.meal_plan_entries = [cleared];
+    emitChange({ table: 'meal_plan_entries', eventType: 'UPDATE', new: cleared });
+    await settle();
+
+    expect(db.select().from(mealPlanEntries).get()!.deletedAt).toEqual(new Date(ts(20)));
   });
 
   test("a deleted order row is applied from the event's key, without a pull", async () => {

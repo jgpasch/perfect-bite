@@ -19,6 +19,7 @@ import {
   listItemContributions,
   listItems,
   lists,
+  mealPlanEntries,
   outbox,
   recipeIngredients,
   recipes,
@@ -59,6 +60,7 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
       .run();
   }
   tx.delete(listItemContributions).where(eq(listItemContributions.householdId, householdId)).run();
+  tx.delete(mealPlanEntries).where(eq(mealPlanEntries.householdId, householdId)).run();
   const items = tx.select({ n: count() }).from(listItems).where(eq(listItems.householdId, householdId)).get()?.n ?? 0;
   tx.delete(listItems).where(eq(listItems.householdId, householdId)).run();
   tx.delete(recipeIngredients).where(eq(recipeIngredients.householdId, householdId)).run();

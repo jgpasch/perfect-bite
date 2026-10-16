@@ -19,6 +19,7 @@ import m0014 from './0014_household_staples.sql';
 import m0015 from './0015_recipe_steps.sql';
 import m0016 from './0016_ingredient_links.sql';
 import m0017 from './0017_household_combine_languages.sql';
+import m0018 from './0018_meal_plan.sql';
 
   export default {
     journal,
@@ -40,7 +41,8 @@ m0013,
 m0014,
 m0015,
 m0016,
-m0017
+m0017,
+m0018
     }
   }
   

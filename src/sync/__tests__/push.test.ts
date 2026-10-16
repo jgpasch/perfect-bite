@@ -3,7 +3,8 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, householdStaples, lists, userCategoryOrder, userSettings } from '@/db';
+import { categories, db, householdCategoryOverrides, households, householdStaples, lists, recipes, userCategoryOrder, userSettings } from '@/db';
+import { setSlot } from '@/features/meal-plan/write';
 import { onQuery, onRpc, queries, resetSupabase, respondTo, respondToRpc, rpcCalls, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations, outboxRows } from '@/test/outbox';
@@ -189,6 +190,40 @@ describe('order', () => {
       ['household_staples', key, { deleted_at: '2026-10-01T12:00:00.000Z' }],
       ['household_staples', key, { deleted_at: null }],
     ]);
+    expect(queries).toEqual([]);
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('meal plan entries go through apply_mutations by id, with every field on insert and never added_by', async () => {
+    applyAll();
+    insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Tacos' });
+    clearOutbox();
+    const first = setSlot(H, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: 'r1' });
+    const second = setSlot(H, '2026-10-15', 'dinner', { kind: 'note', note: 'Pizza night' });
+
+    await expect(pushNow()).resolves.toEqual({ pushed: 3, rejected: 0, failed: false });
+
+    expect(applyCalls()).toHaveLength(1);
+    expect(sent(0).map((m) => [m.table, m.id, m.fields])).toEqual([
+      [
+        'meal_plan_entries',
+        first.id,
+        {
+          household_id: H,
+          plan_date: '2026-10-15',
+          meal: 'dinner',
+          position: 0,
+          kind: 'recipe',
+          recipe_id: 'r1',
+          note: null,
+          deleted_at: null,
+          created_at: first.createdAt.toISOString(),
+        },
+      ],
+      ['meal_plan_entries', first.id, { deleted_at: expect.any(String) }],
+      ['meal_plan_entries', second.id, expect.objectContaining({ kind: 'note', recipe_id: null, note: 'Pizza night' })],
+    ]);
+    expect(sent(0).every((m) => !('added_by' in m.fields))).toBe(true);
     expect(queries).toEqual([]);
     expect(outboxRows()).toEqual([]);
   });

@@ -56,6 +56,7 @@ const APPLY_TABLES = new Set([
   'categories',
   'household_category_overrides',
   'household_staples',
+  'meal_plan_entries',
 ]);
 
 /** Push state, kept in a device setting so the backoff survives a relaunch (and for 7.5's status). */
