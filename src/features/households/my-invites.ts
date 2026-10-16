@@ -3,11 +3,12 @@
 // reconnect, kept in memory only (nothing in SQLite) and cleared on sign-out.
 import { useSyncExternalStore } from 'react';
 
+import { db, households } from '@/db';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { i18n } from '@/i18n';
 import { pullNow } from '@/sync/pull';
 
-import { avatarInitial } from './households';
+import { avatarInitial, deleteHousehold, fetchHouseholdMembers } from './households';
 import {
   acceptInviteById,
   declineInvite,
@@ -42,24 +43,34 @@ export function useMyInvites(): MyInvite[] {
   return useSyncExternalStore(subscribe, getMyInvites);
 }
 
+/** The fetch under way, which callers share; null when none is. */
+let inFlight: Promise<void> | null = null;
+
 /**
  * Fetches the caller's invites into the store. Skipped while the OS says there's no connection; a
- * failed fetch keeps the cards already shown. Never throws.
+ * failed fetch keeps the cards already shown. A call while a fetch is under way waits for that one.
+ * Never throws.
  */
-export async function refreshMyInvites(): Promise<void> {
-  if (online === false) return;
+export function refreshMyInvites(): Promise<void> {
+  if (online === false) return Promise.resolve();
+  if (inFlight) return inFlight;
   const current = generation;
-  try {
-    const next = await myInvites();
-    if (current === generation) setInvites(next);
-  } catch (err) {
-    console.warn('[invites] my_invites failed', err);
-  }
+  const run: Promise<void> = myInvites().then(
+    (next) => {
+      if (current === generation) setInvites(next);
+    },
+    (err) => console.warn('[invites] my_invites failed', err),
+  );
+  inFlight = run.finally(() => {
+    if (current === generation) inFlight = null;
+  });
+  return inFlight;
 }
 
 /** Empties the store (sign-out). */
 export function clearMyInvites(): void {
   generation++;
+  inFlight = null;
   if (invites.length > 0) setInvites([]);
 }
 
@@ -86,8 +97,11 @@ export function startMyInvites(): () => void {
   };
 }
 
-/** What a card's Join or Decline did. A failure says why, and whether the card went away. */
-export type MyInviteResult = { ok: true } | { ok: false; message: string; removed: boolean };
+/**
+ * What a card's Join or Decline did. A failure says why, and whether the card went away. A success
+ * can carry a notice (joined, but the household to delete couldn't be).
+ */
+export type MyInviteResult = { ok: true; notice?: string } | { ok: false; message: string; removed: boolean };
 
 /**
  * A failed Join or Decline. An invite that can't be used any more (revoked, used or declined
@@ -114,9 +128,16 @@ async function act(invite: MyInvite, run: () => Promise<unknown>, label: string)
   }
 }
 
-/** Joins the invite's household, pulls it in (like the join screen) and removes the card. */
-export function joinMyInvite(invite: MyInvite): Promise<MyInviteResult> {
-  return act(
+/**
+ * Joins the invite's household, pulls it in (like the join screen) and removes the card. With
+ * `replacing`, then deletes that household (see `householdToReplace`); joining first, so the user is
+ * never left with none and given a new personal one.
+ */
+export async function joinMyInvite(
+  invite: MyInvite,
+  replacing?: { id: string; name: string },
+): Promise<MyInviteResult> {
+  const result = await act(
     invite,
     async () => {
       await acceptInviteById(invite.id);
@@ -125,6 +146,58 @@ export function joinMyInvite(invite: MyInvite): Promise<MyInviteResult> {
     },
     'accept',
   );
+  if (!result.ok || !replacing) return result;
+  return (await deleteReplaced(replacing)) ?? result;
+}
+
+/** Deletes the household a join replaces. Null when it went, else a notice saying it didn't. */
+export async function deleteReplaced(replacing: { id: string; name: string }): Promise<MyInviteResult | null> {
+  try {
+    await deleteHousehold(replacing.id);
+    return null;
+  } catch (err) {
+    console.warn('[invites] delete replaced household failed', err);
+    return { ok: true, notice: i18n.t('invites.replace.deleteFailed', { name: replacing.name }) };
+  }
+}
+
+/**
+ * The household joining `householdId` could replace: the user's only other household, when they're
+ * its only member (the personal one they started with, typically), so deleting it affects nobody.
+ * Null otherwise, or when its members can't be fetched (then joining just keeps it).
+ */
+export async function householdToReplace(
+  householdId: string,
+  userId: string,
+): Promise<{ id: string; name: string } | null> {
+  const others = db
+    .select({ id: households.id, name: households.name })
+    .from(households)
+    .all()
+    .filter((h) => h.id !== householdId);
+  if (others.length !== 1) return null;
+  try {
+    const members = await fetchHouseholdMembers(others[0].id, userId);
+    return members.length === 1 && members[0].isYou ? others[0] : null;
+  } catch (err) {
+    console.warn('[invites] members fetch failed', err);
+    return null;
+  }
+}
+
+/** The Join prompt when there's a household to replace: keep it, or delete it. */
+export function replaceHouseholdPrompt(
+  joining: string,
+  replacing: { name: string },
+): { title: string; message: string; keep: string; remove: string } {
+  const name = replacing.name.trim() || i18n.t('invites.card.aHousehold');
+  const household = joining.trim() || i18n.t('invites.card.aHousehold');
+  return {
+    title: i18n.t('invites.replace.title', { name }),
+    message: i18n.t('invites.replace.message', { name, household }),
+    keep: i18n.t('invites.replace.keep'),
+    remove: i18n.t('invites.replace.delete', { name }),
+  };
 }
 
 /** Declines the invite (its link stops working) and removes the card. Confirm first. */

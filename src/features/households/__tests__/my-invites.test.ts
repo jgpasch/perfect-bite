@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
+import { db, households } from '@/db';
+import { resetDb } from '@/test/db';
 import { respondToRpc, resetSupabase, rpcCalls, rpcCallsFor, supabase } from '@/test/fake-supabase';
 
 import { InviteError, type InviteErrorKind, type MyInvite } from '../invites';
@@ -9,6 +11,7 @@ import {
   declineInvitePrompt,
   declineMyInvite,
   getMyInvites,
+  householdToReplace,
   inviteCardAccessibilityLabel,
   inviteCardDetail,
   inviteCardInitial,
@@ -16,6 +19,7 @@ import {
   joinMyInvite,
   myInviteFailure,
   refreshMyInvites,
+  replaceHouseholdPrompt,
   startMyInvites,
 } from '../my-invites';
 
@@ -33,7 +37,9 @@ jest.mock('@/features/categories/catch-up', () => ({
     mockTriggers.onNetwork = onNetwork;
     return () => void mockTriggers.stopped++;
   },
+  isOnline: () => true,
 }));
+jest.mock('expo-network', () => ({ getNetworkStateAsync: async () => ({ isConnected: true, isInternetReachable: true }) }));
 
 const ROW = { id: 'i1', household_id: 'h2', household_name: 'Smith household', invited_by: 'John', member_count: 2 };
 const ROW2 = { id: 'i2', household_id: 'h3', household_name: 'Cabin', invited_by: null, member_count: 1 };
@@ -48,6 +54,7 @@ let warn: ReturnType<typeof jest.spyOn>;
 let stop: (() => void) | null = null;
 
 beforeEach(() => {
+  resetDb();
   resetSupabase();
   mockPullNow.mockClear();
   mockTriggers.onCatchUp = undefined;
@@ -188,6 +195,84 @@ describe('joinMyInvite', () => {
       removed: true,
     });
     expect(getMyInvites()).toEqual([]);
+  });
+});
+
+describe('joining instead of keeping your own household', () => {
+  test('joins first, then deletes the household it replaces', async () => {
+    await start([ROW]);
+    respondToRpc('accept_invite_by_id', {
+      data: [{ household_id: 'h2', household_name: 'Smith household', already_member: false }],
+    });
+    respondToRpc('delete_household', { data: { new_household_id: null } });
+    await expect(joinMyInvite(INVITE, { id: 'h1', name: 'Personal' })).resolves.toEqual({ ok: true });
+    expect(rpcCalls.map((c) => c.fn).filter((fn) => fn !== 'my_invites')).toEqual(['accept_invite_by_id', 'delete_household']);
+    expect(rpcCallsFor('delete_household')).toEqual([{ fn: 'delete_household', args: { p_household_id: 'h1' } }]);
+  });
+
+  test("a delete that fails still joins, with a notice", async () => {
+    await start([ROW]);
+    respondToRpc('accept_invite_by_id', {
+      data: [{ household_id: 'h2', household_name: 'Smith household', already_member: false }],
+    });
+    respondToRpc('delete_household', { error: { message: 'Failed to fetch' } });
+    await expect(joinMyInvite(INVITE, { id: 'h1', name: 'Personal' })).resolves.toEqual({
+      ok: true,
+      notice: "Joined, but Personal couldn't be deleted. You can delete it in Settings.",
+    });
+    expect(getMyInvites()).toEqual([]);
+  });
+
+  test("a failed join doesn't delete anything", async () => {
+    await start([ROW]);
+    respondToRpc('accept_invite_by_id', { error: { message: 'invite expired' } });
+    await expect(joinMyInvite(INVITE, { id: 'h1', name: 'Personal' })).resolves.toMatchObject({ ok: false });
+    expect(rpcCallsFor('delete_household')).toEqual([]);
+  });
+
+  const member = (id: string) => ({ user_id: id, display_name: id, avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' });
+
+  test('offers your only household when you are its only member', async () => {
+    db.insert(households).values({ id: 'h1', name: 'Personal' }).run();
+    respondToRpc('get_household_members', { data: [member('u1')] });
+    await expect(householdToReplace('h2', 'u1')).resolves.toEqual({ id: 'h1', name: 'Personal' });
+  });
+
+  test('not when someone else is in it, you have several, or the members fetch fails', async () => {
+    db.insert(households).values({ id: 'h1', name: 'Personal' }).run();
+    respondToRpc('get_household_members', { data: [member('u1'), member('u2')] });
+    await expect(householdToReplace('h2', 'u1')).resolves.toBeNull();
+    respondToRpc('get_household_members', { error: { message: 'Failed to fetch' } });
+    await expect(householdToReplace('h2', 'u1')).resolves.toBeNull();
+    db.insert(households).values({ id: 'h3', name: 'Cabin' }).run();
+    respondToRpc('get_household_members', { data: [member('u1')] });
+    await expect(householdToReplace('h2', 'u1')).resolves.toBeNull();
+  });
+
+  test('not when you have no household yet', async () => {
+    await expect(householdToReplace('h2', 'u1')).resolves.toBeNull();
+    expect(rpcCallsFor('get_household_members')).toEqual([]);
+  });
+
+  test('the prompt names both households', () => {
+    expect(replaceHouseholdPrompt('Smith household', { name: 'Personal' })).toEqual({
+      title: 'Keep Personal?',
+      message: "You'll share Smith household's lists and recipes. You can keep Personal too, or delete it with its lists and recipes.",
+      keep: 'Join and keep it',
+      remove: 'Join and delete Personal',
+    });
+  });
+});
+
+describe('refreshMyInvites', () => {
+  test('a call while a fetch is under way shares it', async () => {
+    respondToRpc('my_invites', { data: [ROW] });
+    const a = refreshMyInvites();
+    const b = refreshMyInvites();
+    expect(a).toBe(b);
+    await a;
+    expect(rpcCallsFor('my_invites')).toHaveLength(1);
+    expect(getMyInvites()).toEqual([INVITE]);
   });
 });
 

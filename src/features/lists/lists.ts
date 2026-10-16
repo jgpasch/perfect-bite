@@ -7,6 +7,7 @@ import { positionBetween, positionForMove } from '@/domain/position';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
+import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 
 import { launchListId } from './list-view';
@@ -16,24 +17,32 @@ const live = isNull(lists.deletedAt);
 /**
  * First run: a personal household with a "Groceries" list, which is also the default list.
  * Written through the outbox, so the push creates the household on the server (`create_household`).
- * Called after the sign-in pull (AppDataGate), so an account's existing households count.
+ * Called after the sign-in pull (AppDataGate), so an account's existing households count, and not
+ * while invites are waiting, so someone invited can join without getting a household of their own.
  */
 export function ensureStarterData(userId: string): void {
   db.transaction((tx) => {
     if (tx.select({ id: households.id }).from(households).limit(1).get()) return;
-    const householdId = newId();
+    const householdId = insertPersonalHousehold(tx);
     const listId = newId();
-    insertRow(tx, households, { id: householdId, name: 'Personal' });
     insertRow(tx, lists, { id: listId, householdId, name: 'Groceries', position: 1 });
     upsertRow(tx, userSettings, { userId, defaultListId: listId }, { defaultListId: listId });
   });
 }
 
-/** The household new lists go in. M7 asks which household when there is more than one. */
-function currentHouseholdId(): string {
+function insertPersonalHousehold(tx: Exec): string {
+  const id = newId();
+  insertRow(tx, households, { id, name: 'Personal' });
+  return id;
+}
+
+/**
+ * The household new lists and recipes go in: the oldest. With none yet (the starter waits while
+ * invites are waiting), makes the personal household, empty. M7 asks which when there is more than one.
+ */
+export function currentHouseholdId(): string {
   const row = db.select({ id: households.id }).from(households).orderBy(asc(households.createdAt)).get();
-  if (!row) throw new Error('No household yet (ensureStarterData has not run)');
-  return row.id;
+  return row?.id ?? insertPersonalHousehold(db);
 }
 
 /**

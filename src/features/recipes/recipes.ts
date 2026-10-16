@@ -4,6 +4,7 @@ import { and, asc, desc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm';
 import { db, households, listItemContributions, listItems, lists, recipeIngredients, recipes, type Recipe } from '@/db';
 import { positionBetween } from '@/domain/position';
 import { ensureLocalIngredient } from '@/features/categories/categories';
+import { currentHouseholdId } from '@/features/lists/lists';
 import { recordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
@@ -16,13 +17,6 @@ import { orderByLastUse } from './recipe-view';
 
 const liveRecipe = isNull(recipes.deletedAt);
 const liveIngredient = isNull(recipeIngredients.deletedAt);
-
-/** The household new recipes go in. M7 asks which household when there is more than one. */
-function currentHouseholdId(): string {
-  const row = db.select({ id: households.id }).from(households).orderBy(asc(households.createdAt)).get();
-  if (!row) throw new Error('No household yet (ensureStarterData has not run)');
-  return row.id;
-}
 
 /**
  * Live recipes, most recently updated first, each with its household, link, photo, ingredient count,

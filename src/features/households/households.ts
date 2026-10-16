@@ -44,6 +44,7 @@ export function householdsWithCountsQuery() {
     .select({
       id: households.id,
       name: households.name,
+      combineLanguages: households.combineLanguages,
       // Spelled out: Drizzle leaves columns unqualified in a one-table select, which would make
       // `id` here mean the subquery's own table.
       listCount: sql<number>`(select count(*) from "lists" l where l."household_id" = "households"."id" and l."deleted_at" is null and l."archived_at" is null)`,

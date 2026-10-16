@@ -128,13 +128,13 @@ describe('householdsWithCountsQuery', () => {
     recipe('smores', 'h2');
 
     expect(householdsWithCountsQuery().all()).toEqual([
-      { id: 'h1', name: 'Personal', listCount: 2, recipeCount: 1 },
-      { id: 'h2', name: 'Lake house', listCount: 1, recipeCount: 2 },
+      { id: 'h1', name: 'Personal', combineLanguages: false, listCount: 2, recipeCount: 1 },
+      { id: 'h2', name: 'Lake house', combineLanguages: false, listCount: 1, recipeCount: 2 },
     ]);
   });
 
   test('gives 0 for a household with no lists or recipes', () => {
-    expect(householdsWithCountsQuery().all()).toEqual([{ id: 'h1', name: 'Personal', listCount: 0, recipeCount: 0 }]);
+    expect(householdsWithCountsQuery().all()).toEqual([{ id: 'h1', name: 'Personal', combineLanguages: false, listCount: 0, recipeCount: 0 }]);
   });
 
   test('returns [] with no local households', () => {

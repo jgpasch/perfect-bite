@@ -13,6 +13,7 @@ import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
 import { useAccountState } from '@/features/auth/account';
+import { CombineLanguagesRow } from '@/features/households/combine-languages-row';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import {
   avatarInitial,
@@ -421,16 +422,19 @@ export default function HouseholdScreen() {
         </SettingsSection>
       ) : null}
 
-      <View style={{ paddingTop: spacing.lg }}>
-        <Card>
-          <SettingsRow
-            label={t('settings.alwaysHave')}
-            value={staplesCountLabel(staples.length)}
-            last
-            onPress={() => router.push({ pathname: '/settings/always-have', params: { household: id } })}
-          />
-        </Card>
-      </View>
+      <SettingsSection title={t('households.screen.settings')}>
+        <SettingsRow
+          label={t('settings.alwaysHave')}
+          value={staplesCountLabel(staples.length)}
+          icon={{ name: 'cart', hue: 'amber' }}
+          last={!household}
+          onPress={() => router.push({ pathname: '/settings/always-have', params: { household: id } })}
+        />
+        {household ? <CombineLanguagesRow household={household} last /> : null}
+      </SettingsSection>
+      <ThemedText variant="footnote" color="inkSecondary" style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
+        {t('households.screen.settingsFootnote', { name: householdName })}
+      </ThemedText>
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
         <PrimaryButton label={t('households.screen.inviteSomeone')} icon="person.badge.plus" disabled={!household} onPress={() => invite()} />

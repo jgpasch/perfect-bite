@@ -21,7 +21,9 @@ import type { MyInvite } from '@/features/households/invites';
 import {
   declineInvitePrompt,
   declineMyInvite,
+  householdToReplace,
   joinMyInvite,
+  replaceHouseholdPrompt,
   useMyInvites,
   type MyInviteResult,
 } from '@/features/households/my-invites';
@@ -72,11 +74,20 @@ export default function ListsSheet() {
   const settle = (result: MyInviteResult) => {
     setBusyInvite(null);
     // A new key restarts the toast's timer when one is already showing.
-    if (!result.ok) setToast((t) => ({ key: (t?.key ?? 0) + 1, message: result.message }));
+    const message = result.ok ? result.notice : result.message;
+    if (message) setToast((t) => ({ key: (t?.key ?? 0) + 1, message }));
   };
-  const join = (invite: MyInvite) => {
+  // With a household of their own and nobody else in it, ask whether to keep it first.
+  const join = async (invite: MyInvite) => {
     setBusyInvite({ id: invite.id, action: 'join' });
-    void joinMyInvite(invite).then(settle);
+    const replacing = userId ? await householdToReplace(invite.householdId, userId) : null;
+    if (!replacing) return void joinMyInvite(invite).then(settle);
+    const prompt = replaceHouseholdPrompt(invite.householdName, replacing);
+    Alert.alert(prompt.title, prompt.message, [
+      { text: t('common.cancel'), style: 'cancel', onPress: () => setBusyInvite(null) },
+      { text: prompt.keep, onPress: () => void joinMyInvite(invite).then(settle) },
+      { text: prompt.remove, style: 'destructive', onPress: () => void joinMyInvite(invite, replacing).then(settle) },
+    ]);
   };
   const decline = (invite: MyInvite) => {
     const prompt = declineInvitePrompt(invite);
@@ -187,7 +198,7 @@ export default function ListsSheet() {
                     key={invite.id}
                     invite={invite}
                     busy={busyInvite?.id === invite.id ? busyInvite.action : null}
-                    onJoin={() => join(invite)}
+                    onJoin={() => void join(invite)}
                     onDecline={() => decline(invite)}
                   />
                 ))}

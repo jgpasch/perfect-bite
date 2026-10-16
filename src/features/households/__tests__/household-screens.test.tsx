@@ -3,6 +3,7 @@
 // Rendered against the in-memory database; the server calls are stubbed.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { ActionSheetIOS, Alert, type AlertButton, Share } from 'react-native';
+import { eq } from 'drizzle-orm';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, householdStaples, households, ingredients, ingredientUsage, outbox, recipes } from '@/db';
@@ -76,6 +77,7 @@ const mockRemoveMember = jest.fn<Fn<[string, string], Promise<void>>>();
 const mockRename = jest.fn<Fn<[string, string, (string | null)?], Promise<void>>>();
 const mockSetRole = jest.fn<Fn<[string, string, string], Promise<void>>>();
 const mockDelete = jest.fn<Fn<[string], Promise<{ newHouseholdId: string | null }>>>();
+const mockSetCombine = jest.fn<Fn<[string, boolean], Promise<void>>>();
 jest.mock('@/features/households/households', () => ({
   ...(jest.requireActual('@/features/households/households') as object),
   deleteHousehold: (id: string) => mockDelete(id),
@@ -84,6 +86,7 @@ jest.mock('@/features/households/households', () => ({
   removeMember: (...args: [string, string]) => mockRemoveMember(...args),
   renameHousehold: (...args: [string, string, (string | null)?]) => mockRename(...args),
   setMemberRole: (...args: [string, string, string]) => mockSetRole(...args),
+  setCombineLanguages: (...args: [string, boolean]) => mockSetCombine(...args),
 }));
 const mockPushNow = jest.fn<Fn<[unknown], Promise<unknown>>>();
 jest.mock('@/sync/push', () => ({ pushNow: (options: unknown) => mockPushNow(options) }));
@@ -169,6 +172,7 @@ beforeEach(() => {
     mockRename,
     mockSetRole,
     mockDelete,
+    mockSetCombine,
     mockPushNow,
     mockPullNow,
     mockSmsAvailable,
@@ -463,7 +467,7 @@ describe('HouseholdScreen', () => {
         const sheet = sheetSpy();
         const alert = alertSpy();
         const root = await render(<HouseholdScreen />);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Always have', 'None', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Invite someone', 'Delete household', 'Leave household']);
         await pressAsync(byLabel(root, 'Sam'));
         expect(sheet.mock.calls[0][0]).toEqual({
           title: 'Sam',
@@ -481,7 +485,7 @@ describe('HouseholdScreen', () => {
         await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
         expect(mockSetRole).toHaveBeenCalledWith(HOME, 'sam', 'owner');
         expect(mockFetchMembers).toHaveBeenCalledTimes(2);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Always have', 'None', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Invite someone', 'Delete household', 'Leave household']);
         // Sam is now another owner: the sheet offers Remove as owner.
         expect(byLabel(root, 'Sam').props.accessibilityHint).toBe('Remove as owner or remove.');
         expect(alert).toHaveBeenCalledTimes(1);
@@ -828,6 +832,48 @@ describe('HouseholdScreen', () => {
       await save(await openPrompt(root), 'Cabin');
       expect(alert).toHaveBeenCalledWith("Couldn't rename Smith home", 'Use a shorter name (up to 50 characters).');
     });
+  });
+});
+
+describe('Household settings: Combine English and Spanish names (spec 4.15)', () => {
+  const combineSwitch = (root: ReactTestRenderer) =>
+    root.root.find((n) => n.props.accessibilityLabel === 'Combine English and Spanish names in Smith home' && n.props.onValueChange);
+  const setLocal = (on: boolean) => db.update(households).set({ combineLanguages: on }).where(eq(households.id, HOME)).run();
+
+  beforeEach(() => {
+    mockParams.id = HOME;
+    mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+  });
+
+  test('a switch for this household, off by default, with its detail', async () => {
+    const root = await render(<HouseholdScreen />);
+    expect(combineSwitch(root).props.value).toBe(false);
+    expect(combineSwitch(root).props.accessibilityHint).toBe('Leche and milk become one item on your lists.');
+    setLocal(true);
+    await act(async () => tree!.update(<HouseholdScreen />));
+    expect(combineSwitch(root).props.value).toBe(true);
+  });
+
+  test('shows the new value while the server is asked', async () => {
+    const save = deferred<void>();
+    mockSetCombine.mockReturnValue(save.promise);
+    const root = await render(<HouseholdScreen />);
+    act(() => combineSwitch(root).props.onValueChange(true));
+    expect(mockSetCombine.mock.calls).toEqual([[HOME, true]]);
+    expect(combineSwitch(root).props).toMatchObject({ value: true, disabled: true });
+    setLocal(true);
+    await act(async () => save.resolve());
+    await act(async () => tree!.update(<HouseholdScreen />));
+    expect(combineSwitch(root).props).toMatchObject({ value: true, disabled: false });
+  });
+
+  test('a failure puts it back and says why', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockSetCombine.mockRejectedValue(new HouseholdActionError('offline', 'offline'));
+    const root = await render(<HouseholdScreen />);
+    await act(async () => combineSwitch(root).props.onValueChange(true));
+    expect(alert).toHaveBeenCalledWith("You're offline", 'Connect to the internet and try again.');
+    expect(combineSwitch(root).props).toMatchObject({ value: false, disabled: false });
   });
 });
 

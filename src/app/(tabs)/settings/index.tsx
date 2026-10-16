@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,9 +31,9 @@ import { takeDeletedHousehold } from '@/features/households/deleted-household-no
 import {
   avatarInitial,
   deletedHouseholdToast,
-  householdActionAlert,
-  householdsQuery,
-  setCombineLanguages,
+  householdCountsLabel,
+  householdsWithCountsQuery,
+  HOUSEHOLD_COUNT_TABLES,
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
@@ -50,7 +50,7 @@ import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useTheme } from '@/hooks/use-theme';
 import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
-/** Settings (board 10): the account card, Shopping, Aisles, Meal plan, General and Households cards, then Sign out, Delete account and the version. */
+/** Settings (board 10): the account card, Households, Shopping, Aisles, Meal plan and General cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded } = useTheme();
   const t = useT();
@@ -58,7 +58,7 @@ export default function SettingsScreen() {
   const userId = account.status === 'ready' ? account.account.userId : undefined;
   const email = account.status === 'ready' ? account.account.email : undefined;
   const version = Constants.expoConfig?.version ?? '—';
-  const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households]);
+  const { data: householdRows } = useLiveQueryOn(householdsWithCountsQuery(), HOUSEHOLD_COUNT_TABLES);
   // userSettings: so "Siri adds to" follows a list's "Default list for Siri".
   const { data: listRows } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
   const siriList = useMemo(() => {
@@ -116,6 +116,30 @@ export default function SettingsScreen() {
             <Badge label={sync.label} tone={sync.tone} />
           </View>
         </Card>
+
+        {/* One row per household, opening its screen, where its members, invites and settings are. */}
+        {householdRows.length > 0 ? (
+          <>
+            <SettingsSection title={t('settings.households')}>
+              {householdRows.map((h, i) => (
+                <SettingsRow
+                  key={h.id}
+                  label={h.name}
+                  detail={householdCountsLabel(h.listCount, h.recipeCount)}
+                  icon={{ name: 'house', hue: recipeHue(h.id) }}
+                  last={i === householdRows.length - 1}
+                  onPress={() => router.push({ pathname: '/settings/households/[id]', params: { id: h.id } })}
+                />
+              ))}
+            </SettingsSection>
+            <ThemedText
+              variant="footnote"
+              color="inkSecondary"
+              style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
+              {t('settings.householdsFootnote')}
+            </ThemedText>
+          </>
+        ) : null}
 
         <SettingsSection title={t('settings.shopping')}>
           <SettingsRow
@@ -207,21 +231,6 @@ export default function SettingsScreen() {
           />
         </SettingsSection>
 
-        {householdRows.length > 0 ? (
-          <SettingsSection title={t('settings.households')}>
-            {/* Each household's row, then its Combine English and Spanish names switch (spec 4.15). */}
-            {householdRows.map((h, i) => (
-              <Fragment key={h.id}>
-                <SettingsRow
-                  label={h.name}
-                  icon={{ name: 'house', hue: recipeHue(h.id) }}
-                  onPress={() => router.push({ pathname: '/settings/households/[id]', params: { id: h.id } })}
-                />
-                <CombineLanguagesRow household={h} last={i === householdRows.length - 1} />
-              </Fragment>
-            ))}
-          </SettingsSection>
-        ) : null}
 
         {__DEV__ ? (
           <SettingsSection title={t('settings.developer')}>
@@ -300,49 +309,6 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
         ]),
     },
   ]);
-}
-
-/**
- * A household's Combine English and Spanish names switch (spec 4.15). It shows the new value while
- * the server is asked; a failure (offline included) puts it back and says why.
- */
-function CombineLanguagesRow({
-  household,
-  last,
-}: {
-  household: { id: string; name: string; combineLanguages: boolean };
-  last: boolean;
-}) {
-  const { colors } = useTheme();
-  const t = useT();
-  const [pending, setPending] = useState<boolean | null>(null);
-  const change = (on: boolean) => {
-    setPending(on);
-    setCombineLanguages(household.id, on)
-      .catch((err) => {
-        const alert = householdActionAlert('combine-languages', err, { householdName: household.name });
-        Alert.alert(alert.title, alert.message);
-      })
-      .finally(() => setPending(null));
-  };
-  return (
-    <SettingsRow
-      label={t('settings.combineLanguages')}
-      detail={t('settings.combineLanguagesDetail')}
-      icon={{ name: 'globe', hue: 'teal' }}
-      trailing={
-        <Switch
-          value={pending ?? household.combineLanguages}
-          onValueChange={change}
-          disabled={pending !== null}
-          trackColor={{ true: colors.primary }}
-          accessibilityLabel={t('settings.combineLanguagesLabel', { household: household.name })}
-          accessibilityHint={t('settings.combineLanguagesDetail')}
-        />
-      }
-      last={last}
-    />
-  );
 }
 
 /** Full screen while the account is deleted; it can't be dismissed. */
