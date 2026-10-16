@@ -404,7 +404,8 @@ describe('recipes', () => {
       {
         table: 'recipes',
         id,
-        // A recipe made by hand starts untagged (spec 4.14), with no steps, servings or photo (spec 5).
+        // A recipe made by hand starts untagged (spec 4.14), with no steps, servings or photo (spec 5)
+        // and no step match (4.5).
         fields: {
           household_id: householdId,
           name: 'Tacos',
@@ -414,6 +415,7 @@ describe('recipes', () => {
           tags_edited: false,
           total_minutes: null,
           steps: null,
+          step_ingredients: null,
           servings: null,
           image_url: null,
           deleted_at: null,

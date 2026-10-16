@@ -1083,6 +1083,107 @@ describe('recipe steps, servings and photo (spec 5)', () => {
   });
 });
 
+describe('recipe step ingredients (spec 4.5, 5)', () => {
+  const MATCH = { v: 1, basis: '00abcdef012345', steps: [[{ id: 'i1', quantity: null }], [{ id: 'i2', quantity: 1 }]] };
+  const RECIPE_CLOCK = { household_id: OLD, name: OLD, steps: OLD, step_ingredients: OLD, deleted_at: OLD };
+  const remoteRecipe = (updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
+    id: 'r1',
+    household_id: H1,
+    name: 'Tacos',
+    notes: null,
+    source_url: null,
+    tags: null,
+    tags_edited: false,
+    total_minutes: null,
+    steps: ['Toast the tortillas.', 'Fill and fold.'],
+    step_ingredients: MATCH,
+    servings: null,
+    image_url: null,
+    added_by: 'u2',
+    deleted_at: null,
+    field_clock: RECIPE_CLOCK,
+    created_at: ts(0),
+    updated_at: updated,
+    ...extra,
+  });
+  const recipeRow = () => db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!;
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('recipes', remoteRecipe(ts(2)));
+    await pullNow();
+  });
+
+  test('a pull applies the match', () => {
+    expect(recipeRow().stepIngredients).toEqual(MATCH);
+  });
+
+  test('an unmatched recipe pulls as null', async () => {
+    put('recipes', { ...remoteRecipe(ts(3), { step_ingredients: null }), id: 'r2' });
+
+    await pullNow();
+
+    expect(db.select().from(recipes).where(eq(recipes.id, 'r2')).get()!.stepIngredients).toBeNull();
+  });
+
+  test('a match this device pushed comes back as the same value, keys reordered by jsonb', async () => {
+    const mine = { v: 1 as const, basis: 'mine', steps: [[], [{ id: 'i1', quantity: 0.5 }]] };
+    updateRows(db, recipes, eq(recipes.id, 'r1'), { stepIngredients: mine });
+    const sent = outboxRows().at(-1)!.mutation;
+    expect(sent.fields).toEqual({ step_ingredients: mine });
+    clearOutbox();
+    const before = recipeRow().updatedAt;
+    // Postgres orders jsonb keys by length, then bytes.
+    const echoed = { v: 1, steps: [[], [{ id: 'i1', quantity: 0.5 }]], basis: 'mine' };
+    server.recipes = [
+      remoteRecipe(before.toISOString(), {
+        step_ingredients: echoed,
+        field_clock: { ...RECIPE_CLOCK, step_ingredients: recipeRow().fieldClock.step_ingredients },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow().stepIngredients).toEqual(mine);
+    expect(recipeRow().updatedAt).toEqual(before);
+  });
+
+  test('a newer remote match replaces the whole value and its clock', async () => {
+    const theirs = { v: 1, basis: 'theirs', steps: [[{ id: 'i2', quantity: null }], []] };
+    server.recipes = [remoteRecipe(ts(10), { step_ingredients: theirs, field_clock: { ...RECIPE_CLOCK, step_ingredients: NEW } })];
+
+    await pullNow();
+
+    expect(recipeRow().stepIngredients).toEqual(theirs);
+    expect(recipeRow().fieldClock).toMatchObject({ step_ingredients: NEW, steps: OLD });
+  });
+
+  test('a local unpushed match beats an older remote one', async () => {
+    const mine = { v: 1 as const, basis: 'mine', steps: [[], []] };
+    updateRows(db, recipes, eq(recipes.id, 'r1'), { stepIngredients: mine });
+    server.recipes = [
+      remoteRecipe(ts(10), {
+        step_ingredients: { ...MATCH, basis: 'theirs' },
+        field_clock: { ...RECIPE_CLOCK, step_ingredients: '1500000000000-0000-remote' },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow().stepIngredients).toEqual(mine);
+    expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ step_ingredients: mine }]);
+  });
+
+  test('a server without the column yet leaves the match alone', async () => {
+    const { step_ingredients: _m, ...older } = remoteRecipe(ts(10), { name: 'Tacos!' });
+    server.recipes = [{ ...older, field_clock: { ...RECIPE_CLOCK, name: NEW } }];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ name: 'Tacos!', stepIngredients: MATCH });
+  });
+});
+
 describe("the household's aisles (spec 4.3.2)", () => {
   const customCategory = (id: string, name: string, updated: string, householdId = H1): ServerRow => ({
     id,

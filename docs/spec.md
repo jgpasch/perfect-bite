@@ -528,6 +528,7 @@ create table recipes (
   tags_edited   boolean not null default false,  -- a person has edited the tags
   total_minutes int check (total_minutes between 1 and 2880),
   steps         jsonb,                           -- null = none, else 1–100 strings of 1–2000 chars (private.recipe_steps_ok)
+  step_ingredients jsonb,                        -- 4.5; null = never matched (private.recipe_step_ingredients_ok)
   servings      int check (servings between 1 and 100),
   image_url     text check (image_url like 'https://%' and char_length(image_url) <= 2048),
   added_by      uuid references auth.users on delete set null,  -- the server sets it on insert
@@ -537,6 +538,12 @@ create table recipes (
 -- recipes_tags_shape: tags may only have the keys saved, meal, cuisine, protein, diet and method,
 -- each an array of strings. The values aren't checked, so adding one needs no migration. A value
 -- without saved (stored before it existed) reads as not saved.
+-- recipes_step_ingredients_shape: { "v": 1, "basis": "<hash>", "steps": [[{ "id": "<recipe_ingredient_id>",
+-- "quantity": null }], …] }, one entry per step: 1–100 steps of at most 80 uses each, quantity null
+-- (all of it, or not stated) or the step's positive share. The ids aren't checked against
+-- recipe_ingredients; the app drops deleted ones. basis is stepIngredientsBasis(steps, live
+-- ingredient ids) when the match was made; when it differs from the recipe's now, the match is
+-- stale but still shown.
 
 -- The household's meal plan (4.16). One row per entry in a slot (a day and a meal). A slot holds one
 -- entry for now; position orders several, so allowing more later needs no migration.
@@ -861,7 +868,7 @@ This is the hardest part of the project. Stash only syncs append-only captures p
   - Wire format: `'<wall clock ms, 13 digits>-<counter, 4 hex digits>-<device id>'` (device id: letters, digits, `_` or `-`, up to 64), e.g. `1760000000000-0000-3f9a…`. Fixed widths make plain text comparison order it by time, then counter, then device.
 - The usage tables and `household_category_overrides` have composite keys, so their mutations name the row with `key` (`{ household_id, ingredient_name[, unit_key] }`) instead of `id`; the usage tables and send `use_count` changes as `counters: { use_count: <delta> }`, which add up across devices instead of last-writer-wins. `ingredient_unit_usage.last_used_at` merges as the later of both sides.
 - `fields` may not include the row key, `updated_at`, `field_clock` or `merged_into` (server-owned). `household_id` and `created_at` take effect on insert only; a row can't move to another household.
-- `recipes.added_by` is the server's: `apply_mutations` sets it to the caller on insert (with no field clock) and ignores a client value on insert and update, so the app never sends it. `tags`, `tags_edited` and `total_minutes` are last-writer-wins like the other recipe fields, the whole `tags` value as one field (4.14). `jsonb` values such as `tags` go over the wire as JSON, and pull compares them by content, not key order, since Postgres reorders `jsonb` keys.
+- `recipes.added_by` is the server's: `apply_mutations` sets it to the caller on insert (with no field clock) and ignores a client value on insert and update, so the app never sends it. `tags`, `tags_edited` and `total_minutes` are last-writer-wins like the other recipe fields, the whole `tags` value as one field (4.14), and so is `step_ingredients` (4.5). `jsonb` values such as `tags` go over the wire as JSON, and pull compares them by content, not key order, since Postgres reorders `jsonb` keys.
 - **Client side** (`src/sync/`): `hlc.ts` is the pure clock; `clock.ts` keeps the device id and last HLC in device settings, written in the same transaction as each write, so the clock stays monotonic across launches. Every write to household data (households, lists, items, contributions, recipes, recipe ingredients, usage, custom categories, category overrides) and to the per-user tables (category order, settings) goes through `mutate.ts` (`insertRow`, `updateRows`, `upsertRow`, `deleteRows`), which writes the row, its local `field_clock` (each field's HLC from its last write) and one outbox mutation per row in one transaction. An insert sends every column but the key, counters, server-owned ones and ones the server doesn't take from clients (a custom category's `slug` and `default_rank`, an override's `created_at`); an update sends exactly the fields it set. The local `outbox` table keeps each mutation in wire shape plus its `household_id` (null for per-user rows), so a lost membership can drop its mutations (7.2).
   - Custom categories (`categories` with a `household_id`: insert with `household_id` and `name`, then renames) and `household_category_overrides` (`category_id` only; Reset to default sends `category_id: null` rather than deleting) are household data and go through `apply_mutations` with field-level LWW, like lists.
   - Per-user tables aren't in `apply_mutations`; their mutations use the same shape (`key: { user_id, ... }`), and the order table, which hard-deletes, sends `delete: true` instead of a `deleted_at` field. `households` isn't in `apply_mutations` either (it changes through the household functions, 4.7). Push (`src/sync/push.ts`) sends these one at a time in their place in the queue: per-user rows as direct writes (upsert by key, or delete; RLS keeps them to the user's own rows, so last push wins rather than HLC), and a new household through `create_household`. Other household changes aren't synced yet and are recorded as rejected.

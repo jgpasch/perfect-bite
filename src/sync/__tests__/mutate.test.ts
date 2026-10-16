@@ -297,6 +297,7 @@ test('a recipe insert sends its tags, tags_edited and total_minutes but never ad
     tags_edited: false,
     total_minutes: 40,
     steps: null,
+    step_ingredients: null,
     servings: null,
     image_url: null,
     deleted_at: null,

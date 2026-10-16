@@ -3,6 +3,7 @@ import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from
 
 import type { Unit } from '../shared/quantity-parser';
 import type { RecipeTags } from '../shared/recipe-tags';
+import type { StepIngredients } from '../shared/step-ingredients';
 import type { Mutation } from '../sync/mutation';
 
 /** Each synced field's HLC from its last write (spec 7.3), kept by `src/sync/mutate.ts`. */
@@ -177,6 +178,8 @@ export const recipes = sqliteTable(
     totalMinutes: integer('total_minutes'),
     /** Method steps in order (spec 5). Null = none. */
     steps: text('steps', { mode: 'json' }).$type<string[]>(),
+    /** Which ingredients each step uses (spec 4.5). Null = never matched. */
+    stepIngredients: text('step_ingredients', { mode: 'json' }).$type<StepIngredients>(),
     servings: integer('servings'),
     /** The site's own photo URL, loaded remotely; we store no image. */
     imageUrl: text('image_url'),

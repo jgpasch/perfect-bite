@@ -11,3 +11,4 @@ export * from './schemas/suggest-recipe-tags.ts';
 export * from './seed/categories.ts';
 export * from './seed/ingredients.ts';
 export * from './seed/ingredients-es.ts';
+export * from './step-ingredients.ts';
