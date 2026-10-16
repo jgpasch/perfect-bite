@@ -1,0 +1,23 @@
+# Opens the Settings tab's root, from any tab or a screen pushed on Settings.
+appId: com.jgp.perfectbite
+---
+# The keyboard (left up by the add field, which hideKeyboard can't dismiss) covers the tab bar, so
+# first tap the empty middle of the list to put it away. "Emoji" is the keyboard's emoji key.
+- runFlow:
+    when:
+      visible: 'Emoji'
+    commands:
+      - tapOn:
+          point: '50%,50%'
+      - waitForAnimationToEnd
+# "Siri adds to" begins Settings' first row below Households; a text match must cover the whole
+# label ("Siri adds to, Groceries"), hence the .*. A tab tap can be lost while a screen settles, so
+# tap until it shows.
+- repeat:
+    while:
+      notVisible: 'Siri adds to.*'
+    times: 4
+    commands:
+      - tapOn: 'Settings'
+      - waitForAnimationToEnd
+- assertVisible: 'Siri adds to.*'

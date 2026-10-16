@@ -1,0 +1,27 @@
+# Signs in as EMAIL with the dev email + code stub, from the sign-in screen, and stops once Sign in
+# is tapped. sign-in.yaml waits for the starter list after it; use this one directly when the user
+# lands somewhere else (an invited new user has no lists yet).
+appId: com.jgp.perfectbite
+---
+- extendedWaitUntil:
+    visible: 'Email'
+    timeout: 30000
+- tapOn: 'Email'
+- inputText: ${EMAIL}
+# The form moves while the keyboard settles; a tap before then lands where the button was (on the
+# email keyboard, its @ key), so wait before each button.
+- waitForAnimationToEnd
+- tapOn: 'Send code'
+- extendedWaitUntil:
+    visible: 'Sign-in code'
+    timeout: 15000
+- runScript:
+    file: ../scripts/sign-in-code.js
+    env:
+      EMAIL: ${EMAIL}
+- tapOn: 'Sign-in code'
+- inputText: ${output.code}
+# Put the number pad away with its Done bar first, so Sign in stays where it is.
+- tapOn: 'Done'
+- waitForAnimationToEnd
+- tapOn: 'Sign in'

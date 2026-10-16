@@ -33,7 +33,9 @@ name: A recipe from scratch onto a list
     visible: 'Create'
     timeout: 10000
 - inputText: 'Tacos'
-- tapOn: 'Create'
+# Return creates it (Create is the prompt's preferred button); a tap on Create doesn't always reach
+# the alert on iOS 27.
+- pressKey: Enter
 - extendedWaitUntil:
     visible: 'Add an ingredient'
     timeout: 10000

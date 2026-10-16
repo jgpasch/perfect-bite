@@ -75,7 +75,9 @@ name: Recategorize an item
     visible: 'Create'
     timeout: 10000
 - inputText: 'Weekend'
-- tapOn: 'Create'
+# Return creates it (Create is the prompt's preferred button); a tap on Create doesn't reach the
+# alert on iOS 27.
+- pressKey: Enter
 - extendedWaitUntil:
     visible: 'Weekend, switch list'
     timeout: 10000

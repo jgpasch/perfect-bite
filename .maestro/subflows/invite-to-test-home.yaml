@@ -1,0 +1,60 @@
+# The inviter's side of the invite tests (spec 4.7): INVITER signs up, adds Milk to their Groceries,
+# renames their household "Test home" (so the invitee's prompt can't confuse it with their own
+# Personal), invites INVITEE by email through the invite sheet, checks the household's Invited
+# section lists them, and signs out. The sheet's Messages and Mail aren't used: signing in with the
+# invited email is enough to see the invite in the app.
+appId: com.jgp.perfectbite
+---
+- runFlow:
+    file: sign-in.yaml
+    env:
+      EMAIL: ${INVITER}
+- tapOn: 'Add an item'
+- inputText: 'Milk'
+- pressKey: Enter
+- assertVisible: 'Check off Milk'
+
+# Settings > Households > the household's screen (its row reads "Personal, 1 list · 0 recipes").
+- runFlow: open-settings.yaml
+- tapOn: 'Personal, .*'
+- extendedWaitUntil:
+    visible: 'Invite someone'
+    timeout: 10000
+
+# Rename it with the system prompt, which opens prefilled with "Personal".
+- tapOn: 'Rename household'
+- eraseText
+- inputText: 'Test home'
+# Return saves (Save is the prompt's preferred button); a tap on Save doesn't reach the alert on iOS 27.
+- pressKey: Enter
+# The prompt's own field reads "Test home" too, so wait for it to close before checking the title.
+- extendedWaitUntil:
+    notVisible: 'Save'
+    timeout: 10000
+- extendedWaitUntil:
+    visible: 'Test home'
+    timeout: 10000
+
+# Step 1: the email, then Next creates the invite. Step 2 ("Let <name> know"): Done.
+- tapOn: 'Invite someone'
+- extendedWaitUntil:
+    visible: 'Their email'
+    timeout: 10000
+- tapOn: 'Their email'
+- inputText: ${INVITEE}
+- waitForAnimationToEnd
+- tapOn: 'Next'
+- extendedWaitUntil:
+    visible: 'Let .* know'
+    timeout: 15000
+# Done sits at the foot of the sheet, below the fold.
+- scrollUntilVisible:
+    element: 'Done'
+    centerElement: true
+- tapOn: 'Done'
+
+# The Invited section reloads when the screen regains focus: "<email>, Sent by … · expires …, Pending".
+- extendedWaitUntil:
+    visible: '${INVITEE}, .*Pending'
+    timeout: 10000
+- runFlow: sign-out.yaml

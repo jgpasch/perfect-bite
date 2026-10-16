@@ -79,6 +79,8 @@
     "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",
     "ai:tags": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/suggest-recipe-tags/cli.ts",
     "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
+    "ai:steps": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/match-recipe-steps/cli.ts",
+    "ai:eval:steps": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/match-recipe-steps/eval/eval.ts",
     "e2e": "scripts/e2e.sh",
     "db:seed-sql": "deno run --allow-read --allow-write=supabase/migrations scripts/gen-seed-sql.ts",
     "seed:es-plurals": "deno run --allow-read --allow-write=src/shared/spanish-plurals.ts scripts/gen-es-plurals.ts",

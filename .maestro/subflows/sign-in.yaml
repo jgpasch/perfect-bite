@@ -3,22 +3,10 @@
 # the method (spec 5). New emails get a household and a Groceries list.
 appId: com.jgp.perfectbite
 ---
-- extendedWaitUntil:
-    visible: 'Email'
-    timeout: 30000
-- tapOn: 'Email'
-- inputText: ${EMAIL}
-- tapOn: 'Send code'
-- extendedWaitUntil:
-    visible: 'Sign-in code'
-    timeout: 15000
-- runScript:
-    file: ../scripts/sign-in-code.js
+- runFlow:
+    file: enter-code.yaml
     env:
       EMAIL: ${EMAIL}
-- tapOn: 'Sign-in code'
-- inputText: ${output.code}
-- tapOn: 'Sign in'
 - extendedWaitUntil:
     visible: 'Groceries, switch list'
     timeout: 30000

@@ -1,0 +1,63 @@
+# Invite someone with no account yet (spec 4.7): A invites B's email; B then signs up on the same
+# phone with that email and, because an invite is waiting, gets no household of their own. The List
+# tab shows "No lists yet." with "1 invite waiting", which opens the Your lists sheet with A's invite.
+# Join asks nothing (B has no household it could replace), and B ends up with only A's household and
+# A's Milk. This doesn't test Decline, the invite link (the share sheet can't be read), or that the
+# starter household is made once the last invite is declined.
+appId: com.jgp.perfectbite
+name: An invited new user joins without a household of their own
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailA
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailB
+- runFlow:
+    file: subflows/invite-to-test-home.yaml
+    env:
+      INVITER: ${output.emailA}
+      INVITEE: ${output.emailB}
+
+# B signs up: no starter list while the invite waits.
+- runFlow:
+    file: subflows/enter-code.yaml
+    env:
+      EMAIL: ${output.emailB}
+- extendedWaitUntil:
+    visible: 'No lists yet.'
+    timeout: 30000
+- extendedWaitUntil:
+    visible: '1 invite waiting'
+    timeout: 15000
+- assertNotVisible: 'Groceries, switch list.*'
+
+# The sheet shows A's invite (A's display name is their email's local part). Join, with no prompt.
+- tapOn: '1 invite waiting'
+- extendedWaitUntil:
+    visible: '.* invited you to Test home'
+    timeout: 10000
+- tapOn: 'Join'
+- extendedWaitUntil:
+    notVisible: '.* invited you to Test home'
+    timeout: 15000
+- assertNotVisible: 'Keep .*\?'
+
+# A's Groceries is in the sheet; opening it shows A's Milk.
+- extendedWaitUntil:
+    visible: 'Groceries, 1 item to get.*'
+    timeout: 15000
+- tapOn: 'Groceries, 1 item to get.*'
+- extendedWaitUntil:
+    visible: 'Check off Milk'
+    timeout: 10000
+
+# Settings > Households has only Test home: no Personal was made for B, during or after the join.
+- runFlow: subflows/open-settings.yaml
+- assertVisible: 'Test home, .*'
+- waitForAnimationToEnd
+- assertNotVisible: 'Personal, .*'

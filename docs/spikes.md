@@ -8,6 +8,7 @@ The three spikes from spec §10 M0. Each records what was done, what's still ope
 | 2 | Token refresh from the intent extension | Desk analysis; **recommendation needs sign-off** |
 | 3 | Sync engine (PowerSync) vs custom | Desk evaluation; **decision needed before M1** |
 | 4 | Gemini 3.8 Flash latency (not M0; spec 6.4) | Thinking set to `low`; **timings to run by hand** |
+| 5 | Step ingredients: can a model match ingredients to steps? (cook mode, spec 4.5) | Eval run 2026-10-16; **go**, on the recipe model |
 
 ---
 
@@ -144,3 +145,35 @@ Not run yet (see manual-checks.md). p50 / p95 in ms, 10 runs each.
 ### Decision
 
 Pending the table. Keep `google:gemini-3.8-flash` as `AI_MODEL_CATEGORIZE`, and set `CATEGORIZE_THINKING` to the lowest setting that runs without errors. If the 100-name p95 is still over 20 s, first lower the per-call batch cap (`MAX_NAMES_PER_CALL`, spec 6.3), then raise `timeoutMs` to just above the p95, and say which in spec 6.3/6.4. Leave `AI_MODEL_CATEGORIZE_FALLBACK` unset unless Flash errors (not just slow).
+
+---
+
+## 5. Step ingredients (cook mode, spec 4.5)
+
+Before building step ingredients in cook mode, we checked that a model can say which ingredients each step uses. A wrong ingredient on a step is worse than a missing one, so the bar was precision ≥ 95% and recall ≥ 85% on (step, ingredient) pairs.
+
+### What's built
+
+- The `matchRecipeSteps` AI task (`_shared/ai/tasks.ts`), with the prompt in `prompts/match-recipe-steps.v1.ts` and its rules in `prompts/step-match-rules.ts`, so the import prompt can share them later. `cleanStepMatch` checks the answer: unknown ingredients and repeats are dropped, a share that isn't below the total becomes none, and steps that don't line up fail the call.
+- `supabase/functions/match-recipe-steps/match.ts` (`matchRecipeSteps()`, no store yet; the Edge Function comes in a later task), `yarn ai:steps` to try one recipe, and `yarn ai:eval:steps`.
+- The eval set, `match-recipe-steps/eval/recipes.json`: 16 recipes, 100 steps and 220 needed pairs, labelled by hand. 13 come from the import eval's JSON-LD pages, with their ingredients as the import model extracted them, frozen so the eval scores matching only. 3 are typed in: tacos that split the limes across two steps, a Mexican Spanish *sopa de fideo*, and overnight oats with a step that tries to instruct the model. Some ingredients are labelled optional, where either answer is fair: a prepared ingredient mentioned again ("add the chicken back"), or salt for "salted water".
+
+### Results
+
+Run 2026-10-16, one call per recipe, in turn.
+
+| Model | Precision | Recall | Shares right | Placed nowhere | Latency p50 / p95 | Tokens p50 in / out |
+|---|---|---|---|---|---|---|
+| `google:gemini-3.8-flash` (thinking `low`, the recipe default) | 220/220 (100%) | 220/220 (100%) | 214/214 | 1 of 217 | 2.5 s / 8.0 s | 1,010 / 184 |
+| `google:gemini-3.8-flash`, thinking `off` | 100% | 100% | 214/214 | 1 of 217 | 2.1 s / 12.3 s | 1,010 / 138 |
+| `google:gemini-3.5-flash-lite` | 220/222 (99.1%) | 100% | 214/214 | 1 of 217 | 1.2 s / 2.0 s | 1,010 / 163 |
+
+`google:gemini-3.8-flash-lite` and `google:gemini-3-flash-lite` aren't available to our key (the call fails). Flash-Lite's two misses were salt on the step that boils the chicken (tinga) and oil on the step that slices the steak (beef and broccoli). Every model kept the injection step empty, matched the Spanish recipe, and gave the split limes as 1 of 3 and 2 of 3.
+
+A recipe costs about 1,000 input and 200 output tokens. Pass `--price-in` and `--price-out` (USD per million tokens) to `yarn ai:eval:steps` to print a cost.
+
+### Decision
+
+**Go.** Keep matching on the recipe model, so `AI_MODEL_STEPS` stays unset and follows `AI_MODEL_RECIPE` (`google:gemini-3.8-flash`, thinking `low`). Matching runs in the background after a recipe is saved, so Flash's occasional slow call doesn't matter, and the 20 s timeout covers its p95. Flash-Lite is the cheaper fallback if cost ever matters: set `AI_MODEL_STEPS=google:gemini-3.5-flash-lite`.
+
+The set is small and its labels are lenient where a recipe is ambiguous, so 100% means the bar is met, not that matching is perfect. Add a recipe to `recipes.json` whenever cook mode shows a wrong match, and re-run the eval before changing the prompt or the model.

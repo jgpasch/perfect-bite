@@ -54,6 +54,13 @@ yarn ai:recipe --quiet|--raw|--json <url>                             # as for a
 yarn ai:tags "Chicken tikka" --ingredient "2 lb chicken thighs, skinless" --ingredient "1 cup yogurt"
 yarn ai:tags --notes "Weeknight" --model mock "Tofu bowl"             # notes; fake model
 yarn ai:tags --quiet|--raw|--dry-run|--json "<name>"                  # as for ai:categorize
+
+yarn ai:steps <url>                  # fetch and extract a recipe page, then match its steps
+yarn ai:steps --file page.html       # a saved page instead
+yarn ai:steps --step "Juice one lime over the chicken" --step "Serve with the other limes" \
+  --ingredient "2 lb chicken thighs" --ingredient "3 limes"           # a recipe typed in
+yarn ai:steps --model mock --recipe-model mock --file page.html       # fake models
+yarn ai:steps --quiet|--raw|--dry-run|--json <url>                    # as for ai:categorize
 ```
 
 ### What each call prints
@@ -78,7 +85,7 @@ latency:        4,284 ms
 
 Warnings from the provider and errors get their own sections. If the main model fails and a fallback is set, the fallback prints as call #2. `--raw` adds two more sections: the exact JSON body sent to the provider (generation config and the JSON schema the model was held to) and the provider's raw reply.
 
-After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error. `ai:recipe` prints the recipe's name, servings, source and ingredient table, then totals per task; it exits 1 when the import fails (not a recipe, fetch failed, AI off or failing). `ai:tags` (spec 6.7) prints the suggested tags (`tags: Cuisine: Indian · Protein: Chicken`, or `-` when nothing fit) and the totals; it uses `AI_MODEL_TAGS`, else `AI_MODEL_RECIPE`, and exits 1 when the suggestion fails (AI off or failing).
+After the calls come the results table and totals across all calls. Exit codes: 0 ok, 1 if any name failed, 2 for bad usage or an error. `ai:recipe` prints the recipe's name, servings, source and ingredient table, then totals per task; it exits 1 when the import fails (not a recipe, fetch failed, AI off or failing). `ai:tags` (spec 6.7) prints the suggested tags (`tags: Cuisine: Indian · Protein: Chicken`, or `-` when nothing fit) and the totals; it uses `AI_MODEL_TAGS`, else `AI_MODEL_RECIPE`, and exits 1 when the suggestion fails (AI off or failing). `ai:steps` (cook mode, spec 4.5) prints each numbered step with the ingredients it uses indented under it, a split as its share ("Limes  1 of 3"), then "Not in a step" with the ones no step uses, then the totals per task. A link or file goes through the import's own fetch and extraction first (with `--recipe-model`, else `AI_MODEL_RECIPE`; categorize runs on the mock, since categories don't matter here). Matching uses `--model`, else `AI_MODEL_STEPS`, else `AI_MODEL_RECIPE`. It exits 1 when the import or the match fails, or the recipe has no steps or ingredients.
 
 ### Evaluating a prompt or model change
 
@@ -86,9 +93,11 @@ After the calls come the results table and totals across all calls. Exit codes: 
 yarn ai:eval                                      # golden set against the configured model
 yarn ai:eval --model anthropic:claude-haiku-5-5   # or another model
 yarn ai:eval:recipe                               # the 20 saved recipe pages against AI_MODEL_RECIPE
+yarn ai:eval:steps                                # 16 labelled recipes against the steps model
+yarn ai:eval:steps --only typed-chicken-tacos     # one recipe
 ```
 
-`ai:eval` runs about 100 hard cases from `categorize-ingredients/eval/golden.json` and prints accuracy and every miss. `ai:eval:recipe` runs the pages in `import-recipe/eval/fixtures/` against `import-recipe/eval/expected.json` and prints per-page precision and recall on ingredient keys, unit and quantity accuracy, and every miss. It uses the real model, so it costs tokens. Run it before shipping a new prompt version or model.
+`ai:eval` runs about 100 hard cases from `categorize-ingredients/eval/golden.json` and prints accuracy and every miss. `ai:eval:recipe` runs the pages in `import-recipe/eval/fixtures/` against `import-recipe/eval/expected.json` and prints per-page precision and recall on ingredient keys, unit and quantity accuracy, and every miss. `ai:eval:steps` runs `match-recipe-steps/eval/recipes.json` (fixed steps and ingredients, with hand-labelled matches) and prints precision and recall of (step, ingredient) pairs, the ingredients placed in no step, split-share accuracy, latency and tokens per recipe, whether the bar is met (docs/spikes.md §5), and every miss; `--price-in` and `--price-out` add a cost. They use the real model, so they cost tokens. Run them before shipping a new prompt version or model.
 
 ## Adding a new LLM task
 

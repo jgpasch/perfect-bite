@@ -13,3 +13,4 @@
 - **Don't share cached steps across users**: the `recipe_imports` cache (spec 6.6) serves one user's copied steps to others; keep caching ingredients, tags and time, and reuse steps only from the same user's import (or accept it, since the cache lasts 30 days).
 - **Meal plan: copy last week**: a **Copy last week** button and a "Nothing planned yet" empty week (board 3 I of the meal plan mockups, spec 4.16).
 - **Meal plan: several entries per slot**: a main and a side. The data and slot queries already allow it; raise `MAX_ENTRIES_PER_SLOT` and design the cell (spec 4.16).
+- **Household activity, later**: a "Show new items" view grouped by person, "Alex and Sam added 7" on Your lists rows, and counting items checked off by others. Never mocked up in detail; the "since you looked" card (spec 4.1) is the starting point.

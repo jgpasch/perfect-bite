@@ -21,9 +21,10 @@ import {
 } from '@shared/index.ts';
 import { z } from 'zod';
 
-import { mockCategorizeModel, mockRecipeModel, mockTagsModel } from './mock-model.ts';
+import { mockCategorizeModel, mockRecipeModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v3.ts';
+import { MATCH_RECIPE_STEPS_PROMPT_VERSION, type StepMatchRecipe } from './prompts/match-recipe-steps.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
@@ -229,6 +230,74 @@ function tagsModel(): string | null {
   return env('AI_MODEL_TAGS') ?? env('AI_MODEL_RECIPE');
 }
 
+/**
+ * What the match-recipe-steps model may answer: per step, its number and the ingredients it uses,
+ * by number (both from 1, as the prompt numbers them). Run it through `cleanStepMatch`.
+ */
+export const MatchRecipeStepsOutputSchema = z.object({
+  steps: z.array(
+    z.object({
+      step: z.number(),
+      uses: z.array(z.object({ ingredient: z.number(), quantity: z.number().nullable() })),
+    }),
+  ),
+});
+export type MatchRecipeStepsOutput = z.infer<typeof MatchRecipeStepsOutputSchema>;
+
+/** One ingredient a step uses: its index in the recipe's ingredients (from 0) and the step's share. */
+export type StepIngredientUse = {
+  ingredient: number;
+  /** The step's share in the ingredient's own unit; null for all of it or not stated. */
+  quantity: number | null;
+};
+/** One list per step, in the recipe's order. */
+export type StepMatch = StepIngredientUse[][];
+
+/**
+ * The model's match, checked against the recipe it was given. Null when the steps don't line up
+ * (a step missing, added or numbered twice): the caller treats that as `unavailable`. Otherwise
+ * unknown ingredient numbers and repeats within a step are dropped, and a share is null unless it
+ * is positive and below the ingredient's own quantity (all of it, or more, is null; so is a share
+ * of an ingredient with no quantity). Shares are rounded to 3 decimals, and each step's
+ * ingredients are in the recipe's order.
+ */
+export function cleanStepMatch(raw: MatchRecipeStepsOutput, recipe: StepMatchRecipe): StepMatch | null {
+  const count = recipe.steps.length;
+  if (raw.steps.length !== count) return null;
+  const byNumber = new Map(raw.steps.map((s) => [s.step, s]));
+  if (byNumber.size !== count) return null;
+  const match: StepMatch = [];
+  for (let n = 1; n <= count; n++) {
+    const step = byNumber.get(n);
+    if (!step) return null;
+    const seen = new Set<number>();
+    const uses: StepIngredientUse[] = [];
+    for (const use of step.uses) {
+      const index = use.ingredient - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= recipe.ingredients.length || seen.has(index)) continue;
+      seen.add(index);
+      uses.push({ ingredient: index, quantity: share(use.quantity, recipe.ingredients[index].quantity) });
+    }
+    match.push(uses.sort((a, b) => a.ingredient - b.ingredient));
+  }
+  return match;
+}
+
+function share(quantity: number | null, total: number | null): number | null {
+  if (quantity === null || total === null || !Number.isFinite(quantity) || quantity <= 0 || quantity >= total) return null;
+  return Math.round(quantity * 1000) / 1000;
+}
+
+/** About 80 output tokens per step plus 200, capped at 6,000. */
+export function stepsMaxOutputTokens(stepCount: number): number {
+  return Math.min(6_000, 200 + 80 * Math.max(0, stepCount));
+}
+
+/** `AI_MODEL_STEPS`, else extract-recipe's model, so matching follows it unless set on its own. */
+function stepsModel(): string | null {
+  return env('AI_MODEL_STEPS') ?? env('AI_MODEL_RECIPE');
+}
+
 export const aiTasks = {
   /** Shelf category and default unit for 1..100 normalized ingredient names in one call. */
   categorize: {
@@ -283,6 +352,24 @@ export const aiTasks = {
     providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_TAGS', RECIPE_THINKING)),
     /** What `AI_MODEL_TAGS=mock` runs. */
     mock: mockTagsModel,
+  },
+  /**
+   * Which ingredients each of a recipe's steps uses, for cook mode (spec 4.5). Run the output
+   * through `cleanStepMatch` before using it.
+   */
+  matchRecipeSteps: {
+    /** `AI_MODEL_STEPS`, defaulting to `AI_MODEL_RECIPE`. */
+    model: stepsModel,
+    /** `AI_MODEL_STEPS_FALLBACK`; while the model follows `AI_MODEL_RECIPE`, so does its fallback. */
+    fallbackModel: () => env('AI_MODEL_STEPS_FALLBACK') ?? (env('AI_MODEL_STEPS') ? null : env('AI_MODEL_RECIPE_FALLBACK')),
+    promptVersion: MATCH_RECIPE_STEPS_PROMPT_VERSION,
+    output: MatchRecipeStepsOutputSchema,
+    temperature: 0,
+    timeoutMs: 20_000,
+    maxOutputTokens: stepsMaxOutputTokens,
+    providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_STEPS', RECIPE_THINKING)),
+    /** What `AI_MODEL_STEPS=mock` runs. */
+    mock: mockStepsModel,
   },
 } as const;
 

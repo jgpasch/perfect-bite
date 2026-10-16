@@ -1,0 +1,83 @@
+# Join and delete your own household (spec 4.7): B already has an account with a Personal household
+# nobody else is in (Bananas on its Groceries). A invites B's email; B signs back in and sees the
+# invite dot on the list switcher. Join asks "Keep Personal?"; "Join and delete Personal" joins A's
+# Test home, then deletes Personal, so B is left with only A's household and A's Milk, and B's
+# Bananas are gone. This doesn't test "Join and keep it", Cancel, the join screen's copy of the same
+# prompt (the invite link can't be read), or the notice when the delete fails.
+appId: com.jgp.perfectbite
+name: Joining a household can delete your own
+---
+- launchApp:
+    clearState: true
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailA
+- runScript:
+    file: scripts/new-email.js
+    env:
+      NAME: emailB
+
+# B signs up first, gets Personal with Groceries, adds Bananas and signs out.
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.emailB}
+- tapOn: 'Add an item'
+- inputText: 'Bananas'
+- pressKey: Enter
+- assertVisible: 'Check off Bananas'
+- runFlow: subflows/sign-out.yaml
+
+- runFlow:
+    file: subflows/invite-to-test-home.yaml
+    env:
+      INVITER: ${output.emailA}
+      INVITEE: ${output.emailB}
+
+# B signs back in: their Personal Groceries comes down, and the switcher says an invite is waiting.
+- runFlow:
+    file: subflows/enter-code.yaml
+    env:
+      EMAIL: ${output.emailB}
+- extendedWaitUntil:
+    visible: 'Groceries, switch list, 1 invite waiting'
+    timeout: 30000
+- extendedWaitUntil:
+    visible: 'Check off Bananas'
+    timeout: 15000
+
+# Join asks whether to keep Personal first.
+- tapOn: 'Groceries, switch list, 1 invite waiting'
+- extendedWaitUntil:
+    visible: '.* invited you to Test home'
+    timeout: 10000
+- tapOn: 'Join'
+- extendedWaitUntil:
+    visible: 'Keep Personal\?'
+    timeout: 15000
+- assertVisible: "You'll share Test home's lists and recipes. You can keep Personal too, or delete it with its lists and recipes."
+- assertVisible: 'Join and keep it'
+- tapOn: 'Join and delete Personal'
+
+# The card goes once B has joined and Test home is pulled in; the sheet then groups lists under
+# each household's name. Personal is deleted after that, which leaves one household and so no
+# headers. A's Groceries, with Milk, is the only list left. (It reads "Siri list" now: with B's
+# default list gone, the first list stands in.)
+- extendedWaitUntil:
+    notVisible: '.* invited you to Test home'
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: 'Personal'
+    timeout: 15000
+- tapOn: 'Groceries, 1 item to get.*'
+- extendedWaitUntil:
+    visible: 'Check off Milk'
+    timeout: 10000
+- assertNotVisible: 'Check off Bananas'
+
+# Settings > Households has only Test home.
+- runFlow: subflows/open-settings.yaml
+- assertVisible: 'Test home, .*'
+- waitForAnimationToEnd
+- assertNotVisible: 'Personal, .*'

@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { MOCK_MODEL_ID } from './registry.ts';
 import { MEXICAN_WORDS, NO_LINK_EXAMPLES } from './spanish-words.ts';
-import type { CategorizeOutput, ExtractRecipeOutput, SuggestTagsOutput } from './tasks.ts';
+import type { CategorizeOutput, ExtractRecipeOutput, MatchRecipeStepsOutput, SuggestTagsOutput } from './tasks.ts';
 
 /** First match wins, so more specific rules come first. Anything unmatched is pantry. */
 const KEYWORD_RULES: [CategorySlug, string[]][] = [
@@ -201,6 +201,48 @@ export function tagsRecipeFromPrompt(prompt: string): MockTagsRecipe {
   }
 }
 
+/** The recipe the match-recipe-steps prompt carries (`buildMatchRecipeStepsPrompt`). */
+export type MockStepsRecipe = { steps: string[]; ingredients: string[] };
+
+/** A text's words as ingredient keys (lowercase, singular), for the steps mock. */
+function wordKeys(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean).map(normalizeIngredientName));
+}
+
+/**
+ * `AI_MODEL_STEPS=mock` (spec 4.5): a step uses an ingredient when the last word of the
+ * ingredient's name appears in the step's text (`chicken thighs` in "toss the thighs"), singular
+ * or plural. Every step that names it gets it, with no share.
+ */
+export function mockMatchSteps(recipe: MockStepsRecipe): MatchRecipeStepsOutput {
+  const heads = recipe.ingredients.map((name) => normalizeIngredientName(name).split(' ').pop() ?? '');
+  return {
+    steps: recipe.steps.map((text, i) => {
+      const words = wordKeys(text);
+      const uses = heads.flatMap((head, j) => (head !== '' && words.has(head) ? [{ ingredient: j + 1, quantity: null }] : []));
+      return { step: i + 1, uses };
+    }),
+  };
+}
+
+/** The recipe is the first JSON object in the user prompt; anything else is an empty recipe. */
+export function stepsRecipeFromPrompt(prompt: string): MockStepsRecipe {
+  const start = prompt.indexOf('{');
+  const end = prompt.lastIndexOf('}');
+  const empty: MockStepsRecipe = { steps: [], ingredients: [] };
+  if (start < 0 || end < start) return empty;
+  try {
+    const parsed: unknown = JSON.parse(prompt.slice(start, end + 1));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return empty;
+    const { steps, ingredients } = parsed as Record<string, unknown>;
+    const field = (list: unknown, key: string) =>
+      Array.isArray(list) ? list.map((item) => (item && typeof item === 'object' ? (item as Record<string, unknown>)[key] : null)).map((v) => (typeof v === 'string' ? v : '')) : [];
+    return { steps: field(steps, 'text'), ingredients: field(ingredients, 'name') };
+  } catch {
+    return empty;
+  }
+}
+
 /** A mock model that answers each call with `answer(user prompt text)`. */
 function mockModel(answer: (prompt: string) => unknown): LanguageModel {
   return new MockLanguageModelV4({
@@ -237,4 +279,8 @@ export function mockRecipeModel(): LanguageModel {
 
 export function mockTagsModel(): LanguageModel {
   return mockModel((prompt) => mockSuggestTags(tagsRecipeFromPrompt(prompt)));
+}
+
+export function mockStepsModel(): LanguageModel {
+  return mockModel((prompt) => mockMatchSteps(stepsRecipeFromPrompt(prompt)));
 }
