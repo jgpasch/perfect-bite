@@ -28,6 +28,12 @@ export default function TabsLayout() {
         {imports > 0 && <NativeTabs.Trigger.Badge>{String(imports)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
 
+      {/* Spec 4.16: the week plan. */}
+      <NativeTabs.Trigger name="plan">
+        <NativeTabs.Trigger.Label>{t('tabs.plan')}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="calendar" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="settings">
         <NativeTabs.Trigger.Label>{t('tabs.settings')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="gearshape" />

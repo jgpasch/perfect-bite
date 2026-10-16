@@ -5,14 +5,20 @@ import { resetDb } from '@/test/db';
 
 import {
   KEEP_SCREEN_ON_KEY,
+  PLAN_HOUSEHOLD_KEY,
+  PLAN_VIEW_KEY,
   clearManualOrder,
   getDeviceSetting,
   getKeepScreenOn,
   getManualOrder,
+  getPlanHouseholdId,
+  getPlanView,
   onKeepScreenOnChange,
   saveManualOrder,
   setDeviceSetting,
   setKeepScreenOn,
+  setPlanHouseholdId,
+  setPlanView,
 } from '../device-settings';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -99,4 +105,24 @@ test('clearManualOrder forgets the order, and only that list’s', () => {
 test('getManualOrder reads garbage in storage as no order', () => {
   setDeviceSetting(manualOrderKey('abc'), 'garbage');
   expect(getManualOrder('abc')).toEqual([]);
+});
+
+test('plan.view is Grid until Agenda is chosen, and reads anything else as Grid', () => {
+  expect(getPlanView()).toBe('grid');
+  setPlanView('agenda');
+  expect(getPlanView()).toBe('agenda');
+  expect(getDeviceSetting(PLAN_VIEW_KEY, null)).toBe('agenda');
+  setPlanView('grid');
+  expect(getPlanView()).toBe('grid');
+  setDeviceSetting(PLAN_VIEW_KEY, 'calendar');
+  expect(getPlanView()).toBe('grid');
+});
+
+test('plan.householdId is null until picked, and reads garbage as null', () => {
+  expect(getPlanHouseholdId()).toBeNull();
+  setPlanHouseholdId('cabin');
+  expect(getPlanHouseholdId()).toBe('cabin');
+  expect(getDeviceSetting(PLAN_HOUSEHOLD_KEY, null)).toBe('cabin');
+  setDeviceSetting(PLAN_HOUSEHOLD_KEY, 42);
+  expect(getPlanHouseholdId()).toBeNull();
 });

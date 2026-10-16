@@ -100,3 +100,27 @@ export function getAlwaysShowChecked(): boolean {
 export function setAlwaysShowChecked(on: boolean): void {
   setDeviceSetting(ALWAYS_SHOW_CHECKED_KEY, on);
 }
+
+/** The meal plan's Agenda or Grid (spec 4.16), the same on the Plan tab and in Recipes: Grid unless changed on this device. */
+export const PLAN_VIEW_KEY = 'plan.view';
+export type PlanView = 'agenda' | 'grid';
+
+export function getPlanView(): PlanView {
+  return getDeviceSetting<unknown>(PLAN_VIEW_KEY, 'grid') === 'agenda' ? 'agenda' : 'grid';
+}
+
+export function setPlanView(view: PlanView): void {
+  setDeviceSetting(PLAN_VIEW_KEY, view);
+}
+
+/** The household whose plan this device shows (spec 4.16), or null if never picked. */
+export const PLAN_HOUSEHOLD_KEY = 'plan.householdId';
+
+export function getPlanHouseholdId(): string | null {
+  const value = getDeviceSetting<unknown>(PLAN_HOUSEHOLD_KEY, null);
+  return typeof value === 'string' ? value : null;
+}
+
+export function setPlanHouseholdId(householdId: string): void {
+  setDeviceSetting(PLAN_HOUSEHOLD_KEY, householdId);
+}

@@ -120,7 +120,17 @@ export const AisleColors = {
   },
 } as const satisfies Record<ColorScheme, Record<AisleHue, { dot: string; soft: string; strong: string }>>;
 
-type TypeStyle = Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
+/**
+ * The meal plan's fixed hue per meal (spec 4.16): column headers, letter chips and plan badges use the hue's
+ * `soft` and `strong` from `AisleColors`.
+ */
+export const MealHues = {
+  breakfast: 'amber',
+  lunch: 'teal',
+  dinner: 'plum',
+} as const satisfies Record<'breakfast' | 'lunch' | 'dinner', AisleHue>;
+
+type TypeStyle =Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
   Pick<TextStyle, 'letterSpacing'>;
 
 /** Display titles track tight (-0.025em). */
@@ -265,6 +275,16 @@ export const Sizes = {
   stepNumber: 26,
   /** the numbered circle before each step on the cook screen, which fills with a check when ticked */
   cookStepCheck: 30,
+  /** The week grid (spec 4.16): the day column, a cell's height and its recipe tile (minimums, for Dynamic Type) */
+  planDayColumn: 52,
+  planCell: 64,
+  planTile: 24,
+  /** a grid column's width once the grid scrolls sideways at large text sizes */
+  planScrollColumn: 160,
+  /** a meal's letter chip in the agenda */
+  mealChip: 24,
+  /** an empty slot's dashed outline */
+  dashedBorder: 1.5,
 } as const;
 
 /** Motion: 200–300ms springs, no bounce loops. */

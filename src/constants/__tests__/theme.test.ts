@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { AisleColors, Palette, Rounded, Typography, type ColorScheme, type ColorToken } from '@/constants/theme';
+import { AisleColors, MealHues, Palette, Rounded, Typography, type ColorScheme, type ColorToken } from '@/constants/theme';
 import { contrastRatio } from '@/domain/contrast';
 import { hueHeaderBand } from '@/components/appearance';
 import { MEAL_HUES, MEAL_SECTIONS } from '@/features/recipes/recipe-sort';
@@ -151,6 +151,18 @@ describe('AisleColors', () => {
       expect(band.ground).toBe(AisleColors[scheme][MEAL_HUES[meal]].soft);
       expect(contrastRatio(band.text, band.ground)).toBeGreaterThanOrEqual(4.5);
     });
+
+    it.each(Object.keys(MealHues) as (keyof typeof MealHues)[])(
+      'keeps the meal plan’s %s header, letter chip and badge readable',
+      (meal) => {
+        const tokens = AisleColors[scheme][MealHues[meal]];
+        const band = hueHeaderBand(MealHues[meal], scheme);
+        expect(band.ground).toBe(tokens.soft);
+        expect(contrastRatio(band.text, band.ground)).toBeGreaterThanOrEqual(4.5);
+        // A plan badge: white text on the meal's strong hue.
+        expect(contrastRatio(Palette[scheme].onPrimary, tokens.strong)).toBeGreaterThanOrEqual(4.5);
+      },
+    );
 
     it('keeps the Owner badge (pending on amber soft) readable', () => {
       expect(contrastRatio(Palette[scheme].pending, AisleColors[scheme].amber.soft)).toBeGreaterThanOrEqual(4.5);

@@ -591,9 +591,40 @@ export const en = {
   tabs: {
     list: 'List',
     recipes: 'Recipes',
+    plan: 'Plan',
     settings: 'Settings',
     backTitle: 'Lists',
     editList: 'Edit list',
+  },
+  /** The meal plan's week screen (spec 4.16). */
+  mealPlan: {
+    title: 'This week',
+    thisWeek: 'This week',
+    previousWeek: 'Previous week',
+    nextWeek: 'Next week',
+    /** The week's label for VoiceOver: "Week of October 11". */
+    weekOf: 'Week of {{date}}',
+    shop: 'Shop this week',
+    /** The household menu for VoiceOver: "Household: Our place". */
+    household: 'Household: {{name}}',
+    householdMenu: 'Household',
+    /** The Agenda/Grid toggle for VoiceOver: "View: Grid". */
+    viewLabel: 'View: {{view}}',
+    views: { agenda: 'Agenda', grid: 'Grid' },
+    /** A meal's chip in the agenda. */
+    letters: { breakfast: 'B', lunch: 'L', dinner: 'D' },
+    leftovers: 'Leftovers',
+    eatingOut: 'Eating out',
+    /** A slot for VoiceOver: "Thursday dinner, Chicken tacos", "Thursday lunch, empty". */
+    slotLabel: '{{day}} {{meal}}, {{entry}}',
+    empty: 'empty',
+    /** An empty slot from today on, in the agenda: "+ Add lunch". */
+    add: '+ Add {{meal}}',
+    /** An empty past slot in the agenda. */
+    pastEmpty: '—',
+    /** The folded days before today: "Earlier this week · Sun – Wed". */
+    earlier: 'Earlier this week · {{days}}',
+    earlierHint: 'Shows the days before today',
   },
   settings: {
     title: 'Settings',
