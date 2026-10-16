@@ -17,6 +17,7 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 
 import { groupWeek, MEAL_PLAN_QUERY_TABLES, type PlanEntry, weekEntriesQuery } from './queries';
+import { openShopSheet, shopDays, shopEntries } from './shop';
 import { openSlot, type SlotToast } from './slot-actions';
 import { addDays, type Day, type Meal, today as todayOf, weekDays, weekStart } from './week';
 import { WeekAgenda } from './week-agenda';
@@ -69,6 +70,11 @@ export function WeekPlan({
   ]);
   const plan = useMemo(() => groupWeek(entries), [entries]);
   const days = weekDays(start);
+  // Shop this week: disabled for past weeks and when the days it covers have no recipes.
+  const onShop =
+    householdId && shopEntries(plan, shopDays(start, today)).length > 0
+      ? () => openShopSheet(householdId, start, onToast)
+      : undefined;
   const onSlot = householdId
     ? (day: Day, meal: Meal, entry: PlanEntry | null) => openSlot(householdId, day, meal, entry, onToast)
     : undefined;
@@ -83,6 +89,7 @@ export function WeekPlan({
       isThisWeek={start === thisWeek}
       onWeek={(direction) => setStart(addDays(start, direction * 7))}
       onThisWeek={() => setStart(thisWeek)}
+      onShop={onShop}
       view={view}
       onView={setView}
     />

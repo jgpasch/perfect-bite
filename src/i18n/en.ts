@@ -673,6 +673,25 @@ export const en = {
     badgeLabel: 'Planned for {{slot}}',
     badgeMore: '+{{count}}',
     badgeMoreLabel: '{{count}} more planned',
+    /** The Shop this week sheet (spec 4.16, board 3 G). */
+    shopRest: 'Shop the rest of the week',
+    /** A future week: "Shop the week of Oct 18". */
+    shopWeekOf: 'Shop the week of {{date}}',
+    shopRecipesLabel: 'Recipes',
+    /** An entry already on the chosen list: "already on Groceries". */
+    shopAlreadyOn: 'already on {{name}}',
+    shopFootnote: 'Ingredients are added for the recipe’s own servings, without what you always have.',
+    shopNoLists: 'This household has no open lists.',
+    /** The secondary CTA: "Review 18 items". */
+    shopReview_one: 'Review {{count}} item',
+    shopReview_other: 'Review {{count}} items',
+    shopReviewTitle: 'Review',
+    /** The toast: "Added 3 recipes · 18 items". */
+    shopAdded: 'Added {{recipes}} · {{items}}',
+    shopRecipes_one: '{{count}} recipe',
+    shopRecipes_other: '{{count}} recipes',
+    shopItems_one: '{{count}} item',
+    shopItems_other: '{{count}} items',
   },
   settings: {
     title: 'Settings',

@@ -126,6 +126,11 @@ export default function RootLayout() {
                   name="plan-recipe"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.16, board 3 G: Shop this week, from the week toolbar's cart. */}
+                <Stack.Screen
+                  name="plan-shop"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!ready}>
                 <Stack.Screen name="sign-in" options={{ headerShown: false }} />

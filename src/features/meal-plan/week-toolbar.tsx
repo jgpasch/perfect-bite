@@ -50,7 +50,7 @@ export function WeekToolbar({
   isThisWeek: boolean;
   onWeek: (direction: -1 | 1) => void;
   onThisWeek: () => void;
-  /** The cart; until Shop this week, nothing. */
+  /** The cart (Shop this week); left out, it's disabled (a past week, or no recipes on the days it covers). */
   onShop?: () => void;
   view: PlanView;
   onView: (view: PlanView) => void;
@@ -67,7 +67,7 @@ export function WeekToolbar({
       <WeekArrows start={start} color={look.text} onWeek={onWeek} />
       {isThisWeek ? null : <ToolbarPill label={t('mealPlan.thisWeek')} onPress={onThisWeek} onGreen={onGreen} />}
       <View style={[styles.row, styles.end, { gap: spacing.sm }]}>
-        <RoundButton icon="cart" label={t('mealPlan.shop')} color={look.text} onPress={onShop} />
+        <RoundButton icon="cart" label={t('mealPlan.shop')} color={look.text} onPress={onShop} disabled={!onShop} />
         <ViewToggle value={view} onChange={onView} onGreen={onGreen} />
       </View>
     </View>
@@ -89,16 +89,34 @@ export function WeekArrows({ start, color, onWeek }: { start: Day; color: string
 }
 
 /** A bare glyph button with a 44 pt tap area. */
-function RoundButton({ icon, label, color, onPress }: { icon: IconName; label: string; color: string; onPress?: () => void }) {
+function RoundButton({
+  icon,
+  label,
+  color,
+  onPress,
+  disabled = false,
+}: {
+  icon: IconName;
+  label: string;
+  color: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
   const { sizes, opacity } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.center,
-        { minWidth: sizes.minTapTarget, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+        {
+          minWidth: sizes.minTapTarget,
+          minHeight: sizes.minTapTarget,
+          opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
+        },
       ]}>
       <Icon name={icon} tint={color} weight="semibold" />
     </Pressable>

@@ -1,11 +1,9 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
-import { CheckCircle } from '@/components/check-circle';
 import { Pill } from '@/components/pill';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
@@ -17,6 +15,7 @@ import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
 import { stapleNames } from '@/features/households/staples';
+import { IngredientChoice, SheetLabel, SheetLayout, toggled } from '@/features/recipes/add-sheet';
 import {
   addRecipeToList,
   buildRecipeAdds,
@@ -89,13 +88,6 @@ export default function AddRecipeToListSheet() {
     if (listId !== fromList) openList(listId);
   };
 
-  const toggle = <T,>(set: Set<T>, value: T) => {
-    const next = new Set(set);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    return next;
-  };
-
   return (
     <SheetLayout cta={<PrimaryButton label={addCtaLabel(adds.length, listName)} disabled={adds.length === 0} onPress={add} />}>
       <Stack.Toolbar placement="left">
@@ -106,14 +98,14 @@ export default function AddRecipeToListSheet() {
         {t('recipes.addToList.title', { name: recipe.name })}
       </ThemedText>
 
-      <Label>{t('recipes.addToList.to')}</Label>
+      <SheetLabel>{t('recipes.addToList.to')}</SheetLabel>
       <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
         {lists.map((l) => (
           <Pill key={l.id} label={l.name} selected={l.id === listId} onPress={() => setListId(l.id)} />
         ))}
       </View>
 
-      <Label>{t('recipes.addToList.servings')}</Label>
+      <SheetLabel>{t('recipes.addToList.servings')}</SheetLabel>
       {base === null ? (
         <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
           {SERVINGS.map((s) => (
@@ -170,104 +162,12 @@ export default function AddRecipeToListSheet() {
               amount={amount}
               staple={staples.has(i.ingredientName)}
               on={on}
-              onPress={() => setSelected(toggle(selected, i.id))}
+              onPress={() => setSelected(toggled(selected, i.id))}
             />
           );
         })}
       </Card>
     </SheetLayout>
-  );
-}
-
-/** The sheet's scrolling content with its CTA pinned to the bottom. */
-function SheetLayout({ cta, children }: { cta: ReactNode; children: ReactNode }) {
-  const { colors, spacing } = useTheme();
-  const insets = useSafeAreaInsets();
-  return (
-    <Screen>
-      <ScrollView
-        style={styles.flex}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-        {children}
-      </ScrollView>
-      <View
-        style={{
-          paddingHorizontal: spacing.lg,
-          paddingTop: spacing.md,
-          paddingBottom: Math.max(insets.bottom, spacing.lg),
-          backgroundColor: colors.background,
-        }}>
-        {cta}
-      </View>
-    </Screen>
-  );
-}
-
-function Label({ children }: { children: string }) {
-  const { spacing } = useTheme();
-  return (
-    <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-      {children}
-    </ThemedText>
-  );
-}
-
-/**
- * A row in "Untick what you have": a round check, the name (with an "Always have" tag for a staple), and the scaled
- * amount. Off rows are muted.
- */
-function IngredientChoice({
-  label,
-  amount,
-  staple,
-  on,
-  onPress,
-}: {
-  label: string;
-  amount: string;
-  staple: boolean;
-  on: boolean;
-  onPress: () => void;
-}) {
-  const t = useT();
-  const { colors, spacing, sizes, opacity } = useTheme();
-  // Off rows use `inkSecondary`, not `inkTertiary`: tertiary is too light for text (DESIGN.md).
-  const ink = on ? 'ink' : 'inkSecondary';
-  const alwaysHave = t('item.alwaysHave');
-  return (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: on }}
-      accessibilityLabel={[label, staple ? alwaysHave : null, amount || null].filter(Boolean).join(', ')}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          minHeight: sizes.cardRowMin,
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.sm,
-          gap: spacing.md,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <CheckCircle checked={on} />
-      <ThemedText variant="body" color={ink} style={styles.flex}>
-        {label}
-        {staple ? (
-          <ThemedText variant="amount" color="inkSecondary">
-            {`  ${alwaysHave}`}
-          </ThemedText>
-        ) : null}
-      </ThemedText>
-      {amount ? (
-        <ThemedText variant="amount" color="inkSecondary">
-          {amount}
-        </ThemedText>
-      ) : null}
-    </Pressable>
   );
 }
 

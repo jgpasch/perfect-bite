@@ -157,7 +157,7 @@ describe('the Plan tab', () => {
     expect(byTestID(root, 'week-agenda')).toHaveLength(0);
     // On the green: the arrows in onHeader.
     expect(icons(button(root, 'Previous week'))[0].props).toMatchObject({ name: 'chevron.left', tint: Palette.light.onHeader });
-    // The cart, which does nothing until Shop this week.
+    // The cart (Shop this week, covered in shop.test.tsx).
     const cart = root.root.find((n) => n.type === ('View' as never) && n.props.accessibilityLabel === 'Shop this week');
     expect(cart.props.accessibilityRole).toBe('button');
     expect(icons(cart)[0].props.name).toBe('cart');
