@@ -34,7 +34,7 @@ This document is written to be handed to Claude Code as the build brief. Section
 ### Non-goals (v1)
 - iPad-optimized layouts, Apple Watch, Android.
 - Prices, budgets, store/aisle maps, barcode scanning.
-- Meal planning, pantry tracking. (Recipe import from URLs was a non-goal; it is now requirement 14, section 4.10.)
+- Pantry tracking. (Recipe import from URLs and meal planning were non-goals; they are now requirements 14 and 16, sections 4.10 and 4.16.)
 - Notifications (Later, section 11.1).
 - Sign in with Apple, email/password accounts.
 
@@ -167,8 +167,8 @@ A duplicate is an add whose normalized ingredient matches an **unchecked** item 
 - **Favorite and Want to try** (the Saved tags, 4.14): after the name, a small (`iconSmall`) heart (`heart.fill`, `primary`, the accent) when the recipe is a Favorite and a bookmark (`bookmark`, `inkSecondary`) when it's Want to try, on rows and large tiles alike; they're decorative, and VoiceOver reads "Favorite" / "Want to try" after the name instead ("Tacos, Favorite, Dinner, 35 min, on Groceries"). The card's long-press menu has **Favorite** (`heart`) or, once set, **Unfavorite** (`heart.slash`), and **Want to try** (`bookmark`) or, once set, **Tried it** (`checkmark`, which removes `want-to-try`), after Visit recipe on web and before Rename. Each adds or removes only its own slug and writes `tags` and `tags_edited: true` in one update, keeping every other facet's stored slugs (unknown ones too) as the Tags sheet's Save does (`setRecipeSaved`); on an untagged recipe it creates the tags with only `saved` set.
 - **Sort and group**: the sort pill reads the current choice ("Recent", "A–Z", "By meal") with a chevron (VoiceOver "Sort: Recently added") and opens a native "Sort and group" menu, the current choice ticked: **Recently added** (newest change first, the default), **A–Z** (by name in the app's language, ignoring case and accents) and **By meal**. By meal splits each household's recipes into folding cards like the list's aisle sections: one per `meal` tag in facet order (Breakfast, Lunch, Dinner, Side, Dessert, Snack, Drink), then **No meal**, each header a band in its own fixed hue with the count and chevron on the right (VoiceOver "Dinner, 3 recipes"); a recipe with two meals shows in both, empty sections are hidden, and recipes in a section are A–Z. Search and filters (4.14) apply first. Households keep their order whatever the choice. The choice is a device setting (`recipes.sort`); folded sections are kept for the app session, per household, not saved.
 - **Photo size**: at the end of the header row, a two-segment toggle, **Small photos** (rows, the default) and **Large photos** (VoiceOver "Photo size", each segment announced with its selected state). Large photos lay the same recipes out as a two-column grid, one column at the largest accessibility text sizes. Each tile is its own small card on the screen's background, so there's no household card around them and an odd last tile simply sits in the first column; in By meal the tiles sit under each meal's header band. A tile is the photo across the column at 4:3 (the recipe's tile colour when there's none or it hasn't loaded), the name on up to two lines and the total time (or "Has *chicken thighs*" for an ingredient-only search match). Tiles keep the long-press menu, the "On <list>" badge (over the photo's top corner), the toast outline and the VoiceOver label; swipe to delete is rows only, so a tile's Delete is in its menu and a VoiceOver action. The choice is a device setting (`recipes.photoSize`).
-- **Copy to household...**: a member of several households can copy a recipe into another of their households (a new, independent recipe owned by that household). This is how a recipe gets from one household to another; nothing is ever shared across households.
-- **Add a recipe to a list**: from the recipe screen, "Add to list...", from **Add to a list** in the recipe's Recipes tab card long-press menu (the same sheet; left out when the recipe has no ingredients, as the recipe screen's button is disabled then; the menu reads Add to Groceries, Add to a list, Visit recipe on web, Favorite, Want to try, Rename, Delete), or by picking the recipe in a list's add bar (4.2), which adds it at 1× with all ingredients but the household's staples (Always have, below) and offers **Adjust** to open this sheet instead. Only lists in the recipe's household are offered (the "Copy to household..." action is shown as the way to reach others). Pick the list, then a checklist of the recipe's ingredients (all but the household's staples selected by default, so the user can uncheck what they already have). Optional servings multiplier (0.5x, 1x, 2x, 3x) scales quantities. "Add N to Groceries" adds them straight away, with duplicates handled per 4.4 bulk add (Combine, no question), and opens the list with the "Added Tacos · 8 items" toast and **Undo**.
+- **Copy to household...** (not built yet; `future/copy-to-household-tasks.md`): a member of several households can copy a recipe into another of their households (a new, independent recipe owned by that household). This is how a recipe gets from one household to another; nothing is ever shared across households.
+- **Add a recipe to a list**: from the recipe screen, "Add to list...", from **Add to a list** in the recipe's Recipes tab card long-press menu (the same sheet; left out when the recipe has no ingredients, as the recipe screen's button is disabled then; the menu reads Add to Groceries, Add to a list, Visit recipe on web, Favorite, Want to try, Rename, Delete), or by picking the recipe in a list's add bar (4.2), which adds it at 1× with all ingredients but the household's staples (Always have, below) and offers **Adjust** to open this sheet instead. Only lists in the recipe's household are offered (once built, the "Copy to household..." action is the way to reach others). Pick the list, then a checklist of the recipe's ingredients (all but the household's staples selected by default, so the user can uncheck what they already have). Optional servings multiplier (0.5x, 1x, 2x, 3x) scales quantities. "Add N to Groceries" adds them straight away, with duplicates handled per 4.4 bulk add (Combine, no question), and opens the list with the "Added Tacos · 8 items" toast and **Undo**.
   - **Scaled amounts read like kitchen measures** (`kitchenRound`, `src/domain/kitchen-round.ts`): wherever servings scale a recipe (the recipe screen's stepper, the cook screen, Add to list's servings card and multipliers, and what's added to the list), each scaled amount is rounded, then formatted as usual. Cups round to the nearest ¼, ⅓, ½, ⅔ or ¾; under ¼ cup becomes tablespoons (16 to a cup). Tablespoons round to the nearest ½; under 1 tbsp becomes teaspoons (3 to a tbsp), and 3 tbsp or more becomes cups only when that's a clean cup fraction (4 tbsp → ¼ cup, 6 tbsp stays). Teaspoons round to the nearest ¼, ⅛ the smallest. Grams round to 5 (10 from 100 up), ounces and pounds to the nearest ¼, ml to 5. A count with no unit rounds to the nearest ½, never below ½; every other unit (cans, kg, gal…) to 2 significant figures. Nothing scales to 0. The recipe's own amounts at its base servings (1×) are shown and added as written, never rounded.
   - **Quick add to the current list**: the card menu's first item, **Add to <list name>** (`cart.badge.plus`), adds the recipe to the current list (4.1: the one last opened on this device, else the default) in one step, exactly as picking it in the add bar does (1×, the household's staples left out). It's there only when that list is open (not archived) and in the recipe's household, and the recipe has ingredients. The Recipes tab stays put and shows the toast "Added *Tacos* to Groceries · 6 items", with "Skipped salt, pepper" on a second line when staples were left out, **Undo** and **Open list**; with every ingredient a staple nothing is added and it reads "You always have everything in *Tacos*" (no Undo).
 - **Always have** (household staples, `household_staples`): each household keeps a short list of ingredients it always has (water, salt, pepper, olive oil), matched by ingredient key. Only recipe adds leave them out: this sheet starts with them unticked, each with an "Always have" tag in `inkSecondary` after its name (ticking one adds it this time and doesn't change the staple; the sheet never marks or unmarks one), and the add bar's 1× add (4.2) and its **Adjust** start from the same ticks. Typing a name, a chip, Siri and Move to another list always add. Staples are household data like aisle choices (4.3.2): any member marks or unmarks one, from the item edit sheet (4.2) or Settings, and it syncs to everyone in the household.
@@ -197,7 +197,7 @@ A small button under each list's title reads the current view ("As added ⌄") a
 - Sign-up creates the user's **personal household** ("Personal", renameable) with a starter list.
 - A user can belong to any number of households (Q6). They must always belong to at least one.
 - Settings > Households lists the user's households. Each household screen shows its name, members, and actions: Invite, Leave, and (owners only) Rename, Remove member, Make owner, Delete household.
-- The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user.
+- The user can reorder their households (this sets section order on the Lists and Recipes tabs). Per user. *Not built yet* (`future/wishlist.md`): today the primary (oldest) household comes first, then the rest by name.
 - **Always have** (4.5): the household screen has an **Always have** row with the count ("None" when empty), for every member. It opens a screen titled "Always have" listing the household's staples by display name in sentence case, live (another member's change shows without leaving). An "Add an ingredient" field at the top marks a name as a staple, read as the add bar reads it (amount ignored; one already there changes nothing), with the add bar's history and catalog chips. Swipe left, or **Edit** and a row's delete button, removes one with no confirm and a "Removed *Salt*" toast with **Undo**. Empty: "Nothing yet. Ingredients you always have are left off when you add a recipe." VoiceOver reads each row as text with a Delete action.
 
 **Roles** (Q1)
@@ -271,13 +271,13 @@ All changes sync live to all members' devices.
   - `@Parameter(title: "Item", requestValueDialog: "What do you want to add?") var text: String`
   - `@Parameter(title: "List") var list: ListEntity?`
   - `openAppWhenRun = false`
-- `ListEntity` values come from a **list snapshot** (`siri/lists.json`: id, name, household id and household name per list across all the user's households; `households`, every household the user belongs to as `{ id, name }`, oldest first, including any with no live lists, so the share sheet can save to one; plus the default list id and `lastOpenedListId`, the list screen last opened on this device or null; Siri ignores the household fields) that the app writes to the App Group container on launch and whenever lists, memberships or the default list change, and deletes on sign-out. Archived lists are left out. Settings > Siri adds to picks the default list. If two lists share a name, both are shown to Siri as "*Groceries* in *Smith home*" to disambiguate. The app also rewrites the snapshot whenever a list screen opens, so `lastOpenedListId` stays current; the share extension (4.10) reads the same file for its list picker.
+- `ListEntity` values come from a **list snapshot** (`siri/lists.json`: id, name, household id and household name per list across all the user's households; `households`, every household the user belongs to as `{ id, name }`, oldest first, including any with no live lists, so the share sheet can save to one; plus the default list id and `lastOpenedListId`, the list screen last opened on this device or null; Siri ignores the household fields) that the app writes to the App Group container on launch and whenever lists, memberships or the default list change, and deletes on sign-out. Archived lists are left out. Settings > Siri adds to picks the default list. Settings > Siri adds to names each list's household ("*Groceries* in *Smith home*") when the user's lists span several households. Siri itself shows the list name only, so two lists with the same name aren't told apart there yet. The app also rewrites the snapshot whenever a list screen opens, so `lastOpenedListId` stays current; the share extension (4.10) reads the same file for its list picker.
 - The App Group container holds, besides `siri/lists.json` and the Siri queue (`siri/pending/`), the **share queue** `share/pending/<uuidv7>.json` (4.10). A share envelope is `{ id: uuidv7, url, listId | null, householdId?: uuid | null, addToList?: boolean, page?: { title?, jsonLd?: string[], text? }, createdAt, appVersion, source: "share" }`, with the same caps as the import request's `page` (6.6). Like the Siri envelope it has one Zod schema in `src/shared/` (`schemas/share.ts`), a matching Swift `Codable` in `targets/_shared/`, and a contract test; files are written atomically (`.tmp`, then rename).
 - `perform()`:
-  1. Writes an envelope to the App Group queue: `{ id: uuidv7, text, list_id | null, created_at, source: "siri" }`.
-  2. Makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**
+  1. Writes an envelope to the App Group queue: `{ id: uuid, source: "siri", text, listId?, createdAt, locale?, appVersion }` (`src/shared/schemas/siri.ts`).
+  2. *Not built yet* (steps 2 and the `siri-add` function below; `future/siri-tasks.md`; today a Siri add reaches the household only when the app next drains the queue): makes a **best-effort upload** (timeout ~3 s) to the `siri-add` Edge Function, using the session stored in the shared Keychain access group. This matters more than in stash: a household member at the store should see the item without the speaker opening the app. **[SPIKE: token refresh from the extension without breaking the app's refresh token rotation]**
   3. Replies with the dialog. If the upload failed, the reply is the same; the item is uploaded later.
-- `siri-add` Edge Function: parses and normalizes with the shared code, resolves the list, applies auto-Combine, inserts the list item and contribution with ids derived from the envelope id (so a repeat upload is a no-op), and categorizes unknown names inline by calling the shared `categorize()` from `categorize-ingredients` (same limits and LLM boundaries, 6.4). No other process categorizes them later.
+- `siri-add` Edge Function (not built yet): parses and normalizes with the shared code, resolves the list, applies auto-Combine, inserts the list item and contribution with ids derived from the envelope id (so a repeat upload is a no-op), and categorizes unknown names inline by calling the shared `categorize()` from `categorize-ingredients` (same limits and LLM boundaries, 6.4). No other process categorizes them later.
 - The app drains the queue on launch, foreground and sign-in (as stash does; signed out, adds wait), one drain at a time, oldest first. Each envelope is parsed like a typed add and goes to its list, or the default list if that list is gone or archived, as a Siri contribution that Combines silently (4.4), dated when it was spoken. The item and contribution ids are UUIDv5s of the envelope id (`siriAddIds`), so an envelope applied twice (a crash before its file is deleted, or already applied by `siri-add`) is a no-op. Applied files are deleted; unreadable ones, and text with nothing to add, are logged and deleted. New names go to categorization in one batch, and a list screen that's showing gets one toast, "Siri added 2 items".
 - Envelope format: one Zod schema in `src/shared/` and a matching Swift `Codable`, with a contract test (as stash).
 - **App name**: the App Shortcut phrase must include the app's display name, so the bundle display name must be exactly what users say. Stash had to use phrases like "Add to my Stash"; test early whether "add to The Perfect Bite" is recognized reliably, and register a few variants ("Add to Perfect Bite", "Add something to The Perfect Bite"). **[SPIKE]**
@@ -384,7 +384,7 @@ Recipes are tagged so the Recipes tab stays usable at 50+ recipes (req 15). (4.1
 
 The app speaks English and Mexican Spanish (`es-MX`). Building it is planned in `future/i18n-es-mx-tasks.md`. Spanish stays switched off until the UI, the add field and the Spanish catalog all work (the last step below); until then it shows only in development builds.
 
-- **Which language.** By default the app follows the phone: the first of the phone's preferred languages (`expo-localization` `getLocales()`) that the app supports, else English. Any Spanish (`es-MX`, `es-US`, `es-ES`) gets Mexican Spanish. Declaring the languages (`expo-localization` plugin `supportedLocales.ios`) makes iOS show **Settings > The Perfect Bite > Language**, which changes the phone's answer for this app and keeps the app, Siri, the share extension and the system's permission prompts in one language. A development build can force a language with `EXPO_PUBLIC_FORCE_LANGUAGE` (`en` or `es`), even before Spanish is switched on.
+- **Which language.** By default the app follows the phone: the first of the phone's preferred languages (`expo-localization` `getLocales()`) that the app supports, else English. Any Spanish (`es-MX`, `es-US`, `es-ES`) gets Mexican Spanish. Declaring the languages (`expo-localization` plugin `supportedLocales.ios`, added when Spanish is switched on; not declared yet) makes iOS show **Settings > The Perfect Bite > Language**, which changes the phone's answer for this app and keeps the app, Siri, the share extension and the system's permission prompts in one language. A development build can force a language with `EXPO_PUBLIC_FORCE_LANGUAGE` (`en` or `es`), even before Spanish is switched on.
 - **Language picker.** Settings > General > **Language** (its value the app's language, named in itself) opens a picker: **Same as phone** (the default, with the language that gives as its detail), **English**, **Español**, the current one ticked, and the footnote "Only this device changes. Siri and system messages stay in the phone's language." A pick switches the app's strings at once, with no restart. It's a device setting (`app.language`, not synced; Same as phone clears it) and wins over the phone and over `EXPO_PUBLIC_FORCE_LANGUAGE`; it's read before the first render, and a first launch (no settings yet) follows the phone. Languages are named in themselves whatever the app's language (`LANGUAGE_NAMES`). The picker offers Español before Spanish is switched on, so it's how the unreviewed Spanish is tried on a device.
 - **Tone.** Mexican Spanish, addressing the user as *tú*, in the style of Mexican consumer apps. Units and food words are Mexican (*jitomate*, *aguacate*, *frijol*, *crema*). A native speaker reviews every string before Spanish is switched on.
 - **Strings.** Every string the app shows or speaks (labels, buttons, toasts, empty states, VoiceOver labels and hints, Share as text) comes from `src/i18n/`: `en.ts` is the source, and `es.ts` must have exactly the same keys (typecheck fails otherwise). Plurals use the language's plural rules ("1 artículo", "3 artículos"); dates, times and numbers use `Intl` with the app's language. This spec quotes the English; the Spanish is its translation, not a separate design. Tests run in English.
@@ -404,7 +404,7 @@ The app speaks English and Mexican Spanish (`es-MX`). Building it is planned in 
 
 ### 4.16 Meal plan (req 16)
 
-A household plans its week: what's for breakfast, lunch and dinner each day. Mockups: https://claude.ai/artifact/HQKX1qKsoFgNNkgCujWewW (board 1 A and C, board 2 F, board 3 G, board 4 Idea 1, board 5, and the "Plan → tap a slot" prototype). As on the other boards, the floating tab bar is a mock; the app keeps `NativeTabs`.
+A household plans its week: what's for breakfast, lunch and dinner each day. *In progress*: `tasks.md` tracks which parts have landed. Mockups: https://claude.ai/artifact/HQKX1qKsoFgNNkgCujWewW (board 1 A and C, board 2 F, board 3 G, board 4 Idea 1, board 5, and the "Plan → tap a slot" prototype). As on the other boards, the floating tab bar is a mock; the app keeps `NativeTabs`.
 
 - **The plan belongs to the household**, like recipes: every member sees and edits the same plan, and it syncs (7) like other household data. A week runs Sunday to Saturday. A **slot** is a day and a meal: breakfast, lunch or dinner, labelled as the Meal tag's values (4.14), each in a fixed hue (breakfast `amber`, lunch `teal`, dinner `plum`; the aisle colours' `soft` and `strong`).
 - **An entry** is a recipe from the household or a note: **Leftovers** or **Eating out** (stored as slugs, shown in the app's language) or free text (**Note…**, up to 60 characters, kept as typed, 4.15). A slot holds one entry for now. The data and code allow several (`position`, and slot queries that return lists), so a later "main and side" is a UI change only. Setting a slot soft-deletes its live entries and inserts the new one. If two devices fill the same slot offline, both rows survive sync and the slot shows the one created last; the next change to the slot clears both. A recipe that's deleted drops out: its entries aren't shown, so the slot reads as empty.
@@ -425,7 +425,9 @@ A household plans its week: what's for breakfast, lunch and dinner each day. Moc
 
 ## 5. Data model
 
-Postgres (Supabase). Row ids are UUIDv7 generated on the client so rows can be created offline. All tables have `created_at` and `updated_at` (server-set). Household-scoped tables also have `deleted_at` for soft delete (needed for sync) and `field_clock jsonb` for conflict resolution (7.3).
+Postgres (Supabase). Row ids are UUIDv7 generated on the client so rows can be created offline. Most tables have `created_at` and `updated_at` (server-set; left out of the DDL below). Exceptions with no `updated_at`: `household_members`, `household_invites`, `ingredient_households`, `plans`, `plan_features`, `user_plans`, `admin.admin_actions`. Household data synced through `apply_mutations` has `field_clock jsonb` for conflict resolution (7.3), and soft-deletable rows have `deleted_at` (needed for sync); `categories`, `household_category_overrides`, `ingredient_usage` and `ingredient_unit_usage` have no `deleted_at`, and `households` / `household_members` have no `field_clock` (they change only through functions).
+
+**Foreign keys**: every `household_id` is `on delete cascade`, so deleting a household removes its data. Children of a list or recipe reference it together with the household (`foreign key (list_id, household_id) references lists (id, household_id) on delete cascade`, likewise for `recipe_id`; each parent has `unique (id, household_id)`), which is what keeps a child in its parent's household. References to `auth.users` on rows that outlive their author (`checked_by`, `added_by`, `created_by`, `used_by`) are `on delete set null`, as are `list_items.merged_into` and `user_settings.default_list_id`. The DDL below shows plain references for brevity; the migrations are the source of truth.
 
 **Ingredient key**: ingredients are identified by `normalized_name` (text primary key). The client can always compute it, offline included, so list items reference an ingredient without waiting for the server. No provisional ids, no rewriting.
 
@@ -525,6 +527,9 @@ create table recipes (
   tags          jsonb,                           -- 4.14; null = never tagged
   tags_edited   boolean not null default false,  -- a person has edited the tags
   total_minutes int check (total_minutes between 1 and 2880),
+  steps         jsonb,                           -- null = none, else 1–100 strings of 1–2000 chars (private.recipe_steps_ok)
+  servings      int check (servings between 1 and 100),
+  image_url     text check (image_url like 'https://%' and char_length(image_url) <= 2048),
   added_by      uuid references auth.users on delete set null,  -- the server sets it on insert
   deleted_at   timestamptz,
   field_clock  jsonb not null default '{}'
@@ -542,11 +547,16 @@ create table meal_plan_entries (
   meal         text not null check (meal in ('breakfast', 'lunch', 'dinner')),
   position     double precision not null default 0, -- order within the slot
   kind         text not null check (kind in ('recipe', 'leftovers', 'eating-out', 'note')),
-  recipe_id    uuid references recipes,             -- set exactly when kind = 'recipe'; same household
-  note         text check (char_length(note) <= 60), -- set exactly when kind = 'note'; kept as typed
+  recipe_id    uuid,                                -- (recipe_id, household_id) references recipes
+  note         text,                                -- kept as typed (4.15)
   added_by     uuid references auth.users on delete set null, -- the server sets it on insert
   deleted_at   timestamptz,
-  field_clock  jsonb not null default '{}'
+  field_clock  jsonb not null default '{}',
+  constraint meal_plan_entries_recipe_kind check ((kind = 'recipe') = (recipe_id is not null)),
+  constraint meal_plan_entries_note_kind check (
+    (kind = 'note') = (note is not null)
+    and (note is null or (note = btrim(note) and char_length(note) between 1 and 60))
+  )
 );
 create index on meal_plan_entries (household_id, plan_date);
 
@@ -634,10 +644,22 @@ create table household_category_overrides (
   primary key (household_id, ingredient_name)
 );
 
--- Per-user aisle order (req 9). Never shared with the household.
+-- Household staples, "Always have" (4.5). Household data written through apply_mutations
+-- (deleted_at only: unmarking sets it, marking again clears it).
+create table household_staples (
+  household_id    uuid not null references households on delete cascade,
+  ingredient_name text not null,                                  -- ingredient key
+  created_by      uuid references auth.users on delete set null,  -- the server sets it on insert
+  deleted_at      timestamptz,
+  field_clock     jsonb not null default '{}',
+  primary key (household_id, ingredient_name)
+);
+
+-- Per-user aisle order (req 9). Never shared with the household. Written directly (PostgREST), not
+-- through apply_mutations.
 create table user_category_order (
   user_id     uuid references auth.users on delete cascade,
-  category_id uuid references categories,
+  category_id uuid references categories on delete cascade,
   position    double precision not null,
   primary key (user_id, category_id)
 );
@@ -690,6 +712,13 @@ create table user_plans (
 
 Note the `create table` order above is for readability; the real migration must create referenced tables first.
 
+**Server-only tables** (service role only: RLS on with no policies, no client grants; no user id, per 6.5; pg_cron deletes rows older than 30 days):
+- `ai_calls`: one row per model attempt by `runAiTask` (task, `provider:model`, prompt version, status, instructions, prompt, output, tokens, duration, error, `fallback_of`), for debugging prompts and watching cost (6.4).
+- `recipe_imports`: the extraction cache (6.6), keyed by (`url_key`, `prompt_version`), holding the cleaned result and `is_recipe`.
+- `private.applied_counters` (`table_name`, `row_key`, `hlc`): counter deltas `apply_mutations` has already applied, so a re-sent mutation doesn't count twice (7.3).
+
+**Local-only tables** (SQLite, never synced; `src/db/schema.ts`): `device_settings`, `outbox` (7.1) and `failed_imports` (4.10).
+
 **AI usage counters** (service role only, in the `private` schema; RLS on, privileges revoked from `public`, `anon` and `authenticated`). Each AI function has a per-user table keyed by (`user_id`, UTC `day`), holding the requests in the current fixed one-minute window (`requests_this_minute`, `minute_start`) and the day's count, and a global per-day total. Only its `check_*_limit` function (`security definer`, `service_role` only) writes them, and pg_cron prunes old rows daily.
 - `categorize_usage` / `categorize_daily_total`: LLM-bound names (6.4).
 - `recipe_import_usage` / `recipe_import_daily_total`: imports (6.6).
@@ -697,23 +726,23 @@ Note the `create table` order above is for readability; the real migration must 
 
 **Unknown ingredients on insert**: clients can't write `ingredients` (RLS). A `before insert` trigger on `list_items` and `recipe_ingredients` (a `security definer` function) inserts a `pending` ingredient row if the name is missing (`on conflict do nothing`) and records the household in `ingredient_households`. So a list item can always be pushed, even before categorization has run.
 
-**Ingredient history and Siri**: `ingredient_usage` and `ingredient_unit_usage` are written by the app in the same local transaction as the add. Siri adds go through the `siri-add` Edge Function (4.9), so they aren't counted until M5 sync, when the server records the use and it syncs down like any other household row.
+**Ingredient history and Siri**: `ingredient_usage` and `ingredient_unit_usage` are written by the app in the same local transaction as the add. Siri adds are drained by the app (4.9) and counted the same way; once the `siri-add` Edge Function exists, the server will record the use for adds it applies first, and it syncs down like any other household row.
 
 **Effective category** for an ingredient in a household (the household of the list or recipe it's on) = that household's `household_category_overrides.category_id` if the row exists and it isn't null, else `ingredients.default_category_id`, else "Sorting..." (pending) or Other (failed). Someone in two households has a separate set of overrides and custom aisles in each.
 
 **Row-level security**
 - `ingredients`, system `categories` (`household_id is null`): readable by any authenticated user; writable only by the service role and the insert trigger above.
 - `ingredient_households`: no client access.
-- Custom `categories` and `household_category_overrides`: household data, readable by members of their household only (`household_id in (select my_household_ids())`); written through `apply_mutations` (custom categories: insert with `household_id`, `name` and `created_at`, then `name`; overrides: `category_id` only, which must be a system category or a custom one of the same household).
-- `user_category_order`, `user_settings`: read/write only where `user_id = auth.uid()`.
-- Household tables: read/write where `household_id` is one of the caller's households: `household_id in (select my_household_ids())`, where `my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
-- `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `set_combine_languages` (any member, 4.15), `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, `reorder_households`; executable by `authenticated` only, not `anon`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
+- Custom `categories` and `household_category_overrides`: household data, readable by members of their household only (`household_id in (select private.my_household_ids())`); written through `apply_mutations` (custom categories: insert with `household_id`, `name` and `created_at`, then `name`; overrides: `category_id` only, which must be a system category or a custom one of the same household).
+- `user_category_order`, `user_settings`: read/write only where `user_id = auth.uid()`, written directly (upsert/delete), not through `apply_mutations`.
+- Household tables: readable where `household_id` is one of the caller's households: `household_id in (select private.my_household_ids())`, where `private.my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
+- `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `set_combine_languages` (any member, 4.15), `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, and `get_household_members` for reading; `reorder_households` is planned, not built; executable by `authenticated` only, not `anon`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
 - `household_invites`: no direct access; `security definer` functions only, all for `authenticated`: `create_invite(household, email?)` (members; with an email, raises `already a member` for a member's email and revokes the open invite to the same email first), `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired; revoked and declined read as used), `accept_invite` (by link, whoever has it), `list_household_invites` (members; open, unexpired invites), `revoke_invite` (any member of the invite's household), `my_invites` (open, unexpired invites to the caller's `auth.email()`, case-insensitive, for households they aren't in), and `accept_invite_by_id` / `decline_invite` (only for an invite to the caller's email; anyone else gets `invite not found`, the same as an unknown id).
-- `copy_recipe(recipe_id, target_household_id)`: `security definer`; checks the caller is a member of both households.
+- `copy_recipe(recipe_id, target_household_id)` (not built yet, 4.5): `security definer`; checks the caller is a member of both households.
 - `delete_account()` (4.8): `security definer`, `search_path = ''`, executable by `authenticated` only (revoked from `public`, `anon` and `service_role`); acts only on `auth.uid()`. It runs `private.delete_user_core`, which, like the leaving rules, is callable only by `postgres` and the `security definer` functions that use it, and writes its `admin.admin_actions` row itself, so the caller never touches the `admin` schema.
 - The `admin` schema (`admin_actions`, `delete_user`, 4.12): `postgres` (the dashboard) only. Not exposed by the API; usage on the schema, every privilege on `admin_actions` and execute on its functions are revoked from `public`, `anon`, `authenticated` and `service_role` (each function revokes its own execute: a per-schema default privilege can't take away Postgres's global PUBLIC execute). The leaving rules, `private.remove_member_from_household(household_id, user_id)`, return `left`, `promoted` or `deleted` and are callable only by `postgres` and the `security definer` functions that use them.
 - `plans`, `plan_features`, `user_plans` (4.12): no client access (RLS on, no policies, privileges revoked from `anon` and `authenticated`); edited from the dashboard. `has_feature(user_id, feature, household_id default null)` is `stable security definer` in `public` so Edge Functions can call it with the service role (like `check_categorize_limit`); execute is revoked from `public`, `anon` and `authenticated`. `my_features(household_id default null)` returns the caller's features, sorted, for `authenticated`; it's `security definer` with `search_path = ''`, since run as the caller it couldn't read the plan tables.
-- Writes to household data go through `apply_mutations` (7.3), which enforces the same household check.
+- Writes to household data go through `apply_mutations` (7.3), which enforces the same household check. Clients have `select` only on household tables. Its whitelist: `lists`, `recipes`, `list_items`, `list_item_contributions`, `recipe_ingredients`, `meal_plan_entries`, `categories` (custom; `household_id`, `name`, `created_at`), `household_category_overrides` (`category_id`), `household_staples` (`deleted_at`), and `ingredient_usage` / `ingredient_unit_usage` (`use_count` as a counter; `last_used_at` as a max on unit usage).
 
 ---
 
@@ -878,47 +907,50 @@ Settings > "Sync status" (as stash): pending outbox count, last successful sync,
 | Native | Swift App Intents extension via `@bacons/apple-targets` | Only for Siri; proven in stash |
 | Backend | Supabase (Postgres, Auth, Realtime, Edge Functions, pg_cron) | Global catalog, sharing, and the LLM proxy need a server |
 | Auth | Google via Supabase Auth; dev email-code stub until OAuth IDs exist | Same as stash |
-| LLM | Vercel AI SDK in an Edge Function, Anthropic Haiku by default | Key stays server-side; provider is config |
+| LLM | Vercel AI SDK in an Edge Function; the model is set per task by env var (`AI_MODEL_CATEGORIZE` etc.), currently Gemini 3.8 Flash (`google:gemini-3.8-flash`); Anthropic is a registered alternative | Key stays server-side; provider is config |
+| UI and i18n | `@expo/ui`, `expo-glass-effect`, `expo-image`, `expo-symbols`; `i18next` + `react-i18next` (4.15) | Native controls; strings in one place |
+| Other native | `expo-mail-composer`, `expo-sms` (invites), `react-native-webview` (recipe page capture, 4.10), `expo-keep-awake`, `expo-haptics` | |
 | Shared code | Zod schemas, normalizer, quantity parser in `src/shared/`, imported by app and Edge Functions | One implementation of the ingredient key |
 
 ### 8.2 App structure
-Follows stash's layout (Expo Router routes in `src/app/`, app logic in sibling folders).
+Follows stash's layout (Expo Router routes in `src/app/`, app logic in sibling folders). Folder-level only; the files change too often to list.
 
 ```
 src/
-  app/              routes: (tabs)/lists, (tabs)/recipes, (tabs)/settings, list/[id], recipe/[id],
-                    join/[token], sign-in, settings/households, settings/households/[id], settings/sync-status
+  app/              routes. Tabs: (tabs)/lists, (tabs)/recipes (+ filter), (tabs)/plan, (tabs)/settings
+                    (households/[id], sync, siri, language, always-have, aisle-colors, developer).
+                    Stack and sheets: list/[id] (edit, add-to-recipe, item/[itemId]), recipe/[id]
+                    (add-to-list, cook, steps, tags), lists-sheet, add-recipe, import-recipe,
+                    category-order, household-invite, plan-slot, invite/[token], sign-in
   features/
-    lists/          ListScreen (the List tab), YourListsSheet, AddItemBar, ItemRow, ItemEditSheet,
-                    DuplicatePromptSheet, BulkDuplicateSheet, ViewModePicker
-    recipes/        RecipesList, RecipeDetail, AddRecipeToListSheet, MakeRecipeFromSelectionSheet,
-                    import (importRecipe, the share-queue drain, failed imports; 4.10)
-    categories/     CategoryPicker, ReorderSections
-    households/     HouseholdsScreen, HouseholdDetail, InviteSheet, JoinHousehold, CopyRecipeSheet
-    siri/           app-group-queue (drain), list-snapshot (writes lists.json)
-    notifications/  in-app banners (4.11): the queue, NotificationHost, per-kind content builders live
-                    with their feature (e.g. recipes/import-notifications)
-    auth/
-  domain/           pure TS, no React/IO: duplicate-detector, quantity-math, category-resolver
-  shared/           used by app AND Edge Functions: zod schemas, ingredient-normalizer,
-                    quantity-parser, siri and share envelope schemas, recipe-import schemas,
-                    recipe-jsonld
-  db/               Drizzle schema mirroring section 5, migrations, live queries
-  sync/             outbox, hlc, drain, push (apply_mutations), pull, realtime
-  lib/              supabase client, google sign-in, secure store
-  i18n/             strings (4.15): en.ts (the source, grouped by feature), es.ts (exactly en's keys),
-                    languages (SUPPORTED_LANGUAGES, resolveLanguage), initI18n (root layout), useT,
-                    formatDate/formatNumber
+    lists/          the List tab's screen, add bar and chips, rows, view modes, suggestions, usage
+    recipes/        the Recipes tab, recipe screen parts, search/filter/sort, import and share drain (4.10)
+    meal-plan/      the week screen (grid, agenda, toolbar), queries and writes (4.16)
+    categories/     categorization client and catch-up, aisle order, accent folding
+    households/     households, invites, staples
+    siri/           App Group access, queue drain, list snapshot (writes lists.json)
+    notifications/  in-app banners (4.11); per-kind content builders live with their feature
+    plans/          feature checks (4.12)
+    settings/       device settings, language, sync status
+    auth/           sign-in, sign-out, delete account, local wipe
+  domain/           pure TS, no React/IO: duplicate detector, quantity math and display, category
+                    resolver, suggestion rank, kitchen rounding, usual unit
+  shared/           used by app AND Edge Functions: zod schemas (siri, share, recipe import, tags),
+                    ingredient normalizer, quantity parser, recipe-jsonld, display name, seeds
+  db/               Drizzle schema mirroring section 5 plus local-only tables, migrations
+  sync/             hlc, outbox writes (mutate), push (apply_mutations), pull, realtime, purge, status
+  lib/              supabase client, google sign-in, ids
+  i18n/             strings (4.15): en.ts (the source), es.ts (exactly en's keys), languages, useT,
+                    formatters, the strings review export
 targets/
-  add-intent/       AddToPerfectBiteIntent.swift, ListEntity, App Group queue writer
-  share-recipe/     share extension (4.10): SwiftUI sheet, Preprocess.js, share queue writer
+  _shared/          SiriQueue.swift, ShareQueue.swift (App Group queue writers, Codable envelopes)
+  add-intent/       AddToPerfectBiteIntent.swift (with ListEntity)
+  share-recipe/     share extension (4.10): SwiftUI sheet, Preprocess.js
 supabase/
-  migrations/       schema, RLS, triggers, apply_mutations, household functions, seed categories,
-                    seed ingredients, categorize, recipe-import and recipe-tags rate limits, ai_calls,
-                    recipe_imports
-  functions/        categorize-ingredients/, siri-add/, import-recipe/, suggest-recipe-tags/, delete-account/,
-                    _shared/ (incl. fetch-page)
-  tests/            RLS and apply_mutations tests
+  migrations/       schema, RLS, triggers, apply_mutations, household functions, seeds, rate limits
+  functions/        categorize-ingredients/, import-recipe/, suggest-recipe-tags/, _shared/ (AI tasks
+                    and registry, fetch-page). Account deletion is the delete_account SQL function.
+  tests/            pgTAP, one file per area (RLS, apply_mutations, invites, plans, meal plan, ...)
 ```
 
 Business logic in `domain/` and `shared/` must be pure TypeScript with no React, network, or SQLite dependencies, so it is unit-testable and runs in Deno.
@@ -926,7 +958,7 @@ Business logic in `domain/` and `shared/` must be pure TypeScript with no React,
 ### 8.3 Local development
 Identical to stash. Copy its README sections, `mise.toml`, `.yarnrc.yml`, `.env.example`, `supabase/functions/.env.example`, `supabase/config.toml` (new `project_id`, ports moved to 553xx so stash and this project can run side by side), and `AGENTS.md`, then adapt.
 
-**Prerequisites**: Node, Yarn 4 (pinned in `mise.toml` and `packageManager`), Docker, the Supabase CLI, Xcode with CocoaPods.
+**Prerequisites**: Node, Yarn 4 (pinned in `mise.toml` and `packageManager`), Docker (OrbStack works), the Supabase CLI, Xcode with CocoaPods.
 
 **One-time setup**
 ```bash
@@ -934,7 +966,7 @@ yarn install
 supabase start            # local Postgres, Auth, Realtime, Studio (http://127.0.0.1:55323)
 supabase db reset         # apply migrations + seed.sql
 cp .env.example .env.local                                   # publishable key from `supabase status`
-cp supabase/functions/.env.example supabase/functions/.env   # ANTHROPIC_API_KEY etc.
+cp supabase/functions/.env.example supabase/functions/.env   # GOOGLE_GENERATIVE_AI_API_KEY etc.
 ```
 
 **Each session** (separate terminals)
@@ -945,7 +977,7 @@ yarn expo start                                              # Metro
 ```
 As in stash, don't rely on the edge runtime that `supabase start` launches; use `functions serve`. A `503` from `http://127.0.0.1:55321/functions/v1/<name>` means it isn't running.
 
-**Dev sign-in**: email + 6-digit code; local Supabase delivers the code to the local mail viewer (`http://127.0.0.1:55324`). No Google setup needed until M9.
+**Dev sign-in**: dev builds can sign in with the seeded dev user's password (`DEV_PASSWORD_EMAIL` / `DEV_PASSWORD` in `src/features/auth/account.ts`, matching `seed.sql`), or with email + 6-digit code, which local Supabase delivers to the local mail viewer (`http://127.0.0.1:55324`). Google sign-in needs the `EXPO_PUBLIC_GOOGLE_*` client ids in `.env.local`.
 
 **Development build**: Siri (the intent extension) needs a development build, not Expo Go: `yarn expo run:ios` (simulator) or `yarn expo run:ios --device`. On a physical device, set `EXPO_PUBLIC_SUPABASE_URL` to the Mac's LAN IP. Device signing steps: copy stash's checklist from its `docs/spikes.md` (including the one-time `xcodebuild ... -allowProvisioningUpdates` build).
 
@@ -953,11 +985,10 @@ As in stash, don't rely on the edge runtime that `supabase start` launches; use 
 
 **Local categorization**: `categorize-ingredients` runs locally against Gemini 3.8 Flash (`google:gemini-3.8-flash`) using `GOOGLE_GENERATIVE_AI_API_KEY` in `supabase/functions/.env`. Set `AI_MODEL_CATEGORIZE=mock` to use a deterministic fake (keyword rules) with no key and no cost; tests always use the mock.
 
-**Seed data** (`supabase/seed.sql`), so sharing can be tested on day one:
-- System categories and the ~1,300 seed ingredients, with their default units.
-- Dev users `alex@example.com` and `sam@example.com` (sign in with the dev code flow).
-- Each has a personal household; both are members of a shared "Test home" household (Alex owner) with a "Groceries" list, a "Costco" list, and a "Tacos" recipe. Alex's personal household has one list, so the multi-household UI shows up immediately.
-- Run the simulator signed in as one user and a device (or a second simulator) as the other.
+**Seed data**:
+- System categories and the seed ingredients (about 1,300 English and 320 Spanish, with their default units and links) come from migrations, so they exist locally and hosted alike.
+- `supabase/seed.sql` (local only) adds one dev user with a password, a household they own with a "Groceries" list as their default, and the `plus` plan, so `supabase db reset` doesn't sign you out for good.
+- To test sharing, sign a second simulator or device in as another user (code flow) and invite them. A seeded second user and shared household would make that quicker, but don't exist yet.
 
 **Checks** (before declaring any task done, as in stash's `AGENTS.md`): `yarn expo lint`, `yarn tsc --noEmit`, `yarn jest`, `supabase test db`, `yarn dlx expo-doctor`.
 
@@ -983,7 +1014,7 @@ Acceptance criteria:
 5. **First-seen LLM**: adding a never-seen ingredient shows "Sorting..." then moves to a section; the `ingredients` row exists with `categorized_by` set; a second user adding it later triggers no LLM call (verify via function logs).
 6. **Batching**: adding a 12-ingredient recipe with 8 unknown ingredients makes exactly one function request and one LLM call.
 7. **Override**: user A moves "tahini" to Pantry; user B in the same household sees it in Pantry on every list and device; a user in another household still sees the default.
-8. **Shared household**: A invites B's email to "Test home" and sends nothing; when B opens the app (signed in with that email) the list switcher shows an invite dot and the Your lists sheet has A's invite, A's household screen lists B's email under Invited, and after B taps Join the invite goes, A's Invited section is empty on its next load, and B sees its lists in a new section of the sheet next to B's personal household; an item checked by A appears checked on B's device within a few seconds while both are online.
+8. **Shared household**: A invites B's email to a shared household ("Test home" below) and sends nothing; when B opens the app (signed in with that email) the list switcher shows an invite dot and the Your lists sheet has A's invite, A's household screen lists B's email under Invited, and after B taps Join the invite goes, A's Invited section is empty on its next load, and B sees its lists in a new section of the sheet next to B's personal household; an item checked by A appears checked on B's device within a few seconds while both are online.
 9. **Duplicates**: adding `milk` to a list that has `1 gal milk` shows no prompt, yields one row whose total counts the new add as one, and shows the toast with the keyboard still up; with no unit history for milk the toast reads "Added to milk (now 1 gal + 1)", and when milk is usually bought by the gallon it reads "Added to milk (now 2 gal)", with a single Undo, which restores the original row. Adding a recipe with 3 ingredients already open on the list asks nothing: all 3 Combine, one toast "Added Tacos · N items" appears, and its Undo restores the list exactly.
 10. **Category order**: user A drags Dairy above Produce; A's lists show Dairy first on all of A's devices; B's order is unchanged.
 11. **Multiple lists**: create, rename, reorder and delete lists from the Your lists sheet; picking one switches the List tab to it, deleting the current list moves the tab to the next; items are independent per list.
@@ -991,12 +1022,12 @@ Acceptance criteria:
 13. **Offline**: in airplane mode, add/check/delete items and reorder categories; on reconnect everything syncs with no duplicates.
 14. **Concurrent offline edits**: A (offline) checks "eggs" while B (online) edits its note; after A reconnects, the item is checked and has B's note.
 15. **Offline duplicate merge**: A and B both add `milk` to the same list while offline; after both reconnect, there is one row with both contributions.
-16. **Siri**: with the phone locked, "Hey Siri, add to The Perfect Bite" then "two avocados" replies within ~3 s; the item appears on B's device in the default list under Produce without A opening the app (when A is online).
+16. **Siri**: with the phone locked, "Hey Siri, add to The Perfect Bite" then "two avocados" replies within ~3 s; the item appears on B's device in the default list under Produce without A opening the app (when A is online; needs `siri-add`, not built yet; today it appears once A opens the app).
 17. **Siri, named list and offline**: "add to Costco in The Perfect Bite" adds to Costco; in airplane mode the add is kept and appears after reconnect and app launch, exactly once.
 18. **Multiple households**: a user in two households sees both sections on Lists and Recipes; a user in one household sees no household UI.
 19. **Household owns data**: B leaves "Test home"; within one sync, its lists disappear from B's devices and B's queued edits for it are dropped; A still has all of it. B's personal household is untouched.
 20. **Last member**: the last member leaving a household deletes it (after confirm); a user leaving their only household gets a new empty personal household.
-21. **Copy recipe**: copying "Tacos" to another household creates an independent recipe there; editing one doesn't change the other.
+21. **Copy recipe** (not built yet): copying "Tacos" to another household creates an independent recipe there; editing one doesn't change the other.
 22. **Isolation**: SQL tests prove a user can't read or write any row of a household they aren't in, including right after leaving or removal, and can't perform owner-only actions as a member.
 
 ---
@@ -1014,10 +1045,10 @@ Each milestone should end with a working app and passing tests.
    - *Landed early* for the read-only Households screen: `households`, `household_members` (with RLS, `private.my_household_ids()` and household-mates' profiles readable), `create_household` and `get_household_members`. The household is created locally through the outbox (`ensureStarterData`), and the push sends it with `create_household` like other household data (7.1); the launch-time `registerHouseholds` that did this before sync is gone.
    - *Also landed early*, so the data can be browsed in Studio: the rest of the section 5 schema (catalog with seed, per-user preferences, household data, `user_settings`), with RLS and the unknown-ingredient trigger (`household_invites` came later, with invites; see M7). M5 moved household writes behind `apply_mutations`, and sync replaced the dev-only "Push local data to Supabase" snapshot, which is gone.
 7. **M6 Categorization**: `categorize-ingredients` Edge Function with the AI SDK, categorize-on-add client with catch-up, "Sorting..." state, retries, golden-set eval.
-   - *Landed*: the function (6.1, 6.4) with its LLM boundaries, rate limits, global daily cap and `off` kill switch; `ai_calls`; Gemini 3.8 Flash with thinking `low` (`docs/spikes.md` §4); the categorize-on-add client and catch-up (6.3); "Sorting..."; failed names retried up to 3 attempts; default units (prompt categorize.v2); the ~7,000-name seed, checked with `yarn ai:check-seed`; the golden-set eval, 99/100 on categorize.v2.
-8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
+   - *Landed*: the function (6.1, 6.4) with its LLM boundaries, rate limits, global daily cap and `off` kill switch; `ai_calls`; Gemini 3.8 Flash with thinking `low` (`docs/spikes.md` §4); the categorize-on-add client and catch-up (6.3); "Sorting..."; failed names retried up to 3 attempts; default units (prompt categorize.v2, since v3); the seed (about 1,300 English names, later joined by about 320 Spanish), checked with `yarn ai:check-seed`; the golden-set eval (99/100 on categorize.v2 when it landed).
+8. **M7 Households**: multiple memberships, household sections in Lists/Recipes, Households settings, invites via Universal Links, join/leave/remove/roles/delete, per-household sync cursors and local purge on lost access, copy recipe. **Done** except Universal Links (`future/universal-links-tasks.md`; the app scheme is used), copy recipe (`future/copy-to-household-tasks.md`) and household reordering (`future/wishlist.md`). (The schema and RLS for multiple households land in M5; M7 is the UI and flows.)
    - *Landed early*: a read-only Households settings screen (Settings > Households lists local households; tapping one shows its name and members with Owner/Member and "You", fetched online via `get_household_members`). It uses `households`, `household_members`, `create_household` and `get_household_members`, pulled forward from M5/M7 (see M5). Rename, leave, remove and roles are still M7. *Also landed early (with M5)*: invites: `household_invites` with `create_invite` / `preview_invite` / `accept_invite`, an "Invite someone" button on the household screen and the join screen (`src/app/invite/[token].tsx`), using the app scheme until Universal Links have a domain. *Email invites* (designs S1–S4, R2b): invites can name an email; the two-step invite sheet, the Invited section on the household screen and invite cards on the Lists home, since moved to the Your lists sheet by M11 (`my_invites`, `accept_invite_by_id`, `decline_invite`).
-9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function (categorizes unknown names inline by calling the shared `categorize()`), default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite").
+9. **M8 Siri**: intent extension, `ListEntity` from the list snapshot, App Group queue + drain, `siri-add` Edge Function (categorizes unknown names inline by calling the shared `categorize()`), default list setting, onboarding tip ("Try: Hey Siri, add to The Perfect Bite"). **Done** except the `siri-add` Edge Function and the extension's upload through the shared Keychain (`future/siri-tasks.md`): adds reach the server when the app drains the queue.
 10. **M9 Polish**: empty states, haptics, accessibility (Dynamic Type, VoiceOver labels), account deletion, Google sign-in replacing the stub (done; the stub stays in dev builds), TestFlight.
 11. **M10 Recipe import** (4.10, 6.6), after M6's categorizer works, since extraction is a bigger LLM call. **Done**: everything below has landed; the end-to-end device pass and the extension's first build are manual checks still to run.
     - *Spec*: this section, 4.10 and 6.6.
@@ -1025,7 +1056,9 @@ Each milestone should end with a working app and passing tests.
     - *App, before the extension*: the client import (`importRecipe`: recipe reuse by URL, bulk add with Combine, undo, typed errors); the "Add recipe from link…" / "Import from link" sheet and toast.
     - *Share extension*: share envelope and `lastOpenedListId` snapshot schemas with the Swift contract test; the `targets/share-recipe/` extension; draining the share queue in the app; failed imports on the Recipes tab.
     - *End-to-end pass on a device*: Safari with and without JSON-LD, Chrome, a URL in text, a paywalled page, a non-recipe page, offline, signed out, and the same recipe twice.
-12. **M11 List tab** (4.1, 4.7; mockups E, G, H): the Lists home goes. The List tab shows the current list as its root, the header's name opens the Your lists sheet (switching, invites, create, reorder, archived lists), and opening a list from elsewhere switches the tab to it.
+12. **M11 List tab** (4.1, 4.7; mockups E, G, H): the Lists home goes. The List tab shows the current list as its root, the header's name opens the Your lists sheet (switching, invites, create, reorder, archived lists), and opening a list from elsewhere switches the tab to it. **Done**.
+
+Later work landed outside these milestones, each tracked in `tasks.md` while it was built: households' staples (Always have, 4.5), admin and plans (4.12), recipe tags and filtering with the Saved facet (4.14), Mexican Spanish (4.15; built, not yet switched on), and the meal plan (4.16; in progress).
 
 ---
 
@@ -1063,13 +1096,13 @@ Turn on react-native-web for planning on a laptop (lists, recipes, households). 
 | Q2 | ~~(req 7.1) When someone leaves, do they keep a copy?~~ | **Decided**: no; data stays with the household. Leaving your only household gives you a new empty personal one. |
 | Q3 | ~~(req 7.1) What happens to a joiner's existing data?~~ | **Decided**: nothing; it stays in their own household(s). Joining only adds access. |
 | Q4 | ~~Should many users recategorizing the same ingredient eventually change the global default?~~ | **Decided**: no. Overrides stay per household (shared by its members, not by the rest of the app). |
-| Q5 | Should category order be per user (all devices) or per device (e.g. different stores)? | Per user, synced. Per-store orders are a natural later feature. |
+| Q5 | Should category order be per user (all devices) or per device (e.g. different stores)? | Per user, synced (built that way). Per-store orders are a natural later feature. |
 | Q6 | ~~Can a user belong to more than one household?~~ | **Decided**: yes, any number (4.7). |
-| Q7 | Should custom categories be shareable with the household? | No, per user. |
+| Q7 | ~~Should custom categories be shareable with the household?~~ | **Decided**: yes. Custom aisles and aisle overrides belong to the household and every member shares them (4.3.2); only the aisle order stays per user. |
 | Q8 | ~~Requirement 3 is missing from the original list.~~ | **Decided**: there was no requirement 3; nothing was dropped. |
-| Q9 | Should checked items auto-clear after some time? | No, manual "Clear checked". |
+| Q9 | ~~Should checked items auto-clear after some time?~~ | **Decided**: no, manual Clear (4.1, 4.6). |
 | Q10 | ~~Prompt on in-app duplicate adds, or auto-Combine with an undo toast?~~ | **Decided**: auto-Combine with an undo toast, for single adds and recipe adds alike. A recipe add has no "already on the list" step; one toast with **Undo** takes back the whole add (4.4). |
-| Q11 | Is the Siri default list per user or per household? | Per user. |
+| Q11 | ~~Is the Siri default list per user or per household?~~ | **Decided**: per user (`user_settings.default_list_id`). |
 | Q12 | ~~Final app name.~~ | **Decided**: "The Perfect Bite" as the display name; the M0 spike confirms Siri recognizes it and picks the phrase variants. |
 | Q13 | Google Cloud project for OAuth client IDs: reuse stash's or a new one? | Closed: a new project, same setup as stash. |
 | Q14 | ~~Copy stash code or share packages?~~ | **Decided**: copy when useful; no shared packages. The apps evolve independently. |
