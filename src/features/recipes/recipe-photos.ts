@@ -6,6 +6,8 @@ import { useSyncExternalStore } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { RecipePhotosErrorSchema, RecipePhotosResponseSchema } from '@/shared/schemas/recipe-photos';
 
+import type { PhotoCredit } from '@/shared/photo-credit';
+
 import type { RecipePhotoFields } from './recipe-photo-source';
 import { updateRecipePhoto } from './recipes';
 import { knownOffline } from './suggest-tags';
@@ -55,17 +57,22 @@ async function errorCode(error: unknown): Promise<PagePhotosError> {
   return 'failed';
 }
 
-/** The photo a recipe has after picking a page photo: the site photo, and no own photo. */
+/** The photo a recipe has after picking a page photo: the site photo, and no own photo or credit. */
 export function pagePhoto(imageUrl: string): RecipePhotoFields {
-  return { imageUrl, photoPath: null };
+  return { imageUrl, photoPath: null, photoCredit: null };
 }
 
 /**
- * The photo a recipe has after Remove photo: an own photo goes, so the site's (if any) shows
- * again; otherwise the site photo goes.
+ * The photo a recipe has after Remove photo: an own photo (and its credit) goes, so the site's (if
+ * any) shows again; otherwise the site photo goes.
  */
 export function photoAfterRemove(current: RecipePhotoFields): RecipePhotoFields {
-  return current.photoPath !== null ? { imageUrl: current.imageUrl, photoPath: null } : { imageUrl: null, photoPath: null };
+  return { imageUrl: current.photoPath !== null ? current.imageUrl : null, photoPath: null, photoCredit: null };
+}
+
+function sameCredit(a: PhotoCredit | null, b: PhotoCredit | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.provider === b.provider && a.author === b.author && a.authorUrl === b.authorUrl && a.pageUrl === b.pageUrl;
 }
 
 /** A photo change the sheet made, for the recipe screen's toast: what it was before, for Undo. */
@@ -80,11 +87,17 @@ function emit(next: PhotoChange | null) {
   for (const listener of [...listeners]) listener();
 }
 
-/** The fields of `next` that differ from `from`, so an unchanged one keeps its clock. */
+/**
+ * The fields of `next` that differ from `from`, so an unchanged one keeps its clock. The credit
+ * always goes with a new `photoPath`, so the two share a clock and a merge never leaves a credit on
+ * another photo (or on none, which the server refuses).
+ */
 function changedFields(from: RecipePhotoFields, next: RecipePhotoFields): Partial<RecipePhotoFields> {
+  const pathChanged = next.photoPath !== from.photoPath;
   return {
     ...(next.imageUrl !== from.imageUrl ? { imageUrl: next.imageUrl } : {}),
-    ...(next.photoPath !== from.photoPath ? { photoPath: next.photoPath } : {}),
+    ...(pathChanged ? { photoPath: next.photoPath } : {}),
+    ...(pathChanged || !sameCredit(next.photoCredit, from.photoCredit) ? { photoCredit: next.photoCredit } : {}),
   };
 }
 
@@ -98,11 +111,12 @@ export function chooseRecipePhoto(recipeId: string, previous: RecipePhotoFields,
   if (Object.keys(patch).length === 0) return;
   updateRecipePhoto(recipeId, patch);
   const afterRemove = photoAfterRemove(previous);
-  const removed = next.imageUrl === afterRemove.imageUrl && next.photoPath === afterRemove.photoPath;
+  const removed =
+    next.imageUrl === afterRemove.imageUrl && next.photoPath === afterRemove.photoPath && next.photoCredit === null;
   emit({ recipeId, previous, next, removed, key: nextKey++ });
 }
 
-/** The toast's Undo: puts both photo fields back as they were and ends the toast. */
+/** The toast's Undo: puts the photo fields (credit included) back as they were and ends the toast. */
 export function undoPhotoChange(c: PhotoChange): void {
   updateRecipePhoto(c.recipeId, changedFields(c.next, c.previous));
   if (change?.key === c.key) emit(null);

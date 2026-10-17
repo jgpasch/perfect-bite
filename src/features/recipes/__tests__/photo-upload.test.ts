@@ -6,16 +6,18 @@ import { ensureStarterData } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
 import { resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
 import { outboxMutations } from '@/test/outbox';
+import type { PhotoCredit } from '@/shared/photo-credit';
 
 import {
   dismissPhotoUpload,
   pickRecipePhoto,
   recipePhotoPath,
   resetPhotoUpload,
+  retryPhotoUpload,
   uploadRecipePhoto,
   usePhotoUpload,
 } from '../photo-upload';
-import { dismissPhotoChange, usePhotoChange } from '../recipe-photos';
+import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '../recipe-photos';
 import { createRecipe, deleteRecipe, getRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -152,5 +154,70 @@ describe('uploadRecipePhoto', () => {
     deleteRecipe(id);
     expect(await uploadRecipePhoto(id, 'file:///small.jpg')).toBe(false);
     expect(storageUploads()).toHaveLength(0);
+  });
+});
+
+describe("uploadRecipePhoto with a stock photo's credit (spec 4.5)", () => {
+  const CREDIT: PhotoCredit = {
+    provider: 'pexels',
+    author: 'Jane Doe',
+    authorUrl: 'https://www.pexels.com/@jane',
+    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+  };
+
+  test('sets the credit together with photo_path, in one mutation', async () => {
+    const id = createRecipe('Bread');
+    expect(await uploadRecipePhoto(id, 'file:///stock.jpg', CREDIT)).toBe(true);
+    const [, path] = storageUploads()[0];
+    expect(getRecipe(id)).toMatchObject({ photoPath: path, photoCredit: CREDIT });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: path, photo_credit: CREDIT });
+    expect(usePhotoChange(id)).toMatchObject({
+      previous: { imageUrl: null, photoPath: null, photoCredit: null },
+      next: { photoPath: path, photoCredit: CREDIT },
+    });
+  });
+
+  test('a library photo over a credited one clears the credit', async () => {
+    const id = createRecipe('Bread');
+    await uploadRecipePhoto(id, 'file:///stock.jpg', CREDIT);
+    const [, stockPath] = storageUploads()[0];
+
+    expect(await uploadRecipePhoto(id, 'file:///library.jpg')).toBe(true);
+    const [, libraryPath] = storageUploads()[1];
+    expect(getRecipe(id)).toMatchObject({ photoPath: libraryPath, photoCredit: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: libraryPath, photo_credit: null });
+    expect(usePhotoChange(id)).toMatchObject({ previous: { photoPath: stockPath, photoCredit: CREDIT } });
+  });
+
+  test('Undo of a stock photo restores the old photo and its credit', async () => {
+    const id = createRecipe('Bread');
+    await uploadRecipePhoto(id, 'file:///first.jpg', CREDIT);
+    const [, firstPath] = storageUploads()[0];
+    const other = { ...CREDIT, author: 'Sam Lee' };
+    await uploadRecipePhoto(id, 'file:///second.jpg', other);
+    expect(getRecipe(id)!.photoCredit).toEqual(other);
+
+    undoPhotoChange(usePhotoChange(id)!);
+    expect(getRecipe(id)).toMatchObject({ photoPath: firstPath, photoCredit: CREDIT });
+  });
+
+  test('a failed upload keeps the credit, and Try again uploads with it', async () => {
+    const id = createRecipe('Bread');
+    jest.mocked(supabase.storage.from).mockImplementationOnce(
+      () => ({ upload: async () => ({ data: null, error: { message: 'Network', statusCode: '500' } }) }) as never,
+    );
+    expect(await uploadRecipePhoto(id, 'file:///stock.jpg', CREDIT)).toBe(false);
+    const failed = usePhotoUpload(id)!;
+    expect(failed).toMatchObject({ status: 'failed', credit: CREDIT });
+    expect(getRecipe(id)).toMatchObject({ photoPath: null, photoCredit: null });
+
+    expect(await retryPhotoUpload(failed)).toBe(true);
+    expect(getRecipe(id)!.photoCredit).toEqual(CREDIT);
+  });
+
+  test('a library upload carries no credit in its upload state', async () => {
+    const id = createRecipe('Bread');
+    void uploadRecipePhoto(id, 'file:///small.jpg');
+    expect(usePhotoUpload(id)).toMatchObject({ credit: null });
   });
 });

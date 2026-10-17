@@ -8,6 +8,7 @@ import { useSyncExternalStore } from 'react';
 
 import { newId } from '@/lib/id';
 import { supabase } from '@/lib/supabase';
+import type { PhotoCredit } from '@/shared/photo-credit';
 
 import { downscalePhoto, UPLOAD_PHOTO } from './downscale-photo';
 import { RECIPE_PHOTOS_BUCKET } from './recipe-photo-source';
@@ -49,8 +50,14 @@ export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
 
 // --- The upload ----------------------------------------------------------------------------------
 
-/** An upload the recipe screen shows: the photo from the device, uploading or failed. */
-export type PhotoUpload = { recipeId: string; localUri: string; status: 'uploading' | 'failed'; key: number };
+/** An upload the recipe screen shows: the photo from the device (and its credit), uploading or failed. */
+export type PhotoUpload = {
+  recipeId: string;
+  localUri: string;
+  credit: PhotoCredit | null;
+  status: 'uploading' | 'failed';
+  key: number;
+};
 
 let upload: PhotoUpload | null = null;
 let nextKey = 1;
@@ -63,13 +70,14 @@ function emit(next: PhotoUpload | null) {
 
 /**
  * Uploads the photo at `localUri` (already shrunk) for the recipe and, once it's stored, sets
- * `photo_path` to it with the usual "Photo updated" change (the site photo stays, for Remove).
+ * `photo_path` to it, and `photo_credit` to `credit` (a stock photo's; a library or camera photo
+ * has none), with the usual "Photo updated" change (the site photo stays, for Remove).
  * Resolves false on failure, leaving the recipe as it was and the upload `failed` for the
  * screen's toast. Never throws.
  */
-export async function uploadRecipePhoto(recipeId: string, localUri: string): Promise<boolean> {
+export async function uploadRecipePhoto(recipeId: string, localUri: string, credit: PhotoCredit | null = null): Promise<boolean> {
   const key = nextKey++;
-  emit({ recipeId, localUri, status: 'uploading', key });
+  emit({ recipeId, localUri, credit, status: 'uploading', key });
   try {
     const recipe = getRecipe(recipeId);
     if (!recipe) throw new Error('recipe gone');
@@ -82,21 +90,21 @@ export async function uploadRecipePhoto(recipeId: string, localUri: string): Pro
     // Read again: the recipe may have changed while it uploaded.
     const now = getRecipe(recipeId);
     if (now) {
-      const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath };
-      chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: path });
+      const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath, photoCredit: now.photoCredit };
+      chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: path, photoCredit: credit });
     }
     if (upload?.key === key) emit(null);
     return true;
   } catch (e) {
     console.warn('[photo] upload failed', e);
-    if (upload?.key === key) emit({ recipeId, localUri, status: 'failed', key });
+    if (upload?.key === key) emit({ recipeId, localUri, credit, status: 'failed', key });
     return false;
   }
 }
 
-/** Try again on the failure toast: uploads the same photo again. */
+/** Try again on the failure toast: uploads the same photo (with its credit) again. */
 export function retryPhotoUpload(u: PhotoUpload): Promise<boolean> {
-  return uploadRecipePhoto(u.recipeId, u.localUri);
+  return uploadRecipePhoto(u.recipeId, u.localUri, u.credit);
 }
 
 /** Ends a failed upload's toast (dismissed, timed out, or the screen closed). Leaves one in flight alone. */

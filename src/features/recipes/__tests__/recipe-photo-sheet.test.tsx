@@ -481,9 +481,11 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(body).toBeInstanceOf(ArrayBuffer);
     expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
     expect(mockBack).toHaveBeenCalledTimes(1);
-    // The site photo stays, for Remove; only photo_path is sent.
-    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A });
-    expect(outboxMutations().at(-1)).toEqual(expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path } }));
+    // The site photo stays, for Remove; only photo_path is sent, with its (null) credit.
+    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A, photoCredit: null });
+    expect(outboxMutations().at(-1)).toEqual(
+      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path, photo_credit: null } }),
+    );
   });
 
   test('Take photo asks for the camera; denied shows an alert and uploads nothing', async () => {
@@ -584,13 +586,13 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(menuTitles(root)).toContain('Change photo…');
   });
 
-  test('Remove photo with an own photo clears photo_path only, so the site photo shows again', async () => {
+  test('Remove photo with an own photo clears photo_path (and its credit) only, so the site photo shows again', async () => {
     setPhoto(A);
     setOwn(OWN());
     const sheet = await renderSheet();
     press(removeButton(sheet)[0]);
     expect(getRecipe(bread)).toMatchObject({ photoPath: null, imageUrl: A });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
     act(() => sheet.unmount());
 
     const root = render(<RecipeScreen />);
@@ -620,13 +622,36 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(tiles(sheet).map((t) => t.props.accessibilityState.selected)).toEqual([false, false]);
     press(tiles(sheet)[1]);
     expect(getRecipe(bread)).toMatchObject({ imageUrl: B, photoPath: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null, photo_credit: null });
     act(() => sheet.unmount());
 
     const root = render(<RecipeScreen />);
     act(() => toasts(root)[0].props.actions[0].onPress());
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN() });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN() });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN(), photo_credit: null });
+  });
+
+  test('picking a page photo over a stock photo clears its credit; Undo puts the credit back', async () => {
+    const credit = {
+      provider: 'pexels' as const,
+      author: 'Jane Doe',
+      authorUrl: 'https://www.pexels.com/@jane',
+      pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    };
+    setLink(LINK);
+    setPhoto(A);
+    setOwn(OWN());
+    db.update(recipes).set({ photoCredit: credit }).where(eq(recipes.id, bread)).run();
+    const sheet = await renderSheet();
+    await answer({ ok: true, images: [A, B] });
+    press(tiles(sheet)[1]);
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: B, photoPath: null, photoCredit: null });
+    act(() => sheet.unmount());
+
+    const root = render(<RecipeScreen />);
+    act(() => toasts(root)[0].props.actions[0].onPress());
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN(), photoCredit: credit });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN(), photo_credit: credit });
   });
 
   test('picking the page photo it already shows, with an own photo, still switches to it', async () => {
@@ -637,6 +662,6 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     await answer({ ok: true, images: [A] });
     press(tiles(sheet)[0]);
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
   });
 });

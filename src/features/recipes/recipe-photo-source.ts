@@ -8,11 +8,18 @@ import type { ImageSource } from 'expo-image';
 import { useState, useSyncExternalStore } from 'react';
 
 import { isSupabaseConfigured, supabase, supabaseUrl } from '@/lib/supabase';
+import type { PhotoCredit } from '@/shared/photo-credit';
 
 export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
 
-/** The two photo columns of a recipe. */
-export type RecipePhotoFields = { imageUrl: string | null; photoPath: string | null };
+/**
+ * The photo columns of a recipe. `photoCredit` goes with `photoPath` (a stock photo's credit, else
+ * null), and every photo change keeps the three consistent.
+ */
+export type RecipePhotoFields = { imageUrl: string | null; photoPath: string | null; photoCredit: PhotoCredit | null };
+
+/** What showing a recipe's photo needs; a tile that shows no credit can leave `photoCredit` out. */
+export type RecipePhotoSourceFields = Omit<RecipePhotoFields, 'photoCredit'> & { photoCredit?: PhotoCredit | null };
 
 /** What an own photo needs to load: the signed-in session's access token. */
 export type PhotoSession = { accessToken: string } | null;
@@ -30,7 +37,7 @@ export function photoObjectUrl(path: string): string {
  * a new token or no session at all still finds it on disk; without a session it's asked for
  * without the header, which only the cache can answer. Null when the recipe has no photo.
  */
-export function recipePhotoSource(recipe: RecipePhotoFields, session: PhotoSession): RecipeImageSource | null {
+export function recipePhotoSource(recipe: RecipePhotoSourceFields, session: PhotoSession): RecipeImageSource | null {
   if (recipe.photoPath) {
     return {
       uri: photoObjectUrl(recipe.photoPath),
@@ -111,11 +118,12 @@ export function isAuthFailure(message: string | undefined): boolean {
 
 /**
  * A recipe's photo for a view: its source, whether it's the household's own (no source credit),
- * and whether it failed for good in this view. An own photo the server turns away gets one retry
- * after refreshing the session; then, or for any other failure, it falls back (`failed`), and the
- * caller shows the icon tile. A different photo gets its own try.
+ * the own photo's `credit` (a stock photo's, else null), and whether it failed for good in this
+ * view. An own photo the server turns away gets one retry after refreshing the session; then, or
+ * for any other failure, it falls back (`failed`), and the caller shows the icon tile. A different
+ * photo gets its own try.
  */
-export function useRecipePhoto(recipe: RecipePhotoFields | null) {
+export function useRecipePhoto(recipe: RecipePhotoSourceFields | null) {
   const session = usePhotoSession();
   const key = recipe ? (recipe.photoPath ?? recipe.imageUrl) : null;
   const [state, setState] = useState<{ key: string | null; retried: boolean; failed: boolean }>({
@@ -139,5 +147,7 @@ export function useRecipePhoto(recipe: RecipePhotoFields | null) {
     setState({ key, retried: current.retried, failed: true });
   };
 
-  return { source, own, failed: key !== null && current.failed, onError };
+  const credit = own ? (recipe?.photoCredit ?? null) : null;
+
+  return { source, own, credit, failed: key !== null && current.failed, onError };
 }

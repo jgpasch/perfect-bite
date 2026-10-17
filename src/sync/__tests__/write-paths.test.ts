@@ -419,6 +419,7 @@ describe('recipes', () => {
           servings: null,
           image_url: null,
           photo_path: null,
+          photo_credit: null,
           deleted_at: null,
           created_at: ISO,
         },

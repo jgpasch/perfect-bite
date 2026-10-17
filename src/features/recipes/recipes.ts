@@ -9,6 +9,7 @@ import { recordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import { normalizeIngredientName, parseQuantity } from '@/shared';
+import type { PhotoCredit } from '@/shared/photo-credit';
 import { emptyRecipeTags, RecipeTagsSchema, type RecipeTags, type SavedTag } from '@/shared/recipe-tags';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
@@ -172,10 +173,13 @@ export function setRecipeSaved(id: string, slug: SavedTag, on: boolean): void {
 }
 
 /**
- * The Choose a photo sheet (spec 4.5): sets the site photo (`imageUrl`) and the household's own
- * (`photoPath`), each only when given, so an unchanged one keeps its clock.
+ * The Choose a photo sheet (spec 4.5): sets the site photo (`imageUrl`), the household's own
+ * (`photoPath`) and its credit (`photoCredit`), each only when given, so an unchanged one keeps its clock.
  */
-export function updateRecipePhoto(id: string, photo: { imageUrl?: string | null; photoPath?: string | null }): void {
+export function updateRecipePhoto(
+  id: string,
+  photo: { imageUrl?: string | null; photoPath?: string | null; photoCredit?: PhotoCredit | null },
+): void {
   updateRows(db, recipes, eq(recipes.id, id), photo);
 }
 
