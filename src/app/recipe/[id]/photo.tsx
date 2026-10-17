@@ -1,15 +1,17 @@
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
-import { SoftDangerButton } from '@/components/button';
+import { Button, SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { SettingsRow } from '@/components/settings-group';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { appendPhotos, photoSearchQuery, searchPhotos, type PhotoSearchFailure } from '@/features/recipes/photo-search';
 import { pickRecipePhoto, uploadRecipePhoto, type PhotoSource } from '@/features/recipes/photo-upload';
-import { recipeLinkUrl } from '@/features/recipes/recipe-link';
+import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import type { RecipePhotoFields } from '@/features/recipes/recipe-photo-source';
 import {
   chooseRecipePhoto,
@@ -22,16 +24,39 @@ import { getRecipe } from '@/features/recipes/recipes';
 import { knownOffline } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
 
-/** Placeholder tiles while the page's photos load: two rows. */
+/** Placeholder tiles while the page's photos or a search load: two rows. */
 const PLACEHOLDERS = 4;
+
+/** Pexels' home page, linked from under the search results as its API guidelines ask. */
+const PEXELS_URL = 'https://www.pexels.com';
+
+/**
+ * The Search photos section's state: a search running, its photos so far (`more` is the next
+ * page's state), or a failed first page.
+ */
+type SearchState =
+  | { status: 'loading'; query: string }
+  | {
+      status: 'done';
+      query: string;
+      photos: PhotoSearchResult[];
+      hasMore: boolean;
+      page: number;
+      more: 'idle' | 'loading' | PhotoSearchFailure;
+    }
+  | { status: 'failed'; query: string; error: PhotoSearchFailure };
 
 /**
  * The Choose a photo sheet (spec 4.5), from the recipe screen's Add photo tile or Change photo….
  * **From the page**, only when the recipe's link opens: the page's photos (`recipe-photos`, up to
  * 12) in a two-column grid of 4:3 tiles, the current photo outlined in `primary`; picking one sets
  * it (and drops an own photo) and closes the sheet, and the recipe screen shows "Photo updated" with
- * Undo. **Photo library** and **Take photo** pick a photo, close the sheet and upload it as the
+ * Undo. **Search photos**: free stock photos from Pexels (`photo-search.ts`), searched once on open
+ * with the recipe's name and then only on Return, in the same grid with the photographer's name on
+ * each tile, **Load more** while there are more pages, and "Photos provided by Pexels".
+ * **Photo library** and **Take photo** pick a photo, close the sheet and upload it as the
  * household's own (`photo-upload.ts`); offline they're disabled, "Needs a connection". **Remove
  * photo** when there is one: the own photo if set (the site's comes back), else the site's. A page
  * photo that fails to load is left out of the grid.
@@ -49,6 +74,64 @@ export default function RecipePhotoSheet() {
   // Photo library and Take photo upload, so they need a connection; null until known.
   const [offline, setOffline] = useState<boolean | null>(null);
   const [picking, setPicking] = useState(false);
+
+  const [searchText, setSearchText] = useState(() => recipe?.name ?? '');
+  // The search on open, with the recipe's name: it starts out loading.
+  const [openingQuery] = useState(() => photoSearchQuery(searchText));
+  const [search, setSearch] = useState<SearchState | null>(() =>
+    openingQuery ? { status: 'loading', query: openingQuery } : null,
+  );
+  const [brokenSearch, setBrokenSearch] = useState<ReadonlySet<number>>(new Set());
+  // Bumped by each new search, so a late answer to an older one is dropped.
+  const searchRun = useRef(0);
+
+  /** Asks for the first page of `query` as search `run`, and shows it if that's still the latest. */
+  const firstPage = useCallback((query: string, run: number, live: () => boolean = () => true) => {
+    void searchPhotos(query, 1).then((r) => {
+      if (run !== searchRun.current || !live()) return;
+      setSearch(
+        r.ok
+          ? { status: 'done', query, photos: r.photos, hasMore: r.hasMore, page: 1, more: 'idle' }
+          : { status: 'failed', query, error: r.error },
+      );
+    });
+  }, []);
+
+  const runSearch = (text: string) => {
+    const query = photoSearchQuery(text);
+    if (!query) return;
+    const run = ++searchRun.current;
+    setSearch({ status: 'loading', query });
+    setBrokenSearch(new Set());
+    firstPage(query, run);
+  };
+
+  const loadMore = () => {
+    if (search?.status !== 'done' || !search.hasMore || search.more === 'loading') return;
+    const run = searchRun.current;
+    const page = search.page + 1;
+    setSearch({ ...search, more: 'loading' });
+    void searchPhotos(search.query, page).then((r) => {
+      if (run !== searchRun.current) return;
+      setSearch((s) =>
+        s?.status !== 'done'
+          ? s
+          : r.ok
+            ? { ...s, photos: appendPhotos(s.photos, r.photos), hasMore: r.hasMore, page, more: 'idle' }
+            : { ...s, more: r.error },
+      );
+    });
+  };
+
+  // Searches once on open with the recipe's name; after that, only Return searches.
+  useEffect(() => {
+    if (!openingQuery) return;
+    let live = true;
+    firstPage(openingQuery, ++searchRun.current, () => live);
+    return () => {
+      live = false;
+    };
+  }, [firstPage, openingQuery]);
 
   useEffect(() => {
     if (!link) return;
@@ -120,6 +203,22 @@ export default function RecipePhotoSheet() {
           />
         </View>
       ) : null}
+
+      <View style={{ gap: spacing.sm }}>
+        <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={inset}>
+          {t('recipes.photo.search')}
+        </ThemedText>
+        <SearchSection
+          text={searchText}
+          onChangeText={setSearchText}
+          onSubmit={() => runSearch(searchText)}
+          state={search}
+          offline={offline === true || (search?.status === 'failed' && search.error === 'offline')}
+          photos={search?.status === 'done' ? search.photos.filter((p) => !brokenSearch.has(p.id)) : []}
+          onLoadMore={loadMore}
+          onBroken={(photoId) => setBrokenSearch((prev) => new Set(prev).add(photoId))}
+        />
+      </View>
 
       <Card>
         <SettingsRow
@@ -206,6 +305,131 @@ function PageSection({
   );
 }
 
+/**
+ * The Search photos section's body: the search field (disabled offline, "Needs a connection"), then
+ * placeholders while searching, a note when there's nothing or it failed, else the grid and Load
+ * more while there are more pages; the Pexels link last. `onPick` is for picking a result.
+ */
+function SearchSection({
+  text,
+  onChangeText,
+  onSubmit,
+  state,
+  offline,
+  photos,
+  onLoadMore,
+  onBroken,
+  onPick,
+}: {
+  text: string;
+  onChangeText: (text: string) => void;
+  onSubmit: () => void;
+  state: SearchState | null;
+  offline: boolean;
+  photos: PhotoSearchResult[];
+  onLoadMore: () => void;
+  onBroken: (id: number) => void;
+  onPick?: (photo: PhotoSearchResult) => void;
+}) {
+  const t = useT();
+  const { spacing, opacity } = useTheme();
+  const inset = { paddingHorizontal: spacing.lg + spacing.xs };
+  const note = (message: string) => (
+    <ThemedText variant="callout" color="inkSecondary" style={inset}>
+      {message}
+    </ThemedText>
+  );
+  const failure = (error: PhotoSearchFailure) =>
+    t(
+      error === 'offline'
+        ? 'recipes.photo.needsConnection'
+        : error === 'rate_limited'
+          ? 'recipes.photo.searchRateLimited'
+          : 'recipes.photo.searchFailed',
+    );
+
+  let body: ReactNode = null;
+  if (offline) {
+    body = note(t('recipes.photo.needsConnection'));
+  } else if (state?.status === 'loading') {
+    body = (
+      <View accessible accessibilityLabel={t('recipes.photo.searching')} testID="search-placeholders">
+        <Grid count={PLACEHOLDERS} render={(i) => <PlaceholderTile key={i} />} />
+      </View>
+    );
+  } else if (state?.status === 'failed') {
+    body = note(failure(state.error));
+  } else if (state?.status === 'done' && photos.length === 0) {
+    body = note(t('recipes.photo.searchNone', { query: state.query }));
+  } else if (state?.status === 'done') {
+    body = (
+      <>
+        <Grid
+          count={photos.length}
+          render={(i) => (
+            <SearchTile
+              key={photos[i].id}
+              photo={photos[i]}
+              label={t(photos[i].alt ? 'recipes.photo.searchTileAlt' : 'recipes.photo.searchTile', {
+                alt: photos[i].alt ?? '',
+                author: photos[i].author,
+                index: i + 1,
+                count: photos.length,
+              })}
+              onPress={onPick ? () => onPick(photos[i]) : undefined}
+              onError={() => onBroken(photos[i].id)}
+            />
+          )}
+        />
+        {state.more !== 'idle' && state.more !== 'loading' ? note(failure(state.more)) : null}
+        {state.hasMore ? (
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <Button
+              label={t('recipes.photo.loadMore')}
+              onPress={onLoadMore}
+              loading={state.more === 'loading'}
+              disabled={state.more === 'loading'}
+            />
+          </View>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <TextField
+          testID="photo-search-field"
+          value={text}
+          onChangeText={onChangeText}
+          onSubmitEditing={onSubmit}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          autoCorrect={false}
+          placeholder={t('recipes.photo.search')}
+          accessibilityLabel={t('recipes.photo.search')}
+          accessibilityState={{ disabled: offline }}
+          editable={!offline}
+          style={offline ? { opacity: opacity.disabled } : undefined}
+        />
+      </View>
+      {body}
+      <Pressable
+        testID="pexels-link"
+        onPress={() => void openRecipeLink(PEXELS_URL)}
+        accessibilityRole="link"
+        accessibilityLabel={t('recipes.photo.pexels')}
+        accessibilityHint={t('recipes.photo.pexelsHint')}
+        style={({ pressed }) => [inset, { opacity: pressed ? opacity.pressed : 1 }]}>
+        <ThemedText variant="footnote" color="inkSecondary">
+          {t('recipes.photo.pexels')}
+        </ThemedText>
+      </Pressable>
+    </>
+  );
+}
+
 /** Two columns, `sm` apart, 16 pt in; an odd last tile keeps its column's width. */
 function Grid({ count, render }: { count: number; render: (index: number) => ReactNode }) {
   const { spacing } = useTheme();
@@ -265,7 +489,53 @@ function PhotoTile({
   );
 }
 
+/**
+ * A search result at 4:3, radius `md`, the photographer's name on a `surface` chip over its bottom
+ * edge. VoiceOver: "Photo by Jane Doe, 3 of 20", led by Pexels' description when it has one.
+ */
+function SearchTile({
+  photo,
+  label,
+  onPress,
+  onError,
+}: {
+  photo: PhotoSearchResult;
+  label: string;
+  onPress?: () => void;
+  onError: () => void;
+}) {
+  const { colors, rounded, spacing, opacity } = useTheme();
+  return (
+    <Pressable
+      testID="search-photo"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.cell,
+        styles.tile,
+        { borderRadius: rounded.md, backgroundColor: colors.surfaceMuted, opacity: pressed ? opacity.pressed : 1 },
+      ]}>
+      <Image source={photo.thumb} contentFit="cover" cachePolicy="disk" accessible={false} onError={onError} style={StyleSheet.absoluteFill} />
+      <View style={[styles.authorRow, { left: spacing.sm, right: spacing.sm, bottom: spacing.sm }]}>
+        <View
+          testID="search-photo-author"
+          style={[
+            styles.authorChip,
+            { paddingHorizontal: spacing.sm, paddingVertical: spacing.xxs, borderRadius: rounded.full, backgroundColor: colors.surface },
+          ]}>
+          <ThemedText variant="caption" color="inkSecondary" numberOfLines={1}>
+            {photo.author}
+          </ThemedText>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  authorRow: { position: 'absolute', alignItems: 'flex-start' },
+  authorChip: { maxWidth: '100%' },
   row: { flexDirection: 'row' },
   cell: { flex: 1 },
   tile: { aspectRatio: 4 / 3, overflow: 'hidden', borderCurve: 'continuous' },

@@ -8,7 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { eq } from 'drizzle-orm';
 
-import { Palette, Sizes } from '@/constants/theme';
+import { Palette, Rounded, Sizes } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
@@ -20,6 +20,7 @@ import RecipePhotoSheet from '@/app/recipe/[id]/photo';
 
 import { emitAuthEvent, makeSession, resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
 
+import type { PhotoSearchFailure, PhotoSearchOutcome } from '../photo-search';
 import { resetPhotoUpload } from '../photo-upload';
 import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
@@ -107,7 +108,8 @@ jest.mock('@expo/ui/swift-ui', () => {
     }),
   };
 });
-jest.mock('expo-linking', () => ({ openURL: () => Promise.resolve(true) }));
+const mockOpenURL = jest.fn((_url: string) => Promise.resolve(true));
+jest.mock('expo-linking', () => ({ openURL: (url: string) => mockOpenURL(url) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: () => Promise.resolve(true) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
 // Photo library and Take photo: the picker, the downscale and the file read are faked; the upload
@@ -145,6 +147,15 @@ jest.mock('@/features/recipes/recipe-photos', () => ({
   ...jest.requireActual<object>('@/features/recipes/recipe-photos'),
   loadPagePhotos: (url: string) => mockLoad(url),
 }));
+// The stock photo search's server call, answered by hand in order; photo-search.test.ts covers it.
+let searchAnswers: ((outcome: PhotoSearchOutcome) => void)[] = [];
+const mockSearch = jest.fn(
+  (_query: string, _page?: number) => new Promise<PhotoSearchOutcome>((resolve) => searchAnswers.push(resolve)),
+);
+jest.mock('@/features/recipes/photo-search', () => ({
+  ...jest.requireActual<object>('@/features/recipes/photo-search'),
+  searchPhotos: (query: string, page?: number) => mockSearch(query, page),
+}));
 
 const USER = 'user-1';
 const LINK = 'https://snacks.example.com/blueberry-bread/';
@@ -164,6 +175,9 @@ beforeEach(() => {
   mockPush.mockClear();
   mockBack.mockClear();
   mockLoad.mockClear();
+  mockSearch.mockClear();
+  searchAnswers = [];
+  mockOpenURL.mockClear();
   setFeatures(DEFAULT_FEATURES);
   resetSupabase();
   resetPhotoSession();
@@ -256,7 +270,7 @@ describe('the Choose a photo sheet', () => {
     setLink(LINK);
     const root = await renderSheet();
     expect(mockLoad).toHaveBeenCalledWith(LINK);
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Photo library', 'Take photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Search photos', 'Photos provided by Pexels', 'Photo library', 'Take photo']);
     const placeholders = root.root.find((n) => n.props.testID === 'photo-placeholders' && String(n.type) === 'View');
     expect(placeholders.props.accessibilityLabel).toBe('Loading photos from the page');
     expect(tiles(root)).toHaveLength(0);
@@ -291,7 +305,7 @@ describe('the Choose a photo sheet', () => {
     setPhoto(A);
     const root = await renderSheet();
     expect(mockLoad).not.toHaveBeenCalled();
-    expect(texts(root)).toEqual(['Choose a photo', 'Photo library', 'Take photo', 'Remove photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'Search photos', 'Photos provided by Pexels', 'Photo library', 'Take photo', 'Remove photo']);
     expect(removeButton(root)).toHaveLength(1);
   });
 
@@ -299,7 +313,15 @@ describe('the Choose a photo sheet', () => {
     setLink(LINK);
     const root = await renderSheet();
     await answer({ ok: false, error: 'offline' });
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Connect to see photos from the page', 'Photo library', 'Take photo']);
+    expect(texts(root)).toEqual([
+      'Choose a photo',
+      'From the page',
+      'Connect to see photos from the page',
+      'Search photos',
+      'Photos provided by Pexels',
+      'Photo library',
+      'Take photo',
+    ]);
     expect(tiles(root)).toHaveLength(0);
   });
 
@@ -466,7 +488,8 @@ describe("the household's own photo (Photo library and Take photo)", () => {
       expect(r.props.disabled).toBe(true);
       expect(r.props.accessibilityState).toEqual({ disabled: true });
     }
-    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(2);
+    // The two rows, and the Search photos section.
+    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(3);
   });
 
   test('Photo library: picks with a 4:3 crop, uploads the small JPEG under <household>/<recipe>/<uuid>.jpg, sets photo_path, closes', async () => {
@@ -663,5 +686,270 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     press(tiles(sheet)[0]);
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null });
     expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
+  });
+});
+
+describe('Search photos', () => {
+  const stock = (id: number, author: string, alt: string | null = null) => ({
+    id,
+    thumb: `https://images.pexels.com/photos/${id}/medium.jpeg`,
+    full: `https://images.pexels.com/photos/${id}/large2x.jpeg`,
+    width: 1200,
+    height: 900,
+    author,
+    authorUrl: `https://www.pexels.com/@${author.toLowerCase().replace(/ /g, '-')}`,
+    pageUrl: `https://www.pexels.com/photo/${id}/`,
+    alt,
+  });
+  const JANE = stock(1, 'Jane Doe');
+  const ANA = stock(2, 'Ana Ruiz', 'Sliced bread on a board');
+  const LEO = stock(3, 'Leo Park');
+  const MIA = stock(4, 'Mia Chen');
+
+  const field = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === 'photo-search-field' && 'editable' in n.props)[0];
+  const results = (root: ReactTestRenderer) =>
+    root.root.findAll(
+      (n) =>
+        typeof n.type !== 'string' &&
+        n.props.testID === 'search-photo' &&
+        n.props.accessibilityRole === 'button' &&
+        n.parent?.props.testID !== 'search-photo',
+    );
+  const labels = (root: ReactTestRenderer) => results(root).map((t) => t.props.accessibilityLabel);
+  const loadMore = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'Load more' && typeof n.props.onPress === 'function');
+  const searchPlaceholders = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.props.testID === 'search-placeholders' && String(n.type) === 'View');
+  /** Answers the oldest search still waiting. */
+  async function answerSearch(outcome: PhotoSearchOutcome) {
+    const resolve = searchAnswers.shift();
+    if (!resolve) throw new Error('no search is waiting');
+    await act(async () => resolve(outcome));
+  }
+  const type = (root: ReactTestRenderer, text: string) => act(() => field(root).props.onChangeText(text));
+  const submit = (root: ReactTestRenderer) => act(() => field(root).props.onSubmitEditing({ nativeEvent: { text: '' } }));
+  const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity as 1));
+
+  test('searches once on open with the recipe name, the field pre-filled; placeholder tiles until it answers', async () => {
+    const root = await renderSheet();
+    expect(mockSearch.mock.calls).toEqual([['Blueberry bread', 1]]);
+    expect(field(root).props).toMatchObject({
+      value: 'Blueberry bread',
+      returnKeyType: 'search',
+      accessibilityLabel: 'Search photos',
+      editable: true,
+    });
+    const [placeholders] = searchPlaceholders(root);
+    expect(placeholders.props.accessibilityLabel).toBe('Searching photos');
+    const muted = placeholders.findAll((n) => String(n.type) === 'View' && flat(n.props.style).backgroundColor === Palette.light.surfaceMuted);
+    expect(muted).toHaveLength(4);
+    expect(results(root)).toHaveLength(0);
+
+    await answerSearch({ ok: true, photos: [JANE, ANA, LEO], hasMore: false });
+    expect(searchPlaceholders(root)).toHaveLength(0);
+    expect(labels(root)).toEqual([
+      'Photo by Jane Doe, 1 of 3',
+      'Sliced bread on a board, photo by Ana Ruiz, 2 of 3',
+      'Photo by Leo Park, 3 of 3',
+    ]);
+    expect(byType(root, 'ExpoImage').map((i) => [i.props.source, i.props.contentFit, i.props.cachePolicy])).toEqual([
+      [JANE.thumb, 'cover', 'disk'],
+      [ANA.thumb, 'cover', 'disk'],
+      [LEO.thumb, 'cover', 'disk'],
+    ]);
+    expect(texts(root)).toEqual([
+      'Choose a photo',
+      'Search photos',
+      'Jane Doe',
+      'Ana Ruiz',
+      'Leo Park',
+      'Photos provided by Pexels',
+      'Photo library',
+      'Take photo',
+    ]);
+    expect(mockSearch).toHaveBeenCalledTimes(1);
+  });
+
+  test('the section sits between From the page and Photo library', async () => {
+    setLink(LINK);
+    const root = await renderSheet();
+    await answer({ ok: true, images: [A] });
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    expect(texts(root)).toEqual([
+      'Choose a photo',
+      'From the page',
+      'Search photos',
+      'Jane Doe',
+      'Photos provided by Pexels',
+      'Photo library',
+      'Take photo',
+    ]);
+  });
+
+  test('a long recipe name is searched cut to 100 characters', async () => {
+    updateRecipe(bread, { name: 'x'.repeat(130), notes: '', sourceUrl: '' });
+    await renderSheet();
+    expect(mockSearch.mock.calls).toEqual([['x'.repeat(100), 1]]);
+  });
+
+  test('tiles are 4:3 and rounded md, the name on a surface chip in caption inkSecondary', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    const [tile] = results(root);
+    expect(flat(tile.props.style({ pressed: false }))).toMatchObject({ aspectRatio: 4 / 3, borderRadius: Rounded.md, overflow: 'hidden' });
+    const chip = root.root.find((n) => n.props.testID === 'search-photo-author' && String(n.type) === 'View');
+    expect(flat(chip.props.style)).toMatchObject({ backgroundColor: Palette.light.surface, borderRadius: Rounded.full });
+    const name = chip.find((n) => String(n.type) === 'Text');
+    expect(flat(name.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 12 });
+    expect(name.props.numberOfLines).toBe(1);
+  });
+
+  test("typing doesn't search; Return searches what's typed, and the old results go", async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    type(root, 'b');
+    type(root, 'banana');
+    type(root, '  banana loaf ');
+    expect(mockSearch).toHaveBeenCalledTimes(1);
+
+    submit(root);
+    expect(mockSearch.mock.calls[1]).toEqual(['banana loaf', 1]);
+    expect(results(root)).toHaveLength(0);
+    expect(searchPlaceholders(root)).toHaveLength(1);
+    await answerSearch({ ok: true, photos: [LEO, MIA], hasMore: false });
+    expect(labels(root)).toEqual(['Photo by Leo Park, 1 of 2', 'Photo by Mia Chen, 2 of 2']);
+  });
+
+  test('Return with an empty field searches nothing and keeps the results', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    type(root, '   ');
+    submit(root);
+    expect(mockSearch).toHaveBeenCalledTimes(1);
+    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 1']);
+  });
+
+  test('a late answer to an older search is dropped', async () => {
+    const root = await renderSheet();
+    type(root, 'scones');
+    submit(root);
+    // The search on open answers after the newer one started: it's ignored.
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    expect(results(root)).toHaveLength(0);
+    expect(searchPlaceholders(root)).toHaveLength(1);
+    await answerSearch({ ok: true, photos: [MIA], hasMore: false });
+    expect(labels(root)).toEqual(['Photo by Mia Chen, 1 of 1']);
+  });
+
+  test('Load more, while there are more pages, appends the next page of the same search', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE, ANA], hasMore: true });
+    expect(loadMore(root)).toHaveLength(1);
+    // Editing the field doesn't change what Load more asks for.
+    type(root, 'something else');
+
+    press(loadMore(root)[0]);
+    expect(mockSearch.mock.calls[1]).toEqual(['Blueberry bread', 2]);
+    expect(loadMore(root)[0].props).toMatchObject({ loading: true, disabled: true });
+    // A second tap while it loads asks for nothing more.
+    press(loadMore(root)[0]);
+    expect(mockSearch).toHaveBeenCalledTimes(2);
+    expect(labels(root)).toHaveLength(2);
+
+    // A photo already shown isn't added twice.
+    await answerSearch({ ok: true, photos: [ANA, LEO, MIA], hasMore: true });
+    expect(labels(root)).toEqual([
+      'Photo by Jane Doe, 1 of 4',
+      'Sliced bread on a board, photo by Ana Ruiz, 2 of 4',
+      'Photo by Leo Park, 3 of 4',
+      'Photo by Mia Chen, 4 of 4',
+    ]);
+    expect(loadMore(root)[0].props).toMatchObject({ loading: false, disabled: false });
+
+    press(loadMore(root)[0]);
+    expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 3]);
+    await answerSearch({ ok: true, photos: [stock(5, 'Kai Lo')], hasMore: false });
+    expect(labels(root)).toHaveLength(5);
+    expect(loadMore(root)).toHaveLength(0);
+  });
+
+  test('no Load more when the first page is the only one', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    expect(loadMore(root)).toHaveLength(0);
+  });
+
+  test('a failed Load more keeps the photos, says why and can be tried again', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE], hasMore: true });
+    press(loadMore(root)[0]);
+    await answerSearch({ ok: false, error: 'rate_limited' });
+    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 1']);
+    expect(texts(root)).toContain("You've searched a lot today. Try again later.");
+    press(loadMore(root)[0]);
+    expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 2]);
+    await answerSearch({ ok: true, photos: [LEO], hasMore: false });
+    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 2', 'Photo by Leo Park, 2 of 2']);
+    expect(texts(root)).not.toContain("You've searched a lot today. Try again later.");
+  });
+
+  test('offline: the field is disabled and says "Needs a connection"', async () => {
+    mockNetwork.connected = false;
+    const root = await renderSheet();
+    await answerSearch({ ok: false, error: 'offline' });
+    expect(field(root).props).toMatchObject({ editable: false, accessibilityState: { disabled: true } });
+    expect(texts(root).slice(0, 3)).toEqual(['Choose a photo', 'Search photos', 'Needs a connection']);
+    expect(results(root)).toHaveLength(0);
+    expect(searchPlaceholders(root)).toHaveLength(0);
+  });
+
+  test('a search that finds itself offline also disables the field', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: false, error: 'offline' });
+    expect(field(root).props.editable).toBe(false);
+    expect(texts(root).slice(0, 3)).toEqual(['Choose a photo', 'Search photos', 'Needs a connection']);
+  });
+
+  test('no results: "No photos for “X”. Try another word."', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [], hasMore: false });
+    expect(texts(root)).toContain('No photos for “Blueberry bread”. Try another word.');
+    type(root, '  zzzz ');
+    submit(root);
+    await answerSearch({ ok: true, photos: [], hasMore: false });
+    expect(texts(root)).toContain('No photos for “zzzz”. Try another word.');
+  });
+
+  test.each<[PhotoSearchFailure, string]>([
+    ['rate_limited', "You've searched a lot today. Try again later."],
+    ['failed', "Couldn't search photos. Try again later."],
+  ])('%s: %s', async (error, message) => {
+    const root = await renderSheet();
+    await answerSearch({ ok: false, error });
+    expect(texts(root).slice(0, 4)).toEqual(['Choose a photo', 'Search photos', message, 'Photos provided by Pexels']);
+    // The field still works, so another search can be tried.
+    expect(field(root).props.editable).toBe(true);
+  });
+
+  test('a result that fails to load leaves the grid, and the rest are renumbered', async () => {
+    const root = await renderSheet();
+    await answerSearch({ ok: true, photos: [JANE, ANA, LEO], hasMore: false });
+    act(() => byType(root, 'ExpoImage')[0].props.onError({ error: '404' }));
+    expect(labels(root)).toEqual(['Sliced bread on a board, photo by Ana Ruiz, 1 of 2', 'Photo by Leo Park, 2 of 2']);
+  });
+
+  test('"Photos provided by Pexels" is a footnote link that opens pexels.com', async () => {
+    const root = await renderSheet();
+    const [link] = byTestId(root, 'pexels-link');
+    expect(link.props).toMatchObject({
+      accessibilityRole: 'link',
+      accessibilityLabel: 'Photos provided by Pexels',
+      accessibilityHint: 'Opens Pexels in Safari',
+    });
+    const text = link.find((n) => String(n.type) === 'Text');
+    expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 13 });
+    press(link);
+    expect(mockOpenURL).toHaveBeenCalledWith('https://www.pexels.com');
   });
 });
