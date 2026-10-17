@@ -310,6 +310,8 @@ export const Sizes = {
   importPageThumb: 72,
   /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */
   removeButton: 32,
+  /** who made each add on the item sheet's "Added" rows: a member's initial, or a recipe's or Siri's tile */
+  addedAvatar: 24,
   /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */
   fieldLabel: 76,
   /** the tinted icon tile at the start of a settings row */

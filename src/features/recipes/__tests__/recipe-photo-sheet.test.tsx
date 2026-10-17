@@ -26,6 +26,8 @@ import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
 import { createRecipe, getRecipe, updateRecipe } from '../recipes';
 
+const PIXABAY = { name: 'Pixabay', url: 'https://pixabay.com' };
+
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
@@ -279,7 +281,7 @@ describe('the Choose a photo sheet', () => {
     setLink(LINK);
     const root = await renderSheet();
     expect(mockLoad).toHaveBeenCalledWith(LINK);
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Search photos', 'Photos provided by Pexels', 'Photo library', 'Take photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Search photos', 'Photo library', 'Take photo']);
     const placeholders = root.root.find((n) => n.props.testID === 'photo-placeholders' && String(n.type) === 'View');
     expect(placeholders.props.accessibilityLabel).toBe('Loading photos from the page');
     expect(tiles(root)).toHaveLength(0);
@@ -314,7 +316,7 @@ describe('the Choose a photo sheet', () => {
     setPhoto(A);
     const root = await renderSheet();
     expect(mockLoad).not.toHaveBeenCalled();
-    expect(texts(root)).toEqual(['Choose a photo', 'Search photos', 'Photos provided by Pexels', 'Photo library', 'Take photo', 'Remove photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'Search photos', 'Photo library', 'Take photo', 'Remove photo']);
     expect(removeButton(root)).toHaveLength(1);
   });
 
@@ -327,7 +329,6 @@ describe('the Choose a photo sheet', () => {
       'From the page',
       'Connect to see photos from the page',
       'Search photos',
-      'Photos provided by Pexels',
       'Photo library',
       'Take photo',
     ]);
@@ -665,10 +666,10 @@ describe("the household's own photo (Photo library and Take photo)", () => {
 
   test('picking a page photo over a stock photo clears its credit; Undo puts the credit back', async () => {
     const credit = {
-      provider: 'pexels' as const,
+      provider: 'Pixabay',
       author: 'Jane Doe',
-      authorUrl: 'https://www.pexels.com/@jane',
-      pageUrl: 'https://www.pexels.com/photo/bread-123/',
+      authorUrl: 'https://pixabay.com/users/jane',
+      pageUrl: 'https://pixabay.com/photos/bread-123/',
     };
     setLink(LINK);
     setPhoto(A);
@@ -700,14 +701,14 @@ describe("the household's own photo (Photo library and Take photo)", () => {
 
 describe('Search photos', () => {
   const stock = (id: number, author: string, alt: string | null = null) => ({
-    id,
-    thumb: `https://images.pexels.com/photos/${id}/medium.jpeg`,
-    full: `https://images.pexels.com/photos/${id}/large2x.jpeg`,
+    id: String(id),
+    thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
+    full: `https://pixabay.com/get/${id}/large2x.jpeg`,
     width: 1200,
     height: 900,
     author,
-    authorUrl: `https://www.pexels.com/@${author.toLowerCase().replace(/ /g, '-')}`,
-    pageUrl: `https://www.pexels.com/photo/${id}/`,
+    authorUrl: `https://pixabay.com/users/${author.toLowerCase().replace(/ /g, '-')}`,
+    pageUrl: `https://pixabay.com/photos/${id}/`,
     alt,
   });
   const JANE = stock(1, 'Jane Doe');
@@ -755,7 +756,7 @@ describe('Search photos', () => {
     expect(muted).toHaveLength(4);
     expect(results(root)).toHaveLength(0);
 
-    await answerSearch({ ok: true, photos: [JANE, ANA, LEO], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA, LEO], hasMore: false });
     expect(searchPlaceholders(root)).toHaveLength(0);
     expect(labels(root)).toEqual([
       'Photo by Jane Doe, 1 of 3',
@@ -773,7 +774,7 @@ describe('Search photos', () => {
       'Jane Doe',
       'Ana Ruiz',
       'Leo Park',
-      'Photos provided by Pexels',
+      'Photos provided by Pixabay',
       'Photo library',
       'Take photo',
     ]);
@@ -784,13 +785,13 @@ describe('Search photos', () => {
     setLink(LINK);
     const root = await renderSheet();
     await answer({ ok: true, images: [A] });
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     expect(texts(root)).toEqual([
       'Choose a photo',
       'From the page',
       'Search photos',
       'Jane Doe',
-      'Photos provided by Pexels',
+      'Photos provided by Pixabay',
       'Photo library',
       'Take photo',
     ]);
@@ -804,7 +805,7 @@ describe('Search photos', () => {
 
   test('tiles are 4:3 and rounded md, the name on a surface chip in caption inkSecondary', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     const [tile] = results(root);
     expect(flat(tile.props.style({ pressed: false }))).toMatchObject({ aspectRatio: 4 / 3, borderRadius: Rounded.md, overflow: 'hidden' });
     const chip = root.root.find((n) => n.props.testID === 'search-photo-author' && String(n.type) === 'View');
@@ -816,7 +817,7 @@ describe('Search photos', () => {
 
   test("typing doesn't search; Return searches what's typed, and the old results go", async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     type(root, 'b');
     type(root, 'banana');
     type(root, '  banana loaf ');
@@ -826,13 +827,13 @@ describe('Search photos', () => {
     expect(mockSearch.mock.calls[1]).toEqual(['banana loaf', 1]);
     expect(results(root)).toHaveLength(0);
     expect(searchPlaceholders(root)).toHaveLength(1);
-    await answerSearch({ ok: true, photos: [LEO, MIA], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [LEO, MIA], hasMore: false });
     expect(labels(root)).toEqual(['Photo by Leo Park, 1 of 2', 'Photo by Mia Chen, 2 of 2']);
   });
 
   test('Return with an empty field searches nothing and keeps the results', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     type(root, '   ');
     submit(root);
     expect(mockSearch).toHaveBeenCalledTimes(1);
@@ -844,16 +845,16 @@ describe('Search photos', () => {
     type(root, 'scones');
     submit(root);
     // The search on open answers after the newer one started: it's ignored.
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     expect(results(root)).toHaveLength(0);
     expect(searchPlaceholders(root)).toHaveLength(1);
-    await answerSearch({ ok: true, photos: [MIA], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [MIA], hasMore: false });
     expect(labels(root)).toEqual(['Photo by Mia Chen, 1 of 1']);
   });
 
   test('Load more, while there are more pages, appends the next page of the same search', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE, ANA], hasMore: true });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA], hasMore: true });
     expect(loadMore(root)).toHaveLength(1);
     // Editing the field doesn't change what Load more asks for.
     type(root, 'something else');
@@ -867,7 +868,7 @@ describe('Search photos', () => {
     expect(labels(root)).toHaveLength(2);
 
     // A photo already shown isn't added twice.
-    await answerSearch({ ok: true, photos: [ANA, LEO, MIA], hasMore: true });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [ANA, LEO, MIA], hasMore: true });
     expect(labels(root)).toEqual([
       'Photo by Jane Doe, 1 of 4',
       'Sliced bread on a board, photo by Ana Ruiz, 2 of 4',
@@ -878,27 +879,27 @@ describe('Search photos', () => {
 
     press(loadMore(root)[0]);
     expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 3]);
-    await answerSearch({ ok: true, photos: [stock(5, 'Kai Lo')], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [stock(5, 'Kai Lo')], hasMore: false });
     expect(labels(root)).toHaveLength(5);
     expect(loadMore(root)).toHaveLength(0);
   });
 
   test('no Load more when the first page is the only one', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
     expect(loadMore(root)).toHaveLength(0);
   });
 
   test('a failed Load more keeps the photos, says why and can be tried again', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE], hasMore: true });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: true });
     press(loadMore(root)[0]);
     await answerSearch({ ok: false, error: 'rate_limited' });
     expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 1']);
     expect(texts(root)).toContain("You've searched a lot today. Try again later.");
     press(loadMore(root)[0]);
     expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 2]);
-    await answerSearch({ ok: true, photos: [LEO], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [LEO], hasMore: false });
     expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 2', 'Photo by Leo Park, 2 of 2']);
     expect(texts(root)).not.toContain("You've searched a lot today. Try again later.");
   });
@@ -922,11 +923,11 @@ describe('Search photos', () => {
 
   test('no results: "No photos for “X”. Try another word."', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [], hasMore: false });
     expect(texts(root)).toContain('No photos for “Blueberry bread”. Try another word.');
     type(root, '  zzzz ');
     submit(root);
-    await answerSearch({ ok: true, photos: [], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [], hasMore: false });
     expect(texts(root)).toContain('No photos for “zzzz”. Try another word.');
   });
 
@@ -936,49 +937,52 @@ describe('Search photos', () => {
   ])('%s: %s', async (error, message) => {
     const root = await renderSheet();
     await answerSearch({ ok: false, error });
-    expect(texts(root).slice(0, 4)).toEqual(['Choose a photo', 'Search photos', message, 'Photos provided by Pexels']);
+    // No answer names a provider, so there's no provider link.
+    expect(texts(root).slice(0, 4)).toEqual(['Choose a photo', 'Search photos', message, 'Photo library']);
     // The field still works, so another search can be tried.
     expect(field(root).props.editable).toBe(true);
   });
 
   test('a result that fails to load leaves the grid, and the rest are renumbered', async () => {
     const root = await renderSheet();
-    await answerSearch({ ok: true, photos: [JANE, ANA, LEO], hasMore: false });
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA, LEO], hasMore: false });
     act(() => byType(root, 'ExpoImage')[0].props.onError({ error: '404' }));
     expect(labels(root)).toEqual(['Sliced bread on a board, photo by Ana Ruiz, 1 of 2', 'Photo by Leo Park, 2 of 2']);
   });
 
-  test('"Photos provided by Pexels" is a footnote link that opens pexels.com', async () => {
+  test('"Photos provided by Pixabay": the provider the answer names, as a footnote link to its home page', async () => {
     const root = await renderSheet();
-    const [link] = byTestId(root, 'pexels-link');
+    expect(byTestId(root, 'provider-link')).toHaveLength(0);
+    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
+    const [link] = byTestId(root, 'provider-link');
     expect(link.props).toMatchObject({
       accessibilityRole: 'link',
-      accessibilityLabel: 'Photos provided by Pexels',
-      accessibilityHint: 'Opens Pexels in Safari',
+      accessibilityLabel: 'Photos provided by Pixabay',
+      accessibilityHint: 'Opens Pixabay in Safari',
     });
     const text = link.find((n) => String(n.type) === 'Text');
     expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 13 });
     press(link);
-    expect(mockOpenURL).toHaveBeenCalledWith('https://www.pexels.com');
+    expect(mockOpenURL).toHaveBeenCalledWith('https://pixabay.com');
   });
 });
 
 describe('picking a stock photo, and its credit', () => {
   const stock = (id: number, author: string) => ({
-    id,
-    thumb: `https://images.pexels.com/photos/${id}/medium.jpeg`,
-    full: `https://images.pexels.com/photos/${id}/large2x.jpeg`,
+    id: String(id),
+    thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
+    full: `https://pixabay.com/get/${id}/large2x.jpeg`,
     width: 1200,
     height: 900,
     author,
-    authorUrl: `https://www.pexels.com/@${author.toLowerCase().replace(/ /g, '-')}`,
-    pageUrl: `https://www.pexels.com/photo/${id}/`,
+    authorUrl: `https://pixabay.com/users/${author.toLowerCase().replace(/ /g, '-')}`,
+    pageUrl: `https://pixabay.com/photos/${id}/`,
     alt: null,
   });
   const JANE = stock(1, 'Jane Doe');
   const ANA = stock(2, 'Ana Ruiz');
   const creditOf = (p: ReturnType<typeof stock>) => ({
-    provider: 'pexels' as const,
+    provider: 'Pixabay',
     author: p.author,
     authorUrl: p.authorUrl,
     pageUrl: p.pageUrl,
@@ -993,7 +997,7 @@ describe('picking a stock photo, and its credit', () => {
   /** Opens the sheet, answers its search with `photos` and taps the `index`th result. */
   async function pickStock(index: number, photos = [JANE, ANA]) {
     const sheet = await renderSheet();
-    await act(async () => searchAnswers.shift()!({ ok: true, photos, hasMore: false }));
+    await act(async () => searchAnswers.shift()!({ ok: true, provider: PIXABAY, photos, hasMore: false }));
     await act(async () => results(sheet)[index].props.onPress());
     act(() => sheet.unmount());
   }
@@ -1035,7 +1039,7 @@ describe('picking a stock photo, and its credit', () => {
     expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
   });
 
-  test('the credit chip: "Photo: Jane Doe / Pexels" in caption inkSecondary on a surface chip at the bottom right, a link to the photo\'s page', async () => {
+  test('the credit chip: "Photo: Jane Doe / Pixabay" in caption inkSecondary on a surface chip at the bottom right, a link to the photo\'s page', async () => {
     // A link that opens: the site's source credit still never shows on an own photo.
     setLink(LINK);
     setPhoto(A);
@@ -1046,8 +1050,8 @@ describe('picking a stock photo, and its credit', () => {
     const [chip] = chips(root);
     expect(chip.props).toMatchObject({
       accessibilityRole: 'link',
-      accessibilityLabel: 'Photo by Jane Doe on Pexels',
-      accessibilityHint: 'Opens the photo on Pexels in Safari',
+      accessibilityLabel: 'Photo by Jane Doe on Pixabay',
+      accessibilityHint: 'Opens the photo on Pixabay in Safari',
     });
     expect(flat(chip.props.style({ pressed: false }))).toMatchObject({
       position: 'absolute',
@@ -1057,7 +1061,7 @@ describe('picking a stock photo, and its credit', () => {
       borderRadius: Rounded.full,
     });
     const text = chip.find((n) => String(n.type) === 'Text');
-    expect(text.props.children).toBe('Photo: Jane Doe / Pexels');
+    expect(text.props.children).toBe('Photo: Jane Doe / Pixabay');
     expect(text.props.numberOfLines).toBe(1);
     expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 12 });
     expect(siteCredits(root)).toHaveLength(0);
@@ -1128,6 +1132,6 @@ describe('picking a stock photo, and its credit', () => {
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN(), photoCredit: creditOf(ANA) });
     expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: OWN(), photo_credit: creditOf(ANA) });
     const [chip] = chips(root);
-    expect(chip.find((n) => String(n.type) === 'Text').props.children).toBe('Photo: Ana Ruiz / Pexels');
+    expect(chip.find((n) => String(n.type) === 'Text').props.children).toBe('Photo: Ana Ruiz / Pixabay');
   });
 });

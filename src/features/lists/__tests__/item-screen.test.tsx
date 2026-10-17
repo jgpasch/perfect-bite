@@ -1,12 +1,25 @@
 // The item sheet (spec 4.2, 4.3.2, 4.4, board 04), against the real in-memory database: name, its check
 // (Got it), amount stepper and unit, note, the amounts added, aisle, Move, Delete.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { eq } from 'drizzle-orm';
-import { ActionSheetIOS, Alert, Switch } from 'react-native';
+import { and, eq } from 'drizzle-orm';
+import { ActionSheetIOS, Alert, StyleSheet, Switch, Text } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import ItemEditSheet from '@/app/list/[id]/item/[itemId]';
-import { categories, db, householdCategoryOverrides, householdMemberNames, households, ingredients, listItems } from '@/db';
+import { avatarColors } from '@/components/appearance';
+import { IconTile } from '@/components/icon-tile';
+import { AisleColors, Palette, Rounded, Sizes } from '@/constants/theme';
+import {
+  categories,
+  db,
+  householdCategoryOverrides,
+  householdMemberNames,
+  households,
+  ingredients,
+  listItemContributions,
+  listItems,
+} from '@/db';
+import { memberHue, recipeHue } from '@/domain/aisle-color';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { setFeatures } from '@/features/plans/features';
 import { initI18n } from '@/i18n';
@@ -372,6 +385,98 @@ describe('the amounts added', () => {
     });
     expect(mockBack).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: recipeId } });
+  });
+
+  describe('who added each one (spec 4.4)', () => {
+    const OTHER = 'user-2';
+    beforeEach(() => {
+      const householdId = db.select().from(households).get()!.id;
+      db.insert(householdMemberNames)
+        .values(
+          [[USER, 'Jo Doe'], [OTHER, 'Alex Rivera']].map(([userId, displayName]) => ({
+            householdId,
+            userId,
+            displayName,
+            joinedAt: '2026-10-01T00:00:00Z',
+          })),
+        )
+        .run();
+    });
+    const avatars = () => tree!.root.findAll((n) => n.type === ('View' as never) && n.props.testID === 'added-avatar');
+    const tiles = () =>
+      tree!.root.findAll((n) => n.type === (IconTile as never) && n.props.size === Sizes.addedAvatar).map((n) => n.props);
+    const setSource = (itemId: string, userId: string | null, source: 'manual' | 'siri') =>
+      db.update(listItemContributions)
+        .set({ source, addedBy: userId })
+        .where(and(eq(listItemContributions.listItemId, itemId), eq(listItemContributions.addedBy, 'user-tmp')))
+        .run();
+
+    test("names each member, with a 24 pt avatar of their initial in their colour, yours too", () => {
+      const { itemId } = addItem(listId, '2 milk', USER)!;
+      addItem(listId, '1 milk', OTHER);
+      addItem(listId, '3 milk', 'user-gone');
+      open(itemId);
+      expect(lines()).toEqual(expect.arrayContaining(['You, just now', 'Alex, just now', 'Someone else, just now']));
+      const shown = avatars();
+      expect(shown).toHaveLength(3);
+      expect(shown.map(textOf)).toEqual(['J', 'A', '?']);
+      const style = (i: number) => StyleSheet.flatten(shown[i].props.style);
+      expect([style(0).width, style(0).height, style(0).borderRadius]).toEqual([24, 24, Rounded.full]);
+      expect(style(0).backgroundColor).toBe(avatarColors(memberHue(USER), Palette.light, AisleColors.light).fill);
+      expect(style(1).backgroundColor).toBe(avatarColors(memberHue(OTHER), Palette.light, AisleColors.light).fill);
+      expect(StyleSheet.flatten(shown[1].findByType(Text).props.style).color).toBe(Palette.light.onPrimary);
+    });
+
+    test('the avatars are hidden from VoiceOver; the row says who', () => {
+      const { itemId } = addItem(listId, '2 milk', USER)!;
+      addItem(listId, '1 milk', OTHER);
+      open(itemId);
+      for (const a of avatars()) {
+        expect(a.props).toMatchObject({ accessible: false, importantForAccessibility: 'no-hide-descendants', accessibilityElementsHidden: true });
+      }
+    });
+
+    test("an old add with no one recorded is Someone else, in grey", () => {
+      const { itemId } = addItem(listId, '2 milk', USER)!;
+      addItem(listId, '1 milk', 'user-tmp');
+      setSource(itemId, null, 'manual');
+      open(itemId);
+      expect(lines()).toContain('Someone else, just now');
+      const old = avatars()[1];
+      expect(textOf(old)).toBe('?');
+      expect(StyleSheet.flatten(old.props.style).backgroundColor).toBe(AisleColors.light.grey.strong);
+    });
+
+    test("a recipe add by another member names them, with the recipe's tile; Siri gets a grey mic", () => {
+      const recipeId = createRecipe('Shakshuka', getList(listId)!.householdId);
+      addRecipeIngredient(recipeId, '1 cup milk');
+      addItem(listId, '2 milk', USER);
+      addWholeRecipeToList(listId, recipeId, OTHER);
+      addItem(listId, '1 milk', 'user-tmp');
+      const itemId = listItemsQuery(listId).all()[0].id;
+      setSource(itemId, OTHER, 'siri');
+      open(itemId);
+      expect(lines()).toEqual(expect.arrayContaining(['You, just now', 'Shakshuka · Alex, just now', 'Siri, just now']));
+      expect(avatars()).toHaveLength(1);
+      expect(tiles()).toEqual([
+        { hue: recipeHue(recipeId), name: 'fork.knife', size: 24 },
+        { hue: 'grey', name: 'mic', size: 24 },
+      ]);
+      const recipeRow = tree!.root.find(
+        (n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Opens Shakshuka' && 'onPress' in n.props,
+      );
+      expect(recipeRow.props.accessibilityLabel).toBe('1 cup, Shakshuka · Alex, just now');
+    });
+
+    test('your own recipe add is just the recipe', () => {
+      const recipeId = createRecipe('Shakshuka', getList(listId)!.householdId);
+      addRecipeIngredient(recipeId, '1 cup milk');
+      addWholeRecipeToList(listId, recipeId, USER);
+      open(listItemsQuery(listId).all()[0].id);
+      expect(lines()).toContain('Shakshuka, just now');
+      expect(avatars()).toHaveLength(0);
+      expect(tiles()).toEqual([{ hue: recipeHue(recipeId), name: 'fork.knife', size: 24 }]);
+    });
   });
 });
 

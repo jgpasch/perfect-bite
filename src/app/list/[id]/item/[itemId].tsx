@@ -4,7 +4,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
-import { aisleSymbol, prominentButtonTint } from '@/components/appearance';
+import { aisleSymbol, avatarColors, prominentButtonTint } from '@/components/appearance';
 import { Button, SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
@@ -18,7 +18,7 @@ import { Screen } from '@/components/themed-view';
 import { listItemContributions, listItems } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { addedLine, checkedLine } from '@/domain/added-by';
-import { aisleColor } from '@/domain/aisle-color';
+import { aisleColor, memberHue, recipeHue } from '@/domain/aisle-color';
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
@@ -33,7 +33,8 @@ import {
 import { sharedAisleFootnote } from '@/features/categories/aisle-copy';
 import { createCategory, getIngredientCategory, getOrderedCategories } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
-import { useMemberNames } from '@/features/households/member-names';
+import { avatarInitial } from '@/features/households/households';
+import { useMemberNames, type MemberNames } from '@/features/households/member-names';
 import { alwaysHaveFootnote, isStaple, setStaple } from '@/features/households/staples';
 import { openList } from '@/features/lists/current-list';
 import { useFeature } from '@/features/plans/features';
@@ -369,7 +370,7 @@ export default function ItemEditSheet() {
           <Card>
             {contributions.map((c, i) => {
               const text = formatAmount(c) || t('item.noAmount');
-              const line = addedLine(c, userId, now);
+              const line = addedLine(c, userId, now, memberNames);
               return (
                 <CardRow key={c.id} first={i === 0}>
                   <ThemedText variant="headline">{text}</ThemedText>
@@ -382,17 +383,21 @@ export default function ItemEditSheet() {
                       style={({ pressed }) => [
                         styles.row,
                         styles.flex,
-                        { minHeight: sizes.minTapTarget, gap: spacing.xs, opacity: pressed ? opacity.pressed : 1 },
+                        { minHeight: sizes.minTapTarget, gap: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
                       ]}>
+                      <AddedAvatar add={c} names={memberNames} />
                       <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
                         {line}
                       </ThemedText>
                       <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} />
                     </Pressable>
                   ) : (
-                    <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
-                      {line}
-                    </ThemedText>
+                    <View style={[styles.row, styles.flex, { gap: spacing.sm }]}>
+                      <AddedAvatar add={c} names={memberNames} />
+                      <ThemedText variant="amount" color="inkSecondary" style={styles.flex}>
+                        {line}
+                      </ThemedText>
+                    </View>
                   )}
                   {contributions.length > 1 ? (
                     <RemoveButton
@@ -538,6 +543,42 @@ function fromRecipe<C extends { source: string; recipeId: string | null; recipeN
   c: C,
 ): c is C & { recipeId: string; recipeName: string } {
   return c.source === 'recipe' && c.recipeId !== null && c.recipeName !== null;
+}
+
+/**
+ * Who made an "Added" row's add, before its text (spec 4.4): a 24 pt round avatar with the
+ * member's initial in their colour (yours too); a recipe add keeps its recipe's tile, and Siri gets
+ * a grey `mic` tile. Decorative: the row's text already names them.
+ */
+function AddedAvatar({
+  add,
+  names,
+}: {
+  add: { source: string; recipeId: string | null; addedBy: string | null };
+  names: MemberNames;
+}) {
+  const { colors, aisles, sizes, rounded } = useTheme();
+  if (add.source === 'recipe') {
+    return <IconTile hue={add.recipeId ? recipeHue(add.recipeId) : 'grey'} name="fork.knife" size={sizes.addedAvatar} />;
+  }
+  if (add.source === 'siri') return <IconTile hue="grey" name="mic" size={sizes.addedAvatar} />;
+  // An old add with no one recorded has no colour of its own.
+  const avatar = avatarColors(add.addedBy ? memberHue(add.addedBy) : 'grey', colors, aisles);
+  return (
+    <View
+      testID="added-avatar"
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+      style={[
+        styles.centered,
+        { width: sizes.addedAvatar, height: sizes.addedAvatar, borderRadius: rounded.full, backgroundColor: avatar.fill },
+      ]}>
+      <ThemedText variant="caption" maxFontSizeMultiplier={1.3} style={{ color: avatar.text }}>
+        {avatarInitial(add.addedBy ? names.get(add.addedBy) : null)}
+      </ThemedText>
+    </View>
+  );
 }
 
 /** The unit button and − / + beside the number field (spec 4.4). Disabled when `amount` is null. */

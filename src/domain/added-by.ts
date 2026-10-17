@@ -11,15 +11,30 @@ export type AddedBy = {
   recipeName: string | null;
 };
 
-/**
- * Who added an amount: "Siri", the recipe's name, "You", or "Someone else". Other members' names
- * aren't stored on the device, so their adds can't be named yet.
- */
-export function addedByLabel({ source, addedBy, recipeName }: AddedBy, userId: string | null): string {
-  if (source === 'siri') return i18n.t('addedBy.siri');
-  if (source === 'recipe') return recipeName?.trim() || i18n.t('addedBy.recipe');
+/** Who made an add: "You", their short name, or "Someone else" when it isn't on the device. */
+function adderName(addedBy: string | null, userId: string | null, names: ReadonlyMap<string, string>): string {
   if (addedBy !== null && addedBy === userId) return i18n.t('addedBy.you');
-  return i18n.t('addedBy.someoneElse');
+  return (addedBy !== null && names.get(addedBy)) || i18n.t('addedBy.someoneElse');
+}
+
+/**
+ * Who added an amount: "Siri"; "You"; another member's short name (`names`: the household's,
+ * `useMemberNames`); "Someone else" when their name isn't on the device (removed, deleted, not
+ * loaded yet) or an old row has no `added_by`. A recipe add is the recipe's name, followed by who
+ * added it when that wasn't you ("Shakshuka · Alex").
+ */
+export function addedByLabel(
+  { source, addedBy, recipeName }: AddedBy,
+  userId: string | null,
+  names: ReadonlyMap<string, string> = new Map(),
+): string {
+  if (source === 'siri') return i18n.t('addedBy.siri');
+  if (source === 'recipe') {
+    const recipe = recipeName?.trim() || i18n.t('addedBy.recipe');
+    if (addedBy === null || addedBy === userId) return recipe;
+    return i18n.t('addedBy.recipeBy', { recipe, name: adderName(addedBy, userId, names) });
+  }
+  return adderName(addedBy, userId, names);
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -64,7 +79,12 @@ export function checkedLine(
   return name ? i18n.t('addedBy.checkedBy', { when, name }) : i18n.t('addedBy.checkedBySomeone', { when });
 }
 
-/** The second column of an "Added" row: "You, Tuesday". */
-export function addedLine(add: AddedBy & { createdAt: Date }, userId: string | null, now: Date): string {
-  return i18n.t('addedBy.line', { who: addedByLabel(add, userId), when: addedWhen(add.createdAt, now) });
+/** The second column of an "Added" row: "You, Tuesday", "Alex, Tuesday", "Shakshuka · Alex, yesterday". */
+export function addedLine(
+  add: AddedBy & { createdAt: Date },
+  userId: string | null,
+  now: Date,
+  names: ReadonlyMap<string, string> = new Map(),
+): string {
+  return i18n.t('addedBy.line', { who: addedByLabel(add, userId, names), when: addedWhen(add.createdAt, now) });
 }

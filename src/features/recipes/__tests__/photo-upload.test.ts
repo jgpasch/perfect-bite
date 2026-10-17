@@ -180,10 +180,10 @@ describe('uploadRecipePhoto', () => {
 
 describe("uploadRecipePhoto with a stock photo's credit (spec 4.5)", () => {
   const CREDIT: PhotoCredit = {
-    provider: 'pexels',
+    provider: 'Pixabay',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/bread-123/',
   };
 
   test('sets the credit together with photo_path, in one mutation', async () => {
@@ -245,21 +245,22 @@ describe("uploadRecipePhoto with a stock photo's credit (spec 4.5)", () => {
 
 describe('uploadStockPhoto (spec 4.5)', () => {
   const PHOTO = {
-    thumb: 'https://images.pexels.com/photos/123/medium.jpeg',
-    full: 'https://images.pexels.com/photos/123/large2x.jpeg',
+    thumb: 'https://pixabay.com/get/123/medium.jpeg',
+    full: 'https://pixabay.com/get/123/large2x.jpeg',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/bread-123/',
+    provider: 'Pixabay',
   };
   const CREDIT: PhotoCredit = {
-    provider: 'pexels',
+    provider: 'Pixabay',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/bread-123/',
   };
   const DOWNLOAD = /^file:\/\/\/cache\/stock-[0-9a-f-]{36}\.jpg$/;
 
-  test("stockPhotoCredit: Pexels, the photographer's name and page, and the photo's page", () => {
+  test("stockPhotoCredit: the provider's name, the photographer's name and page, and the photo's page", () => {
     expect(stockPhotoCredit({ ...PHOTO, author: 'Ana Ruiz' })).toEqual({ ...CREDIT, author: 'Ana Ruiz' });
   });
 
@@ -352,7 +353,7 @@ describe('uploadStockPhoto (spec 4.5)', () => {
 
   test('Undo of a stock pick over another credited photo restores the old photo and its credit', async () => {
     const id = createRecipe('Bread');
-    const other = { ...PHOTO, author: 'Sam Lee', pageUrl: 'https://www.pexels.com/photo/rolls-9/' };
+    const other = { ...PHOTO, author: 'Sam Lee', pageUrl: 'https://pixabay.com/photos/rolls-9/' };
     await uploadStockPhoto(id, other);
     const [, firstPath] = storageUploads()[0];
     await uploadStockPhoto(id, PHOTO);

@@ -271,7 +271,10 @@ export const en = {
     siri: 'Siri',
     recipe: 'A recipe',
     you: 'You',
+    /** A member whose name isn't on the device, or an old add with no one recorded. */
     someoneElse: 'Someone else',
+    /** A recipe add by another member: "Shakshuka · Alex". */
+    recipeBy: '{{recipe}} · {{name}}',
     justNow: 'just now',
     minutesAgo: '{{minutes}} min ago',
     today: 'today',
@@ -435,8 +438,8 @@ export const en = {
       searchRateLimited: "You've searched a lot today. Try again later.",
       searchFailed: "Couldn't search photos. Try again later.",
       loadMore: 'Load more',
-      pexels: 'Photos provided by Pexels',
-      pexelsHint: 'Opens Pexels in Safari',
+      provider: 'Photos provided by {{provider}}',
+      providerHint: 'Opens {{provider}} in Safari',
       remove: 'Remove photo',
       updated: 'Photo updated',
       removed: 'Photo removed',
@@ -467,9 +470,9 @@ export const en = {
     },
     /** A stock photo's credit on the recipe photo. */
     photoCredit: {
-      text: 'Photo: {{author}} / Pexels',
-      label: 'Photo by {{author}} on Pexels',
-      hint: 'Opens the photo on Pexels in Safari',
+      text: 'Photo: {{author}} / {{provider}}',
+      label: 'Photo by {{author}} on {{provider}}',
+      hint: 'Opens the photo on {{provider}} in Safari',
     },
     /** The Method card, the Steps sheet and their steps. */
     method: {

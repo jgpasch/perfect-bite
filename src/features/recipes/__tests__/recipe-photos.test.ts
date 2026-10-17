@@ -177,12 +177,12 @@ describe('chooseRecipePhoto and Undo', () => {
 
 describe("a stock photo's credit (spec 4.5)", () => {
   const CREDIT: PhotoCredit = {
-    provider: 'pexels',
+    provider: 'Pixabay',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/bread-123/',
   };
-  const OTHER: PhotoCredit = { ...CREDIT, author: 'Sam Lee', pageUrl: 'https://www.pexels.com/photo/bread-456/' };
+  const OTHER: PhotoCredit = { ...CREDIT, author: 'Sam Lee', pageUrl: 'https://pixabay.com/photos/bread-456/' };
   const PATH = 'h/r/0190a000-0000-7000-8000-000000000001.jpg';
   const PATH2 = 'h/r/0190a000-0000-7000-8000-000000000002.jpg';
   const stock = { imageUrl: A, photoPath: PATH, photoCredit: CREDIT };

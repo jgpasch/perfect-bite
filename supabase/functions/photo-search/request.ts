@@ -11,7 +11,7 @@ export const PAUSED_RETRY_AFTER = 3600;
 /** A few words and a page number: anything bigger is refused. */
 export const MAX_BODY_BYTES = 8 * 1024;
 
-/** Searches a day across all users that reach Pexels, unless PHOTO_SEARCH_DAILY_CAP says otherwise. */
+/** Searches a day across all users that reach the provider, unless PHOTO_SEARCH_DAILY_CAP says otherwise. */
 export const DEFAULT_PHOTO_SEARCH_DAILY_CAP = 3_000;
 
 /** PHOTO_SEARCH_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */

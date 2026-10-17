@@ -24,13 +24,10 @@ import { getRecipe } from '@/features/recipes/recipes';
 import { knownOffline } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
+import type { PhotoProviderInfo, PhotoSearchResult } from '@/shared/schemas/photo-search';
 
 /** Placeholder tiles while the page's photos or a search load: two rows. */
 const PLACEHOLDERS = 4;
-
-/** Pexels' home page, linked from under the search results as its API guidelines ask. */
-const PEXELS_URL = 'https://www.pexels.com';
 
 /**
  * The Search photos section's state: a search running, its photos so far (`more` is the next
@@ -41,6 +38,8 @@ type SearchState =
   | {
       status: 'done';
       query: string;
+      /** Who the photos are from, as the first page's answer named it. */
+      provider: PhotoProviderInfo;
       photos: PhotoSearchResult[];
       hasMore: boolean;
       page: number;
@@ -53,9 +52,9 @@ type SearchState =
  * **From the page**, only when the recipe's link opens: the page's photos (`recipe-photos`, up to
  * 12) in a two-column grid of 4:3 tiles, the current photo outlined in `primary`; picking one sets
  * it (and drops an own photo) and closes the sheet, and the recipe screen shows "Photo updated" with
- * Undo. **Search photos**: free stock photos from Pexels (`photo-search.ts`), searched once on open
+ * Undo. **Search photos**: free stock photos (`photo-search.ts`; the server picks the provider), searched once on open
  * with the recipe's name and then only on Return, in the same grid with the photographer's name on
- * each tile, **Load more** while there are more pages, and "Photos provided by Pexels"; picking one
+ * each tile, **Load more** while there are more pages, and "Photos provided by <provider>"; picking one
  * closes the sheet and uploads it as the household's own photo with its credit (`uploadStockPhoto`).
  * **Photo library** and **Take photo** pick a photo, close the sheet and upload it as the
  * household's own (`photo-upload.ts`); offline they're disabled, "Needs a connection". **Remove
@@ -82,7 +81,7 @@ export default function RecipePhotoSheet() {
   const [search, setSearch] = useState<SearchState | null>(() =>
     openingQuery ? { status: 'loading', query: openingQuery } : null,
   );
-  const [brokenSearch, setBrokenSearch] = useState<ReadonlySet<number>>(new Set());
+  const [brokenSearch, setBrokenSearch] = useState<ReadonlySet<string>>(new Set());
   // Bumped by each new search, so a late answer to an older one is dropped.
   const searchRun = useRef(0);
 
@@ -92,7 +91,7 @@ export default function RecipePhotoSheet() {
       if (run !== searchRun.current || !live()) return;
       setSearch(
         r.ok
-          ? { status: 'done', query, photos: r.photos, hasMore: r.hasMore, page: 1, more: 'idle' }
+          ? { status: 'done', query, provider: r.provider, photos: r.photos, hasMore: r.hasMore, page: 1, more: 'idle' }
           : { status: 'failed', query, error: r.error },
       );
     });
@@ -178,8 +177,8 @@ export default function RecipePhotoSheet() {
   };
   // A search result closes the sheet and downloads, shrinks and uploads it with its credit.
   const pickStock = (photo: PhotoSearchResult) => {
-    if (picking) return;
-    void uploadStockPhoto(recipe.id, photo);
+    if (picking || search?.status !== 'done') return;
+    void uploadStockPhoto(recipe.id, { ...photo, provider: search.provider.name });
     router.back();
   };
   const needsConnection = offline === true ? t('recipes.photo.needsConnection') : undefined;
@@ -316,7 +315,8 @@ function PageSection({
 /**
  * The Search photos section's body: the search field (disabled offline, "Needs a connection"), then
  * placeholders while searching, a note when there's nothing or it failed, else the grid and Load
- * more while there are more pages; the Pexels link last. `onPick` picks a result.
+ * more while there are more pages; the provider's link last, once a search has answered. `onPick`
+ * picks a result.
  */
 function SearchSection({
   text,
@@ -336,7 +336,7 @@ function SearchSection({
   offline: boolean;
   photos: PhotoSearchResult[];
   onLoadMore: () => void;
-  onBroken: (id: number) => void;
+  onBroken: (id: string) => void;
   onPick: (photo: PhotoSearchResult) => void;
 }) {
   const t = useT();
@@ -356,6 +356,7 @@ function SearchSection({
           : 'recipes.photo.searchFailed',
     );
 
+  const provider = state?.status === 'done' ? state.provider : null;
   let body: ReactNode = null;
   if (offline) {
     body = note(t('recipes.photo.needsConnection'));
@@ -423,17 +424,19 @@ function SearchSection({
         />
       </View>
       {body}
-      <Pressable
-        testID="pexels-link"
-        onPress={() => void openRecipeLink(PEXELS_URL)}
-        accessibilityRole="link"
-        accessibilityLabel={t('recipes.photo.pexels')}
-        accessibilityHint={t('recipes.photo.pexelsHint')}
-        style={({ pressed }) => [inset, { opacity: pressed ? opacity.pressed : 1 }]}>
-        <ThemedText variant="footnote" color="inkSecondary">
-          {t('recipes.photo.pexels')}
-        </ThemedText>
-      </Pressable>
+      {provider ? (
+        <Pressable
+          testID="provider-link"
+          onPress={() => void openRecipeLink(provider.url)}
+          accessibilityRole="link"
+          accessibilityLabel={t('recipes.photo.provider', { provider: provider.name })}
+          accessibilityHint={t('recipes.photo.providerHint', { provider: provider.name })}
+          style={({ pressed }) => [inset, { opacity: pressed ? opacity.pressed : 1 }]}>
+          <ThemedText variant="footnote" color="inkSecondary">
+            {t('recipes.photo.provider', { provider: provider.name })}
+          </ThemedText>
+        </Pressable>
+      ) : null}
     </>
   );
 }
@@ -499,7 +502,7 @@ function PhotoTile({
 
 /**
  * A search result at 4:3, radius `md`, the photographer's name on a `surface` chip over its bottom
- * edge. VoiceOver: "Photo by Jane Doe, 3 of 20", led by Pexels' description when it has one.
+ * edge. VoiceOver: "Photo by Jane Doe, 3 of 20", led by the provider's description when it has one.
  */
 function SearchTile({
   photo,

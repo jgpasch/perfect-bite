@@ -103,7 +103,7 @@ const put = (table: string, ...rows: ServerRow[]) => {
 };
 
 const remoteHousehold = (id: string, updated: string, name = 'Home', combineLanguages = false): ServerRow => ({
-  id,
+  id: String(id),
   name,
   combine_languages: combineLanguages,
   created_by: 'u2',
@@ -112,7 +112,7 @@ const remoteHousehold = (id: string, updated: string, name = 'Home', combineLang
 });
 
 const remoteList = (id: string, updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
-  id,
+  id: String(id),
   household_id: H1,
   name: id,
   emoji: null,
@@ -137,7 +137,7 @@ const ITEM_CLOCK: Record<string, string> = {
 };
 
 const remoteItem = (id: string, updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
-  id,
+  id: String(id),
   list_id: L,
   household_id: H1,
   ingredient_name: 'milk',
@@ -155,7 +155,7 @@ const remoteItem = (id: string, updated: string, extra: Partial<ServerRow> = {})
 });
 
 const remoteContribution = (id: string, itemId: string, updated: string, quantity: number | null = null): ServerRow => ({
-  id,
+  id: String(id),
   list_item_id: itemId,
   household_id: H1,
   source: 'manual',
@@ -1264,10 +1264,10 @@ describe("a recipe's own photo (spec 4.5, 5)", () => {
 
   describe("a stock photo's credit", () => {
     const CREDIT = {
-      provider: 'pexels' as const,
+      provider: 'Pixabay',
       author: 'Jane Doe',
-      authorUrl: 'https://www.pexels.com/@jane',
-      pageUrl: 'https://www.pexels.com/photo/tacos-123/',
+      authorUrl: 'https://pixabay.com/users/jane',
+      pageUrl: 'https://pixabay.com/photos/tacos-123/',
     };
     const CLOCK = { ...RECIPE_CLOCK, photo_credit: OLD };
 
@@ -1329,7 +1329,7 @@ describe("a recipe's own photo (spec 4.5, 5)", () => {
 
 describe("the household's aisles (spec 4.3.2)", () => {
   const customCategory = (id: string, name: string, updated: string, householdId = H1): ServerRow => ({
-    id,
+    id: String(id),
     slug: null,
     name,
     household_id: householdId,
@@ -1555,7 +1555,7 @@ describe("the household's meal plan", () => {
     created_at: OLD,
   };
   const remoteEntry = (id: string, updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
-    id,
+    id: String(id),
     household_id: H1,
     plan_date: '2026-10-15',
     meal: 'dinner',

@@ -23,6 +23,12 @@ describe('addedByLabel', () => {
     expect(addedByLabel({ source: 'manual', addedBy: ME, recipeName: null }, ME)).toBe('You');
   });
 
+  it("names another member's add with their short name", () => {
+    const names = new Map([['user-other', 'Alex']]);
+    expect(addedByLabel({ source: 'manual', addedBy: 'user-other', recipeName: null }, ME, names)).toBe('Alex');
+    expect(addedByLabel({ source: 'recipe', addedBy: 'user-other', recipeName: 'Tacos' }, ME, names)).toBe('Tacos · Alex');
+  });
+
   it('is Someone else for another member, an unknown adder, or when signed out', () => {
     expect(addedByLabel({ source: 'manual', addedBy: 'user-other', recipeName: null }, ME)).toBe('Someone else');
     expect(addedByLabel({ source: 'manual', addedBy: null, recipeName: null }, ME)).toBe('Someone else');
@@ -85,6 +91,55 @@ describe('addedLine', () => {
       'You, Tuesday',
     );
     expect(addedLine({ source: 'siri', addedBy: ME, recipeName: null, createdAt: now }, ME, now)).toBe('Siri, just now');
+  });
+
+  describe("with the household's names (spec 4.4)", () => {
+    const now = new Date(2026, 9, 9, 15, 30);
+    const tuesday = new Date(2026, 9, 6, 9);
+    const yesterday = new Date(2026, 9, 8, 18);
+    const names = new Map([[ME, 'Jo'], ['user-2', 'Alex'], ['user-3', 'Sam R.']]);
+    const manual = (addedBy: string | null, createdAt = tuesday) =>
+      ({ source: 'manual', addedBy, recipeName: null, createdAt }) as const;
+    const recipe = (addedBy: string | null, recipeName: string | null = 'Shakshuka') =>
+      ({ source: 'recipe', addedBy, recipeName, createdAt: yesterday }) as const;
+
+    it('names another member by their short name', () => {
+      expect(addedLine(manual('user-2'), ME, now, names)).toBe('Alex, Tuesday');
+      expect(addedLine(manual('user-3', now), ME, now, names)).toBe('Sam R., just now');
+    });
+
+    it("is Someone else for a member whose name isn't on the device, and for an old add with no one", () => {
+      expect(addedLine(manual('user-gone'), ME, now, names)).toBe('Someone else, Tuesday');
+      expect(addedLine(manual(null), ME, now, names)).toBe('Someone else, Tuesday');
+      // Names not loaded yet.
+      expect(addedLine(manual('user-2'), ME, now)).toBe('Someone else, Tuesday');
+    });
+
+    it('is You for your own add, even with your name cached', () => {
+      expect(addedLine(manual(ME), ME, now, names)).toBe('You, Tuesday');
+    });
+
+    it('names another member after the recipe for their recipe add, and not you for yours', () => {
+      expect(addedLine(recipe('user-2'), ME, now, names)).toBe('Shakshuka · Alex, yesterday');
+      expect(addedLine(recipe(ME), ME, now, names)).toBe('Shakshuka, yesterday');
+      expect(addedLine(recipe(null), ME, now, names)).toBe('Shakshuka, yesterday');
+    });
+
+    it('is Someone else after the recipe for an unknown member, and "A recipe" once it is gone', () => {
+      expect(addedLine(recipe('user-gone'), ME, now, names)).toBe('Shakshuka · Someone else, yesterday');
+      expect(addedLine(recipe('user-2', null), ME, now, names)).toBe('A recipe · Alex, yesterday');
+    });
+
+    it('is Siri for a Siri add, whoever asked Siri', () => {
+      expect(addedLine({ source: 'siri', addedBy: 'user-2', recipeName: null, createdAt: tuesday }, ME, now, names)).toBe(
+        'Siri, Tuesday',
+      );
+    });
+
+    it('signed out, every member is named', () => {
+      expect(addedLine(manual(ME), null, now, names)).toBe('Jo, Tuesday');
+      expect(addedLine(recipe('user-2'), null, now, names)).toBe('Shakshuka · Alex, yesterday');
+    });
   });
 });
 

@@ -10,16 +10,26 @@ export const MAX_PHOTO_SEARCH_QUERY = 100;
 /** Pages run from 1 to this. */
 export const MAX_PHOTO_SEARCH_PAGE = 10;
 
-/** Photos asked of Pexels per page; fewer come back when some are dropped. */
+/** Photos asked of the provider per page; fewer come back when some are dropped. */
 export const PHOTO_SEARCH_PER_PAGE = 20;
 
 /** A photographer's name is at most this long, as `recipes.photo_credit` allows. */
 export const MAX_PHOTO_AUTHOR_LENGTH = 200;
 
-/** `POST /photo-search`: the words to search for and which page of results. */
+/** A provider's name is at most this long, as `recipes.photo_credit` allows. */
+export const MAX_PHOTO_PROVIDER_LENGTH = 40;
+
+/**
+ * `POST /photo-search`: the words to search for, which page of results, and the language they're
+ * in (ISO 639-1; a provider that can't search in it searches as it would without).
+ */
 export const PhotoSearchRequestSchema = z.object({
   query: z.string().trim().min(1).max(MAX_PHOTO_SEARCH_QUERY),
   page: z.number().int().min(1).max(MAX_PHOTO_SEARCH_PAGE).default(1),
+  lang: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .default('en'),
 });
 export type PhotoSearchRequest = z.infer<typeof PhotoSearchRequestSchema>;
 
@@ -27,7 +37,8 @@ const HttpsUrlSchema = z.string().max(MAX_IMAGE_URL_LENGTH).startsWith('https://
 
 /** One stock photo: `thumb` for the grid, `full` to download, and the credit's names and links. */
 export const PhotoSearchResultSchema = z.object({
-  id: z.number().int(),
+  /** The provider's id for the photo, unique within one search. */
+  id: z.string().min(1).max(100),
   thumb: HttpsUrlSchema,
   full: HttpsUrlSchema,
   width: z.number().int().positive(),
@@ -35,13 +46,24 @@ export const PhotoSearchResultSchema = z.object({
   author: z.string().min(1).max(MAX_PHOTO_AUTHOR_LENGTH),
   authorUrl: HttpsUrlSchema,
   pageUrl: HttpsUrlSchema,
-  /** Pexels' description of the photo; null when it has none. */
+  /** The provider's description of the photo; null when it has none. */
   alt: z.string().nullable(),
 });
 export type PhotoSearchResult = z.infer<typeof PhotoSearchResultSchema>;
 
-/** 200: a page of photos, and whether there's a next page to ask for. */
+/**
+ * Who the photos come from: the name the app credits ("Photos provided by Pixabay", "Photo: Jane Doe
+ * / Pixabay") and the home page it links to. The app never names a provider itself.
+ */
+export const PhotoProviderSchema = z.object({
+  name: z.string().min(1).max(MAX_PHOTO_PROVIDER_LENGTH),
+  url: HttpsUrlSchema,
+});
+export type PhotoProviderInfo = z.infer<typeof PhotoProviderSchema>;
+
+/** 200: who the photos are from, a page of photos, and whether there's a next page to ask for. */
 export const PhotoSearchResponseSchema = z.object({
+  provider: PhotoProviderSchema,
   photos: z.array(PhotoSearchResultSchema).max(PHOTO_SEARCH_PER_PAGE),
   hasMore: z.boolean(),
 });

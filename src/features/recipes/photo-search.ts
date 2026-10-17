@@ -1,11 +1,13 @@
 // The Choose a photo sheet's stock photo search (spec 4.5, 6.11), from the `photo-search` Edge
 // Function, as `loadPagePhotos` is for the page's photos.
+import { currentLanguage } from '@/i18n';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
   MAX_PHOTO_SEARCH_PAGE,
   MAX_PHOTO_SEARCH_QUERY,
   PhotoSearchErrorSchema,
   PhotoSearchResponseSchema,
+  type PhotoProviderInfo,
   type PhotoSearchResult,
 } from '@/shared/schemas/photo-search';
 
@@ -13,12 +15,12 @@ import { knownOffline } from './suggest-tags';
 
 /**
  * `offline`: no connection, session or config. `rate_limited`: the user's minute or day limit.
- * `failed`: anything else (no Pexels key or the global cap, Pexels failing, a bad answer).
+ * `failed`: anything else (search not set up or the global cap, the provider failing, a bad answer).
  */
 export type PhotoSearchFailure = 'offline' | 'rate_limited' | 'failed';
 
 export type PhotoSearchOutcome =
-  | { ok: true; photos: PhotoSearchResult[]; hasMore: boolean }
+  | { ok: true; provider: PhotoProviderInfo; photos: PhotoSearchResult[]; hasMore: boolean }
   | { ok: false; error: PhotoSearchFailure };
 
 /**
@@ -29,7 +31,10 @@ export function photoSearchQuery(text: string): string {
   return text.trim().slice(0, MAX_PHOTO_SEARCH_QUERY).trim();
 }
 
-/** Asks the server for page `page` (1 to 10) of stock photos for `query`. Never throws. */
+/**
+ * Asks the server for page `page` (1 to 10) of stock photos for `query`, in the app's language.
+ * The answer names the provider the server uses. Never throws.
+ */
 export async function searchPhotos(query: string, page = 1): Promise<PhotoSearchOutcome> {
   const words = photoSearchQuery(query);
   if (!words || !Number.isInteger(page) || page < 1 || page > MAX_PHOTO_SEARCH_PAGE) return { ok: false, error: 'failed' };
@@ -37,7 +42,7 @@ export async function searchPhotos(query: string, page = 1): Promise<PhotoSearch
   try {
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'offline' };
-    const { data, error } = await supabase.functions.invoke('photo-search', { body: { query: words, page } });
+    const { data, error } = await supabase.functions.invoke('photo-search', { body: { query: words, page, lang: currentLanguage() } });
     if (error) return { ok: false, error: await errorCode(error) };
     const parsed = PhotoSearchResponseSchema.safeParse(data);
     if (!parsed.success) {
@@ -45,7 +50,7 @@ export async function searchPhotos(query: string, page = 1): Promise<PhotoSearch
       return { ok: false, error: 'failed' };
     }
     // The last page never has more, whatever the answer says.
-    return { ok: true, photos: parsed.data.photos, hasMore: parsed.data.hasMore && page < MAX_PHOTO_SEARCH_PAGE };
+    return { ok: true, provider: parsed.data.provider, photos: parsed.data.photos, hasMore: parsed.data.hasMore && page < MAX_PHOTO_SEARCH_PAGE };
   } catch (e) {
     console.warn('photo-search failed', e);
     return { ok: false, error: 'offline' };

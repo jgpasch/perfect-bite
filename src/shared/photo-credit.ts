@@ -3,7 +3,8 @@
  * stock photo service. Only set with `photo_path`; null = no credit (a library or camera photo).
  */
 export type PhotoCredit = {
-  provider: 'pexels';
+  /** The service's name as the credit shows it ("Pixabay"), 1–40 characters. */
+  provider: string;
   /** The photographer's name, 1–200 characters. */
   author: string;
   /** The photographer's page, `https://`, at most 2048 characters. */

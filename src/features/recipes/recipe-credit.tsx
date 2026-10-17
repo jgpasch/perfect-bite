@@ -66,8 +66,9 @@ export function RecipeCredit({
 
 /**
  * A stock photo's credit (spec 4.5) on the recipe photo's bottom-right corner, where a site photo's
- * source credit sits: "Photo: Jane Doe / Pexels" in `caption` `inkSecondary` on a `surface` chip, a
- * link that opens the photo's Pexels page in Safari. VoiceOver: "Photo by Jane Doe on Pexels, link".
+ * source credit sits: "Photo: Jane Doe / Pixabay" (the credit's provider) in `caption` `inkSecondary`
+ * on a `surface` chip, a link that opens the photo's page in Safari. VoiceOver: "Photo by Jane Doe on
+ * Pixabay, link".
  * Nothing without a credit (a library or camera photo).
  */
 export function PhotoCreditChip({ credit }: { credit: PhotoCredit | null | undefined }) {
@@ -79,8 +80,8 @@ export function PhotoCreditChip({ credit }: { credit: PhotoCredit | null | undef
       testID="photo-credit"
       onPress={() => void openRecipeLink(credit.pageUrl)}
       accessibilityRole="link"
-      accessibilityLabel={t('recipes.photoCredit.label', { author: credit.author })}
-      accessibilityHint={t('recipes.photoCredit.hint')}
+      accessibilityLabel={t('recipes.photoCredit.label', { author: credit.author, provider: credit.provider })}
+      accessibilityHint={t('recipes.photoCredit.hint', { provider: credit.provider })}
       hitSlop={spacing.sm}
       style={({ pressed }) => [
         styles.center,
@@ -97,7 +98,7 @@ export function PhotoCreditChip({ credit }: { credit: PhotoCredit | null | undef
         },
       ]}>
       <ThemedText variant="caption" color="inkSecondary" numberOfLines={1}>
-        {t('recipes.photoCredit.text', { author: credit.author })}
+        {t('recipes.photoCredit.text', { author: credit.author, provider: credit.provider })}
       </ThemedText>
     </Pressable>
   );

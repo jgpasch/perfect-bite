@@ -2,7 +2,7 @@
 // on the device, uploading it to the private recipe-photos bucket, and setting `photo_path` through
 // the usual recipe update. While it uploads, the recipe screen shows the photo from the device with
 // a spinner; a failure leaves the recipe as it was and the screen offers Try again. A stock photo
-// (Pexels, from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
+// (from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
 import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useSyncExternalStore } from 'react';
@@ -52,12 +52,15 @@ export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
 
 // --- The upload ----------------------------------------------------------------------------------
 
-/** What a stock pick needs: the photo to download (`full`), one to show meanwhile (`thumb`), and the credit's names and links. */
-export type StockPhoto = Pick<PhotoSearchResult, 'thumb' | 'full' | 'author' | 'authorUrl' | 'pageUrl'>;
+/**
+ * What a stock pick needs: the photo to download (`full`), one to show meanwhile (`thumb`), and the
+ * credit's names and links, `provider` being the name the search answer gave for its service.
+ */
+export type StockPhoto = Pick<PhotoSearchResult, 'thumb' | 'full' | 'author' | 'authorUrl' | 'pageUrl'> & { provider: string };
 
 /** A stock photo's `recipes.photo_credit`. */
 export function stockPhotoCredit(photo: StockPhoto): PhotoCredit {
-  return { provider: 'pexels', author: photo.author, authorUrl: photo.authorUrl, pageUrl: photo.pageUrl };
+  return { provider: photo.provider, author: photo.author, authorUrl: photo.authorUrl, pageUrl: photo.pageUrl };
 }
 
 /**

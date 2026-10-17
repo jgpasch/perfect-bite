@@ -208,18 +208,18 @@ describe('RecipeCredit', () => {
 
 describe('PhotoCreditChip', () => {
   const CREDIT = {
-    provider: 'pexels' as const,
+    provider: 'Pixabay',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/bread-123/',
   };
 
-  test('"Photo: Jane Doe / Pexels", read as "Photo by Jane Doe on Pexels", a link to the photo\'s page (not the photographer\'s)', () => {
+  test('"Photo: Jane Doe / Pixabay", read as "Photo by Jane Doe on Pixabay", a link to the photo\'s page (not the photographer\'s)', () => {
     const root = render(<PhotoCreditChip credit={CREDIT} />);
     const [chip] = credits(root, 'photo-credit');
-    expect(textOf(chip)).toBe('Photo: Jane Doe / Pexels');
+    expect(textOf(chip)).toBe('Photo: Jane Doe / Pixabay');
     expect(chip.props.accessibilityRole).toBe('link');
-    expect(chip.props.accessibilityLabel).toBe('Photo by Jane Doe on Pexels');
+    expect(chip.props.accessibilityLabel).toBe('Photo by Jane Doe on Pixabay');
     press(pressable(root, 'photo-credit'));
     expect(mockOpenURL).toHaveBeenCalledTimes(1);
     expect(mockOpenURL).toHaveBeenCalledWith(CREDIT.pageUrl);
@@ -234,14 +234,14 @@ describe('PhotoCreditChip', () => {
     expect(hostTexts(root)).toEqual([]);
   });
 
-  test('in Spanish: "Foto: Jane Doe / Pexels", read as "Foto de Jane Doe en Pexels"', async () => {
+  test('in Spanish: "Foto: Jane Doe / Pixabay", read as "Foto de Jane Doe en Pixabay"', async () => {
     await act(async () => {
       await i18n.changeLanguage('es');
     });
     const root = render(<PhotoCreditChip credit={CREDIT} />);
     const [chip] = credits(root, 'photo-credit');
-    expect(textOf(chip)).toBe('Foto: Jane Doe / Pexels');
-    expect(chip.props.accessibilityLabel).toBe('Foto de Jane Doe en Pexels');
+    expect(textOf(chip)).toBe('Foto: Jane Doe / Pixabay');
+    expect(chip.props.accessibilityLabel).toBe('Foto de Jane Doe en Pixabay');
   });
 
   test('a long name stays on one line', () => {

@@ -165,10 +165,10 @@ describe('loading an own photo', () => {
 
 describe("useRecipePhoto's credit", () => {
   const CREDIT: PhotoCredit = {
-    provider: 'pexels',
+    provider: 'Pixabay',
     author: 'Jane Doe',
-    authorUrl: 'https://www.pexels.com/@jane',
-    pageUrl: 'https://www.pexels.com/photo/tacos-123/',
+    authorUrl: 'https://pixabay.com/users/jane',
+    pageUrl: 'https://pixabay.com/photos/tacos-123/',
   };
   let seen: ReturnType<typeof useRecipePhoto> | null = null;
   function Probe({ recipe }: { recipe: RecipePhotoSourceFields | null }) {

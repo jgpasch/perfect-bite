@@ -1,11 +1,11 @@
 -- photo-search rate limits and cache (spec 6.11): per user 20 a minute and 100 a day, the global
 -- daily cap, a cache hit counting against the user but not the global cap, a refused search using
--- no budget, the 24-hour cache, the retention job, and only service_role can call the functions.
+-- no budget, the 23-hour cache, the retention job, and only service_role can call the functions.
 -- now() is fixed within the transaction, so every call lands in the same minute; the window reset
 -- is simulated by moving minute_start back, and the cache's age by moving fetched_at back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(34);
 
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
@@ -93,10 +93,13 @@ select is(public.get_photo_search_cache('lemon cake', 2), null, 'only for its ow
 do $$ begin perform public.save_photo_search_cache('lemon cake', 1, '{"photos":[],"hasMore":false}'::jsonb); end $$;
 select is(public.get_photo_search_cache('lemon cake', 1), '{"photos":[],"hasMore":false}'::jsonb, 'saving again replaces it');
 select is((select count(*)::int from private.photo_search_cache), 1, 'one row per key and page');
-update private.photo_search_cache set fetched_at = now() - interval '25 hours' where query_key = 'lemon cake';
-select is(public.get_photo_search_cache('lemon cake', 1), null, 'an answer over 24 hours old is not used');
+update private.photo_search_cache set fetched_at = now() - interval '22 hours 50 minutes' where query_key = 'lemon cake';
+select is(public.get_photo_search_cache('lemon cake', 1), '{"photos":[],"hasMore":false}'::jsonb, 'an answer under 23 hours old is used');
+update private.photo_search_cache set fetched_at = now() - interval '23 hours 10 minutes' where query_key = 'lemon cake';
+select is(public.get_photo_search_cache('lemon cake', 1), null, 'an answer over 23 hours old is not used (its image URLs are about to expire)');
 
 -- Retention -----------------------------------------------------------------------------
+update private.photo_search_cache set fetched_at = now() - interval '25 hours' where query_key = 'lemon cake';
 do $$ begin perform public.save_photo_search_cache('roast chicken', 1, '{"photos":[],"hasMore":false}'::jsonb); end $$;
 insert into private.photo_search_usage (user_id, day, minute_start)
   values ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 2, now() - interval '2 days');

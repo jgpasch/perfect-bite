@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Item sheet, added by Alex</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&amp;family=Figtree:wght@400..700&amp;display=swap">
+<style>
+body{margin:0}
+button{font-family:inherit;cursor:pointer}
+.f{font-family:'Figtree',system-ui,sans-serif;color:#1D2A22}
+.d{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;letter-spacing:-0.025em}
+.card{background:#FFFFFF;border-radius:22px;margin:0 16px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:0 16px;min-height:50px}
+.row+.row{border-top:1px solid #EEF1EC}
+.lbl{font-size:13px;font-weight:700;color:#55635A;padding:4px 32px 0}
+.fn{font-size:13px;line-height:18px;color:#55635A}
+.amt{font-size:15px;font-weight:600;color:#55635A}
+.body{font-size:17px;font-weight:500}
+.av{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#FFFFFF;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;flex-shrink:0}
+.pill{height:40px;border-radius:999px;padding:0 14px;display:inline-flex;align-items:center;font-size:15px;font-weight:600;background:#FFFFFF;color:#1D2A22;border:0}
+.sb{width:34px;height:34px;border-radius:50%;border:0;background:#FFFFFF;font-size:20px;color:#1D2A22;padding:0}
+</style>
+</helmet>
+<div class="f" style="width:390px;height:844px;background:#C9D3C7;position:relative;overflow:hidden">
+<div style="position:absolute;top:54px;left:0;right:0;bottom:0;background:#EEF3EC;border-radius:28px 28px 0 0;display:flex;flex-direction:column;gap:12px">
+  <div style="height:5px;width:36px;border-radius:3px;background:#B9C4BC;align-self:center;margin-top:6px"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:0 16px;height:44px">
+    <button style="background:none;border:0;font-size:17px;color:#1D2A22;min-height:44px;padding:0 4px">Cancel</button>
+    <button style="background:#2E6B45;color:#FFFFFF;border:0;border-radius:999px;height:40px;padding:0 18px;font-size:17px;font-weight:700">Save</button>
+  </div>
+
+  <div style="display:flex;gap:12px;padding:4px 20px;align-items:flex-start">
+    <div style="width:52px;height:52px;border-radius:12px;background:#FAE4D6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#D0703A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="4" rx="1"></rect><path d="M7 7h10v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"></path><path d="M7 12h10"></path></svg>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+      <div class="d" style="font-size:30px;line-height:36px">Za’atar</div>
+      <div class="amt">1 jar</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+        <span class="av" style="width:22px;height:22px;font-size:12px;background:#2F6396">A</span>
+        <span class="fn">Added by <b style="font-weight:700;color:#1D2A22">Alex</b> · Tuesday</span>
+      </div>
+    </div>
+    <div style="height:36px;display:flex;align-items:center">
+      <button aria-label="Got it" style="width:24px;height:24px;border-radius:50%;border:2px solid #D0703A;background:#FFFFFF;padding:0"></button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="body" style="width:76px;color:#55635A">Amount</span>
+      <span class="body" style="flex:1">1 jar</span>
+      <div style="display:flex;gap:2px;background:#DCE4DA;border-radius:999px;padding:3px"><button class="sb" aria-label="Less">−</button><button class="sb" aria-label="More">+</button></div>
+    </div>
+    <div class="row">
+      <span class="body" style="width:76px;color:#55635A">Note</span>
+      <span class="body" style="flex:1;color:#55635A">Add a note</span>
+    </div>
+  </div>
+
+  <div class="lbl">Aisle</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;padding:0 16px">
+    <button class="pill" style="background:#A04A1C;color:#FFFFFF;font-weight:700">Spices</button>
+    <button class="pill">Pantry</button>
+    <button class="pill">Condiments</button>
+    <button class="pill">Canned &amp; jarred</button>
+    <button class="pill" style="background:transparent;border:1px solid #2E6B45;color:#2E6B45">Show all ▾</button>
+  </div>
+
+  <button style="margin:12px 16px 0;height:48px;border-radius:999px;background:#F7E1E6;color:#A33D53;border:0;font-size:16px;font-weight:700">Delete item</button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

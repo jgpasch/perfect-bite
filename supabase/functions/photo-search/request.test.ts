@@ -18,7 +18,7 @@ function deps(overrides: Partial<RequestDeps> = {}) {
   const d: RequestDeps = {
     photoSearch: async (request) => {
       calls.push(request);
-      return { photos: [], hasMore: false };
+      return { provider: { name: 'Pixabay', url: 'https://pixabay.com' }, photos: [], hasMore: false };
     },
     ...overrides,
   };
@@ -33,18 +33,18 @@ async function expectError(res: Response, status: number, code: string) {
   assertEquals((await res.json()).error, code);
 }
 
-Deno.test('POST { query } → 200, the query trimmed and the page 1 by default', async () => {
+Deno.test('POST { query } → 200, the query trimmed, the page 1 and the language en by default', async () => {
   const { d, calls } = deps();
   const res = await handleRequest(post(JSON.stringify({ query: '  lemon cake ' })), d);
   assertEquals(res.status, 200);
-  assertEquals(await res.json(), { photos: [], hasMore: false });
-  assertEquals(calls, [{ query: 'lemon cake', page: 1 }]);
+  assertEquals(await res.json(), { provider: { name: 'Pixabay', url: 'https://pixabay.com' }, photos: [], hasMore: false });
+  assertEquals(calls, [{ query: 'lemon cake', page: 1, lang: 'en' }]);
 });
 
 Deno.test('the query may be 100 characters after trimming, and the page 1 to 10', async () => {
   const { d, calls } = deps();
   assertEquals((await handleRequest(post(JSON.stringify({ query: ` ${'a'.repeat(100)} `, page: 10 })), d)).status, 200);
-  assertEquals(calls, [{ query: 'a'.repeat(100), page: 10 }]);
+  assertEquals(calls, [{ query: 'a'.repeat(100), page: 10, lang: 'en' }]);
 });
 
 Deno.test('only POST', async () => {
@@ -75,7 +75,7 @@ Deno.test('failures map to their statuses; anything else is a 500', async () => 
   const body = JSON.stringify({ query: 'cake' });
   await expectError(await handleRequest(post(body), failing(new PhotoSearchError({ code: 'rate_limited' }, 'x'))), 429, 'rate_limited');
   await expectError(await handleRequest(post(body), failing(new PhotoSearchError({ code: 'search_failed' }, 'x'))), 502, 'search_failed');
-  for (const reason of ['no_key', 'global_cap', 'pexels_rate_limited'] as const) {
+  for (const reason of ['no_key', 'global_cap', 'provider_rate_limited'] as const) {
     const res = await handleRequest(post(body), failing(new PhotoSearchError({ code: 'unavailable', reason }, 'x')));
     assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
     await expectError(res, 503, 'unavailable');
@@ -85,12 +85,12 @@ Deno.test('failures map to their statuses; anything else is a 500', async () => 
 
 Deno.test('the deployed function answers 401 without a JWT, before any work', async () => {
   const saved = Object.fromEntries(
-    ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'PEXELS_API_KEY'].map((k) => [k, Deno.env.get(k)]),
+    ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'PIXABAY_API_KEY'].map((k) => [k, Deno.env.get(k)]),
   );
   Deno.env.set('SUPABASE_URL', 'http://127.0.0.1:1');
   Deno.env.set('SUPABASE_ANON_KEY', 'anon');
   Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'service');
-  Deno.env.set('PEXELS_API_KEY', 'key');
+  Deno.env.set('PIXABAY_API_KEY', 'key');
   try {
     const { default: fn } = await import('./index.ts');
     const body = JSON.stringify({ query: 'cake' });

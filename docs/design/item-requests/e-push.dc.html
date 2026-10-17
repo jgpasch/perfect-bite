@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lock screen push to Alex</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&amp;family=Figtree:wght@400..700&amp;display=swap">
+<style>
+body{margin:0}
+button{font-family:inherit;cursor:pointer}
+.f{font-family:-apple-system,'SF Pro Text',system-ui,sans-serif;color:#1D2A22}
+.act{width:100%;background:none;border:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;min-height:48px;font-size:17px;color:#1D2A22}
+.act+.act{border-top:1px solid rgba(29,42,34,0.12)}
+</style>
+</helmet>
+<div class="f" style="width:390px;height:844px;background:#163A26;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center">
+  <div style="margin-top:96px;color:#B7D2BF;font-size:20px;font-weight:600">Saturday, October 17</div>
+  <div style="color:#FFFFFF;font-size:92px;font-weight:700;line-height:1;letter-spacing:-0.02em">5:42</div>
+
+  <div style="margin-top:56px;width:358px;display:flex;flex-direction:column;gap:8px">
+    <div style="background:rgba(255,255,255,0.92);border-radius:22px;padding:14px;display:flex;gap:12px;align-items:flex-start">
+      <div style="width:38px;height:38px;border-radius:9px;background:#1F4D33;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E9C46A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17h16"></path><path d="M6 17a6 6 0 0 1 12 0"></path><path d="M12 9V7"></path></svg>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+        <div style="display:flex;justify-content:space-between"><span style="font-size:15px;font-weight:600">Groceries</span><span style="font-size:13px;color:#55635A">now</span></div>
+        <div style="font-size:15px;line-height:20px">Sam wants a photo of <b>za’atar</b> — they’re at the store.</div>
+      </div>
+    </div>
+    <div style="background:rgba(255,255,255,0.92);border-radius:16px;overflow:hidden;width:250px;align-self:flex-end">
+      <button class="act">Take photo
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+      </button>
+      <button class="act">Reply with a note
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>
+      </button>
+    </div>
+  </div>
+  <div style="position:absolute;bottom:40px;color:#B7D2BF;font-size:13px">Long-press shows the actions</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

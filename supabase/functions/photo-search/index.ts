@@ -4,7 +4,7 @@
 import { withSupabase } from '@supabase/server';
 
 import { photoSearch } from './handler.ts';
-import { searchPexels } from './pexels.ts';
+import { photoProviderFromEnv } from './providers/index.ts';
 import { dailyPhotoSearchCap, handleRequest } from './request.ts';
 import { createPhotoSearchStore } from './store.ts';
 
@@ -14,13 +14,7 @@ export default {
       userId: ctx.userClaims!.id,
       dailyCap: dailyPhotoSearchCap(Deno.env.get('PHOTO_SEARCH_DAILY_CAP')),
     });
-    const apiKey = Deno.env.get('PEXELS_API_KEY')?.trim();
-    return handleRequest(req, {
-      photoSearch: (request) =>
-        photoSearch(request, {
-          store,
-          searchPexels: apiKey ? (query, page) => searchPexels(query, page, { apiKey }) : null,
-        }),
-    });
+    const provider = photoProviderFromEnv((name) => Deno.env.get(name));
+    return handleRequest(req, { photoSearch: (request) => photoSearch(request, { store, provider }) });
   }),
 };

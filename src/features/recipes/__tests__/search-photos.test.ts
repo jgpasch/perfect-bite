@@ -2,9 +2,12 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import type { NetworkState } from 'expo-network';
 
+import { i18n } from '@/i18n';
 import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 
 import { appendPhotos, photoSearchQuery, searchPhotos } from '../photo-search';
+
+const PIXABAY = { name: 'Pixabay', url: 'https://pixabay.com' };
 
 const mockNetwork: { state: NetworkState } = { state: { isConnected: true, isInternetReachable: true } };
 
@@ -19,14 +22,14 @@ const invoke = supabase.functions.invoke;
 let warn: ReturnType<typeof jest.spyOn>;
 
 const stock = (id: number, author = 'Jane Doe') => ({
-  id,
-  thumb: `https://images.pexels.com/photos/${id}/medium.jpeg`,
-  full: `https://images.pexels.com/photos/${id}/large2x.jpeg`,
+  id: String(id),
+  thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
+  full: `https://pixabay.com/get/${id}/large2x.jpeg`,
   width: 1200,
   height: 900,
   author,
-  authorUrl: 'https://www.pexels.com/@jane-doe',
-  pageUrl: `https://www.pexels.com/photo/${id}/`,
+  authorUrl: 'https://pixabay.com/users/jane-doe',
+  pageUrl: `https://pixabay.com/photos/${id}/`,
   alt: null,
 });
 
@@ -58,20 +61,31 @@ afterEach(() => {
 
 describe('searchPhotos', () => {
   test('posts the query and page to photo-search and returns its photos and hasMore', async () => {
-    invoke.mockResolvedValue({ data: { photos: [stock(1), stock(2)], hasMore: true }, error: null });
-    expect(await searchPhotos('blueberry bread', 2)).toEqual({ ok: true, photos: [stock(1), stock(2)], hasMore: true });
-    expect(invoke).toHaveBeenCalledWith('photo-search', { body: { query: 'blueberry bread', page: 2 } });
+    invoke.mockResolvedValue({ data: { provider: PIXABAY, photos: [stock(1), stock(2)], hasMore: true }, error: null });
+    expect(await searchPhotos('blueberry bread', 2)).toEqual({ ok: true, provider: PIXABAY, photos: [stock(1), stock(2)], hasMore: true });
+    expect(invoke).toHaveBeenCalledWith('photo-search', { body: { query: 'blueberry bread', page: 2, lang: 'en' } });
+  });
+
+  test("searches in the app's language", async () => {
+    invoke.mockResolvedValue({ data: { provider: PIXABAY, photos: [], hasMore: false }, error: null });
+    await i18n.changeLanguage('es');
+    try {
+      await searchPhotos('pollo asado');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+    expect(invoke).toHaveBeenCalledWith('photo-search', { body: { query: 'pollo asado', page: 1, lang: 'es' } });
   });
 
   test('page 1 by default; the query is trimmed and cut to 100 characters', async () => {
-    invoke.mockResolvedValue({ data: { photos: [], hasMore: false }, error: null });
-    expect(await searchPhotos(`  ${'a'.repeat(120)} `)).toEqual({ ok: true, photos: [], hasMore: false });
-    expect(invoke).toHaveBeenCalledWith('photo-search', { body: { query: 'a'.repeat(100), page: 1 } });
+    invoke.mockResolvedValue({ data: { provider: PIXABAY, photos: [], hasMore: false }, error: null });
+    expect(await searchPhotos(`  ${'a'.repeat(120)} `)).toEqual({ ok: true, provider: PIXABAY, photos: [], hasMore: false });
+    expect(invoke).toHaveBeenCalledWith('photo-search', { body: { query: 'a'.repeat(100), page: 1, lang: 'en' } });
   });
 
   test('page 10 never has more, whatever the answer says', async () => {
-    invoke.mockResolvedValue({ data: { photos: [stock(1)], hasMore: true }, error: null });
-    expect(await searchPhotos('bread', 10)).toEqual({ ok: true, photos: [stock(1)], hasMore: false });
+    invoke.mockResolvedValue({ data: { provider: PIXABAY, photos: [stock(1)], hasMore: true }, error: null });
+    expect(await searchPhotos('bread', 10)).toEqual({ ok: true, provider: PIXABAY, photos: [stock(1)], hasMore: false });
   });
 
   test.each([
@@ -113,7 +127,7 @@ describe('searchPhotos', () => {
 
   test.each([
     [503, { error: 'unavailable', message: 'No key' }],
-    [502, { error: 'search_failed', message: 'Pexels failed' }],
+    [502, { error: 'search_failed', message: 'Pixabay failed' }],
     [400, { error: 'invalid_request', message: 'Bad query' }],
     [500, 'Internal Server Error'],
   ])('%s is failed', async (status, body) => {
@@ -122,7 +136,7 @@ describe('searchPhotos', () => {
   });
 
   test('an answer of the wrong shape is failed', async () => {
-    invoke.mockResolvedValue({ data: { photos: [{ ...stock(1), thumb: 'http://insecure.example/a.jpg' }], hasMore: false }, error: null });
+    invoke.mockResolvedValue({ data: { provider: PIXABAY, photos: [{ ...stock(1), thumb: 'http://insecure.example/a.jpg' }], hasMore: false }, error: null });
     expect(await searchPhotos('bread')).toEqual({ ok: false, error: 'failed' });
     invoke.mockResolvedValue({ data: { images: [] }, error: null });
     expect(await searchPhotos('bread')).toEqual({ ok: false, error: 'failed' });
@@ -139,8 +153,8 @@ describe('photoSearchQuery', () => {
 
 describe('appendPhotos', () => {
   test('adds the next page after the shown photos, leaving out repeats', () => {
-    expect(appendPhotos([stock(1), stock(2)], [stock(2), stock(3), stock(3), stock(4)]).map((p) => p.id)).toEqual([1, 2, 3, 4]);
-    expect(appendPhotos([], [stock(5)]).map((p) => p.id)).toEqual([5]);
-    expect(appendPhotos([stock(1)], []).map((p) => p.id)).toEqual([1]);
+    expect(appendPhotos([stock(1), stock(2)], [stock(2), stock(3), stock(3), stock(4)]).map((p) => p.id)).toEqual(['1', '2', '3', '4']);
+    expect(appendPhotos([], [stock(5)]).map((p) => p.id)).toEqual(['5']);
+    expect(appendPhotos([stock(1)], []).map((p) => p.id)).toEqual(['1']);
   });
 });
