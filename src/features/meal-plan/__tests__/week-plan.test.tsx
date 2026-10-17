@@ -22,6 +22,9 @@ import PlanScreen from '@/app/(tabs)/plan/index';
 
 import { resetEarlierDays } from '../earlier-fold-store';
 import { getPlanGridStyle, PLAN_GRID_STYLE_KEY, readPlanGridStyle, setPlanGridStyle } from '../grid-style';
+import { groupWeek, weekEntriesQuery } from '../queries';
+import { weekDays } from '../week';
+import { WeekGrid } from '../week-grid';
 import { WeekPlan } from '../week-plan';
 import { setSlot } from '../write';
 
@@ -55,9 +58,16 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   accessibilityLabel: (value: string) => ({ accessibilityLabel: value }),
 }));
+// Reduce Motion, as a test sets it; a layout transition as what it was built with.
+const mockMotion = { reduced: false };
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
-  return { __esModule: true, default: { View } };
+  return {
+    __esModule: true,
+    default: { View },
+    LinearTransition: { duration: (ms: number) => ({ transition: 'linear', ms }) },
+    useReducedMotion: () => mockMotion.reduced,
+  };
 });
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('@/db/live-query', () => ({
@@ -131,7 +141,8 @@ beforeEach(() => {
   ensureStarterData('user-1');
   resetEarlierDays();
   mockWindow.fontScale = 1;
-  home = getList(getDefaultListId('user-1')!)!.householdId;
+  mockMotion.reduced = false;
+  home =getList(getDefaultListId('user-1')!)!.householdId;
   tacos = createRecipe('Chicken tacos', home);
   soup = createRecipe('Soup', home);
   db.update(recipes).set({ totalMinutes: 35 }).where(eq(recipes.id, tacos)).run();
@@ -383,14 +394,16 @@ describe('the grid in the photo style', () => {
   });
 });
 
-describe('the grid in the compact and expand styles', () => {
-  test.each(['compact', 'expand'] as const)('%s: the small tile over the name, at the compact height, past names greyed', (style) => {
-    setPlanGridStyle(style);
+describe('the grid in the compact style', () => {
+  test('the small tile over the name, at the compact height, past names greyed; day labels are not buttons', () => {
+    setPlanGridStyle('compact');
     const root = render();
     expect(byTestID(root, 'photo-band')).toHaveLength(0);
+    expect(byTestID(root, 'plan-photo')).toHaveLength(0);
     expect(flat(slot(root, '2026-10-15', 'dinner').props.style)).toMatchObject({ minHeight: 64, backgroundColor: Palette.light.surface, opacity: 1 });
     expect(flat(slot(root, '2026-10-12', 'dinner').props.style).opacity).toBe(1);
     expect(texts(slot(root, '2026-10-15', 'dinner'))).toEqual(['Chicken tacos']);
+    expect(root.root.findAll((n) => /^day-label-|^open-day-/.test(n.props.testID ?? ''))).toHaveLength(0);
   });
 
   test('a grid on screen follows a change of style at once', () => {
@@ -401,6 +414,254 @@ describe('the grid in the compact and expand styles', () => {
     expect(flat(slot(root, '2026-10-15', 'dinner').props.style).minHeight).toBe(84);
     act(() => setPlanGridStyle('compact'));
     expect(byTestID(root, 'photo-band')).toHaveLength(0);
+  });
+});
+
+describe('the grid in the expand style', () => {
+  const dayButton = (root: ReactTestRenderer, day: string) =>
+    root.root.find((n) => n.props.testID === `day-label-${day}` && typeof n.props.onPress === 'function' && typeof n.type !== 'string');
+  const toggle = (root: ReactTestRenderer, day: string) => act(() => dayButton(root, day).props.onPress());
+  const openDays = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => n.type === ('View' as never) && /^open-day-/.test(n.props.testID ?? ''))
+      .map((n) => (n.props.testID as string).slice('open-day-'.length));
+  const photoBox = (node: ReactTestInstance) => node.find((n) => n.type === ('View' as never) && n.props.testID === 'plan-photo');
+  const tileColour = (recipeId: string) => AisleColors.light[recipeHue(recipeId)].soft;
+
+  beforeEach(() => setPlanGridStyle('expand'));
+
+  test("compact rows: a recipe's photo as a 4:3 strip across the top of a 104 pt cell, the name in caption under it", () => {
+    db.update(recipes).set({ imageUrl: 'https://example.com/soup.jpg' }).where(eq(recipes.id, soup)).run();
+    const root = render();
+    const cell = slot(root, '2026-10-12', 'dinner');
+    expect(flat(cell.props.style)).toMatchObject({ minHeight: 104, padding: 4, gap: 4, backgroundColor: Palette.light.surface });
+    const strip = photoBox(cell);
+    expect(flat(strip.props.style)).toMatchObject({
+      width: '100%',
+      aspectRatio: 4 / 3,
+      borderRadius: Rounded.sm,
+      overflow: 'hidden',
+      backgroundColor: tileColour(soup),
+    });
+    const [image] = strip.findAll((n) => n.type === ('ExpoImage' as never));
+    expect(image.props).toMatchObject({ source: 'https://example.com/soup.jpg', contentFit: 'cover' });
+    const name = cell.find((n) => n.type === ('Text' as never));
+    expect(name.props.children).toBe('Soup');
+    expect(name.props.numberOfLines).toBe(2);
+    expect(flat(name.props.style)).toMatchObject({ fontSize: Typography.caption.fontSize, color: Palette.light.inkSecondary }); // a past day
+    // No small tile, and no photo band.
+    expect(cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'photo-band')).toHaveLength(0);
+    // Notes and empty cells at the taller height, as in the compact style.
+    expect(flat(slot(root, '2026-10-16', 'breakfast').props.style)).toMatchObject({ minHeight: 104, backgroundColor: Palette.light.surfaceMuted });
+    expect(flat(slot(root, '2026-10-16', 'lunch').props.style)).toMatchObject({ minHeight: 104, borderStyle: 'dashed' });
+    expect(icons(slot(root, '2026-10-16', 'lunch')).map((i) => i.props.name)).toEqual(['plus']);
+  });
+
+  test("a strip without a photo shows the recipe's tile colour", () => {
+    setSlot(home, '2026-10-16', 'dinner', { kind: 'recipe', recipeId: tacos });
+    const root = render();
+    const strip = photoBox(slot(root, '2026-10-16', 'dinner'));
+    expect(flat(strip.props.style).backgroundColor).toBe(tileColour(tacos));
+    expect(strip.findAll((n) => n.type === ('ExpoImage' as never))).toHaveLength(0);
+  });
+
+  test('today is open when the week first shows; the other days are closed', () => {
+    const root = render();
+    expect(openDays(root)).toEqual(['2026-10-15']);
+    // Thursday's slots are rows of its card; the other days keep their cells.
+    const card = one(root, 'open-day-2026-10-15');
+    expect(card.findAll((n) => n.type === ('View' as never) && /^slot-/.test(n.props.testID ?? '')).map((n) => n.props.testID)).toEqual([
+      'slot-2026-10-15-breakfast',
+      'slot-2026-10-15-lunch',
+      'slot-2026-10-15-dinner',
+    ]);
+    expect(root.root.findAll((n) => n.type === ('View' as never) && /^slot-/.test(n.props.testID ?? ''))).toHaveLength(21);
+    expect(flat(card.props.style)).toMatchObject({ backgroundColor: Palette.light.surface, borderRadius: Rounded.md, flex: 1 });
+  });
+
+  test('the day label is a button: "Thursday 15, expanded" or "Friday 16, collapsed", with the expanded state', () => {
+    const root = render();
+    expect(dayButton(root, '2026-10-15').props).toMatchObject({
+      accessibilityRole: 'button',
+      accessibilityLabel: 'Thursday 15, expanded',
+      accessibilityState: { expanded: true },
+    });
+    expect(dayButton(root, '2026-10-16').props).toMatchObject({
+      accessibilityLabel: 'Friday 16, collapsed',
+      accessibilityState: { expanded: false },
+    });
+    expect(flat(dayButton(root, '2026-10-16').props.style({ pressed: false })).minHeight).toBe(44);
+    // Today's pill stays primary while open.
+    expect(flat(one(root, 'today-pill').props.style).backgroundColor).toBe(Palette.light.primary);
+  });
+
+  test('opening another day closes the first; tapping its label again closes it', () => {
+    const root = render();
+    toggle(root, '2026-10-16');
+    expect(openDays(root)).toEqual(['2026-10-16']);
+    expect(dayButton(root, '2026-10-15').props.accessibilityLabel).toBe('Thursday 15, collapsed');
+    expect(dayButton(root, '2026-10-16').props.accessibilityState).toEqual({ expanded: true });
+    // Thursday is back to its cells.
+    expect(flat(slot(root, '2026-10-15', 'dinner').props.style).minHeight).toBe(104);
+    // An open day other than today sits in a surface pill.
+    const fridayPill = dayButton(root, '2026-10-16').findAll((n) => n.type === ('View' as never))[1];
+    expect(flat(fridayPill.props.style).backgroundColor).toBe(Palette.light.surface);
+
+    toggle(root, '2026-10-16');
+    expect(openDays(root)).toEqual([]);
+    expect(dayButton(root, '2026-10-16').props.accessibilityLabel).toBe('Friday 16, collapsed');
+  });
+
+  test('the choice is kept while the screen stays mounted: across weeks and views', () => {
+    const root = render();
+    toggle(root, '2026-10-13');
+    // Next week doesn't hold the open day, so every day is closed.
+    press(root, 'Next week');
+    expect(openDays(root)).toEqual([]);
+    press(root, 'This week');
+    expect(openDays(root)).toEqual(['2026-10-13']);
+    // Through the agenda and back.
+    const segments = one(root, 'plan-view-toggle').findAll(
+      (n) => n.props.accessibilityRole === 'tab' && typeof n.props.onPress === 'function' && typeof n.type !== 'string',
+    );
+    act(() => segments[0].props.onPress());
+    act(() => segments[1].props.onPress());
+    expect(openDays(root)).toEqual(['2026-10-13']);
+  });
+
+  test("no day is open in a week that doesn't hold today", () => {
+    setNow(new Date(2026, 9, 18, 9, 0)); // the next Sunday
+    const root = render();
+    press(root, 'Previous week');
+    expect(openDays(root)).toEqual([]);
+    press(root, 'Next week');
+    expect(openDays(root)).toEqual(['2026-10-18']);
+  });
+
+  test("the open card's rows: a recipe with its photo, meal, name and time; a note and \"Note\"; an empty slot", () => {
+    db.update(recipes).set({ imageUrl: 'https://example.com/tacos.jpg' }).where(eq(recipes.id, tacos)).run();
+    const root = render();
+    const dinner = slot(root, '2026-10-15', 'dinner');
+    expect(texts(dinner)).toEqual(['Dinner', 'Chicken tacos', '35 min']);
+    expect(flat(dinner.props.style)).toMatchObject({ minHeight: 64, flexDirection: 'row', borderTopWidth: expect.any(Number) });
+    const [meal, name, time] = dinner.findAll((n) => n.type === ('Text' as never));
+    expect(flat(meal.props.style)).toMatchObject({ color: AisleColors.light.plum.strong, fontSize: Typography.caption.fontSize });
+    expect(flat(name.props.style)).toMatchObject({ fontSize: Typography.headline.fontSize, color: Palette.light.ink });
+    expect(name.props.numberOfLines).toBe(2);
+    expect(flat(time.props.style)).toMatchObject({ fontSize: Typography.footnote.fontSize, color: Palette.light.inkSecondary });
+    const photo = photoBox(dinner);
+    expect(flat(photo.props.style)).toMatchObject({ width: 76, aspectRatio: 4 / 3, borderRadius: Rounded.sm, backgroundColor: tileColour(tacos) });
+    expect(photo.findAll((n) => n.type === ('ExpoImage' as never)).map((i) => i.props.source)).toEqual(['https://example.com/tacos.jpg']);
+    expect(label(root, '2026-10-15', 'dinner')).toBe('Thursday dinner, Chicken tacos');
+
+    const lunch = slot(root, '2026-10-15', 'lunch');
+    expect(texts(lunch)).toEqual(['Lunch', 'Leftovers', 'Note']);
+    expect(flat(lunch.findAll((n) => n.type === ('Text' as never))[0].props.style).color).toBe(AisleColors.light.teal.strong);
+    expect(lunch.findAll((n) => n.props.testID === 'plan-photo')).toHaveLength(0);
+    expect(label(root, '2026-10-15', 'lunch')).toBe('Thursday lunch, Leftovers');
+
+    const breakfast = slot(root, '2026-10-15', 'breakfast');
+    expect(texts(breakfast)).toEqual(['Breakfast', 'Nothing planned']);
+    expect(flat(breakfast.props.style).borderTopWidth).toBe(0); // the first row has no rule above it
+    const box = one(root, 'open-row-empty-box');
+    expect(flat(box.props.style)).toMatchObject({ width: 76, aspectRatio: 4 / 3, borderStyle: 'dashed', borderColor: Palette.light.controlBorder });
+    expect(icons(box).map((i) => i.props.name)).toEqual(['plus']);
+    expect(label(root, '2026-10-15', 'breakfast')).toBe('Thursday breakfast, empty');
+  });
+
+  test('a recipe over an hour reads "1 hr 30 min"; one without a time has no time line', () => {
+    db.update(recipes).set({ totalMinutes: 90 }).where(eq(recipes.id, tacos)).run();
+    setSlot(home, '2026-10-15', 'breakfast', { kind: 'recipe', recipeId: soup });
+    const root = render();
+    expect(texts(slot(root, '2026-10-15', 'dinner'))).toEqual(['Dinner', 'Chicken tacos', '1 hr 30 min']);
+    expect(texts(slot(root, '2026-10-15', 'breakfast'))).toEqual(['Breakfast', 'Soup']);
+  });
+
+  test("a past open day: names in inkSecondary, its empty rows with no outline or +", () => {
+    const root = render();
+    toggle(root, '2026-10-12');
+    const soupName = slot(root, '2026-10-12', 'dinner').findAll((n) => n.type === ('Text' as never))[1];
+    expect(soupName.props.children).toBe('Soup');
+    expect(flat(soupName.props.style).color).toBe(Palette.light.inkSecondary);
+    const boxes = byTestID(root, 'open-row-empty-box');
+    expect(boxes).toHaveLength(2); // breakfast and lunch
+    boxes.forEach((box) => {
+      expect(flat(box.props.style).borderStyle).toBeUndefined();
+      expect(icons(box)).toHaveLength(0);
+    });
+  });
+
+  test('opening and closing animate the height over motion.duration; under Reduce Motion they switch at once', () => {
+    let root = render();
+    expect(one(root, 'grid-day-2026-10-15').props.layout).toEqual({ transition: 'linear', ms: 250 });
+    mockMotion.reduced = true;
+    root = remount();
+    expect(one(root, 'grid-day-2026-10-15').props.layout).toBeUndefined();
+    toggle(root, '2026-10-16');
+    expect(openDays(root)).toEqual(['2026-10-16']);
+  });
+
+  test("at large text sizes the open card spans the three columns' widths and the grid scrolls", () => {
+    mockWindow.fontScale = 2;
+    const root = render();
+    expect(root.root.findAll((n) => n.props.testID === 'week-grid-scroll' && n.props.horizontal === true)).not.toHaveLength(0);
+    expect(flat(one(root, 'open-day-2026-10-15').props.style).width).toBe(160 * 3 + 4 * 2);
+  });
+
+  describe('taps', () => {
+    const onSlot = jest.fn();
+    const onToggleDay = jest.fn();
+    function renderGrid(openDay: string | null) {
+      const days = weekDays('2026-10-11');
+      const plan = groupWeek(weekEntriesQuery(home, '2026-10-11').all());
+      act(() => {
+        tree = create(<WeekGrid days={days} plan={plan} today="2026-10-15" onSlot={onSlot} openDay={openDay} onToggleDay={onToggleDay} />);
+      });
+      return tree!;
+    }
+
+    beforeEach(() => {
+      onSlot.mockClear();
+      onToggleDay.mockClear();
+    });
+
+    test("a row opens its slot as a cell tap does: the recipe, the note, the empty slot", () => {
+      const root = renderGrid('2026-10-15');
+      press(root, 'Thursday dinner, Chicken tacos');
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-15', 'dinner', expect.objectContaining({ kind: 'recipe', recipeId: tacos }));
+      press(root, 'Thursday lunch, Leftovers');
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-15', 'lunch', expect.objectContaining({ kind: 'leftovers' }));
+      press(root, 'Thursday breakfast, empty');
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-15', 'breakfast', null);
+      expect(onSlot).toHaveBeenCalledTimes(3);
+      expect(onToggleDay).not.toHaveBeenCalled();
+    });
+
+    test('a day label calls onToggleDay with its day; a closed day still opens its cells', () => {
+      const root = renderGrid(null);
+      expect(openDays(root)).toEqual([]);
+      toggle(root, '2026-10-16');
+      expect(onToggleDay).toHaveBeenCalledWith('2026-10-16');
+      press(root, 'Friday breakfast, Pancakes at Gran’s');
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-16', 'breakfast', expect.objectContaining({ kind: 'note' }));
+    });
+
+    test('without onToggleDay (the plan modal) the labels are not buttons and no day opens', () => {
+      act(() => {
+        tree = create(
+          <WeekGrid
+            days={weekDays('2026-10-11')}
+            plan={groupWeek(weekEntriesQuery(home, '2026-10-11').all())}
+            today="2026-10-15"
+            onSlot={onSlot}
+            openDay="2026-10-15"
+          />,
+        );
+      });
+      expect(openDays(tree!)).toEqual([]);
+      expect(tree!.root.findAll((n) => /^day-label-/.test(n.props.testID ?? ''))).toHaveLength(0);
+      expect(flat(slot(tree!, '2026-10-15', 'dinner').props.style).minHeight).toBe(104);
+    });
   });
 });
 

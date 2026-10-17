@@ -383,6 +383,32 @@ describe('the plan modal', () => {
       expect(StyleSheet.flatten(hostOf(SATURDAY, 'dinner').props.style).borderColor).toBe(Palette.light.primary);
     });
   });
+
+  describe('in the expand grid style', () => {
+    const hostOf = (day: string, meal: Meal) =>
+      tree!.root.find((n) => typeof n.type === 'string' && n.props.testID === `slot-${day}-${meal}`);
+
+    beforeEach(() => setPlanGridStyle('expand'));
+
+    test('only the compact rows: no day opens, the labels are not buttons, and taps still place', () => {
+      setSlot(home, SATURDAY, 'dinner', { kind: 'recipe', recipeId: pasta });
+      open();
+      // Today isn't opened as it is on the Plan tab, and no day label is a button.
+      expect(tree!.root.findAll((n) => /^open-day-/.test(n.props.testID ?? ''))).toHaveLength(0);
+      expect(tree!.root.findAll((n) => /^day-label-/.test(n.props.testID ?? ''))).toHaveLength(0);
+      expect(tree!.root.findAll((n) => n.props.accessibilityState?.expanded !== undefined)).toHaveLength(0);
+      // The expand style's compact cells: a photo strip over the name.
+      expect(StyleSheet.flatten(hostOf(SATURDAY, 'dinner').props.style)).toMatchObject({ minHeight: 104 });
+      expect(hostOf(SATURDAY, 'dinner').findAll((n) => n.props.testID === 'plan-photo' && typeof n.type === 'string')).toHaveLength(1);
+
+      tap(THURSDAY, 'dinner');
+      expect(isPlacedCell(THURSDAY, 'dinner')).toBe(true);
+      const style = StyleSheet.flatten(hostOf(THURSDAY, 'dinner').props.style);
+      expect(style).toMatchObject({ borderColor: Palette.light.primary, backgroundColor: Palette.light.primarySoft, minHeight: 104 });
+      expect(hostOf(THURSDAY, 'dinner').findAll((n) => n.props.testID === 'plan-photo' && typeof n.type === 'string')).toHaveLength(1);
+      expect(cell(THURSDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to remove');
+    });
+  });
 });
 
 describe('the plan badges', () => {

@@ -336,6 +336,10 @@ export const Sizes = {
   planTile: 24,
   /** a recipe or note cell in the grid's photo style, the photo filling it (a minimum, for Dynamic Type) */
   planPhotoCell: 84,
+  /** a cell in the grid's expand style, its photo a 4:3 strip across the top (a minimum, for Dynamic Type) */
+  planExpandCell: 104,
+  /** the photo on an open day's row in the expand style (4:3, so 57 pt tall); its rows are at least `planCell` */
+  planOpenPhoto: 76,
   /** a grid column's width once the grid scrolls sideways at large text sizes */
   planScrollColumn: 160,
   /** a meal's letter chip in the agenda */
@@ -361,6 +365,9 @@ export const Motion = {
   /** In-app notification banners (spec 4.11). */
   notificationTimeoutMs: 6000,
 } as const;
+
+/** A photo's shape in the plan grid's expand style: the cells' strips and the open day's rows (spec 4.16). */
+export const PLAN_PHOTO_ASPECT = 4 / 3;
 
 /** Opacity tokens: tints (12%), shadows (25%), pressed and disabled states. */
 export const Opacity = {

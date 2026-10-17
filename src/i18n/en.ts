@@ -702,6 +702,12 @@ export const en = {
     slotName: '{{day}} {{meal}}',
     /** The slot sheet's day line: "Thursday 15". */
     sheetDay: '{{day}} {{date}}',
+    /** A day's label in the grid's expand style, for VoiceOver: "Friday 16, expanded". */
+    dayExpanded: '{{day}}, expanded',
+    dayCollapsed: '{{day}}, collapsed',
+    /** An open day's empty row, and the line under a note's (the grid's expand style). */
+    nothingPlanned: 'Nothing planned',
+    noteRow: 'Note',
     searchRecipes: 'Search recipes',
     note: 'Note…',
     showAll: 'Show all recipes',

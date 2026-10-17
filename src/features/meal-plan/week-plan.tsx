@@ -42,6 +42,10 @@ export function WeekPlan({
   const today = todayOf();
   const thisWeek = weekStart(today);
   const [start, setStart] = useState(thisWeek);
+  // The grid's expand style: the day that's open, today to begin with, kept across weeks and views while
+  // the screen is mounted (a week without it shows every day closed).
+  const [openDay, setOpenDay] = useState<Day | null>(today);
+  const toggleDay = (day: Day) => setOpenDay((open) => (open === day ? null : day));
   const [view, setViewState] = useState<PlanView>(getPlanView);
   const setView = (next: PlanView) => {
     setViewState(next);
@@ -98,7 +102,7 @@ export function WeekPlan({
     <>
       {header ? header(toolbar) : <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>{toolbar}</View>}
       {view === 'grid' ? (
-        <WeekGrid days={days} plan={plan} today={today} onSlot={onSlot} />
+        <WeekGrid days={days} plan={plan} today={today} onSlot={onSlot} openDay={openDay} onToggleDay={toggleDay} />
       ) : (
         <WeekAgenda days={days} plan={plan} today={today} onSlot={onSlot} />
       )}

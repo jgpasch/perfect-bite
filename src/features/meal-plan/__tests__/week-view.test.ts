@@ -6,6 +6,7 @@ import {
   addSlotLabel,
   dayName,
   dayOfMonth,
+  dayToggleLabel,
   earlierDays,
   earlierLabel,
   entryText,
@@ -31,6 +32,15 @@ describe('labels', () => {
     expect(dayName('2026-10-15', 'long', 'es')).toBe('jueves');
     expect(dayOfMonth('2026-10-05')).toBe('5');
     expect(dayOfMonth('2026-10-15')).toBe('15');
+  });
+
+  test("a day's label in the grid's expand style, open or not", () => {
+    expect(dayToggleLabel('2026-10-16', true)).toBe('Friday 16, expanded');
+    expect(dayToggleLabel('2026-10-16', false)).toBe('Friday 16, collapsed');
+    expect(dayToggleLabel('2026-10-05', false)).toBe('Monday 5, collapsed');
+    i18n.changeLanguage('es');
+    expect(dayToggleLabel('2026-10-16', true)).toBe('viernes 16, expandido');
+    expect(dayToggleLabel('2026-10-16', false)).toBe('viernes 16, contraído');
   });
 
   test('the week for VoiceOver, from whichever day names it', () => {
