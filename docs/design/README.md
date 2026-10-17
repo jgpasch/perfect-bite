@@ -1,0 +1,9 @@
+# Design mockups
+
+Mockups the spec and `tasks.md` point to. `.html` files open in a browser. `.dc.html` files are boards exported from claude.ai design canvases: they don't render on their own, so read them as markup. Layout and sizes are in the inline styles, and the sample data (recipes, steps, week) is in the `renderVals()` script at the bottom. Colours and fonts in a mockup are approximate: the tokens in `src/constants/theme.ts` and DESIGN.md win, and the task's text wins over the mockup where they differ.
+
+| Folder | Canvas | Chosen |
+|---|---|---|
+| `cook-mode/` | [Cook Mode Mockups](https://claude.ai/artifact/PpQqKt8h6CNXecv3eU1XBb) | B, steps with their ingredients |
+| `plan-grid/` | [Plan Grid Cards](https://claude.ai/artifact/F13fT2y9nhi4MViFav19Zu) | `today-compact` (reference), A, and B + D (both as a trial setting) |
+| `fonts/` | [Font Pairings](https://claude.ai/artifact/L1V1fg1oN9dzuzVMb5ziot) | all five, as a trial setting |

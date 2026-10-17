@@ -14,3 +14,4 @@
 - **Meal plan: copy last week**: a **Copy last week** button and a "Nothing planned yet" empty week (board 3 I of the meal plan mockups, spec 4.16).
 - **Meal plan: several entries per slot**: a main and a side. The data and slot queries already allow it; raise `MAX_ENTRIES_PER_SLOT` and design the cell (spec 4.16).
 - **Household activity, later**: a "Show new items" view grouped by person, "Alex and Sam added 7" on Your lists rows, and counting items checked off by others. Never mocked up in detail; the "since you looked" card (spec 4.1) is the starting point.
+- **End the design trials**: pick a font set and a plan grid style from the Design trials section in Settings, make them the only ones (update `theme.ts`, DESIGN.md and spec 4.16), remove the settings, the unused fonts from `app.json` and their `@expo-google-fonts/*` packages, and the losing grid styles.

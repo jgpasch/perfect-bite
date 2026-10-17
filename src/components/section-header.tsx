@@ -104,22 +104,25 @@ function HeaderBody({
       ) : null}
     </>
   );
+  // The title and count sit at least `md` from the trailing control (spec 4.5). When room runs out the
+  // title is what wraps; the count and the trailing control stay whole.
+  const side = trailing ? <View style={styles.fixed}>{trailing}</View> : null;
 
   if (!onToggle) {
     return (
       <View
         style={[
           styles.row,
-          { gap: spacing.sm, paddingTop, paddingBottom, paddingHorizontal: spacing.lg, backgroundColor: band?.ground },
+          { gap: spacing.md, paddingTop, paddingBottom, paddingHorizontal: spacing.lg, backgroundColor: band?.ground },
         ]}>
-        {content}
-        {trailing}
+        <View style={[styles.row, styles.group, { gap: spacing.sm }]}>{content}</View>
+        {side}
       </View>
     );
   }
 
   return (
-    <View style={[styles.row, { gap: spacing.sm, paddingRight: trailing ? spacing.lg : 0, backgroundColor: band?.ground }]}>
+    <View style={[styles.row, { gap: spacing.md, paddingRight: trailing ? spacing.lg : 0, backgroundColor: band?.ground }]}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: !collapsed }}
@@ -144,7 +147,7 @@ function HeaderBody({
         {content}
         <Chevron collapsed={collapsed} size={sizes.iconSmall} tint={band?.text} />
       </Pressable>
-      {trailing}
+      {side}
     </View>
   );
 }
@@ -267,8 +270,10 @@ function Chevron({ collapsed, size, tint }: { collapsed: boolean; size: number; 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   toggle: { flex: 1 },
-  title: { flex: 1 },
-  count: { fontWeight: '600' },
+  group: { flex: 1, minWidth: 0 },
+  title: { flex: 1, flexShrink: 1 },
+  count: { fontWeight: '600', flexShrink: 0 },
+  fixed: { flexShrink: 0 },
   action: { flex: 1, justifyContent: 'center' },
   leading: { alignItems: 'flex-start' },
   trailing: { alignItems: 'flex-end' },

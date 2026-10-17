@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nunito and Nunito Sans</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&amp;family=Nunito+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 1180px; box-sizing: border-box; background: #EEF3EC; color: #1D2A22; font-family: {{body}}; display: flex; flex-direction: column; gap: 20px; overflow: hidden;">
+  <div style="background: #DDEFE2; padding: 28px 16px 20px; display: flex; flex-direction: column; gap: 10px;">
+    <h1 style="margin: 0; font-family: {{display}}; font-size: 36px; font-weight: {{displayWeight}}; letter-spacing: {{tracking}}; line-height: 1.1;">Lemon ricotta pasta</h1>
+    <div style="font-size: 13px; color: #55635A;">From seriouseats.com · 25 min · For 4</div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+      <span style="padding: 4px 10px; border-radius: 999px; background: #FFFFFF; font-size: 12px; font-weight: 700;">DINNER</span>
+      <span style="padding: 4px 10px; border-radius: 999px; background: #FFFFFF; font-size: 12px; font-weight: 700;">ITALIAN</span>
+      <span style="padding: 4px 10px; border-radius: 999px; background: #FFFFFF; font-size: 12px; font-weight: 700;">VEGETARIAN</span>
+    </div>
+  </div>
+  <div style="margin: 0 16px; background: #FFFFFF; border-radius: 16px; overflow: hidden;">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px 8px;">
+      <h2 style="margin: 0; font-family: {{display}}; font-size: 17px; font-weight: {{sectionWeight}};">Ingredients</h2>
+      <span style="font-size: 13px; font-weight: 600; color: #55635A;">5</span>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 4px; background: #DCE4DA; border-radius: 999px; padding: 2px;">
+        <button aria-label="Fewer servings" style="width: 44px; height: 36px; border: none; border-radius: 999px; background: transparent; font: inherit; font-size: 20px; font-weight: 600;">−</button>
+        <span style="font-size: 15px; font-weight: 600;">For 4</span>
+        <button aria-label="More servings" style="width: 44px; height: 36px; border: none; border-radius: 999px; background: transparent; font: inherit; font-size: 20px; font-weight: 600;">+</button>
+      </div>
+    </div>
+    <sc-for list="{{ingredients}}" as="i" hint-placeholder-count="5">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-top: 1px solid #EEF1EC;">
+        <span style="font-size: 17px; font-weight: 500;">{{i.name}}</span>
+        <span style="margin-left: auto; font-size: 15px; font-weight: 600; color: #55635A;">{{i.amount}}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px; border-radius: 16px; overflow: hidden; background: #FFFFFF;">
+    <div style="background: #1F4D33; color: #FFFFFF; padding: 18px 16px 14px; display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-family: {{display}}; font-size: 36px; font-weight: {{displayWeight}}; letter-spacing: {{tracking}}; line-height: 1.1;">Groceries</div>
+      <div style="font-size: 15px; font-weight: 600; color: #B7D2BF;">7 to get · By aisle</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px 6px;">
+      <span style="width: 10px; height: 10px; border-radius: 5px; background: #2E6B45;"></span>
+      <span style="font-family: {{display}}; font-size: 17px; font-weight: {{sectionWeight}};">Produce</span>
+      <span style="font-size: 13px; font-weight: 600; color: #55635A;">3</span>
+    </div>
+    <sc-for list="{{items}}" as="it" hint-placeholder-count="3">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-top: 1px solid #EEF1EC;">
+        <span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 11px; border: 2px solid #B9C4BC; flex-shrink: 0;"></span>
+        <span style="font-size: 17px; font-weight: 600;">{{it.name}}</span>
+        <span style="margin-left: auto; font-size: 15px; font-weight: 600; color: #55635A;">{{it.amount}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 10px 16px 14px; font-size: 13px; color: #55635A;">Also in Weeknight dal</div>
+  </div>
+  <div style="margin: 0 16px; background: #FFFFFF; border-radius: 18px; border: 2px solid #2E6B45; padding: 18px 16px; display: flex; gap: 12px; align-items: flex-start;">
+    <span style="width: 28px; height: 28px; border-radius: 14px; background: #2E6B45; color: #FFFFFF; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</span>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 20px; font-weight: 500; line-height: 28px;">Melt the butter with the olive oil, then add the garlic and cook until fragrant, about 1 minute.</div>
+      <div style="font-size: 13px; color: #55635A;">2 tbsp butter · 1 tbsp olive oil · 3 cloves garlic</div>
+    </div>
+  </div>
+  <div style="margin: 0 16px; display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-family: {{display}}; font-size: 48px; font-weight: {{displayWeight}}; letter-spacing: {{tracking}}; line-height: 1.05;">The Perfect Bite</div>
+    <div style="font-size: 18px; font-weight: 400; color: #55635A;">The shopping list app that helps you get the perfect bite.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+  display: "Nunito, system-ui, sans-serif",
+  body: "'Nunito Sans', system-ui, sans-serif",
+  displayWeight: 900,
+  sectionWeight: 800,
+  tracking: '-0.02em',
+  ingredients: [
+    { name: 'Spaghetti', amount: '12 oz' },
+    { name: 'Whole-milk ricotta', amount: '1 cup' },
+    { name: 'Lemons', amount: '2' },
+    { name: 'Garlic', amount: '3 cloves' },
+    { name: 'Parmesan', amount: '½ cup' },
+  ],
+  items: [
+    { name: 'Limes', amount: '3' },
+    { name: 'Cilantro', amount: '1 bunch' },
+    { name: 'Avocados', amount: '2' },
+  ],
+};
+}
+}
+</script>
+</body>
+</html>
