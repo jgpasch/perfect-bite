@@ -372,6 +372,15 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 - Edge Functions enforce entitlements; the app only hides or skips what isn't enabled. Each function checks its feature first, before the rate limit or any database, fetch or LLM work, through `requireFeature(admin, userId, feature, householdId?)` (`supabase/functions/_shared/entitlements.ts`, which calls `has_feature` and throws `NotEntitledError`), and answers **403** with the usual error body, `{ error: 'not_entitled', message }`: `categorize-ingredients` checks `categorize` (6.1), `import-recipe` checks `recipe_import` (6.6), `suggest-recipe-tags` checks `recipe_tags` (6.7) and `match-recipe-steps` checks `step_ingredients` (6.8). An import's inline categorizing isn't checked again, since `recipe_import` implies `categorize`. No request carries a household, so none passes one yet.
 - Local dev: `supabase/seed.sql` puts the dev user on plus, so manual testing against local Supabase has every feature. The `yarn ai:*` scripts (CLI and evals) run the handlers against in-memory stores with no database, and those stores grant every feature.
 
+### 4.13 Push notifications (req 13)
+
+Household members hear about each other's list activity when the app is closed: "Alex added milk, eggs and 4 more to Groceries" and "Alex is shopping at Groceries". iOS only for now (nothing rules out Android: the app keeps the Android channel and `push_tokens.platform`). Delivery is Expo Push (`expo-notifications`, which talks to APNs). The person who made the change never gets a push about it. Push needs a development build and a real device.
+
+- **Events.** "Added" events come from `list_item_contributions` inserts (a Combine adds a contribution to an open item and inserts no item); "shopping" events from `list_items.checked_at` going from null to set. Triggers queue them on the pgmq queue `household_events` (8.5).
+- **Grouping.** A group is (household, actor, list, kind). It sends once its newest event is 60 s old or its oldest is 5 minutes old, whichever is first. At send time the rows are re-read, so an undone add or an unchecked item doesn't count, and an empty group is dropped. **Added** counts the live contributions and names up to two items by `display_name`, then "and N more"; a group that is all one recipe's add reads "Alex added Tacos (8 items) to Groceries". **Shopping** sends at most once per (actor, list) in a 2-hour window. Events whose row time is more than 15 minutes older than the worker's clock are dropped (a device that synced its checks hours later). The actor's name is the first word of `profiles.display_name`.
+- **Recipients.** Current members of the household other than the actor, with at least one push token, that kind turned on and not in their quiet hours in their own time zone (`private.push_recipients`, 5). Tapping a push opens `/list/<id>`.
+- **Registration and settings.** The app registers its Expo token after sign-in and on foreground once the user has allowed notifications, and unregisters it on sign-out. Per-user toggles per kind and quiet hours live in `notification_settings` (5), changed online.
+
 ### 4.14 Recipe tags and filtering
 
 Recipes are tagged so the Recipes tab stays usable at 50+ recipes (req 15). (4.13 is kept for push notifications.)
@@ -1143,6 +1152,12 @@ The two apps are independent; there are no shared packages. Copy what's useful f
 - Edge Function `_shared/` (AI SDK provider registry, auth helpers), Supabase test setup, `AGENTS.md`, lint/tsconfig/jest config.
 - `DESIGN.md` structure (tokens), with this app's own visual design.
 
+### 8.5 Household events queue (4.13)
+pgmq queue `household_events` (RLS on the queue and archive tables, no policies; only `postgres`/`service_role` touch it), filled by two `security definer` triggers in `private` (execute revoked from `public`, `anon`, `authenticated`). They fire for every write path, `apply_mutations` or not, and never fail the write: a failed `pgmq.send` raises a warning.
+- `private.queue_items_added`, after insert on `list_item_contributions`, when `added_by` is set and `deleted_at` is null: `{ kind: 'items_added', household_id, list_id (from the item), actor: added_by, contribution_id, list_item_id, recipe_id, source, at: created_at }`. A recipe add queues one event per ingredient. A merge in `apply_mutations` (7.3) re-points contributions with an update, so it queues nothing more; undoing an add (an update of `deleted_at`) queues nothing either.
+- `private.queue_shopping`, after update of `checked_at` on `list_items`, when it goes from null to set and `checked_by` is set: `{ kind: 'shopping', household_id, list_id, actor: checked_by, list_item_id, at: checked_at }`. Re-checks, unchecks and items created already checked queue nothing.
+- The `send-notifications` worker reads the queue (not built yet; see `tasks.md`).
+
 ---
 
 ## 9. Testing and acceptance criteria
@@ -1210,7 +1225,7 @@ Later work landed outside these milestones, each tracked in `tasks.md` while it 
 ### 11.1 Notifications (req 13)
 Not in v1, apart from in-app banners (4.11), whose `kind`s these settings would extend. Sketch, so v1 doesn't block it:
 - **Delivery**: Expo Push (`expo-notifications`), which handles APNs. A `push_tokens (user_id, token, platform, updated_at)` table.
-- **Pipeline**: a trigger on `list_items` (inserts, and `checked_at` changes) writes to a `household_events` queue (pgmq, as stash uses Queues). A worker Edge Function, run by pg_cron, groups events per household and recipient over a short window and sends one push per group, never to the person who made the change.
+- **Pipeline**: moved out of Later: see 4.13 and 8.5 (triggers on contribution inserts and checks queue to `household_events`).
 - **Candidate notifications**: "Alex added 6 items to Groceries"; "Alex is shopping" (first few checks on a list within a few minutes); later, a location reminder near a saved store (local, on device).
 - **Settings**: per-user toggles per notification type, and quiet hours.
 - **v1 prep (already in this spec)**: `added_by` on list items and contributions, `checked_by` on list items. Nothing else needed now.
