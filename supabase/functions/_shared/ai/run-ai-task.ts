@@ -81,9 +81,15 @@ function emitTrace(trace: AiTrace) {
 
 type InjectedModel = { instance: LanguageModel; modelId: string };
 
+/** One part of a user message that carries images (extract-recipe-photo). */
+export type PromptPart = { type: 'text'; text: string } | { type: 'image'; mediaType: string; data: string };
+
 export type RunAiTaskInput = {
   instructions: string;
+  /** The user prompt. With `content`, only what's recorded: the parts' text with each image described, never its bytes. */
   prompt: string;
+  /** Sent instead of `prompt` when given: text and base64 image parts, in order. */
+  content?: readonly PromptPart[];
   /** Items in the prompt (names, for categorize); sizes `maxOutputTokens`. */
   itemCount: number;
 };
@@ -173,7 +179,18 @@ export async function runAiTask<N extends AiTaskName>(
         // Widened: TS can't pick one schema from the union of every task's. Still validated against it.
         output: Output.object({ schema: task.output as z.ZodType<unknown> }),
         instructions: input.instructions,
-        prompt: input.prompt,
+        ...(input.content
+          ? {
+              messages: [
+                {
+                  role: 'user' as const,
+                  content: input.content.map((part) =>
+                    part.type === 'text' ? part : { type: 'image' as const, image: part.data, mediaType: part.mediaType },
+                  ),
+                },
+              ],
+            }
+          : { prompt: input.prompt }),
         temperature: settings.temperature,
         maxOutputTokens: settings.max_output_tokens,
         providerOptions: task.providerOptions(),

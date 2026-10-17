@@ -34,6 +34,19 @@ Deno.test('v4: its own version, and the one the extractRecipe task runs', () => 
   assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v4');
 });
 
+async function sha256(s: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+Deno.test('v4 renders byte for byte as before its rules moved to recipe-extract-rules.ts', async () => {
+  const { instructions } = buildExtractRecipePrompt({ title: 'T', ingredientLines: ['1 egg'], steps: ['Boil.'] });
+  // Taken from v4 as it ran before the photo prompt shared its rules. If this fails, v4's cache
+  // rows and `ai_calls` no longer match the prompt that wrote them: change a new version instead.
+  assertEquals(instructions.length, 6382);
+  assertEquals(await sha256(instructions), '9ae3b30dec1e73eb77b7f8264d3c8eb4fb8a94ded861d12a85a366188066e91a');
+});
+
 Deno.test('v4 and match-recipe-steps carry the same step-match rules', () => {
   const extract = buildExtractRecipePrompt({ title: null, ingredientLines: [], steps: [] }).instructions;
   const match = buildMatchRecipeStepsPrompt({ steps: ['x'], ingredients: [] }).instructions;

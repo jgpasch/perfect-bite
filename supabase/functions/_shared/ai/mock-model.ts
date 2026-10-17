@@ -248,19 +248,53 @@ export function stepsRecipeFromPrompt(prompt: string): MockStepsRecipe {
   }
 }
 
-/** A mock model that answers each call with `answer(user prompt text)`. */
-function mockModel(answer: (prompt: string) => unknown): LanguageModel {
+/** Below this, the photo mock's first image isn't a recipe, so tests can reach both answers. */
+export const MOCK_PHOTO_MIN_BYTES = 1024;
+
+/**
+ * `AI_MODEL_RECIPE_PHOTO=mock` (spec 6.10): a fixed recipe, "Mock photo recipe" with three
+ * ingredients and two steps matched as `mockMatchSteps` matches them; not a recipe when there's no
+ * image or the first is under `MOCK_PHOTO_MIN_BYTES`. `imageBytes` are the images' sizes, in order.
+ */
+export function mockExtractRecipePhoto(imageBytes: readonly number[]): ExtractRecipeOutput {
+  const tags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
+  if (imageBytes.length === 0 || imageBytes[0] < MOCK_PHOTO_MIN_BYTES) {
+    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [] };
+  }
+  const ingredients = [
+    { name: 'chicken thighs', quantity: 2, unit: 'lb', note: 'boneless' },
+    { name: 'limes', quantity: 3, unit: null, note: '' },
+    { name: 'salt', quantity: null, unit: null, note: 'to taste' },
+  ];
+  const steps = ['Season the chicken thighs with salt.', 'Squeeze the limes over and roast for 25 minutes.'];
+  const { steps: stepIngredients } = mockMatchSteps({ steps, ingredients: ingredients.map((i) => i.name) });
+  return { is_recipe: true, name: 'Mock photo recipe', servings: 4, ingredients, tags: { ...tags, protein: ['chicken'] }, total_minutes: null, steps, step_ingredients: stepIngredients };
+}
+
+/** A file part's size in bytes: raw bytes, or standard base64 (`data` or `{ type: 'data', data }`). */
+function partBytes(data: unknown): number {
+  if (data instanceof Uint8Array) return data.byteLength;
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  if (typeof data === 'string') {
+    const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+    return Math.max(0, (data.length / 4) * 3 - padding);
+  }
+  if (data && typeof data === 'object' && (data as { type?: unknown }).type === 'data') return partBytes((data as { data: unknown }).data);
+  return 0;
+}
+
+/** A mock model that answers each call with `answer(user prompt text, its images' sizes)`. */
+function mockModel(answer: (prompt: string, imageBytes: number[]) => unknown): LanguageModel {
   return new MockLanguageModelV4({
     provider: 'mock',
     modelId: MOCK_MODEL_ID,
     doGenerate: async (options) => {
       const user = options.prompt.find((m) => m.role === 'user');
-      const text =
-        user && Array.isArray(user.content)
-          ? user.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
-          : '';
+      const parts = user && Array.isArray(user.content) ? user.content : [];
+      const text = parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+      const imageBytes = parts.flatMap((part) => (part.type === 'file' && part.mediaType.startsWith('image') ? [partBytes(part.data)] : []));
       return {
-        content: [{ type: 'text', text: JSON.stringify(answer(text)) }],
+        content: [{ type: 'text', text: JSON.stringify(answer(text, imageBytes)) }],
         finishReason: { unified: 'stop', raw: undefined },
         usage: {
           inputTokens: { total: 0, noCache: 0, cacheRead: undefined, cacheWrite: undefined },
@@ -280,6 +314,10 @@ export function mockCategorizeModel(): LanguageModel {
 
 export function mockRecipeModel(): LanguageModel {
   return mockModel((prompt) => mockExtractRecipe(pageFromPrompt(prompt)));
+}
+
+export function mockRecipePhotoModel(): LanguageModel {
+  return mockModel((_prompt, imageBytes) => mockExtractRecipePhoto(imageBytes));
 }
 
 export function mockTagsModel(): LanguageModel {

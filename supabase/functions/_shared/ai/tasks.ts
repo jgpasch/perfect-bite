@@ -21,8 +21,9 @@ import {
 } from '@shared/index.ts';
 import { z } from 'zod';
 
-import { mockCategorizeModel, mockRecipeModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
+import { mockCategorizeModel, mockRecipeModel, mockRecipePhotoModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
+import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v1.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v4.ts';
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
@@ -337,6 +338,11 @@ export function stepsMaxOutputTokens(stepCount: number): number {
   return Math.min(6_000, 200 + 80 * Math.max(0, stepCount));
 }
 
+/** `AI_MODEL_RECIPE_PHOTO`, else extract-recipe's model, so photo imports follow it unless set on their own. */
+function recipePhotoModel(): string | null {
+  return env('AI_MODEL_RECIPE_PHOTO') ?? env('AI_MODEL_RECIPE');
+}
+
 /** `AI_MODEL_STEPS`, else extract-recipe's model, so matching follows it unless set on its own. */
 function stepsModel(): string | null {
   return env('AI_MODEL_STEPS') ?? env('AI_MODEL_RECIPE');
@@ -377,6 +383,26 @@ export const aiTasks = {
     providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_RECIPE', RECIPE_THINKING)),
     /** What `AI_MODEL_RECIPE=mock` runs. */
     mock: mockRecipeModel,
+  },
+  /**
+   * The same recipe as extractRecipe, read from 1 to 3 photos of its pages (spec 6.10). Run the
+   * output through `cleanExtractedRecipe` (no given steps) before using it.
+   */
+  extractRecipePhoto: {
+    /** `AI_MODEL_RECIPE_PHOTO`, defaulting to `AI_MODEL_RECIPE`. */
+    model: recipePhotoModel,
+    /** `AI_MODEL_RECIPE_PHOTO_FALLBACK`; while the model follows `AI_MODEL_RECIPE`, so does its fallback. */
+    fallbackModel: () =>
+      env('AI_MODEL_RECIPE_PHOTO_FALLBACK') ?? (env('AI_MODEL_RECIPE_PHOTO') ? null : env('AI_MODEL_RECIPE_FALLBACK')),
+    promptVersion: EXTRACT_RECIPE_PHOTO_PROMPT_VERSION,
+    output: ExtractRecipeOutputSchema,
+    temperature: 0,
+    /** Reading up to three images takes longer than a page's text. */
+    timeoutMs: 45_000,
+    maxOutputTokens: recipeMaxOutputTokens,
+    providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_RECIPE_PHOTO', RECIPE_THINKING)),
+    /** What `AI_MODEL_RECIPE_PHOTO=mock` runs. */
+    mock: mockRecipePhotoModel,
   },
   /**
    * Tags for a recipe made by hand, from its name, notes and ingredients (spec 6.7). Run the

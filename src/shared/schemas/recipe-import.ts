@@ -174,8 +174,8 @@ export type ExtractedRecipe = z.infer<typeof ExtractedRecipeSchema>;
 
 export const RecipeImportResponseSchema = z.object({
   name: z.string(),
-  /** Canonical (`canonicalRecipeUrl`). */
-  sourceUrl: z.string(),
+  /** Canonical (`canonicalRecipeUrl`); null for a photo import (spec 6.10), which has no link. */
+  sourceUrl: z.string().nullable(),
   servings: z.number().nullable(),
   ingredients: z.array(
     z.object({

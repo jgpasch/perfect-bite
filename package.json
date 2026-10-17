@@ -85,6 +85,7 @@
     "ai:prune-twins": "deno run --allow-env --allow-net --allow-read --allow-sys supabase/functions/categorize-ingredients/prune-twins.ts",
     "ai:check-seed": "deno run --allow-env --allow-net --allow-read --allow-write=supabase/functions/categorize-ingredients/eval/results --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/check-seed.ts",
     "ai:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/cli.ts",
+    "ai:recipe-photo": "deno run --allow-env --allow-net --allow-read --allow-sys --allow-run=sips --env-file=supabase/functions/.env supabase/functions/import-recipe-photo/cli.ts",
     "ai:tags": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/suggest-recipe-tags/cli.ts",
     "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
     "ai:steps": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/match-recipe-steps/cli.ts",

@@ -267,6 +267,29 @@ describe('a new recipe', () => {
     expect(liveRecipes()).toEqual([{ id: result.recipeId, name: 'example.com', sourceUrl: CANONICAL, notes: null }]);
   });
 
+  test('a response with no source URL (a photo import, spec 6.10) makes a new recipe without one', async () => {
+    const linked = createRecipe('Mum’s tikka');
+    updateRecipe(linked, { name: 'Mum’s tikka', notes: '', sourceUrl: CANONICAL });
+    const unlinked = createRecipe('Chicken tikka masala');
+    respond({ ...TIKKA, sourceUrl: null, imageUrl: null });
+    const result = await importOk();
+    expect(result.created).toBe(true);
+    expect([linked, unlinked]).not.toContain(result.recipeId);
+    expect(liveRecipes().find((r) => r.id === result.recipeId)).toEqual({
+      id: result.recipeId,
+      name: 'Chicken tikka masala',
+      sourceUrl: null,
+      notes: null,
+    });
+    expect(ingredientRows(result.recipeId)).toHaveLength(4);
+  });
+
+  test('no name and no source URL is “Recipe”', async () => {
+    respond({ ...TIKKA, name: ' ', sourceUrl: null });
+    const result = await importOk();
+    expect(result.recipeName).toBe('Recipe');
+  });
+
   test('saves the tags and time on the recipe it creates, and sends them', async () => {
     const result = await importOk();
     const stored = { saved: [], ...TIKKA.tags };

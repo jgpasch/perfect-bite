@@ -452,7 +452,7 @@ describe('after an import saves', () => {
   });
 
   test('the new recipe is matched', async () => {
-    const result = await importRecipe({ url: IMPORTED.sourceUrl, listId: getDefaultListId(USER)! });
+    const result = await importRecipe({ url: IMPORTED.sourceUrl!, listId: getDefaultListId(USER)! });
     if (!result.ok) throw new Error('import failed');
     await ensureStepMatch(result.recipeId); // Joins the call the import started.
     expect(matchCalls()).toHaveLength(1);
@@ -465,7 +465,7 @@ describe('after an import saves', () => {
     invoke.mockImplementation(async (name: unknown, args: unknown) =>
       name === 'import-recipe' ? { data: matched, error: null } : { data: modelAnswer(args as Body), error: null },
     );
-    const result = await importRecipe({ url: IMPORTED.sourceUrl, listId: getDefaultListId(USER)! });
+    const result = await importRecipe({ url: IMPORTED.sourceUrl!, listId: getDefaultListId(USER)! });
     if (!result.ok) throw new Error('import failed');
     await ensureStepMatch(result.recipeId);
     expect(matchCalls()).toHaveLength(0);
@@ -476,7 +476,7 @@ describe('after an import saves', () => {
 
   test('a failed import matches nothing', async () => {
     invoke.mockResolvedValue({ data: null, error: { name: 'FunctionsFetchError', message: 'offline' } });
-    const result = await importRecipe({ url: IMPORTED.sourceUrl, listId: getDefaultListId(USER)! });
+    const result = await importRecipe({ url: IMPORTED.sourceUrl!, listId: getDefaultListId(USER)! });
     expect(result.ok).toBe(false);
     expect(matchCalls()).toHaveLength(0);
   });

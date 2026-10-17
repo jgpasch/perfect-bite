@@ -5,6 +5,8 @@ import { setAiTraceListener, type AiTrace } from './run-ai-task.ts';
 export type TraceOptions = {
   /** Also print the raw HTTP request and response bodies the provider saw. */
   raw?: boolean;
+  /** Applied to the raw bodies before they're printed, e.g. to shorten image data. */
+  redact?: (body: unknown) => unknown;
 };
 
 function section(title: string, body: string): string {
@@ -56,8 +58,9 @@ export function formatAiTrace(trace: AiTrace, n: number, options: TraceOptions =
   if (trace.error) parts.push(section('error', trace.error));
   parts.push(section('usage', kv(usage)));
   if (options.raw) {
-    parts.push(section('raw request body', trace.request_body === null ? '(none)' : pretty(trace.request_body)));
-    parts.push(section('raw response body', trace.response_body === null ? '(none)' : pretty(trace.response_body)));
+    const redact = options.redact ?? ((body: unknown) => body);
+    parts.push(section('raw request body', trace.request_body === null ? '(none)' : pretty(redact(trace.request_body))));
+    parts.push(section('raw response body', trace.response_body === null ? '(none)' : pretty(redact(trace.response_body))));
   }
   return parts.join('\n') + '\n';
 }

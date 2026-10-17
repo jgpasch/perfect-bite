@@ -168,8 +168,11 @@ export function formatStepMatch(response: RecipeImportResponse): string {
   return `step match:\n\n${formatMatch(recipe, match)}`;
 }
 
-/** Pure: name, servings, time, tags, source, the ingredient table and the step match. */
-export function formatRecipe(response: RecipeImportResponse): string {
+/**
+ * Pure: name, servings, time, tags, source, the ingredient table and the step match. `source` is
+ * what to print without a `sourceUrl` (a photo import's files); `-` by default.
+ */
+export function formatRecipe(response: RecipeImportResponse, source = '-'): string {
   const rows = [['name', 'quantity', 'unit', 'note', 'category']];
   for (const i of response.ingredients) {
     const slug = i.categoryId ? (SLUG_BY_ID.get(i.categoryId) ?? i.categoryId) : null;
@@ -187,17 +190,24 @@ export function formatRecipe(response: RecipeImportResponse): string {
     `servings: ${response.servings ?? '-'}`,
     `time:     ${response.totalMinutes === null ? '-' : `${response.totalMinutes} min`}`,
     `tags:     ${formatTags(response.tags)}`,
-    `source:   ${response.sourceUrl}`,
+    `source:   ${response.sourceUrl ?? source}`,
     '',
     response.ingredients.length === 0 ? 'No ingredients.' : table(rows),
     ...(stepMatch ? ['', stepMatch] : []),
   ].join('\n');
 }
 
-/** Pure: the token and latency totals, one block per task (extraction, then categorize). */
-export function formatCallStats(extractCalls: readonly AiCallRecord[], categorizeCalls: readonly AiCallRecord[]): string {
+/**
+ * Pure: the token and latency totals, one block per task (extraction, then categorize). `extractTask`
+ * names the extraction's block.
+ */
+export function formatCallStats(
+  extractCalls: readonly AiCallRecord[],
+  categorizeCalls: readonly AiCallRecord[],
+  extractTask = 'extract-recipe',
+): string {
   if (extractCalls.length === 0 && categorizeCalls.length === 0) return 'No LLM call made.';
-  return [`extract-recipe\n${formatStats(extractCalls)}`, `categorize\n${formatStats(categorizeCalls)}`].join('\n\n');
+  return [`${extractTask}\n${formatStats(extractCalls)}`, `categorize\n${formatStats(categorizeCalls)}`].join('\n\n');
 }
 
 export type CliIo = {

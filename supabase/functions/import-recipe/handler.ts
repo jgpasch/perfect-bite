@@ -220,11 +220,23 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
   }
 
   if (!recipe.is_recipe) throw new ImportRecipeError({ code: 'not_a_recipe' }, 'That page is not a recipe');
+  return importResponse(recipe, urlKey, deps.categorize);
+}
 
+/**
+ * Steps 6 and 7 of the flow (spec 6.6), shared with a photo import (6.10): the ingredient names go
+ * to `categorize` (whose own limits only leave them `pending`), then the response. `sourceUrl` is
+ * the canonical URL, or null for a photo.
+ */
+export async function importResponse(
+  recipe: ExtractedRecipe,
+  sourceUrl: string | null,
+  categorize: ImportDeps['categorize'],
+): Promise<RecipeImportResponse> {
   const lines = recipe.ingredients.map((item) => ({ ...item, key: normalizeIngredientName(item.name) }));
   let categories: CategorizeResponse['results'] = {};
   try {
-    categories = (await deps.categorize(lines.map((l) => l.name))).results;
+    categories = (await categorize(lines.map((l) => l.name))).results;
   } catch (err) {
     // Categorize's own limits: the recipe still imports, and the app sorts the names later.
     if (!(err instanceof CategorizeLimitError)) throw err;
@@ -232,7 +244,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
 
   return {
     name: recipe.name,
-    sourceUrl: urlKey,
+    sourceUrl,
     servings: recipe.servings,
     ingredients: lines.map((l) => ({
       ingredientName: l.key,

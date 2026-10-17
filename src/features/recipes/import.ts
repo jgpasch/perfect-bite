@@ -241,12 +241,13 @@ function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: 
 
 /**
  * The household's recipe for this import: the one an earlier run of the same import created, else
- * a live one with the same canonical source URL.
+ * a live one with the same canonical source URL. A photo import has no URL (spec 6.10), so it only
+ * ever finds its own earlier run.
  */
 function findRecipe(
   exec: Exec,
   householdId: string,
-  sourceUrl: string,
+  sourceUrl: string | null,
   importId: string | undefined,
 ): { id: string; name: string } | undefined {
   if (importId) {
@@ -257,6 +258,7 @@ function findRecipe(
       .get();
     if (byId) return byId;
   }
+  if (sourceUrl === null) return undefined;
   return exec
     .select({ id: recipes.id, name: recipes.name, sourceUrl: recipes.sourceUrl })
     .from(recipes)
@@ -319,10 +321,11 @@ function servingsOf(servings: number | null): number | null {
   return servings !== null && Number.isInteger(servings) && servings >= 1 && servings <= 100 ? servings : null;
 }
 
-/** The recipe's name, or its site's host when the page gave none. */
+/** The recipe's name, or its site's host when the page gave none ("Recipe" without a link). */
 function nameOf(imported: RecipeImportResponse): string {
   const name = imported.name.trim().replace(/\s+/g, ' ');
   if (name) return name;
+  if (imported.sourceUrl === null) return 'Recipe';
   try {
     return new URL(imported.sourceUrl).hostname;
   } catch {

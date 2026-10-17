@@ -329,6 +329,14 @@ describe('RecipeImportResponseSchema', () => {
     imageUrl: 'https://example.com/pad-thai.jpg',
   };
 
+  it('a photo import has no source URL (null); a link import keeps its URL, as older servers sent it', () => {
+    expect(RecipeImportResponseSchema.parse({ ...response, sourceUrl: null, imageUrl: null }).sourceUrl).toBeNull();
+    expect(RecipeImportResponseSchema.parse(response).sourceUrl).toBe('https://example.com/pad-thai');
+    const { sourceUrl: _omitted, ...missing } = response;
+    expect(RecipeImportResponseSchema.safeParse(missing).success).toBe(false);
+    expect(RecipeImportResponseSchema.safeParse({ ...response, sourceUrl: 42 }).success).toBe(false);
+  });
+
   it('carries tags (unknown slugs kept, as stored) and the time', () => {
     const newer = { ...tags, cuisine: ['thai', 'peruvian'] };
     expect(RecipeImportResponseSchema.parse({ ...response, tags: newer })).toMatchObject({ tags: newer, totalMinutes: 30 });
