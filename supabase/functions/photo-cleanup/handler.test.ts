@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from '@std/assert';
 
-import { cleanUpPhotos, handleRequest, REMOVE_BATCH, type CleanupStore } from './handler.ts';
+import { cleanUpBuckets, cleanUpPhotos, handleRequest, REMOVE_BATCH, type CleanupStore } from './handler.ts';
 
 const H = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const photo = (n: number) => `${H}/a3000000-0000-7000-8000-000000000001/c0000000-0000-7000-8000-${String(n).padStart(12, '0')}.jpg`;
@@ -79,4 +79,39 @@ Deno.test('a failure → 500', async () => {
   const res = await handleRequest(new Request('http://localhost/', { method: 'POST' }), () => Promise.reject(new Error('x')));
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, 'internal');
+});
+
+Deno.test('sweeps every bucket and adds up the counts', async () => {
+  const recipes = fakeStore([{ queue_id: 1, name: photo(1) }]);
+  const items = fakeStore([
+    { queue_id: 4, name: photo(2) },
+    { queue_id: 5, name: photo(3) },
+  ]);
+  assertEquals(await cleanUpBuckets([recipes.store, items.store]), { removed: 3, completed: 3 });
+  assertEquals(recipes.calls.claim, [100]);
+  assertEquals(items.calls.claim, [100]);
+  assertEquals(recipes.calls.remove, [[photo(1)]]);
+  assertEquals(items.calls.remove, [[photo(2), photo(3)]]);
+  assertEquals(recipes.calls.complete, [[1]]);
+  assertEquals(items.calls.complete, [[4, 5]]);
+});
+
+Deno.test('the same queue id in two buckets completes in each (they are separate queues)', async () => {
+  const recipes = fakeStore([{ queue_id: 1, name: photo(1) }]);
+  const items = fakeStore([{ queue_id: 1, name: photo(1) }]);
+  assertEquals(await cleanUpBuckets([recipes.store, items.store]), { removed: 2, completed: 2 });
+  assertEquals(recipes.calls.complete, [[1]]);
+  assertEquals(items.calls.complete, [[1]]);
+});
+
+Deno.test('a failing bucket still lets the next one run, then throws', async () => {
+  const recipes = fakeStore([{ queue_id: 1, name: photo(1) }], true);
+  const items = fakeStore([{ queue_id: 2, name: photo(2) }]);
+  await assertRejects(() => cleanUpBuckets([recipes.store, items.store]), Error, 'storage down');
+  assertEquals(recipes.calls.complete, []);
+  assertEquals(items.calls.complete, [[2]]);
+});
+
+Deno.test('no buckets: nothing to do', async () => {
+  assertEquals(await cleanUpBuckets([]), { removed: 0, completed: 0 });
 });

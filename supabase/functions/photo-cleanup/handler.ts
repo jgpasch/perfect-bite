@@ -1,12 +1,13 @@
-// Removing recipe photos no recipe points at any more (spec 4.5, 5). The database queues them
-// (20261029120000_recipe_photo_storage.sql); this removes them through the Storage API, which is
-// the only way to delete the files, then marks the queue entries done.
+// Removing recipe and item photos nothing points at any more (spec 4.4, 4.5, 5). The database
+// queues them, one queue per bucket (20261029120000_recipe_photo_storage.sql,
+// 20261106120000_item_photos.sql); this removes them through the Storage API, which is the only way
+// to delete the files, then marks the queue entries done.
 
-/** The queue and the bucket, over the service-role client in index.ts and fakes in tests. */
+/** One bucket's queue and the bucket, over the service-role client in index.ts and fakes in tests. */
 export type CleanupStore = {
   /** Due queue entries with the object names each stands for (a household prefix: several). */
   claim(limit: number): Promise<{ queue_id: number; name: string }[]>;
-  /** Removes objects from the recipe-photos bucket. Names that are already gone are fine. */
+  /** Removes objects from the bucket. Names that are already gone are fine. */
   remove(names: string[]): Promise<void>;
   /** Drops the queue entries whose objects are removed. */
   complete(ids: number[]): Promise<void>;
@@ -33,6 +34,26 @@ export async function cleanUpPhotos(store: CleanupStore, limit = CLAIM_LIMIT): P
   const ids = [...new Set(rows.map((r) => r.queue_id))];
   if (ids.length > 0) await store.complete(ids);
   return { removed: names.length, completed: ids.length };
+}
+
+/**
+ * Sweeps every bucket (recipe-photos, item-photos) and adds up the counts. A failing bucket doesn't
+ * stop the others; the first failure is thrown once they've all run.
+ */
+export async function cleanUpBuckets(stores: CleanupStore[], limit = CLAIM_LIMIT): Promise<CleanupResult> {
+  const total: CleanupResult = { removed: 0, completed: 0 };
+  const failures: unknown[] = [];
+  for (const store of stores) {
+    try {
+      const result = await cleanUpPhotos(store, limit);
+      total.removed += result.removed;
+      total.completed += result.completed;
+    } catch (err) {
+      failures.push(err);
+    }
+  }
+  if (failures.length > 0) throw failures[0];
+  return total;
 }
 
 /** POST → 200 CleanupResult · 405 · 500. Logs no object names. */

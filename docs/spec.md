@@ -630,12 +630,21 @@ create table list_items (
   added_by        uuid references auth.users,
   deleted_at      timestamptz,
   merged_into     uuid references list_items,            -- set by apply_mutations when merged (7.3)
+  photo_path      text,                                  -- the item's photo in item-photos, null = none
   field_clock     jsonb not null default '{}'
 );
 -- at most one live unchecked item per ingredient per list
 create unique index one_open_item_per_ingredient
   on list_items (list_id, ingredient_name)
   where deleted_at is null and checked_at is null;
+-- photo_path: '<household_id>/<list_item_id>/<uuid>.jpg', lowercase, its folders the row's own
+-- household and id (check list_items_photo_path_shape). Synced, field-level LWW like note.
+-- Item photos: Storage bucket item-photos, set up as recipe-photos (below): private, image/jpeg
+-- only, 2 MB, member select/insert/delete on the first folder, no update. Cleanup is the same too,
+-- through its own queue private.item_photo_deletions (the old object when photo_path changes or is
+-- cleared, an item's object when its row is deleted, the household's prefix when a household is
+-- deleted) and claim_item_photo_deletions / complete_item_photo_deletions. The same cron job calls
+-- photo-cleanup when either queue has entries, and photo-cleanup sweeps both buckets.
 
 create table list_item_contributions (
   id           uuid primary key,
