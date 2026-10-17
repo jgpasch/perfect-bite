@@ -42,6 +42,8 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
 jest.mock('@/lib/google-sign-in', () => ({ getGoogleIdToken: jest.fn(), signOutOfGoogle: jest.fn(async () => {}) }));
+const mockClearPhotoCache = jest.fn(async () => {});
+jest.mock('@/lib/photo-cache', () => ({ clearPhotoCache: () => mockClearPhotoCache() }));
 
 const USER = 'u1';
 const PRODUCE = SYSTEM_CATEGORIES.find((c) => c.slug === 'produce')!.id;
@@ -249,6 +251,12 @@ describe('wipeLocalData', () => {
     expect(getMyInvites()).toEqual([]);
     expect(currentNotification()).toBeNull();
     expect(getShareQueueStatus()).toEqual({ queued: [], importing: null, waitReason: null });
+  });
+
+  test("clears expo-image's cache of recipe photos (spec 4.5)", () => {
+    mockClearPhotoCache.mockClear();
+    wipeLocalData();
+    expect(mockClearPhotoCache).toHaveBeenCalledTimes(1);
   });
 
   test('running it twice is fine', () => {

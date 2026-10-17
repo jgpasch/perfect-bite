@@ -62,6 +62,9 @@ jest.mock('@/features/auth/account', () => ({ getAccount: () => mockAuth.account
 
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
 
+const mockClearPhotoCache = jest.fn(async () => {});
+jest.mock('@/lib/photo-cache', () => ({ clearPhotoCache: () => mockClearPhotoCache() }));
+
 const H1 = 'household-1';
 const H2 = 'household-2';
 const L = 'list-1';
@@ -1852,6 +1855,20 @@ describe('lost memberships (4.7)', () => {
     expect(getPullState().cursors).toEqual({ ...h1Cursors, ...pick(getPullState().cursors, 'user:', 'catalog:') });
     expect(Object.keys(getPullState().cursors).some((key) => key.startsWith(`household:${H2}:`))).toBe(false);
     expect(getPullState().memberships).toEqual([H1]);
+  });
+
+  test("losing a household clears expo-image's photo cache; a pull that loses none doesn't (spec 4.5)", async () => {
+    await seedTwoHouseholds();
+    mockClearPhotoCache.mockClear();
+    await pullNow();
+    expect(mockClearPhotoCache).not.toHaveBeenCalled();
+
+    loseCabin();
+    await pullNow();
+    expect(mockClearPhotoCache).toHaveBeenCalledTimes(1);
+
+    await pullNow();
+    expect(mockClearPhotoCache).toHaveBeenCalledTimes(1);
   });
 
   test('joining it again pulls it in full', async () => {

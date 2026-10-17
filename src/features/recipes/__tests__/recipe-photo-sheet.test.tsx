@@ -529,7 +529,12 @@ describe("the household's own photo (Photo library and Take photo)", () => {
 
   test("a failed upload leaves the recipe as it was and says \"Couldn't upload the photo\" with Try again, which retries", async () => {
     setPhoto(A);
-    const upload = jest.fn(async (..._args: unknown[]) => ({ data: null, error: { message: 'Network request failed' } }));
+    const upload = jest.fn(
+      async (..._args: unknown[]): Promise<{ data: object | null; error: { message: string } | null }> => ({
+        data: null,
+        error: { message: 'Network request failed' },
+      }),
+    );
     supabase.storage.from.mockImplementation(() => ({ upload }) as never);
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     const sheet = await renderSheet();

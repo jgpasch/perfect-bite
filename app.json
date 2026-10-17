@@ -61,6 +61,14 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "The Perfect Bite uses your photos so you can add one to a recipe.",
+          "cameraPermission": "The Perfect Bite uses the camera so you can take a photo of a recipe.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-font",
         {
           "ios": {
