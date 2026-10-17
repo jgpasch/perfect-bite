@@ -3,6 +3,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 
+import { unregisterPush } from '@/features/push/stored-registration';
 import { getGoogleIdToken, signOutOfGoogle } from '@/lib/google-sign-in';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -106,7 +107,9 @@ export async function verifyEmailCode(email: string, token: string): Promise<voi
   if (error) throw error;
 }
 
+/** Signs out of Supabase and Google, after removing this device's push token (best effort, spec 4.13). */
 export async function signOut(): Promise<void> {
+  await unregisterPush();
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   await signOutOfGoogle().catch(() => {});

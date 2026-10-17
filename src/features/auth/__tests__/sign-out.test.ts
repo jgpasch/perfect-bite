@@ -7,7 +7,8 @@ import { db, deviceSettings, households, lists } from '@/db';
 import { addItem } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
-import { resetSupabase, supabase } from '@/test/fake-supabase';
+import { getPushRegistration, setPushRegistration } from '@/features/push/stored-registration';
+import { onRpc, resetSupabase, respondToRpc, rpcCallsFor, supabase } from '@/test/fake-supabase';
 
 import { signOutAndWipe, wipeIfOtherUser } from '../sign-out';
 
@@ -60,6 +61,33 @@ describe('signOutAndWipe', () => {
     signOut.mockImplementation(async () => ({ error: new Error('network') }));
     await expect(signOutAndWipe({ pushTimeoutMs: 10 })).rejects.toThrow('network');
     expect(db.select().from(households).all()).toHaveLength(1);
+  });
+
+  it("unregisters the device's push token before signing out, and forgets it (spec 4.13)", async () => {
+    setPushRegistration({ token: 'ExponentPushToken[abc]', userId: USER, at: '2026-10-17T12:00:00.000Z' });
+    onRpc((call) => {
+      mockOrder.push(call.fn);
+      return undefined;
+    });
+    await signOutAndWipe({ pushTimeoutMs: 10 });
+    expect(mockOrder).toEqual(['push', 'unregister_push_token', 'signOut']);
+    expect(rpcCallsFor('unregister_push_token')).toEqual([{ fn: 'unregister_push_token', args: { p_token: 'ExponentPushToken[abc]' } }]);
+    expect(getPushRegistration()).toBeNull();
+  });
+
+  it('still signs out when unregistering the push token fails', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setPushRegistration({ token: 'ExponentPushToken[abc]', userId: USER, at: '2026-10-17T12:00:00.000Z' });
+    respondToRpc('unregister_push_token', { error: { message: 'network' } });
+    await signOutAndWipe({ pushTimeoutMs: 10 });
+    expect(mockOrder).toEqual(['push', 'signOut']);
+    expect(getPushRegistration()).toBeNull();
+    expect(db.select().from(households).all()).toEqual([]);
+  });
+
+  it('calls no push RPC when this device never registered', async () => {
+    await signOutAndWipe({ pushTimeoutMs: 10 });
+    expect(rpcCallsFor('unregister_push_token')).toEqual([]);
   });
 });
 

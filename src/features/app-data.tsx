@@ -9,6 +9,7 @@ import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { refreshMyInvites, startMyInvites, useMyInvites } from '@/features/households/my-invites';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
+import { startPushRegistration } from '@/features/push/registration';
 import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
@@ -107,5 +108,7 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => (userId ? startSiriDrain(userId) : undefined), [userId]);
   // The share queue (spec 4.10): imported on launch, foreground, reconnect and sign-in; signed out, shares wait.
   useEffect(() => (userId ? startShareDrain(userId) : undefined), [userId]);
+  // Push (spec 4.13): a token the user allowed is refreshed on sign-in, foreground and token change.
+  useEffect(() => (userId ? startPushRegistration() : undefined), [userId]);
   return children;
 }

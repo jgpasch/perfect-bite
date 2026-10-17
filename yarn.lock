@@ -4665,6 +4665,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"badgin@npm:^1.1.5":
+  version: 1.2.3
+  resolution: "badgin@npm:1.2.3"
+  checksum: 10c0/f8ba1090240a8602a8d174214e3426b1a7ec3ecb820ec7e4561fd6181c07df572f02ad0e7ec9250e19dd9594d05a57719a5717a126d769f91fc0cc5d233119cf
+  languageName: node
+  linkType: hard
+
 "balanced-match@npm:^1.0.0":
   version: 1.0.2
   resolution: "balanced-match@npm:1.0.2"
@@ -6482,6 +6489,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-application@npm:~57.0.3":
+  version: 57.0.3
+  resolution: "expo-application@npm:57.0.3"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/1ee12cfb365de5bf4cf442a93109f68ce54c6875e05afd0e98b4b4499956c5b8e44b625debe835778ff04a0d8734dce448d996cb8f2e816624af5ec47fb4c5a3
+  languageName: node
+  linkType: hard
+
 "expo-asset@npm:~57.0.19":
   version: 57.0.19
   resolution: "expo-asset@npm:57.0.19"
@@ -6520,15 +6536,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"expo-constants@npm:~57.0.21":
-  version: 57.0.21
-  resolution: "expo-constants@npm:57.0.21"
+"expo-constants@npm:~57.0.21, expo-constants@npm:~57.0.22":
+  version: 57.0.22
+  resolution: "expo-constants@npm:57.0.22"
   dependencies:
     "@expo/env": "npm:~2.4.3"
   peerDependencies:
     expo: "*"
     react-native: "*"
-  checksum: 10c0/4e1ea31f17e953e27dfe4bfbe672190914eab4027a8d1717c30e1b62679f6b4e760bc7f74aff165c453f77f52791245631eb3322343d335e6b90716266923830
+  checksum: 10c0/181a46f0d1b0e5dfe8278f2393f5895683115dc377c4a76df5fd40487b320d26e1927126d82face9218b9d5961012855ece05602e119b274dd37f36f586ea713
   languageName: node
   linkType: hard
 
@@ -6744,6 +6760,23 @@ __metadata:
     expo: "*"
     react: "*"
   checksum: 10c0/9a4cd8644993940f9c32ad18ab0b86f9f59c62a8ace59b75beaffe0c782446da7a755464718f506caf353b2786f3e7c76f3d05fd1068363e68e45d0d5e867033
+  languageName: node
+  linkType: hard
+
+"expo-notifications@npm:~57.0.23":
+  version: 57.0.23
+  resolution: "expo-notifications@npm:57.0.23"
+  dependencies:
+    "@expo/image-utils": "npm:^0.11.6"
+    abort-controller: "npm:^3.0.0"
+    badgin: "npm:^1.1.5"
+    expo-application: "npm:~57.0.3"
+    expo-constants: "npm:~57.0.22"
+  peerDependencies:
+    expo: "*"
+    react: "*"
+    react-native: "*"
+  checksum: 10c0/4f7ae2f7d0b72a340430d52fa4ff37b03a7a956ddc912c4d2bd1a86d3d7b41307d79f8cf278a2e327f13e541b6ad4c4ab358f7edadba41cd6b555bb90e58582c
   languageName: node
   linkType: hard
 
@@ -10340,7 +10373,7 @@ __metadata:
     expo: "npm:~57.0.27"
     expo-build-properties: "npm:~57.0.22"
     expo-clipboard: "npm:~57.0.2"
-    expo-constants: "npm:~57.0.21"
+    expo-constants: "npm:~57.0.22"
     expo-crypto: "npm:~57.0.3"
     expo-device: "npm:~57.0.2"
     expo-file-system: "npm:~57.0.7"
@@ -10355,6 +10388,7 @@ __metadata:
     expo-localization: "npm:~57.0.2"
     expo-mail-composer: "npm:~57.0.2"
     expo-network: "npm:~57.0.2"
+    expo-notifications: "npm:~57.0.23"
     expo-router: "npm:~57.0.25"
     expo-sms: "npm:~57.0.2"
     expo-splash-screen: "npm:~57.0.9"

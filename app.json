@@ -261,6 +261,7 @@
         }
       ],
       "expo-mail-composer",
+      "expo-notifications",
       "expo-localization",
       [
         "expo-build-properties",

@@ -5,6 +5,8 @@ import type * as GoogleSignIn from '@/lib/google-sign-in';
 import type * as FakeSupabase from '@/test/fake-supabase';
 
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+// Sign-out reads the stored push registration (spec 4.13) from device settings.
+jest.mock('@/db/client', () => require('@/test/db'));
 // The native Google SDK isn't available under Jest.
 jest.mock('@/lib/google-sign-in', () => ({ getGoogleIdToken: jest.fn(), signOutOfGoogle: jest.fn(async () => {}) }));
 
