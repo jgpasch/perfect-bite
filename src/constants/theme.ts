@@ -387,6 +387,8 @@ export const Opacity = {
   shadow: 0.25,
   pressed: 0.85,
   disabled: 0.4,
+  /** The `scrim` behind a sheet the app draws itself (the one-time push prompt), so the screen shows through. */
+  scrim: 0.6,
 } as const;
 
 /**

@@ -860,6 +860,31 @@ export const en = {
     version: 'Version {{version}}',
     alwaysHave: 'Always have',
     siri: 'Siri',
+    notifications: 'Notifications',
+    /** Settings > Notifications (spec 4.13). */
+    notificationsScreen: {
+      cardTitle: 'Stay in the loop',
+      explain: 'Know when someone in your household adds to a list or starts shopping.',
+      turnOn: 'Turn on notifications',
+      deniedTitle: 'Notifications are off',
+      denied: 'Notifications are off for Perfect Bite. Turn them on in Settings.',
+      openSettings: 'Open Settings',
+      unavailable: 'Notifications work on a phone, not on this device.',
+      notifyMe: 'Notify me',
+      itemsAdded: 'Items added to lists',
+      shopping: 'Someone starts shopping',
+      quietHours: 'Quiet hours',
+      quietHoursDetail: 'No notifications between these times.',
+      from: 'From',
+      to: 'To',
+      /** VoiceOver for the time pickers: "Quiet hours from". */
+      fromLabel: 'Quiet hours from',
+      toLabel: 'Quiet hours to',
+      timeZone: 'Times are in your phone’s time zone ({{zone}}).',
+      sameTimes: 'Quiet hours need different start and end times.',
+      offline: 'Needs a connection',
+      saveFailed: "Couldn't save your notification settings",
+    },
     general: 'General',
     language: 'Language',
     /** Settings > Language. */
@@ -1143,6 +1168,12 @@ export const en = {
     importFailed: "Couldn't import recipe",
     importFailedHint: 'Opens the link again to try once more',
     photoImportFailedHint: 'Opens Add recipe to try again',
+  },
+  /** The one-time offer to turn on push, once the user shares a household (spec 4.13). */
+  pushAsk: {
+    title: 'Turn on notifications?',
+    turnOn: 'Turn on',
+    notNow: 'Not now',
   },
   /** Errors the app's own checks raise and the screens show. */
   errors: {

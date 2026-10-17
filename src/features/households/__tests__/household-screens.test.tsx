@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, householdStaples, households, ingredients, ingredientUsage, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
+import { clearPushMoment, pushMomentPending } from '@/features/push/ask';
 import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
@@ -1284,6 +1285,25 @@ describe('JoinHouseholdScreen', () => {
     expect(mockAcceptInvite).toHaveBeenCalledWith(TOKEN);
     expect(mockPullNow).toHaveBeenCalled();
     expect(mockRouter.replace).toHaveBeenCalledWith('/lists');
+  });
+
+  test('a join is the moment to offer notifications (spec 4.13)', async () => {
+    clearPushMoment();
+    mockPreviewInvite.mockResolvedValue(preview());
+    mockAcceptInvite.mockResolvedValue({ householdId: HOME, householdName: 'Smith home', alreadyMember: false });
+    const root = await render(<JoinHouseholdScreen />);
+    await pressAsync(byLabel(root, 'Join'));
+    expect(pushMomentPending()).toBe(true);
+    clearPushMoment();
+  });
+
+  test('joining a household already joined is not a moment to offer notifications', async () => {
+    clearPushMoment();
+    mockPreviewInvite.mockResolvedValue(preview());
+    mockAcceptInvite.mockResolvedValue({ householdId: HOME, householdName: 'Smith home', alreadyMember: true });
+    const root = await render(<JoinHouseholdScreen />);
+    await pressAsync(byLabel(root, 'Join'));
+    expect(pushMomentPending()).toBe(false);
   });
 
   test('joining a household already joined opens it', async () => {

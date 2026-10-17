@@ -227,6 +227,16 @@ describe('Settings', () => {
     ]);
   });
 
+  it('has a Notifications row after Siri adds to, opening its screen (spec 4.13)', () => {
+    const root = render(<SettingsScreen />);
+    const labels = buttons(root).map((b) => b.props.accessibilityLabel as string);
+    const siri = labels.findIndex((l) => l.startsWith('Siri adds to'));
+    expect(labels[siri + 1]).toBe('Notifications');
+    expect(labels.indexOf('Notifications')).toBeLessThan(labels.indexOf('Store aisle order'));
+    click(button(root, 'Notifications'));
+    expect(mockPush).toHaveBeenCalledWith('/settings/notifications');
+  });
+
   it('lists each household, opening its screen', () => {
     const householdId = db.select().from(households).get()!.id;
     const root = render(<SettingsScreen />);

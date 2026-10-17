@@ -9,6 +9,7 @@ import { useMemo } from 'react';
 import { db, householdMemberNames } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { getAccount } from '@/features/auth/account';
+import { householdMateJoined, notePushMoment } from '@/features/push/ask';
 import { i18n } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
@@ -29,6 +30,12 @@ export async function refreshMemberNames(householdId: string): Promise<boolean> 
     console.warn(`[members] couldn't load the names in ${householdId}`, err);
     return false;
   }
+  const before = db
+    .select({ userId: householdMemberNames.userId })
+    .from(householdMemberNames)
+    .where(eq(householdMemberNames.householdId, householdId))
+    .all()
+    .map((r) => r.userId);
   db.transaction((tx) => {
     tx.delete(householdMemberNames).where(eq(householdMemberNames.householdId, householdId)).run();
     if (rows.length) {
@@ -40,6 +47,9 @@ export async function refreshMemberNames(householdId: string): Promise<boolean> 
         .run();
     }
   });
+  // A household that was just the user's now has someone else in it: a moment to offer push (4.13).
+  const me = getAccount()?.userId ?? null;
+  if (householdMateJoined(before, rows.map((r) => r.user_id), me)) notePushMoment();
   return true;
 }
 

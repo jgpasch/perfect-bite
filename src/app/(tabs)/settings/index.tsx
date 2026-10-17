@@ -155,6 +155,11 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/siri')}
           />
           <SettingsRow
+            label={t('settings.notifications')}
+            icon={{ name: 'bell.badge', hue: 'rose' }}
+            onPress={() => router.push('/settings/notifications')}
+          />
+          <SettingsRow
             label={t('settings.keepScreenOn')}
             detail={t('settings.keepScreenOnDetail')}
             icon={{ name: 'sun.max', hue: 'amber' }}

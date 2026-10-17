@@ -5,6 +5,7 @@ import { useSyncExternalStore } from 'react';
 
 import { db, households } from '@/db';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
+import { notePushMoment } from '@/features/push/ask';
 import { i18n } from '@/i18n';
 import { pullNow } from '@/sync/pull';
 
@@ -146,6 +147,8 @@ export async function joinMyInvite(
     },
     'accept',
   );
+  // Now sharing a household: the moment to offer notifications (spec 4.13).
+  if (result.ok) notePushMoment();
   if (!result.ok || !replacing) return result;
   return (await deleteReplaced(replacing)) ?? result;
 }

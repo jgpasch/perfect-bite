@@ -6,6 +6,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, householdMemberNames } from '@/db';
 import { memberHue } from '@/domain/aisle-color';
+import { clearPushMoment, pushMomentPending, setPushAsked } from '@/features/push/ask';
 import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import { respondToRpc, resetSupabase, rpcCalls } from '@/test/fake-supabase';
@@ -112,6 +113,47 @@ describe('refreshMemberNames', () => {
     await refreshAllMemberNames([H1, H2]);
     expect(rpcCalls.map((c) => c.args)).toEqual([{ p_household_id: H1 }, { p_household_id: H2 }]);
     expect(cached().map((r) => [r.householdId, r.userId])).toEqual([[H2, 'u4']]);
+  });
+});
+
+describe('refreshMemberNames and the push moment (spec 4.13)', () => {
+  beforeEach(() => clearPushMoment());
+  afterEach(() => clearPushMoment());
+
+  test('a household-mate joining a household that was just yours is the moment', async () => {
+    respondToRpc('get_household_members', { data: [row('me', 'Jo')] });
+    await refreshMemberNames(H1);
+    expect(pushMomentPending()).toBe(false);
+
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex')] });
+    await refreshMemberNames(H1);
+    expect(pushMomentPending()).toBe(true);
+  });
+
+  test('filling the cache from empty (sign-in, a household just pulled in) is not', async () => {
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex')] });
+    await refreshMemberNames(H1);
+    expect(pushMomentPending()).toBe(false);
+  });
+
+  test('a third member joining, or a failed refresh, is not', async () => {
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex')] });
+    await refreshMemberNames(H1);
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex'), row('u3', 'Sam')] });
+    await refreshMemberNames(H1);
+    respondToRpc('get_household_members', { data: [row('me', 'Jo')] });
+    await refreshMemberNames(H2);
+    respondToRpc('get_household_members', { error: { message: 'Failed to fetch' } });
+    await refreshMemberNames(H2);
+    expect(pushMomentPending()).toBe(false);
+  });
+
+  test('once the prompt has shown on this device, never again', async () => {
+    setPushAsked();
+    respondToRpc('get_household_members', { data: [row('me', 'Jo')] }, { data: [row('me', 'Jo'), row('u2', 'Alex')] });
+    await refreshMemberNames(H1);
+    await refreshMemberNames(H1);
+    expect(pushMomentPending()).toBe(false);
   });
 });
 

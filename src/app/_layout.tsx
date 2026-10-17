@@ -10,6 +10,7 @@ import { startAccount, useAccountState } from '@/features/auth/account';
 import { wipeIfOtherUser } from '@/features/auth/sign-out';
 import { NotificationHost } from '@/features/notifications/notification-host';
 import { clearNotifications } from '@/features/notifications/notifications';
+import { PushAskPrompt } from '@/features/push/push-ask-prompt';
 import { startForegroundPushes, usePushResponses } from '@/features/push/receiving';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
 import { loadFontSet } from '@/features/settings/font-set';
@@ -159,6 +160,8 @@ export default function RootLayout() {
         </DatabaseProvider>
         {ready && <PageCaptureHost />}
         {ready && <NotificationHost />}
+        {/* Once, when the user first shares a household (spec 4.13); never at launch or sign-in. */}
+        {ready && <PushAskPrompt />}
       </ThemeProvider>
     </GestureHandlerRootView>
   );

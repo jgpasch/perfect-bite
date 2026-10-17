@@ -17,6 +17,7 @@ import {
 } from '@/features/households/invites';
 import { getAccount } from '@/features/auth/account';
 import { deleteReplaced, householdToReplace, replaceHouseholdPrompt } from '@/features/households/my-invites';
+import { notePushMoment } from '@/features/push/ask';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { pullNow } from '@/sync/pull';
@@ -86,6 +87,8 @@ export default function JoinHouseholdScreen() {
       // The new membership syncs the household in; wait for it so its lists are there.
       await pullNow();
       if (accepted.alreadyMember) return openHousehold(accepted.householdId);
+      // Now sharing a household: the moment to offer notifications (spec 4.13).
+      notePushMoment();
       // Joined first, so deleting it never leaves the user with no household.
       const failed = replacing ? await deleteReplaced(replacing) : null;
       if (failed?.ok && failed.notice) Alert.alert(failed.notice);

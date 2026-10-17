@@ -4,6 +4,8 @@ import { db, households } from '@/db';
 import { resetDb } from '@/test/db';
 import { respondToRpc, resetSupabase, rpcCalls, rpcCallsFor, supabase } from '@/test/fake-supabase';
 
+import { clearPushMoment, pushMomentPending } from '@/features/push/ask';
+
 import { InviteError, type InviteErrorKind, type MyInvite } from '../invites';
 import {
   clearMyInvites,
@@ -161,6 +163,20 @@ describe('joinMyInvite', () => {
     expect(rpcCallsFor('accept_invite_by_id')).toEqual([{ fn: 'accept_invite_by_id', args: { p_invite_id: 'i1' } }]);
     expect(mockPullNow).toHaveBeenCalledTimes(1);
     expect(getMyInvites()).toEqual([INVITE2]);
+  });
+
+  test('a join is the moment to offer notifications (spec 4.13); a failed one is not', async () => {
+    clearPushMoment();
+    await start([ROW, ROW2]);
+    respondToRpc('accept_invite_by_id', { error: { message: 'Failed to fetch' } });
+    await joinMyInvite(INVITE);
+    expect(pushMomentPending()).toBe(false);
+    respondToRpc('accept_invite_by_id', {
+      data: [{ household_id: 'h2', household_name: 'Smith household', already_member: false }],
+    });
+    await joinMyInvite(INVITE);
+    expect(pushMomentPending()).toBe(true);
+    clearPushMoment();
   });
 
   test("a network failure keeps the card, says so and doesn't pull", async () => {

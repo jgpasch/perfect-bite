@@ -10,6 +10,7 @@ import { refreshMyInvites, startMyInvites, useMyInvites } from '@/features/house
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { startPushRegistration } from '@/features/push/registration';
+import { startTimeZoneSync } from '@/features/push/settings';
 import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
@@ -110,5 +111,7 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => (userId ? startShareDrain(userId) : undefined), [userId]);
   // Push (spec 4.13): a token the user allowed is refreshed on sign-in, foreground and token change.
   useEffect(() => (userId ? startPushRegistration() : undefined), [userId]);
+  // Quiet hours follow the phone's time zone: sent on sign-in and on a foreground after it changed.
+  useEffect(() => (userId ? startTimeZoneSync() : undefined), [userId]);
   return children;
 }
