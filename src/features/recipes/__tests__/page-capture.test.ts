@@ -12,6 +12,7 @@ import {
   createCaptureSession,
   isBotCheckPage,
   isCaptureReady,
+  PAGE_IMAGE_SOURCES,
   parseCapturedPage,
   setPageCapturer,
   toRequestPage,
@@ -104,13 +105,14 @@ describe('CAPTURE_SCRIPT', () => {
 
   /**
    * Runs the script against a fake page and returns every page it posted. `meta` maps a selector
-   * (`meta[property="og:image"]`) to its tag's `content`; `null` is a tag without one.
+   * (`meta[property="og:image"]`) to its tag's `content`; `null` is a tag without one, and an
+   * object is a tag's attributes (`{ href: … }`).
    */
   function runScript(page: {
     title?: string;
     blocks?: string[];
     text?: string | null;
-    meta?: Record<string, string | null>;
+    meta?: Record<string, string | null | Record<string, string>>;
     noQuerySelector?: boolean;
   }) {
     const posted: unknown[] = [];
@@ -125,8 +127,14 @@ describe('CAPTURE_SCRIPT', () => {
       ...(page.noQuerySelector
         ? {}
         : {
-            querySelector: (selector: string) =>
-              selector in meta ? { getAttribute: (name: string) => (name === 'content' ? meta[selector] : null) } : null,
+            querySelector: (selector: string) => {
+              if (!(selector in meta)) return null;
+              const tag = meta[selector];
+              return {
+                getAttribute: (name: string) =>
+                  tag !== null && typeof tag === 'object' ? (tag[name] ?? null) : name === 'content' ? tag : null,
+              };
+            },
           }),
     };
     const window = { ReactNativeWebView: { postMessage: (data: string) => posted.push(JSON.parse(data)) } };
@@ -156,6 +164,41 @@ describe('CAPTURE_SCRIPT', () => {
     expect(image({ [og]: null, [twitter]: 'https://cdn.example.com/tw.jpg' })).toBe('https://cdn.example.com/tw.jpg');
     expect(image({ [og]: '  ' })).toBe('');
     expect(image({})).toBe('');
+  });
+
+  test('the image then falls back through the rest of the photo chain’s tags, in order', () => {
+    const image = (meta: Record<string, string | null | Record<string, string>>) =>
+      (runScript({ meta }).posted[0] as CapturedPage).imageUrl;
+    expect(image({ 'meta[name="og:image"]': '/n.jpg' })).toBe('/n.jpg');
+    expect(image({ 'meta[property="og:image:secure_url"]': '/secure.jpg', 'meta[name="twitter:image"]': '/tw.jpg' })).toBe('/secure.jpg');
+    expect(image({ 'meta[property="og:image:url"]': '/url.jpg', 'meta[name="twitter:image"]': '/tw.jpg' })).toBe('/url.jpg');
+    expect(image({ 'meta[name="twitter:image:src"]': '/src.jpg', 'meta[name="twitter:image"]': '/tw.jpg' })).toBe('/tw.jpg');
+    expect(image({ 'meta[name="twitter:image:src"]': '/src.jpg', 'link[rel~="image_src"]': { href: '/l.jpg' } })).toBe('/src.jpg');
+    expect(image({ 'link[rel~="image_src"]': { href: ' /l.jpg ' }, '[itemprop~="image"]': { content: '/m.jpg' } })).toBe('/l.jpg');
+    // Microdata: content, else src, else href.
+    expect(image({ '[itemprop~="image"]': { content: '/m.jpg', src: '/s.jpg' } })).toBe('/m.jpg');
+    expect(image({ '[itemprop~="image"]': { src: '/s.jpg', href: '/h.jpg' } })).toBe('/s.jpg');
+    expect(image({ '[itemprop~="image"]': { href: '/h.jpg' } })).toBe('/h.jpg');
+    // A link without an href falls through.
+    expect(image({ 'link[rel~="image_src"]': {}, '[itemprop~="image"]': { src: '/s.jpg' } })).toBe('/s.jpg');
+  });
+
+  test('PAGE_IMAGE_SOURCES is rungs 3 to 6 of the photo chain', () => {
+    expect(PAGE_IMAGE_SOURCES.map((source) => source[0])).toEqual([
+      'meta[property="og:image"]',
+      'meta[name="og:image"]',
+      'meta[property="og:image:secure_url"]',
+      'meta[name="og:image:secure_url"]',
+      'meta[property="og:image:url"]',
+      'meta[name="og:image:url"]',
+      'meta[property="twitter:image"]',
+      'meta[name="twitter:image"]',
+      'meta[property="twitter:image:src"]',
+      'meta[name="twitter:image:src"]',
+      'link[rel~="image_src"]',
+      '[itemprop~="image"]',
+    ]);
+    expect(PAGE_IMAGE_SOURCES.at(-1)).toEqual(['[itemprop~="image"]', 'content', 'src', 'href']);
   });
 
   test('a page whose meta tags can’t be read still posts, with no image', () => {

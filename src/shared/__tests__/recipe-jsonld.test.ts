@@ -1,7 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
 
 import * as shared from '@/shared';
-import { cleanImageUrl, cleanJsonLdText, cleanRecipeSteps, decodeHtmlEntities, findRecipe, parseIsoDuration } from '../recipe-jsonld';
+import {
+  cleanImageUrl,
+  cleanJsonLdText,
+  cleanRecipeSteps,
+  decodeHtmlEntities,
+  findRecipe,
+  jsonLdImageCandidates,
+  parseIsoDuration,
+} from '../recipe-jsonld';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -534,6 +542,101 @@ describe('findRecipe: image', () => {
     expect(image([])).toBeNull();
     expect(image({ '@id': 'https://cook.example.com/#primaryimage' })).toBeNull();
   });
+
+  // Yoast/WordPress: the Recipe's image is a reference to an ImageObject elsewhere in the @graph.
+  const yoastGraph = (recipeFields: Record<string, unknown>, extra: unknown[] = []) =>
+    block({
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'ImageObject', '@id': `${PAGE}#primaryimage`, url: '/wp-content/uploads/pad-thai.jpg', width: 1200 },
+        recipe(recipeFields),
+        ...extra,
+      ],
+    });
+
+  it('resolves an @id reference to an ImageObject in the same @graph', () => {
+    expect(findRecipe([yoastGraph({ image: { '@id': `${PAGE}#primaryimage` } })], PAGE)?.imageUrl).toBe(
+      'https://cook.example.com/wp-content/uploads/pad-thai.jpg',
+    );
+    // In an array, and with the ImageObject after the Recipe.
+    const after = block({
+      '@graph': [recipe({ image: [{ '@id': '#hero' }] }), { '@type': 'ImageObject', '@id': '#hero', contentUrl: 'https://cdn.example.com/hero.jpg' }],
+    });
+    expect(findRecipe([after], PAGE)?.imageUrl).toBe('https://cdn.example.com/hero.jpg');
+  });
+
+  it('resolves a reference to a node in another block', () => {
+    const imageBlock = block({ '@type': 'ImageObject', '@id': '#hero', url: 'https://cdn.example.com/other-block.jpg' });
+    expect(findRecipe([block(recipe({ image: { '@id': '#hero' } })), imageBlock], PAGE)?.imageUrl).toBe('https://cdn.example.com/other-block.jpg');
+  });
+
+  it('a reference to a node with no usable image, or to itself, is null, not a loop', () => {
+    const graph = block({
+      '@graph': [recipe({ '@id': '#recipe', image: { '@id': '#recipe' } }), { '@type': 'ImageObject', '@id': '#bad', url: 'http://cdn.example.com/a.jpg' }],
+    });
+    expect(findRecipe([graph], PAGE)?.imageUrl).toBeNull();
+    expect(findRecipe([yoastGraph({ image: { '@id': '#bad' } }, [{ '@type': 'ImageObject', '@id': '#bad', url: 'http://x.example/a.jpg' }])], PAGE)?.imageUrl).toBeNull();
+  });
+
+  it('falls back to thumbnailUrl when image has nothing usable', () => {
+    expect(findRecipe([block(recipe({ thumbnailUrl: 'https://cdn.example.com/thumb.jpg' }))], PAGE)?.imageUrl).toBe('https://cdn.example.com/thumb.jpg');
+    expect(
+      findRecipe([block(recipe({ image: 'http://cdn.example.com/a.jpg', thumbnailUrl: ['/thumb.jpg'] }))], PAGE)?.imageUrl,
+    ).toBe('https://cook.example.com/thumb.jpg');
+    // image wins over thumbnailUrl.
+    expect(
+      findRecipe([block(recipe({ image: 'https://cdn.example.com/a.jpg', thumbnailUrl: 'https://cdn.example.com/thumb.jpg' }))], PAGE)?.imageUrl,
+    ).toBe('https://cdn.example.com/a.jpg');
+  });
+});
+
+describe('jsonLdImageCandidates', () => {
+  const PAGE = 'https://cook.example.com/recipes/pad-thai/';
+  const graph = (...nodes: unknown[]) => block({ '@context': 'https://schema.org', '@graph': nodes });
+  const primary = { '@type': 'ImageObject', '@id': `${PAGE}#primaryimage`, url: 'https://cdn.example.com/primary.png' };
+
+  it('rung 1: the Recipe’s image, then its thumbnailUrl', () => {
+    expect(
+      jsonLdImageCandidates([block(recipe({ image: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'], thumbnailUrl: 'https://cdn.example.com/t.jpg' }))], PAGE),
+    ).toEqual(['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg', 'https://cdn.example.com/t.jpg']);
+  });
+
+  it('rung 2: a WebPage’s primaryImageOfPage and an Article’s image, @id references resolved', () => {
+    // The Yoast @graph with no Recipe node.
+    const yoast = graph(
+      { '@type': 'Article', '@id': `${PAGE}#article`, image: { '@id': `${PAGE}#primaryimage` }, thumbnailUrl: 'https://cdn.example.com/primary.png' },
+      { '@type': 'WebPage', '@id': PAGE, primaryImageOfPage: { '@id': `${PAGE}#primaryimage` } },
+      primary,
+      { '@type': 'Organization', '@id': `${PAGE}#org`, logo: { '@type': 'ImageObject', url: 'https://cdn.example.com/logo.png' } },
+    );
+    expect(jsonLdImageCandidates([yoast], PAGE)).toEqual(['https://cdn.example.com/primary.png']);
+    // Types as IRIs or arrays, and the page's own subtypes.
+    const typed = graph(
+      { '@type': ['schema:BlogPosting'], image: 'https://cdn.example.com/post.jpg' },
+      { '@type': 'https://schema.org/ItemPage', primaryImageOfPage: { url: 'https://cdn.example.com/page.jpg' } },
+    );
+    expect(jsonLdImageCandidates([typed], PAGE)).toEqual(['https://cdn.example.com/page.jpg', 'https://cdn.example.com/post.jpg']);
+  });
+
+  it('an earlier rung wins and repeats are dropped', () => {
+    const blocks = [
+      graph({ '@type': 'WebPage', primaryImageOfPage: { '@id': '#p' } }, { ...primary, '@id': '#p' }),
+      block(recipe({ image: 'https://cdn.example.com/recipe.jpg', thumbnailUrl: 'https://cdn.example.com/primary.png' })),
+    ];
+    expect(jsonLdImageCandidates(blocks, PAGE)).toEqual(['https://cdn.example.com/recipe.jpg', 'https://cdn.example.com/primary.png']);
+  });
+
+  it('counts a Recipe without ingredients, which findRecipe skips', () => {
+    expect(jsonLdImageCandidates([block({ '@type': 'Recipe', image: '/r.jpg' })], PAGE)).toEqual(['https://cook.example.com/r.jpg']);
+  });
+
+  it('skips malformed blocks and unusable URLs; nothing usable is []', () => {
+    expect(jsonLdImageCandidates(['{', block(recipe({ image: 'https://cdn.example.com/ok.jpg' }))], PAGE)).toEqual(['https://cdn.example.com/ok.jpg']);
+    expect(jsonLdImageCandidates([block(recipe({ image: 'http://cdn.example.com/a.jpg' })), graph({ '@type': 'WebPage', primaryImageOfPage: { '@id': '#missing' } })], PAGE)).toEqual([]);
+    expect(jsonLdImageCandidates([], PAGE)).toEqual([]);
+    // Without a page URL only absolute ones count.
+    expect(jsonLdImageCandidates([block(recipe({ image: '/r.jpg', thumbnailUrl: 'https://cdn.example.com/t.jpg' }))])).toEqual(['https://cdn.example.com/t.jpg']);
+  });
 });
 
 describe('cleanImageUrl', () => {
@@ -634,5 +737,6 @@ describe('exports', () => {
     expect(shared.parseIsoDuration).toBe(parseIsoDuration);
     expect(shared.cleanImageUrl).toBe(cleanImageUrl);
     expect(shared.cleanRecipeSteps).toBe(cleanRecipeSteps);
+    expect(shared.jsonLdImageCandidates).toBe(jsonLdImageCandidates);
   });
 });

@@ -7,7 +7,7 @@ import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v4.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
-import { fetchPage } from '../_shared/fetch-page.ts';
+import { fetchPage, readPage } from '../_shared/fetch-page.ts';
 import {
   categorize,
   CategorizeLimitError,
@@ -86,6 +86,18 @@ const BAD_IMAGE_PAGE = `<html><head><title>Toast</title><meta property="og:image
 const EMPTY_URL = 'https://example.com/empty';
 const EMPTY_PAGE = '<html><head><title>Nothing</title></head><body></body></html>';
 
+// A Yoast page whose @graph has no Recipe (spec 6.6 step 5's photo chain); see eval/fixtures/SOURCES.md.
+const COTTAGE_URL = 'https://snacks.webxo.xyz/high-protein-cottage-cheese-blueberry-bread/';
+const COTTAGE_PHOTO = 'https://snacks.webxo.xyz/wp-content/uploads/2026/05/Screenshot-2026-03-23-112812.png';
+const COTTAGE_PAGE = await Deno.readTextFile(new URL('./eval/fixtures/nojsonld-webxo-cottage-cheese-blueberry-bread.html', import.meta.url));
+
+// No JSON-LD or meta image: the photo is the lazy-loaded one in the article, not the logo or avatar.
+const SCONES_URL = 'https://bakes.example.org/scones';
+const SCONES_PAGE = `<html><head><title>Scones</title></head><body>
+<header><img src="/logo.png" class="site-logo"></header><article><img src="/a.png" class="avatar" width="48">
+<img src="data:image/gif;base64,R0lGOD" data-src="/img/scones.jpg" width="1200"><h1>Scones</h1>
+<ul><li>2 cups flour</li><li>1/2 cup butter</li></ul></article></body></html>`;
+
 /** Public addresses for every example host; anything else doesn't resolve. */
 const DNS: Record<string, string[]> = {
   'www.example.com': ['93.184.216.34'],
@@ -94,6 +106,7 @@ const DNS: Record<string, string[]> = {
   'news.example.net': ['93.184.216.36'],
   'intranet.example.com': ['10.0.0.5'],
   'redirect.example.com': ['93.184.216.37'],
+  'snacks.webxo.xyz': ['93.184.216.38'],
 };
 
 const PAGES: Record<string, string> = {
@@ -105,6 +118,8 @@ const PAGES: Record<string, string> = {
   [TART_URL]: TART_PAGE,
   [SOUP_URL]: SOUP_PAGE,
   [BAD_IMAGE_URL]: BAD_IMAGE_PAGE,
+  [COTTAGE_URL]: COTTAGE_PAGE,
+  [SCONES_URL]: SCONES_PAGE,
 };
 
 // --- Fakes --------------------------------------------------------------------------------------
@@ -585,6 +600,60 @@ test('v3: a client-supplied page’s imageUrl is cleaned like a fetched one', as
   assertEquals(await image(42), null);
   assertEquals(await image(`https://cdn.example.org/${'a'.repeat(2048)}`), null);
   assertEquals(fetched, []);
+});
+
+// --- The photo chain (spec 6.6 step 5) -------------------------------------------------------------
+
+test('photo chain: the cottage cheese blueberry bread page gets its photo when the server fetches it', async () => {
+  const { post, store } = setup();
+  const body: RecipeImportResponse = await (await post({ url: COTTAGE_URL })).json();
+  assertEquals(body.imageUrl, COTTAGE_PHOTO);
+  assertEquals(store.saves[0].result.image_url, COTTAGE_PHOTO, 'cached with the extraction');
+});
+
+test('photo chain: a Safari-shared page with no imageUrl gets its photo from the JSON-LD @graph (the lost photo)', async () => {
+  // Before: Preprocess.js sent no imageUrl, and with no Recipe in the @graph the photo was null.
+  const { post, fetched } = setup();
+  const shared = readPage(COTTAGE_PAGE, COTTAGE_URL);
+  const page = { title: shared.title!, jsonLd: shared.jsonLd, text: shared.text };
+  const body: RecipeImportResponse = await (await post({ url: COTTAGE_URL, page })).json();
+  assertEquals(body.imageUrl, COTTAGE_PHOTO);
+  assertEquals(fetched, [], 'the shared page is used, not fetched');
+});
+
+test('photo chain: a client page’s JSON-LD photos come before its imageUrl, which fills in when they have none', async () => {
+  const { post } = setup();
+  const graph = JSON.stringify({
+    '@graph': [
+      { '@type': 'WebPage', primaryImageOfPage: { '@id': '#primary' } },
+      { '@type': 'ImageObject', '@id': '#primary', url: '/uploads/primary.jpg' },
+    ],
+  });
+  const image = async (page: Record<string, unknown>) =>
+    ((await (await post({ url: SOUP_URL, page: { title: 'Leek Soup', text: '2 leeks\n1 cup stock', ...page } })).json()) as RecipeImportResponse).imageUrl;
+  assertEquals(await image({ jsonLd: [graph], imageUrl: 'https://cdn.example.org/og.jpg' }), 'https://bakes.example.org/uploads/primary.jpg');
+  assertEquals(await image({ jsonLd: ['{"@type":"WebSite"}'], imageUrl: 'https://cdn.example.org/og.jpg' }), 'https://cdn.example.org/og.jpg');
+  assertEquals(await image({ jsonLd: ['{"@type":"WebSite"}'] }), null);
+});
+
+test('photo chain: a fetched page with only a lazy-loaded content image gets that, not the logo or avatar', async () => {
+  const { post } = setup();
+  const body: RecipeImportResponse = await (await post({ url: SCONES_URL })).json();
+  assertEquals(body.imageUrl, 'https://bakes.example.org/img/scones.jpg');
+});
+
+test('photo chain: the JSON-LD Recipe’s @id image wins over the og:image', async () => {
+  const { post } = setup();
+  const graph = JSON.stringify({
+    '@graph': [
+      { '@type': 'ImageObject', '@id': '#hero', url: 'https://cdn.example.com/stew-hero.jpg' },
+      { ...JSON.parse(STEW_JSON_LD), image: { '@id': '#hero' } },
+    ],
+  });
+  const body: RecipeImportResponse = await (
+    await post({ url: STEW_URL, page: { jsonLd: [graph], imageUrl: 'https://cdn.example.com/stew-og.jpg' } })
+  ).json();
+  assertEquals(body.imageUrl, 'https://cdn.example.com/stew-hero.jpg');
 });
 
 test('v3: not a recipe has no steps or photo', async () => {

@@ -77,8 +77,9 @@ export const RecipeImportPageSchema = z.object({
     .refine((t) => utf8Bytes(t) <= MAX_PAGE_TEXT_BYTES, 'Page text too large')
     .optional(),
   /**
-   * The page's `og:image` (else `twitter:image`) as the page gave it; the server cleans it with
-   * `cleanImageUrl`. One that isn't a string or is too long to be usable is left out rather than
+   * The page's first `og:image`, `og:image:secure_url`, `og:image:url`, `twitter:image`,
+   * `twitter:image:src`, `<link rel="image_src">` or microdata `itemprop="image"`, as the page gave
+   * it; the server tries the JSON-LD's photos first and cleans this one with `cleanImageUrl`. One that isn't a string or is too long to be usable is left out rather than
    * failing the import.
    */
   imageUrl: z.string().max(MAX_IMAGE_URL_LENGTH).optional().catch(undefined),
@@ -144,7 +145,7 @@ export const ExtractedStepIngredientsSchema = z
 /**
  * The extract-recipe result, as cached in `recipe_imports`. A unit the app doesn't support is null,
  * its wording in `note`. `steps` and `image_url` (v3) are JSON-LD's when the page has a recipe
- * there; otherwise the steps are the model's and the image is the page's og:image.
+ * there; otherwise the steps are the model's and the image is the page's best photo (spec 6.6 step 5).
  * `step_ingredients` (v4) has one entry per step; null when there are no steps or the model's match
  * didn't line up with them.
  */
@@ -208,7 +209,7 @@ export const RecipeImportResponseSchema = z.object({
     .array(z.array(z.object({ index: z.number().int().min(0), quantity: z.number().positive().nullable() })))
     .nullable()
     .catch(null),
-  /** The photo (JSON-LD's `image`, else the page's og:image); null when none, or from an older server. */
+  /** The photo (JSON-LD's `image`, else the page's best photo, spec 6.6 step 5); null when none, or from an older server. */
   imageUrl: z.string().nullable().catch(null),
 });
 export type RecipeImportResponse = z.infer<typeof RecipeImportResponseSchema>;

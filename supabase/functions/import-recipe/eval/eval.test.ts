@@ -77,11 +77,11 @@ const page = (overrides: Partial<ExpectedPage> = {}): ExpectedPage => ({
 
 // --- expected.json ------------------------------------------------------------------------------
 
-Deno.test('expected.json: parses, 20 pages: 12 JSON-LD, 4 without, 2 non-recipes, 2 injections', async () => {
+Deno.test('expected.json: parses, 21 pages: 12 JSON-LD, 5 without, 2 non-recipes, 2 injections', async () => {
   const pages = parseExpected(await expectedJson());
-  assertEquals(pages.length, 20);
+  assertEquals(pages.length, 21);
   const count = (prefix: string) => pages.filter((p) => p.file.startsWith(prefix)).length;
-  assertEquals([count('jsonld-'), count('nojsonld-'), count('notrecipe-'), count('injection-')], [12, 4, 2, 2]);
+  assertEquals([count('jsonld-'), count('nojsonld-'), count('notrecipe-'), count('injection-')], [12, 5, 2, 2]);
   assertEquals(pages.filter((p) => !p.is_recipe).map((p) => p.file).sort(), [
     'notrecipe-jamieoliver-chicken-index.html',
     'notrecipe-npr-snap-ed-news.html',
@@ -361,8 +361,8 @@ Deno.test('formatReport: no misses', () => {
 Deno.test('runEval: every fixture through importRecipe with the mock, one call per page, nothing fetched', async () => {
   const pages = parseExpected(await expectedJson());
   const report = await withEnvModel('mock', () => runEval(pages, readFixture));
-  assertEquals(report.outcomes.length, 20);
-  assertEquals(report.calls.length, 20);
+  assertEquals(report.outcomes.length, 21);
+  assertEquals(report.calls.length, 21);
   assert(report.calls.every((c) => c.task === 'extractRecipe' && c.status === 'ok'));
   const byFile = new Map(report.outcomes.map((o) => [o.page.file, o]));
 
@@ -395,11 +395,11 @@ Deno.test('run: with --model mock prints the report and restores AI_MODEL_RECIPE
   const t = io(await Deno.readTextFile(new URL('./expected.json', import.meta.url)));
   const code = await withEnvModel(null, () => run(['--model', 'mock'], t.evalIo));
   assertEquals(code, 0, t.err());
-  assertStringIncludes(t.out(), '20 pages, model mock\n');
-  assertStringIncludes(t.out(), 'is_recipe:  19/20 (95%)\n');
+  assertStringIncludes(t.out(), '21 pages, model mock\n');
+  assertStringIncludes(t.out(), 'is_recipe:  20/21 (95.2%)\n');
   assertStringIncludes(t.out(), 'injection:  2/2 (100%) pages unaffected');
-  assertStringIncludes(t.out(), 'calls:          20');
-  assertStringIncludes(t.out(), 'tags (18 pages; precision matters most: a wrong tag hides a recipe):\n  facet    precision  recall\n');
+  assertStringIncludes(t.out(), 'calls:          21');
+  assertStringIncludes(t.out(), 'tags (19 pages; precision matters most: a wrong tag hides a recipe):\n  facet    precision  recall\n');
   assertStringIncludes(t.out(), '  all      0/0 (0%)   0/');
   assertStringIncludes(t.err(), 'its score means nothing');
 });

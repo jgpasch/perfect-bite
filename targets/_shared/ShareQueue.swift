@@ -6,11 +6,13 @@ enum ShareQueue {
 
   /// Mirrors `ShareEnvelopeSchema` in src/shared/schemas/share.ts. Keep in sync by hand.
   struct Envelope: Codable {
-    /// Mirrors `RecipeImportPageSchema`: each JSON-LD block ≤ 200 KB, at most 10; text ≤ 50 KB.
+    /// Mirrors `RecipeImportPageSchema`: each JSON-LD block ≤ 200 KB, at most 10; text ≤ 50 KB;
+    /// `imageUrl` (the page's photo tag, as written) ≤ 2048 characters.
     struct Page: Codable {
       var title: String?
       var jsonLd: [String]?
       var text: String?
+      var imageUrl: String?
     }
 
     let id: String
@@ -49,6 +51,7 @@ enum ShareQueue {
   static let maxJsonLdBlocks = 10
   static let maxJsonLdBlockBytes = 200 * 1024
   static let maxTextBytes = 50 * 1024
+  static let maxImageUrlLength = 2048
 
   static func pendingDir() throws -> URL {
     let dir = try SiriQueue.container().appendingPathComponent(pendingPath, isDirectory: true)
@@ -57,17 +60,20 @@ enum ShareQueue {
   }
 
   /// The page within the schema's caps (Preprocess.js applies them too; a file over them would be
-  /// unreadable to the app). Empty parts are left out, and no page at all when nothing is left.
-  static func page(title: String?, jsonLd: [String], text: String?) -> Envelope.Page? {
+  /// unreadable to the app). Empty parts are left out, and no page at all when nothing is left; a
+  /// photo alone isn't a page, since the server would then import from it instead of fetching.
+  static func page(title: String?, jsonLd: [String], text: String?, imageUrl: String? = nil) -> Envelope.Page? {
     let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
     let blocks = jsonLd
       .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf8.count <= maxJsonLdBlockBytes }
       .prefix(maxJsonLdBlocks)
     let text = text.map { cut($0, maxBytes: maxTextBytes) }
+    let image = imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
     let page = Envelope.Page(
       title: title?.isEmpty == false ? title : nil,
       jsonLd: blocks.isEmpty ? nil : Array(blocks),
-      text: text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? text : nil)
+      text: text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? text : nil,
+      imageUrl: image.flatMap { !$0.isEmpty && $0.count <= maxImageUrlLength ? $0 : nil })
     return page.title == nil && page.jsonLd == nil && page.text == nil ? nil : page
   }
 

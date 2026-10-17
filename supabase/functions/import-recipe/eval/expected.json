@@ -394,6 +394,24 @@
       ]
     },
     {
+      "file": "nojsonld-webxo-cottage-cheese-blueberry-bread.html",
+      "url": "https://snacks.webxo.xyz/high-protein-cottage-cheese-blueberry-bread/",
+      "is_recipe": true,
+      "names": ["High-Protein Cottage Cheese Blueberry Bread", "Cottage Cheese Blueberry Bread", "High Protein Cottage Cheese Blueberry Bread", "Blueberry Bread"],
+      "tags": { "meal": ["breakfast"], "diet": ["vegetarian"] },
+      "optional_tags": { "meal": ["snack", "dessert"], "protein": ["eggs"] },
+      "ingredients": [
+        { "name": "cottage cheese", "quantity": 1, "unit": "cup" },
+        { "name": "eggs", "also": ["large eggs"], "quantity": 3, "unit": null },
+        { "name": "oat flour", "quantity": 1.5, "unit": "cup" },
+        { "name": "maple syrup", "quantity": 0.25, "unit": "cup" },
+        { "name": "baking powder", "quantity": 2, "unit": "tsp" },
+        { "name": "vanilla extract", "also": ["vanilla"], "quantity": 1, "unit": "tsp" },
+        { "name": "salt", "quantity": 0.25, "unit": "tsp" },
+        { "name": "blueberries", "quantity": 1, "unit": "cup" }
+      ]
+    },
+    {
       "file": "notrecipe-npr-snap-ed-news.html",
       "url": "https://www.npr.org/2026/07/23/nx-s1-5896280/snap-ed-healthy-eating-cuts-maha",
       "is_recipe": false,

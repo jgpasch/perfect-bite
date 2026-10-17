@@ -10,7 +10,10 @@ export type JsonLdRecipe = {
   totalMinutes: number | null;
   /** `recipeInstructions` as clean, numbered-free steps in order; empty when there are none. */
   steps: string[];
-  /** The first usable `image`, cleaned by `cleanImageUrl`; null when none is. */
+  /**
+   * The first usable `image` (an `@id` reference resolved), else `thumbnailUrl`, cleaned by
+   * `cleanImageUrl`; null when none is.
+   */
   imageUrl: string | null;
 };
 
@@ -206,19 +209,79 @@ export function cleanImageUrl(raw: unknown, pageUrl?: string | null): string | n
   return url.protocol === 'https:' && href.length <= MAX_IMAGE_URL_LENGTH ? href : null;
 }
 
-/** The first usable image: a URL string, an `ImageObject` (`url`, else `contentUrl`), or an array of them. */
-function readImageUrl(raw: unknown, pageUrl: string | null | undefined): string | null {
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      const url = readImageUrl(item, pageUrl);
-      if (url !== null) return url;
-    }
-    return null;
+/** Nodes by `@id`, so `{ "@id": … }` references resolve (Yoast and WordPress put images in the `@graph`). */
+type NodesById = Map<string, Record<string, unknown>>;
+
+function indexById(nodes: Record<string, unknown>[]): NodesById {
+  const byId: NodesById = new Map();
+  for (const node of nodes) {
+    const id = node['@id'];
+    // A bare reference isn't the node it points at.
+    if (typeof id === 'string' && Object.keys(node).some((key) => key !== '@id') && !byId.has(id)) byId.set(id, node);
   }
+  return byId;
+}
+
+/**
+ * Every usable image in `raw`, in order: a URL string, an `ImageObject` (`url`, else `contentUrl`),
+ * a `{ "@id": … }` reference to one in `byId`, or an array of them.
+ */
+function readImageUrls(raw: unknown, pageUrl: string | null | undefined, byId: NodesById, depth = 0): string[] {
+  if (Array.isArray(raw)) return raw.flatMap((item) => readImageUrls(item, pageUrl, byId, depth));
   if (isObject(raw)) {
-    return cleanImageUrl(raw.url, pageUrl) ?? cleanImageUrl(raw.contentUrl, pageUrl);
+    const own = cleanImageUrl(raw.url, pageUrl) ?? cleanImageUrl(raw.contentUrl, pageUrl);
+    if (own !== null) return [own];
+    const target = typeof raw['@id'] === 'string' ? byId.get(raw['@id']) : undefined;
+    // One hop is all a reference needs; more would only be a cycle.
+    return target && target !== raw && depth < 2 ? readImageUrls(target, pageUrl, byId, depth + 1) : [];
   }
-  return cleanImageUrl(raw, pageUrl);
+  const url = cleanImageUrl(raw, pageUrl);
+  return url === null ? [] : [url];
+}
+
+/** A Recipe's photos: its `image`, then its `thumbnailUrl`. */
+function recipeImageUrls(node: Record<string, unknown>, pageUrl: string | null | undefined, byId: NodesById): string[] {
+  return [...readImageUrls(node.image, pageUrl, byId), ...readImageUrls(node.thumbnailUrl, pageUrl, byId)];
+}
+
+/** True when `@type` (a string or an array) has one of `names`, bare or as a schema.org IRI. */
+function hasType(node: Record<string, unknown>, names: readonly string[]): boolean {
+  const type = node['@type'];
+  const types = Array.isArray(type) ? type : [type];
+  return types.some((t) => typeof t === 'string' && names.includes(t.trim().replace(/^.*[/:]/, '')));
+}
+
+const PAGE_TYPES = ['WebPage', 'ItemPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'SearchResultsPage'];
+const ARTICLE_TYPES = ['Article', 'BlogPosting', 'NewsArticle', 'Report', 'TechArticle'];
+
+/** Every object in every block that parses, in document order. A malformed block is skipped. */
+function parseBlocks(jsonLdBlocks: readonly string[]): Record<string, unknown>[] {
+  const nodes: Record<string, unknown>[] = [];
+  for (const block of jsonLdBlocks) {
+    try {
+      collectNodes(JSON.parse(block), nodes);
+    } catch {
+      // Not JSON; the other blocks still count.
+    }
+  }
+  return nodes;
+}
+
+/**
+ * The JSON-LD rungs of the photo chain (spec 6.6 step 5), in order and de-duplicated: (1) each
+ * Recipe's `image`, then its `thumbnailUrl`; (2) each `WebPage`'s `primaryImageOfPage`, then each
+ * `Article`'s `image`. `{ "@id": … }` references resolve against every block's nodes. Each URL is
+ * cleaned by `cleanImageUrl`; `pageUrl` resolves relative ones.
+ */
+export function jsonLdImageCandidates(jsonLdBlocks: readonly string[], pageUrl?: string | null): string[] {
+  const nodes = parseBlocks(jsonLdBlocks);
+  const byId = indexById(nodes);
+  const urls = [
+    ...nodes.filter(isRecipeNode).flatMap((node) => recipeImageUrls(node, pageUrl, byId)),
+    ...nodes.filter((node) => hasType(node, PAGE_TYPES)).flatMap((node) => readImageUrls(node.primaryImageOfPage, pageUrl, byId)),
+    ...nodes.filter((node) => hasType(node, ARTICLE_TYPES)).flatMap((node) => readImageUrls(node.image, pageUrl, byId)),
+  ];
+  return [...new Set(urls)];
 }
 
 function readName(raw: unknown): string | null {
@@ -233,6 +296,7 @@ function readName(raw: unknown): string | null {
  * `pageUrl` resolves a relative `image`; without it only an absolute one is kept.
  */
 export function findRecipe(jsonLdBlocks: string[], pageUrl?: string | null): JsonLdRecipe | null {
+  let byId: NodesById | null = null;
   for (const block of jsonLdBlocks) {
     let parsed: unknown;
     try {
@@ -246,13 +310,14 @@ export function findRecipe(jsonLdBlocks: string[], pageUrl?: string | null): Jso
       if (!isRecipeNode(node)) continue;
       const ingredientLines = readIngredientLines(node);
       if (ingredientLines.length === 0) continue;
+      byId ??= indexById(parseBlocks(jsonLdBlocks));
       return {
         name: readName(node.name),
         ingredientLines,
         servings: readServings(node.recipeYield),
         totalMinutes: readTotalMinutes(node),
         steps: readSteps(node.recipeInstructions),
-        imageUrl: readImageUrl(node.image, pageUrl),
+        imageUrl: recipeImageUrls(node, pageUrl, byId)[0] ?? null,
       };
     }
   }

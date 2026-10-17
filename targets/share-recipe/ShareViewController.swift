@@ -111,7 +111,7 @@ final class ShareModel: ObservableObject {
     loading = false
   }
 
-  /// The results of Preprocess.js: the page's URL, title, JSON-LD blocks and readable text.
+  /// The results of Preprocess.js: the page's URL, title, JSON-LD blocks, readable text and photo tag.
   private func loadWebPage(_ provider: NSItemProvider) async {
     let item = try? await provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier)
     guard let dict = item as? NSDictionary,
@@ -123,7 +123,8 @@ final class ShareModel: ObservableObject {
     page = ShareQueue.page(
       title: results["title"] as? String,
       jsonLd: results["jsonLd"] as? [String] ?? [],
-      text: results["text"] as? String)
+      text: results["text"] as? String,
+      imageUrl: results["imageUrl"] as? String)
   }
 
   func save() {

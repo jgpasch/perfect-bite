@@ -2,13 +2,13 @@
 // reach anything private: http(s) only, every hop's addresses checked (at most 5 redirects), a
 // 10 s timeout and text/html only. A body over 1 MB is cut there, not refused: on a big recipe page
 // it's the comments after the recipe that run long. Returns the page's title, JSON-LD blocks,
-// readable text and og:image. DNS and fetch are injected so tests need no network.
+// readable text and photo candidates. DNS and fetch are injected so tests need no network.
 //
 // Caveat: fetch resolves the host again after the check, so a DNS server that answers differently
 // a moment later (rebinding) isn't fully stopped. Pinning the checked address needs a custom client.
 //
 // Relative import, not `@shared/`: this file is tested from `_shared/`, which has no import map.
-import { cleanImageUrl, decodeHtmlEntities } from '../../../src/shared/recipe-jsonld.ts';
+import { cleanImageUrl, decodeHtmlEntities, jsonLdImageCandidates } from '../../../src/shared/recipe-jsonld.ts';
 
 export const FETCH_TIMEOUT_MS = 10_000;
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -48,8 +48,10 @@ export type ReadablePage = {
   title: string | null;
   jsonLd: string[];
   text: string;
-  /** `<meta property="og:image">`, else `name="twitter:image"`, cleaned by `cleanImageUrl`; null when neither is usable. */
+  /** The first of `imageCandidates`; null when the page has no usable photo. */
   imageUrl: string | null;
+  /** `readImageCandidates`: the page's photos, best first, at most 12. */
+  imageCandidates: string[];
 };
 
 export type FetchedPage = ReadablePage & { finalUrl: string };
@@ -430,9 +432,8 @@ function capText(text: string): string {
  * `template`, `svg`) and comment sections (`#comments`, `#respond`, `.comments`, `.comment-list`,
  * `.commentlist`, `.wprm-comments`). Lines are kept, other whitespace collapsed, and it's capped at
  * 30,000 characters. A JSON-LD block counts only if its `</script>` is there: one cut off by a
- * truncated body can't be whole. The image is the first `<meta property="og:image">`, else the
- * first `<meta name="twitter:image">`, resolved against `pageUrl` (without it only an absolute URL
- * is kept) and cleaned by `cleanImageUrl`.
+ * truncated body can't be whole. The photos are `readImageCandidates`'s, resolved against `pageUrl`
+ * (without it only absolute URLs are kept); `imageUrl` is the first.
  */
 export function readPage(html: string, pageUrl?: string): ReadablePage {
   const jsonLd: string[] = [];
@@ -459,17 +460,162 @@ export function readPage(html: string, pageUrl?: string): ReadablePage {
     text = toText(candidate);
     if (text !== '') break;
   }
-  const imageUrl = cleanImageUrl(metaContent(markup, 'property', 'og:image'), pageUrl) ?? cleanImageUrl(metaContent(markup, 'name', 'twitter:image'), pageUrl);
-  return { title, jsonLd, text: capText(text), imageUrl };
+  const imageCandidates = readImageCandidates(markup, jsonLd, pageUrl);
+  return { title, jsonLd, text: capText(text), imageUrl: imageCandidates[0] ?? null, imageCandidates };
 }
 
-/** The `content` of the first `<meta>` whose `key` attribute is `value` (any case); null if none. */
-function metaContent(markup: string, key: 'property' | 'name', value: string): string | null {
+// --- Photo candidates ---
+
+/** How many photos `readImageCandidates` returns at most. */
+export const MAX_IMAGE_CANDIDATES = 12;
+
+/** Images smaller than this (a declared `width` or `height`, in pixels) aren't a recipe's photo. */
+export const MIN_CONTENT_IMAGE_SIZE = 300;
+
+const OG_IMAGE_KEYS = ['og:image', 'og:image:secure_url', 'og:image:url'];
+const TWITTER_IMAGE_KEYS = ['twitter:image', 'twitter:image:src'];
+
+/** Words in an image's `src`, `class`, `id` or `alt` that mean it isn't the recipe's photo. */
+const NOT_A_PHOTO = /^(?:logos?|avatars?|icons?|favicons?|sprites?|badges?|gravatar|ads?|adverts?|advertisements?|pixels?|tracking|tracker|beacons?|spacer)$/;
+
+type Tag = { name: string; attrs: string };
+
+/** Every open tag in `markup`, in document order. */
+function openTags(markup: string): Tag[] {
   const tags = new RegExp(TAG.source, 'g');
+  const out: Tag[] = [];
   for (let m = tags.exec(markup); m; m = tags.exec(markup)) {
-    const [, slash, name, attrs] = m;
-    if (slash || name.toLowerCase() !== 'meta') continue;
-    if ((attribute(attrs, key) ?? '').trim().toLowerCase() === value) return attribute(attrs, 'content');
+    if (!m[1]) out.push({ name: m[2].toLowerCase(), attrs: m[3] });
+  }
+  return out;
+}
+
+/** `<meta>` `content` for each key in order, matched on `property` or `name` (sites use either). */
+function metaContents(tags: Tag[], keys: readonly string[]): (string | null)[] {
+  const metas = tags.filter((tag) => tag.name === 'meta');
+  return keys.flatMap((key) =>
+    metas
+      .filter((tag) => [attribute(tag.attrs, 'property'), attribute(tag.attrs, 'name')].some((v) => v?.trim().toLowerCase() === key))
+      .map((tag) => attribute(tag.attrs, 'content')),
+  );
+}
+
+/** `<link rel="image_src" href>`. */
+function linkImageSrc(tags: Tag[]): (string | null)[] {
+  return tags
+    .filter((tag) => tag.name === 'link' && (attribute(tag.attrs, 'rel') ?? '').toLowerCase().split(/\s+/).includes('image_src'))
+    .map((tag) => attribute(tag.attrs, 'href'));
+}
+
+/** Microdata `itemprop="image"`: its `content`, else `src`, else `href`. */
+function microdataImages(tags: Tag[]): (string | null)[] {
+  return tags
+    .filter((tag) => (attribute(tag.attrs, 'itemprop') ?? '').split(/\s+/).includes('image'))
+    .map((tag) => attribute(tag.attrs, 'content') ?? attribute(tag.attrs, 'src') ?? attribute(tag.attrs, 'href'));
+}
+
+/** True when a word of `value` (split on anything but letters and digits) says it isn't a photo. */
+function saysNotAPhoto(value: string | null): boolean {
+  return (value ?? '').toLowerCase().split(/[^a-z0-9]+/).some((word) => NOT_A_PHOTO.test(word));
+}
+
+/** A declared `width`/`height` in pixels under the minimum. A missing, relative ("100%") or unreadable one doesn't count. */
+function isDeclaredSmall(attrs: string): boolean {
+  return ['width', 'height'].some((key) => {
+    const match = /^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i.exec(attribute(attrs, key) ?? '');
+    return match !== null && Number(match[1]) < MIN_CONTENT_IMAGE_SIZE;
+  });
+}
+
+/** svg and gif files and `data:` URLs aren't photos (a gif is a spinner or a pixel). */
+function isPhotoUrl(url: string): boolean {
+  if (/^\s*data:/i.test(url)) return false;
+  return !/\.(?:svg|gif)(?:$|[?#])/i.test(url.trim());
+}
+
+/** The URL of the largest candidate in a `srcset` (by its `w`, else `x`, descriptor; none is 1x). */
+export function largestSrcsetUrl(srcset: string | null): string | null {
+  if (!srcset) return null;
+  let best: string | null = null;
+  let bestSize = -1;
+  let i = 0;
+  while (i < srcset.length) {
+    while (i < srcset.length && /[\s,]/.test(srcset[i])) i++;
+    let end = i;
+    while (end < srcset.length && !/\s/.test(srcset[end])) end++;
+    let url = srcset.slice(i, end);
+    i = end;
+    let descriptor = '';
+    if (url.endsWith(',')) {
+      url = url.replace(/,+$/, '');
+    } else {
+      while (end < srcset.length && srcset[end] !== ',') end++;
+      descriptor = srcset.slice(i, end).trim();
+      i = end;
+    }
+    if (url === '') continue;
+    const match = /^(\d+(?:\.\d+)?)([wx])$/i.exec(descriptor);
+    const size = match ? Number(match[1]) : 1;
+    if (size > bestSize) {
+      best = url;
+      bestSize = size;
+    }
+  }
+  return best;
+}
+
+/**
+ * The first `<img>` that looks like the recipe's photo, inside `<article>`, else `<main>`, else
+ * `<body>`: not one whose `src`, `class`, `id` or `alt` says logo, avatar, icon, sprite, badge, ad,
+ * gravatar or tracking pixel, nor one declared under 300 px. Its URL is `src`, else a lazy loader's
+ * `data-src`, `data-lazy-src` or `data-original`, else the largest `srcset`/`data-srcset`; an svg,
+ * gif or `data:` URL is skipped for the next.
+ */
+function contentImage(markup: string, pageUrl: string | undefined): string | null {
+  const container =
+    innerHtmlOf(markup, (name) => name === 'article') ??
+    innerHtmlOf(markup, (name) => name === 'main') ??
+    innerHtmlOf(markup, (name) => name === 'body') ??
+    markup;
+  for (const { name, attrs } of openTags(container)) {
+    if (name !== 'img') continue;
+    if (['src', 'class', 'id', 'alt'].some((key) => saysNotAPhoto(attribute(attrs, key)))) continue;
+    if (isDeclaredSmall(attrs)) continue;
+    const urls = [
+      attribute(attrs, 'src'),
+      attribute(attrs, 'data-src'),
+      attribute(attrs, 'data-lazy-src'),
+      attribute(attrs, 'data-original'),
+      largestSrcsetUrl(attribute(attrs, 'srcset')),
+      largestSrcsetUrl(attribute(attrs, 'data-srcset')),
+    ];
+    for (const url of urls) {
+      if (url === null || !isPhotoUrl(url) || saysNotAPhoto(url)) continue;
+      const cleaned = cleanImageUrl(url, pageUrl);
+      if (cleaned !== null) return cleaned;
+    }
   }
   return null;
+}
+
+/**
+ * The page's photos, best first, de-duplicated, at most 12 (spec 6.6 step 5): (1) the JSON-LD
+ * Recipe's `image` and `thumbnailUrl`, (2) the `@graph`'s `WebPage` `primaryImageOfPage` and
+ * `Article` `image` (`@id` references resolved, `jsonLdImageCandidates`), (3) `og:image`,
+ * `og:image:secure_url`, `og:image:url`, (4) `twitter:image`, `twitter:image:src`, (5)
+ * `<link rel="image_src">`, (6) microdata `itemprop="image"`, (7) the first content `<img>` that
+ * looks like a photo (`contentImage`). Each goes through `cleanImageUrl` against `pageUrl` (without
+ * it only absolute URLs are kept). Scripts and comments in `markup` are ignored.
+ */
+export function readImageCandidates(markup: string, jsonLd: readonly string[], pageUrl?: string): string[] {
+  const html = markup.replace(COMMENT_OR_RAW, (_match, element: string | undefined) => (element ? '\n' : ''));
+  const tags = openTags(html);
+  const urls = [
+    ...jsonLdImageCandidates(jsonLd, pageUrl),
+    ...[...metaContents(tags, OG_IMAGE_KEYS), ...metaContents(tags, TWITTER_IMAGE_KEYS), ...linkImageSrc(tags), ...microdataImages(tags)].map(
+      (raw) => cleanImageUrl(raw, pageUrl),
+    ),
+    contentImage(html, pageUrl),
+  ].filter((url): url is string => url !== null);
+  return [...new Set(urls)].slice(0, MAX_IMAGE_CANDIDATES);
 }

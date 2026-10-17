@@ -11,8 +11,22 @@ import {
   type RecipeImportRequest,
 } from '@/shared/schemas/recipe-import';
 
-/** `imageUrl` is the page's og:image (else twitter:image) as written; the server cleans it. */
+/** `imageUrl` is the page's first photo tag (`PAGE_IMAGE_SOURCES`) as written; the server cleans it. */
 export type CapturedPage = { title: string; jsonLd: string[]; text: string; imageUrl?: string };
+
+/**
+ * Where a captured page's `imageUrl` comes from, in order: each a selector and the attributes to
+ * read from its first match. Rungs 3 to 6 of the photo chain (spec 6.6 step 5); the server tries the
+ * JSON-LD's photos before it. Safari's `Preprocess.js` copies this list.
+ */
+export const PAGE_IMAGE_SOURCES: readonly (readonly string[])[] = [
+  ...['og:image', 'og:image:secure_url', 'og:image:url', 'twitter:image', 'twitter:image:src'].flatMap((key) => [
+    [`meta[property="${key}"]`, 'content'],
+    [`meta[name="${key}"]`, 'content'],
+  ]),
+  ['link[rel~="image_src"]', 'href'],
+  ['[itemprop~="image"]', 'content', 'src', 'href'],
+];
 
 /** How long a capture waits for the real page behind a bot check before giving up. */
 export const CAPTURE_TIMEOUT_MS = 20_000;
@@ -25,8 +39,8 @@ export const CAPTURE_INTERVAL_MS = 1_000;
  * challenge reloads into the real page. It posts `{ title, jsonLd, text, imageUrl }` as JSON now and
  * every second. The caps are those of `RecipeImportRequest.page` (each JSON-LD block ≤ 200 KB, at
  * most 10; `document.body.innerText` ≤ 50 KB, UTF-8 bytes); a block over its cap is dropped, since
- * cut JSON doesn't parse. `imageUrl` is the `content` of `<meta property="og:image">`, else of
- * `<meta name="twitter:image">`, or '' (the server's `fetchPage` reads the same tags). Self-contained
+ * cut JSON doesn't parse. `imageUrl` is the first non-empty attribute of `PAGE_IMAGE_SOURCES`, or ''
+ * (the server's `readImageCandidates` reads the same tags in the same order). Self-contained
  * plain ES2017 so the share extension's `Preprocess.js` can copy it.
  */
 export const CAPTURE_SCRIPT = `(function () {
@@ -51,13 +65,17 @@ export const CAPTURE_SCRIPT = `(function () {
     var text = document.body ? document.body.innerText || '' : '';
     return { title: document.title || '', jsonLd: jsonLd, text: cut(text, MAX_TEXT_BYTES), imageUrl: metaImage() };
   }
-  function metaContent(selector) {
-    var meta = document.querySelector(selector);
-    return meta ? (meta.getAttribute('content') || '').trim() : '';
-  }
+  var IMAGE_SOURCES = ${JSON.stringify(PAGE_IMAGE_SOURCES)};
   function metaImage() {
     try {
-      return metaContent('meta[property="og:image"]') || metaContent('meta[name="twitter:image"]');
+      for (var i = 0; i < IMAGE_SOURCES.length; i++) {
+        var el = document.querySelector(IMAGE_SOURCES[i][0]);
+        for (var a = 1; el && a < IMAGE_SOURCES[i].length; a++) {
+          var value = (el.getAttribute(IMAGE_SOURCES[i][a]) || '').trim();
+          if (value) return value;
+        }
+      }
+      return '';
     } catch (e) {
       return '';
     }

@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { Palette } from '@/constants/theme';
+import { MAX_IMAGE_URL_LENGTH } from '@/shared/recipe-jsonld';
 import {
   MAX_JSON_LD_BLOCK_BYTES,
   MAX_JSON_LD_BLOCKS,
@@ -11,6 +12,7 @@ import {
   RecipeImportPageSchema,
 } from '@/shared/schemas/recipe-import';
 
+import { PAGE_IMAGE_SOURCES } from '../page-capture';
 import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle, shareSavedMessage } from '../save-choice';
 
 jest.mock('@/global.css', () => ({}));
@@ -24,16 +26,21 @@ const PREPROCESS = readFileSync(join(TARGET_DIR, 'Preprocess.js'), 'utf8');
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 
-type Results = { url: string; title: string; jsonLd: string[]; text: string };
+type Results = { url: string; title: string; jsonLd: string[]; text: string; imageUrl: string };
 
-/** Runs Preprocess.js as Safari does, against a fake page, and returns what it hands the extension. */
+/**
+ * Runs Preprocess.js as Safari does, against a fake page, and returns what it hands the extension.
+ * `tags` maps a selector to the attributes of its first match.
+ */
 function preprocess(page: {
   url?: string;
   title?: string;
   blocks?: string[];
   text?: string | null;
+  tags?: Record<string, Record<string, string>>;
   throwOnQuery?: boolean;
 }): Results {
+  const tags = page.tags ?? {};
   const document = {
     URL: page.url ?? 'https://example.com/tikka',
     title: page.title ?? '',
@@ -42,6 +49,11 @@ function preprocess(page: {
       if (page.throwOnQuery) throw new Error('blocked');
       expect(selector).toBe('script[type="application/ld+json"]');
       return (page.blocks ?? []).map((textContent) => ({ textContent }));
+    },
+    querySelector: (selector: string) => {
+      if (page.throwOnQuery) throw new Error('blocked');
+      const attrs = tags[selector];
+      return attrs ? { getAttribute: (name: string) => attrs[name] ?? null } : null;
     },
   };
   const js = new Function('document', `${PREPROCESS}\nreturn ExtensionPreprocessingJS;`)(document) as {
@@ -66,7 +78,37 @@ describe('Preprocess.js', () => {
       title: 'Chicken tikka masala',
       jsonLd: ['{"@type":"Recipe","name":"Chicken tikka masala"}'],
       text: '2 lb chicken\n1 cup yogurt',
+      imageUrl: '',
     });
+  });
+
+  // The lost photo (spec 6.6 step 5): Safari shares sent no image, so a page whose JSON-LD has none
+  // (a Yoast @graph without a Recipe) imported with no photo though it had an og:image.
+  test('returns the page’s og:image as imageUrl, as written and trimmed', () => {
+    const photo = 'https://snacks.webxo.xyz/wp-content/uploads/2026/05/Screenshot-2026-03-23-112812.png';
+    const results = preprocess({ title: 'Bread', text: '1 cup cottage cheese', tags: { 'meta[property="og:image"]': { content: ` ${photo} ` } } });
+    expect(results.imageUrl).toBe(photo);
+  });
+
+  test('falls back through the same tags as CAPTURE_SCRIPT, in order', () => {
+    const image = (tags: Record<string, Record<string, string>>) => preprocess({ tags }).imageUrl;
+    expect(image({ 'meta[property="og:image"]': { content: '' }, 'meta[name="twitter:image"]': { content: '/tw.jpg' } })).toBe('/tw.jpg');
+    expect(image({ 'meta[name="twitter:image:src"]': { content: '/src.jpg' }, 'link[rel~="image_src"]': { href: '/l.jpg' } })).toBe('/src.jpg');
+    expect(image({ 'link[rel~="image_src"]': { href: '/l.jpg' }, '[itemprop~="image"]': { content: '/m.jpg' } })).toBe('/l.jpg');
+    expect(image({ '[itemprop~="image"]': { src: '/s.jpg', href: '/h.jpg' } })).toBe('/s.jpg');
+    expect(image({})).toBe('');
+  });
+
+  test('its list of photo tags is PAGE_IMAGE_SOURCES', () => {
+    expect(PREPROCESS).toContain(`var IMAGE_SOURCES = ${JSON.stringify(PAGE_IMAGE_SOURCES)};`);
+  });
+
+  test('leaves out an image URL too long for the request', () => {
+    const long = `https://cdn.example.com/${'a'.repeat(MAX_IMAGE_URL_LENGTH)}`;
+    expect(preprocess({ tags: { 'meta[property="og:image"]': { content: long } } }).imageUrl).toBe('');
+    const atCap = `https://cdn.example.com/${'a'.repeat(MAX_IMAGE_URL_LENGTH - 24)}`;
+    expect(atCap.length).toBe(MAX_IMAGE_URL_LENGTH);
+    expect(preprocess({ tags: { 'meta[property="og:image"]': { content: atCap } } }).imageUrl).toBe(atCap);
   });
 
   test('uses the same caps as the import request', () => {
@@ -119,6 +161,7 @@ describe('Preprocess.js', () => {
       title: '',
       jsonLd: [],
       text: '',
+      imageUrl: '',
     });
   });
 
@@ -128,16 +171,20 @@ describe('Preprocess.js', () => {
       title: 'Tikka',
       jsonLd: [],
       text: '',
+      imageUrl: '',
     });
   });
 
   test('what it returns at the caps passes the share envelope page schema', () => {
-    const { title, jsonLd, text } = preprocess({
+    const { title, jsonLd, text, imageUrl } = preprocess({
       title: 'Tikka',
       blocks: Array.from({ length: 12 }, () => 'c'.repeat(MAX_JSON_LD_BLOCK_BYTES)),
       text: 'é'.repeat(MAX_PAGE_TEXT_BYTES),
+      tags: { 'meta[property="og:image"]': { content: `https://cdn.example.com/${'a'.repeat(MAX_IMAGE_URL_LENGTH - 24)}` } },
     });
-    expect(RecipeImportPageSchema.safeParse({ title, jsonLd, text }).success).toBe(true);
+    const parsed = RecipeImportPageSchema.safeParse({ title, jsonLd, text, imageUrl });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.imageUrl).toBe(imageUrl);
   });
 });
 

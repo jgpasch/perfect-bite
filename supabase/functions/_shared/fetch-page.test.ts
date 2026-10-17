@@ -7,8 +7,11 @@ import {
   fetchPage,
   FetchPageError,
   isBlockedAddress,
+  largestSrcsetUrl,
   MAX_BODY_BYTES,
+  MAX_IMAGE_CANDIDATES,
   MAX_TEXT_CHARS,
+  readImageCandidates,
   readPage,
   type FetchPageFailure,
   type ResolveHost,
@@ -132,7 +135,7 @@ Deno.test('fetchPage returns the final URL, title, JSON-LD and text of an HTML p
   const fetch = fakeFetch({ 'https://kitchen.example/soup': () => html(PAGE) });
   const resolve = fakeResolve();
   const page = await fetchPage('https://kitchen.example/soup', { fetch: fetch.fn, resolve: resolve.fn });
-  assertEquals(page, { finalUrl: 'https://kitchen.example/soup', title: 'Soup', jsonLd: [], text: 'Hello', imageUrl: null });
+  assertEquals(page, { finalUrl: 'https://kitchen.example/soup', title: 'Soup', jsonLd: [], text: 'Hello', imageUrl: null, imageCandidates: [] });
   assertEquals(resolve.lookups, ['kitchen.example']);
   const init = fetch.calls[0].init!;
   assertEquals(init.redirect, 'manual');
@@ -494,11 +497,185 @@ Deno.test('readPage: the image is og:image, else twitter:image, cleaned', () => 
   assertEquals(image(`<meta property="og:image" content="  ">${twitter}`), 'https://cdn.example/tw.jpg');
   assertEquals(image('<meta property="og:image" content="http://cdn.example/og.jpg">'), null);
   assertEquals(image(`<meta property="og:image" content="https://cdn.example/${'a'.repeat(2048)}">`), null);
-  // Other tags and meta keys are not the image.
-  assertEquals(image('<meta property="og:image:width" content="https://cdn.example/w.jpg"><meta name="og:image" content="https://cdn.example/n.jpg"><link rel="image_src" href="https://cdn.example/l.jpg">'), null);
+  // Other meta keys are not the image.
+  assertEquals(image('<meta property="og:image:width" content="https://cdn.example/w.jpg"><meta property="og:image:type" content="https://cdn.example/t.jpg">'), null);
   assertEquals(image(''), null);
   // A meta tag inside a script or comment isn't read.
   assertEquals(image(`<!-- ${og} --><script>var s = '${og}';</script>`), null);
+});
+
+// --- Photo candidates (spec 6.6 step 5) ---
+
+const PHOTO_PAGE = 'https://kitchen.example/curry/';
+const candidates = (head: string, body = '', jsonLd: string[] = []) =>
+  readImageCandidates(`<html><head>${head}</head><body>${body}</body></html>`, jsonLd, PHOTO_PAGE);
+const first = (head: string, body = '', jsonLd: string[] = []) => candidates(head, body, jsonLd)[0] ?? null;
+
+Deno.test('readImageCandidates rung 1: the JSON-LD Recipe’s image, an @id reference and thumbnailUrl', () => {
+  const recipe = (fields: Record<string, unknown>) => JSON.stringify({ '@type': 'Recipe', name: 'Curry', recipeIngredient: ['1 can chickpeas'], ...fields });
+  assertEquals(first('', '', [recipe({ image: '/img/r.jpg' })]), 'https://kitchen.example/img/r.jpg');
+  const yoast = JSON.stringify({
+    '@graph': [
+      { '@type': 'ImageObject', '@id': '#primaryimage', url: 'https://cdn.example/primary.jpg' },
+      { '@type': 'Recipe', image: { '@id': '#primaryimage' } },
+    ],
+  });
+  assertEquals(first('', '', [yoast]), 'https://cdn.example/primary.jpg', 'the Yoast/WordPress @id pattern');
+  assertEquals(first('', '', [recipe({ thumbnailUrl: 'https://cdn.example/thumb.jpg' })]), 'https://cdn.example/thumb.jpg');
+});
+
+Deno.test('readImageCandidates rung 2: the @graph’s WebPage primaryImageOfPage and Article image', () => {
+  const graph = JSON.stringify({
+    '@graph': [
+      { '@type': 'Article', image: { '@id': '#article-image' } },
+      { '@type': 'WebPage', primaryImageOfPage: { '@id': '#primaryimage' } },
+      { '@type': 'ImageObject', '@id': '#primaryimage', contentUrl: 'https://cdn.example/page.jpg' },
+      { '@type': 'ImageObject', '@id': '#article-image', url: 'https://cdn.example/article.jpg' },
+    ],
+  });
+  assertEquals(candidates('', '', [graph]), ['https://cdn.example/page.jpg', 'https://cdn.example/article.jpg']);
+});
+
+Deno.test('readImageCandidates rung 3: og:image, og:image:secure_url, og:image:url, on property or name', () => {
+  assertEquals(first('<meta property="og:image:secure_url" content="https://cdn.example/secure.jpg">'), 'https://cdn.example/secure.jpg');
+  assertEquals(first('<meta property="og:image:url" content="/img/url.jpg">'), 'https://kitchen.example/img/url.jpg');
+  assertEquals(first('<meta name="og:image" content="https://cdn.example/n.jpg">'), 'https://cdn.example/n.jpg');
+  assertEquals(
+    candidates('<meta property="og:image:url" content="https://cdn.example/3.jpg"><meta property="og:image:secure_url" content="https://cdn.example/2.jpg"><meta property="og:image" content="https://cdn.example/1.jpg">'),
+    ['https://cdn.example/1.jpg', 'https://cdn.example/2.jpg', 'https://cdn.example/3.jpg'],
+    'by key, not by position',
+  );
+});
+
+Deno.test('readImageCandidates rung 4: twitter:image, then twitter:image:src', () => {
+  assertEquals(first('<meta name="twitter:image:src" content="https://cdn.example/src.jpg">'), 'https://cdn.example/src.jpg');
+  assertEquals(first('<meta property="twitter:image" content="https://cdn.example/tw.jpg">'), 'https://cdn.example/tw.jpg');
+  assertEquals(
+    candidates('<meta name="twitter:image:src" content="https://cdn.example/src.jpg"><meta name="twitter:image" content="https://cdn.example/tw.jpg">'),
+    ['https://cdn.example/tw.jpg', 'https://cdn.example/src.jpg'],
+  );
+});
+
+Deno.test('readImageCandidates rung 5: <link rel="image_src">', () => {
+  assertEquals(first('<link rel="image_src" href="/img/l.jpg">'), 'https://kitchen.example/img/l.jpg');
+  assertEquals(first('<link rel="preload image_src" href="https://cdn.example/l.jpg">'), 'https://cdn.example/l.jpg');
+  assertEquals(first('<link rel="icon" href="https://cdn.example/favicon.png">'), null);
+});
+
+Deno.test('readImageCandidates rung 6: microdata itemprop="image" content, src or href', () => {
+  assertEquals(first('<meta itemprop="image" content="https://cdn.example/m.jpg">'), 'https://cdn.example/m.jpg');
+  assertEquals(first('', '<div itemscope><img itemprop="image" src="/img/md.jpg" width="40"></div>'), 'https://kitchen.example/img/md.jpg', 'its size doesn’t matter');
+  assertEquals(first('<link itemprop="image" href="https://cdn.example/link.jpg">'), 'https://cdn.example/link.jpg');
+});
+
+Deno.test('readImageCandidates rung 7: the first content <img> in <article>, else <main>, else <body>', () => {
+  const page = (body: string) => first('', body);
+  assertEquals(page('<img src="/hero.jpg"><article><img src="/in-article.jpg"></article>'), 'https://kitchen.example/in-article.jpg');
+  assertEquals(page('<img src="/outside.jpg"><main><img src="/in-main.jpg"></main>'), 'https://kitchen.example/in-main.jpg');
+  assertEquals(page('<p>Hi</p><img src="https://cdn.example/body.jpg">'), 'https://cdn.example/body.jpg');
+});
+
+Deno.test('readImageCandidates rung 7: lazy-loaded data-src, data-lazy-src, data-original and the largest srcset', () => {
+  const page = (img: string) => first('', `<article>${img}</article>`);
+  const placeholder = 'src="data:image/gif;base64,R0lGODlhAQABAAAAACw="';
+  assertEquals(page(`<img ${placeholder} data-src="/lazy.jpg">`), 'https://kitchen.example/lazy.jpg');
+  assertEquals(page(`<img ${placeholder} data-lazy-src="/wp-rocket.jpg">`), 'https://kitchen.example/wp-rocket.jpg');
+  assertEquals(page(`<img ${placeholder} data-original="/original.jpg">`), 'https://kitchen.example/original.jpg');
+  assertEquals(page(`<img ${placeholder} srcset="/s-300.jpg 300w, /s-1200.jpg 1200w, /s-600.jpg 600w">`), 'https://kitchen.example/s-1200.jpg');
+  assertEquals(page(`<img data-srcset="/d-1x.jpg, /d-2x.jpg 2x">`), 'https://kitchen.example/d-2x.jpg');
+  // A src that is a real photo wins over the lazy attributes.
+  assertEquals(page('<img src="/real.jpg" data-src="/lazy.jpg">'), 'https://kitchen.example/real.jpg');
+  assertEquals(largestSrcsetUrl('https://cdn.example/a.jpg?w=1,2 480w,https://cdn.example/b.jpg 960w'), 'https://cdn.example/b.jpg');
+  assertEquals(largestSrcsetUrl(''), null);
+  assertEquals(largestSrcsetUrl(null), null);
+});
+
+Deno.test('readImageCandidates rung 7 skips logos, avatars, icons, pixels, small, svg, gif and data: images', () => {
+  const page = (imgs: string) => first('', `<article>${imgs}<img src="/photo.jpg"></article>`);
+  const skipped = [
+    '<img src="/img/site-logo.png">',
+    '<img src="/x.png" class="custom-logo">',
+    '<img src="/x.png" id="header_logo">',
+    '<img src="/x.png" alt="Logo">',
+    '<img src="https://secure.gravatar.com/avatar/abc?s=96">',
+    '<img src="/x.png" class="avatar avatar-96 photo">',
+    '<img src="/icons/print.png">',
+    '<img src="/sprites/social.png">',
+    '<img src="/x.png" class="trust-badge">',
+    '<img src="/x.png" class="ad-slot">',
+    '<img src="https://ads.example/banner.jpg">',
+    '<img src="https://www.facebook.com/tr?id=1&ev=PageView" height="1" width="1">',
+    '<img src="https://t.example/pixel.png">',
+    '<img src="/thumb.jpg" width="150">',
+    '<img src="/thumb.jpg" height="299">',
+    '<img src="/chart.svg">',
+    '<img src="/spinner.gif?v=2">',
+    '<img src="data:image/png;base64,AAAA">',
+    '<img src="http://insecure.example/photo.jpg">',
+    '<img>',
+  ];
+  for (const img of skipped) assertEquals(page(img), 'https://kitchen.example/photo.jpg', img);
+  // Big enough, or sized in a way that isn't pixels, still counts; words that only contain "icon" or "ad" too.
+  assertEquals(page('<img src="/hero.jpg" width="300" height="400">'), 'https://kitchen.example/hero.jpg');
+  assertEquals(page('<img src="/hero.jpg" width="100%">'), 'https://kitchen.example/hero.jpg');
+  assertEquals(page('<img src="/silicone-loaf-pan.jpg" alt="Bread made in a silicone pan">'), 'https://kitchen.example/silicone-loaf-pan.jpg');
+  assertEquals(page('<img src="/uploads/bread-loaded.jpg">'), 'https://kitchen.example/uploads/bread-loaded.jpg');
+});
+
+Deno.test('readImageCandidates: an earlier rung wins and every rung is listed in order', () => {
+  const recipe = JSON.stringify({ '@type': 'Recipe', image: 'https://cdn.example/1-recipe.jpg' });
+  const graph = JSON.stringify({ '@graph': [{ '@type': 'WebPage', primaryImageOfPage: { url: 'https://cdn.example/2-page.jpg' } }] });
+  const head = [
+    '<meta itemprop="image" content="https://cdn.example/6-microdata.jpg">',
+    '<link rel="image_src" href="https://cdn.example/5-link.jpg">',
+    '<meta name="twitter:image" content="https://cdn.example/4-twitter.jpg">',
+    '<meta property="og:image" content="https://cdn.example/3-og.jpg">',
+  ].join('');
+  assertEquals(candidates(head, '<article><img src="https://cdn.example/7-img.jpg"></article>', [graph, recipe]), [
+    'https://cdn.example/1-recipe.jpg',
+    'https://cdn.example/2-page.jpg',
+    'https://cdn.example/3-og.jpg',
+    'https://cdn.example/4-twitter.jpg',
+    'https://cdn.example/5-link.jpg',
+    'https://cdn.example/6-microdata.jpg',
+    'https://cdn.example/7-img.jpg',
+  ]);
+  assertEquals(readPage(`<html><head>${head}</head></html>`, PHOTO_PAGE).imageUrl, 'https://cdn.example/3-og.jpg');
+});
+
+Deno.test('readImageCandidates de-duplicates after cleaning and keeps at most 12', () => {
+  assertEquals(
+    candidates('<meta property="og:image" content="/a.jpg"><meta name="twitter:image" content="https://kitchen.example/a.jpg"><link rel="image_src" href="https://kitchen.example/a.jpg?x=1&amp;y=2"><meta itemprop="image" content="/a.jpg?x=1&y=2">', '<article><img src="/a.jpg"></article>'),
+    ['https://kitchen.example/a.jpg', 'https://kitchen.example/a.jpg?x=1&y=2'],
+  );
+  assertEquals(MAX_IMAGE_CANDIDATES, 12);
+  const many = Array.from({ length: 20 }, (_, i) => `<meta property="og:image" content="https://cdn.example/${i}.jpg">`).join('');
+  const list = candidates(many);
+  assertEquals(list.length, 12);
+  assertEquals([list[0], list[11]], ['https://cdn.example/0.jpg', 'https://cdn.example/11.jpg']);
+});
+
+Deno.test('readImageCandidates: a page with nothing usable is [] and readPage’s imageUrl null', () => {
+  const head = '<meta property="og:image" content="http://cdn.example/og.jpg"><!-- <meta property="og:image" content="https://cdn.example/c.jpg"> -->';
+  const body = '<header><img src="/logo.png"></header><article><p>Text</p><img src="/tiny.jpg" width="80"><script>"<img src=\'https://cdn.example/s.jpg\'>"</script></article>';
+  assertEquals(candidates(head, body), []);
+  assertEquals(readPage(`<html><head>${head}</head><body>${body}</body></html>`, PHOTO_PAGE).imageUrl, null);
+  assertEquals(readImageCandidates('', [], PHOTO_PAGE), []);
+  // Without a page URL only absolute ones count.
+  assertEquals(readImageCandidates('<meta property="og:image" content="/a.jpg"><meta name="twitter:image" content="https://cdn.example/b.jpg">', []), ['https://cdn.example/b.jpg']);
+});
+
+const COTTAGE_URL = 'https://snacks.webxo.xyz/high-protein-cottage-cheese-blueberry-bread/';
+const COTTAGE_PHOTO = 'https://snacks.webxo.xyz/wp-content/uploads/2026/05/Screenshot-2026-03-23-112812.png';
+const cottageFixture = () => Deno.readTextFile(new URL('../import-recipe/eval/fixtures/nojsonld-webxo-cottage-cheese-blueberry-bread.html', import.meta.url));
+
+Deno.test('readPage: the cottage cheese blueberry bread page gets its photo, not the logo or an avatar', async () => {
+  const page = readPage(await cottageFixture(), COTTAGE_URL);
+  assertEquals(page.imageUrl, COTTAGE_PHOTO);
+  // The Yoast @graph's primary image, og:image and the lazy-loaded content image are the same photo.
+  assertEquals(page.imageCandidates, [COTTAGE_PHOTO]);
+  // Its JSON-LD has no Recipe, so the text is what gets read.
+  assert(page.text.includes('1 cup cottage cheese'));
 });
 
 Deno.test('readPage prefers schema.org Recipe microdata, then <article>, then <body>', () => {

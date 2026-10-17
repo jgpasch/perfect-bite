@@ -6,6 +6,7 @@ import {
   emptyAiRecipeTags,
   ExtractedRecipeSchema,
   findRecipe,
+  jsonLdImageCandidates,
   MAX_RECIPE_NAME_LENGTH,
   normalizeIngredientName,
   type ExtractedRecipe,
@@ -82,9 +83,18 @@ export class ImportRecipeError extends Error {
 
 /**
  * The page to extract from: what the client sent, or what the server fetched. `url` resolves a
- * relative JSON-LD image; `imageUrl` is the page's og:image, already cleaned.
+ * relative JSON-LD image; `imageUrl` is the page's best photo (spec 6.6 step 5), already cleaned.
  */
 type Page = { url: string; title: string | null; jsonLd: string[]; text: string; imageUrl: string | null };
+
+/**
+ * A client-sent page's photo, by the chain `readImageCandidates` uses as far as the client sent it
+ * (no markup): the JSON-LD rungs from its blocks, then its `imageUrl`, which the device read from the
+ * page's meta, link and microdata tags in the same order (`CAPTURE_SCRIPT`, `Preprocess.js`).
+ */
+export function clientPageImage(jsonLd: readonly string[], imageUrl: string | undefined, url: string): string | null {
+  return jsonLdImageCandidates(jsonLd, url)[0] ?? cleanImageUrl(imageUrl, url);
+}
 
 /** Unsafe or unparseable URLs are the request's fault; anything else about the fetch isn't. */
 function fetchFailure(err: FetchPageError): ImportRecipeError {
@@ -99,7 +109,7 @@ function fetchFailure(err: FetchPageError): ImportRecipeError {
  * otherwise the page text. A page with neither is not a recipe, without a call. Any model failure
  * (provider error, timeout, invalid output) is `unavailable`. Steps are JSON-LD's when it has the
  * recipe (the model gets them only to match), else the model's; either way the model's step match
- * comes with them, or null when it doesn't line up. The photo is JSON-LD's, else the page's og:image.
+ * comes with them, or null when it doesn't line up. The photo is the JSON-LD recipe's, else the page's best photo.
  */
 async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   const jsonLd = findRecipe(page.jsonLd, page.url);
@@ -181,12 +191,13 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
     let page: Page;
     if (request.page) {
       const url = request.url.trim();
+      const jsonLd = request.page.jsonLd ?? [];
       page = {
         url,
         title: request.page.title ?? null,
-        jsonLd: request.page.jsonLd ?? [],
+        jsonLd,
         text: request.page.text ?? '',
-        imageUrl: cleanImageUrl(request.page.imageUrl, url),
+        imageUrl: clientPageImage(jsonLd, request.page.imageUrl, url),
       };
     } else {
       try {
