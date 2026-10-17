@@ -10,7 +10,8 @@ import { eq } from 'drizzle-orm';
 
 import { PrimaryButton, SurfaceButton } from '@/components/button';
 import { Card } from '@/components/card';
-import { AisleColors, Palette, Sizes, Spacing, Typography } from '@/constants/theme';
+import { CheckCircle } from '@/components/check-circle';
+import { AisleColors, Palette, Rounded, Sizes, Spacing, Typography } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData } from '@/features/lists/lists';
@@ -29,6 +30,8 @@ import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../re
 import { stepMatch } from '../step-match';
 import { cookProgressLabel, upNextIndex } from '../recipe-view';
 
+const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => mockWindow }));
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
@@ -130,6 +133,7 @@ beforeEach(() => {
   mockBack.mockClear();
   mockAwake.clear();
   mockReduceMotion = false;
+  mockWindow.fontScale = 1;
   jest.mocked(activateKeepAwakeAsync).mockClear();
 });
 
@@ -679,13 +683,13 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     ]);
     const limes = checkbox(root, 'Limes, 1 of 3 limes, for step 1');
     expect(stepCard(limes)).toBe(currentCards(root)[0]);
-    expect(textsIn(limes)).toEqual(['Limes', '1 of 3']);
-    expect(textsIn(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'))).toEqual(['Chicken thighs', '2 lb · part']);
-    // A 22 pt check, a 44 pt row.
+    expect(textsIn(limes)).toEqual(['1 of 3 limes']);
+    expect(textsIn(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'))).toEqual(['2 lb chicken thighs, part']);
+    // A 44 pt pill.
     expect(rowStyle(limes).minHeight).toBe(44);
-    // The rows come before Mark step done.
+    // The pills come before Mark step done.
     const texts = textsIn(currentCards(root)[0]);
-    expect(texts.indexOf('Mark step done')).toBeGreaterThan(texts.indexOf('Limes'));
+    expect(texts.indexOf('Mark step done')).toBeGreaterThan(texts.indexOf('1 of 3 limes'));
 
     // Step 1 done hides its rows; step 2 (no ingredients) is current with none; then step 3's.
     tap(stepRows(root)[0]);
@@ -737,6 +741,127 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     expect(isChecked(checkbox(root, 'Garlic, 4 clove'))).toBe(true);
     expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
     expect(progress(root)).toBe('1 of 3 steps done');
+  });
+
+  describe('the current step\'s ingredient pills', () => {
+    /** The current card's pills: its checkboxes other than the step's own row. */
+    const pills = (root: ReactTestRenderer) =>
+      currentCards(root)[0].findAll(
+        (n) =>
+          typeof n.type !== 'string' &&
+          n.props.accessibilityRole === 'checkbox' &&
+          typeof n.props.onPress === 'function' &&
+          / for step \d+$/.test(n.props.accessibilityLabel),
+      );
+    /** The View the pills sit in. */
+    const pillBox = (pill: ReactTestInstance) => pill.parent!.parent!;
+    const pillText = (pill: ReactTestInstance) =>
+      pill.find((n) => String(n.type) === 'Text' && StyleSheet.flatten(n.props.style)?.fontSize === Typography.callout.fontSize);
+
+    test('pill text is amount first: plain, share and part uses, scaled', () => {
+      addIngredients('2 tbsp butter');
+      setMatch([[['chicken thighs', null], ['garlic', null], ['limes', 1], ['butter', null]], [], [['chicken thighs', null], ['limes', 2]]]);
+      let root = render(<CookScreen />);
+      expect(pills(root).map((p) => textsIn(p))).toEqual([
+        ['2 lb chicken thighs, part'],
+        ['4 clove garlic'],
+        ['1 of 3 limes'],
+        ['2 tbsp butter'],
+      ]);
+      // VoiceOver labels are as before, each pill a checkbox with its state.
+      expect(pills(root).map((p) => p.props.accessibilityLabel)).toEqual([
+        'Chicken thighs, 2 lb, part, for step 1',
+        'Garlic, 4 clove, for step 1',
+        'Limes, 1 of 3 limes, for step 1',
+        'Butter, 2 tbsp, for step 1',
+      ]);
+      expect(pills(root).map((p) => p.props.accessibilityState)).toEqual([
+        { checked: false },
+        { checked: false },
+        { checked: false },
+        { checked: false },
+      ]);
+      close();
+
+      setServings(4);
+      mockParams.servings = '8';
+      root = render(<CookScreen />);
+      expect(pills(root).map((p) => textsIn(p))).toEqual([
+        ['4 lb chicken thighs, part'],
+        ['8 clove garlic'],
+        ['2 of 6 limes'],
+        // Scaled amounts take the friendlier unit, as everywhere in cook mode.
+        ['¼ cup butter'],
+      ]);
+    });
+
+    test('a surfaceMuted full-round pill at least 44 pt tall with a 22 pt check, wrapping under the text', () => {
+      const root = render(<CookScreen />);
+      const [chicken] = pills(root);
+      expect(rowStyle(chicken)).toMatchObject({
+        minHeight: Sizes.minTapTarget,
+        borderRadius: Rounded.full,
+        backgroundColor: Palette.light.surfaceMuted,
+        alignSelf: 'flex-start',
+      });
+      expect(chicken.findByType(CheckCircle).props).toMatchObject({ checked: false, size: Sizes.cookIngredientCheck });
+      expect(StyleSheet.flatten(pillText(chicken).props.style).color).toBe(Palette.light.ink);
+      // A wrapping row, indented to line up with the step's text.
+      expect(StyleSheet.flatten(pillBox(chicken).props.style)).toMatchObject({
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginLeft: Spacing.lg + Sizes.cookStepCheck + Spacing.md,
+      });
+      // No more inset rows with a name and an amount.
+      expect(currentCards(root)[0].findAll((n) => String(n.type) === 'Text' && n.props.children === 'Chicken thighs')).toHaveLength(0);
+    });
+
+    test('tapping a pill ticks and unticks that use; All ingredients follows', () => {
+      const root = render(<CookScreen />);
+      const garlic = () => checkbox(root, 'Garlic, 4 clove, for step 1');
+      tap(garlic());
+      expect(isChecked(garlic())).toBe(true);
+      expect(garlic().findByType(CheckCircle).props.checked).toBe(true);
+      expect(StyleSheet.flatten(pillText(garlic()).props.style).color).toBe(Palette.light.inkSecondary);
+      expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
+      expect(hostTexts(root)).toContain('4 · 1 ticked');
+
+      // Limes have a use in step 3 too, so ticking this one leaves the row unticked.
+      tap(checkbox(root, 'Limes, 1 of 3 limes, for step 1'));
+      expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
+      // The step doesn't tick with its pills.
+      tap(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'));
+      expect(progress(root)).toBe('0 of 3 steps done');
+
+      tap(garlic());
+      expect(isChecked(garlic())).toBe(false);
+      expect(StyleSheet.flatten(pillText(garlic()).props.style).color).toBe(Palette.light.ink);
+      expect(fold.label(root)).toBe('All ingredients, 4, 0 ticked');
+    });
+
+    test('ticking from All ingredients ticks the pill', () => {
+      const root = render(<CookScreen />);
+      tap(fold(root));
+      tap(checkbox(root, 'Limes, 3'));
+      expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(true);
+    });
+
+    test('at the largest text sizes the pills go one per line', () => {
+      mockWindow.fontScale = 2.35;
+      const root = render(<CookScreen />);
+      const all = pills(root);
+      expect(all).toHaveLength(3);
+      expect(StyleSheet.flatten(pillBox(all[0]).props.style)).toMatchObject({ flexDirection: 'column' });
+      expect(StyleSheet.flatten(pillBox(all[0]).props.style).flexWrap).toBeUndefined();
+      for (const pill of all) expect(rowStyle(pill).alignSelf).toBe('stretch');
+    });
+
+    test('just under the largest sizes they still wrap', () => {
+      mockWindow.fontScale = 1.95;
+      const root = render(<CookScreen />);
+      expect(StyleSheet.flatten(pillBox(pills(root)[0]).props.style)).toMatchObject({ flexWrap: 'wrap' });
+      expect(rowStyle(pills(root)[0]).alignSelf).toBe('flex-start');
+    });
   });
 
   test('with no match, upcoming cards have no line and the current card no ingredients', () => {

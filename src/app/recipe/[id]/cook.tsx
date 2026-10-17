@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useId, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,6 +34,9 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
+/** The text scale from which the current step's pills go one per line: iOS's largest accessibility sizes (AX3 on). */
+const PILLS_STACK_FONT_SCALE = 2;
+
 /**
  * Cooking mode (board 19, and board B "Steps with their ingredients"): a full-screen modal on one scrolling page,
  * with the ingredients scaled to the recipe screen's servings (`servings`) and a card per step, each ticked off
@@ -58,6 +61,8 @@ export default function CookScreen() {
   const [unfolded, setUnfolded] = useState(false);
   const [match] = useState(() => (recipe ? stepMatch(recipe, ingredients) : null));
   const reduceMotion = useReducedMotion();
+  // At the largest text sizes the current step's pills go one per line.
+  const stacked = useWindowDimensions().fontScale >= PILLS_STACK_FONT_SCALE;
   const scroll = useRef<ScrollView>(null);
   // Where the step cards start in the scroll content, and the step whose card to scroll to once it lays out.
   const stepsY = useRef(0);
@@ -169,6 +174,7 @@ export default function CookScreen() {
                       : label
                   }
                   state={state}
+                  stacked={stacked}
                   line={
                     state === 'upcoming' && stepUses.length > 0
                       ? stepUses
@@ -182,17 +188,16 @@ export default function CookScreen() {
                   onDone={() => markDone(index)}
                   onLayout={(event) => cardLaidOut(index, event.nativeEvent.layout.y)}>
                   {state === 'current'
-                    ? stepUses.map(({ ingredient: item, quantity }, n) => {
+                    ? stepUses.map(({ ingredient: item, quantity }) => {
                         const key = tickKey(index, item.id);
-                        const amount = stepAmount(item, quantity, usesOf(item.id).length > 1, servings, base);
+                        const split = usesOf(item.id).length > 1;
+                        const amount = stepAmount(item, quantity, split, servings, base);
                         const name = displayItemName(item.displayName);
                         return (
-                          <IngredientRow
+                          <IngredientPill
                             key={key}
-                            compact
-                            first={n === 0}
-                            name={name}
-                            amount={amount.text}
+                            text={stepUseText(item, quantity, split, servings, base)}
+                            stacked={stacked}
                             label={
                               amount.spoken
                                 ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number: index + 1 })
@@ -287,27 +292,16 @@ function TopBar({ name, progress, paddingTop }: { name: string; progress: string
   );
 }
 
-/**
- * An ingredient to tick off: round check, name in `cookStep` (struck through when ticked), amount. The whole row is
- * the target. `compact` is a row in a step's inset: a 22 pt check, 44 pt tall, the first without a hairline.
- */
+/** An ingredient to tick off: round check, name in `cookStep` (struck through when ticked), amount. The whole row is the target. */
 function IngredientRow({
   name,
   amount,
-  label,
   checked,
-  compact,
-  first,
   onToggle,
 }: {
   name: string;
   amount: string;
-  /** VoiceOver's label; "<name>, <amount>" when left out. */
-  label?: string;
   checked: boolean;
-  compact?: boolean;
-  /** The first row in a step's inset, with no hairline above it. */
-  first?: boolean;
   onToggle: () => void;
 }) {
   const t = useT();
@@ -317,20 +311,20 @@ function IngredientRow({
       onPress={onToggle}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
-      accessibilityLabel={label ?? (amount ? t('recipes.cook.ingredient', { name, amount }) : name)}
+      accessibilityLabel={amount ? t('recipes.cook.ingredient', { name, amount }) : name}
       style={({ pressed }) => [
         styles.row,
         {
-          gap: compact ? spacing.sm + spacing.xxs : spacing.md,
-          minHeight: compact ? sizes.minTapTarget : sizes.cardRowMin,
-          paddingHorizontal: compact ? spacing.md : spacing.lg,
-          paddingVertical: compact ? spacing.xs : spacing.sm,
-          borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
+          gap: spacing.md,
+          minHeight: sizes.cardRowMin,
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.sm,
+          borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>
-      <CheckCircle checked={checked} size={compact ? sizes.cookIngredientCheck : undefined} />
+      <CheckCircle checked={checked} />
       <ThemedText variant="cookStep" color={itemNameColor(checked)} style={[styles.flex, checked && styles.struck]}>
         {name}
       </ThemedText>
@@ -343,14 +337,61 @@ function IngredientRow({
   );
 }
 
+/**
+ * One of the current step's ingredients as a pill to tick off (board B): a `surfaceMuted` rounded pill, at least
+ * 44 pt tall, with a 22 pt check and the use amount first ("2 tbsp butter", "1 of 3 limes"); ticked, the check fills
+ * and the text goes `inkSecondary`. `stacked` stretches it to the line, one per line at the largest text sizes.
+ */
+function IngredientPill({
+  text,
+  label,
+  checked,
+  stacked,
+  onToggle,
+}: {
+  text: string;
+  label: string;
+  checked: boolean;
+  stacked: boolean;
+  onToggle: () => void;
+}) {
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  return (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          alignSelf: stacked ? 'stretch' : 'flex-start',
+          maxWidth: '100%',
+          gap: spacing.sm,
+          minHeight: sizes.minTapTarget,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
+          borderRadius: rounded.full,
+          backgroundColor: colors.surfaceMuted,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <CheckCircle checked={checked} size={sizes.cookIngredientCheck} />
+      <ThemedText variant="callout" color={checked ? 'inkSecondary' : 'ink'} style={styles.shrink}>
+        {text}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
 type StepState = 'done' | 'current' | 'upcoming';
 
 /**
  * A step's card (board B). **done**: a `primarySoft` round check, the text in `callout` `inkSecondary`.
  * **current** (the first unticked step): a 2 pt `primary` border, a filled `primary` number badge, the text in
- * `cookStepCurrent`, its ingredient rows (`children`) in a rounded inset, then Mark step done. **upcoming**: an
+ * `cookStepCurrent`, its ingredient pills (`children`) wrapping under the text, then Mark step done. **upcoming**: an
  * outlined `controlBorder` number badge, the text in `body`, and its ingredients as one `footnote` `line`. The badge
- * and text are one checkbox that toggles the step; the inset rows and the button are its siblings, so VoiceOver
+ * and text are one checkbox that toggles the step; the pills and the button are its siblings, so VoiceOver
  * reaches each one.
  */
 function StepCard({
@@ -358,6 +399,7 @@ function StepCard({
   text,
   label,
   state,
+  stacked,
   line,
   onToggle,
   onDone,
@@ -368,6 +410,8 @@ function StepCard({
   text: string;
   label: string;
   state: StepState;
+  /** The pills one per line, at the largest text sizes. */
+  stacked: boolean;
   /** An upcoming step's ingredients, "1 lemon · ½ tsp chili flakes · spaghetti"; null for none. */
   line: string | null;
   onToggle: () => void;
@@ -379,8 +423,8 @@ function StepCard({
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const current = state === 'current';
   const done = state === 'done';
-  const inset = current && children.length > 0;
-  // Badge and text, then the inset, the line or the button, lined up with the text.
+  const pills = current && children.length > 0;
+  // Badge and text, then the pills, the line or the button, lined up with the text.
   const indent = spacing.lg + sizes.cookStepCheck + spacing.md;
   const below = current || line !== null;
   return (
@@ -433,16 +477,12 @@ function StepCard({
           {text}
         </ThemedText>
       </Pressable>
-      {inset ? (
+      {pills ? (
         <View
-          style={{
-            marginLeft: indent,
-            marginRight: spacing.lg,
-            marginBottom: spacing.md,
-            borderRadius: rounded.md,
-            overflow: 'hidden',
-            backgroundColor: colors.background,
-          }}>
+          style={[
+            stacked ? styles.stack : styles.wrap,
+            { gap: spacing.sm, marginLeft: indent, marginRight: spacing.lg, marginBottom: spacing.md },
+          ]}>
           {children}
         </View>
       ) : null}
@@ -512,6 +552,7 @@ function FoldRow({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  shrink: { flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   step: { flexDirection: 'row', alignItems: 'flex-start' },
   center: { alignItems: 'center', justifyContent: 'center' },
@@ -520,4 +561,6 @@ const styles = StyleSheet.create({
   count: { fontWeight: '600' },
   digit: { fontWeight: '700' },
   struck: { textDecorationLine: 'line-through' },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  stack: { flexDirection: 'column' },
 });
