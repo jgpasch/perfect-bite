@@ -19,8 +19,8 @@ const ICONS: Record<RecipeSort, IconName> = { recent: 'clock', name: 'textformat
 
 /**
  * The Recipes tab's sort pill (spec 4.5): a white-wash pill on the green header reading the current choice,
- * "Recent ⌄", that opens a native "Sort and group" menu, the current choice ticked. Laid out like the list's
- * view button (`ViewMenuButton`): a 32 pt pill padded to a 44 pt tap area.
+ * "Recent ⌄", that opens a native "Sort and group" menu, the current choice ticked: a 32 pt pill padded to a
+ * 44 pt tap area.
  */
 export function RecipeSortButton({ value, onChange }: { value: RecipeSort; onChange: (sort: RecipeSort) => void }) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();

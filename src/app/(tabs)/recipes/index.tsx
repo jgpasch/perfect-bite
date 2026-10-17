@@ -1,4 +1,4 @@
-import { Link, router, Stack, useFocusEffect, usePathname } from 'expo-router';
+import { Link, router, useFocusEffect, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
@@ -7,7 +7,7 @@ import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } fro
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { hueHeaderBand, listHeaderColors, prominentButtonTint } from '@/components/appearance';
+import { hueHeaderBand, listHeaderColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
@@ -44,6 +44,7 @@ import {
 } from '@/features/recipes/recipe-photo-size';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
+import { useAddButton } from '@/features/tabs/add-button';
 import {
   addedRecipeWithStaplesToast,
   groupRecipesByHousehold,
@@ -212,6 +213,7 @@ export default function RecipesScreen() {
 
   // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
   const addRecipe = () => router.push('/add-recipe');
+  useAddButton(addRecipe);
   const importFromLink = () => router.push({ pathname: '/add-recipe', params: { focus: 'link' } });
   // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
   const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
@@ -359,15 +361,6 @@ export default function RecipesScreen() {
   return (
     <Screen>
       {onRecipes ? <StatusBar style="light" /> : null}
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon="plus"
-          variant="prominent"
-          tintColor={prominentButtonTint(scheme, colors)}
-          accessibilityLabel={t('recipes.tab.addRecipe')}
-          onPress={addRecipe}
-        />
-      </Stack.Toolbar>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         onScrollBeginDrag={closeOpenCard}
@@ -512,7 +505,7 @@ export default function RecipesScreen() {
         ) : null}
       </ScrollView>
       {toast ? (
-        // Above the tab bar: the bottom safe area here includes it.
+        // Above the tab bar: the screen ends there.
         <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
           <Toast key={toast.key} message={toast.message} emphasis={toast.emphasis} actions={toast.actions} onDismiss={dismissToast} />
         </SafeAreaView>

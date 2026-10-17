@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,6 +21,10 @@ type Props = {
   accessory?: ReactNode;
   /** Called when the input gains or loses focus. */
   onFocusChange?: (focused: boolean) => void;
+  /** For focusing the input from outside. */
+  inputRef?: Ref<TextInput>;
+  /** Focus the input as soon as the bar appears. */
+  autoFocus?: boolean;
 };
 
 /**
@@ -35,6 +39,8 @@ export function AddBar({
   accessibilityLabel,
   accessory,
   onFocusChange,
+  inputRef,
+  autoFocus,
 }: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, typography, opacity } = useTheme();
   const insets = useSafeAreaInsets();
@@ -69,6 +75,8 @@ export function AddBar({
           },
         ]}>
         <TextInput
+          ref={inputRef}
+          autoFocus={autoFocus}
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={empty ? Keyboard.dismiss : onSubmit}

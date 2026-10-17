@@ -1,23 +1,41 @@
 import { router, usePathname } from 'expo-router';
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useEffect } from 'react';
+import { Tabs } from 'expo-router/tabs';
+import { useEffect, type ReactNode } from 'react';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Icon, type IconName } from '@/components/icon';
+import { TabBar } from '@/components/tab-bar';
 import { failedImports } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { onPlanTab, setRecipesSegment, usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importsBadgeCount, useShareQueueStatus } from '@/features/recipes/share-queue-status';
-import { useTheme } from '@/hooks/use-theme';
+import { pressAddButton } from '@/features/tabs/add-button';
 import { useT } from '@/i18n';
 
+function tabIcon(name: IconName) {
+  return function TabIcon({ focused, size }: { focused: boolean; size: number }) {
+    return <Icon name={name} color={focused ? 'primary' : 'ink'} size={size} />;
+  };
+}
+
+/** A tab's screen ends above the tab bar, which takes the bottom safe area itself. */
+function AboveTabBar({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return <SafeAreaInsetsContext.Provider value={{ ...insets, bottom: 0 }}>{children}</SafeAreaInsetsContext.Provider>;
+}
+
+/**
+ * The tabs (spec 4.1), drawn by our own `TabBar` rather than the system one, so the round + can sit apart on
+ * the right of the tabs: native tabs only set a search tab apart there.
+ */
 export default function TabsLayout() {
-  const { colors } = useTheme();
   const t = useT();
   const { data: failed } = useLiveQueryOn(failedImportsQuery(), [failedImports]);
   // Spec 4.10: recipes shared to the app that are waiting or won't import.
   const imports = importsBadgeCount(useShareQueueStatus(), failed.length);
   // Spec 4.16: the Plan tab only while its setting is on. Turned off while on it, Recipes > This week
-  // takes over first: the trigger stays until then, as the navigator can't show a hidden focused tab.
+  // takes over first: the tab stays until then.
   const planTab = usePlanTabSetting();
   const onPlan = onPlanTab(usePathname());
   const leavePlan = !planTab && onPlan;
@@ -28,29 +46,25 @@ export default function TabsLayout() {
   }, [leavePlan]);
 
   return (
-    <NativeTabs tintColor={colors.primary} iconColor={{ selected: colors.primary }}>
-      <NativeTabs.Trigger name="lists">
-        <NativeTabs.Trigger.Label>{t('tabs.list')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="checklist" />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="recipes">
-        <NativeTabs.Trigger.Label>{t('tabs.recipes')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="book" />
-        {/* Render conditionally: `hidden` is ignored whenever the badge has text, so "0" would show. */}
-        {imports > 0 && <NativeTabs.Trigger.Badge>{String(imports)}</NativeTabs.Trigger.Badge>}
-      </NativeTabs.Trigger>
-
+    <Tabs
+      screenOptions={{ headerShown: false }}
+      screenLayout={({ children }) => <AboveTabBar>{children}</AboveTabBar>}
+      tabBar={(props) => <TabBar {...props} onAdd={pressAddButton} addLabel={t('tabs.add')} />}>
+      <Tabs.Screen name="lists" options={{ title: t('tabs.list'), tabBarIcon: tabIcon('checklist') }} />
+      <Tabs.Screen
+        name="recipes"
+        options={{
+          title: t('tabs.recipes'),
+          tabBarIcon: tabIcon('book'),
+          tabBarBadge: imports > 0 ? imports : undefined,
+        }}
+      />
       {/* Spec 4.16: the week plan. */}
-      <NativeTabs.Trigger name="plan" hidden={!planTab && !onPlan}>
-        <NativeTabs.Trigger.Label>{t('tabs.plan')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="calendar" />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="settings">
-        <NativeTabs.Trigger.Label>{t('tabs.settings')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="gearshape" />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+      <Tabs.Screen
+        name="plan"
+        options={{ title: t('tabs.plan'), tabBarIcon: tabIcon('calendar'), href: planTab || onPlan ? undefined : null }}
+      />
+      <Tabs.Screen name="settings" options={{ title: t('tabs.settings'), tabBarIcon: tabIcon('gearshape') }} />
+    </Tabs>
   );
 }

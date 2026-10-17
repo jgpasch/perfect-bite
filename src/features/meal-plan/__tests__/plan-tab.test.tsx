@@ -114,14 +114,13 @@ jest.mock('expo-router', () => {
     usePathname: () => mockPathname,
   };
 });
-jest.mock('expo-router/unstable-native-tabs', () => {
+// Each tab as a `TabTrigger` host: `href: null` is how the layout hides one.
+jest.mock('expo-router/tabs', () => {
   const { createElement } = require('react');
-  const host = (type: string) =>
-    function Host({ children, ...props }: { children?: unknown }) {
-      return createElement(type, props, children);
-    };
-  const Trigger = Object.assign(host('TabTrigger'), { Label: host('TabLabel'), Icon: host('TabIcon'), Badge: host('TabBadge') });
-  return { NativeTabs: Object.assign(host('NativeTabs'), { Trigger }) };
+  const Screen = ({ name, options }: { name: string; options?: { href?: string | null } }) =>
+    createElement('TabTrigger', { name, hidden: options?.href === null, options });
+  const Tabs = ({ children }: { children?: unknown }) => createElement('Tabs', null, children);
+  return { Tabs: Object.assign(Tabs, { Screen }) };
 });
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
 

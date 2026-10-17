@@ -6,6 +6,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { setFeatures, type Feature } from '@/features/plans/features';
+import { pressAddButton } from '@/features/tabs/add-button';
 import { resetDb } from '@/test/db';
 
 import { ListScreen } from '@/features/lists/list-screen';
@@ -49,7 +50,6 @@ jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
 // Native views the menus don't depend on.
-jest.mock('@/features/lists/view-menu-button', () => ({ ViewMenuButton: () => null }));
 jest.mock('@/features/lists/add-bar', () => ({ ItemAddBar: () => null }));
 jest.mock('@/features/lists/item-row', () => ({ ItemRow: () => null }));
 jest.mock('@/features/lists/reorderable-rows', () => ({ ReorderableRows: () => null }));
@@ -80,7 +80,8 @@ jest.mock('expo-router', () => {
     Link,
     Stack: { Screen: () => null, Title: passThrough(), Toolbar, SearchBar: () => null },
     router: { push: (...args: unknown[]) => mockPush(...args), back: () => {} },
-    useFocusEffect: () => {},
+    // The screen is focused while it's mounted.
+    useFocusEffect: (effect: () => void | (() => void)) => require('react').useEffect(effect, [effect]),
     usePathname: () => '/lists',
   };
 });
@@ -121,7 +122,10 @@ const press = (n: ReactTestInstance) => act(() => n.props.onPress());
 
 describe('the list menu', () => {
   const menuTitles = (root: ReactTestRenderer) =>
-    byType(root, 'ToolbarMenuAction').map((n) => n.props.children as string);
+    byType(root, 'ToolbarMenu')
+      .find((n) => n.props.icon === 'ellipsis')!
+      .findAll((n) => n.type === ('ToolbarMenuAction' as never))
+      .map((n) => n.props.children as string);
 
   test('has no "Add recipe from link…", with or without plus', () => {
     for (const features of [PLUS, STANDARD]) {
@@ -138,11 +142,12 @@ describe('the Recipes tab', () => {
   const importButtons = (root: ReactTestRenderer) =>
     [...byType(root, 'ToolbarButton'), ...root.root.findAll((n) => typeof n.type !== 'string' && !!n.props.label)]
       .filter((n) => label(n) === 'Import from link');
+  // Add recipe is the tab bar's +, not a header button.
   const toolbarLabels = (root: ReactTestRenderer) => byType(root, 'ToolbarButton').map(label);
 
   test('plus with no recipes: the empty state imports through the Add recipe sheet, link field first', () => {
     const root = render(() => <RecipesScreen />, PLUS);
-    expect(toolbarLabels(root)).toEqual(['Add recipe']);
+    expect(toolbarLabels(root)).toEqual([]);
     const buttons = importButtons(root);
     expect(buttons).toHaveLength(1);
     press(buttons[0]);
@@ -152,7 +157,7 @@ describe('the Recipes tab', () => {
   test('without recipe_import no Import from link shows, and New recipe stays', () => {
     const root = render(() => <RecipesScreen />, STANDARD);
     expect(importButtons(root)).toEqual([]);
-    expect(toolbarLabels(root)).toEqual(['Add recipe']);
+    expect(toolbarLabels(root)).toEqual([]);
     expect(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'New recipe')).not.toHaveLength(0);
   });
 
@@ -161,18 +166,18 @@ describe('the Recipes tab', () => {
     expect(importButtons(root)).toEqual([]);
   });
 
-  test('with recipes the toolbar has only Add recipe, with or without plus', () => {
+  test('with recipes the header has no buttons, with or without plus', () => {
     createRecipe('Tacos');
     let root = render(() => <RecipesScreen />, PLUS);
-    expect(toolbarLabels(root)).toEqual(['Add recipe']);
+    expect(toolbarLabels(root)).toEqual([]);
     act(() => tree?.unmount());
     root = render(() => <RecipesScreen />, STANDARD);
-    expect(toolbarLabels(root)).toEqual(['Add recipe']);
+    expect(toolbarLabels(root)).toEqual([]);
   });
 
-  test('the toolbar Add recipe and the empty New recipe open the same sheet', () => {
+  test("the tab bar's + and the empty New recipe open the same sheet", () => {
     const root = render(() => <RecipesScreen />, PLUS);
-    press(byType(root, 'ToolbarButton')[0]);
+    act(() => pressAddButton());
     press(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'New recipe')[0]);
     expect(mockPush.mock.calls).toEqual([['/add-recipe'], ['/add-recipe']]);
   });

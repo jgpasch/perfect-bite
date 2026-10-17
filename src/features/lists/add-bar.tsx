@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ActionSheetIOS } from 'react-native';
+import { useMemo, useState, type Ref } from 'react';
+import { ActionSheetIOS, type TextInput } from 'react-native';
 
 import { AddBar } from '@/components/add-bar';
 import { useT } from '@/i18n';
@@ -21,6 +21,10 @@ type Props = {
   onFocusChange?: (focused: boolean) => void;
   placeholder: string;
   accessibilityLabel: string;
+  /** For focusing the field from outside, e.g. the tab bar's + on a list. */
+  inputRef?: Ref<TextInput>;
+  /** Focus the field as soon as the bar appears. */
+  autoFocus?: boolean;
 };
 
 /**
@@ -37,6 +41,8 @@ export function ItemAddBar({
   onFocusChange,
   placeholder,
   accessibilityLabel,
+  inputRef,
+  autoFocus,
 }: Props) {
   const t = useT();
   const [text, setTextState] = useState('');
@@ -98,6 +104,8 @@ export function ItemAddBar({
       onFocusChange={onFocusChange}
       placeholder={placeholder}
       accessibilityLabel={accessibilityLabel}
+      inputRef={inputRef}
+      autoFocus={autoFocus}
       accessory={
         chips.length === 0 ? null : (
           <SuggestionChips

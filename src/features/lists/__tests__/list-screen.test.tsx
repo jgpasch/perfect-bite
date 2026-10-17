@@ -21,6 +21,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
+import { pressAddButton } from '@/features/tabs/add-button';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import {
@@ -42,7 +43,7 @@ import { openChannels, realtimeChannels, resetSupabase, setChannelStatus, setPre
 import { addItem, listItemsQuery, moveItemToList, setItemChecked } from '../items';
 import type { RowMove } from '../item-row';
 import { getListSeenAt, markListSeen } from '../last-seen';
-import { addedAt, collapsedSectionsKey, listSeenAtKey, manualOrderKey, viewModeKey } from '../list-view';
+import { addedAt, collapsedSectionsKey, LIST_VIEW_MODES, listSeenAtKey, manualOrderKey, viewModeKey } from '../list-view';
 import { ListScreen } from '../list-screen';
 import { createList, ensureStarterData, getDefaultListId, getList } from '../lists';
 import { setMoveResult } from '../move-result';
@@ -122,10 +123,6 @@ jest.mock('@/features/lists/reorderable-rows', () => {
     ReorderableRows: ({ rows, ...props }: { rows: { id: string; draggable: boolean; node: unknown }[] }) =>
       createElement('ReorderableRows', { ...props, draggable: rows.map((r) => r.draggable) }, rows.map((r) => r.node)),
   };
-});
-jest.mock('@/features/lists/view-menu-button', () => {
-  const { createElement } = require('react');
-  return { ViewMenuButton: (props: object) => createElement('ViewMenuButton', props) };
 });
 // A folded section draws no rows.
 jest.mock('@/components/section-header', () => {
@@ -240,7 +237,16 @@ const rowNames = (root?: ReactTestInstance) => rows(root).map((r) => r.props.ite
 const row = (name: string) => rows().find((r) => r.props.item.displayName === name)!;
 const sections = () => all('FoldingSection');
 const section = (title: string) => sections().find((s) => s.props.title === title)!;
-const addBar = () => all('ItemAddBar')[0];
+/** The add bar, opened with the tab bar's + first if it's hidden, as it is at rest. */
+const addBar = () => {
+  if (all('ItemAddBar').length === 0) act(() => pressAddButton());
+  return all('ItemAddBar')[0];
+};
+/** Acts on the add bar, opened first outside the act so it's on screen. */
+const onBar = (fn: (bar: ReactTestInstance) => void) => {
+  const bar = addBar();
+  act(() => fn(bar));
+};
 /** Adds as the user would have, a second after the last add. */
 function put(value: string, list = listId) {
   jest.setSystemTime(Date.now() + 1000);
@@ -260,6 +266,28 @@ const pressable = (label: string) =>
 const inviteDots = (switcher: ReactTestInstance) =>
   switcher.findAll((n) => n.type === ('View' as never) && (StyleSheet.flatten(n.props.style)?.top ?? 0) < 0);
 const menuAction = (title: string) => all('ToolbarMenuAction').find((n) => n.props.children === title)!;
+/** The ⋯ menu. */
+const moreMenu = () => all('ToolbarMenu').find((n) => n.props.icon === 'ellipsis')!;
+/**
+ * The view menu beside ⋯ (spec 4.6), read as the old view pill's props: the ticked view, a change of view, and
+ * Reset order while it's offered. Views are told apart by icon, so it reads the same in any language.
+ */
+const viewMenu = () => {
+  const actions = all('ToolbarMenuAction', all('ToolbarMenu').find((n) => n.props.icon === 'arrow.up.arrow.down')!);
+  const reset = actions.find((n) => n.props.icon === 'arrow.uturn.backward');
+  const modeOf = (n: ReactTestInstance) => LIST_VIEW_MODES.find((m) => m.icon === n.props.icon)?.value;
+  return {
+    props: {
+      value: modeOf(actions.find((n) => n.props.isOn)!),
+      onChange: (mode: string) => actions.find((n) => modeOf(n) === mode)!.props.onPress(),
+      onResetOrder: reset ? () => reset.props.onPress() : undefined,
+    },
+  };
+};
+/** The list switcher's label, which carries the count to get. */
+const switcherLabel = (): string =>
+  tree!.root.findAll((n) => typeof n.props.accessibilityHint === 'string' && n.props.accessibilityHint === 'Shows your other lists')[0]
+    .props.accessibilityLabel;
 // Braces: an onPress that returns a promise (Share.share) would make act async.
 const press = (n: ReactTestInstance) =>
   act(() => {
@@ -268,15 +296,15 @@ const press = (n: ReactTestInstance) =>
 const tapToast = (label: string) => act(() => hostByLabel(label).props.onClick());
 /** An add from the bar; the live query then re-reads, as it would on the write. */
 const add = (value: string) => {
-  act(() => addBar().props.onAdd(value));
+  onBar((bar) => bar.props.onAdd(value));
   refresh();
 };
 /** The ⋯ menu's inline groups, each as its actions' titles. */
 const menuGroups = () =>
-  all('ToolbarMenu')
+  all('ToolbarMenu', moreMenu())
     .filter((m) => m.props.inline)
     .map((g) => all('ToolbarMenuAction', g).map((n) => n.props.children));
-const setView = (mode: string) => act(() => all('ViewMenuButton')[0].props.onChange(mode));
+const setView = (mode: string) => act(() => viewMenu().props.onChange(mode));
 
 describe('the list', () => {
   test('a missing list renders nothing', () => {
@@ -291,19 +319,19 @@ describe('the list', () => {
     expect(text()).toContain('Nothing on this list yet. Add an item below.');
     expect(addBar().props.placeholder).toBeTruthy();
     expect(lines()).toContain('Groceries');
-    expect(text()).not.toContain('to get');
+    expect(switcherLabel()).not.toContain('to get');
   });
 
   test('the name is the list switcher, opening Your lists', () => {
     put('milk');
     render();
-    const switcher = pressable('Groceries, switch list');
+    const switcher = pressable('Groceries, switch list, 1 to get');
     expect(switcher.props.accessibilityHint).toBe('Shows your other lists');
     expect(switcher.props.accessibilityRole).toBe('button');
     expect(inviteDots(switcher)).toHaveLength(0);
-    // The count and the view button sit under it.
-    expect(text()).toContain('1 to get');
-    expect(all('ViewMenuButton')).toHaveLength(1);
+    // The count is a badge after the chevron; the view is a menu beside ⋯.
+    expect(lines()).toContain('1');
+    expect(viewMenu().props.value).toBe('newest');
     // One line: a long name truncates so the chevron and ⋯ stay in view.
     expect(switcher.find((n) => n.props.variant === 'screenTitle').props.numberOfLines).toBe(1);
     press(switcher);
@@ -347,13 +375,13 @@ describe('the list', () => {
     put('bananas');
     put('kombucha');
     render();
-    expect(all('ViewMenuButton')[0].props.value).toBe('newest');
+    expect(viewMenu().props.value).toBe('newest');
     expect(sections()).toHaveLength(0);
     expect(rowNames()).toEqual(['kombucha', 'bananas', 'milk']);
     expect(row('milk').props.aisle).toEqual({ name: 'Dairy & Eggs' });
     // Not categorized yet: Sorting….
     expect(row('kombucha').props.sorting).toBe(true);
-    expect(text()).toContain('3 to get');
+    expect(switcherLabel()).toContain('3 to get');
   });
 
   test('By aisle: a card per aisle in order, a Sorting… card without a header, and the choice is remembered', () => {
@@ -377,7 +405,7 @@ describe('the list', () => {
     // The view comes back on the next visit.
     act(() => tree!.unmount());
     render();
-    expect(all('ViewMenuButton')[0].props.value).toBe('category');
+    expect(viewMenu().props.value).toBe('category');
   });
 
   test('without categorize, new names go to Other instead of Sorting…', () => {
@@ -435,7 +463,7 @@ describe('checking off', () => {
     expect(row('milk').props.item.checkedAt).not.toBeNull();
     act(() => jest.advanceTimersByTime(1000));
     expect(rowNames()).toEqual(['eggs']);
-    expect(text()).toContain('1 to get');
+    expect(switcherLabel()).toContain('1 to get');
     const header = pressable('Checked, 1 item');
     press(header);
     expect(rowNames()).toEqual(['eggs', 'milk']);
@@ -630,17 +658,17 @@ describe('adding', () => {
     put('milk');
     put('eggs');
     render();
-    act(() => addBar().props.onFocusChange(true));
-    act(() => addBar().props.onTextChange('2 mil'));
+    onBar((bar) => bar.props.onFocusChange(true));
+    onBar((bar) => bar.props.onTextChange('2 mil'));
     expect(hostByLabel('Groceries, 2 to get · As added')).toBeDefined();
     // The big switcher title leaves the header's left slot while the compact one stands in.
     expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Groceries, switch list')).toHaveLength(0);
     // Part of a word marks nothing; the whole word does.
     expect(row('milk').props.alreadyOnList).toBeUndefined();
-    act(() => addBar().props.onTextChange('2 Milk'));
+    onBar((bar) => bar.props.onTextChange('2 Milk'));
     expect(row('milk').props.alreadyOnList).toEqual({ query: 'milk' });
     expect(row('eggs').props.alreadyOnList).toBeUndefined();
-    act(() => addBar().props.onFocusChange(false));
+    onBar((bar) => bar.props.onFocusChange(false));
     expect(row('milk').props.alreadyOnList).toBeUndefined();
   });
 
@@ -658,7 +686,7 @@ describe('adding', () => {
   };
   /** Combine English and Spanish names (spec 4.15) for every household, as a pull would set it. */
   const setCombine = (on: boolean) => db.update(households).set({ combineLanguages: on }).run();
-  const type = (value: string) => act(() => addBar().props.onTextChange(value));
+  const type = (value: string) => onBar((bar) => bar.props.onTextChange(value));
 
   describe('add mode across a family, Combine English and Spanish names off (spec 4.15)', () => {
     beforeEach(insertTwins);
@@ -667,7 +695,7 @@ describe('adding', () => {
       put('Cucumber');
       put('Pepino');
       render();
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('2 pepinos');
       expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
       expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'pepino' });
@@ -691,7 +719,7 @@ describe('adding', () => {
       put('Cucumber');
       put('Pepino');
       render();
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('pepino');
       expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
       setCombine(true);
@@ -711,7 +739,7 @@ describe('adding', () => {
       put('Cucumber');
       put('milk');
       render();
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('2 pepinos');
       expect(row('Cucumber').props.alreadyOnList).toEqual({ query: 'cucumber' });
       expect(row('milk').props.alreadyOnList).toBeUndefined();
@@ -720,7 +748,7 @@ describe('adding', () => {
     test('typing cucumber marks an unchecked Pepino', () => {
       put('Pepino');
       render();
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('cucumber');
       expect(row('Pepino').props.alreadyOnList).toEqual({ query: 'cucumber' });
       type('pepino');
@@ -761,7 +789,7 @@ describe('adding', () => {
       put('Tomato');
       put('Tomate');
       render();
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('tomate');
       expect(row('Tomato').props.alreadyOnList).toBeUndefined();
       expect(row('Tomate').props.alreadyOnList).toEqual({ query: 'tomate' });
@@ -780,7 +808,7 @@ describe('adding', () => {
       db.update(ingredients).set({ sameAs: 'cucumber', linkedBy: 'seed' }).where(pepino).run();
       render();
       press(pressable('Checked, 1 item'));
-      act(() => addBar().props.onFocusChange(true));
+      onBar((bar) => bar.props.onFocusChange(true));
       type('pepino');
       expect(row('Cucumber').props.item.checkedAt).not.toBeNull();
       expect(row('Cucumber').props.alreadyOnList).toBeUndefined();
@@ -796,7 +824,7 @@ describe('adding', () => {
     addRecipeIngredient(recipeId, 'tortillas');
     addRecipeIngredient(recipeId, 'limes');
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
     expect(rowNames().sort()).toEqual(['limes', 'tortillas']);
     expect(text()).toContain('Added Tacos · 2 items');
     tapToast('Adjust');
@@ -816,7 +844,7 @@ describe('adding', () => {
     setStaple(householdId, 'salt', true, USER);
     setStaple(householdId, 'pepper', true, USER);
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 4 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 4 }));
     expect(rowNames().sort()).toEqual(['limes', 'tortillas']);
     expect(lines()).toContain('Added Tacos · 2 items\nSkipped salt, pepper');
     expect(hostByLabel('Undo')).toBeDefined();
@@ -833,7 +861,7 @@ describe('adding', () => {
     for (const name of ['tortillas', 'salt', 'pepper', 'olive oil', 'water']) addRecipeIngredient(recipeId, name);
     for (const name of ['salt', 'pepper', 'olive oil', 'water']) setStaple(householdId, name, true, USER);
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 5 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 5 }));
     expect(rowNames()).toEqual(['tortillas']);
     expect(lines()).toContain('Added Tacos · 1 item\nSkipped salt, pepper and 2 more');
   });
@@ -845,7 +873,7 @@ describe('adding', () => {
     setStaple(householdId, 'salt', true, USER);
     setStaple(householdId, 'salt', false, USER);
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 1 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 1 }));
     expect(rowNames()).toEqual(['salt']);
     expect(lines()).toContain('Added Tacos · 1 item');
     expect(text()).not.toContain('Skipped');
@@ -859,7 +887,7 @@ describe('adding', () => {
     setStaple(householdId, 'salt', true, USER);
     setStaple(householdId, 'pepper', true, USER);
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 2 }));
     expect(rows()).toHaveLength(0);
     expect(lines()).toContain('You always have everything in Tacos');
     expect(text()).not.toContain('Added');
@@ -875,14 +903,14 @@ describe('adding', () => {
     const recipeId = createRecipe('Tacos', getList(listId)!.householdId);
     addRecipeIngredient(recipeId, 'tortillas');
     render();
-    act(() => addBar().props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 1 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: recipeId, name: 'Tacos', ingredientCount: 1 }));
     tapToast('Undo');
     expect(rows()).toHaveLength(0);
   });
 
   test('a recipe gone since is ignored', () => {
     render();
-    act(() => addBar().props.onAddRecipe({ id: 'gone', name: 'Gone', ingredientCount: 1 }));
+    onBar((bar) => bar.props.onAddRecipe({ id: 'gone', name: 'Gone', ingredientCount: 1 }));
     expect(rows()).toHaveLength(0);
     expect(text()).not.toContain('Added');
   });
@@ -936,7 +964,8 @@ describe('Select mode', () => {
     expect(pressable('Add to recipe').props.disabled).toBe(true);
     const done = all('ToolbarButton').find((b) => b.props.children === 'Done')!;
     press(done);
-    expect(all('ItemAddBar')).toHaveLength(1);
+    // The add bar stays hidden, as at rest, until the tab bar's + opens it.
+    expect(all('ItemAddBar')).toHaveLength(0);
     expect(row('milk').props.selected).toBeUndefined();
   });
 
@@ -945,8 +974,8 @@ describe('Select mode', () => {
     render();
     act(() => row('milk').props.onSelect());
     act(() => setRecipeAddResult({ kind: 'toRecipe', listId, recipeId: 'r1', recipeName: 'Pancakes', count: 1 }));
-    expect(all('ItemAddBar')).toHaveLength(1);
-    expect(all('ViewMenuButton')[0].props.value).toBe('recipe');
+    expect(row('milk').props.selected).toBeUndefined();
+    expect(viewMenu().props.value).toBe('recipe');
     expect(getDeviceSetting(viewModeKey(listId), null)).toBe('recipe');
     expect(text()).toContain('Added 1 item to Pancakes');
     tapToast('View recipe');
@@ -956,7 +985,6 @@ describe('Select mode', () => {
 
 describe('dragging in As added (spec 4.6)', () => {
   const drag = () => all('ReorderableRows')[0];
-  const viewMenu = () => all('ViewMenuButton')[0];
   const savedOrder = () => getDeviceSetting<unknown>(manualOrderKey(listId), null);
   const actionNames = (name: string) => (row(name).props.moves as RowMove[]).map((m) => m.name);
   const moveAction = (name: string, action: string) =>
@@ -1029,10 +1057,10 @@ describe('dragging in As added (spec 4.6)', () => {
   test('no drag in add mode, By aisle or By recipe, where the row keeps its own long-press', () => {
     threeItems();
     render();
-    act(() => addBar().props.onFocusChange(true));
+    onBar((bar) => bar.props.onFocusChange(true));
     expect(drag().props.draggable).toEqual([false, false, false]);
     expect(row('milk').props.reorderable).toBe(false);
-    act(() => addBar().props.onFocusChange(false));
+    onBar((bar) => bar.props.onFocusChange(false));
     expect(drag().props.draggable).toEqual([true, true, true]);
     for (const mode of ['category', 'recipe']) {
       setView(mode);
@@ -1083,7 +1111,7 @@ describe('dragging in As added (spec 4.6)', () => {
     setView('category');
     expect(viewMenu().props.onResetOrder).toBeUndefined();
     setView('newest');
-    act(() => viewMenu().props.onResetOrder());
+    act(() => viewMenu().props.onResetOrder!());
     expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
     expect(savedOrder()).toBeNull();
     expect(text()).toContain('Order reset');
@@ -1100,7 +1128,7 @@ describe('dragging in As added (spec 4.6)', () => {
     threeItems();
     render();
     act(() => drag().props.onMove(0, 2));
-    act(() => viewMenu().props.onResetOrder());
+    act(() => viewMenu().props.onResetOrder!());
     expect(text()).toContain('Order reset');
     act(() => jest.advanceTimersByTime(5000));
     expect(text()).not.toContain('Order reset');
@@ -1357,7 +1385,7 @@ describe('folding sections', () => {
     put('milk');
     render();
     setView('category');
-    expect(all('ViewMenuButton')[0].props).not.toHaveProperty('fold');
+    expect(viewMenu().props).not.toHaveProperty('fold');
   });
 
   test('an add into a folded section opens it', () => {
@@ -1371,15 +1399,44 @@ describe('folding sections', () => {
 
 });
 
+describe("the tab bar's +", () => {
+  test('the add bar is hidden at rest, and + opens it focused', () => {
+    render();
+    expect(all('ItemAddBar')).toHaveLength(0);
+    act(() => pressAddButton());
+    expect(all('ItemAddBar')).toHaveLength(1);
+    expect(all('ItemAddBar')[0].props.autoFocus).toBe(true);
+  });
+
+  test('it goes again when the field loses focus with nothing typed, and stays while something is', () => {
+    render();
+    onBar((bar) => bar.props.onFocusChange(true));
+    onBar((bar) => bar.props.onTextChange('mil'));
+    act(() => all('ItemAddBar')[0].props.onFocusChange(false));
+    expect(all('ItemAddBar')).toHaveLength(1);
+    act(() => all('ItemAddBar')[0].props.onTextChange(''));
+    expect(all('ItemAddBar')).toHaveLength(0);
+  });
+
+  test('+ in Select mode leaves it for the add bar', () => {
+    put('milk');
+    render();
+    press(menuAction('Select items'));
+    act(() => pressAddButton());
+    expect(row('milk').props.selected).toBeUndefined();
+    expect(all('ItemAddBar')).toHaveLength(1);
+  });
+});
+
 describe('the list menu', () => {
   test('Select items, Share list, then Edit list… in its own group', () => {
     render();
-    const groups = all('ToolbarMenu').filter((m) => m.props.inline);
+    const groups = all('ToolbarMenu', moreMenu()).filter((m) => m.props.inline);
     expect(groups.map((g) => g.findAll((n) => n.type === ('ToolbarMenuAction' as never)).map((n) => n.props.children))).toEqual([
       ['Select items', 'Share list'],
       ['Edit list…'],
     ]);
-    expect(all('ToolbarMenuAction')).toHaveLength(3);
+    expect(all('ToolbarMenuAction', moreMenu())).toHaveLength(3);
   });
 
   test('Select items is disabled with nothing to get', () => {
@@ -1411,11 +1468,11 @@ describe('the Checked section opening by itself', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(rowNames()).toEqual(['milk']);
     expect(pressable('Checked, 1 item').props.accessibilityState).toEqual({ expanded: true });
-    expect(text()).toContain('All done');
+    expect(switcherLabel()).toContain('All done');
     put('eggs');
     refresh();
     expect(rowNames()).toEqual(['eggs']);
-    expect(text()).toContain('1 to get');
+    expect(switcherLabel()).toContain('1 to get');
   });
 
   test('stays folded after a fold by hand until the list changes', () => {
@@ -1770,12 +1827,11 @@ describe('the list screen in Spanish', () => {
     mockInvites.current = [{ id: 'inv-1', householdName: 'Los López' } as MyInvite];
     initI18n('es');
     render();
-    expect(text()).toContain('1 por comprar');
-    expect(pressable('Groceries, cambiar de lista, 1 invitación pendiente').props.accessibilityHint).toBe(
+    expect(pressable('Groceries, cambiar de lista, 1 invitación pendiente, 1 por comprar').props.accessibilityHint).toBe(
       'Muestra tus otras listas',
     );
     expect(hostByLabel('Acciones de la lista')).toBeDefined();
-    expect(all('ToolbarMenuAction').map((n) => n.props.children)).toEqual([
+    expect(all('ToolbarMenuAction', moreMenu()).map((n) => n.props.children)).toEqual([
       'Seleccionar artículos',
       'Compartir lista',
       'Editar lista…',
@@ -2369,9 +2425,9 @@ describe('"Alex is adding" (spec 4.1)', () => {
   test('hidden in add mode, when the header is collapsed', () => {
     render();
     others(ALEX);
-    act(() => addBar().props.onFocusChange(true));
+    onBar((bar) => bar.props.onFocusChange(true));
     expect(pills()).toHaveLength(0);
-    act(() => addBar().props.onFocusChange(false));
+    onBar((bar) => bar.props.onFocusChange(false));
     expect(pillText()).toBe('Alex is adding');
   });
 
@@ -2380,13 +2436,13 @@ describe('"Alex is adding" (spec 4.1)', () => {
     const ch = channel();
     act(() => setChannelStatus('SUBSCRIBED', ch));
     expect(ch.tracked).toEqual([{ user_id: USER, adding: false }]);
-    act(() => addBar().props.onFocusChange(true));
+    onBar((bar) => bar.props.onFocusChange(true));
     // Within a second of the last update: held back, then sent.
     expect(ch.tracked.map((p) => p.adding)).toEqual([false]);
     act(() => jest.advanceTimersByTime(1000));
     expect(ch.tracked.map((p) => p.adding)).toEqual([false, true]);
-    act(() => addBar().props.onAdd('limes'));
-    act(() => addBar().props.onFocusChange(false));
+    onBar((bar) => bar.props.onAdd('limes'));
+    onBar((bar) => bar.props.onFocusChange(false));
     act(() => jest.advanceTimersByTime(9_999));
     expect(ch.tracked.map((p) => p.adding)).toEqual([false, true]);
     act(() => jest.advanceTimersByTime(1));

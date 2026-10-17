@@ -12,6 +12,7 @@ import {
   Pressable,
   Share,
   StyleSheet,
+  type TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -111,6 +112,9 @@ import {
   toGetLabel,
   toggleCollapsedSection,
   uncheckedAllToast,
+  LIST_VIEW_MODES,
+  VIEW_BUTTON_HINT,
+  viewButtonAccessibilityLabel,
   viewModeKey,
   withLingering,
   type ListViewMode,
@@ -119,12 +123,12 @@ import {
 import { listQuery } from '@/features/lists/lists';
 import { takeMoveResult } from '@/features/lists/move-result';
 import { ReorderableRows } from '@/features/lists/reorderable-rows';
-import { ViewMenuButton } from '@/features/lists/view-menu-button';
 import { listShareText } from '@/features/lists/share';
 import { onRecipeAddResult, startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { useFeature } from '@/features/plans/features';
+import { takePendingListAdd, useAddButton } from '@/features/tabs/add-button';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { dismissListPushes, markListVisible, onListUnavailable, takeListUnavailable } from '@/features/push/receiving';
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
@@ -374,6 +378,27 @@ export function ListScreen({ id }: { id: string }) {
     listRef.current?.scrollToOffset({ offset: addModeOffset.current, animated: true });
     addModeOffset.current = null;
   }, [addMode, listRef]);
+  // The add bar is hidden at rest: the tab bar's + opens it focused, and it goes again once the field
+  // loses focus with nothing typed.
+  const [addOpen, setAddOpen] = useState(false);
+  const addInputRef = useRef<TextInput>(null);
+  const showAddBar = !selection && (addOpen || adding || addText !== '');
+  const openAdd = () => {
+    setSelection(null);
+    setAddOpen(true);
+    addInputRef.current?.focus();
+  };
+  useAddButton(openAdd);
+  useFocusEffect(
+    useCallback(() => {
+      // + on a tab with nothing of its own to add lands here.
+      if (takePendingListAdd()) setAddOpen(true);
+    }, []),
+  );
+  const addFocusChange = (focused: boolean) => {
+    setAdding(focused);
+    setAddOpen(false);
+  };
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {
     setAdding(false);
@@ -1003,7 +1028,7 @@ export function ListScreen({ id }: { id: string }) {
       {addMode ? null : (
         <Stack.Toolbar placement="left">
           <Stack.Toolbar.View hidesSharedBackground>
-            <SwitcherTitle name={list.name} invites={invites.length} />
+            <SwitcherTitle name={list.name} invites={invites.length} toGet={unchecked.length} checked={checked.length} />
           </Stack.Toolbar.View>
         </Stack.Toolbar>
       )}
@@ -1013,6 +1038,33 @@ export function ListScreen({ id }: { id: string }) {
             {t('common.done')}
           </Stack.Toolbar.Button>
         ) : null}
+        {/* The view (spec 4.6), beside ⋯ rather than in a row under the title, so the list starts higher. */}
+        <Stack.Toolbar.Menu
+          icon="arrow.up.arrow.down"
+          variant="prominent"
+          tintColor={header.viewButton.fill}
+          accessibilityLabel={viewButtonAccessibilityLabel(viewMode)}
+          accessibilityHint={VIEW_BUTTON_HINT}
+          hidden={!!selection}>
+          <Stack.Toolbar.Menu inline>
+            {LIST_VIEW_MODES.map((mode) => (
+              <Stack.Toolbar.MenuAction
+                key={mode.value}
+                icon={mode.icon}
+                isOn={mode.value === viewMode}
+                onPress={() => setViewMode(mode.value)}>
+                {mode.label}
+              </Stack.Toolbar.MenuAction>
+            ))}
+          </Stack.Toolbar.Menu>
+          {viewMode === 'newest' && manualOrder.length > 0 ? (
+            <Stack.Toolbar.Menu inline>
+              <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" onPress={resetOrder}>
+                {t('lists.viewModes.resetOrder')}
+              </Stack.Toolbar.MenuAction>
+            </Stack.Toolbar.Menu>
+          ) : null}
+        </Stack.Toolbar.Menu>
         {/* A white wash, as the view pill, with a white ⋯. */}
         <Stack.Toolbar.Menu
           icon="ellipsis"
@@ -1067,23 +1119,7 @@ export function ListScreen({ id }: { id: string }) {
                   {/* Pulling down past the top shows more green, not the list's ground. */}
                   <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
                   <CollapsingHeader collapsed={addMode}>
-                    <View
-                      style={[
-                        styles.title,
-                        { columnGap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.md, paddingHorizontal: spacing.lg + spacing.xs },
-                      ]}>
-                      {toGetLabel(unchecked.length, checked.length) ? (
-                        <ThemedText variant="amount" color="onHeaderSecondary">
-                          {toGetLabel(unchecked.length, checked.length)}
-                        </ThemedText>
-                      ) : null}
-                      <ViewMenuButton
-                        value={viewMode}
-                        onChange={setViewMode}
-                        onResetOrder={viewMode === 'newest' && manualOrder.length > 0 ? resetOrder : undefined}
-                      />
-                    </View>
-                    {/* Spec 4.1: "Alex is adding", under the count and view; gone with the header in add mode. */}
+                    {/* Spec 4.1: "Alex is adding", under the title; gone with the header in add mode. */}
                     <AddingPill
                       userIds={othersAdding}
                       hidden={addMode}
@@ -1141,17 +1177,19 @@ export function ListScreen({ id }: { id: string }) {
 
         {selection ? (
           <SelectionBar count={selection.size} onAddToRecipe={addToRecipe} />
-        ) : (
+        ) : showAddBar ? (
           <ItemAddBar
             householdId={list.householdId}
             onAdd={add}
             onAddRecipe={addRecipe}
             onTextChange={setAddText}
-            onFocusChange={setAdding}
+            onFocusChange={addFocusChange}
             placeholder={LIST_ADD_PLACEHOLDER}
             accessibilityLabel={LIST_ADD_LABEL}
+            inputRef={addInputRef}
+            autoFocus
           />
-        )}
+        ) : null}
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -1159,21 +1197,23 @@ export function ListScreen({ id }: { id: string }) {
 
 /**
  * The list's name with a small chevron after it: one button that opens the Your lists sheet (spec 4.1,
- * board E). A long name truncates so the chevron, and ⋯ beside it, stay in view. A dot on the chevron
- * while an invite is waiting, which the sheet shows.
+ * board E). A long name truncates so the chevron, the count, and the view and ⋯ buttons beside it, stay in
+ * view. A dot on the chevron while an invite is waiting, which the sheet shows. The count of items to get
+ * sits after the chevron in a small white-wash badge, a tick once everything is checked.
  */
-function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
+function SwitcherTitle({ name, invites, toGet, checked }: { name: string; invites: number; toGet: number; checked: number }) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const t = useT();
   const look = listHeaderColors(colors);
   const { width } = useWindowDimensions();
-  // Leaves room for the bar's two 16 pt margins, ⋯ and a gap before it. The bar's margin is 4 pt short of
-  // the sheet's 20 pt gutter, so the name is padded over to line up with "N to get".
-  const maxWidth = width - spacing.lg * 2 - sizes.minTapTarget - spacing.md;
+  // Leaves room for the bar's two 16 pt margins, the view button, ⋯ and a gap before them. The bar's margin is
+  // 4 pt short of the sheet's 20 pt gutter, so the name is padded over to line up with the list.
+  const maxWidth = width - spacing.lg * 2 - sizes.minTapTarget * 2 - spacing.md;
+  const count = toGetLabel(toGet, checked);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={switcherAccessibilityLabel(name, invites)}
+      accessibilityLabel={[switcherAccessibilityLabel(name, invites), count].filter(Boolean).join(', ')}
       accessibilityHint={t('lists.screen.switchListHint')}
       onPress={() => router.push('/lists-sheet')}
       style={({ pressed }) => [
@@ -1209,6 +1249,27 @@ function SwitcherTitle({ name, invites }: { name: string; invites: number }) {
           />
         ) : null}
       </View>
+      {count ? (
+        <View
+          style={[
+            styles.countBadge,
+            {
+              minWidth: sizes.iconSmall + spacing.md,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: spacing.xxs,
+              borderRadius: rounded.full,
+              backgroundColor: look.viewButton.fill,
+            },
+          ]}>
+          {toGet > 0 ? (
+            <ThemedText variant="footnote" style={{ color: look.viewButton.text }}>
+              {toGet}
+            </ThemedText>
+          ) : (
+            <Icon name="checkmark" tint={look.viewButton.text} size={sizes.iconSmall} weight="bold" />
+          )}
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -1317,10 +1378,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center' },
-  title: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
   shrink: { flexShrink: 1 },
   inviteDot: { position: 'absolute' },
+  countBadge: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   compactTitle: { alignItems: 'center', justifyContent: 'center' },
   // Clips the title while its height closes; the scale shrinks it toward its top.
   collapsing: { overflow: 'hidden', transformOrigin: 'top' },

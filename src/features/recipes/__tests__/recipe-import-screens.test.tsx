@@ -18,6 +18,7 @@ import {
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { setFeatures } from '@/features/plans/features';
+import { pressAddButton } from '@/features/tabs/add-button';
 import { getDeviceSetting, setDeviceSetting, setPlanTab } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
@@ -768,10 +769,10 @@ describe('RecipesScreen', () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
-  test('the toolbar Add recipe opens the sheet too, not a prompt', () => {
+  test("the tab bar's + opens the sheet too, not a prompt", () => {
     const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
-    const root = render(<RecipesScreen />);
-    act(() => byType(root, 'ToolbarButton').find((n) => n.props.accessibilityLabel === 'Add recipe')!.props.onPress());
+    render(<RecipesScreen />);
+    act(() => pressAddButton());
     expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
     expect(prompt).not.toHaveBeenCalled();
   });

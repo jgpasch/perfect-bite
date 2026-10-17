@@ -346,7 +346,6 @@ export const en = {
     /** The Recipes tab and its recipe cards. */
     tab: {
       title: 'Recipes',
-      addRecipe: 'Add recipe',
       search_one: 'Search {{count}} recipe',
       search_other: 'Search {{count}} recipes',
       searchLabel: 'Search recipes',
@@ -742,6 +741,7 @@ export const en = {
     plan: 'Plan',
     settings: 'Settings',
     backTitle: 'Lists',
+    add: 'Add',
     editList: 'Edit list',
   },
   /** The meal plan's week screen (spec 4.16). */

@@ -298,7 +298,7 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
       {toast ? (
-        // Above the tab bar: the bottom safe area here includes it.
+        // Above the tab bar: the screen ends there.
         <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
           <Toast key={toast.key} message={toast.message} emphasis={toast.emphasis} actions={[]} onDismiss={dismissToast} />
         </SafeAreaView>

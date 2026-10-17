@@ -305,7 +305,6 @@ export const es = {
   recipes: {
     tab: {
       title: 'Recetas',
-      addRecipe: 'Agregar receta',
       search_one: 'Buscar en {{count}} receta',
       search_other: 'Buscar en {{count}} recetas',
       searchLabel: 'Buscar recetas',
@@ -667,6 +666,7 @@ export const es = {
     plan: 'Plan',
     settings: 'Ajustes',
     backTitle: 'Listas',
+    add: 'Añadir',
     editList: 'Editar lista',
   },
   mealPlan: {
