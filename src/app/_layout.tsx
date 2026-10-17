@@ -104,6 +104,11 @@ export default function RootLayout() {
                   name="recipe/[id]/steps"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.5: Choose a photo, from the recipe screen's Add photo tile or Change photo…. */}
+                <Stack.Screen
+                  name="recipe/[id]/photo"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
                 {/* Board 19: cooking mode, full screen with its own top bar (✕ is Done). */}
                 <Stack.Screen name="recipe/[id]/cook" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
                 {/* Spec 4.5: the Recipes tab's +, name a recipe or import a link; as tall as its content. */}

@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
@@ -36,6 +36,7 @@ import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
 import { RecipePhotoHeader, usePhotoFailed } from '@/features/recipes/recipe-photo';
+import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
   forServingsLabel,
@@ -86,6 +87,10 @@ export default function RecipeScreen() {
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
   const photo = usePhotoFailed(recipe?.imageUrl ?? null);
+  // The Choose a photo sheet's change, for the "Photo updated" toast; it ends when the screen closes.
+  const photoChange = usePhotoChange(id);
+  useEffect(() => () => dismissPhotoChange(), []);
+  const dismissPhotoToast = useCallback(() => dismissPhotoChange(photoChange?.key), [photoChange?.key]);
   // Ingredients | Method, only with steps. Opens on Ingredients every visit and isn't saved.
   const [tab, setTab] = useState<RecipeTab>('ingredients');
   const scroll = useRef<ScrollView>(null);
@@ -144,6 +149,8 @@ export default function RecipeScreen() {
 
   // Spec 4.16: the plan modal, for Plan and the plan badges.
   const openPlan = () => router.push({ pathname: '/plan-recipe', params: { recipeId: id } });
+  // Spec 4.5: the Choose a photo sheet, for the Add photo tile and Change photo….
+  const openPhoto = () => router.push({ pathname: '/recipe/[id]/photo', params: { id } });
 
   const confirmDelete = () =>
     Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
@@ -174,6 +181,11 @@ export default function RecipeScreen() {
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
             {t('recipes.screen.rename')}
           </Stack.Toolbar.MenuAction>
+          {recipe.imageUrl !== null ? (
+            <Stack.Toolbar.MenuAction icon="photo" onPress={openPhoto}>
+              {t('recipes.photo.change')}
+            </Stack.Toolbar.MenuAction>
+          ) : null}
           <Stack.Toolbar.MenuAction icon="trash" destructive onPress={confirmDelete}>
             {t('recipes.screen.deleteRecipe')}
           </Stack.Toolbar.MenuAction>
@@ -193,7 +205,14 @@ export default function RecipeScreen() {
           contentInsetAdjustmentBehavior="never"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
           {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} sourceUrl={recipe.sourceUrl} onError={photo.onError} /> : null}
-          <RecipeBand recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onEditServings={editServings} onPlan={openPlan} />
+          <RecipeBand
+            recipe={recipe}
+            hue={hue}
+            hasIngredients={ingredients.length > 0}
+            onEditServings={editServings}
+            onPlan={openPlan}
+            onAddPhoto={openPhoto}
+          />
           {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps, then Plan
               (spec 4.16). They wrap when they don't fit. */}
           <View
@@ -302,6 +321,16 @@ export default function RecipeScreen() {
             />
           ) : null}
         </ScrollView>
+        {photoChange ? (
+          <View style={{ paddingBottom: spacing.sm }}>
+            <Toast
+              key={`photo-${photoChange.key}`}
+              message={t(photoChange.removed ? 'recipes.photo.removed' : 'recipes.photo.updated')}
+              actions={[{ label: t('common.undo'), onPress: () => undoPhotoChange(photoChange) }]}
+              onDismiss={dismissPhotoToast}
+            />
+          </View>
+        ) : null}
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>
             <Toast
@@ -330,7 +359,8 @@ export default function RecipeScreen() {
  * The header band in the recipe's soft tint: its name, source link and servings, tags and notes. The notes
  * are edited in place and saved when the field loses focus; the link row is RecipeLinkRow. "Serves 4", or a
  * dashed "Add servings" without them, opens the servings prompt (`onEditServings`). Under the name, the
- * recipe's upcoming plan badges open the plan modal (`onPlan`).
+ * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo, a dashed Add photo
+ * tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`).
  */
 function RecipeBand({
   recipe,
@@ -338,12 +368,14 @@ function RecipeBand({
   hasIngredients,
   onEditServings,
   onPlan,
+  onAddPhoto,
 }: {
   recipe: Recipe;
   hue: AisleHue;
   hasIngredients: boolean;
   onEditServings: () => void;
   onPlan: () => void;
+  onAddPhoto: () => void;
 }) {
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
@@ -367,6 +399,7 @@ function RecipeBand({
         paddingBottom: spacing.lg + spacing.xs,
         gap: spacing.sm,
       }}>
+      {recipe.imageUrl === null ? <AddPhotoTile onPress={onAddPhoto} /> : null}
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>
@@ -420,6 +453,39 @@ function RecipeBand({
   );
 }
 
+/** The band's Add photo tile (spec 4.5): a 2 pt dashed `controlBorder` outline, radius `md`. VoiceOver: "Add photo, button". */
+function AddPhotoTile({ onPress }: { onPress: () => void }) {
+  const t = useT();
+  const { colors, spacing, rounded, sizes, opacity } = useTheme();
+  return (
+    <Pressable
+      testID="add-photo"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('recipes.photo.add')}
+      style={({ pressed }) => [
+        styles.row,
+        styles.center,
+        {
+          gap: spacing.sm,
+          minHeight: sizes.minTapTarget,
+          paddingVertical: spacing.xl,
+          marginBottom: spacing.xs,
+          borderWidth: sizes.checkBorder,
+          borderStyle: 'dashed',
+          borderColor: colors.controlBorder,
+          borderRadius: rounded.md,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <Icon name="photo.badge.plus" tint={colors.inkSecondary} weight="semibold" />
+      <ThemedText variant="headline" color="inkSecondary">
+        {t('recipes.photo.add')}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
 type RecipeTab = 'ingredients' | 'method';
 
 const styles = StyleSheet.create({
@@ -427,4 +493,5 @@ const styles = StyleSheet.create({
   grow: { flexGrow: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   wrap: { flexWrap: 'wrap' },
+  center: { justifyContent: 'center' },
 });

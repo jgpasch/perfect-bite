@@ -416,6 +416,21 @@ export const en = {
       editHint: 'Edits the servings',
       add: 'Add servings',
     },
+    /** The Add photo tile, the menu's Change photo… and the Choose a photo sheet (spec 4.5). */
+    photo: {
+      add: 'Add photo',
+      change: 'Change photo…',
+      sheetTitle: 'Choose a photo',
+      fromPage: 'From the page',
+      tile: 'Photo {{index}} of {{count}} from the page',
+      loading: 'Loading photos from the page',
+      noneFound: 'No photos found on the page',
+      offline: 'Connect to see photos from the page',
+      failed: "Couldn't load the page's photos. Try again later.",
+      remove: 'Remove photo',
+      updated: 'Photo updated',
+      removed: 'Photo removed',
+    },
     /** The recipe band's link row. */
     link: {
       placeholder: 'Add a link to the recipe',
