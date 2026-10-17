@@ -133,13 +133,21 @@ jest.mock('expo-image-manipulator', () => {
   const context = { resize: () => context, renderAsync: async () => image };
   return { ImageManipulator: { manipulate: () => context }, SaveFormat: { JPEG: 'jpeg' } };
 });
-jest.mock('expo-file-system', () => ({
-  File: class {
+// A stock photo's download, which `mockDownload` can fail.
+const mockDownload = jest.fn(async (_url: string, destination: object) => destination);
+jest.mock('expo-file-system', () => {
+  class File {
+    uri = 'file:///cache/stock.jpg';
+    static downloadFileAsync(url: string, destination: File) {
+      return mockDownload(url, destination);
+    }
     async arrayBuffer() {
       return new ArrayBuffer(8);
     }
-  },
-}));
+    delete() {}
+  }
+  return { File, Paths: { cache: { uri: 'file:///cache' } } };
+});
 // The server call; the rest of the module (the change store) stays real.
 let resolvePhotos: (result: PagePhotosResult) => void = () => {};
 const mockLoad = jest.fn((_url: string) => new Promise<PagePhotosResult>((resolve) => (resolvePhotos = resolve)));
@@ -178,6 +186,7 @@ beforeEach(() => {
   mockSearch.mockClear();
   searchAnswers = [];
   mockOpenURL.mockClear();
+  mockDownload.mockClear();
   setFeatures(DEFAULT_FEATURES);
   resetSupabase();
   resetPhotoSession();
@@ -951,5 +960,174 @@ describe('Search photos', () => {
     expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 13 });
     press(link);
     expect(mockOpenURL).toHaveBeenCalledWith('https://www.pexels.com');
+  });
+});
+
+describe('picking a stock photo, and its credit', () => {
+  const stock = (id: number, author: string) => ({
+    id,
+    thumb: `https://images.pexels.com/photos/${id}/medium.jpeg`,
+    full: `https://images.pexels.com/photos/${id}/large2x.jpeg`,
+    width: 1200,
+    height: 900,
+    author,
+    authorUrl: `https://www.pexels.com/@${author.toLowerCase().replace(/ /g, '-')}`,
+    pageUrl: `https://www.pexels.com/photo/${id}/`,
+    alt: null,
+  });
+  const JANE = stock(1, 'Jane Doe');
+  const ANA = stock(2, 'Ana Ruiz');
+  const creditOf = (p: ReturnType<typeof stock>) => ({
+    provider: 'pexels' as const,
+    author: p.author,
+    authorUrl: p.authorUrl,
+    pageUrl: p.pageUrl,
+  });
+  const OWN = () => `${getRecipe(bread)!.householdId}/${bread}/0190a000-0000-7000-8000-000000000001.jpg`;
+  const results = (root: ReactTestRenderer) => byTestId(root, 'search-photo');
+  const chips = (root: ReactTestRenderer) => byTestId(root, 'photo-credit');
+  const siteCredits = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'recipe-credit-photo');
+  const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity as 1));
+  const signIn = () => act(() => emitAuthEvent('SIGNED_IN', { ...makeSession(USER), access_token: 'token-1' }));
+
+  /** Opens the sheet, answers its search with `photos` and taps the `index`th result. */
+  async function pickStock(index: number, photos = [JANE, ANA]) {
+    const sheet = await renderSheet();
+    await act(async () => searchAnswers.shift()!({ ok: true, photos, hasMore: false }));
+    await act(async () => results(sheet)[index].props.onPress());
+    act(() => sheet.unmount());
+  }
+
+  test('tapping a result closes the sheet, downloads the full photo and uploads it with its credit', async () => {
+    setPhoto(A);
+    await pickStock(1);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockDownload).toHaveBeenCalledTimes(1);
+    expect(mockDownload.mock.calls[0][0]).toBe(ANA.full);
+    const [bucket, path, , options] = storageUploads().at(-1)!;
+    expect(bucket).toBe('recipe-photos');
+    expect(path).toMatch(new RegExp(`^${getRecipe(bread)!.householdId}/${bread}/[0-9a-f-]{36}\\.jpg$`));
+    expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
+    // The site photo stays, for Remove.
+    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A, photoCredit: creditOf(ANA) });
+    expect(outboxMutations().at(-1)).toEqual(
+      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path, photo_credit: creditOf(ANA) } }),
+    );
+  });
+
+  test('while it downloads, the recipe screen shows the thumb with a spinner and no credit; then the photo, its credit and "Photo updated"', async () => {
+    let finish: (file: object) => void = () => {};
+    mockDownload.mockImplementationOnce((_url, destination) => new Promise((resolve) => (finish = () => resolve(destination))));
+    await pickStock(0);
+
+    const root = render(<RecipeScreen />);
+    signIn();
+    expect(byType(root, 'ExpoImage')[0].props.source).toBe(JANE.thumb);
+    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading' && String(n.type) === 'View')).toHaveLength(1);
+    expect(byTestId(root, 'add-photo')).toHaveLength(0);
+    expect(chips(root)).toHaveLength(0);
+
+    await act(async () => finish({}));
+    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading')).toHaveLength(0);
+    const path = getRecipe(bread)!.photoPath!;
+    expect(byType(root, 'ExpoImage')[0].props.source).toMatchObject({ cacheKey: path });
+    expect(chips(root)).toHaveLength(1);
+    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
+  });
+
+  test('the credit chip: "Photo: Jane Doe / Pexels" in caption inkSecondary on a surface chip at the bottom right, a link to the photo\'s page', async () => {
+    // A link that opens: the site's source credit still never shows on an own photo.
+    setLink(LINK);
+    setPhoto(A);
+    await pickStock(0);
+    const root = render(<RecipeScreen />);
+    signIn();
+
+    const [chip] = chips(root);
+    expect(chip.props).toMatchObject({
+      accessibilityRole: 'link',
+      accessibilityLabel: 'Photo by Jane Doe on Pexels',
+      accessibilityHint: 'Opens the photo on Pexels in Safari',
+    });
+    expect(flat(chip.props.style({ pressed: false }))).toMatchObject({
+      position: 'absolute',
+      right: 8,
+      bottom: 8,
+      backgroundColor: Palette.light.surface,
+      borderRadius: Rounded.full,
+    });
+    const text = chip.find((n) => String(n.type) === 'Text');
+    expect(text.props.children).toBe('Photo: Jane Doe / Pexels');
+    expect(text.props.numberOfLines).toBe(1);
+    expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 12 });
+    expect(siteCredits(root)).toHaveLength(0);
+
+    press(chip);
+    expect(mockOpenURL).toHaveBeenCalledWith(JANE.pageUrl);
+  });
+
+  test('a library photo shows no credit chip', async () => {
+    setLink(LINK);
+    const sheet = await renderSheet();
+    const library = sheet.root.find(
+      (n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Photo library',
+    );
+    await act(async () => library.props.onPress());
+    act(() => sheet.unmount());
+    expect(getRecipe(bread)).toMatchObject({ photoCredit: null });
+    expect(getRecipe(bread)!.photoPath).not.toBeNull();
+
+    const root = render(<RecipeScreen />);
+    signIn();
+    expect(byType(root, 'ExpoImage')).toHaveLength(1);
+    expect(chips(root)).toHaveLength(0);
+    expect(siteCredits(root)).toHaveLength(0);
+  });
+
+  test('a site photo shows its source credit, not a photo credit', () => {
+    setLink(LINK);
+    setPhoto(A);
+    const root = render(<RecipeScreen />);
+    expect(chips(root)).toHaveLength(0);
+    expect(siteCredits(root).length).toBeGreaterThan(0);
+  });
+
+  test('a failed download leaves the recipe as it was and offers Try again, which retries the whole pick', async () => {
+    setPhoto(A);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockDownload.mockRejectedValueOnce(new Error('UnableToDownload: 404'));
+    await pickStock(0);
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null, photoCredit: null });
+    expect(storageUploads()).toHaveLength(0);
+
+    const root = render(<RecipeScreen />);
+    // The photo as it was, with no spinner.
+    expect(byType(root, 'ExpoImage')[0].props.source).toBe(A);
+    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading')).toHaveLength(0);
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe("Couldn't upload the photo");
+    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
+
+    await act(async () => toast.props.actions[0].onPress());
+    expect(mockDownload).toHaveBeenCalledTimes(2);
+    expect(mockDownload.mock.calls[1][0]).toBe(JANE.full);
+    expect(storageUploads()).toHaveLength(1);
+    expect(getRecipe(bread)).toMatchObject({ photoCredit: creditOf(JANE) });
+    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
+  });
+
+  test('Undo of a stock pick restores the old photo and its credit', async () => {
+    setPhoto(A);
+    db.update(recipes).set({ photoPath: OWN(), photoCredit: creditOf(ANA) }).where(eq(recipes.id, bread)).run();
+    await pickStock(0);
+    expect(getRecipe(bread)!.photoCredit).toEqual(creditOf(JANE));
+
+    const root = render(<RecipeScreen />);
+    signIn();
+    act(() => toasts(root)[0].props.actions[0].onPress());
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN(), photoCredit: creditOf(ANA) });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: OWN(), photo_credit: creditOf(ANA) });
+    const [chip] = chips(root);
+    expect(chip.find((n) => String(n.type) === 'Text').props.children).toBe('Photo: Ana Ruiz / Pexels');
   });
 });

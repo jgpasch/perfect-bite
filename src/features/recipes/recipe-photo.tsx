@@ -5,10 +5,11 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
 import { recipeHue } from '@/domain/aisle-color';
-import { RecipeCredit } from '@/features/recipes/recipe-credit';
+import { PhotoCreditChip, RecipeCredit } from '@/features/recipes/recipe-credit';
 import { useRecipePhoto, type RecipeImageSource } from '@/features/recipes/recipe-photo-source';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import type { PhotoCredit } from '@/shared/photo-credit';
 
 /**
  * The URL that failed to load, so a dead link or hotlink blocking falls back for good in this view; a
@@ -99,20 +100,23 @@ export function RecipePhotoCover({
 /**
  * The recipe screen's photo header (board 13): full width at 16:9 above the band, in the band's tint while
  * it loads. `onError` tells the screen, which retries or drops it, so the band and its tinted header come
- * back. The photo is decorative; the source credit (`sourceUrl`, spec 4.5) sits on its bottom-right
- * corner, for a site's photo only (the screen passes none for the household's own). `uploading`: a
- * photo being uploaded, shown from the device with a spinner over it.
+ * back. The photo is decorative; its bottom-right corner credits it (spec 4.5): an own photo's
+ * `credit` (a stock photo's) when it has one, else the source credit (`sourceUrl`), for a site's
+ * photo only (the screen passes none for the household's own). `uploading`: a photo being
+ * uploaded, shown from the device with a spinner over it and no credit.
  */
 export function RecipePhotoHeader({
   source,
   tint,
   sourceUrl,
+  credit = null,
   uploading = false,
   onError,
 }: {
   source: RecipeImageSource;
   tint: string;
   sourceUrl?: string | null;
+  credit?: PhotoCredit | null;
   uploading?: boolean;
   onError: (event?: { error?: string }) => void;
 }) {
@@ -147,6 +151,8 @@ export function RecipePhotoHeader({
             <ActivityIndicator color={colors.onToast} />
           </View>
         </View>
+      ) : credit ? (
+        <PhotoCreditChip credit={credit} />
       ) : (
         <RecipeCredit sourceUrl={sourceUrl} onPhoto />
       )}

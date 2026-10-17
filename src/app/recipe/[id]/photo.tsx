@@ -10,7 +10,7 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { appendPhotos, photoSearchQuery, searchPhotos, type PhotoSearchFailure } from '@/features/recipes/photo-search';
-import { pickRecipePhoto, uploadRecipePhoto, type PhotoSource } from '@/features/recipes/photo-upload';
+import { pickRecipePhoto, uploadRecipePhoto, uploadStockPhoto, type PhotoSource } from '@/features/recipes/photo-upload';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import type { RecipePhotoFields } from '@/features/recipes/recipe-photo-source';
 import {
@@ -55,7 +55,8 @@ type SearchState =
  * it (and drops an own photo) and closes the sheet, and the recipe screen shows "Photo updated" with
  * Undo. **Search photos**: free stock photos from Pexels (`photo-search.ts`), searched once on open
  * with the recipe's name and then only on Return, in the same grid with the photographer's name on
- * each tile, **Load more** while there are more pages, and "Photos provided by Pexels".
+ * each tile, **Load more** while there are more pages, and "Photos provided by Pexels"; picking one
+ * closes the sheet and uploads it as the household's own photo with its credit (`uploadStockPhoto`).
  * **Photo library** and **Take photo** pick a photo, close the sheet and upload it as the
  * household's own (`photo-upload.ts`); offline they're disabled, "Needs a connection". **Remove
  * photo** when there is one: the own photo if set (the site's comes back), else the site's. A page
@@ -175,6 +176,12 @@ export default function RecipePhotoSheet() {
       setPicking(false);
     }
   };
+  // A search result closes the sheet and downloads, shrinks and uploads it with its credit.
+  const pickStock = (photo: PhotoSearchResult) => {
+    if (picking) return;
+    void uploadStockPhoto(recipe.id, photo);
+    router.back();
+  };
   const needsConnection = offline === true ? t('recipes.photo.needsConnection') : undefined;
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
 
@@ -217,6 +224,7 @@ export default function RecipePhotoSheet() {
           photos={search?.status === 'done' ? search.photos.filter((p) => !brokenSearch.has(p.id)) : []}
           onLoadMore={loadMore}
           onBroken={(photoId) => setBrokenSearch((prev) => new Set(prev).add(photoId))}
+          onPick={pickStock}
         />
       </View>
 
@@ -308,7 +316,7 @@ function PageSection({
 /**
  * The Search photos section's body: the search field (disabled offline, "Needs a connection"), then
  * placeholders while searching, a note when there's nothing or it failed, else the grid and Load
- * more while there are more pages; the Pexels link last. `onPick` is for picking a result.
+ * more while there are more pages; the Pexels link last. `onPick` picks a result.
  */
 function SearchSection({
   text,
@@ -329,7 +337,7 @@ function SearchSection({
   photos: PhotoSearchResult[];
   onLoadMore: () => void;
   onBroken: (id: number) => void;
-  onPick?: (photo: PhotoSearchResult) => void;
+  onPick: (photo: PhotoSearchResult) => void;
 }) {
   const t = useT();
   const { spacing, opacity } = useTheme();
@@ -376,7 +384,7 @@ function SearchSection({
                 index: i + 1,
                 count: photos.length,
               })}
-              onPress={onPick ? () => onPick(photos[i]) : undefined}
+              onPress={() => onPick(photos[i])}
               onError={() => onBroken(photos[i].id)}
             />
           )}
@@ -501,7 +509,7 @@ function SearchTile({
 }: {
   photo: PhotoSearchResult;
   label: string;
-  onPress?: () => void;
+  onPress: () => void;
   onError: () => void;
 }) {
   const { colors, rounded, spacing, opacity } = useTheme();

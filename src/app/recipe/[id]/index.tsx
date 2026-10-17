@@ -218,8 +218,10 @@ export default function RecipeScreen() {
             <RecipePhotoHeader
               source={photoSource}
               tint={aisles[hue].soft}
-              // The source credit is for the site's photo, never the household's own.
+              // The source credit is for the site's photo, never the household's own; an own photo
+              // shows its own credit (a stock photo's) when it has one.
               sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
+              credit={uploading ? null : photo.credit}
               uploading={uploading}
               onError={uploading ? () => {} : photo.onError}
             />

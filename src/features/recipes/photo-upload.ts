@@ -1,14 +1,16 @@
 // A household's own recipe photo (spec 4.5): picking it from the library or the camera, shrinking it
 // on the device, uploading it to the private recipe-photos bucket, and setting `photo_path` through
 // the usual recipe update. While it uploads, the recipe screen shows the photo from the device with
-// a spinner; a failure leaves the recipe as it was and the screen offers Try again.
-import { File } from 'expo-file-system';
+// a spinner; a failure leaves the recipe as it was and the screen offers Try again. A stock photo
+// (Pexels, from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
+import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useSyncExternalStore } from 'react';
 
 import { newId } from '@/lib/id';
 import { supabase } from '@/lib/supabase';
 import type { PhotoCredit } from '@/shared/photo-credit';
+import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
 
 import { downscalePhoto, UPLOAD_PHOTO } from './downscale-photo';
 import { RECIPE_PHOTOS_BUCKET } from './recipe-photo-source';
@@ -50,11 +52,24 @@ export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
 
 // --- The upload ----------------------------------------------------------------------------------
 
-/** An upload the recipe screen shows: the photo from the device (and its credit), uploading or failed. */
+/** What a stock pick needs: the photo to download (`full`), one to show meanwhile (`thumb`), and the credit's names and links. */
+export type StockPhoto = Pick<PhotoSearchResult, 'thumb' | 'full' | 'author' | 'authorUrl' | 'pageUrl'>;
+
+/** A stock photo's `recipes.photo_credit`. */
+export function stockPhotoCredit(photo: StockPhoto): PhotoCredit {
+  return { provider: 'pexels', author: photo.author, authorUrl: photo.authorUrl, pageUrl: photo.pageUrl };
+}
+
+/**
+ * An upload the recipe screen shows: the photo (`localUri`, from the device; a stock photo's
+ * `thumb` while it downloads) and its credit, uploading or failed. `stock` is set for a stock pick,
+ * so Try again downloads it again.
+ */
 export type PhotoUpload = {
   recipeId: string;
   localUri: string;
   credit: PhotoCredit | null;
+  stock: StockPhoto | null;
   status: 'uploading' | 'failed';
   key: number;
 };
@@ -69,18 +84,24 @@ function emit(next: PhotoUpload | null) {
 }
 
 /**
- * Uploads the photo at `localUri` (already shrunk) for the recipe and, once it's stored, sets
- * `photo_path` to it, and `photo_credit` to `credit` (a stock photo's; a library or camera photo
- * has none), with the usual "Photo updated" change (the site photo stays, for Remove).
- * Resolves false on failure, leaving the recipe as it was and the upload `failed` for the
- * screen's toast. Never throws.
+ * Shows `shown` as uploading, gets the file to upload (`prepare`), uploads it and, once it's stored,
+ * sets `photo_path` to it and `photo_credit` to `credit`, with the usual "Photo updated" change (the
+ * site photo stays, for Remove). Resolves false on failure, leaving the recipe as it was and the
+ * upload `failed` for the screen's toast. Never throws.
  */
-export async function uploadRecipePhoto(recipeId: string, localUri: string, credit: PhotoCredit | null = null): Promise<boolean> {
+async function runUpload(
+  recipeId: string,
+  shown: string,
+  credit: PhotoCredit | null,
+  stock: StockPhoto | null,
+  prepare: () => Promise<string>,
+): Promise<boolean> {
   const key = nextKey++;
-  emit({ recipeId, localUri, credit, status: 'uploading', key });
+  emit({ recipeId, localUri: shown, credit, stock, status: 'uploading', key });
   try {
     const recipe = getRecipe(recipeId);
     if (!recipe) throw new Error('recipe gone');
+    const localUri = await prepare();
     const path = recipePhotoPath(recipe.householdId, recipeId);
     const body = await new File(localUri).arrayBuffer();
     const { error } = await supabase.storage
@@ -97,14 +118,44 @@ export async function uploadRecipePhoto(recipeId: string, localUri: string, cred
     return true;
   } catch (e) {
     console.warn('[photo] upload failed', e);
-    if (upload?.key === key) emit({ recipeId, localUri, credit, status: 'failed', key });
+    if (upload?.key === key) emit({ recipeId, localUri: shown, credit, stock, status: 'failed', key });
     return false;
   }
 }
 
-/** Try again on the failure toast: uploads the same photo (with its credit) again. */
+/**
+ * Uploads the photo at `localUri` (already shrunk) for the recipe and sets `photo_path` to it, and
+ * `photo_credit` to `credit` (a stock photo's; a library or camera photo has none). Never throws.
+ */
+export function uploadRecipePhoto(recipeId: string, localUri: string, credit: PhotoCredit | null = null): Promise<boolean> {
+  return runUpload(recipeId, localUri, credit, null, async () => localUri);
+}
+
+/**
+ * A stock photo picked in Search photos: downloads `full` to the cache directory, shrinks it for
+ * upload (`UPLOAD_PHOTO`) and uploads it as the household's own photo with the photo's credit. While
+ * it downloads, the screen shows the `thumb` the sheet already loaded. A failed download or upload
+ * leaves the recipe as it was, and Try again starts over from the download. Never throws.
+ */
+export function uploadStockPhoto(recipeId: string, photo: StockPhoto): Promise<boolean> {
+  return runUpload(recipeId, photo.thumb, stockPhotoCredit(photo), photo, async () => {
+    const downloaded = await File.downloadFileAsync(photo.full, new File(Paths.cache, `stock-${newId()}.jpg`), {
+      idempotent: true,
+    });
+    try {
+      return (await downscalePhoto(downloaded.uri, UPLOAD_PHOTO)).uri;
+    } finally {
+      // The shrunk copy is what's uploaded; the full-size download isn't needed again.
+      try {
+        downloaded.delete();
+      } catch {}
+    }
+  });
+}
+
+/** Try again on the failure toast: uploads the same photo (with its credit) again; a stock photo is downloaded again. */
 export function retryPhotoUpload(u: PhotoUpload): Promise<boolean> {
-  return uploadRecipePhoto(u.recipeId, u.localUri, u.credit);
+  return u.stock ? uploadStockPhoto(u.recipeId, u.stock) : uploadRecipePhoto(u.recipeId, u.localUri, u.credit);
 }
 
 /** Ends a failed upload's toast (dismissed, timed out, or the screen closed). Leaves one in flight alone. */

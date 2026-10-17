@@ -419,6 +419,11 @@ export const es = {
       text: 'De {{host}}',
       label: 'Receta de {{host}}',
     },
+    photoCredit: {
+      text: 'Foto: {{author}} / Pexels',
+      label: 'Foto de {{author}} en Pexels',
+      hint: 'Abre la foto en Pexels en Safari',
+    },
     method: {
       title: 'Preparación',
       tab: 'Preparación · {{count}}',

@@ -14,7 +14,9 @@ import {
   recipePhotoPath,
   resetPhotoUpload,
   retryPhotoUpload,
+  stockPhotoCredit,
   uploadRecipePhoto,
+  uploadStockPhoto,
   usePhotoUpload,
 } from '../photo-upload';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '../recipe-photos';
@@ -42,13 +44,30 @@ jest.mock('../downscale-photo', () => ({
   UPLOAD_PHOTO: { longEdge: 1600, quality: 0.8 },
   downscalePhoto: (uri: string, o: object) => mockDownscale(uri, o),
 }));
-jest.mock('expo-file-system', () => ({
-  File: class {
+// A stock photo's download: records where it went and what was deleted; `mockDownload` can fail it.
+const mockDeleted: string[] = [];
+const mockDownload = jest.fn(async (url: string, destination: { uri: string }) => {
+  void url;
+  return destination;
+});
+jest.mock('expo-file-system', () => {
+  class File {
+    uri: string;
+    constructor(...parts: (string | { uri: string })[]) {
+      this.uri = parts.map((p) => (typeof p === 'string' ? p : p.uri)).join('/');
+    }
+    static downloadFileAsync(url: string, destination: File, _options?: object) {
+      return mockDownload(url, destination);
+    }
     async arrayBuffer() {
       return new ArrayBuffer(4);
     }
-  },
-}));
+    delete() {
+      mockDeleted.push(this.uri);
+    }
+  }
+  return { File, Paths: { cache: { uri: 'file:///cache' } } };
+});
 
 const USER = 'user-1';
 const PICK_OPTIONS = { mediaTypes: 'images', allowsEditing: true, aspect: [4, 3], quality: 1 };
@@ -62,7 +81,9 @@ beforeEach(() => {
   mockPicker.camera.mockClear();
   mockPicker.permission.mockReset().mockResolvedValue({ granted: true });
   mockDownscale.mockClear();
-  warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  mockDownload.mockClear();
+  mockDeleted.length = 0;
+  warn =jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -219,5 +240,134 @@ describe("uploadRecipePhoto with a stock photo's credit (spec 4.5)", () => {
     const id = createRecipe('Bread');
     void uploadRecipePhoto(id, 'file:///small.jpg');
     expect(usePhotoUpload(id)).toMatchObject({ credit: null });
+  });
+});
+
+describe('uploadStockPhoto (spec 4.5)', () => {
+  const PHOTO = {
+    thumb: 'https://images.pexels.com/photos/123/medium.jpeg',
+    full: 'https://images.pexels.com/photos/123/large2x.jpeg',
+    author: 'Jane Doe',
+    authorUrl: 'https://www.pexels.com/@jane',
+    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+  };
+  const CREDIT: PhotoCredit = {
+    provider: 'pexels',
+    author: 'Jane Doe',
+    authorUrl: 'https://www.pexels.com/@jane',
+    pageUrl: 'https://www.pexels.com/photo/bread-123/',
+  };
+  const DOWNLOAD = /^file:\/\/\/cache\/stock-[0-9a-f-]{36}\.jpg$/;
+
+  test("stockPhotoCredit: Pexels, the photographer's name and page, and the photo's page", () => {
+    expect(stockPhotoCredit({ ...PHOTO, author: 'Ana Ruiz' })).toEqual({ ...CREDIT, author: 'Ana Ruiz' });
+  });
+
+  test('downloads full to the cache, shrinks it for upload, uploads it and sets photo_path with the credit', async () => {
+    const id = createRecipe('Bread');
+    const done = uploadStockPhoto(id, PHOTO);
+    // While it downloads, the screen shows the thumb the sheet already loaded.
+    expect(usePhotoUpload(id)).toMatchObject({ localUri: PHOTO.thumb, credit: CREDIT, stock: PHOTO, status: 'uploading' });
+
+    expect(await done).toBe(true);
+    expect(mockDownload).toHaveBeenCalledTimes(1);
+    const [url, destination] = mockDownload.mock.calls[0];
+    expect(url).toBe(PHOTO.full);
+    expect(destination.uri).toMatch(DOWNLOAD);
+    expect(mockDownscale).toHaveBeenCalledWith(destination.uri, { longEdge: 1600, quality: 0.8 });
+    // The full-size download is deleted once it's shrunk.
+    expect(mockDeleted).toEqual([destination.uri]);
+
+    const [bucket, path] = storageUploads()[0];
+    expect(bucket).toBe('recipe-photos');
+    expect(path).toMatch(new RegExp(`^${getRecipe(id)!.householdId}/${id}/[0-9a-f-]{36}\\.jpg$`));
+    expect(getRecipe(id)).toMatchObject({ photoPath: path, photoCredit: CREDIT });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: path, photo_credit: CREDIT });
+    expect(usePhotoChange(id)).toMatchObject({ previous: { photoPath: null, photoCredit: null }, removed: false });
+    expect(usePhotoUpload(id)).toBeNull();
+  });
+
+  test('each pick downloads to a new file', async () => {
+    const id = createRecipe('Bread');
+    await uploadStockPhoto(id, PHOTO);
+    await uploadStockPhoto(id, PHOTO);
+    const [first, second] = mockDownload.mock.calls.map(([, d]) => d.uri);
+    expect(first).not.toBe(second);
+  });
+
+  test('a failed download uploads nothing, leaves the recipe as it was, and Try again downloads again', async () => {
+    const id = createRecipe('Bread');
+    const before = outboxMutations().length;
+    mockDownload.mockRejectedValueOnce(new Error('UnableToDownload: 404'));
+    expect(await uploadStockPhoto(id, PHOTO)).toBe(false);
+    expect(mockDownscale).not.toHaveBeenCalled();
+    expect(storageUploads()).toHaveLength(0);
+    expect(getRecipe(id)).toMatchObject({ photoPath: null, photoCredit: null, imageUrl: null });
+    expect(outboxMutations()).toHaveLength(before);
+    expect(usePhotoChange(id)).toBeNull();
+    const failed = usePhotoUpload(id)!;
+    expect(failed).toMatchObject({ status: 'failed', localUri: PHOTO.thumb, credit: CREDIT, stock: PHOTO });
+
+    expect(await retryPhotoUpload(failed)).toBe(true);
+    expect(mockDownload).toHaveBeenCalledTimes(2);
+    expect(getRecipe(id)!.photoCredit).toEqual(CREDIT);
+    expect(usePhotoUpload(id)).toBeNull();
+  });
+
+  test('a photo that fails to shrink is still deleted, and nothing is uploaded', async () => {
+    const id = createRecipe('Bread');
+    mockDownscale.mockRejectedValueOnce(new Error('not an image'));
+    expect(await uploadStockPhoto(id, PHOTO)).toBe(false);
+    expect(mockDeleted).toHaveLength(1);
+    expect(mockDeleted[0]).toMatch(DOWNLOAD);
+    expect(storageUploads()).toHaveLength(0);
+    expect(usePhotoUpload(id)?.status).toBe('failed');
+  });
+
+  test('a failed upload after the download: Try again starts over from the download', async () => {
+    const id = createRecipe('Bread');
+    jest.mocked(supabase.storage.from).mockImplementationOnce(
+      () => ({ upload: async () => ({ data: null, error: { message: 'Network', statusCode: '500' } }) }) as never,
+    );
+    expect(await uploadStockPhoto(id, PHOTO)).toBe(false);
+    expect(getRecipe(id)!.photoPath).toBeNull();
+    expect(await retryPhotoUpload(usePhotoUpload(id)!)).toBe(true);
+    expect(mockDownload).toHaveBeenCalledTimes(2);
+    expect(storageUploads()).toHaveLength(1);
+    expect(getRecipe(id)!.photoCredit).toEqual(CREDIT);
+  });
+
+  test('a library upload has no stock photo, so Try again re-sends the same file', async () => {
+    const id = createRecipe('Bread');
+    jest.mocked(supabase.storage.from).mockImplementationOnce(
+      () => ({ upload: async () => ({ data: null, error: { message: 'Network', statusCode: '500' } }) }) as never,
+    );
+    await uploadRecipePhoto(id, 'file:///small.jpg');
+    const failed = usePhotoUpload(id)!;
+    expect(failed.stock).toBeNull();
+    expect(await retryPhotoUpload(failed)).toBe(true);
+    expect(mockDownload).not.toHaveBeenCalled();
+    expect(getRecipe(id)).toMatchObject({ photoCredit: null });
+  });
+
+  test('Undo of a stock pick over another credited photo restores the old photo and its credit', async () => {
+    const id = createRecipe('Bread');
+    const other = { ...PHOTO, author: 'Sam Lee', pageUrl: 'https://www.pexels.com/photo/rolls-9/' };
+    await uploadStockPhoto(id, other);
+    const [, firstPath] = storageUploads()[0];
+    await uploadStockPhoto(id, PHOTO);
+    expect(getRecipe(id)!.photoCredit).toEqual(CREDIT);
+
+    undoPhotoChange(usePhotoChange(id)!);
+    expect(getRecipe(id)).toMatchObject({ photoPath: firstPath, photoCredit: stockPhotoCredit(other) });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: firstPath, photo_credit: stockPhotoCredit(other) });
+  });
+
+  test('a recipe deleted before it starts: nothing downloaded or uploaded', async () => {
+    const id = createRecipe('Bread');
+    deleteRecipe(id);
+    expect(await uploadStockPhoto(id, PHOTO)).toBe(false);
+    expect(mockDownload).not.toHaveBeenCalled();
+    expect(storageUploads()).toHaveLength(0);
   });
 });

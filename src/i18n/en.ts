@@ -465,6 +465,12 @@ export const en = {
       text: 'From {{host}}',
       label: 'Recipe from {{host}}',
     },
+    /** A stock photo's credit on the recipe photo. */
+    photoCredit: {
+      text: 'Photo: {{author}} / Pexels',
+      label: 'Photo by {{author}} on Pexels',
+      hint: 'Opens the photo on Pexels in Safari',
+    },
     /** The Method card, the Steps sheet and their steps. */
     method: {
       title: 'Method',
