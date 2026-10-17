@@ -416,6 +416,9 @@ deno_version = 2
 [functions.photo-cleanup]
 verify_jwt = false
 
+[functions.send-notifications]
+verify_jwt = false
+
 [analytics]
 enabled = false
 port = 55327
