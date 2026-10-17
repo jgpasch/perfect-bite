@@ -32,6 +32,7 @@ import {
 import {
   IMPORT_ID_NAMESPACE,
   importRecipe,
+  importRecipeFromPhotos,
   recipeIdForImport,
   type ImportRecipeInput,
   type ImportRecipeSuccess,
@@ -42,6 +43,19 @@ import { addRecipeIngredient, createRecipe, updateRecipe } from '../recipes';
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/features/categories/catch-up', () => ({ startCatchUpTriggers: () => () => {} }));
+// A photo's bytes as base64: its file name, so a test can see which page went where.
+const mockBase64 = jest.fn(async (uri: string) => Buffer.from(uri).toString('base64'));
+jest.mock('expo-file-system', () => ({
+  File: class {
+    mockUri: string;
+    constructor(mockUri: string) {
+      this.mockUri = mockUri;
+    }
+    base64() {
+      return mockBase64(this.mockUri);
+    }
+  },
+}));
 
 const USER = 'user-1';
 const URL_ = 'https://www.example.com/tikka/?utm_source=pin#recipe';
@@ -1049,5 +1063,141 @@ describe('plans (spec 4.12)', () => {
     await flush();
     expect(hasFeature('recipe_import')).toBe(true);
     expect(rpcCallsFor('my_features')).toHaveLength(1);
+  });
+
+  test("a photo import's not_entitled drops recipe_import_photo, not recipe_import", async () => {
+    respondWithError(403, { error: 'not_entitled', message: 'No' });
+    respondToRpc('my_features', { data: null, error: { message: 'boom' } });
+    expect(await importRecipeFromPhotos({ listId, photoUris: ['file:///p1.jpg'] })).toEqual({ ok: false, error: 'not_entitled' });
+    await flush();
+    expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
+  });
+});
+
+describe('from photos (spec 4.10, 6.10)', () => {
+  const PAGES = ['file:///cache/page-1.jpg', 'file:///cache/page-2.jpg', 'file:///cache/page-3.jpg'];
+  const b64 = (uri: string) => Buffer.from(uri).toString('base64');
+  /** What the photo function answers: no link or photo of its own (TIKKA's are a link import's). */
+  const PHOTO_RECIPE: RecipeImportResponse = { ...TIKKA, sourceUrl: null, imageUrl: null };
+
+  beforeEach(() => {
+    mockBase64.mockClear();
+    respond(PHOTO_RECIPE);
+  });
+
+  test('sends each page as a base64 JPEG, in order, to import-recipe-photo', async () => {
+    await importRecipeFromPhotos({ listId, photoUris: PAGES });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith('import-recipe-photo', {
+      body: { images: PAGES.map((uri) => ({ mediaType: 'image/jpeg', data: b64(uri) })) },
+    });
+    expect(mockBase64.mock.calls.map(([uri]) => uri)).toEqual(PAGES);
+  });
+
+  test('creates a recipe with no link and no photo, and adds every ingredient to the list', async () => {
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    expect(result).toMatchObject({ recipeName: 'Chicken tikka masala', listId, created: true, added: 4 });
+    expect(liveRecipes()).toEqual([{ id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: null, notes: null }]);
+    expect(recipeExtras(result.recipeId)).toEqual({
+      steps: ['Marinate the chicken.', 'Grill it.', 'Simmer in the sauce.'],
+      servings: 4,
+      imageUrl: null,
+      notes: null,
+    });
+    expect(recipeTags(result.recipeId)).toMatchObject({
+      tags: { saved: [], meal: ['dinner'], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] },
+      totalMinutes: 50,
+    });
+    expect(ingredientRows(result.recipeId).map((i) => i.displayName)).toEqual([
+      'chicken thighs',
+      'garlic',
+      'kasuri methi',
+      'zqx tikka paste',
+    ]);
+    expect(rows()).toEqual(['2 lb chicken thighs', '4 clove garlic', '1 tbsp kasuri methi', 'zqx tikka paste']);
+    expect(contributionsFor(itemFor('garlic')!.id)).toEqual([{ source: 'recipe', recipeId: result.recipeId, quantity: 4, unit: 'clove' }]);
+  });
+
+  test("never keeps a link or photo the response carries, so it shows no credit", async () => {
+    respond(TIKKA);
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    expect(liveRecipes()[0].sourceUrl).toBeNull();
+    expect(recipeExtras(result.recipeId)!.imageUrl).toBeNull();
+  });
+
+  test('never reuses a recipe: the same photos twice make two', async () => {
+    const first = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    const second = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    if (!first.ok || !second.ok) throw new Error('import failed');
+    expect(second.created).toBe(true);
+    expect(second.recipeId).not.toBe(first.recipeId);
+    expect(liveRecipes()).toHaveLength(2);
+  });
+
+  test("saves the response's step match", async () => {
+    respond({ ...PHOTO_RECIPE, stepIngredients: TIKKA_MATCH });
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    const saved = db.select({ stepIngredients: recipes.stepIngredients }).from(recipes).where(eq(recipes.id, result.recipeId)).get()!;
+    expect(saved.stepIngredients?.steps.map((s) => s.length)).toEqual([2, 1, 2]);
+  });
+
+  test('an unnamed recipe is called "Recipe"', async () => {
+    respond({ ...PHOTO_RECIPE, name: '  ' });
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    expect(result).toMatchObject({ ok: true, recipeName: 'Recipe' });
+  });
+
+  test('recipe-only: saves into the household and adds nothing to a list', async () => {
+    const householdId = db.select().from(households).get()!.id;
+    const result = await importRecipeFromPhotos({ householdId, photoUris: PAGES.slice(0, 2) });
+    expect(result).toMatchObject({ ok: true, listId: null, added: 0, created: true });
+    expect(rows()).toEqual([]);
+    expect(liveRecipes().map((r) => r.name)).toEqual(['Chicken tikka masala']);
+  });
+
+  test('Undo deletes the recipe and takes the list adds back', async () => {
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES.slice(0, 1) });
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    result.undo();
+    expect(liveRecipes()).toEqual([]);
+    expect(rows()).toEqual([]);
+  });
+
+  test.each([
+    ['not_a_recipe', 422, { ok: false, error: 'not_a_recipe' }],
+    ['rate_limited', 429, { ok: false, error: 'rate_limited' }],
+    ['unavailable', 503, { ok: false, error: 'rate_limited' }],
+    ['invalid_request', 400, { ok: false, error: 'failed' }],
+  ])('%s (%i) comes back as %o and writes nothing', async (code, status, expected) => {
+    respondWithError(status, { error: code, message: 'No' });
+    const before = snapshot();
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(expected);
+    expect(snapshot()).toEqual(before);
+  });
+
+  test('offline (a network failure, no session, or no config) writes nothing', async () => {
+    const before = snapshot();
+    invoke.mockResolvedValue({ data: null, error: { name: 'FunctionsFetchError', message: 'Network request failed' } });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    setSupabaseConfigured(false);
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(snapshot()).toEqual(before);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test("a page that can't be read is offline-like and sends nothing", async () => {
+    mockBase64.mockRejectedValueOnce(new Error('gone'));
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test('no photos sends nothing', async () => {
+    expect(await importRecipeFromPhotos({ listId, photoUris: [] })).toEqual({ ok: false, error: 'failed' });
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

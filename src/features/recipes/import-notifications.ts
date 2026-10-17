@@ -54,3 +54,15 @@ export function importFailedNotification(error: ImportRecipeError, url: string):
     hint: i18n.t('notifications.importFailedHint'),
   };
 }
+
+/**
+ * A photo import's "Couldn't import recipe", with the sheet's reason for photos. Its photos are gone
+ * with the sheet, so tapping it starts again from Add recipe; one id, so a retry replaces it.
+ */
+export function photoImportFailedNotification(error: ImportRecipeError): Content {
+  return {
+    ...importFailedNotification(error, 'photo'),
+    body: importErrorMessage(error, 'photo'),
+    hint: i18n.t('notifications.photoImportFailedHint'),
+  };
+}

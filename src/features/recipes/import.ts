@@ -1,11 +1,14 @@
-// Recipe import from a link (spec 4.10, 6.6): calls the `import-recipe` Edge Function, then saves
-// the recipe and puts its ingredients on a list in one local transaction.
+// Recipe import from a link or photos (spec 4.10, 6.6, 6.10): calls the `import-recipe` (or
+// `import-recipe-photo`) Edge Function, then saves the recipe and puts its ingredients on a list in
+// one local transaction.
 import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { File } from 'expo-file-system';
 import { v5 } from 'uuid';
 
 import { db, households, lists, recipeIngredients, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
+import type { Feature } from '@/features/plans/features';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -17,6 +20,7 @@ import {
   type RecipeImportRequest,
   type RecipeImportResponse,
 } from '@/shared/schemas/recipe-import';
+import type { RecipePhotoImportRequest } from '@/shared/schemas/recipe-photo-import';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
 
@@ -61,7 +65,7 @@ export type ImportRecipeSuccess<ListId extends string | null = string | null> = 
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
  * `rate_limited`: a rate limit or the service is unavailable ("Try again in a minute").
  * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
- * `not_entitled`: the user's plan doesn't have `recipe_import` (spec 4.12).
+ * `not_entitled`: the user's plan doesn't have `recipe_import` (`recipe_import_photo` for photos, spec 4.12).
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
@@ -115,6 +119,52 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
     return { ok: false, error: 'offline' };
   }
 
+  return saveAndMatch(input, recipe, userId);
+}
+
+/** Where a photo import goes, and its photos: the pages of one recipe, in order, as JPEG files on the device. */
+export type ImportRecipePhotosInput = ImportTarget & { photoUris: readonly string[] };
+
+/**
+ * Imports the recipe in the photos (spec 4.10, 6.10): reads each downscaled JPEG as base64, sends
+ * them to `import-recipe-photo` and saves the answer as a link import does, onto the list or into
+ * the household. A photo import always creates a new recipe, with no link and no photo. The image
+ * data lives only for the call. Never throws: errors come back as a result, and an error writes nothing.
+ */
+export async function importRecipeFromPhotos(
+  input: ImportRecipePhotosInput & { listId: string },
+): Promise<ImportRecipeResult<string>>;
+export async function importRecipeFromPhotos(
+  input: ImportRecipePhotosInput & { householdId: string },
+): Promise<ImportRecipeResult<null>>;
+export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipeResult>;
+export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipeResult> {
+  if (input.photoUris.length === 0) return { ok: false, error: 'failed' };
+  if (!isSupabaseConfigured) return { ok: false, error: 'offline' };
+  let userId: string;
+  let recipe: RecipeImportResponse;
+  try {
+    const { data: auth } = await supabase.auth.getSession();
+    if (!auth.session) return { ok: false, error: 'offline' };
+    userId = auth.session.user.id;
+    const body: RecipePhotoImportRequest = {
+      images: await Promise.all(
+        input.photoUris.map(async (uri) => ({ mediaType: 'image/jpeg' as const, data: await new File(uri).base64() })),
+      ),
+    };
+    const fetched = await requestFunction('import-recipe-photo', body, 'recipe_import_photo');
+    if ('ok' in fetched) return fetched;
+    // Never a link or the site's photo, so never a reused recipe or a source credit.
+    recipe = { ...fetched, sourceUrl: null, imageUrl: null };
+  } catch (e) {
+    console.warn('import-recipe-photo failed', e);
+    return { ok: false, error: 'offline' };
+  }
+  const target: ImportTarget = input.listId ? { listId: input.listId } : { householdId: input.householdId! };
+  return saveAndMatch(target, recipe, userId);
+}
+
+function saveAndMatch(input: SaveInput, recipe: RecipeImportResponse, userId: string): ImportRecipeResult {
   try {
     const saved = save(input, recipe, userId);
     void ensureStepMatch(saved.recipeId);
@@ -126,12 +176,21 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
 }
 
 /** One call to `import-recipe`: the recipe, or the error it answered with. */
-async function requestImport(body: RecipeImportRequest): Promise<RecipeImportResponse | ImportRecipeError> {
-  const { data, error } = await supabase.functions.invoke('import-recipe', { body });
-  if (error) return await errorResult(error);
+function requestImport(body: RecipeImportRequest): Promise<RecipeImportResponse | ImportRecipeError> {
+  return requestFunction('import-recipe', body, 'recipe_import');
+}
+
+/** One call to an import function: the recipe, or the error it answered with. */
+async function requestFunction(
+  name: 'import-recipe' | 'import-recipe-photo',
+  body: RecipeImportRequest | RecipePhotoImportRequest,
+  feature: Feature,
+): Promise<RecipeImportResponse | ImportRecipeError> {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) return await errorResult(error, name, feature);
   const parsed = RecipeImportResponseSchema.safeParse(data);
   if (!parsed.success) {
-    console.warn('import-recipe: unexpected response', parsed.error);
+    console.warn(`${name}: unexpected response`, parsed.error);
     return { ok: false, error: 'failed' };
   }
   return parsed.data;
@@ -142,7 +201,7 @@ function isFetchFailed(result: RecipeImportResponse | ImportRecipeError): boolea
 }
 
 /** Maps a `functions.invoke` error to a result: a network failure is offline, an HTTP error by its code. */
-async function errorResult(error: unknown): Promise<ImportRecipeError> {
+async function errorResult(error: unknown, fn: string, feature: Feature): Promise<ImportRecipeError> {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === 'FunctionsFetchError') return { ok: false, error: 'offline' };
   const response = (error as { context?: unknown } | null)?.context as
@@ -157,8 +216,8 @@ async function errorResult(error: unknown): Promise<ImportRecipeError> {
   }
   const status = response?.status;
   if (code === 'not_entitled' || (!code && status === 403)) {
-    // The plan has no recipe import: hide its entry points now and reload the plan (spec 4.12).
-    void lostFeature('recipe_import');
+    // The plan has no recipe import (or photo import): hide its entry points now and reload the plan (spec 4.12).
+    void lostFeature(feature);
     return { ok: false, error: 'not_entitled' };
   }
   if (code === 'not_a_recipe' || (!code && status === 422)) return { ok: false, error: 'not_a_recipe' };
@@ -166,11 +225,13 @@ async function errorResult(error: unknown): Promise<ImportRecipeError> {
     return { ok: false, error: 'rate_limited' };
   }
   if (code === 'invalid_url' || code === 'fetch_failed') return { ok: false, error: 'failed', reason: code };
-  console.warn('import-recipe returned an error', error);
+  console.warn(`${fn} returned an error`, error);
   return { ok: false, error: 'failed' };
 }
 
-function save(input: ImportRecipeInput, imported: RecipeImportResponse, userId: string): ImportRecipeSuccess {
+type SaveInput = ImportTarget & { importId?: string };
+
+function save(input: SaveInput, imported: RecipeImportResponse, userId: string): ImportRecipeSuccess {
   const listId = input.listId ?? null;
   const { recipeId, recipeName, created, results } = db.transaction((tx) => {
     let householdId: string;

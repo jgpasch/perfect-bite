@@ -47,13 +47,13 @@ onLanguageChanged(() => {
   NOT_ENTITLED_MESSAGE = i18n.t('recipes.import.errors.notEntitled');
 });
 
-/** Spec 4.10's inline failure copy; the sheet stays open. */
-export function importErrorMessage(error: ImportRecipeError): string {
+/** Spec 4.10's inline failure copy, for a link or photos; the sheet stays open. */
+export function importErrorMessage(error: ImportRecipeError, from: 'link' | 'photo' = 'link'): string {
   switch (error.error) {
     case 'not_a_recipe':
-      return i18n.t('recipes.import.errors.notARecipe');
+      return i18n.t(from === 'photo' ? 'recipes.import.errors.photoNotARecipe' : 'recipes.import.errors.notARecipe');
     case 'not_entitled':
-      return NOT_ENTITLED_MESSAGE;
+      return from === 'photo' ? i18n.t('recipes.import.errors.photoNotEntitled') : NOT_ENTITLED_MESSAGE;
     case 'rate_limited':
       return i18n.t('recipes.import.errors.rateLimited');
     case 'offline':

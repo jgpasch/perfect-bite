@@ -1,6 +1,7 @@
 // The Add recipe sheet (spec 4.5): name a blank recipe or, with `recipe_import` (spec 4.12), hand a
 // link to the import sheet. Rendered against the in-memory database with navigation stubbed.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { ActionSheetIOS, Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -50,8 +51,23 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
+type Picked = { canceled: boolean; assets: { uri: string }[] };
+const mockPicker = {
+  library: jest.fn(async (_o: object): Promise<Picked> => ({ canceled: true, assets: [] })),
+  camera: jest.fn(async (_o: object): Promise<Picked> => ({ canceled: true, assets: [] })),
+  permission: jest.fn(async () => ({ granted: true })),
+};
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: (o: object) => mockPicker.library(o),
+  launchCameraAsync: (o: object) => mockPicker.camera(o),
+  requestCameraPermissionsAsync: () => mockPicker.permission(),
+}));
+jest.mock('@/features/recipes/downscale-photo', () => ({
+  downscalePhoto: async (uri: string, o: { longEdge: number }) => ({ uri: `${uri}@${o.longEdge}.jpg`, width: 0, height: 0 }),
+}));
 
 const PLUS: Feature[] = ['categorize', 'recipe_import'];
+const PHOTO: Feature[] = ['categorize', 'recipe_import', 'recipe_import_photo'];
 const STANDARD: Feature[] = ['categorize'];
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
 
@@ -260,5 +276,118 @@ describe('Import from a link', () => {
     mockParams.focus = 'link';
     const root = await render(STANDARD);
     expect(field(root, 'Recipe name').props.autoFocus).toBe(true);
+  });
+});
+
+describe('From photo… (spec 4.10)', () => {
+  const row = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'from-photo' && typeof n.props.onPress === 'function')[0];
+  let sheet: jest.SpiedFunction<typeof ActionSheetIOS.showActionSheetWithOptions>;
+  let alert: jest.SpiedFunction<typeof Alert.alert>;
+  /** Picks the action sheet's option with this title. */
+  const chooseInSheet = async (title: string) => {
+    const [options, callback] = sheet.mock.calls.at(-1) as [{ options: string[] }, (i: number) => void];
+    await act(async () => {
+      callback(options.options.indexOf(title));
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  };
+
+  beforeEach(() => {
+    sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockPicker.library.mockReset().mockResolvedValue({ canceled: true, assets: [] });
+    mockPicker.camera.mockReset().mockResolvedValue({ canceled: true, assets: [] });
+    mockPicker.permission.mockReset().mockResolvedValue({ granted: true });
+  });
+
+  afterEach(() => {
+    sheet.mockRestore();
+    alert.mockRestore();
+  });
+
+  test('hidden without recipe_import_photo', async () => {
+    const root = await render(PLUS);
+    expect(row(root)).toBeUndefined();
+    expect(texts(root)).not.toContain('From photo…');
+  });
+
+  test('with it: one button in the link card, "From photo", at least 44 pt, with its two lines', async () => {
+    const root = await render(PHOTO);
+    const button = row(root);
+    expect(button.props.accessibilityRole).toBe('button');
+    expect(button.props.accessibilityLabel).toBe('From photo');
+    expect(texts(root)).toEqual(expect.arrayContaining(['From photo…', 'A cookbook page or a screenshot']));
+    const style = [button.props.style({ pressed: false })].flat();
+    expect(Object.assign({}, ...style).minHeight).toBe(44);
+    // Under the link field, above Import.
+    const all = texts(root);
+    expect(all.indexOf('From photo…')).toBeLessThan(all.indexOf('Import'));
+  });
+
+  test('opens Take photo / Choose from library / Cancel', async () => {
+    const root = await render(PHOTO);
+    press(row(root));
+    expect(sheet).toHaveBeenCalledTimes(1);
+    expect((sheet.mock.calls[0][0] as { options: string[]; cancelButtonIndex: number })).toEqual({
+      options: ['Take photo', 'Choose from library', 'Cancel'],
+      cancelButtonIndex: 2,
+    });
+  });
+
+  test('Choose from library: up to 3 pages, downscaled to 2000, handed to the import sheet in order', async () => {
+    mockPicker.library.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///b' }, { uri: 'file:///a' }] });
+    const root = await render(PHOTO);
+    press(row(root));
+    await chooseInSheet('Choose from library');
+    expect(mockPicker.library.mock.calls[0][0]).toMatchObject({ allowsMultipleSelection: true, selectionLimit: 3 });
+    expect(mockReplace.mock.calls).toEqual([
+      [{ pathname: '/import-recipe', params: { photos: JSON.stringify(['file:///b@2000.jpg', 'file:///a@2000.jpg']) } }],
+    ]);
+    expect(allRecipes()).toEqual([]);
+  });
+
+  test('Take photo: asks for another page; Add another page then Use photos sends both', async () => {
+    mockPicker.camera
+      .mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///p1' }] })
+      .mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///p2' }] });
+    const answers = ['Add another page', 'Use photos'];
+    alert.mockImplementation((_title, _message, buttons) => {
+      const answer = answers.shift();
+      (buttons as { text: string; onPress: () => void }[]).find((b) => b.text === answer)!.onPress();
+    });
+    const root = await render(PHOTO);
+    press(row(root));
+    await chooseInSheet('Take photo');
+    expect(alert.mock.calls.map((c) => c[0])).toEqual(['Is there another page?', 'Is there another page?']);
+    expect(mockReplace.mock.calls).toEqual([
+      [{ pathname: '/import-recipe', params: { photos: JSON.stringify(['file:///p1@2000.jpg', 'file:///p2@2000.jpg']) } }],
+    ]);
+  });
+
+  test('cancelling the picker stays on the sheet', async () => {
+    const root = await render(PHOTO);
+    press(row(root));
+    await chooseInSheet('Choose from library');
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(row(root).props.disabled).toBe(false);
+  });
+
+  test('camera access refused: an alert says so and nothing is imported', async () => {
+    mockPicker.permission.mockResolvedValue({ granted: false });
+    const root = await render(PHOTO);
+    press(row(root));
+    await chooseInSheet('Take photo');
+    expect(alert.mock.calls[0][0]).toBe('Camera access is off');
+    expect(mockPicker.camera).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  test('Cancel in the action sheet does nothing', async () => {
+    const root = await render(PHOTO);
+    press(row(root));
+    await chooseInSheet('Cancel');
+    expect(mockPicker.library).not.toHaveBeenCalled();
+    expect(mockPicker.camera).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });

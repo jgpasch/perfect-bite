@@ -3,7 +3,12 @@ import { describe, expect, test } from '@jest/globals';
 import { recipeHue } from '@/domain/aisle-color';
 
 import type { ImportRecipeSuccess } from '../import';
-import { importedNotification, importFailedNotification, savedNotification } from '../import-notifications';
+import {
+  importedNotification,
+  importFailedNotification,
+  photoImportFailedNotification,
+  savedNotification,
+} from '../import-notifications';
 
 const success: ImportRecipeSuccess = {
   ok: true,
@@ -70,5 +75,33 @@ describe('importFailedNotification', () => {
     const a = importFailedNotification({ ok: false, error: 'rate_limited' }, 'https://example.com/dal');
     const b = importFailedNotification({ ok: false, error: 'offline' }, 'https://example.com/dal');
     expect(a.id).toBe(b.id);
+  });
+});
+
+describe('photoImportFailedNotification', () => {
+  test.each([
+    [{ ok: false, error: 'not_a_recipe' } as const, "That photo doesn't look like a recipe"],
+    [{ ok: false, error: 'not_entitled' } as const, "Photo import isn't in your plan"],
+    [{ ok: false, error: 'rate_limited' } as const, 'Try again in a minute'],
+    [{ ok: false, error: 'offline' } as const, "You're offline"],
+  ])("gives the photo sheet's reason for %o, and says it opens Add recipe", (error, body) => {
+    expect(photoImportFailedNotification(error)).toMatchObject({
+      id: 'recipe-import-failed-photo',
+      kind: 'recipeImport',
+      tone: 'warning',
+      hue: 'rose',
+      title: "Couldn't import recipe",
+      body,
+      hint: 'Opens Add recipe to try again',
+    });
+  });
+
+  test('one id for every photo failure, so a retry replaces it; never a link failure\'s', () => {
+    expect(photoImportFailedNotification({ ok: false, error: 'offline' }).id).toBe(
+      photoImportFailedNotification({ ok: false, error: 'not_a_recipe' }).id,
+    );
+    expect(photoImportFailedNotification({ ok: false, error: 'offline' }).id).not.toBe(
+      importFailedNotification({ ok: false, error: 'offline' }, 'https://example.com/dal').id,
+    );
   });
 });

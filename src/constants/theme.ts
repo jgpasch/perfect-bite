@@ -306,6 +306,8 @@ export const Sizes = {
   sheetIcon: 52,
   /** a recipe's photo (or tinted icon tile) at the start of its row in the Recipes tab */
   recipeTile: 48,
+  /** a page's thumbnail (its width; 3:4) in the import sheet for a photo import */
+  importPageThumb: 72,
   /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */
   removeButton: 32,
   /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */

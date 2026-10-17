@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
@@ -17,13 +18,15 @@ import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, LAST_OPENED_LIST_KEY, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { notify } from '@/features/notifications/notifications';
-import { importRecipe, type ImportRecipeSuccess } from '@/features/recipes/import';
+import { importRecipe, importRecipeFromPhotos, type ImportRecipeSuccess } from '@/features/recipes/import';
 import {
   importedNotification,
   importFailedNotification,
+  photoImportFailedNotification,
   savedNotification,
 } from '@/features/recipes/import-notifications';
 import { importErrorMessage, urlFromText } from '@/features/recipes/import-sheet';
+import { photosFromParam } from '@/features/recipes/photo-import';
 import {
   defaultListIdIn,
   householdLists,
@@ -48,10 +51,21 @@ import { useT } from '@/i18n';
  * recipe-only, the Recipes tab (or the list it came from) shows "Saved Chicken tikka masala". Closed
  * while reading, the import carries on and its result comes as an in-app notification (spec 4.11); a
  * failed one's notification reopens the sheet with the same `household`, `add`, `to` (list) and `url`.
+ * With `photos` (from Add recipe's From photo…), it imports those pages instead of a link, showing
+ * their thumbnails where the link field would be; a failed photo import's notification opens Add
+ * recipe, since the photos go with the sheet.
  */
 export default function ImportRecipeSheet() {
-  const params = useLocalSearchParams<{ list?: string; household?: string; add?: string; to?: string; url?: string }>();
+  const params = useLocalSearchParams<{
+    list?: string;
+    household?: string;
+    add?: string;
+    to?: string;
+    url?: string;
+    photos?: string;
+  }>();
   const fromList = params.list;
+  const [photos] = useState(() => photosFromParam(params.photos));
   const t = useT();
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
@@ -126,48 +140,55 @@ export default function ImportRecipeSheet() {
 
   const submit = async () => {
     if (!householdId || working) return;
-    const url = urlFromText(text);
-    if (!url) {
+    const url = photos ? null : urlFromText(text);
+    if (!photos && !url) {
       setError(importErrorMessage({ ok: false, error: 'failed', reason: 'invalid_url' }));
       return;
     }
     setError(null);
     setWorking(true);
-    const result = addToList && listId ? await importRecipe({ url, listId }) : await importRecipe({ url, householdId });
+    const target = addToList && listId ? { listId } : { householdId };
+    const result = photos
+      ? await importRecipeFromPhotos({ ...target, photoUris: photos })
+      : await importRecipe({ ...target, url: url! });
     if (!result.ok) {
       if (open.current) {
         setWorking(false);
-        setError(importErrorMessage(result));
+        setError(importErrorMessage(result, photos ? 'photo' : 'link'));
+      } else if (photos) {
+        notify({ ...photoImportFailedNotification(result), onPress: () => router.push('/add-recipe') });
       } else {
         // Reopens with the same choices: household, switch, list and link.
-        const retry = { household: householdId, add: addToList ? '1' : '0', ...(addToList && listId ? { to: listId } : {}), url };
+        const link = url!;
+        const retry = { household: householdId, add: addToList ? '1' : '0', ...(addToList && listId ? { to: listId } : {}), url: link };
         notify({
-          ...importFailedNotification(result, url),
+          ...importFailedNotification(result, link),
           onPress: () => router.push({ pathname: '/import-recipe', params: retry }),
         });
       }
       return;
     }
-    if (result.listId === null) {
+    const addedTo = result.listId;
+    if (addedTo === null) {
       savedRecipeOnly(result);
       return;
     }
     const added = {
       kind: 'imported',
-      listId: result.listId,
+      listId: addedTo,
       recipeId: result.recipeId,
       recipeName: result.recipeName,
       count: result.added,
       undo: result.undo,
     } as const;
     if (!open.current) {
-      const name = choices.lists.find((l) => l.id === result.listId)?.name ?? t('recipes.import.yourList');
+      const name = choices.lists.find((l) => l.id === addedTo)?.name ?? t('recipes.import.yourList');
       notify({
         ...importedNotification(result, name),
         // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
         onPress: () => {
           setRecipeAddResult(added);
-          openList(result.listId);
+          openList(addedTo);
         },
       });
       return;
@@ -175,7 +196,7 @@ export default function ImportRecipeSheet() {
     setRecipeAddResult(added);
     router.back();
     // From that list's menu, the list is underneath already.
-    if (result.listId !== fromList) openList(result.listId);
+    if (addedTo !== fromList) openList(addedTo);
   };
 
   if (!householdId) return <Screen />;
@@ -191,7 +212,7 @@ export default function ImportRecipeSheet() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
         <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-          {t('recipes.import.title')}
+          {t(photos ? 'recipes.import.photoTitle' : 'recipes.import.title')}
         </ThemedText>
 
         {choices.households.length > 1 ? (
@@ -246,26 +267,30 @@ export default function ImportRecipeSheet() {
           </View>
         ) : null}
 
-        <Label>{t('recipes.import.link')}</Label>
-        <Card>
-          <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
-            <TextField
-              value={text}
-              onChangeText={(value) => (setText(value), setError(null))}
-              placeholder={t('recipes.add.linkPlaceholder')}
-              accessibilityLabel={t('recipes.add.link')}
-              keyboardType="url"
-              textContentType="URL"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="go"
-              editable={!working}
-              onSubmitEditing={submit}
-              style={[styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }]}
-            />
-            <Button label={t('recipes.add.paste')} variant="plain" disabled={working} onPress={paste} />
-          </View>
-        </Card>
+        <Label>{t(photos ? 'recipes.import.pages' : 'recipes.import.link')}</Label>
+        {photos ? (
+          <PageThumbnails uris={photos} />
+        ) : (
+          <Card>
+            <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
+              <TextField
+                value={text}
+                onChangeText={(value) => (setText(value), setError(null))}
+                placeholder={t('recipes.add.linkPlaceholder')}
+                accessibilityLabel={t('recipes.add.link')}
+                keyboardType="url"
+                textContentType="URL"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                editable={!working}
+                onSubmitEditing={submit}
+                style={[styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }]}
+              />
+              <Button label={t('recipes.add.paste')} variant="plain" disabled={working} onPress={paste} />
+            </View>
+          </Card>
+        )}
 
         {working ? (
           <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
@@ -293,8 +318,8 @@ export default function ImportRecipeSheet() {
         }}>
         <PrimaryButton
           label={working ? t('recipes.import.reading') : saveButtonTitle(addToList, listName)}
-          icon={working ? undefined : 'link'}
-          disabled={working || text.trim() === ''}
+          icon={working ? undefined : photos ? 'camera' : 'link'}
+          disabled={working || (!photos && text.trim() === '')}
           onPress={submit}
         />
       </View>
@@ -311,8 +336,33 @@ function Label({ children }: { children: string }) {
   );
 }
 
+/** The pages to import, in order, as 3:4 thumbnails. VoiceOver: "Page 1 of 2". */
+function PageThumbnails({ uris }: { uris: string[] }) {
+  const t = useT();
+  const { colors, spacing, sizes, rounded } = useTheme();
+  return (
+    <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+      {uris.map((uri, i) => (
+        <View
+          key={uri}
+          testID="import-page"
+          accessible
+          accessibilityRole="image"
+          accessibilityLabel={t('recipes.import.page', { index: i + 1, count: uris.length })}
+          style={[
+            styles.page,
+            { width: sizes.importPageThumb, borderRadius: rounded.md, backgroundColor: colors.surfaceMuted },
+          ]}>
+          <Image source={uri} contentFit="cover" accessible={false} style={StyleSheet.absoluteFill} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  page: { aspectRatio: 3 / 4, overflow: 'hidden', borderCurve: 'continuous' },
   row: { flexDirection: 'row', alignItems: 'center' },
   wrap: { flexWrap: 'wrap' },
 });

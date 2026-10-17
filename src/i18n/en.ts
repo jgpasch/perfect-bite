@@ -598,10 +598,22 @@ export const en = {
       linkPlaceholder: 'https://',
       paste: 'Paste',
       import: 'Import',
+      /** The From photo… row (spec 4.10), with `recipe_import_photo`. */
+      fromPhoto: 'From photo…',
+      fromPhotoLabel: 'From photo',
+      fromPhotoDetail: 'A cookbook page or a screenshot',
+      takePhoto: 'Take photo',
+      chooseFromLibrary: 'Choose from library',
+      anotherPage: 'Is there another page?',
+      addAnotherPage: 'Add another page',
+      usePhotos: 'Use photos',
     },
-    /** The Add recipe from link sheet (spec 4.10). */
+    /** The Add recipe from link (or photo) sheet (spec 4.10). */
     import: {
       title: 'Add recipe from link',
+      photoTitle: 'Add recipe from photo',
+      pages: 'Pages',
+      page: 'Page {{index}} of {{count}}',
       saveTo: 'Save to',
       alsoAdd: 'Also add ingredients to a list',
       alsoAddHint: "Adds the recipe's ingredients to the chosen list",
@@ -619,6 +631,8 @@ export const en = {
       errors: {
         notARecipe: "That page doesn't look like a recipe",
         notEntitled: "Recipe import isn't included in your plan.",
+        photoNotARecipe: "That photo doesn't look like a recipe",
+        photoNotEntitled: "Photo import isn't in your plan",
         rateLimited: 'Try again in a minute',
         offline: "You're offline",
         blocked: 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.',
@@ -1092,6 +1106,7 @@ export const en = {
     opensRecipe: 'Opens the recipe',
     importFailed: "Couldn't import recipe",
     importFailedHint: 'Opens the link again to try once more',
+    photoImportFailedHint: 'Opens Add recipe to try again',
   },
   /** Errors the app's own checks raise and the screens show. */
   errors: {

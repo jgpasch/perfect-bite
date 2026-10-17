@@ -32,7 +32,8 @@ import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
 import { emptyRecipeTags } from '@/shared/recipe-tags';
 
-import type { ImportRecipeInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
+import type { ImportRecipeInput, ImportRecipePhotosInput, ImportRecipeResult, ImportRecipeSuccess } from '../import';
+import { photosParam } from '../photo-import';
 import { ImportsCard } from '../imports-card';
 import { getRecipeFilters, setRecipeFilters } from '../recipe-filter-store';
 import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
@@ -94,9 +95,11 @@ jest.mock('@/db/live-query', () => ({
 jest.mock('@/features/categories/categorization', () => ({ categorizePending: () => Promise.resolve() }));
 
 const mockImport = jest.fn<(input: ImportRecipeInput) => Promise<ImportRecipeResult>>();
+const mockPhotoImport = jest.fn<(input: ImportRecipePhotosInput) => Promise<ImportRecipeResult>>();
 jest.mock('@/features/recipes/import', () => ({
   ...(jest.requireActual('@/features/recipes/import') as object),
   importRecipe: (input: ImportRecipeInput) => mockImport(input),
+  importRecipeFromPhotos: (input: ImportRecipePhotosInput) => mockPhotoImport(input),
 }));
 const mockClipboard = jest.fn<() => Promise<string>>();
 jest.mock('expo-clipboard', () => ({ getStringAsync: () => mockClipboard() }));
@@ -172,6 +175,7 @@ beforeEach(() => {
   for (const k of Object.keys(mockParams)) delete mockParams[k];
   for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink, mockCloseCard]) fn.mockClear();
   mockImport.mockReset();
+  mockPhotoImport.mockReset();
   mockClipboard.mockReset();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   setFeatures(['categorize', 'recipe_import']);
@@ -626,6 +630,125 @@ describe('ImportRecipeSheet', () => {
     const root = render(<ImportRecipeSheet />);
     act(() => byType(root, 'ToolbarButton').find((n) => n.props.children === 'Cancel')!.props.onPress());
     expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  describe('with photos (spec 4.10)', () => {
+    const PAGES = ['file:///cache/page-1.jpg', 'file:///cache/page-2.jpg'];
+    const pages = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'import-page' && typeof n.type === 'string');
+
+    beforeEach(() => {
+      mockParams.photos = photosParam(PAGES);
+    });
+
+    test('the pages as thumbnails in order, in place of the link field; Save is ready at once', () => {
+      const root = render(<ImportRecipeSheet />);
+      expect(texts(root)).toEqual(expect.arrayContaining(['Add recipe from photo', 'Pages']));
+      expect(texts(root)).not.toContain('Add recipe from link');
+      expect(root.root.findAll((n) => String(n.type) === 'TextInput')).toEqual([]);
+      expect(byLabel(root, 'Paste')).toBeUndefined();
+      expect(pages(root).map((n) => n.props.accessibilityLabel)).toEqual(['Page 1 of 2', 'Page 2 of 2']);
+      expect(byType(root, 'ExpoImage').map((n) => n.props.source)).toEqual(PAGES);
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+      expect(byLabel(root, 'Save recipe').props.icon).toBe('camera');
+    });
+
+    test('a photos param that is not one to three pages falls back to the link sheet', () => {
+      mockParams.photos = photosParam(['a', 'b', 'c', 'd']);
+      const root = render(<ImportRecipeSheet />);
+      expect(texts(root)).toContain('Add recipe from link');
+      expect(pages(root)).toEqual([]);
+    });
+
+    test('switch on: imports the photos onto the list, then closes and opens the list with its toast', async () => {
+      const result = success();
+      mockPhotoImport.mockResolvedValue(result);
+      const root = render(<ImportRecipeSheet />);
+      setSwitch(root, true);
+      press(byLabel(root, listName(groceries)));
+      await pressAsync(byLabel(root, `Save & add to ${listName(groceries)}`));
+      expect(mockPhotoImport).toHaveBeenCalledWith({ listId: groceries, photoUris: PAGES });
+      expect(mockImport).not.toHaveBeenCalled();
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/lists');
+      expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala', count: 12, undo: result.undo });
+    });
+
+    test('switch off: recipe-only into the household, toast on the Recipes tab', async () => {
+      mockPhotoImport.mockResolvedValue(success({ listId: null, added: 0 }));
+      const root = render(<ImportRecipeSheet />);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(mockPhotoImport).toHaveBeenCalledWith({ householdId: personal(), photoUris: PAGES });
+      expect(takeSavedRecipeResult()).toMatchObject({ recipeId: 'recipe-1', created: true });
+    });
+
+    test('while reading: "Reading recipe…" and "You can close this…"', () => {
+      mockPhotoImport.mockReturnValue(deferred<ImportRecipeResult>().promise);
+      const root = render(<ImportRecipeSheet />);
+      act(() => {
+        void byLabel(root, 'Save recipe').props.onPress();
+      });
+      expect(byLabel(root, 'Reading recipe…').props.disabled).toBe(true);
+      expect(texts(root)).toContain("You can close this. We'll let you know when it's ready.");
+    });
+
+    test.each([
+      [{ ok: false, error: 'not_a_recipe' } as const, "That photo doesn't look like a recipe"],
+      [{ ok: false, error: 'rate_limited' } as const, 'Try again in a minute'],
+      [{ ok: false, error: 'not_entitled' } as const, "Photo import isn't in your plan"],
+      [{ ok: false, error: 'offline' } as const, "You're offline"],
+    ])('a failed photo import keeps the sheet open with its reason (%o)', async (result, message) => {
+      mockPhotoImport.mockResolvedValue(result);
+      const root = render(<ImportRecipeSheet />);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(texts(root)).toContain(message);
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+      expect(pages(root)).toHaveLength(2);
+      expect(mockBack).not.toHaveBeenCalled();
+      expect(mockNotify).not.toHaveBeenCalled();
+    });
+
+    test('closed while reading, success comes as the "Recipe added" notification', async () => {
+      const pending = deferred<ImportRecipeResult>();
+      mockPhotoImport.mockReturnValue(pending.promise);
+      const root = render(<ImportRecipeSheet />);
+      setSwitch(root, true);
+      press(byLabel(root, listName(groceries)));
+      act(() => {
+        void byLabel(root, `Save & add to ${listName(groceries)}`).props.onPress();
+      });
+      act(() => root.unmount());
+      tree = null;
+      await act(async () => pending.resolve(success()));
+      expect(mockBack).not.toHaveBeenCalled();
+      const notification = mockNotify.mock.calls[0][0] as { title: string; body: string; onPress: () => void };
+      expect(notification.title).toBe('Recipe added');
+      expect(notification.body).toBe(`Added Chicken tikka masala · 12 items to ${listName(groceries)}`);
+      notification.onPress();
+      expect(mockNavigate).toHaveBeenCalledWith('/lists');
+      expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala' });
+    });
+
+    test('closed while reading, a failure says why for a photo and opens Add recipe', async () => {
+      const pending = deferred<ImportRecipeResult>();
+      mockPhotoImport.mockReturnValue(pending.promise);
+      const root = render(<ImportRecipeSheet />);
+      act(() => {
+        void byLabel(root, 'Save recipe').props.onPress();
+      });
+      act(() => root.unmount());
+      tree = null;
+      await act(async () => pending.resolve({ ok: false, error: 'not_a_recipe' }));
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      const notification = mockNotify.mock.calls[0][0] as { id: string; title: string; body: string; hint: string; onPress: () => void };
+      expect(notification).toMatchObject({
+        id: 'recipe-import-failed-photo',
+        title: "Couldn't import recipe",
+        body: "That photo doesn't look like a recipe",
+        hint: 'Opens Add recipe to try again',
+      });
+      notification.onPress();
+      expect(mockPush).toHaveBeenCalledWith('/add-recipe');
+    });
   });
 });
 
