@@ -19,7 +19,6 @@ import {
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
-import { memberHue } from '@/domain/aisle-color';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
@@ -1861,10 +1860,28 @@ describe('since you looked (spec 4.1)', () => {
   }
   /** Lets the visit's one news read settle. */
   const settle = () => act(async () => {});
+  // The card had a Dismiss action; nothing on the screen does now.
   const cards = () =>
     tree!.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityActions?.[0]?.name === 'dismiss');
-  const newRows = () => rows().filter((r) => r.props.news !== undefined).map((r) => r.props.item.displayName as string);
+  const newRows = () => rows().filter((r) => r.props.isNew).map((r) => r.props.item.displayName as string);
   const lookedAgo = (minutes: number) => markListSeen(listId, new Date(Date.now() - minutes * 60_000));
+  /** A row's view as the list measures it, `y` down the window, 50 pt tall. */
+  const at = (y: number) => {
+    const node = { y, measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => cb(0, node.y, 390, 50) };
+    return node;
+  };
+  /** The row's view, put where the list will find it, then laid out. */
+  const place = (name: string, node: ReturnType<typeof at>) => {
+    act(() => row(name).props.newRef(node));
+    act(() => row(name).props.onNewLayout());
+  };
+  const scroll = (y: number) => act(() => tree!.root.findByType(FlatList).props.onScroll({ nativeEvent: { contentOffset: { y } } }));
+  /** The screen with its list 600 pt tall, 100 pt down the window. */
+  function renderMeasured() {
+    render();
+    const viewport = tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'list-viewport');
+    viewport.instance.measureInWindow = (cb: (x: number, y: number, w: number, h: number) => void) => cb(0, 100, 390, 600);
+  }
 
   beforeEach(() => {
     const householdId = getList(listId)!.householdId;
@@ -1878,7 +1895,7 @@ describe('since you looked (spec 4.1)', () => {
     lookedAgo(120);
   });
 
-  test('a card above the first section and NEW rows, in every view mode', async () => {
+  test('no card, and NEW rows with no name line, in every view mode', async () => {
     put('bread');
     addAs('eggs', ALEX, 60);
     addAs('limes', ALEX, 50);
@@ -1888,16 +1905,16 @@ describe('since you looked (spec 4.1)', () => {
       setDeviceSetting(viewModeKey(listId), mode);
       render();
       await settle();
-      expect(cards()).toHaveLength(1);
-      expect(text()).toContain('Alex added 4 items');
-      expect(text()).toContain('Since you looked, today at');
-      expect(text()).toContain('Milk, corn tortillas, limes and 1 more');
-      expect(cards()[0].props.accessibilityLabel).toMatch(
-        /^Alex added 4 items since today, .+: milk, corn tortillas, limes and 1 more$/,
-      );
+      expect(cards()).toHaveLength(0);
+      expect(text()).not.toContain('Alex added');
+      expect(text()).not.toContain('Since you looked');
       // My own add isn't news.
       expect(newRows().sort()).toEqual(['corn tortillas', 'eggs', 'limes', 'milk']);
-      expect(row('eggs').props.news).toEqual({ line: 'Alex · today', label: 'new, added by Alex' });
+      expect(row('bread').props.isNew).toBe(false);
+      // The row's second line is only its own: nothing says who or when.
+      expect(row('eggs').props.hint).toBeUndefined();
+      expect(row('eggs').props).not.toHaveProperty('news');
+      expect(text()).not.toContain('Alex · today');
       // Closing the screen moves the marker; put it back for the next mode.
       act(() => tree!.unmount());
       tree = null;
@@ -1911,76 +1928,81 @@ describe('since you looked (spec 4.1)', () => {
     addAs('bread', SAM, 50);
     render();
     await settle();
-    // Most items first, then the most recent.
-    expect(text()).toContain('Sam and Alex added 2 items');
-    expect(all('View').filter((n) => typeof n.props.testID === 'string' && n.props.testID.startsWith('news-avatar-')).map((n) => n.props.testID)).toEqual([
-      `news-avatar-${SAM}`,
-      `news-avatar-${ALEX}`,
-    ]);
-    expect(row('bread').props.news).toEqual({ line: 'Sam · 50 min ago', label: 'new, added by Sam' });
+    expect(newRows().sort()).toEqual(['bread', 'eggs']);
+    expect(all('View').filter((n) => typeof n.props.testID === 'string' && n.props.testID.startsWith('news-avatar-'))).toHaveLength(0);
   });
 
-  test('the card and badges are frozen for the visit: a live add gets neither', async () => {
+  test('what was new on open stays so for the visit; a live add is NEW as an arrival', async () => {
     addAs('eggs', ALEX, 60);
     render();
     await settle();
-    expect(text()).toContain('Alex added 1 item');
+    expect(newRows()).toEqual(['eggs']);
     addAs('limes', ALEX, 0);
     refresh();
     await settle();
-    expect(text()).toContain('Alex added 1 item');
-    expect(text()).not.toContain('Alex added 2 items');
-    expect(newRows()).toEqual(['eggs']);
-  });
-
-  test('✕ hides the card for this visit; the rows stay NEW', async () => {
-    addAs('eggs', ALEX, 60);
-    render();
-    await settle();
-    press(pressable('Dismiss'));
-    expect(cards()).toHaveLength(0);
-    expect(newRows()).toEqual(['eggs']);
-  });
-
-  test("VoiceOver's Dismiss action does the same", async () => {
-    addAs('eggs', ALEX, 60);
-    render();
-    await settle();
-    act(() => cards()[0].props.onAccessibilityAction({ nativeEvent: { actionName: 'dismiss' } }));
+    expect(newRows().sort()).toEqual(['eggs', 'limes']);
     expect(cards()).toHaveLength(0);
   });
 
-  test('leaving clears the card and badges; coming back shows only what came since', async () => {
+  test("a badge goes 10 s after its row is first in sight; one below keeps its badge until it's scrolled to", async () => {
+    setDeviceSetting(viewModeKey(listId), 'newest');
+    addAs('eggs', ALEX, 60);
+    addAs('limes', ALEX, 50);
+    renderMeasured();
+    await settle();
+    expect(newRows().sort()).toEqual(['eggs', 'limes']);
+    const limes = at(900);
+    place('eggs', at(300));
+    place('limes', limes);
+    // Loading isn't seeing: limes is below the list's frame.
+    act(() => void jest.advanceTimersByTime(9_999));
+    expect(newRows().sort()).toEqual(['eggs', 'limes']);
+    act(() => void jest.advanceTimersByTime(1));
+    expect(newRows()).toEqual(['limes']);
+    expect(row('eggs').props.isNew).toBe(false);
+    // Long after, limes comes into sight: its own 10 s start then.
+    act(() => void jest.advanceTimersByTime(60_000));
+    expect(newRows()).toEqual(['limes']);
+    limes.y = 400;
+    scroll(500);
+    act(() => void jest.advanceTimersByTime(9_999));
+    expect(newRows()).toEqual(['limes']);
+    act(() => void jest.advanceTimersByTime(1));
+    expect(newRows()).toEqual([]);
+    // It doesn't come back during the visit.
+    scroll(0);
+    refresh();
+    expect(newRows()).toEqual([]);
+  });
+
+  test("a row the list hasn't drawn (a folded section, or far off) isn't in sight: its clock waits", async () => {
+    addAs('limes', ALEX, 60);
+    renderMeasured();
+    await settle();
+    scroll(10);
+    act(() => void jest.advanceTimersByTime(30_000));
+    expect(newRows()).toEqual(['limes']);
+    // Drawn, in sight, then gone from the list's views again (folded): the clock it started runs on.
+    place('limes', at(300));
+    act(() => row('limes').props.newRef(null));
+    act(() => void jest.advanceTimersByTime(10_000));
+    expect(newRows()).toEqual([]);
+  });
+
+  test('leaving clears the badges, even one not yet faded; coming back shows only what came since', async () => {
     addAs('eggs', ALEX, 60);
     render();
     await settle();
     expect(newRows()).toEqual(['eggs']);
     mockPath.current = '/recipes';
     refresh();
-    expect(cards()).toHaveLength(0);
     expect(newRows()).toEqual([]);
     jest.setSystemTime(Date.now() + 10 * 60_000);
     addAs('limes', SAM, 0);
     mockPath.current = '/lists';
     refresh();
     await settle();
-    expect(text()).toContain('Sam added 1 item');
     expect(newRows()).toEqual(['limes']);
-  });
-
-  test('a dismissed card stays gone only for that visit', async () => {
-    addAs('eggs', ALEX, 60);
-    render();
-    await settle();
-    press(pressable('Dismiss'));
-    mockPath.current = '/recipes';
-    refresh();
-    addAs('limes', SAM, -1);
-    mockPath.current = '/lists';
-    refresh();
-    await settle();
-    expect(cards()).toHaveLength(1);
-    expect(text()).toContain('Sam added 1 item');
   });
 
   test('a list with no marker shows nothing, and is marked', async () => {
@@ -1988,7 +2010,6 @@ describe('since you looked (spec 4.1)', () => {
     addAs('eggs', ALEX, 60);
     render();
     await settle();
-    expect(cards()).toHaveLength(0);
     expect(newRows()).toEqual([]);
     expect(getListSeenAt(listId)).not.toBeNull();
   });
@@ -2028,9 +2049,9 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     }
     return result;
   }
-  const cued = () => rows().filter((r) => r.props.arrival !== undefined).map((r) => r.props.item.displayName as string);
+  // An arrival's row is NEW; it grows in if it wasn't on the list to get.
+  const cued = () => rows().filter((r) => r.props.isNew).map((r) => r.props.item.displayName as string);
   const list = () => tree!.root.findByType(FlatList);
-  const pill = () => tree!.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityHint === 'Scrolls to the new items' && 'onPress' in n.props);
   /** A row's view as the list measures it, `y` down the window, 50 pt tall. */
   const at = (y: number) => {
     const node = { y, measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => cb(0, node.y, 390, 50) };
@@ -2038,10 +2059,17 @@ describe('a row that arrives while you look (spec 4.1)', () => {
   };
   /** The row's view, put where the list will find it, then laid out. */
   const place = (name: string, node: ReturnType<typeof at>) => {
-    act(() => row(name).props.arrivalRef(node));
-    act(() => row(name).props.onArrivalLayout());
+    act(() => row(name).props.newRef(node));
+    act(() => row(name).props.onNewLayout());
   };
   const scroll = (y: number) => act(() => list().props.onScroll({ nativeEvent: { contentOffset: { y } } }));
+  // What the pill and name tag left behind, if anything did.
+  const leftovers = () =>
+    tree!.root.findAll(
+      (n) =>
+        typeof n.type === 'string' &&
+        (n.props.testID === 'arrival-tag' || n.props.testID === 'arrival-flash' || /\d+ new\b/.test(String(n.props.accessibilityLabel ?? ''))),
+    );
   /** The screen with its list 600 pt tall, 100 pt down the window. */
   function renderMeasured() {
     render();
@@ -2060,26 +2088,40 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     }
   });
 
-  test("another member's new item grows in, flashes and wears their name tag; what was there doesn't", () => {
+  test("another member's new item grows in with a NEW badge and no name tag; what was there doesn't", () => {
     put('bread');
     render();
     expect(cued()).toEqual([]);
-    const limes = addAs('limes', ALEX);
+    addAs('limes', ALEX);
     refresh();
     expect(cued()).toEqual(['limes']);
-    expect(row('limes').props.arrival).toEqual({ key: limes.contributionId, grow: true });
-    expect(row('limes').props.tag).toEqual({ name: 'Alex', initial: 'A', hue: memberHue(ALEX) });
-    expect(row('bread').props.tag).toBeUndefined();
+    expect(row('limes').props.grow).toBe(true);
+    expect(row('limes').props).not.toHaveProperty('tag');
+    expect(row('limes').props).not.toHaveProperty('arrival');
+    expect(row('bread').props.isNew).toBe(false);
+    expect(row('bread').props.grow).toBeUndefined();
+    expect(text()).not.toContain('Alex');
+    expect(leftovers()).toHaveLength(0);
   });
 
-  test("another member's Combine into an item flashes it and tags it, without growing", () => {
+  test("another member's Combine into an item makes it NEW, without growing", () => {
     put('milk');
     render();
     const more = addAs('2 milk', SAM);
     expect(more.kind).toBe('combine');
     refresh();
-    expect(row('milk').props.arrival).toEqual({ key: more.contributionId, grow: false });
-    expect(row('milk').props.tag).toMatchObject({ name: 'Sam' });
+    expect(row('milk').props.isNew).toBe(true);
+    expect(row('milk').props.grow).toBe(false);
+  });
+
+  test('my own add that merges keeps its merge tint; an arrival gets none', () => {
+    put('limes');
+    render();
+    add('limes');
+    expect(row('limes').props.tint).toBeDefined();
+    addAs('eggs', ALEX);
+    refresh();
+    expect(row('eggs').props.tint).toBeUndefined();
   });
 
   test('my own adds never get it, from the add bar or another of my devices', () => {
@@ -2111,18 +2153,20 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     }
   });
 
-  test('scrolling the list takes the tag off; the flash stays for the visit', () => {
-    render();
+  test("an arrival's badge goes 10 s after it's in sight; a drag doesn't touch it", () => {
+    renderMeasured();
     addAs('limes', ALEX);
     refresh();
-    act(() => list().props.onScrollBeginDrag());
-    expect(row('limes').props.tag).toBeUndefined();
-    expect(row('limes').props.arrival).toBeDefined();
-    // A later arrival gets its own tag.
-    addAs('eggs', SAM);
+    expect(list().props.onScrollBeginDrag).toBeUndefined();
+    place('limes', at(300));
+    act(() => void jest.advanceTimersByTime(9_999));
+    expect(cued()).toEqual(['limes']);
+    act(() => void jest.advanceTimersByTime(1));
+    expect(cued()).toEqual([]);
+    // Another add to it during the visit doesn't bring the badge back.
+    addAs('2 limes', SAM);
     refresh();
-    expect(row('eggs').props.tag).toMatchObject({ name: 'Sam' });
-    expect(row('limes').props.tag).toBeUndefined();
+    expect(cued()).toEqual([]);
   });
 
   test('leaving the list ends it, and what came while away gets none on return', () => {
@@ -2164,72 +2208,34 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     act(() => row('limes').props.onToggle());
     jest.advanceTimersByTime(5000);
     refresh();
-    expect(row('limes').props.arrival).toBeUndefined();
-    expect(row('limes').props.tag).toBeUndefined();
+    expect(row('limes').props.isNew).toBe(false);
+    expect(row('limes').props.grow).toBeUndefined();
   });
 
-  test('rows that land out of sight: the pill counts them, scrolls to the first, and goes once they are seen', () => {
+  test('rows that land out of sight: no pill, no scrolling; each keeps its badge until it is scrolled into sight', () => {
     const scrollTo = jest.spyOn(FlatList.prototype, 'scrollToOffset').mockImplementation(() => {});
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
     setDeviceSetting(viewModeKey(listId), 'newest');
     renderMeasured();
-    addAs('limes', ALEX);
-    refresh();
-    place('limes', at(900));
-    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['1 new from Alex']);
-    addAs('eggs', ALEX);
-    refresh();
-    place('eggs', at(1000));
-    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['2 new from Alex']);
     const corn = at(1100);
+    addAs('limes', ALEX);
+    addAs('eggs', ALEX);
     addAs('corn', SAM);
     refresh();
-    place('corn', corn);
-    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['3 new']);
-    expect(text()).toContain('3 new');
-    // As added puts the latest first: corn. Centred in the list: 1100 - 100 - (600 - 50) / 2.
-    press(pill()[0]);
-    expect(scrollTo).toHaveBeenCalledWith({ offset: 725, animated: true });
-    // Corn comes into sight as the list scrolls.
-    corn.y = 400;
-    scroll(725);
-    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['2 new from Alex']);
-    // Then the other two.
-    act(() => row('eggs').props.arrivalRef(at(500)));
-    act(() => row('limes').props.arrivalRef(at(600)));
-    scroll(900);
-    expect(pill()).toHaveLength(0);
-    // The tags stay: the list scrolled itself.
-    expect(row('corn').props.tag).toMatchObject({ name: 'Sam' });
-  });
-
-  test('a row that lands in sight puts nothing in the pill', () => {
-    renderMeasured();
-    addAs('limes', ALEX);
-    refresh();
     place('limes', at(300));
-    expect(pill()).toHaveLength(0);
-    // Seen once is enough: scrolling it away doesn't bring it back.
-    row('limes').props.arrivalRef(at(2000));
-    scroll(500);
-    expect(pill()).toHaveLength(0);
-  });
-
-  test('an arrival in a folded section: the pill opens the section and scrolls to it', () => {
-    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
-    setDeviceSetting(viewModeKey(listId), 'category');
-    put('bread');
-    put('banana');
-    renderMeasured();
-    act(() => section('Produce').props.onToggle());
-    expect(section('Produce').props.collapsed).toBe(true);
-    addAs('limes', ALEX);
-    refresh();
-    expect(section('Produce').props.collapsed).toBe(true);
-    expect(pill().map((p) => p.props.accessibilityLabel)).toEqual(['1 new from Alex']);
-    press(pill()[0]);
-    expect(section('Produce').props.collapsed).toBe(false);
-    const index = all('FoldingSection').findIndex((s) => s.props.title === 'Produce');
-    expect(scrollToIndex).toHaveBeenCalledWith({ index, animated: true, viewPosition: 0.5 });
+    place('eggs', at(1000));
+    place('corn', corn);
+    expect(leftovers()).toHaveLength(0);
+    expect(text()).not.toContain('3 new');
+    expect(text()).not.toContain('new from');
+    act(() => void jest.advanceTimersByTime(10_000));
+    expect(cued().sort()).toEqual(['corn', 'eggs']);
+    corn.y = 400;
+    scroll(700);
+    act(() => void jest.advanceTimersByTime(10_000));
+    expect(cued()).toEqual(['eggs']);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scrollToIndex).not.toHaveBeenCalled();
   });
 
   test("VoiceOver hears who added what, at most once every 5 s, grouped; no haptic", () => {

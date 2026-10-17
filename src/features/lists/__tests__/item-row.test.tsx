@@ -6,6 +6,7 @@ import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { growIn } from '@/hooks/use-motion';
+import { initI18n } from '@/i18n';
 
 import { ItemRow } from '../item-row';
 import type { ItemView } from '../items';
@@ -15,8 +16,6 @@ jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), selectionAsync: jest.fn(), ImpactFeedbackStyle: { Light: 'light' } }));
 // Reduce Motion, as a test sets it.
 const mockMotion = { reduced: false };
-// The arrival flash's fade: the timing it was asked for.
-const mockTimings: { to: unknown; duration?: number }[] = [];
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
   const builder: object = new Proxy({}, { get: () => () => builder });
@@ -30,7 +29,7 @@ jest.mock('react-native-reanimated', () => {
     useReducedMotion: () => mockMotion.reduced,
     useSharedValue: (value: unknown) => ({ value }),
     useAnimatedStyle: (fn: () => object) => fn(),
-    withTiming: (to: unknown, config?: { duration?: number }) => (mockTimings.push({ to, duration: config?.duration }), to),
+    withTiming: (to: unknown) => to,
   };
 });
 // The swipeable as a host element, so a test can "swipe" by calling its onSwipeableOpen.
@@ -109,17 +108,28 @@ describe('ItemRow', () => {
     byLabel(tree, 'Limes, 3, ripe, Also in Tacos');
   });
 
-  test('a new row (spec 4.1): NEW after the name, who and when ahead of its second line, and VoiceOver says so', () => {
-    const tree = render({
-      item: item({ note: 'ripe' }),
-      hint: 'from Chicken tacos',
-      news: { line: 'Alex · yesterday', label: 'new, added by Alex' },
-    });
+  test('a new row (spec 4.1): NEW after the name, no name line, and VoiceOver says "new"', () => {
+    const tree = render({ item: item({ note: 'ripe' }), hint: 'from Chicken tacos', isNew: true });
     const badges = tree.root.findAll((n) => n.props.label === 'NEW' && typeof n.type !== 'string');
     expect(badges).toHaveLength(1);
     expect(badges[0].props.tone ?? 'positive').toBe('positive');
-    expect(text(tree)).toContain('Alex · yesterday · ripe · from Chicken tacos');
-    byLabel(tree, 'Limes, new, added by Alex, 3, ripe, from Chicken tacos');
+    // Its second line is only its own.
+    expect(text(tree)).toContain('"ripe · from Chicken tacos"');
+    byLabel(tree, 'Limes, new, 3, ripe, from Chicken tacos');
+    // After the name.
+    const json = text(tree);
+    expect(json.indexOf('"Limes"')).toBeLessThan(json.indexOf('"NEW"'));
+  });
+
+  test('in Spanish the badge reads NUEVO and VoiceOver "nuevo"', () => {
+    initI18n('es');
+    try {
+      const tree = render({ isNew: true });
+      expect(text(tree)).toContain('"NUEVO"');
+      byLabel(tree, 'Limes, nuevo, 3');
+    } finally {
+      initI18n('en');
+    }
   });
 
   test('a row with no news has no badge and its own second line only', () => {
@@ -294,90 +304,72 @@ describe('ItemRow', () => {
   });
 });
 
-describe('an arrival (spec 4.1)', () => {
+describe('an arrival and its NEW badge (spec 4.1)', () => {
   beforeEach(() => {
     mockMotion.reduced = false;
-    mockTimings.length = 0;
   });
 
   /** The row's outer animated view, which carries its entering animation. */
   const outer = (tree: ReactTestRenderer) => tree.root.findAll((n) => typeof n.type === 'string' && 'entering' in n.props)[0];
-  const flashes = (tree: ReactTestRenderer) => hosts(tree, (n) => n.props.testID === 'arrival-flash');
-  const tag = { name: 'Alex', initial: 'A', hue: 'blue' as const };
+  const badge = (tree: ReactTestRenderer) => hosts(tree, (n) => n.props.testID === 'new-badge');
 
   test('a new row grows into place, clipped while it opens', () => {
-    const tree = render({ arrival: { key: 'c1', grow: true } });
+    const tree = render({ grow: true, isNew: true });
     expect(outer(tree).props.entering).toBe(growIn);
     expect(StyleSheet.flatten(outer(tree).props.style)).toEqual({ overflow: 'hidden' });
   });
 
   test('under Reduce Motion it appears without growing', () => {
     mockMotion.reduced = true;
-    const tree = render({ arrival: { key: 'c1', grow: true } });
+    const tree = render({ grow: true, isNew: true });
     expect(outer(tree).props.entering).toBeDefined();
     expect(outer(tree).props.entering).not.toBe(growIn);
-    // It still flashes: a colour fading isn't motion.
-    expect(flashes(tree)).toHaveLength(1);
   });
 
   test("a Combine into a row already there doesn't grow", () => {
-    const tree = render({ arrival: { key: 'c1', grow: false } });
+    const tree = render({ grow: false, isNew: true });
     expect(outer(tree).props.entering).not.toBe(growIn);
     expect(outer(tree).props.style).toBeUndefined();
   });
 
-  test('it flashes pendingSoft over its own tint, fading out over motion.flashMs', () => {
-    const tree = render({ arrival: { key: 'c1', grow: false }, look: { tint: '#DDEFE2' } as never });
-    expect(flashes(tree)).toHaveLength(1);
-    const style = StyleSheet.flatten(flashes(tree)[0].props.style);
-    expect(style.backgroundColor).toBe('#FFF7E6');
-    expect(style.position).toBe('absolute');
-    expect(flashes(tree)[0].props.pointerEvents).toBe('none');
-    expect(mockTimings).toContainEqual({ to: 0, duration: 1200 });
-    // The row keeps its own tint under the flash.
+  test('no flash and no name tag: the row keeps its own tint, and only the badge says it is new', () => {
+    const tree = render({ grow: true, isNew: true, look: { tint: '#DDEFE2' } as never });
+    expect(hosts(tree, (n) => n.props.testID === 'arrival-flash' || n.props.testID === 'arrival-tag')).toHaveLength(0);
+    expect(hosts(tree, (n) => StyleSheet.flatten(n.props.style)?.backgroundColor === '#FFF7E6')).toHaveLength(0);
     expect(hosts(tree, (n) => StyleSheet.flatten(n.props.style)?.backgroundColor === '#DDEFE2').length).toBeGreaterThan(0);
+    expect(badge(tree)).toHaveLength(1);
+    byLabel(tree, 'Limes, new, 3');
   });
 
-  test('another add to the same row flashes again', () => {
-    const tree = render({ arrival: { key: 'c1', grow: false } });
-    mockTimings.length = 0;
-    act(() => tree.update(<ItemRow item={item()} background="#fff" {...h} arrival={{ key: 'c2', grow: false }} />));
-    expect(mockTimings).toContainEqual({ to: 0, duration: 1200 });
+  test('the badge fades out as it goes, or just goes under Reduce Motion', () => {
+    const faded = render({ isNew: true });
+    expect(badge(faded)[0].props.exiting).toBeDefined();
+    mockMotion.reduced = true;
+    const still = render({ isNew: true });
+    expect(badge(still)[0].props.exiting).toBeUndefined();
   });
 
-  test("the name tag sits before the amount: the member's avatar and name in the hue's strong", () => {
-    const tree = render({ arrival: { key: 'c1', grow: true }, tag });
-    const tags = hosts(tree, (n) => n.props.testID === 'arrival-tag');
-    expect(tags).toHaveLength(1);
-    const tagStyle = StyleSheet.flatten(tags[0].props.style);
-    expect(tagStyle.backgroundColor).toBe('#FFFFFF');
-    expect(tagStyle.borderRadius).toBe(999);
-    const texts = tags[0].findAll((n) => n.type === ('Text' as never));
-    expect(texts.map((n) => n.props.children)).toEqual(['A', 'Alex']);
-    expect(StyleSheet.flatten(texts[1].props.style).color).toBe('#2F6396');
-    const avatar = tags[0].findAll((n) => n.type === ('View' as never) && StyleSheet.flatten(n.props.style)?.width === 20);
-    expect(StyleSheet.flatten(avatar[0].props.style).backgroundColor).toBe('#2F6396');
-    // Before the amount.
-    const json = text(tree);
-    expect(json.indexOf('"Alex"')).toBeLessThan(json.indexOf('"3"'));
-    byLabel(tree, 'Limes, 3, added by Alex');
+  test('once the badge goes, VoiceOver no longer says "new"', () => {
+    const tree = render({ isNew: true });
+    act(() => tree.update(<ItemRow item={item()} background="#fff" {...h} isNew={false} />));
+    expect(badge(tree)).toHaveLength(0);
+    byLabel(tree, 'Limes, 3');
   });
 
-  test('no arrival: no flash, no tag, the usual entering', () => {
+  test('not new: no badge, the usual entering', () => {
     const tree = render();
-    expect(flashes(tree)).toHaveLength(0);
-    expect(hosts(tree, (n) => n.props.testID === 'arrival-tag')).toHaveLength(0);
+    expect(badge(tree)).toHaveLength(0);
     expect(outer(tree).props.entering).not.toBe(growIn);
   });
 
-  test("the row's view and its layouts go to the list, so it can tell whether the row is in sight", () => {
-    const arrivalRef = jest.fn();
-    const onArrivalLayout = jest.fn();
-    const tree = render({ arrival: { key: 'c1', grow: true }, arrivalRef, onArrivalLayout });
-    expect(arrivalRef).toHaveBeenCalled();
-    const laidOut = hosts(tree, (n) => n.props.onLayout === onArrivalLayout);
+  test("a new row's view and its layouts go to the list, so it can tell when the row is in sight", () => {
+    const newRef = jest.fn();
+    const onNewLayout = jest.fn();
+    const tree = render({ isNew: true, newRef, onNewLayout });
+    expect(newRef).toHaveBeenCalled();
+    const laidOut = hosts(tree, (n) => n.props.onLayout === onNewLayout);
     expect(laidOut).toHaveLength(1);
     act(() => laidOut[0].props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 50 } } }));
-    expect(onArrivalLayout).toHaveBeenCalledTimes(1);
+    expect(onNewLayout).toHaveBeenCalledTimes(1);
   });
 });

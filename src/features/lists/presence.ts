@@ -112,8 +112,22 @@ export function joinListPresence(
     if (channel && joined && !left) void channel.track({ user_id: userId, adding: value } satisfies ListPresence);
   });
 
-  const open = () => {
+  const open = (retried = false) => {
     if (left) return;
+    // Realtime hands back the channel already on a topic, and a joined one takes no new presence
+    // callbacks (it throws). One still here is left over from a leave that never closed it, so it
+    // goes first; if it won't, this list goes without presence rather than crashing.
+    const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`);
+    if (stale) {
+      if (retried) {
+        console.warn(`[presence] ${topic}: an earlier channel is still open`);
+        return;
+      }
+      void Promise.resolve(supabase.removeChannel(stale))
+        .catch(() => {})
+        .then(() => open(true));
+      return;
+    }
     const ch = supabase.channel(topic, { config: { private: true, presence: { key: userId, enabled: true } } });
     channel = ch;
     ch.on('presence', { event: 'sync' }, () => {
@@ -133,7 +147,7 @@ export function joinListPresence(
   };
 
   const previous = leaving.get(topic);
-  if (previous) void previous.then(open);
+  if (previous) void previous.then(() => open());
   else open();
 
   return {

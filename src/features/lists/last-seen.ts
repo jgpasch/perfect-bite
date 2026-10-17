@@ -1,5 +1,5 @@
 // Last seen per list (spec 4.1): when this device last had a list on screen, and what the rest of
-// the household added to it since, for the "since you looked" card.
+// the household added to it since, for the rows marked NEW.
 import { and, desc, eq, gt, isNotNull, isNull, ne } from 'drizzle-orm';
 import { useEffect, useState } from 'react';
 
@@ -37,8 +37,8 @@ export type ListVisit = { listId: string; since: Date; at: Date; news: MemberNew
  * no marker, so it's set at once and shows no news.
  *
  * Returns the current visit: `listNewsSince` the marker, read once as the list came on screen and
- * kept while it stays there (null before it's read, off screen, or with no marker), for the "since
- * you looked" card.
+ * kept while it stays there (null before it's read, off screen, or with no marker), for the rows
+ * marked NEW on open.
  */
 export function useListSeenMarker(listId: string, onScreen: boolean): ListVisit | null {
   const foreground = useForeground();

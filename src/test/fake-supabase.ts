@@ -155,6 +155,8 @@ export type ChannelBinding = {
 /** A `supabase.channel(name, opts)`: what it listens to and whether it's been removed. */
 export type FakeChannel = {
   name: string;
+  /** `realtime:<name>`, as Realtime names it. */
+  topic: string;
   /** The options it was created with, e.g. `{ config: { private: true } }`. */
   opts: Record<string, unknown> | undefined;
   bindings: ChannelBinding[];
@@ -179,6 +181,7 @@ export const realtimeChannels: FakeChannel[] = [];
 function channel(name: string, opts?: Record<string, unknown>): FakeChannel {
   const ch: FakeChannel = {
     name,
+    topic: `realtime:${name}`,
     opts,
     bindings: [],
     presenceListeners: [],
@@ -255,6 +258,7 @@ export const supabase = {
   from: jest.fn((table: string) => queryBuilder(table)),
   rpc: jest.fn(rpc),
   channel: jest.fn(channel),
+  getChannels: jest.fn(() => openChannels()),
   removeChannel: jest.fn((ch: FakeChannel) => {
     ch.removed = true;
     return Promise.resolve('ok');

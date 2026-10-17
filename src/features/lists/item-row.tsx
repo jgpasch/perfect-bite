@@ -1,16 +1,14 @@
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 
-import { avatarColors, itemNameColor, type CategoryColors } from '@/components/appearance';
+import { itemNameColor, type CategoryColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { Motion } from '@/constants/theme';
-import type { AisleHue } from '@/domain/aisle-color';
 import { growIn, useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
@@ -46,21 +44,19 @@ type Props = {
   /** A second line, e.g. "Also in Weeknight dal" (spec 4.6). */
   hint?: string;
   /**
-   * Added by another member since the list was last seen (spec 4.1): a NEW badge after the name, `line`
-   * ("Alex · yesterday") ahead of the second line, and `label` ("new, added by Alex") for VoiceOver.
+   * Another member's add, since the list was last seen or while it shows (spec 4.1): a NEW badge after
+   * the name, and "new" for VoiceOver. When it goes false the badge fades out over `motion.duration`
+   * (at once under Reduce Motion).
    */
-  news?: { line: string; label: string };
+  isNew?: boolean;
   /**
-   * Another member's add (or Combine) arrived while the list was on screen (spec 4.1): the row flashes
-   * `pendingSoft` fading to its own tint, restarted by a new `key`; a `grow` row (new to the list to
-   * get) grows into place as it mounts, or just appears under Reduce Motion.
+   * Another member's add arrived while the list was on screen, new to the list to get (spec 4.1): the row
+   * grows into place as it mounts, or just appears under Reduce Motion.
    */
-  arrival?: { key: string; grow: boolean };
-  /** That member's name tag before the amount, until the list scrolls: their avatar (`initial`) and short name. */
-  tag?: { name: string; initial: string; hue: AisleHue };
-  /** An arrived row's view, so the list can tell whether it's in sight; and each time it's laid out. */
-  arrivalRef?: (node: View | null) => void;
-  onArrivalLayout?: () => void;
+  grow?: boolean;
+  /** A NEW row's view, so the list can tell when it's first in sight; and each time it's laid out. */
+  newRef?: (node: View | null) => void;
+  onNewLayout?: () => void;
   /** As added and By recipe (spec 4.6): the item's aisle, read by VoiceOver (the row's tint shows it). */
   aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
@@ -100,11 +96,10 @@ export function ItemRow({
   sorting = false,
   amountText = item.amountText,
   hint,
-  news,
-  arrival,
-  tag,
-  arrivalRef,
-  onArrivalLayout,
+  isNew = false,
+  grow = false,
+  newRef,
+  onNewLayout,
   aisle,
   selected,
   onToggle,
@@ -122,12 +117,14 @@ export function ItemRow({
   const checked = item.checkedAt !== null;
   const on = selecting ? selected : checked;
   const name = displayItemName(item.displayName);
-  const secondLine = [news?.line, item.note, hint].filter(Boolean).join(' · ');
+  const secondLine = [item.note, hint].filter(Boolean).join(' · ');
   const banded = look !== undefined && look.tint !== background;
   const label = [
-    itemRowLabel({ name, news: news?.label, amountText, note: item.note, hint, aisle: aisle?.name }, sorting && !checked),
+    itemRowLabel(
+      { name, news: isNew ? t('lists.news.rowLabel') : undefined, amountText, note: item.note, hint, aisle: aisle?.name },
+      sorting && !checked,
+    ),
     alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
-    tag ? t('lists.arrivals.tagLabel', { name: tag.name }) : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -149,7 +146,8 @@ export function ItemRow({
   const content = (
     <>
       <View style={styles.text}>
-        <View style={news ? [styles.nameRow, { columnGap: spacing.sm }] : undefined}>
+        {/* Always a row, so a badge fading out stays beside the name. */}
+        <View style={[styles.nameRow, { columnGap: spacing.sm }]}>
           <ThemedText
             variant={look && !checked ? 'itemName' : 'body'}
             color={itemNameColor(checked)}
@@ -166,7 +164,11 @@ export function ItemRow({
               name
             )}
           </ThemedText>
-          {news ? <Badge label={t('lists.news.badge')} /> : null}
+          {isNew ? (
+            <Animated.View testID="new-badge" exiting={reduceMotion ? undefined : exiting}>
+              <Badge label={t('lists.news.badge')} />
+            </Animated.View>
+          ) : null}
         </View>
         {secondLine ? (
           <ThemedText variant="footnote" color="inkSecondary">
@@ -174,7 +176,6 @@ export function ItemRow({
           </ThemedText>
         ) : null}
       </View>
-      {tag ? <NameTag {...tag} /> : null}
       {alreadyOnList ? (
         <ThemedText variant="amount" color="onPrimarySoft">
           {ALREADY_ON_LIST_LABEL}
@@ -194,10 +195,10 @@ export function ItemRow({
 
   return (
     <Animated.View
-      entering={arrival?.grow && !reduceMotion ? growIn : entering}
+      entering={grow && !reduceMotion ? growIn : entering}
       exiting={exiting}
       layout={layout}
-      style={arrival?.grow ? styles.clip : undefined}>
+      style={grow ? styles.clip : undefined}>
       <ReanimatedSwipeable
         enabled={!selecting}
         ref={swipeable}
@@ -222,8 +223,8 @@ export function ItemRow({
         )}>
         {selecting ? (
           <Pressable
-            ref={arrivalRef}
-            onLayout={onArrivalLayout}
+            ref={newRef}
+            onLayout={onNewLayout}
             onPress={onToggle}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: on }}
@@ -233,13 +234,11 @@ export function ItemRow({
               rowStyle,
               { paddingRight: spacing.lg, paddingVertical: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
             ]}>
-            {arrival ? <ArrivalFlash key={arrival.key} /> : null}
             <CheckCircle checked={on} pending={sorting} ring={look?.ring} fill={look?.checkFill} />
             <View style={[styles.body, { gap: spacing.md }]}>{content}</View>
           </Pressable>
         ) : (
-          <View ref={arrivalRef} onLayout={onArrivalLayout} style={rowStyle}>
-            {arrival ? <ArrivalFlash key={arrival.key} /> : null}
+          <View ref={newRef} onLayout={onNewLayout} style={rowStyle}>
             <CheckCircle checked={checked} pending={sorting} ring={look?.ring} fill={look?.checkFill} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
             <Pressable
               onPress={onEdit}
@@ -290,67 +289,9 @@ export function ItemRow({
   );
 }
 
-/**
- * The arrival flash (spec 4.1): `pendingSoft` over the row's ground, fading out over `Motion.flashMs`
- * so the row's own tint shows through. A new `key` starts it again.
- */
-function ArrivalFlash() {
-  const { colors } = useTheme();
-  const shown = useSharedValue(1);
-  useEffect(() => {
-    shown.value = withTiming(0, { duration: Motion.flashMs });
-  }, [shown]);
-  const style = useAnimatedStyle(() => ({ opacity: shown.value }));
-  return (
-    <Animated.View
-      testID="arrival-flash"
-      pointerEvents="none"
-      style={[StyleSheet.absoluteFill, { backgroundColor: colors.pendingSoft }, style]}
-    />
-  );
-}
-
-/**
- * Who just added the item (spec 4.1, board 2 E): a `surface` pill before the amount with a 20 pt
- * avatar in the member's hue and their short name in `caption`, in the hue's `strong`.
- */
-function NameTag({ name, initial, hue }: { name: string; initial: string; hue: AisleHue }) {
-  const { colors, aisles, spacing, sizes, rounded } = useTheme();
-  const avatar = avatarColors(hue, colors, aisles);
-  return (
-    <View
-      testID="arrival-tag"
-      style={[
-        styles.row,
-        {
-          gap: spacing.xs,
-          paddingVertical: spacing.xxs,
-          paddingLeft: spacing.xxs,
-          paddingRight: spacing.sm,
-          borderRadius: rounded.full,
-          backgroundColor: colors.surface,
-        },
-      ]}>
-      <View
-        style={[
-          styles.avatar,
-          { width: sizes.tagAvatar, height: sizes.tagAvatar, borderRadius: rounded.full, backgroundColor: avatar.fill },
-        ]}>
-        <ThemedText variant="caption" maxFontSizeMultiplier={1.2} style={{ color: avatar.text }}>
-          {initial}
-        </ThemedText>
-      </View>
-      <ThemedText variant="caption" numberOfLines={1} style={{ color: aisles[hue].strong }}>
-        {name}
-      </ThemedText>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   clip: { overflow: 'hidden' },
-  avatar: { alignItems: 'center', justifyContent: 'center' },
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
   nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },

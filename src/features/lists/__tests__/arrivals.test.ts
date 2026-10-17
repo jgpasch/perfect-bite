@@ -1,5 +1,4 @@
-// A row that arrives while you look (spec 4.1): which changes are arrivals, the pill's text, and
-// what VoiceOver says.
+// A row that arrives while you look (spec 4.1): which changes are arrivals, and what VoiceOver says.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
 
@@ -9,9 +8,7 @@ import { resetDb } from '@/test/db';
 
 import {
   arrivalAnnouncement,
-  arrivalPillText,
   detectArrivals,
-  inSight,
   listContents,
   readListContents,
   type Arrival,
@@ -151,42 +148,6 @@ describe('readListContents', () => {
     expect([...contents.contributions].sort()).toEqual([milk.contributionId, eggs.contributionId].sort());
     expect([...contents.open]).toEqual([milk.itemId]);
     expect(readListContents('nope')).toEqual({ contributions: new Set(), open: new Set() });
-  });
-});
-
-describe('inSight', () => {
-  const viewport = { y: 100, height: 600 };
-  test("a row whose middle is in the list's frame", () => {
-    expect(inSight({ y: 300, height: 50 }, viewport)).toBe(true);
-    // Half under the top edge: its middle is at 100.
-    expect(inSight({ y: 75, height: 50 }, viewport)).toBe(true);
-    expect(inSight({ y: 74, height: 50 }, viewport)).toBe(false);
-    expect(inSight({ y: 675, height: 50 }, viewport)).toBe(true);
-    expect(inSight({ y: 676, height: 50 }, viewport)).toBe(false);
-    expect(inSight({ y: 900, height: 50 }, viewport)).toBe(false);
-  });
-});
-
-describe('the pill', () => {
-  test('one member', () => {
-    expect(arrivalPillText([arrival('limes', ALEX)], NAMES, ME)).toBe('1 new from Alex');
-    expect(arrivalPillText([arrival('limes', ALEX), arrival('eggs', ALEX)], NAMES, ME)).toBe('2 new from Alex');
-  });
-
-  test('several people', () => {
-    expect(arrivalPillText([arrival('limes', ALEX), arrival('eggs', SAM), arrival('milk', ALEX)], NAMES, ME)).toBe('3 new');
-  });
-
-  test('nothing out of sight, no pill; an unknown member is Someone', () => {
-    expect(arrivalPillText([], NAMES, ME)).toBeNull();
-    expect(arrivalPillText([arrival('limes', 'gone')], NAMES, ME)).toBe('1 new from Someone');
-  });
-
-  test('in Spanish', () => {
-    initI18n('es');
-    expect(arrivalPillText([arrival('limes', ALEX)], NAMES, ME)).toBe('1 nuevo de Alex');
-    expect(arrivalPillText([arrival('limes', ALEX), arrival('eggs', ALEX)], NAMES, ME)).toBe('2 nuevos de Alex');
-    expect(arrivalPillText([arrival('limes', ALEX), arrival('eggs', SAM)], NAMES, ME)).toBe('2 nuevos');
   });
 });
 

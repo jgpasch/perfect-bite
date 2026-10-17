@@ -257,6 +257,26 @@ describe('joinListPresence', () => {
     expect(openChannels()).toHaveLength(1);
   });
 
+  test('a channel left over on the topic is removed before joining', async () => {
+    const stale = supabase.channel(`list:${LIST}`);
+    joinListPresence(LIST, ME, false, () => {});
+    expect(supabase.removeChannel).toHaveBeenCalledWith(stale);
+    await flush();
+    expect(realtimeChannels).toHaveLength(2);
+    expect(openChannels()).toEqual([realtimeChannels[1]]);
+  });
+
+  test('a left-over channel that will not go means no presence, not a crash', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    supabase.removeChannel.mockImplementationOnce(() => Promise.resolve('error'));
+    supabase.channel(`list:${LIST}`);
+    joinListPresence(LIST, ME, false, () => {});
+    await flush();
+    expect(realtimeChannels).toHaveLength(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   test('leaving before the wait is over never joins', async () => {
     let finish: (v: string) => void = () => {};
     supabase.removeChannel.mockImplementationOnce((ch: FakeChannel) => {

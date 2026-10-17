@@ -1,7 +1,6 @@
 // A row that arrives while you look (spec 4.1, board 2 E): another member's add, or their Combine
-// into an item, reaching a list that's on screen. The row grows in, flashes, and carries the
-// member's name until the list scrolls; a pill points at rows that landed out of view; VoiceOver
-// hears who added what.
+// into an item, reaching a list that's on screen. The row grows in and wears a NEW badge
+// (`list-news.ts`); VoiceOver hears who added what.
 import { and, eq, isNull } from 'drizzle-orm';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo } from 'react-native';
@@ -23,7 +22,7 @@ export type Arrival = {
   userId: string;
   /** The item's name as stored, for VoiceOver: "limes". */
   displayName: string;
-  /** That add's contribution: a new one restarts the row's flash. */
+  /** That add's contribution. */
   contributionId: string;
   /** A row that wasn't on the list to get (a new item, or a checked one re-added): it grows in. */
   grow: boolean;
@@ -98,12 +97,8 @@ type Tracking = {
   contents: ListContents | null;
   /** Amounts made on the server before this don't count. */
   from: Date;
-  /** Each arrived row this visit: its flash and growth. */
+  /** Each arrived row this visit still to get: its growth and NEW badge. */
   cues: ReadonlyMap<string, Arrival>;
-  /** The rows wearing a name tag, until the list scrolls. */
-  tags: ReadonlyMap<string, Arrival>;
-  /** Arrived rows not yet seen on screen, for the pill. */
-  unseen: ReadonlyMap<string, Arrival>;
   /** The latest arrivals, for VoiceOver; `seq` counts them. */
   latest: { seq: number; arrivals: Arrival[] };
 };
@@ -111,7 +106,7 @@ type Tracking = {
 const EMPTY: ReadonlyMap<string, Arrival> = new Map();
 
 function idle(listId: string, onScreen: boolean, latest: Tracking['latest']): Tracking {
-  return { listId, onScreen, contents: null, from: new Date(0), cues: EMPTY, tags: EMPTY, unseen: EMPTY, latest };
+  return { listId, onScreen, contents: null, from: new Date(0), cues: EMPTY, latest };
 }
 
 const withArrivals = (map: ReadonlyMap<string, Arrival>, arrivals: readonly Arrival[]) =>
@@ -144,26 +139,12 @@ export function useListArrivals(listId: string, items: readonly ItemView[], onSc
         ...tracking,
         contents: { contributions, open: now.open },
         cues: keepOpen(withArrivals(tracking.cues, arrivals), now.open),
-        tags: keepOpen(withArrivals(tracking.tags, arrivals), now.open),
-        unseen: keepOpen(withArrivals(tracking.unseen, arrivals), now.open),
         latest: arrivals.length > 0 ? { seq: tracking.latest.seq + 1, arrivals } : tracking.latest,
       };
     }
   }
   if (next !== tracking) setTracking(next);
-
-  // Scrolling the list takes the name tags off.
-  const clearTags = useCallback(() => setTracking((t) => (t.tags.size === 0 ? t : { ...t, tags: EMPTY })), []);
-  // Rows seen on screen leave the pill.
-  const markSeen = useCallback(
-    (itemIds: readonly string[]) =>
-      setTracking((t) => {
-        if (!itemIds.some((id) => t.unseen.has(id))) return t;
-        return { ...t, unseen: new Map([...t.unseen].filter(([id]) => !itemIds.includes(id))) };
-      }),
-    [],
-  );
-  return { cues: next.cues, tags: next.tags, unseen: next.unseen, latest: next.latest, clearTags, markSeen };
+  return { cues: next.cues, latest: next.latest };
 }
 
 function start(listId: string, latest: Tracking['latest']): Tracking {
@@ -172,23 +153,6 @@ function start(listId: string, latest: Tracking['latest']): Tracking {
     contents: readListContents(listId),
     from: new Date(Date.now() - SEEN_CLOCK_SKEW_MS),
   };
-}
-
-/** Whether a row (window coordinates) is in sight in the list's frame: its middle is inside it. */
-export function inSight(row: { y: number; height: number }, viewport: { y: number; height: number }): boolean {
-  const middle = row.y + row.height / 2;
-  return middle >= viewport.y && middle <= viewport.y + viewport.height;
-}
-
-/**
- * The pill for rows that landed out of view: "2 new from Alex", or "3 new" when several people
- * added them. Null with none.
- */
-export function arrivalPillText(unseen: readonly Arrival[], names: MemberNames, currentUserId: string | null): string | null {
-  if (unseen.length === 0) return null;
-  const members = new Set(unseen.map((a) => a.userId));
-  if (members.size > 1) return i18n.t('lists.arrivals.pill', { count: unseen.length });
-  return i18n.t('lists.arrivals.pillFrom', { count: unseen.length, name: nameOf(names, unseen[0].userId, currentUserId) });
 }
 
 /**

@@ -31,7 +31,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, db, households, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { aisleColor, memberHue, recipeHue } from '@/domain/aisle-color';
+import { aisleColor, recipeHue } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -41,19 +41,18 @@ import {
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
-import { avatarInitial, combineLanguagesQuery } from '@/features/households/households';
-import { nameOf, useMemberNames } from '@/features/households/member-names';
+import { combineLanguagesQuery } from '@/features/households/households';
+import { useMemberNames } from '@/features/households/member-names';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { AddingPill } from '@/features/lists/adding-pill';
-import { arrivalPillText, inSight, useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
+import { useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useForeground, useKeepListAwake } from '@/features/lists/keep-awake';
-import { newsNames, rowNews, useListVisitNews } from '@/features/lists/list-news';
-import { NewsCard } from '@/features/lists/news-card';
+import { inSight, useListVisitNews, useNewBadgeClocks } from '@/features/lists/list-news';
 import { useAddingTail, useListPresence } from '@/features/lists/presence';
 import {
   addItem,
@@ -252,15 +251,21 @@ export function ListScreen({ id }: { id: string }) {
   // Spec 4.1: the screen stays on while shopping this list and something on it is still to get.
   useKeepListAwake(id, shoppingOnList(pathname, id) && unchecked.length > 0);
   // Spec 4.1: by the same rule, leaving the list moves its last-seen marker. What others added since it
-  // shows as a card and NEW rows for this visit.
-  const { news, dismissed: newsDismissed, dismiss: dismissNews } = useListVisitNews(id, shoppingOnList(pathname, id));
+  // shows as NEW rows for this visit.
+  const newOnOpen = useListVisitNews(id, shoppingOnList(pathname, id));
   const memberNames = useMemberNames(list?.householdId);
-  // Spec 4.1: another member's add arriving while the list is on screen (in the foreground) gets a cue.
+  // Spec 4.1: another member's add arriving while the list is on screen (in the foreground) grows in, NEW.
   const foreground = useForeground();
   const watching = shoppingOnList(pathname, id) && foreground;
   const allItems = useMemo(() => [...unchecked, ...checked], [unchecked, checked]);
   const arrivals = useListArrivals(id, allItems, watching, userId);
   useArrivalAnnouncements(arrivals.latest, watching, memberNames, userId);
+  // Spec 4.1: each NEW badge goes 10 s after its row is first in sight, for the rest of the visit.
+  const badgeClocks = useNewBadgeClocks(id, watching);
+  const newIds = unchecked
+    .filter((item) => (newOnOpen.has(item.id) || arrivals.cues.has(item.id)) && !badgeClocks.gone.has(item.id))
+    .map((item) => item.id);
+  const newIdsKey = newIds.join(',');
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
@@ -467,82 +472,37 @@ export function ListScreen({ id }: { id: string }) {
     [openSection],
   );
 
-  // Arrived rows out of sight (spec 4.1): each row's view, measured against the list's, puts the ones
-  // still unseen in the pill above the add bar. A row that isn't drawn (a folded section, or far off) is
-  // out of sight too.
+  // NEW rows in sight (spec 4.1): each row's view, measured against the list's, starts its badge's clock
+  // the first time it's in sight. A row that isn't drawn (a folded section, or far off) isn't in sight.
   const viewportRef = useRef<View>(null);
-  const arrivalNodes = useRef(new Map<string, View>());
-  const arrivalRefs = useRef(new Map<string, (node: View | null) => void>());
-  const arrivalRefFor = (itemId: string) => {
-    let ref = arrivalRefs.current.get(itemId);
+  const newNodes = useRef(new Map<string, View>());
+  const newRefs = useRef(new Map<string, (node: View | null) => void>());
+  const newRefFor = (itemId: string) => {
+    let ref = newRefs.current.get(itemId);
     if (!ref) {
-      ref = (node) => (node ? arrivalNodes.current.set(itemId, node) : arrivalNodes.current.delete(itemId));
-      arrivalRefs.current.set(itemId, ref);
+      ref = (node) => (node ? newNodes.current.set(itemId, node) : newNodes.current.delete(itemId));
+      newRefs.current.set(itemId, ref);
     }
     return ref;
   };
-  const [outOfSight, setOutOfSight] = useState<ReadonlySet<string>>(new Set());
-  const unseenRef = useRef(arrivals.unseen);
-  const { markSeen } = arrivals;
-  const checkSeen = useCallback(() => {
-    const ids = [...unseenRef.current.keys()];
+  const newIdsRef = useRef<string[]>([]);
+  const { seen: badgeSeen, started: badgeStarted } = badgeClocks;
+  const checkNewInSight = useCallback(() => {
+    const ids = newIdsRef.current.filter((itemId) => !badgeStarted(itemId) && newNodes.current.has(itemId));
     const viewport = viewportRef.current;
     if (ids.length === 0 || !viewport) return;
     viewport.measureInWindow((_x, top, _width, height) => {
-      const seen: string[] = [];
-      const out = new Set<string>();
-      let left = ids.length;
-      const done = () => {
-        if (--left > 0) return;
-        markSeen(seen);
-        setOutOfSight((prev) => (prev.size === out.size && [...out].every((v) => prev.has(v)) ? prev : out));
-      };
       for (const itemId of ids) {
-        const node = arrivalNodes.current.get(itemId);
-        if (!node) {
-          out.add(itemId);
-          done();
-          continue;
-        }
-        node.measureInWindow((_rx, y, _rw, rowHeight) => {
-          if (inSight({ y, height: rowHeight }, { y: top, height })) seen.push(itemId);
-          else out.add(itemId);
-          done();
+        newNodes.current.get(itemId)?.measureInWindow((_rx, y, _rw, rowHeight) => {
+          if (inSight({ y, height: rowHeight }, { y: top, height })) badgeSeen([itemId]);
         });
       }
     });
-  }, [markSeen]);
+  }, [badgeSeen, badgeStarted]);
   useEffect(() => {
-    unseenRef.current = arrivals.unseen;
-    checkSeen();
-  }, [arrivals.unseen, checkSeen]);
-  const pillIds = [...arrivals.unseen.keys()].filter((itemId) => outOfSight.has(itemId));
-  const pillText = arrivalPillText(
-    pillIds.map((itemId) => arrivals.unseen.get(itemId)!),
-    memberNames,
-    userId,
-  );
-  // The pill scrolls to the first of its rows, in the order the list shows them.
-  const showFirstArrival = () => {
-    const blockIndex = blocks.findIndex((b) => b.entries.some((e) => pillIds.includes(e.item.id)));
-    if (blockIndex === -1) return;
-    const itemId = blocks[blockIndex].entries.find((e) => pillIds.includes(e.item.id))!.item.id;
-    const node = arrivalNodes.current.get(itemId);
-    const viewport = viewportRef.current;
-    if (!node || !viewport) {
-      openSectionOf(itemId);
-      listRef.current?.scrollToIndex({ index: blockIndex, animated: true, viewPosition: 0.5 });
-      return;
-    }
-    viewport.measureInWindow((_x, top, _width, height) =>
-      node.measureInWindow((_rx, y, _rw, rowHeight) =>
-        listRef.current?.scrollToOffset({
-          offset: Math.max(0, scrollOffset.current + y - top - (height - rowHeight) / 2),
-          animated: true,
-        }),
-      ),
-    );
-  };
+    newIdsRef.current = newIdsKey ? newIdsKey.split(',') : [];
+    checkNewInSight();
+  }, [newIdsKey, checkNewInSight]);
 
   // By aisle and By recipe put a new item in its section, so scroll that section into view once it's there.
   const revealRef = useRef<string | null>(null);
@@ -862,9 +822,9 @@ export function ListScreen({ id }: { id: string }) {
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     const match = alreadyOnListMatch(item, query, queryFamily);
-    // Spec 4.1: an add by another member that arrived during this visit; its tag until the list scrolls.
+    // Spec 4.1: another member's add, since the list was last seen or during this visit, until its badge goes.
     const cue = item.checkedAt === null ? arrivals.cues.get(item.id) : undefined;
-    const tagged = cue ? arrivals.tags.get(item.id) : undefined;
+    const isNew = item.checkedAt === null && newIds.includes(item.id);
     return (
       <ItemRow
         key={entry.key}
@@ -879,12 +839,10 @@ export function ListScreen({ id }: { id: string }) {
         sorting={sorting}
         amountText={entry.amountText}
         hint={entry.hint}
-        // Spec 4.1: another member's add since the list was last seen, until it leaves the screen.
-        news={item.checkedAt === null ? rowNews(news, item.id, memberNames, userId) : undefined}
-        arrival={cue ? { key: cue.contributionId, grow: cue.grow } : undefined}
-        tag={tagged ? arrivalTag(nameOf(memberNames, tagged.userId, userId), tagged.userId) : undefined}
-        arrivalRef={cue ? arrivalRefFor(item.id) : undefined}
-        onArrivalLayout={cue ? checkSeen : undefined}
+        isNew={isNew}
+        grow={cue?.grow}
+        newRef={isNew ? newRefFor(item.id) : undefined}
+        onNewLayout={isNew ? checkNewInSight : undefined}
         aisle={aisle}
         selected={selection ? selection.has(entry.item.id) : undefined}
         onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
@@ -1131,12 +1089,6 @@ export function ListScreen({ id }: { id: string }) {
                     },
                   ]}
                 />
-                {/* Spec 4.1: "since you looked", above the first section in every view, until ✕. */}
-                {news && !newsDismissed ? (
-                  <View style={{ paddingBottom: spacing.sm + spacing.xxs }}>
-                    <NewsCard news={news} names={newsNames(news, memberNames, userId)} onDismiss={dismissNews} />
-                  </View>
-                ) : null}
               </View>
             }
             ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
@@ -1145,10 +1097,8 @@ export function ListScreen({ id }: { id: string }) {
             keyboardDismissMode="none"
             onScroll={(e) => {
               scrollOffset.current = e.nativeEvent.contentOffset.y;
-              checkSeen();
+              checkNewInSight();
             }}
-            // Spec 4.1: scrolling the list takes arrived rows' name tags off.
-            onScrollBeginDrag={arrivals.clearTags}
             scrollEventThrottle={16}
             contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
             ListEmptyComponent={<EmptyState message={t('lists.screen.empty')} />}
@@ -1157,12 +1107,6 @@ export function ListScreen({ id }: { id: string }) {
               listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
             }
           />
-          {/* Spec 4.1: arrivals out of sight, 8 pt above the add bar (or the toast). */}
-          {pillText ? (
-            <View pointerEvents="box-none" style={[styles.pillSlot, { bottom: spacing.sm }]}>
-              <ArrivalPill label={pillText} onPress={showFirstArrival} />
-            </View>
-          ) : null}
         </View>
 
         {toast ? (
@@ -1322,43 +1266,6 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
   );
 }
 
-/**
- * "2 new from Alex ↓" (spec 4.1): rows another member added that landed out of sight. Tapping it
- * scrolls to the first of them.
- */
-function ArrivalPill({ label, onPress }: { label: string; onPress: () => void }) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  const t = useT();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={t('lists.arrivals.pillHint')}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          minHeight: sizes.pill,
-          paddingHorizontal: spacing.lg,
-          gap: spacing.xs + spacing.xxs,
-          borderRadius: rounded.full,
-          backgroundColor: colors.primary,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <ThemedText variant="headline" color="onPrimary">
-        {label}
-      </ThemedText>
-      <Icon name="arrow.down" color="onPrimary" size={sizes.iconSmall} weight="bold" />
-    </Pressable>
-  );
-}
-
-/** An arrived row's name tag: the member's short name, its initial, and their avatar's hue. */
-function arrivalTag(name: string, userId: string) {
-  return { name, initial: avatarInitial(name), hue: memberHue(userId) };
-}
-
 function toggleIn(set: Set<string>, value: string): Set<string> {
   const next = new Set(set);
   if (next.has(value)) next.delete(value);
@@ -1402,5 +1309,4 @@ const styles = StyleSheet.create({
   measured: { position: 'absolute', top: 0, left: 0, right: 0 },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
   sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
-  pillSlot: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
 });

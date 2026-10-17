@@ -88,47 +88,19 @@ export const en = {
       opensDetails: 'Opens details',
       selectHint: 'Double-tap to select',
     },
-    /** The "since you looked" card and NEW rows (spec 4.1): what other members added since this device last showed the list. */
+    /** NEW rows (spec 4.1): what other members added since this device last showed the list, or while it shows. */
     news: {
-      titleOne_one: '{{name}} added {{count}} item',
-      titleOne_other: '{{name}} added {{count}} items',
-      titleTwo_one: '{{first}} and {{second}} added {{count}} item',
-      titleTwo_other: '{{first}} and {{second}} added {{count}} items',
-      /** `others`: "2 others". */
-      titleMany_one: '{{first}}, {{second}} and {{others}} added {{count}} item',
-      titleMany_other: '{{first}}, {{second}} and {{others}} added {{count}} items',
-      others_one: '{{count}} other',
-      others_other: '{{count}} others',
-      /** `when` as the Added rows read it ("yesterday", "Tuesday", "Mar 4"); `time` like "6:40 PM". */
-      sinceAt: 'Since you looked, {{when}} at {{time}}',
-      /** Under an hour ago: "5 min ago". */
-      since: 'Since you looked, {{when}}',
-      namesLast: '{{names}} and {{last}}',
-      namesMore: '{{names}} and {{count}} more',
-      /** The card for VoiceOver: "Alex added 4 items since yesterday, 6:40 PM: eggs, limes, corn tortillas and 1 more". */
-      label: '{{title}} since {{since}}: {{names}}',
-      labelSinceAt: '{{when}}, {{time}}',
       badge: 'NEW',
-      /** A new row's line before its own second line: "Alex · yesterday". */
-      rowLine: '{{name}} · {{when}}',
-      rowLabel: 'new, added by {{name}}',
+      /** VoiceOver, after a new row's name while its badge shows. */
+      rowLabel: 'new',
     },
     /** Rows another member adds while the list is on screen (spec 4.1). */
     arrivals: {
-      /** The pill above the add bar, for rows below or above what's showing: "2 new from Alex". */
-      pillFrom_one: '{{count}} new from {{name}}',
-      pillFrom_other: '{{count}} new from {{name}}',
-      /** The same pill when several people added: "3 new". */
-      pill_one: '{{count}} new',
-      pill_other: '{{count}} new',
-      pillHint: 'Scrolls to the new items',
       /** VoiceOver, one item: "Alex added limes". */
       addedOne: '{{name}} added {{item}}',
       /** VoiceOver, grouped: "Alex added 3 items". */
       addedMany_one: '{{name}} added {{count}} item',
       addedMany_other: '{{name}} added {{count}} items',
-      /** On a row's name tag for VoiceOver: "added by Alex". */
-      tagLabel: 'added by {{name}}',
     },
     /** The header pill while other members are adding to the list (spec 4.1). */
     presence: {

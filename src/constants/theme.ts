@@ -266,8 +266,6 @@ export const Sizes = {
   /** household member avatars (overlapping) and the ring that separates them */
   avatar: 48,
   avatarRing: 3,
-  /** the avatar in a row's name tag when another member's add arrives (spec 4.1) */
-  tagAvatar: 20,
   /** the avatar in the list header's "Alex is adding" pill (spec 4.1) */
   presenceAvatar: 24,
   /** the pulsing dots after "Alex is adding" */
@@ -301,8 +299,8 @@ export const Motion = {
   spring: { damping: 20, stiffness: 220, mass: 1 },
   /** Opening and folding a card's section: a near-critical spring, so the height settles without a visible gap. */
   fold: { duration: 300, dampingRatio: 0.9 },
-  /** A row's arrival flash (spec 4.1): `pendingSoft` fading to the row's own tint over this long. */
-  flashMs: 1200,
+  /** A row's NEW badge (spec 4.1) stays this long after the row is first in sight, then fades out over `duration`. */
+  newBadgeMs: 10_000,
   /** The list header's "Alex is adding" pill fading in and out (spec 4.1). */
   presenceFadeMs: 200,
   /** One pulse of its dots (each dot dims and brightens again over this long, a third apart). */
