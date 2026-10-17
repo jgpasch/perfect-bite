@@ -18,6 +18,8 @@ select vault.create_secret('<SECRET_KEY from `supabase status`>', 'photo_cleanup
 
 Without them the cron jobs do nothing.
 
+Turning push on for the hosted project (APNs key, development build, hosted Vault secrets, deploys, a test push) is by hand: see [`docs/push-setup.md`](docs/push-setup.md).
+
 ## Expo has changed — do not trust your training data
 
 Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:

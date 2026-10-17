@@ -35,7 +35,7 @@ This document is written to be handed to Claude Code as the build brief. Section
 - iPad-optimized layouts, Apple Watch, Android.
 - Prices, budgets, store/aisle maps, barcode scanning.
 - Pantry tracking. (Recipe import from URLs and meal planning were non-goals; they are now requirements 14 and 16, sections 4.10 and 4.16.)
-- Notifications (Later, section 11.1).
+- Location reminders and per-household muting of push notifications (Later, section 11.1).
 - Sign in with Apple, email/password accounts.
 
 ---
@@ -59,7 +59,7 @@ The user's numbered requirements, mapped to spec sections. (There is no requirem
 | 10 | Multiple lists | 4.1 |
 | 11 | View a list flat or grouped by recipe | 4.6 |
 | 12 | "Hey Siri, add to The Perfect Bite" sends an ingredient to a list | 4.9 |
-| 13 | Notifications: in app now (recipe import), push someday | 4.11, 11.1 |
+| 13 | Notifications: in app (recipe import, pushes while open) and push for household activity | 4.11, 4.13, 11.1 |
 | 14 | Import a recipe from a link (share sheet or in-app) onto a list | 4.10, 6.6 |
 | 15 | Recipes are tagged by meal, cuisine, protein, diet, method and time, and the Recipes tab can be searched and filtered by them | 4.14, 5 |
 | 16 | Plan the household's week: a recipe or note for breakfast, lunch and dinner each day, seen as an agenda or a grid, and shopped for in one step | 4.16, 5 |
@@ -340,9 +340,9 @@ On a recipe page, the user picks a list and taps **Add**. The recipe is saved to
 
 ### 4.11 In-app notifications (req 13)
 
-A banner that drops in at the top of the screen, over whatever is showing (sheets too), to say that something the user started has finished while they were doing something else. This is the base each feature adds its own notifications to. Push notifications are separate and Later (11.1).
+A banner that drops in at the top of the screen, over whatever is showing (sheets too), to say that something the user started has finished while they were doing something else. This is the base each feature adds its own notifications to. Push notifications (4.13) are separate; one that arrives while the app is open becomes one of these.
 
-- **Kinds.** A feature posts a notification with a `kind`, one per use case, so per-kind settings (11.1) can switch them off later without touching the features. The kinds are `recipeImport` (4.10), and `itemsAdded` and `shopping` for a push that arrives while the app is open (4.13).
+- **Kinds.** A feature posts a notification with a `kind`, one per use case, so per-kind settings can switch them off later without touching the features. The kinds are `recipeImport` (4.10), and `itemsAdded` and `shopping` for a push that arrives while the app is open (4.13).
 - **The banner.** A `surface` card 8 pt below the top safe area and 16 pt from the sides, with radius `card` and the floating shadow in light mode. It holds an icon tile, a title (`headline`) and up to two lines of body (`footnote`, `inkSecondary`), with an optional part of the body in bold. Tapping the banner runs its action and dismisses it. Swiping it up dismisses it. It times out after 6 seconds (`motion.notificationTimeoutMs`). It slides down on arrival and up on leaving, and only fades under Reduce Motion. A success or warning haptic plays when it appears. VoiceOver announces "title. body", and the banner is a button whose hint says what tapping does.
 - **One at a time.** Notifications queue in the order they're posted, and the next one drops in when the one showing goes. Posting with the id of a notification that is already queued or showing replaces it in place, and a replaced banner that's showing restarts its timer.
 - **Only while the app is in the foreground.** The timer starts when the banner shows. A notification posted while the app is in the background waits until the app comes back. A banner showing when the app goes to the background stays up and restarts its timer when the app returns.
@@ -387,7 +387,7 @@ Household members hear about each other's list activity when the app is closed: 
 
 ### 4.14 Recipe tags and filtering
 
-Recipes are tagged so the Recipes tab stays usable at 50+ recipes (req 15). (4.13 is kept for push notifications.)
+Recipes are tagged so the Recipes tab stays usable at 50+ recipes (req 15).
 
 - **The tags.** A fixed list, never free-form, in `src/shared/recipe-tags.ts`, used by the app, the `import-recipe` Edge Function and the Zod schemas. Each value has a slug (stored) and a label (shown). The facets in display order, with how many a recipe may have:
   - Saved, up to 2: favorite ("Favorite", es *Favorita*), want-to-try ("Want to try", es *Por probar*). A person's own marks, never the AI's: `AI_TAG_FACETS` is every facet but Saved, and the `import-recipe`/`extract-recipe` and `suggest-recipe-tags` prompts, the model's answer schema and their validation (`ExtractedRecipeTagsSchema`, `AiRecipeTagsSchema`) leave it out, so it's neither asked for nor returned; a `saved` key from the model is dropped.
@@ -427,7 +427,7 @@ The app speaks English and Mexican Spanish (`es-MX`). Building it is planned in 
   - The "already on list" tint (4.2) and duplicates and Combine (4.4) compare family keys when the household's setting is on: adding `pepino` to a list with an unchecked Cucumber adds to it. The item keeps the name it was first added under. With it off (the default) they compare each item's own key, so `pepino` and Cucumber are two items.
   - **The setting** (`households.combine_languages`, off by default) is household data: every member sees and can change it, on the household's screen under Household settings (4.7), a switch "Combine English and Spanish names" ("Leche and milk become one item on your lists."). Turning it on merges nothing already on a list; twins combine the next time one is added or reopened. Turning it off leaves combined items as they are. The links themselves stay in the catalog whatever the setting.
   - Usage history and the usual unit still use the ingredient's own key.
-- **AI.** The categorizer (6.4) accepts English and Spanish names, shelves and picks units as a US supermarket would whatever the language, and returns each name's translation for linking. Recipe extraction (6.6) keeps the page's language. Push notifications (11.1), when built, use the recipient's language, which the server will need to store.
+- **AI.** The categorizer (6.4) accepts English and Spanish names, shelves and picks units as a US supermarket would whatever the language, and returns each name's translation for linking. Recipe extraction (6.6) keeps the page's language. Push notifications (4.13) are in English for now; using the recipient's language needs the server to store it (11.1).
 
 ### 4.16 Meal plan (req 16)
 
@@ -1075,7 +1075,7 @@ Follows stash's layout (Expo Router routes in `src/app/`, app logic in sibling f
 ```
 src/
   app/              routes. Tabs: (tabs)/lists, (tabs)/recipes (+ filter), (tabs)/plan, (tabs)/settings
-                    (households/[id], sync, siri, language, always-have, aisle-colors, developer).
+                    (households/[id], sync, siri, notifications, language, always-have, aisle-colors, developer).
                     Stack and sheets: list/[id] (edit, add-to-recipe, item/[itemId]), recipe/[id]
                     (add-to-list, cook, steps, tags), lists-sheet, add-recipe, import-recipe,
                     category-order, household-invite, plan-slot, invite/[token], sign-in
@@ -1088,6 +1088,7 @@ src/
     siri/           App Group access, queue drain, list snapshot (writes lists.json)
     notifications/  in-app banners (4.11); per-kind content builders live with their feature
     plans/          feature checks (4.12)
+    push/           push registration, taps and foreground pushes, Settings > Notifications, ask once (4.13)
     settings/       device settings, language, sync status
     auth/           sign-in, sign-out, delete account, local wipe
   domain/           pure TS, no React/IO: duplicate detector, quantity math and display, category
@@ -1105,8 +1106,9 @@ targets/
   share-recipe/     share extension (4.10): SwiftUI sheet, Preprocess.js
 supabase/
   migrations/       schema, RLS, triggers, apply_mutations, household functions, seeds, rate limits
-  functions/        categorize-ingredients/, import-recipe/, suggest-recipe-tags/, _shared/ (AI tasks
-                    and registry, fetch-page). Account deletion is the delete_account SQL function.
+  functions/        categorize-ingredients/, import-recipe/, suggest-recipe-tags/, send-notifications/
+                    (push worker, 8.5), _shared/ (AI tasks and registry, fetch-page). Account deletion
+                    is the delete_account SQL function.
   tests/            pgTAP, one file per area (RLS, apply_mutations, invites, plans, meal plan, ...)
 ```
 
@@ -1226,7 +1228,7 @@ Each milestone should end with a working app and passing tests.
     - *End-to-end pass on a device*: Safari with and without JSON-LD, Chrome, a URL in text, a paywalled page, a non-recipe page, offline, signed out, and the same recipe twice.
 12. **M11 List tab** (4.1, 4.7; mockups E, G, H): the Lists home goes. The List tab shows the current list as its root, the header's name opens the Your lists sheet (switching, invites, create, reorder, archived lists), and opening a list from elsewhere switches the tab to it. **Done**.
 
-Later work landed outside these milestones, each tracked in `tasks.md` while it was built: households' staples (Always have, 4.5), admin and plans (4.12), recipe tags and filtering with the Saved facet (4.14), Mexican Spanish (4.15; built, not yet switched on), and the meal plan (4.16; in progress).
+Later work landed outside these milestones, each tracked in `tasks.md` while it was built: households' staples (Always have, 4.5), admin and plans (4.12), recipe tags and filtering with the Saved facet (4.14), push notifications (4.13, 8.5; hosted setup by hand in `docs/push-setup.md`), Mexican Spanish (4.15; built, not yet switched on), and the meal plan (4.16; in progress).
 
 ---
 
@@ -1236,6 +1238,7 @@ Later work landed outside these milestones, each tracked in `tasks.md` while it 
 Push for adds and shopping, with per-kind toggles and quiet hours, moved out of Later: see 4.13, 5 and 8.5. Still Later:
 - **Location reminders**: a reminder near a saved store (local, on device).
 - **Per-household muting**: turning pushes off for one household while keeping them for another.
+- **Pushes in the recipient's language** (4.15): the worker writes them in English; it needs each user's language stored on the server.
 
 ### 11.2 Web app
 Turn on react-native-web for planning on a laptop (lists, recipes, households). Siri, the App Group queue, and native Google sign-in stay iOS-only; web uses Supabase's Google OAuth redirect. Offline on web is Later still.
