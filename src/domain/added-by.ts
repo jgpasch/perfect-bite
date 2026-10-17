@@ -1,6 +1,7 @@
 // The "Added" rows on the item sheet (spec 4.4, board 04): who added each amount, and when,
 // e.g. "You, Tuesday" or "Siri, just now".
 
+import { avatarInitial } from '@/domain/avatar-initial';
 import { formatDate, i18n, shortDate } from '@/i18n';
 
 export type AddedBy = {
@@ -77,6 +78,88 @@ export function checkedLine(
   if (checkedBy === userId) return i18n.t('addedBy.checkedByYou', { when });
   const name = names.get(checkedBy);
   return name ? i18n.t('addedBy.checkedBy', { when, name }) : i18n.t('addedBy.checkedBySomeone', { when });
+}
+
+/** A run of an "Added by" row's text; `bold` ones are a member's name, in `ink` 700. */
+export type TextPart = { text: string; bold: boolean };
+
+export type AddedBySummary = {
+  /** Up to three avatars, in the text's order: the others by their first add, then you. */
+  people: { userId: string; initial: string }[];
+  /** "Added by **Alex** · Tuesday", in runs. */
+  text: TextPart[];
+  /** What VoiceOver reads for the row: "Added by Alex, Tuesday". */
+  label: string;
+};
+
+const MAX_AVATARS = 3;
+// Marks a bold name inside a translated string, so the runs can be split back out after i18n.
+const BOLD = '\u0001';
+
+/**
+ * The "Added by" row under the item's name on its sheet (spec 4.4): who added it, by everyone
+ * with a live add. One person: "Added by Alex · Tuesday" (when = their earliest add) or "Added by
+ * you · Tuesday"; two: "Added by Alex and you" (you last, no time); three or more: "Added by Alex,
+ * Sam and 2 others". A Siri or recipe add counts as whoever made it (`added_by`); adds with no one
+ * recorded, and deleted ones, are skipped. Null when no one's left.
+ */
+export function addedBySummary(
+  contributions: readonly { addedBy: string | null; createdAt: Date; deletedAt?: Date | null }[],
+  userId: string | null,
+  names: ReadonlyMap<string, string>,
+  now: Date,
+): AddedBySummary | null {
+  // Each person's earliest live add.
+  const first = new Map<string, Date>();
+  for (const c of contributions) {
+    if (c.addedBy === null || c.deletedAt) continue;
+    const seen = first.get(c.addedBy);
+    if (!seen || c.createdAt < seen) first.set(c.addedBy, c.createdAt);
+  }
+  if (first.size === 0) return null;
+
+  const ids = [...first.keys()].sort((a, b) => first.get(a)!.getTime() - first.get(b)!.getTime());
+  const others = ids.filter((id) => id !== userId);
+  const youAdded = others.length < ids.length;
+  const ordered = youAdded ? [...others, userId!] : others;
+  const people = ordered.slice(0, MAX_AVATARS).map((id) => ({ userId: id, initial: avatarInitial(names.get(id)) }));
+
+  // A member's name in bold, or "someone" when it isn't on the device.
+  const name = (id: string, bold: boolean) => {
+    const known = names.get(id);
+    if (!known) return i18n.t('addedBy.byNobody');
+    return bold ? `${BOLD}${known}${BOLD}` : known;
+  };
+
+  let marked: string;
+  let label: string;
+  if (ordered.length === 1) {
+    const when = addedWhen(first.get(ordered[0])!, now);
+    if (youAdded) {
+      marked = i18n.t('addedBy.byYou', { when });
+      label = i18n.t('addedBy.byYouLabel', { when });
+    } else {
+      marked = i18n.t('addedBy.byOne', { name: name(ordered[0], true), when });
+      label = i18n.t('addedBy.byOneLabel', { name: name(ordered[0], false), when });
+    }
+  } else if (ordered.length === 2 && youAdded) {
+    marked = i18n.t('addedBy.byOneAndYou', { name: name(others[0], true) });
+    label = i18n.t('addedBy.byOneAndYou', { name: name(others[0], false) });
+  } else if (ordered.length === 2) {
+    marked = i18n.t('addedBy.byTwo', { first: name(others[0], true), second: name(others[1], true) });
+    label = i18n.t('addedBy.byTwo', { first: name(others[0], false), second: name(others[1], false) });
+  } else {
+    // With three or more, you're never one of the two named: there are at least two others.
+    const count = ordered.length - 2;
+    marked = i18n.t('addedBy.byMany', { first: name(ordered[0], true), second: name(ordered[1], true), count });
+    label = i18n.t('addedBy.byMany', { first: name(ordered[0], false), second: name(ordered[1], false), count });
+  }
+
+  const text = marked
+    .split(BOLD)
+    .map((part, i) => ({ text: part, bold: i % 2 === 1 }))
+    .filter((part) => part.text !== '');
+  return { people, text, label };
 }
 
 /** The second column of an "Added" row: "You, Tuesday", "Alex, Tuesday", "Shakshuka · Alex, yesterday". */

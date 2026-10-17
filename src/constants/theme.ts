@@ -312,6 +312,10 @@ export const Sizes = {
   removeButton: 32,
   /** who made each add on the item sheet's "Added" rows: a member's initial, or a recipe's or Siri's tile */
   addedAvatar: 24,
+  /** the overlapping avatars in the "Added by" row under the item's name, ringed in `background` */
+  addedByAvatar: 22,
+  addedByAvatarRing: 2,
+  addedByAvatarOverlap: 6,
   /** the label column of a field row inside a card (Name / Amount / Note); a minimum, for Dynamic Type */
   fieldLabel: 76,
   /** the tinted icon tile at the start of a settings row */

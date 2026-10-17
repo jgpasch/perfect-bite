@@ -17,7 +17,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { listItemContributions, listItems } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { addedLine, checkedLine } from '@/domain/added-by';
+import { addedBySummary, addedLine, checkedLine, type AddedBySummary } from '@/domain/added-by';
 import { aisleColor, memberHue, recipeHue } from '@/domain/aisle-color';
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
@@ -249,6 +249,7 @@ export default function ItemEditSheet() {
 
   const now = new Date();
   const checked = !!status?.checkedAt;
+  const addedBy = addedBySummary(contributions, userId, memberNames, now);
   const labelInset = { paddingHorizontal: spacing.xxl };
 
   return (
@@ -290,6 +291,7 @@ export default function ItemEditSheet() {
               {amount}
             </ThemedText>
           ) : null}
+          {addedBy ? <AddedByRow summary={addedBy} /> : null}
           {status?.checkedAt ? (
             <ThemedText variant="footnote" color="inkSecondary">
               {checkedLine(status.checkedAt, status.checkedBy, userId, now, memberNames)}
@@ -581,6 +583,60 @@ function AddedAvatar({
   );
 }
 
+/**
+ * "Added by Alex · Tuesday" under the item's name (spec 4.4, board A): up to three overlapping
+ * 22 pt avatars, each ringed in the sheet's `background`, then the text with the names in `ink`
+ * 700. VoiceOver reads it as one element.
+ */
+function AddedByRow({ summary }: { summary: AddedBySummary }) {
+  const { colors, aisles, sizes, rounded, spacing } = useTheme();
+  return (
+    <View
+      testID="added-by-row"
+      accessible
+      accessibilityLabel={summary.label}
+      style={[styles.row, { gap: spacing.xs + spacing.xxs, marginTop: spacing.xs + spacing.xxs }]}>
+      <View style={styles.row}>
+        {summary.people.map((p, i) => {
+          const avatar = avatarColors(memberHue(p.userId), colors, aisles);
+          return (
+            <View
+              key={p.userId}
+              testID="added-by-avatar"
+              style={[
+                styles.centered,
+                {
+                  width: sizes.addedByAvatar,
+                  height: sizes.addedByAvatar,
+                  borderRadius: rounded.full,
+                  borderWidth: sizes.addedByAvatarRing,
+                  borderColor: colors.background,
+                  backgroundColor: avatar.fill,
+                  marginLeft: i === 0 ? 0 : -sizes.addedByAvatarOverlap,
+                },
+              ]}>
+              <ThemedText variant="caption" maxFontSizeMultiplier={1.3} style={{ color: avatar.text }}>
+                {p.initial}
+              </ThemedText>
+            </View>
+          );
+        })}
+      </View>
+      <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
+        {summary.text.map((part, i) =>
+          part.bold ? (
+            <ThemedText key={i} variant="footnote" style={styles.bold}>
+              {part.text}
+            </ThemedText>
+          ) : (
+            part.text
+          ),
+        )}
+      </ThemedText>
+    </View>
+  );
+}
+
 /** The unit button and − / + beside the number field (spec 4.4). Disabled when `amount` is null. */
 function AmountControls({
   amount,
@@ -823,4 +879,5 @@ const styles = StyleSheet.create({
   top: { alignSelf: 'flex-start' },
   inline: { borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
   title: { padding: 0 },
+  bold: { fontWeight: '700' },
 });

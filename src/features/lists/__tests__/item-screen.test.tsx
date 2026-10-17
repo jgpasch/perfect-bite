@@ -478,6 +478,138 @@ describe('the amounts added', () => {
       expect(tiles()).toEqual([{ hue: recipeHue(recipeId), name: 'fork.knife', size: 24 }]);
     });
   });
+
+  describe('the "Added by" row under the name (spec 4.4, board A)', () => {
+    const OTHER = 'user-2';
+    const THIRD = 'user-3';
+    const FOURTH = 'user-4';
+    beforeEach(() => {
+      const householdId = db.select().from(households).get()!.id;
+      db.insert(householdMemberNames)
+        .values(
+          [[USER, 'Jo Doe'], [OTHER, 'Alex Rivera'], [THIRD, 'Sam'], [FOURTH, 'Kim']].map(([userId, displayName]) => ({
+            householdId,
+            userId,
+            displayName,
+            joinedAt: '2026-10-01T00:00:00Z',
+          })),
+        )
+        .run();
+    });
+    const row = () => tree!.root.findAll((n) => n.type === ('View' as never) && n.props.testID === 'added-by-row')[0];
+    /** The row's line of text (the avatars' initials are Text too). */
+    const rowText = () => row().findAllByType(Text).find((t) => textOf(t).startsWith('Added by'))!;
+    const rowAvatars = () =>
+      tree!.root.findAll((n) => n.type === ('View' as never) && n.props.testID === 'added-by-avatar');
+    /** Gives the item's newest add to `userId`, as if they had made it. */
+    const madeBy = (itemId: string, userId: string) =>
+      db.update(listItemContributions)
+        .set({ addedBy: userId })
+        .where(and(eq(listItemContributions.listItemId, itemId), eq(listItemContributions.addedBy, 'user-tmp')))
+        .run();
+
+    test("names the one person who added it, in bold, with a ringed 22 pt avatar", () => {
+      const { itemId } = addItem(listId, '2 milk', 'user-tmp')!;
+      madeBy(itemId, OTHER);
+      open(itemId);
+      expect(textOf(rowText())).toBe('Added by Alex · just now');
+      const name = row().findAllByType(Text).find((t) => textOf(t) === 'Alex')!;
+      expect(StyleSheet.flatten(name.props.style)).toMatchObject({ fontWeight: '700', color: Palette.light.ink });
+      expect(StyleSheet.flatten(rowText().props.style)).toMatchObject({
+        fontSize: 13,
+        color: Palette.light.inkSecondary,
+      });
+      const shown = rowAvatars();
+      expect(shown.map(textOf)).toEqual(['A']);
+      expect(StyleSheet.flatten(shown[0].props.style)).toMatchObject({
+        width: Sizes.addedByAvatar,
+        height: Sizes.addedByAvatar,
+        borderRadius: Rounded.full,
+        borderWidth: Sizes.addedByAvatarRing,
+        borderColor: Palette.light.background,
+        backgroundColor: avatarColors(memberHue(OTHER), Palette.light, AisleColors.light).fill,
+        marginLeft: 0,
+      });
+      expect([Sizes.addedByAvatar, Sizes.addedByAvatarRing, Sizes.addedByAvatarOverlap]).toEqual([22, 2, 6]);
+    });
+
+    test('VoiceOver reads the row as one element', () => {
+      const { itemId } = addItem(listId, '2 milk', 'user-tmp')!;
+      madeBy(itemId, OTHER);
+      open(itemId);
+      expect(row().props).toMatchObject({ accessible: true, accessibilityLabel: 'Added by Alex, just now' });
+    });
+
+    test('your own add is "Added by you"', () => {
+      const { itemId } = addItem(listId, 'milk', USER)!;
+      open(itemId);
+      expect(textOf(rowText())).toBe('Added by you · just now');
+      expect(rowAvatars().map(textOf)).toEqual(['J']);
+    });
+
+    test('two people: the other first, you last, the avatars overlapping 6 pt', () => {
+      const { itemId } = addItem(listId, '2 milk', USER)!;
+      addItem(listId, '1 milk', OTHER);
+      open(itemId);
+      expect(textOf(rowText())).toBe('Added by Alex and you');
+      const shown = rowAvatars();
+      expect(shown.map(textOf)).toEqual(['A', 'J']);
+      expect(StyleSheet.flatten(shown[1].props.style).marginLeft).toBe(-6);
+    });
+
+    test('three or more: two names, the rest counted, three avatars', () => {
+      const { itemId } = addItem(listId, '1 milk', OTHER)!;
+      addItem(listId, '1 milk', THIRD);
+      addItem(listId, '1 milk', FOURTH);
+      addItem(listId, '1 milk', USER);
+      open(itemId);
+      expect(textOf(rowText())).toBe('Added by Alex, Sam and 2 others');
+      expect(rowAvatars().map(textOf)).toEqual(['A', 'S', 'K']);
+    });
+
+    test('sits under the amount and above the "Checked" line', () => {
+      const { itemId } = addItem(listId, '2 milk', USER)!;
+      setItemChecked(itemId, true, USER);
+      open(itemId);
+      const all = lines();
+      const amountAt = all.indexOf('2');
+      const addedAt = all.indexOf('Added by you · just now');
+      const checkedAt = all.findIndex((l) => /^Checked .* by you$/.test(l));
+      expect(amountAt).toBeGreaterThanOrEqual(0);
+      expect(addedAt).toBeGreaterThan(amountAt);
+      expect(checkedAt).toBeGreaterThan(addedAt);
+    });
+
+    test('a recipe add counts as whoever added the recipe', () => {
+      const recipeId = createRecipe('Shakshuka', getList(listId)!.householdId);
+      addRecipeIngredient(recipeId, '1 cup milk');
+      addWholeRecipeToList(listId, recipeId, OTHER);
+      open(listItemsQuery(listId).all()[0].id);
+      expect(textOf(rowText())).toBe('Added by Alex · just now');
+    });
+
+    test('no row when no one is recorded, and a deleted add is left out', () => {
+      const { itemId } = addItem(listId, '2 milk', 'user-tmp')!;
+      db.update(listItemContributions).set({ addedBy: null }).where(eq(listItemContributions.listItemId, itemId)).run();
+      open(itemId);
+      expect(row()).toBeUndefined();
+      expect(text()).not.toMatch(/Added by/);
+      act(() => tree!.unmount());
+      tree = null;
+
+      addItem(listId, '1 milk', OTHER);
+      const alexAdd = db.select().from(listItemContributions).all().find((c) => c.addedBy === OTHER)!;
+      open(itemId);
+      expect(textOf(rowText())).toBe('Added by Alex · just now');
+      act(() => {
+        // The "Added" card's remove button for Alex's amount.
+        pressables('Remove 1').find((n) => n.props.accessibilityRole === 'button')!.props.onPress();
+      });
+      refresh();
+      expect(db.select().from(listItemContributions).all().find((c) => c.id === alexAdd.id)!.deletedAt).not.toBeNull();
+      expect(row()).toBeUndefined();
+    });
+  });
 });
 
 describe('the aisle', () => {

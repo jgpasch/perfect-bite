@@ -288,6 +288,21 @@ export const en = {
     checkedBySomeone: 'Checked {{when}} by someone',
     /** Who did something when their name isn't on the device. */
     someone: 'Someone',
+    /**
+     * The "Added by" row under the item's name (spec 4.4). `{{name}}`, `{{first}}` and
+     * `{{second}}` are a member's short name (set in bold) or `byNobody`.
+     */
+    byOne: 'Added by {{name}} · {{when}}',
+    byYou: 'Added by you · {{when}}',
+    byTwo: 'Added by {{first}} and {{second}}',
+    byOneAndYou: 'Added by {{name}} and you',
+    byMany_one: 'Added by {{first}}, {{second}} and {{count}} other',
+    byMany_other: 'Added by {{first}}, {{second}} and {{count}} others',
+    /** VoiceOver's reading of the one-person row: "Added by Alex, Tuesday". */
+    byOneLabel: 'Added by {{name}}, {{when}}',
+    byYouLabel: 'Added by you, {{when}}',
+    /** A member whose name isn't on the device, in the "Added by" row. */
+    byNobody: 'someone',
   },
   /** The Aisle order screen (spec 4.3.3). */
   aisleOrder: {
