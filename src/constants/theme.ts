@@ -130,47 +130,96 @@ export const MealHues = {
   dinner: 'plum',
 } as const satisfies Record<'breakfast' | 'lunch' | 'dinner', AisleHue>;
 
-type TypeStyle =Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
+type TypeStyle = Required<Pick<TextStyle, 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight'>> &
   Pick<TextStyle, 'letterSpacing'>;
 
-/** Display titles track tight (-0.025em). */
-const tight = (size: number) => Math.round(size * -0.025 * 100) / 100;
+/**
+ * The font trial's sets (DESIGN.md Fonts), picked per device in Settings > Design trials > Fonts.
+ * `bricolage` is today's and the default.
+ */
+export const FONT_SETS = ['bricolage', 'fraunces', 'youngSerif', 'jakarta', 'nunito'] as const;
+export type FontSet = (typeof FONT_SETS)[number];
 
-/** Sizes are at the default Dynamic Type setting (Large). Text scales with the user's setting; never disable it. */
-export const Typography = {
-  /** The app's name on the sign-in screen. */
-  hero: { fontFamily: Fonts.display, fontSize: 48, fontWeight: '800', lineHeight: 50, letterSpacing: tight(48) },
-  /** Tab roots: "Recipes", "Settings". */
-  largeTitle: { fontFamily: Fonts.display, fontSize: 40, fontWeight: '800', lineHeight: 44, letterSpacing: tight(40) },
-  /** Pushed screens: a list's name, "Aisle order". */
-  screenTitle: { fontFamily: Fonts.display, fontSize: 36, fontWeight: '800', lineHeight: 40, letterSpacing: tight(36) },
-  /** Sheet titles: the item's name. */
-  sheetTitle: { fontFamily: Fonts.display, fontSize: 30, fontWeight: '800', lineHeight: 34, letterSpacing: tight(30) },
-  title: { fontFamily: Fonts.display, fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: tight(28) },
-  /** The letter in a round avatar (account card, household members). */
-  initial: { fontFamily: Fonts.display, fontSize: 20, fontWeight: '800', lineHeight: 24 },
-  /** Card section headers: aisle or recipe name. */
-  sectionTitle: { fontFamily: Fonts.display, fontSize: 17, fontWeight: '700', lineHeight: 22 },
-  /** Buttons and emphasised rows. */
-  headline: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '700', lineHeight: 22 },
-  /** The sign-in tagline. */
-  lead: { fontFamily: Fonts.body, fontSize: 18, fontWeight: '400', lineHeight: 25 },
-  body: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
-  /** An unchecked item's name on the list screen. */
-  itemName: { fontFamily: Fonts.body, fontSize: 17, fontWeight: '600', lineHeight: 22 },
-  /** A step's text and an ingredient's name on the cook screen, big enough to read from the counter. */
-  cookStep: { fontFamily: Fonts.body, fontSize: 20, fontWeight: '500', lineHeight: 28 },
-  callout: { fontFamily: Fonts.body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
-  /** Quantities and values at the end of a row. */
-  amount: { fontFamily: Fonts.body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
-  /** Labels above a card ("Members", "Added") and household names above tiles. */
-  sectionLabel: { fontFamily: Fonts.body, fontSize: 13, fontWeight: '700', lineHeight: 18 },
-  footnote: { fontFamily: Fonts.body, fontSize: 13, fontWeight: '400', lineHeight: 18 },
-  /** Badges and small all-caps labels. */
-  caption: { fontFamily: Fonts.body, fontSize: 12, fontWeight: '700', lineHeight: 16 },
-} as const satisfies Record<string, TypeStyle>;
+type FontSetSpec = {
+  /** The family names the `expo-font` config plugin registers them under in app.json. */
+  display: string;
+  body: string;
+  /** The weight of the titles (`hero` to `title`, and `initial`), and of `sectionTitle`. */
+  titleWeight: TextStyle['fontWeight'] & string;
+  sectionTitleWeight: TextStyle['fontWeight'] & string;
+  /** The titles' tracking, in em. */
+  tracking: number;
+};
 
-export type TypographyVariant = keyof typeof Typography;
+export const FontSetSpecs = {
+  bricolage: { display: 'Bricolage Grotesque', body: 'Figtree', titleWeight: '800', sectionTitleWeight: '700', tracking: -0.025 },
+  fraunces: { display: 'Fraunces', body: 'Figtree', titleWeight: '700', sectionTitleWeight: '600', tracking: -0.01 },
+  youngSerif: { display: 'Young Serif', body: 'Instrument Sans', titleWeight: '400', sectionTitleWeight: '400', tracking: -0.01 },
+  jakarta: { display: 'Plus Jakarta Sans', body: 'Plus Jakarta Sans', titleWeight: '800', sectionTitleWeight: '700', tracking: -0.03 },
+  nunito: { display: 'Nunito', body: 'Nunito Sans', titleWeight: '900', sectionTitleWeight: '800', tracking: -0.02 },
+} as const satisfies Record<FontSet, FontSetSpec>;
+
+/** Today's set keeps the web's CSS variables (global.css); the trial's other sets name the family. */
+function familiesFor(set: FontSet): { display: string; body: string } {
+  if (set === 'bricolage') return Fonts;
+  return { display: FontSetSpecs[set].display, body: FontSetSpecs[set].body };
+}
+
+function buildTypography(set: FontSet) {
+  const { titleWeight: w, sectionTitleWeight, tracking } = FontSetSpecs[set];
+  const { display, body } = familiesFor(set);
+  /** Display titles track tight (by the set's `tracking`). */
+  const tight = (size: number) => Math.round(size * tracking * 100) / 100;
+  /** Sizes are at the default Dynamic Type setting (Large). Text scales with the user's setting; never disable it. */
+  return {
+    /** The app's name on the sign-in screen. */
+    hero: { fontFamily: display, fontSize: 48, fontWeight: w, lineHeight: 50, letterSpacing: tight(48) },
+    /** Tab roots: "Recipes", "Settings". */
+    largeTitle: { fontFamily: display, fontSize: 40, fontWeight: w, lineHeight: 44, letterSpacing: tight(40) },
+    /** Pushed screens: a list's name, "Aisle order". */
+    screenTitle: { fontFamily: display, fontSize: 36, fontWeight: w, lineHeight: 40, letterSpacing: tight(36) },
+    /** Sheet titles: the item's name. */
+    sheetTitle: { fontFamily: display, fontSize: 30, fontWeight: w, lineHeight: 34, letterSpacing: tight(30) },
+    title: { fontFamily: display, fontSize: 28, fontWeight: w, lineHeight: 32, letterSpacing: tight(28) },
+    /** The letter in a round avatar (account card, household members). */
+    initial: { fontFamily: display, fontSize: 20, fontWeight: w, lineHeight: 24 },
+    /** Card section headers: aisle or recipe name. */
+    sectionTitle: { fontFamily: display, fontSize: 17, fontWeight: sectionTitleWeight, lineHeight: 22 },
+    /** Buttons and emphasised rows. */
+    headline: { fontFamily: body, fontSize: 17, fontWeight: '700', lineHeight: 22 },
+    /** The sign-in tagline. */
+    lead: { fontFamily: body, fontSize: 18, fontWeight: '400', lineHeight: 25 },
+    body: { fontFamily: body, fontSize: 17, fontWeight: '500', lineHeight: 22 },
+    /** An unchecked item's name on the list screen. */
+    itemName: { fontFamily: body, fontSize: 17, fontWeight: '600', lineHeight: 22 },
+    /** A step's text and an ingredient's name on the cook screen, big enough to read from the counter. */
+    cookStep: { fontFamily: body, fontSize: 20, fontWeight: '500', lineHeight: 28 },
+    callout: { fontFamily: body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
+    /** Quantities and values at the end of a row. */
+    amount: { fontFamily: body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
+    /** Labels above a card ("Members", "Added") and household names above tiles. */
+    sectionLabel: { fontFamily: body, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+    footnote: { fontFamily: body, fontSize: 13, fontWeight: '400', lineHeight: 18 },
+    /** Badges and small all-caps labels. */
+    caption: { fontFamily: body, fontSize: 12, fontWeight: '700', lineHeight: 16 },
+  } satisfies Record<string, TypeStyle>;
+}
+
+export type TypographyTokens = ReturnType<typeof buildTypography>;
+export type TypographyVariant = keyof TypographyTokens;
+
+const typographyBySet = Object.fromEntries(FONT_SETS.map((set) => [set, buildTypography(set)])) as Record<
+  FontSet,
+  TypographyTokens
+>;
+
+/** The type scale in a font set: the same sizes and line heights in every set, its own families, weights and tracking. */
+export function typographyFor(set: FontSet): TypographyTokens {
+  return typographyBySet[set];
+}
+
+/** Today's type scale (the `bricolage` set). Screens read the device's set through `useTheme().typography`. */
+export const Typography = typographyFor('bricolage');
 
 /** 4pt base unit. `lg` (16) is the default screen gutter. */
 export const Spacing = {

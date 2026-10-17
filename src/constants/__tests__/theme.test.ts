@@ -1,6 +1,18 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { AisleColors, MealHues, Palette, Rounded, Typography, type ColorScheme, type ColorToken } from '@/constants/theme';
+import {
+  AisleColors,
+  FONT_SETS,
+  FontSetSpecs,
+  MealHues,
+  Palette,
+  Rounded,
+  Typography,
+  typographyFor,
+  type ColorScheme,
+  type ColorToken,
+  type FontSet,
+} from '@/constants/theme';
 import { contrastRatio } from '@/domain/contrast';
 import { hueHeaderBand } from '@/components/appearance';
 import { MEAL_HUES, MEAL_SECTIONS } from '@/features/recipes/recipe-sort';
@@ -204,6 +216,120 @@ describe('Typography', () => {
 
   it('gives every style a line height at least as tall as its size', () => {
     for (const style of Object.values(Typography)) expect(style.lineHeight).toBeGreaterThanOrEqual(style.fontSize);
+  });
+});
+
+type FontPlugin = {
+  ios: { fonts: string[] };
+  android: { fonts: { fontFamily: string; fontDefinitions: { path: string; weight: number }[] }[] };
+};
+const fontPlugin = (require('../../../app.json').expo.plugins as unknown[]).find(
+  (p): p is [string, FontPlugin] => Array.isArray(p) && p[0] === 'expo-font',
+)![1];
+// The weight in an @expo-google-fonts file name: ".../fraunces/600SemiBold/Fraunces_600SemiBold.ttf".
+const IOS_FAMILY_DIRS: Record<string, string> = {
+  'Bricolage Grotesque': 'bricolage-grotesque',
+  Figtree: 'figtree',
+  Fraunces: 'fraunces',
+  'Young Serif': 'young-serif',
+  'Instrument Sans': 'instrument-sans',
+  'Plus Jakarta Sans': 'plus-jakarta-sans',
+  Nunito: 'nunito',
+  'Nunito Sans': 'nunito-sans',
+};
+
+/** The weights app.json embeds for a family, lowest first. */
+function embeddedWeights(platform: 'ios' | 'android', family: string): number[] {
+  if (platform === 'android') {
+    const entry = fontPlugin.android.fonts.find((f) => f.fontFamily === family);
+    return (entry?.fontDefinitions ?? []).map((d) => d.weight).sort((a, b) => a - b);
+  }
+  const dir = `/@expo-google-fonts/${IOS_FAMILY_DIRS[family]}/`;
+  return fontPlugin.ios.fonts
+    .filter((path) => path.includes(dir))
+    .map((path) => Number(/\/(\d{3})[A-Za-z]+\//.exec(path)![1]))
+    .sort((a, b) => a - b);
+}
+
+describe('typographyFor (the font trial)', () => {
+  const DISPLAY = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title', 'initial', 'sectionTitle'];
+  const TITLES = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title'] as const;
+  // Each set's families, weights and tracking (em), and the weights app.json embeds for it.
+  const SETS: Record<
+    FontSet,
+    { display: string; body: string; title: string; sectionTitle: string; tracking: number; displayWeights: number[]; bodyWeights: number[] }
+  > = {
+    bricolage: { display: 'Bricolage Grotesque', body: 'Figtree', title: '800', sectionTitle: '700', tracking: -0.025, displayWeights: [500, 600, 700, 800], bodyWeights: [400, 500, 600, 700] },
+    fraunces: { display: 'Fraunces', body: 'Figtree', title: '700', sectionTitle: '600', tracking: -0.01, displayWeights: [600, 700], bodyWeights: [400, 500, 600, 700] },
+    youngSerif: { display: 'Young Serif', body: 'Instrument Sans', title: '400', sectionTitle: '400', tracking: -0.01, displayWeights: [400], bodyWeights: [400, 500, 600, 700] },
+    jakarta: { display: 'Plus Jakarta Sans', body: 'Plus Jakarta Sans', title: '800', sectionTitle: '700', tracking: -0.03, displayWeights: [400, 500, 600, 700, 800], bodyWeights: [400, 500, 600, 700, 800] },
+    nunito: { display: 'Nunito', body: 'Nunito Sans', title: '900', sectionTitle: '800', tracking: -0.02, displayWeights: [800, 900], bodyWeights: [400, 500, 600, 700] },
+  };
+
+  it('has the five sets, bricolage first', () => {
+    expect(FONT_SETS).toEqual(['bricolage', 'fraunces', 'youngSerif', 'jakarta', 'nunito']);
+  });
+
+  it('keeps Typography as the bricolage set', () => {
+    expect(typographyFor('bricolage')).toBe(Typography);
+  });
+
+  for (const set of FONT_SETS) {
+    describe(set, () => {
+      const spec = SETS[set];
+      const type = typographyFor(set);
+
+      it('uses its display face for titles and its body face for the rest', () => {
+        for (const [name, style] of Object.entries(type)) {
+          expect([name, style.fontFamily]).toEqual([name, DISPLAY.includes(name) ? spec.display : spec.body]);
+        }
+      });
+
+      it('sets titles, initial and section titles at its weights, the body styles as today', () => {
+        for (const name of [...TITLES, 'initial'] as const) expect(type[name].fontWeight).toBe(spec.title);
+        expect(type.sectionTitle.fontWeight).toBe(spec.sectionTitle);
+        for (const name of Object.keys(type).filter((n) => !DISPLAY.includes(n)) as (keyof typeof type)[]) {
+          expect(type[name].fontWeight).toBe(Typography[name].fontWeight);
+        }
+      });
+
+      it('tracks titles by its em', () => {
+        for (const name of TITLES) {
+          expect(type[name].letterSpacing).toBeCloseTo(type[name].fontSize * spec.tracking, 2);
+        }
+        expect(type.initial).not.toHaveProperty('letterSpacing');
+        expect(type.sectionTitle).not.toHaveProperty('letterSpacing');
+      });
+
+      it("keeps today's sizes and line heights", () => {
+        for (const [name, style] of Object.entries(type)) {
+          const today = Typography[name as keyof typeof Typography];
+          expect([name, style.fontSize, style.lineHeight]).toEqual([name, today.fontSize, today.lineHeight]);
+        }
+      });
+
+      it('embeds exactly the listed weights in app.json, on iOS and Android, and uses only those', () => {
+        expect(embeddedWeights('android', spec.display)).toEqual(spec.displayWeights);
+        expect(embeddedWeights('android', spec.body)).toEqual(spec.bodyWeights);
+        expect(embeddedWeights('ios', spec.display)).toEqual(spec.displayWeights);
+        expect(embeddedWeights('ios', spec.body)).toEqual(spec.bodyWeights);
+        for (const style of Object.values(type)) {
+          const embedded = style.fontFamily === spec.display ? spec.displayWeights : spec.bodyWeights;
+          expect(embedded).toContain(Number(style.fontWeight));
+        }
+      });
+
+      it('names the same families as FontSetSpecs', () => {
+        expect(FontSetSpecs[set]).toMatchObject({ display: spec.display, body: spec.body });
+      });
+    });
+  }
+
+  it('gives the exact title tracking for the trial sets', () => {
+    expect(typographyFor('fraunces').largeTitle.letterSpacing).toBe(-0.4);
+    expect(typographyFor('nunito').hero.letterSpacing).toBe(-0.96);
+    expect(typographyFor('jakarta').title.letterSpacing).toBe(-0.84);
+    expect(typographyFor('youngSerif').screenTitle.letterSpacing).toBe(-0.36);
   });
 });
 

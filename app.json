@@ -80,7 +80,25 @@
               "./node_modules/@expo-google-fonts/figtree/400Regular/Figtree_400Regular.ttf",
               "./node_modules/@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf",
               "./node_modules/@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf",
-              "./node_modules/@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf"
+              "./node_modules/@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf",
+              "./node_modules/@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf",
+              "./node_modules/@expo-google-fonts/fraunces/700Bold/Fraunces_700Bold.ttf",
+              "./node_modules/@expo-google-fonts/young-serif/400Regular/YoungSerif_400Regular.ttf",
+              "./node_modules/@expo-google-fonts/instrument-sans/400Regular/InstrumentSans_400Regular.ttf",
+              "./node_modules/@expo-google-fonts/instrument-sans/500Medium/InstrumentSans_500Medium.ttf",
+              "./node_modules/@expo-google-fonts/instrument-sans/600SemiBold/InstrumentSans_600SemiBold.ttf",
+              "./node_modules/@expo-google-fonts/instrument-sans/700Bold/InstrumentSans_700Bold.ttf",
+              "./node_modules/@expo-google-fonts/plus-jakarta-sans/400Regular/PlusJakartaSans_400Regular.ttf",
+              "./node_modules/@expo-google-fonts/plus-jakarta-sans/500Medium/PlusJakartaSans_500Medium.ttf",
+              "./node_modules/@expo-google-fonts/plus-jakarta-sans/600SemiBold/PlusJakartaSans_600SemiBold.ttf",
+              "./node_modules/@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf",
+              "./node_modules/@expo-google-fonts/plus-jakarta-sans/800ExtraBold/PlusJakartaSans_800ExtraBold.ttf",
+              "./node_modules/@expo-google-fonts/nunito/800ExtraBold/Nunito_800ExtraBold.ttf",
+              "./node_modules/@expo-google-fonts/nunito/900Black/Nunito_900Black.ttf",
+              "./node_modules/@expo-google-fonts/nunito-sans/400Regular/NunitoSans_400Regular.ttf",
+              "./node_modules/@expo-google-fonts/nunito-sans/500Medium/NunitoSans_500Medium.ttf",
+              "./node_modules/@expo-google-fonts/nunito-sans/600SemiBold/NunitoSans_600SemiBold.ttf",
+              "./node_modules/@expo-google-fonts/nunito-sans/700Bold/NunitoSans_700Bold.ttf"
             ]
           },
           "android": {
@@ -123,6 +141,108 @@
                   },
                   {
                     "path": "./node_modules/@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Fraunces",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/fraunces/700Bold/Fraunces_700Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Young Serif",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/young-serif/400Regular/YoungSerif_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Instrument Sans",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/instrument-sans/400Regular/InstrumentSans_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/instrument-sans/500Medium/InstrumentSans_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/instrument-sans/600SemiBold/InstrumentSans_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/instrument-sans/700Bold/InstrumentSans_700Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Plus Jakarta Sans",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/plus-jakarta-sans/400Regular/PlusJakartaSans_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/plus-jakarta-sans/500Medium/PlusJakartaSans_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/plus-jakarta-sans/600SemiBold/PlusJakartaSans_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/plus-jakarta-sans/800ExtraBold/PlusJakartaSans_800ExtraBold.ttf",
+                    "weight": 800
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Nunito",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito/800ExtraBold/Nunito_800ExtraBold.ttf",
+                    "weight": 800
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito/900Black/Nunito_900Black.ttf",
+                    "weight": 900
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Nunito Sans",
+                "fontDefinitions": [
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito-sans/400Regular/NunitoSans_400Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito-sans/500Medium/NunitoSans_500Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito-sans/600SemiBold/NunitoSans_600SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./node_modules/@expo-google-fonts/nunito-sans/700Bold/NunitoSans_700Bold.ttf",
                     "weight": 700
                   }
                 ]

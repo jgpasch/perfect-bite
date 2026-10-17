@@ -14,12 +14,26 @@ The reference boards are in `docs/design/pantry/` (`lists.html` 01–04, `recipe
 
 ## Fonts
 
-Both are embedded at build time by the `expo-font` config plugin in `app.json` (no runtime loading, so no flash). Use them through `typography`, never by name.
+Bricolage Grotesque and Figtree are the default. They and the font trial's sets (below) are embedded at build time by the `expo-font` config plugin in `app.json` (no runtime loading, so no flash). Use them through `typography`, never by name.
 
 | Family | Weights embedded | Use |
 | --- | --- | --- |
 | Bricolage Grotesque | 500–800 | Display: large titles, screen and sheet titles, card section titles. 800 with tight tracking (−0.025 em) for titles. |
 | Figtree | 400–700 | Everything else. |
+
+### Font trial
+
+Until a winner is picked (`future/wishlist.md`), Settings > **Design trials** > **Fonts** switches this device between five `display / body` sets, each with a board in `docs/design/fonts/`. The choice is the device setting `design.fontSet` (anything unknown reads as `bricolage`); it's held in a small store that `useTheme()` reads, so every screen re-renders in the new fonts at once, with no restart. `typographyFor(set)` builds the scale below for a set: sizes and line heights never change, only the families, the display weights and the titles' tracking. `Typography` stays the `bricolage` set. Body styles keep the weights in the table below in every set.
+
+| Set | Display (weights embedded) | Body (weights embedded) | Titles / `sectionTitle` | Title tracking |
+| --- | --- | --- | --- | --- |
+| `bricolage` (default) | Bricolage Grotesque (500–800) | Figtree (400–700) | 800 / 700 | −0.025 em |
+| `fraunces` | Fraunces (600, 700) | Figtree (400–700) | 700 / 600 | −0.01 em |
+| `youngSerif` | Young Serif (400) | Instrument Sans (400–700) | 400 / 400 | −0.01 em |
+| `jakarta` | Plus Jakarta Sans (400–800) | Plus Jakarta Sans | 800 / 700 | −0.03 em |
+| `nunito` | Nunito (800, 900) | Nunito Sans (400–700) | 900 / 800 | −0.02 em |
+
+"Titles" are `hero` to `title` and `initial` (which isn't tracked). Every set is embedded by the `expo-font` plugin under its family name, so switching needs no loading; adding or removing a set needs a new development build.
 
 ## Typography (`typography.*`)
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { Card } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
@@ -42,6 +42,9 @@ type RowProps = {
   trailing?: ReactNode;
   /** The label's colour, e.g. `danger` for Leave household. */
   labelColor?: ColorToken;
+  /** Over the label's and detail's `body` and `footnote`, e.g. a font set's own faces in the Fonts picker. */
+  labelStyle?: StyleProp<TextStyle>;
+  detailStyle?: StyleProp<TextStyle>;
   /** Makes the row a button with a chevron (unless `chevron` is false). */
   onPress?: () => void;
   chevron?: boolean;
@@ -63,6 +66,8 @@ export function SettingsRow({
   icon,
   trailing,
   labelColor = 'ink',
+  labelStyle,
+  detailStyle,
   onPress,
   chevron = true,
   selected,
@@ -76,15 +81,15 @@ export function SettingsRow({
       {icon ? <IconTile hue={icon.hue} name={icon.name} size={sizes.settingsIcon} /> : null}
       {detail ? (
         <View style={styles.label}>
-          <ThemedText variant="body" color={labelColor}>
+          <ThemedText variant="body" color={labelColor} style={labelStyle}>
             {label}
           </ThemedText>
-          <ThemedText variant="footnote" color="inkSecondary">
+          <ThemedText variant="footnote" color="inkSecondary" style={detailStyle}>
             {detail}
           </ThemedText>
         </View>
       ) : (
-        <ThemedText variant="body" color={labelColor} style={styles.label}>
+        <ThemedText variant="body" color={labelColor} style={[styles.label, labelStyle]}>
           {label}
         </ThemedText>
       )}

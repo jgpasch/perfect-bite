@@ -3,7 +3,7 @@
 // read back from it.
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { ReactElement } from 'react';
-import { AccessibilityInfo, Alert, Modal, Switch } from 'react-native';
+import { AccessibilityInfo, Alert, Modal, StyleSheet, Switch, Text } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households } from '@/db';
@@ -35,7 +35,11 @@ import {
   setKeepScreenOn,
   setPlanTab,
 } from '../device-settings';
+import { FONT_SET_KEY, getFontSetSetting, loadFontSet, setFontSetSetting } from '../font-set';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
+import * as deviceSettings from '../device-settings';
+import FontSetsSheet from '@/app/font-sets';
+import { applyFontSet, getFontSet } from '@/hooks/font-set';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -148,6 +152,7 @@ afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
   jest.restoreAllMocks();
+  applyFontSet('bricolage');
 });
 
 function render(element: ReactElement): ReactTestRenderer {
@@ -320,6 +325,35 @@ describe('Settings', () => {
     expect(toggle().props.value).toBe(true);
     act(() => toggle().props.onValueChange(false));
     expect(getAlwaysShowChecked()).toBe(false);
+  });
+
+  describe('Design trials', () => {
+    it('comes after General and before Developer, with a Fonts row showing the current set', () => {
+      const root = render(<SettingsScreen />);
+      const all = headers(root);
+      expect(all.indexOf('Design trials')).toBe(all.indexOf('General') + 1);
+      expect(all.indexOf('Developer')).toBe(all.indexOf('Design trials') + 1);
+      expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque');
+      click(button(root, 'Fonts, Bricolage Grotesque'));
+      expect(mockPush).toHaveBeenCalledWith('/font-sets');
+    });
+
+    it('shows a set picked before, and follows a switch at once', () => {
+      setFontSetSetting('youngSerif');
+      const root = render(<SettingsScreen />);
+      button(root, 'Fonts, Young Serif');
+      act(() => setFontSetSetting('jakarta'));
+      button(root, 'Fonts, Plus Jakarta Sans');
+    });
+
+    it("re-renders Settings' own text in the new fonts", () => {
+      const root = render(<SettingsScreen />);
+      const familyOf = (text: string) =>
+        StyleSheet.flatten(root.root.find((n) => n.type === Text && n.props.children === text).props.style).fontFamily;
+      expect(familyOf('Design trials')).toBe('Figtree');
+      act(() => setFontSetSetting('nunito'));
+      expect(familyOf('Design trials')).toBe('Nunito Sans');
+    });
   });
 
   describe('Households', () => {
@@ -526,6 +560,90 @@ describe('Language', () => {
     setDeviceSetting(LANGUAGE_KEY, 'fr');
     expect(getLanguageChoice()).toBeNull();
     expect(startupLanguage()).toBe('en');
+  });
+});
+
+describe('Fonts (Design trials)', () => {
+  const SAMPLE = '· Chicken tacos with lime crema';
+  const rows = (root: ReactTestRenderer) => buttons(root).filter((b) => b.props.accessibilityLabel.includes(SAMPLE));
+  const ticked = (root: ReactTestRenderer) =>
+    rows(root)
+      .filter((b) => b.props.accessibilityState?.selected)
+      .map((b) => b.props.accessibilityLabel);
+  const styleOf = (root: ReactTestRenderer, text: string) =>
+    StyleSheet.flatten(root.root.find((n) => n.type === Text && n.props.children === text).props.style);
+
+  it('the setting is bricolage until another set is saved, and bricolage for anything unknown', () => {
+    expect(getFontSetSetting()).toBe('bricolage');
+    setDeviceSetting(FONT_SET_KEY, 'fraunces');
+    expect(getFontSetSetting()).toBe('fraunces');
+    setDeviceSetting(FONT_SET_KEY, 'Comic Sans');
+    expect(getFontSetSetting()).toBe('bricolage');
+    setDeviceSetting(FONT_SET_KEY, 7);
+    expect(getFontSetSetting()).toBe('bricolage');
+  });
+
+  it('saving a set puts it in use', () => {
+    setFontSetSetting('jakarta');
+    expect(getDeviceSetting(FONT_SET_KEY, null)).toBe('jakarta');
+    expect(getFontSet()).toBe('jakarta');
+  });
+
+  it('loadFontSet puts the saved set in use at startup', () => {
+    setDeviceSetting(FONT_SET_KEY, 'nunito');
+    expect(getFontSet()).toBe('bricolage');
+    loadFontSet();
+    expect(getFontSet()).toBe('nunito');
+  });
+
+  it('loadFontSet falls back to bricolage when the settings table is not there yet', () => {
+    // A set saved and in use, so only the failed read can bring it back to bricolage.
+    setFontSetSetting('nunito');
+    const read = jest.spyOn(deviceSettings, 'getDeviceSetting').mockImplementation(() => {
+      throw new Error('no such table: device_settings');
+    });
+    expect(() => loadFontSet()).not.toThrow();
+    expect(read).toHaveBeenCalledWith(FONT_SET_KEY, null);
+    expect(getFontSet()).toBe('bricolage');
+  });
+
+  it('lists the five sets, each named in its display face over a sample in its body face, bricolage ticked', () => {
+    const root = render(<FontSetsSheet />);
+    expect(headers(root)).toEqual(['Fonts']);
+    expect(rows(root).map((b) => b.props.accessibilityLabel)).toEqual([
+      `Bricolage Grotesque, Figtree ${SAMPLE}`,
+      `Fraunces, Figtree ${SAMPLE}`,
+      `Young Serif, Instrument Sans ${SAMPLE}`,
+      `Plus Jakarta Sans, Plus Jakarta Sans ${SAMPLE}`,
+      `Nunito, Nunito Sans ${SAMPLE}`,
+    ]);
+    expect(ticked(root)).toEqual([`Bricolage Grotesque, Figtree ${SAMPLE}`]);
+    expect(styleOf(root, 'Fraunces')).toMatchObject({ fontFamily: 'Fraunces', fontWeight: '700' });
+    expect(styleOf(root, 'Young Serif')).toMatchObject({ fontFamily: 'Young Serif', fontWeight: '400' });
+    expect(styleOf(root, 'Nunito')).toMatchObject({ fontFamily: 'Nunito', fontWeight: '900' });
+    expect(styleOf(root, `Instrument Sans ${SAMPLE}`)).toMatchObject({ fontFamily: 'Instrument Sans', fontWeight: '400' });
+    expect(styleOf(root, `Nunito Sans ${SAMPLE}`)).toMatchObject({ fontFamily: 'Nunito Sans' });
+    expect(textOf(root)).toContain('Only this device changes. Every screen switches at once.');
+  });
+
+  it('picking a set saves it, switches the fonts at once and moves the tick, keeping the sheet open', () => {
+    const root = render(<FontSetsSheet />);
+    click(button(root, `Young Serif, Instrument Sans ${SAMPLE}`));
+    expect(getDeviceSetting(FONT_SET_KEY, null)).toBe('youngSerif');
+    expect(getFontSet()).toBe('youngSerif');
+    expect(ticked(root)).toEqual([`Young Serif, Instrument Sans ${SAMPLE}`]);
+    // The sheet's own title is now in the new display face.
+    expect(styleOf(root, 'Fonts')).toMatchObject({ fontFamily: 'Young Serif', fontWeight: '400', fontSize: 30 });
+    click(button(root, `Bricolage Grotesque, Figtree ${SAMPLE}`));
+    expect(getDeviceSetting(FONT_SET_KEY, null)).toBe('bricolage');
+    expect(ticked(root)).toEqual([`Bricolage Grotesque, Figtree ${SAMPLE}`]);
+    expect(styleOf(root, 'Fonts')).toMatchObject({ fontFamily: 'Bricolage Grotesque', fontWeight: '800' });
+  });
+
+  it('ticks a set picked before', () => {
+    setFontSetSetting('nunito');
+    const root = render(<FontSetsSheet />);
+    expect(ticked(root)).toEqual([`Nunito, Nunito Sans ${SAMPLE}`]);
   });
 });
 

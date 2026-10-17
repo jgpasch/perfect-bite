@@ -1691,10 +1691,52 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@expo-google-fonts/fraunces@npm:^0.4.1":
+  version: 0.4.1
+  resolution: "@expo-google-fonts/fraunces@npm:0.4.1"
+  checksum: 10c0/b9bc153e51eb7fff711909b1cc132bce739f5d4a173c229a1041ccfff2fea7ebc721685462c8733ad076e6f41e81e180161e1b27655222f1d9b397ddcfd30b2e
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/instrument-sans@npm:^0.4.2":
+  version: 0.4.2
+  resolution: "@expo-google-fonts/instrument-sans@npm:0.4.2"
+  checksum: 10c0/4b240f9b29e8b4b402bdcffdfae8c89dedc06bc75e0e2a34a5d13b3b5b440baf714245f07ce716450fd2a3e2de8476044c8bf2d11a148f1aef4211fef4680c5d
+  languageName: node
+  linkType: hard
+
 "@expo-google-fonts/material-symbols@npm:^0.4.1":
   version: 0.4.49
   resolution: "@expo-google-fonts/material-symbols@npm:0.4.49"
   checksum: 10c0/96300faead9a190d963c3d44c6d0ded13dd188d4b4e1b7bd40052c4812919fc0556509a006fe57135bc0efc75bb766b974de4f9d2a56a3c5c26ca22bf5bb9349
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/nunito-sans@npm:^0.4.2":
+  version: 0.4.2
+  resolution: "@expo-google-fonts/nunito-sans@npm:0.4.2"
+  checksum: 10c0/ee0de9d5c82c0113e24a680957711b0f35930550bb193af5e8fb6f3de21e5f6be6ff7150489578fffe7ac86867a790107f0ce26a8cd986d67047e37d524026c7
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/nunito@npm:^0.4.2":
+  version: 0.4.2
+  resolution: "@expo-google-fonts/nunito@npm:0.4.2"
+  checksum: 10c0/b22712e9892d47561b0d96bfb625fea24eeda3f34531bee88e781827892740e063dcde1ddf4615b097ba0b436e765f5101fbc4788430574369b6e5f4c8860eb3
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/plus-jakarta-sans@npm:^0.4.2":
+  version: 0.4.2
+  resolution: "@expo-google-fonts/plus-jakarta-sans@npm:0.4.2"
+  checksum: 10c0/a2c90e344dd974c6f332b3285173ac28b0de5e37517d5ea959117578ae02550720ab233417d7da42637db7ebbfded86648814198795ca35bd2b49fc164084bb7
+  languageName: node
+  linkType: hard
+
+"@expo-google-fonts/young-serif@npm:^0.4.0":
+  version: 0.4.0
+  resolution: "@expo-google-fonts/young-serif@npm:0.4.0"
+  checksum: 10c0/7a4b246dca331c24a351ca202ff1093996b8981c2fbe4a67d91e93650419c8232457bed95b9bdc490c17978d2a62b1fcef8787c7e3d1dc5a75c2b559f3f085c3
   languageName: node
   linkType: hard
 
@@ -10276,6 +10318,12 @@ __metadata:
     "@bacons/apple-targets": "npm:^5.0.0"
     "@expo-google-fonts/bricolage-grotesque": "npm:^0.4.1"
     "@expo-google-fonts/figtree": "npm:^0.4.1"
+    "@expo-google-fonts/fraunces": "npm:^0.4.1"
+    "@expo-google-fonts/instrument-sans": "npm:^0.4.2"
+    "@expo-google-fonts/nunito": "npm:^0.4.2"
+    "@expo-google-fonts/nunito-sans": "npm:^0.4.2"
+    "@expo-google-fonts/plus-jakarta-sans": "npm:^0.4.2"
+    "@expo-google-fonts/young-serif": "npm:^0.4.0"
     "@expo/ui": "npm:~57.0.22"
     "@react-native-google-signin/google-signin": "npm:^16.1.5"
     "@react-native/jest-preset": "npm:0.86.3"

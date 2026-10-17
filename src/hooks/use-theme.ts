@@ -12,21 +12,24 @@ import {
   Shadows,
   Sizes,
   Spacing,
-  Typography,
+  typographyFor,
   type ColorScheme,
 } from '@/constants/theme';
+import { useFontSet } from '@/hooks/font-set';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function useTheme() {
   const raw = useColorScheme();
   const scheme: ColorScheme = raw === 'dark' ? 'dark' : 'light';
+  const fontSet = useFontSet();
 
   return {
     scheme,
     colors: Palette[scheme],
     /** Aisle colours by hue; pick the hue with `aisleColor(slug)`. */
     aisles: AisleColors[scheme],
-    typography: Typography,
+    /** In the device's font set (Settings > Design trials > Fonts). */
+    typography: typographyFor(fontSet),
     spacing: Spacing,
     rounded: Rounded,
     shadows: Shadows,

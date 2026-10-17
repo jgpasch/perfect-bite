@@ -12,6 +12,7 @@ import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Toast } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
+import { FontSetSpecs } from '@/constants/theme';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
@@ -47,6 +48,7 @@ import {
   setPlanTab,
 } from '@/features/settings/device-settings';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
+import { useFontSet } from '@/hooks/font-set';
 import { useTheme } from '@/hooks/use-theme';
 import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
@@ -72,6 +74,7 @@ export default function SettingsScreen() {
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
   const planTab = usePlanTabSetting();
+  const fontSet = useFontSet();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -231,6 +234,16 @@ export default function SettingsScreen() {
           />
         </SettingsSection>
 
+        {/* Every build, TestFlight included, until the trials end. */}
+        <SettingsSection title={t('settings.designTrials')}>
+          <SettingsRow
+            label={t('settings.fonts')}
+            value={FontSetSpecs[fontSet].display}
+            icon={{ name: 'textformat', hue: 'plum' }}
+            onPress={() => router.push('/font-sets')}
+            last
+          />
+        </SettingsSection>
 
         {__DEV__ ? (
           <SettingsSection title={t('settings.developer')}>

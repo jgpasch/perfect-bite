@@ -11,6 +11,7 @@ import { wipeIfOtherUser } from '@/features/auth/sign-out';
 import { NotificationHost } from '@/features/notifications/notification-host';
 import { clearNotifications } from '@/features/notifications/notifications';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
+import { loadFontSet } from '@/features/settings/font-set';
 import { startupLanguage } from '@/features/settings/language';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -23,6 +24,8 @@ export const unstable_settings = { initialRouteName: '(tabs)' };
 
 // The app's strings, in the language picked in Settings or else the phone's (spec 4.15), before anything renders.
 initI18n(startupLanguage());
+// The font set picked in Settings > Design trials, before anything renders.
+loadFontSet();
 SplashScreen.preventAutoHideAsync();
 startAccount({ beforeReady: wipeIfOtherUser });
 
@@ -82,6 +85,11 @@ export default function RootLayout() {
                 />
                 {/* Board 12: "Aisle order" is the large title in the screen, under the Done button. */}
                 <Stack.Screen name="category-order" options={{ title: '', presentation: 'modal' }} />
+                {/* Settings > Design trials > Fonts: the font trial's picker. */}
+                <Stack.Screen
+                  name="font-sets"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
                 {/* An invite link (spec 4.7): signed out, the guard sends it to sign-in instead. */}
                 <Stack.Screen name="invite/[token]" options={{ title: '', presentation: 'modal' }} />
                 {/* Designs S2, S3: "Invite someone" from the household screen. */}

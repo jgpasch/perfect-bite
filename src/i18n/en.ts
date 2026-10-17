@@ -785,6 +785,13 @@ export const en = {
     combineLanguagesLabel: 'Combine English and Spanish names in {{household}}',
     developer: 'Developer',
     developerRow: 'Siri queue and log',
+    designTrials: 'Design trials',
+    fonts: 'Fonts',
+    /** Settings > Design trials > Fonts: a set's sample line in its body face, "Figtree · Chicken tacos with lime crema". */
+    fontsScreen: {
+      sample: '{{body}} · Chicken tacos with lime crema',
+      footnote: 'Only this device changes. Every screen switches at once.',
+    },
     signOut: 'Sign out',
     version: 'Version {{version}}',
     alwaysHave: 'Always have',

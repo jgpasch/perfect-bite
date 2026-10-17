@@ -695,6 +695,13 @@ export const es = {
     combineLanguagesLabel: 'Juntar nombres en español e inglés en {{household}}',
     developer: 'Desarrollo',
     developerRow: 'Cola y registro de Siri',
+    designTrials: 'Pruebas de diseño',
+    fonts: 'Tipografías',
+    /** Settings > Design trials > Fonts. */
+    fontsScreen: {
+      sample: '{{body}} · Tacos de pollo con crema de lima',
+      footnote: 'Solo cambia en este dispositivo. Cada pantalla cambia de inmediato.',
+    },
     signOut: 'Cerrar sesión',
     version: 'Versión {{version}}',
     alwaysHave: 'Siempre tengo',
