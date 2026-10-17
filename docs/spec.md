@@ -442,7 +442,7 @@ A household plans its week: what's for breakfast, lunch and dinner each day. *In
 
 Postgres (Supabase). Row ids are UUIDv7 generated on the client so rows can be created offline. Most tables have `created_at` and `updated_at` (server-set; left out of the DDL below). Exceptions with no `updated_at`: `household_members`, `household_invites`, `ingredient_households`, `plans`, `plan_features`, `user_plans`, `admin.admin_actions`. Household data synced through `apply_mutations` has `field_clock jsonb` for conflict resolution (7.3), and soft-deletable rows have `deleted_at` (needed for sync); `categories`, `household_category_overrides`, `ingredient_usage` and `ingredient_unit_usage` have no `deleted_at`, and `households` / `household_members` have no `field_clock` (they change only through functions).
 
-**Foreign keys**: every `household_id` is `on delete cascade`, so deleting a household removes its data. Children of a list or recipe reference it together with the household (`foreign key (list_id, household_id) references lists (id, household_id) on delete cascade`, likewise for `recipe_id`; each parent has `unique (id, household_id)`), which is what keeps a child in its parent's household. References to `auth.users` on rows that outlive their author (`checked_by`, `added_by`, `created_by`, `used_by`) are `on delete set null`, as are `list_items.merged_into` and `user_settings.default_list_id`. The DDL below shows plain references for brevity; the migrations are the source of truth.
+**Foreign keys**: every `household_id` is `on delete cascade`, so deleting a household removes its data. Children of a list or recipe reference it together with the household (`foreign key (list_id, household_id) references lists (id, household_id) on delete cascade`, likewise for `recipe_id`; each parent has `unique (id, household_id)`), which is what keeps a child in its parent's household. References to `auth.users` on rows that outlive their author (`checked_by`, `added_by`, `created_by`, `used_by`) are `on delete set null` (per-user rows, such as `user_settings`, `notification_settings` and `push_tokens`, are `on delete cascade`), as are `list_items.merged_into` and `user_settings.default_list_id`. The DDL below shows plain references for brevity; the migrations are the source of truth.
 
 **Ingredient key**: ingredients are identified by `normalized_name` (text primary key). The client can always compute it, offline included, so list items reference an ingredient without waiting for the server. No provisional ids, no rewriting.
 
@@ -722,6 +722,25 @@ create table user_settings (
   default_list_id uuid references lists
 );
 
+-- Push notifications (4.13). Per user, read and written online; never through the outbox or sync.
+-- One row per signed-in device. No direct client access: register_push_token / unregister_push_token.
+create table push_tokens (
+  token    text primary key,                    -- the Expo push token, ExponentPushToken[…]
+  user_id  uuid not null references auth.users on delete cascade,  -- indexed
+  platform text not null check (platform in ('ios', 'android'))
+);
+
+-- A missing row means the defaults. Quiet hours are both null (off) or both set and different;
+-- a start later than the end wraps past midnight. time_zone must be in pg_timezone_names (trigger).
+create table notification_settings (
+  user_id           uuid primary key references auth.users on delete cascade,
+  items_added       boolean not null default true,
+  shopping          boolean not null default true,
+  quiet_hours_start time,
+  quiet_hours_end   time,
+  time_zone         text not null default 'UTC'   -- IANA name
+);
+
 -- Audit log of admin functions and delete_account (4.8, 4.12), one row per call. In the `admin` schema; no foreign keys,
 -- so a row outlives the user or household it describes.
 create table admin.admin_actions (
@@ -782,6 +801,8 @@ Note the `create table` order above is for readability; the real migration must 
 - `ingredient_households`: no client access.
 - Custom `categories` and `household_category_overrides`: household data, readable by members of their household only (`household_id in (select private.my_household_ids())`); written through `apply_mutations` (custom categories: insert with `household_id`, `name` and `created_at`, then `name`; overrides: `category_id` only, which must be a system category or a custom one of the same household).
 - `user_category_order`, `user_settings`: read/write only where `user_id = auth.uid()`, written directly (upsert/delete), not through `apply_mutations`.
+- `notification_settings` (4.13): select, insert and update only where `user_id = auth.uid()`, written directly (upsert), no delete.
+- `push_tokens` (4.13): RLS on, no client grants. Two `security definer` functions for `authenticated` only: `register_push_token(token, platform)` checks the token's shape (`^(Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$`, ≤ 200 chars; else `invalid token`) and the platform (`invalid platform`) and upserts the row for `auth.uid()`, bumping `updated_at`; a token held by another user moves to the caller (the device changed hands). `unregister_push_token(token)` deletes the caller's row, and is a no-op for someone else's or an unknown token. `private.push_recipients(household_id, actor, kind, at)` (`service_role` only; `kind` is `items_added` or `shopping`, else `invalid kind`) returns `(user_id, token, platform)`, one row per device, for the household's current members other than the actor who have that kind on and aren't in quiet hours (`[start, end)`) at `at` in their own `time_zone`; a missing settings row counts as the defaults.
 - Household tables: readable where `household_id` is one of the caller's households: `household_id in (select private.my_household_ids())`, where `private.my_household_ids()` is a `stable security definer` function returning the caller's memberships (wrapped in `select` so Postgres evaluates it once per query).
 - `households`, `household_members`: members can read the households they belong to and those households' member lists (names and roles; needed for the Households screen). Changes go through `security definer` functions (`create_household`, `rename_household`, `set_combine_languages` (any member, 4.15), `create_invite`, `accept_invite`, `leave_household`, `remove_member`, `set_member_role`, `delete_household`, and `get_household_members` for reading; `reorder_households` is planned, not built; executable by `authenticated` only, not `anon`), which enforce the rules in 4.7 (at least one owner, at least one household per user, owner-only actions). No direct writes.
 - `household_invites`: no direct access; `security definer` functions only, all for `authenticated`: `create_invite(household, email?)` (members; with an email, raises `already a member` for a member's email and revokes the open invite to the same email first), `preview_invite` (the join screen's household name, inviter and status: valid, member, used or expired; revoked and declined read as used), `accept_invite` (by link, whoever has it), `list_household_invites` (members; open, unexpired invites), `revoke_invite` (any member of the invite's household), `my_invites` (open, unexpired invites to the caller's `auth.email()`, case-insensitive, for households they aren't in), and `accept_invite_by_id` / `decline_invite` (only for an invite to the caller's email; anyone else gets `invite not found`, the same as an unknown id).

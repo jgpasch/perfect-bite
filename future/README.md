@@ -13,7 +13,6 @@ When a feature is fully moved into `tasks.md`, delete its file here. When you pa
 
 | File | Status | Spec |
 |---|---|---|
-| [push-notifications-tasks.md](push-notifications-tasks.md) | ready | 11.1 |
 | [recipe-import-tasks.md](recipe-import-tasks.md) | ideas | 4.5 |
 | [siri-tasks.md](siri-tasks.md) | ideas | 4.9, 11.3 |
 | [copy-to-household-tasks.md](copy-to-household-tasks.md) | ideas | 4.5, 4.14, 11.4 |
@@ -23,4 +22,3 @@ When a feature is fully moved into `tasks.md`, delete its file here. When you pa
 | [feature-discovery-tasks.md](feature-discovery-tasks.md) | ideas | 4.9, 4.10 |
 | [i18n-es-mx-tasks.md](i18n-es-mx-tasks.md) | ready | 4.15 |
 | [units-tasks.md](units-tasks.md) | ready | 4.2, 11.4 |
-| [item-requests-tasks.md](item-requests-tasks.md) | ready (after push notifications) | 4.17 (new) |
