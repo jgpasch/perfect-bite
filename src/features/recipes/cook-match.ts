@@ -76,3 +76,20 @@ export function stepAmount(
   }
   return { text: whole, spoken: whole };
 }
+
+/**
+ * A use as one phrase, amount first: "2 tbsp butter", a share "1 of 3 limes", a split "2 lb chicken thighs,
+ * part", or just "spaghetti" with no quantity. An upcoming step's ingredient line joins these with " · ".
+ */
+export function stepUseText(
+  ingredient: Amount & { displayName: string },
+  share: number | null,
+  split: boolean,
+  servings: number | null,
+  base: number | null,
+): string {
+  if (share !== null && ingredient.quantity !== null) return stepAmount(ingredient, share, split, servings, base).spoken;
+  const whole = cookAmount(ingredient, servings, base);
+  if (!whole) return ingredient.displayName;
+  return i18n.t(split ? 'recipes.cook.useTextPart' : 'recipes.cook.useText', { amount: whole, name: ingredient.displayName });
+}

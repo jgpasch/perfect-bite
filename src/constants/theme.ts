@@ -194,6 +194,8 @@ function buildTypography(set: FontSet) {
     itemName: { fontFamily: body, fontSize: 17, fontWeight: '600', lineHeight: 22 },
     /** A step's text and an ingredient's name on the cook screen, big enough to read from the counter. */
     cookStep: { fontFamily: body, fontSize: 20, fontWeight: '500', lineHeight: 28 },
+    /** The current step's text on the cook screen: `cookStep` at 600. */
+    cookStepCurrent: { fontFamily: body, fontSize: 20, fontWeight: '600', lineHeight: 28 },
     callout: { fontFamily: body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
     /** Quantities and values at the end of a row. */
     amount: { fontFamily: body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
@@ -330,6 +332,8 @@ export const Sizes = {
   cookStepCheck: 30,
   /** the check on an ingredient row under a step on the cook screen */
   cookIngredientCheck: 22,
+  /** the `primary` border around the cook screen's current step card */
+  cookCurrentBorder: 2,
   /** The week grid (spec 4.16): the day column, a cell's height and its recipe tile (minimums, for Dynamic Type) */
   planDayColumn: 52,
   planCell: 64,

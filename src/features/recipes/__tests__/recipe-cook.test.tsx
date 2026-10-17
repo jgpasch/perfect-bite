@@ -2,14 +2,15 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { activateKeepAwakeAsync } from 'expo-keep-awake';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { eq } from 'drizzle-orm';
 
 import { PrimaryButton, SurfaceButton } from '@/components/button';
-import { AisleColors, Palette, Sizes, Typography } from '@/constants/theme';
+import { Card } from '@/components/card';
+import { AisleColors, Palette, Sizes, Spacing, Typography } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData } from '@/features/lists/lists';
@@ -23,7 +24,7 @@ import { resetDb } from '@/test/db';
 import CookScreen from '@/app/recipe/[id]/cook';
 import RecipeScreen from '@/app/recipe/[id]/index';
 
-import { allTicked, toggleAllUses, tickUses, stepAmount, tickKey, usesByIngredient } from '../cook-match';
+import { allTicked, toggleAllUses, tickUses, stepAmount, stepUseText, tickKey, usesByIngredient } from '../cook-match';
 import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
 import { stepMatch } from '../step-match';
 import { cookProgressLabel, upNextIndex } from '../recipe-view';
@@ -36,6 +37,7 @@ jest.mock('@/components/icon', () => {
   return { Icon: (props: object) => createElement('Icon', props) };
 });
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
+let mockReduceMotion = false;
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
   const builder: object = new Proxy({}, { get: () => () => builder });
@@ -46,7 +48,7 @@ jest.mock('react-native-reanimated', () => {
     FadeInDown: builder,
     FadeOut: builder,
     LinearTransition: builder,
-    useReducedMotion: () => false,
+    useReducedMotion: () => mockReduceMotion,
   };
 });
 jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
@@ -127,6 +129,7 @@ beforeEach(() => {
   mockPush.mockClear();
   mockBack.mockClear();
   mockAwake.clear();
+  mockReduceMotion = false;
   jest.mocked(activateKeepAwakeAsync).mockClear();
 });
 
@@ -182,7 +185,28 @@ const circleStyle = (node: ReactTestInstance) => {
   return StyleSheet.flatten(n!.props.style);
 };
 const progress = (root: ReactTestRenderer) => hostTexts(root).find((t) => /steps? done$/.test(t));
-const upNextRows = (root: ReactTestRenderer) => stepRows(root).filter((row) => textsIn(row).includes('Up next'));
+/** The `Card` a step's checkbox row sits in. */
+const stepCard = (row: ReactTestInstance) => {
+  let n = row.parent;
+  while (n && n.type !== Card) n = n.parent;
+  return n!;
+};
+const stepCards = (root: ReactTestRenderer) => stepRows(root).map(stepCard);
+/** The View the step cards are laid out in: the nearest one around a card with a gap. */
+const stepColumn = (card: ReactTestInstance) => {
+  let n = card.parent;
+  while (n && StyleSheet.flatten(n.props.style)?.gap === undefined) n = n.parent;
+  return n!;
+};
+const cardStyle = (card: ReactTestInstance) => StyleSheet.flatten(card.props.style) ?? {};
+/** The step cards with the current step's 2 pt border. */
+const currentCards = (root: ReactTestRenderer) => stepCards(root).filter((card) => cardStyle(card).borderWidth === 2);
+const markDoneButtons = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === PrimaryButton && n.props.label === 'Mark step done');
+/** An upcoming card's ingredient line: its footnote Text outside the checkbox row. */
+const lineOf = (card: ReactTestInstance) =>
+  card
+    .findAll((n) => String(n.type) === 'Text' && StyleSheet.flatten(n.props.style)?.fontSize === Typography.footnote.fontSize)
+    .map((n) => [n.props.children].flat().join(''));
 const byA11y = (root: ReactTestRenderer, label: string) =>
   root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function');
 
@@ -316,7 +340,7 @@ describe('the cook screen', () => {
     expect(progress(root)).toBe('For 4 · 0 of 3 steps done');
   });
 
-  test('every step is a checkbox row read as "Step N of M, …", numbered in a ringed 30 pt circle', () => {
+  test('each step is its own card, 12 pt apart, its badge and text a checkbox read as "Step N of M, …"', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
     const rows = stepRows(root);
@@ -326,28 +350,42 @@ describe('the cook screen', () => {
       'Step 3 of 3, Grill the thighs.',
     ]);
     expect(rows.map(isChecked)).toEqual([false, false, false]);
-    const digit = textIn(rows[1], '2');
+    const cards = stepCards(root);
+    expect(new Set(cards).size).toBe(3);
+    expect(cards.every((card) => stepColumn(card) === stepColumn(cards[0]))).toBe(true);
+    expect(StyleSheet.flatten(stepColumn(cards[0]).props.style).gap).toBe(Spacing.md);
+    // No Method card or header, and no "Up next" caption.
+    expect(hostTexts(root)).not.toContain('Method');
+    expect(hostTexts(root)).not.toContain('3 steps');
+    expect(hostTexts(root)).not.toContain('Up next');
+  });
+
+  test('an upcoming step: an outlined controlBorder badge with its number, and the text in body', () => {
+    setSteps(STEPS);
+    const root = render(<CookScreen />);
+    const row = stepRows(root)[1];
+    const digit = textIn(row, '2');
     expect(StyleSheet.flatten(digit.props.style).color).toBe(Palette.light.inkSecondary);
     expect(circleStyle(digit)).toMatchObject({
       width: 30,
       height: 30,
+      borderWidth: Sizes.checkBorder,
       borderColor: Palette.light.controlBorder,
       backgroundColor: Palette.light.surface,
     });
-    const text = textIn(rows[1], STEPS[1]);
-    expect(StyleSheet.flatten(text.props.style)).toMatchObject({
-      fontFamily: Typography.cookStep.fontFamily,
-      fontSize: 20,
-      fontWeight: '500',
-      lineHeight: 28,
+    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+      fontSize: Typography.body.fontSize,
+      fontWeight: Typography.body.fontWeight,
       color: Palette.light.ink,
     });
-    // The Method header: "3 steps" shown, read as one header.
-    expect(hostTexts(root)).toEqual(expect.arrayContaining(['Method', '3 steps']));
-    expect(root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityLabel === 'Method, 3 steps')).toHaveLength(1);
+    const card = stepCard(row);
+    expect(cardStyle(card).borderWidth).toBeUndefined();
+    expect(card.findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
+    // Without a match there's no ingredient line.
+    expect(lineOf(card)).toEqual([]);
   });
 
-  test('tapping a step ticks it (a primary circle with a check, dimmed text), and again unticks it', () => {
+  test('tapping a step marks it done (a primarySoft check, callout inkSecondary), and again unticks it', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
     tap(stepRows(root)[1]);
@@ -355,13 +393,13 @@ describe('the cook screen', () => {
     expect(isChecked(row)).toBe(true);
     expect(textsIn(row)).not.toContain('2');
     const check = row.find((n) => String(n.type) === 'Icon');
-    expect(check.props).toMatchObject({ name: 'checkmark', color: 'onPrimary' });
-    expect(circleStyle(check)).toMatchObject({
-      width: 30,
-      backgroundColor: Palette.light.primary,
-      borderColor: Palette.light.primary,
+    expect(check.props).toMatchObject({ name: 'checkmark', color: 'primary' });
+    expect(circleStyle(check)).toMatchObject({ width: 30, backgroundColor: Palette.light.primarySoft });
+    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+      fontSize: Typography.callout.fontSize,
+      color: Palette.light.inkSecondary,
     });
-    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style).color).toBe(Palette.light.inkSecondary);
+    expect(stepCard(row).findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
     // The others are untouched.
     expect(stepRows(root).map(isChecked)).toEqual([false, true, false]);
 
@@ -370,34 +408,103 @@ describe('the cook screen', () => {
     expect(isChecked(row)).toBe(false);
     expect(textsIn(row)).toContain('2');
     expect(row.findAll((n) => String(n.type) === 'Icon')).toHaveLength(0);
-    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style).color).toBe(Palette.light.ink);
+    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+      fontSize: Typography.body.fontSize,
+      color: Palette.light.ink,
+    });
   });
 
-  test('"Up next" tints the first unticked step, moves as steps are ticked, and goes with all ticked', () => {
+  test('the current step is the first unticked: a primary border, a filled badge, cookStep 600 and Mark step done', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
-    const upNext = () => upNextRows(root).map((r) => r.props.accessibilityLabel);
-    expect(upNext()).toEqual(['Step 1 of 3, Blend the chipotles into a paste.']);
-    const tinted = upNextRows(root)[0];
-    expect(rowStyle(tinted).backgroundColor).toBe(Palette.light.primarySoft);
-    const caption = textIn(tinted, 'Up next');
-    expect(StyleSheet.flatten(caption.props.style)).toMatchObject({
-      fontSize: Typography.caption.fontSize,
-      color: Palette.light.onPrimarySoft,
+    const current = () =>
+      stepRows(root)
+        .filter((row) => currentCards(root).includes(stepCard(row)))
+        .map((row) => row.props.accessibilityLabel);
+    expect(current()).toEqual(['Step 1 of 3, Blend the chipotles into a paste.']);
+    const card = currentCards(root)[0];
+    expect(cardStyle(card)).toMatchObject({ borderWidth: Sizes.cookCurrentBorder, borderColor: Palette.light.primary });
+    const row = stepRows(root)[0];
+    const digit = textIn(row, '1');
+    expect(StyleSheet.flatten(digit.props.style).color).toBe(Palette.light.onPrimary);
+    expect(circleStyle(digit)).toMatchObject({ backgroundColor: Palette.light.primary, borderColor: Palette.light.primary });
+    expect(StyleSheet.flatten(textIn(row, STEPS[0]).props.style)).toMatchObject({
+      fontFamily: Typography.cookStep.fontFamily,
+      fontSize: 20,
+      fontWeight: '600',
+      lineHeight: 28,
+      color: Palette.light.ink,
     });
-    expect(rowStyle(stepRows(root)[1]).backgroundColor).toBeUndefined();
+    // One full-width Mark step done, in the current card, read with the step's number.
+    expect(markDoneButtons(root)).toHaveLength(1);
+    expect(stepCard(markDoneButtons(root)[0])).toBe(card);
+    expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 1 done');
+    expect(
+      root.root.findAll((n) => String(n.type) === 'View' && n.props.accessibilityLabel === 'Mark step 1 done')[0].props
+        .accessibilityRole,
+    ).toBe('button');
 
     tap(stepRows(root)[0]);
-    expect(upNext()).toEqual(['Step 2 of 3, Toss the chicken in half the paste.']);
+    expect(current()).toEqual(['Step 2 of 3, Toss the chicken in half the paste.']);
+    expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 2 done');
     // Ticking a later step out of order doesn't move it past an unticked one.
     tap(stepRows(root)[2]);
-    expect(upNext()).toEqual(['Step 2 of 3, Toss the chicken in half the paste.']);
+    expect(current()).toEqual(['Step 2 of 3, Toss the chicken in half the paste.']);
     tap(stepRows(root)[1]);
-    expect(upNext()).toEqual([]);
-    expect(stepRows(root).map((r) => rowStyle(r).backgroundColor)).toEqual([undefined, undefined, undefined]);
+    expect(current()).toEqual([]);
+    expect(markDoneButtons(root)).toHaveLength(0);
     // Unticking the first brings it back there.
     tap(stepRows(root)[0]);
-    expect(upNext()).toEqual(['Step 1 of 3, Blend the chipotles into a paste.']);
+    expect(current()).toEqual(['Step 1 of 3, Blend the chipotles into a paste.']);
+  });
+
+  test('Mark step done ticks the current step and moves it on, updating the progress line', () => {
+    setSteps(STEPS);
+    setServings(4);
+    const root = render(<CookScreen />);
+    act(() => byA11y(root, 'Mark step 1 done').props.onPress());
+    expect(stepRows(root).map(isChecked)).toEqual([true, false, false]);
+    expect(progress(root)).toBe('For 4 · 1 of 3 steps done');
+    act(() => byA11y(root, 'Mark step 2 done').props.onPress());
+    act(() => byA11y(root, 'Mark step 3 done').props.onPress());
+    expect(stepRows(root).map(isChecked)).toEqual([true, true, true]);
+    expect(progress(root)).toBe('For 4 · 3 of 3 steps done');
+    expect(markDoneButtons(root)).toHaveLength(0);
+  });
+
+  test('Mark step done scrolls the next current card into view once it lays out, at once under Reduce Motion', () => {
+    setSteps(STEPS);
+    const run = () => {
+      const root = render(<CookScreen />);
+      const scrollTo = jest.fn();
+      root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
+      const layout = (node: ReactTestInstance, y: number) =>
+        act(() => node.props.onLayout({ nativeEvent: { layout: { x: 0, y, width: 358, height: 100 } } }));
+      layout(stepColumn(stepCards(root)[0]), 200);
+      // Laying out before any Mark step done doesn't scroll.
+      layout(stepCards(root)[1], 90);
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      act(() => byA11y(root, 'Mark step 1 done').props.onPress());
+      // Another card laying out doesn't; the new current one does, once.
+      layout(stepCards(root)[2], 300);
+      expect(scrollTo).not.toHaveBeenCalled();
+      layout(stepCards(root)[1], 70);
+      layout(stepCards(root)[1], 70);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      const call = scrollTo.mock.calls[0][0];
+      // Tapping a step (not the button) doesn't scroll, nor does the last Mark step done.
+      tap(stepRows(root)[1]);
+      layout(stepCards(root)[2], 120);
+      act(() => byA11y(root, 'Mark step 3 done').props.onPress());
+      layout(stepCards(root)[2], 120);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      close();
+      return call;
+    };
+    expect(run()).toEqual({ y: 200 + 70 - Spacing.md, animated: true });
+    mockReduceMotion = true;
+    expect(run()).toEqual({ y: 200 + 70 - Spacing.md, animated: false });
   });
 
   test('ingredients tick and untick: filled check and the name struck through in inkSecondary', () => {
@@ -558,7 +665,7 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     expect(ingredientRows(root).map((r) => r.props.accessibilityLabel)).not.toContain('Chicken thighs, 2 lb');
   });
 
-  test('each step lists its ingredients with shares and "part"; a step with none lists nothing', () => {
+  test('the current step lists its ingredients with shares and "part"; done and upcoming steps list none', () => {
     const root = render(<CookScreen />);
     expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
       `Step 1 of 3, ${MATCH_STEPS[0]}, uses chicken thighs, garlic, limes`,
@@ -569,17 +676,46 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       'Chicken thighs, 2 lb, part, for step 1',
       'Garlic, 4 clove, for step 1',
       'Limes, 1 of 3 limes, for step 1',
-      'Chicken thighs, 2 lb, part, for step 3',
-      'Limes, 2 of 3 limes, for step 3',
     ]);
     const limes = checkbox(root, 'Limes, 1 of 3 limes, for step 1');
+    expect(stepCard(limes)).toBe(currentCards(root)[0]);
     expect(textsIn(limes)).toEqual(['Limes', '1 of 3']);
     expect(textsIn(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'))).toEqual(['Chicken thighs', '2 lb · part']);
     // A 22 pt check, a 44 pt row.
     expect(rowStyle(limes).minHeight).toBe(44);
+    // The rows come before Mark step done.
+    const texts = textsIn(currentCards(root)[0]);
+    expect(texts.indexOf('Mark step done')).toBeGreaterThan(texts.indexOf('Limes'));
+
+    // Step 1 done hides its rows; step 2 (no ingredients) is current with none; then step 3's.
+    tap(stepRows(root)[0]);
+    expect(stepIngredientLabels(root)).toEqual([]);
+    expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 2 done');
+    tap(stepRows(root)[1]);
+    expect(stepIngredientLabels(root)).toEqual(['Chicken thighs, 2 lb, part, for step 3', 'Limes, 2 of 3 limes, for step 3']);
   });
 
-  test('split amounts scale with the servings', () => {
+  test('an upcoming step names its ingredients on one footnote line, hidden from VoiceOver', () => {
+    const root = render(<CookScreen />);
+    const cards = stepCards(root);
+    expect(lineOf(cards[2])).toEqual(['2 lb chicken thighs, part · 2 of 3 limes']);
+    // No ingredients, no line; the current card shows rows, not a line.
+    expect(lineOf(cards[1])).toEqual([]);
+    expect(lineOf(cards[0])).toEqual([]);
+    const line = cards[2].find((n) => String(n.type) === 'Text' && n.props.children === '2 lb chicken thighs, part · 2 of 3 limes');
+    expect(StyleSheet.flatten(line.props.style)).toMatchObject({
+      fontSize: Typography.footnote.fontSize,
+      color: Palette.light.inkSecondary,
+    });
+    expect(line.props.accessibilityElementsHidden).toBe(true);
+    // Lined up with the step's text: past the badge and the gap.
+    expect(StyleSheet.flatten(line.props.style).marginLeft).toBe(Spacing.lg + Sizes.cookStepCheck + Spacing.md);
+    // A done step shows no line either.
+    tap(stepRows(root)[2]);
+    expect(lineOf(stepCards(root)[2])).toEqual([]);
+  });
+
+  test('split amounts scale with the servings, in the rows and the upcoming line', () => {
     setServings(4);
     mockParams.servings = '8';
     const root = render(<CookScreen />);
@@ -587,16 +723,51 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       'Chicken thighs, 4 lb, part, for step 1',
       'Garlic, 8 clove, for step 1',
       'Limes, 2 of 6 limes, for step 1',
-      'Chicken thighs, 4 lb, part, for step 3',
-      'Limes, 4 of 6 limes, for step 3',
     ]);
+    expect(lineOf(stepCards(root)[2])).toEqual(['4 lb chicken thighs, part · 4 of 6 limes']);
+    tap(stepRows(root)[0]);
+    tap(stepRows(root)[1]);
+    expect(stepIngredientLabels(root)).toEqual(['Chicken thighs, 4 lb, part, for step 3', 'Limes, 4 of 6 limes, for step 3']);
   });
 
-  test('Also needed lists the ingredients in no step, after Method', () => {
+  test('Mark step done ticks the step\'s ingredients too', () => {
+    const root = render(<CookScreen />);
+    act(() => byA11y(root, 'Mark step 1 done').props.onPress());
+    tap(fold(root));
+    expect(isChecked(checkbox(root, 'Garlic, 4 clove'))).toBe(true);
+    expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
+    expect(progress(root)).toBe('1 of 3 steps done');
+  });
+
+  test('with no match, upcoming cards have no line and the current card no ingredients', () => {
+    db.update(recipes).set({ stepIngredients: null }).where(eq(recipes.id, tacos)).run();
+    const root = render(<CookScreen />);
+    expect(stepCards(root).map(lineOf)).toEqual([[], [], []]);
+    const current = currentCards(root)[0];
+    expect(current.findAll((n) => n.props.accessibilityRole === 'checkbox' && typeof n.props.onPress === 'function')).toHaveLength(1);
+    expect(markDoneButtons(root)).toHaveLength(1);
+  });
+
+  test('the source credit sits on the ground under the last card, lined up with its text', () => {
+    db.update(recipes).set({ sourceUrl: 'https://www.seriouseats.com/tacos' }).where(eq(recipes.id, tacos)).run();
+    const root = render(<CookScreen />);
+    const credit = root.root.find((n) => n.props.testID === 'recipe-credit' && typeof n.props.onPress === 'function');
+    const cards = stepCards(root);
+    // In the steps' column, in no card, after the last step's text.
+    expect(stepColumn(cards[0]).findAll((n) => n === credit)).toHaveLength(1);
+    expect(cards.some((card) => card.findAll((n) => n === credit).length > 0)).toBe(false);
+    const texts = hostTexts(root);
+    expect(texts.indexOf('From seriouseats.com')).toBeGreaterThan(texts.indexOf(MATCH_STEPS[2]));
+    expect(texts.indexOf('From seriouseats.com')).toBeLessThan(texts.indexOf('Also needed'));
+    expect(rowStyle(credit)).toMatchObject({ marginHorizontal: Spacing.lg, paddingHorizontal: Spacing.lg });
+    expect(rowStyle(credit).borderTopWidth).toBeUndefined();
+  });
+
+  test('Also needed lists the ingredients in no step, after the steps', () => {
     const root = render(<CookScreen />);
     const texts = hostTexts(root);
     expect(texts).toEqual(expect.arrayContaining(['Also needed', 'Not in a step']));
-    expect(texts.indexOf('Also needed')).toBeGreaterThan(texts.indexOf('Method'));
+    expect(texts.indexOf('Also needed')).toBeGreaterThan(texts.indexOf(MATCH_STEPS[2]));
     expect(checkbox(root, 'Oil, 2 tbsp')).toBeDefined();
   });
 
@@ -604,31 +775,35 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     const root = render(<CookScreen />);
     tap(fold(root));
     tap(stepRows(root)[0]);
-    expect(isChecked(checkbox(root, 'Garlic, 4 clove, for step 1'))).toBe(true);
-    expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(true);
-    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(false);
     // Garlic's only use is ticked; chicken and limes still have one to go.
     expect(isChecked(checkbox(root, 'Garlic, 4 clove'))).toBe(true);
     expect(isChecked(checkbox(root, 'Limes, 3'))).toBe(false);
     expect(fold.label(root)).toBe('All ingredients, 4, 1 ticked');
 
+    // Unticked, step 1 is current again, its rows still ticked.
     tap(stepRows(root)[0]);
     expect(isChecked(stepRows(root)[0])).toBe(false);
     expect(isChecked(checkbox(root, 'Garlic, 4 clove, for step 1'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(true);
 
     // Ticking an All ingredients row ticks every use; again unticks them all.
     tap(checkbox(root, 'Limes, 3'));
-    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(true);
     expect(isChecked(checkbox(root, 'Limes, 3'))).toBe(true);
     tap(checkbox(root, 'Limes, 3'));
+    expect(isChecked(checkbox(root, 'Limes, 3'))).toBe(false);
     expect(isChecked(checkbox(root, 'Limes, 1 of 3 limes, for step 1'))).toBe(false);
-    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(false);
+    tap(checkbox(root, 'Limes, 3'));
+    // With step 3 current, its limes are ticked from All ingredients; its chicken isn't.
+    tap(stepRows(root)[1]);
+    tap(stepRows(root)[0]);
+    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(true);
+    expect(isChecked(checkbox(root, 'Chicken thighs, 2 lb, part, for step 3'))).toBe(false);
 
     // Also needed's tick is oil's only use.
     tap(checkbox(root, 'Oil, 2 tbsp'));
-    expect(fold.label(root)).toBe('All ingredients, 4, 2 ticked');
+    expect(fold.label(root)).toBe('All ingredients, 4, 3 ticked');
     // Steps count as before; ingredients don't.
-    expect(progress(root)).toBe('0 of 3 steps done');
+    expect(progress(root)).toBe('2 of 3 steps done');
   });
 
   test('a stale match is still shown', () => {
@@ -668,6 +843,20 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     const flour = { displayName: 'flour', quantity: 2, unit: 'cup' as const };
     expect(stepAmount(flour, 0.5, true, null, null)).toEqual({ text: '½ cup of 2', spoken: '½ cup of 2 cup flour' });
     expect(stepAmount(flour, null, false, 4, 2)).toEqual({ text: '4 cup', spoken: '4 cup' });
+  });
+
+  test('stepUseText: amount first, shares "of", splits "part", bare names, scaled', () => {
+    const butter = { displayName: 'butter', quantity: 2, unit: 'tbsp' as const };
+    expect(stepUseText(butter, null, false, null, null)).toBe('2 tbsp butter');
+    expect(stepUseText(butter, null, true, null, null)).toBe('2 tbsp butter, part');
+    expect(stepUseText({ displayName: 'limes', quantity: 3, unit: null }, 1, true, null, null)).toBe('1 of 3 limes');
+    expect(stepUseText({ displayName: 'spaghetti', quantity: null, unit: null }, null, true, null, null)).toBe('spaghetti');
+    // A share on an ingredient with no quantity reads as the bare name.
+    expect(stepUseText({ displayName: 'salt', quantity: null, unit: null }, 1, false, null, null)).toBe('salt');
+    // Scaled to the servings, kitchen-rounded.
+    expect(stepUseText({ displayName: 'lemon', quantity: 1, unit: null }, null, false, 6, 4)).toBe('1½ lemon');
+    expect(stepUseText({ displayName: 'limes', quantity: 3, unit: null }, 1, true, 8, 4)).toBe('2 of 6 limes');
+    expect(stepUseText(butter, null, false, 1, 4)).toBe('1½ tsp butter');
   });
 });
 

@@ -428,7 +428,8 @@ export const es = {
       footnote: 'Las líneas vacías se omiten. Borra todo para quitar los pasos.',
     },
     cook: {
-      upNext: 'Sigue',
+      markDone: 'Marcar paso como listo',
+      markDoneLabel: 'Marcar el paso {{number}} como listo',
       progress_one: '{{done}} de {{count}} paso listo',
       progress_other: '{{done}} de {{count}} pasos listos',
       withServings: '{{servings}} · {{progress}}',
@@ -444,6 +445,8 @@ export const es = {
       shareSpoken: '{{share}} de {{total}} {{name}}',
       part: '{{amount}} · parte',
       partSpoken: '{{amount}}, parte',
+      useText: '{{amount}} {{name}}',
+      useTextPart: '{{amount}} {{name}}, parte',
       stepUses: '{{step}}, usa {{names}}',
       stepIngredient: '{{name}}, {{amount}}, para el paso {{number}}',
       stepIngredientNoAmount: '{{name}}, para el paso {{number}}',

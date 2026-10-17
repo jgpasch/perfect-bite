@@ -10,8 +10,17 @@ import { useT } from '@/i18n';
  * opens the original in Safari, as the link row does. VoiceOver: "Recipe from seriouseats.com, link".
  * Nothing unless `sourceUrl` is a link that opens, so removing the link removes the credit.
  * At a card's foot it's a row under a hairline. `onPhoto`: a small caption on a `surface` chip, so `inkSecondary` stays readable over the photo.
+ * `underCard`: on the screen's ground under a card (cook mode's last step), lined up with the card's text and no hairline.
  */
-export function RecipeCredit({ sourceUrl, onPhoto = false }: { sourceUrl: string | null | undefined; onPhoto?: boolean }) {
+export function RecipeCredit({
+  sourceUrl,
+  onPhoto = false,
+  underCard = false,
+}: {
+  sourceUrl: string | null | undefined;
+  onPhoto?: boolean;
+  underCard?: boolean;
+}) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const parts = recipeLinkParts(sourceUrl);
@@ -37,12 +46,14 @@ export function RecipeCredit({ sourceUrl, onPhoto = false }: { sourceUrl: string
               borderRadius: rounded.full,
               backgroundColor: colors.surface,
             }
-          : {
-              minHeight: sizes.minTapTarget,
-              paddingHorizontal: spacing.lg,
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: colors.border,
-            },
+          : underCard
+            ? { minHeight: sizes.minTapTarget, marginHorizontal: spacing.lg, paddingHorizontal: spacing.lg }
+            : {
+                minHeight: sizes.minTapTarget,
+                paddingHorizontal: spacing.lg,
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: colors.border,
+              },
         { opacity: pressed ? opacity.pressed : 1 },
       ]}>
       <ThemedText variant={onPhoto ? 'caption' : 'footnote'} color="inkSecondary" numberOfLines={1}>

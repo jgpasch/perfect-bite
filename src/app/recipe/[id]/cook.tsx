@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useId, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useId, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { itemNameColor } from '@/components/appearance';
+import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
@@ -19,12 +21,13 @@ import {
   toggleAllUses,
   toggleUse,
   stepAmount,
+  stepUseText,
   tickKey,
   usesByIngredient,
 } from '@/features/recipes/cook-match';
 import { useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { RecipeCredit } from '@/features/recipes/recipe-credit';
-import { cookProgressLabel, stepLabel, stepUnit, upNextIndex } from '@/features/recipes/recipe-view';
+import { cookProgressLabel, stepLabel, upNextIndex } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { stepMatch } from '@/features/recipes/step-match';
 import { useTheme } from '@/hooks/use-theme';
@@ -32,11 +35,12 @@ import { useT } from '@/i18n';
 import { displayItemName } from '@/shared';
 
 /**
- * Cooking mode (board 19): a full-screen modal on one scrolling page, with the ingredients scaled to the
- * recipe screen's servings (`servings`) and the steps, each ticked off with a tap. The ticks are this screen's
- * state only, so they're gone when it closes; the screen stays on while it's open. With a step match (spec 4.5,
- * board 3 G and I), each step lists its ingredients under it, the checklist folds into All ingredients, and
- * Also needed holds the ingredients in no step; ticks are then per use of an ingredient.
+ * Cooking mode (board 19, and board B "Steps with their ingredients"): a full-screen modal on one scrolling page,
+ * with the ingredients scaled to the recipe screen's servings (`servings`) and a card per step, each ticked off
+ * with a tap; the first unticked step is the current one, with Mark step done. The ticks are this screen's state
+ * only, so they're gone when it closes; the screen stays on while it's open. With a step match (spec 4.5), the
+ * current step lists its ingredients and the upcoming ones name theirs on one line, the checklist folds into All
+ * ingredients, and Also needed holds the ingredients in no step; ticks are then per use of an ingredient.
  */
 export default function CookScreen() {
   const { id, servings: servingsParam } = useLocalSearchParams<{ id: string; servings?: string }>();
@@ -53,6 +57,11 @@ export default function CookScreen() {
   const [usesDone, setUsesDone] = useState<ReadonlySet<string>>(() => new Set());
   const [unfolded, setUnfolded] = useState(false);
   const [match] = useState(() => (recipe ? stepMatch(recipe, ingredients) : null));
+  const reduceMotion = useReducedMotion();
+  const scroll = useRef<ScrollView>(null);
+  // Where the step cards start in the scroll content, and the step whose card to scroll to once it lays out.
+  const stepsY = useRef(0);
+  const pendingScroll = useRef<number | null>(null);
   useKeepAwake(`cook:${id}:${useId()}`, true);
   // Opening cook mode matches the recipe's steps if they need it (spec 4.5).
   useEnsureStepMatch(id);
@@ -76,6 +85,18 @@ export default function CookScreen() {
     }
     setStepsDone((ticked) => ticked.map((on, i) => (i === index ? !on : on)));
   };
+  // Mark step done ticks the current step, then scrolls to the next current card once it has laid out in its new
+  // place (the step above it shrinks as it's done, so its old position is stale).
+  const markDone = (index: number) => {
+    toggleStep(index);
+    const next = upNextIndex(stepsDone.map((on, i) => on || i === index));
+    pendingScroll.current = next === -1 ? null : next;
+  };
+  const cardLaidOut = (index: number, y: number) => {
+    if (pendingScroll.current !== index) return;
+    pendingScroll.current = null;
+    scroll.current?.scrollTo({ y: Math.max(0, stepsY.current + y - spacing.md), animated: !reduceMotion });
+  };
   const toggleIngredient = (ingredientId: string) =>
     setIngredientsDone((ticked) => {
       const next = new Set(ticked);
@@ -91,6 +112,7 @@ export default function CookScreen() {
         paddingTop={insets.top + spacing.sm}
       />
       <ScrollView
+        ref={scroll}
         style={styles.flex}
         contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: insets.bottom + spacing.xl, gap: spacing.md + spacing.xxs }}>
         {matched && ingredients.length > 0 ? (
@@ -131,28 +153,13 @@ export default function CookScreen() {
           </Card>
         ) : null}
         {steps.length > 0 ? (
-          <Card>
-            <SectionHeader
-              title={t('recipes.method.title')}
-              count={steps.length}
-              countUnit={stepUnit()}
-              hideCount
-              trailing={
-                <ThemedText
-                  variant="footnote"
-                  color="inkSecondary"
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  style={styles.count}>
-                  {t('recipes.method.count', { count: steps.length })}
-                </ThemedText>
-              }
-            />
+          <View style={{ gap: spacing.md }} onLayout={(event) => (stepsY.current = event.nativeEvent.layout.y)}>
             {steps.map((step, index) => {
               const stepUses = matched ? match.steps[index] : [];
               const label = stepLabel(index, steps.length, step);
+              const state: StepState = stepsDone[index] ? 'done' : index === upNext ? 'current' : 'upcoming';
               return (
-                <StepRow
+                <StepCard
                   key={index}
                   number={index + 1}
                   text={step}
@@ -161,36 +168,48 @@ export default function CookScreen() {
                       ? t('recipes.cook.stepUses', { step: label, names: stepUses.map((use) => use.ingredient.displayName).join(', ') })
                       : label
                   }
-                  checked={stepsDone[index]}
-                  upNext={index === upNext}
-                  onToggle={() => toggleStep(index)}>
-                  {stepUses.map(({ ingredient: item, quantity }, n) => {
-                    const key = tickKey(index, item.id);
-                    const amount = stepAmount(item, quantity, usesOf(item.id).length > 1, servings, base);
-                    const name = displayItemName(item.displayName);
-                    return (
-                      <IngredientRow
-                        key={key}
-                        compact
-                        first={n === 0}
-                        name={name}
-                        amount={amount.text}
-                        label={
-                          amount.spoken
-                            ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number: index + 1 })
-                            : t('recipes.cook.stepIngredientNoAmount', { name, number: index + 1 })
-                        }
-                        checked={usesDone.has(key)}
-                        onToggle={() => setUsesDone((ticked) => toggleUse(ticked, key))}
-                      />
-                    );
-                  })}
-                </StepRow>
+                  state={state}
+                  line={
+                    state === 'upcoming' && stepUses.length > 0
+                      ? stepUses
+                          .map(({ ingredient: item, quantity }) =>
+                            stepUseText(item, quantity, usesOf(item.id).length > 1, servings, base),
+                          )
+                          .join(' · ')
+                      : null
+                  }
+                  onToggle={() => toggleStep(index)}
+                  onDone={() => markDone(index)}
+                  onLayout={(event) => cardLaidOut(index, event.nativeEvent.layout.y)}>
+                  {state === 'current'
+                    ? stepUses.map(({ ingredient: item, quantity }, n) => {
+                        const key = tickKey(index, item.id);
+                        const amount = stepAmount(item, quantity, usesOf(item.id).length > 1, servings, base);
+                        const name = displayItemName(item.displayName);
+                        return (
+                          <IngredientRow
+                            key={key}
+                            compact
+                            first={n === 0}
+                            name={name}
+                            amount={amount.text}
+                            label={
+                              amount.spoken
+                                ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number: index + 1 })
+                                : t('recipes.cook.stepIngredientNoAmount', { name, number: index + 1 })
+                            }
+                            checked={usesDone.has(key)}
+                            onToggle={() => setUsesDone((ticked) => toggleUse(ticked, key))}
+                          />
+                        );
+                      })
+                    : []}
+                </StepCard>
               );
             })}
-            {/* The source credit at the foot of the last step (spec 4.5). */}
-            <RecipeCredit sourceUrl={recipe.sourceUrl} />
-          </Card>
+            {/* The source credit under the last step (spec 4.5). */}
+            <RecipeCredit sourceUrl={recipe.sourceUrl} underCard />
+          </View>
         ) : null}
         {matched && match.unplaced.length > 0 ? (
           <Card>
@@ -324,99 +343,130 @@ function IngredientRow({
   );
 }
 
+type StepState = 'done' | 'current' | 'upcoming';
+
 /**
- * A step to tick off: its number in a ringed circle that fills `primary` with a check when ticked (the text then
- * dims), and the text in `cookStep`. The first unticked step is tinted "Up next". The whole row is the target.
- * `children` are the step's ingredient rows, in a rounded inset under the text: a sibling of the row, not inside
- * it, so VoiceOver reaches each one.
+ * A step's card (board B). **done**: a `primarySoft` round check, the text in `callout` `inkSecondary`.
+ * **current** (the first unticked step): a 2 pt `primary` border, a filled `primary` number badge, the text in
+ * `cookStepCurrent`, its ingredient rows (`children`) in a rounded inset, then Mark step done. **upcoming**: an
+ * outlined `controlBorder` number badge, the text in `body`, and its ingredients as one `footnote` `line`. The badge
+ * and text are one checkbox that toggles the step; the inset rows and the button are its siblings, so VoiceOver
+ * reaches each one.
  */
-function StepRow({
+function StepCard({
   number,
   text,
   label,
-  checked,
-  upNext,
+  state,
+  line,
   onToggle,
+  onDone,
+  onLayout,
   children,
 }: {
   number: number;
   text: string;
   label: string;
-  checked: boolean;
-  upNext: boolean;
+  state: StepState;
+  /** An upcoming step's ingredients, "1 lemon · ½ tsp chili flakes · spaghetti"; null for none. */
+  line: string | null;
   onToggle: () => void;
-  children?: React.ReactNode[];
+  onDone: () => void;
+  onLayout: (event: LayoutChangeEvent) => void;
+  children: React.ReactNode[];
 }) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  const tint = upNext ? colors.primarySoft : undefined;
-  const inset = children !== undefined && children.length > 0;
-  const row = (
-    <Pressable
-      onPress={onToggle}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
-      accessibilityLabel={label}
-      style={({ pressed }) => [
-        styles.step,
-        {
-          gap: spacing.md + spacing.xxs,
-          padding: spacing.lg,
-          paddingBottom: inset ? spacing.sm + spacing.xxs : spacing.lg,
-          borderTopWidth: inset ? 0 : StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          backgroundColor: tint,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <View
-        style={[
-          styles.center,
+  const current = state === 'current';
+  const done = state === 'done';
+  const inset = current && children.length > 0;
+  // Badge and text, then the inset, the line or the button, lined up with the text.
+  const indent = spacing.lg + sizes.cookStepCheck + spacing.md;
+  const below = current || line !== null;
+  return (
+    <Card
+      onLayout={onLayout}
+      style={current ? { borderWidth: sizes.cookCurrentBorder, borderColor: colors.primary } : undefined}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: done }}
+        accessibilityLabel={label}
+        style={({ pressed }) => [
+          styles.step,
           {
-            width: sizes.cookStepCheck,
-            height: sizes.cookStepCheck,
-            borderRadius: rounded.full,
-            borderWidth: sizes.checkBorder,
-            borderColor: checked ? colors.primary : colors.controlBorder,
-            backgroundColor: checked ? colors.primary : colors.surface,
+            gap: spacing.md,
+            paddingHorizontal: spacing.lg,
+            paddingTop: current ? spacing.lg : spacing.md + spacing.xxs,
+            paddingBottom: below ? spacing.sm + spacing.xxs : spacing.md + spacing.xxs,
+            opacity: pressed ? opacity.pressed : 1,
           },
         ]}>
-        {checked ? (
-          <Icon name="checkmark" color="onPrimary" weight="bold" size={sizes.iconSmall} />
-        ) : (
-          <ThemedText variant="amount" color="inkSecondary" maxFontSizeMultiplier={1} style={styles.digit}>
-            {number}
-          </ThemedText>
-        )}
-      </View>
-      <View style={[styles.flex, { gap: spacing.xs }]}>
-        {upNext ? (
-          <ThemedText variant="caption" color="onPrimarySoft" style={styles.caps}>
-            {t('recipes.cook.upNext')}
-          </ThemedText>
-        ) : null}
-        <ThemedText variant="cookStep" color={checked ? 'inkSecondary' : 'ink'}>
+        <View
+          style={[
+            styles.center,
+            {
+              width: sizes.cookStepCheck,
+              height: sizes.cookStepCheck,
+              borderRadius: rounded.full,
+              borderWidth: sizes.checkBorder,
+              borderColor: done ? colors.primarySoft : current ? colors.primary : colors.controlBorder,
+              backgroundColor: done ? colors.primarySoft : current ? colors.primary : colors.surface,
+            },
+          ]}>
+          {done ? (
+            <Icon name="checkmark" color="primary" weight="bold" size={sizes.iconSmall} />
+          ) : (
+            <ThemedText
+              variant="amount"
+              color={current ? 'onPrimary' : 'inkSecondary'}
+              maxFontSizeMultiplier={1}
+              style={styles.digit}>
+              {number}
+            </ThemedText>
+          )}
+        </View>
+        <ThemedText
+          variant={done ? 'callout' : current ? 'cookStepCurrent' : 'body'}
+          color={done ? 'inkSecondary' : 'ink'}
+          style={styles.flex}>
           {text}
         </ThemedText>
-      </View>
-    </Pressable>
-  );
-  if (!inset) return row;
-  return (
-    <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: tint }}>
-      {row}
-      <View
-        style={{
-          marginLeft: spacing.lg + sizes.cookStepCheck + spacing.md + spacing.xxs,
-          marginRight: spacing.lg,
-          marginBottom: spacing.lg,
-          borderRadius: rounded.md,
-          overflow: 'hidden',
-          backgroundColor: upNext ? colors.surface : colors.background,
-        }}>
-        {children}
-      </View>
-    </View>
+      </Pressable>
+      {inset ? (
+        <View
+          style={{
+            marginLeft: indent,
+            marginRight: spacing.lg,
+            marginBottom: spacing.md,
+            borderRadius: rounded.md,
+            overflow: 'hidden',
+            backgroundColor: colors.background,
+          }}>
+          {children}
+        </View>
+      ) : null}
+      {line !== null ? (
+        // The step's label already names its ingredients, so VoiceOver skips the line.
+        <ThemedText
+          variant="footnote"
+          color="inkSecondary"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{ marginLeft: indent, marginRight: spacing.lg, marginBottom: spacing.md + spacing.xxs }}>
+          {line}
+        </ThemedText>
+      ) : null}
+      {current ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+          <PrimaryButton
+            label={t('recipes.cook.markDone')}
+            accessibilityLabel={t('recipes.cook.markDoneLabel', { number })}
+            onPress={onDone}
+          />
+        </View>
+      ) : null}
+    </Card>
   );
 }
 
@@ -469,6 +519,5 @@ const styles = StyleSheet.create({
   centredText: { textAlign: 'center' },
   count: { fontWeight: '600' },
   digit: { fontWeight: '700' },
-  caps: { textTransform: 'uppercase' },
   struck: { textDecorationLine: 'line-through' },
 });

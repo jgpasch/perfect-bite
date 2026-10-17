@@ -477,7 +477,8 @@ export const en = {
     },
     /** Cooking mode (board 19). */
     cook: {
-      upNext: 'Up next',
+      markDone: 'Mark step done',
+      markDoneLabel: 'Mark step {{number}} done',
       progress_one: '{{done}} of {{count}} step done',
       progress_other: '{{done}} of {{count}} steps done',
       withServings: '{{servings}} · {{progress}}',
@@ -493,6 +494,8 @@ export const en = {
       shareSpoken: '{{share}} of {{total}} {{name}}',
       part: '{{amount}} · part',
       partSpoken: '{{amount}}, part',
+      useText: '{{amount}} {{name}}',
+      useTextPart: '{{amount}} {{name}}, part',
       stepUses: '{{step}}, uses {{names}}',
       stepIngredient: '{{name}}, {{amount}}, for step {{number}}',
       stepIngredientNoAmount: '{{name}}, for step {{number}}',
