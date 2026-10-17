@@ -1,12 +1,16 @@
+import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { hueHeaderBand } from '@/components/appearance';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { MealHues } from '@/constants/theme';
+import { recipeHue } from '@/domain/aisle-color';
 import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
+import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { useTheme } from '@/hooks/use-theme';
 
+import { usePlanGridStyle } from './grid-style';
 import type { PlanEntry, WeekPlan } from './queries';
 import { type Day, type Meal, MEALS } from './week';
 import { dayName, dayOfMonth, entryText, isPastDay, mealLabel, slotAccessibilityLabel } from './week-view';
@@ -19,7 +23,8 @@ export const GRID_SCROLL_FONT_SCALE = 1.3;
  * Dinner across under headers in their meal hues. Today's day label is a `primary` pill; past days are
  * quieter and their empty slots have no +. Tapping a slot calls `onSlot` with what it shows. The plan
  * modal marks the slots it placed its recipe in (`placed`), highlights the recipe's meals' headers and adds
- * a VoiceOver hint per cell (`slotHint`).
+ * a VoiceOver hint per cell (`slotHint`). Its cells follow the device's grid style (Settings > Design
+ * trials > Plan grid); `expand` draws them as `compact` for now.
  */
 export function WeekGrid({
   days,
@@ -40,6 +45,7 @@ export function WeekGrid({
 }) {
   const { scheme, spacing, sizes, rounded } = useTheme();
   const scrolls = useWindowDimensions().fontScale > GRID_SCROLL_FONT_SCALE;
+  const photo = usePlanGridStyle() === 'photo';
   // Columns share the width at the default sizes; at large ones they keep a width and the grid scrolls.
   const column = scrolls ? { width: sizes.planScrollColumn } : styles.flex;
   const grid = (
@@ -82,6 +88,7 @@ export function WeekGrid({
                     meal={meal}
                     entry={entry}
                     past={past}
+                    photo={photo}
                     placed={placed?.(day, meal) ?? false}
                     hint={slotHint?.(day, meal, entry)}
                     onPress={onSlot && (() => onSlot(day, meal, entry))}
@@ -135,12 +142,17 @@ function DayLabel({ day, today, past }: { day: Day; today: boolean; past: boolea
  * A slot: a recipe's tile and name on up to two lines, a note in italic `inkSecondary` on `surfaceMuted`, or a
  * dashed `controlBorder` outline with a + (a plain cell on past days). A slot the plan modal placed its
  * recipe in is `primarySoft` with a `primary` border.
+ *
+ * In the photo style (board A) every cell is taller, a recipe's photo fills its cell with the name on a
+ * `photoScrim` band at the bottom (the placed `primary` border goes over the photo), and past days' recipes
+ * and notes are drawn at `opacity.disabled`.
  */
 function GridCell({
   day,
   meal,
   entry,
   past,
+  photo,
   placed,
   hint,
   onPress,
@@ -149,19 +161,26 @@ function GridCell({
   meal: Meal;
   entry: PlanEntry | null;
   past: boolean;
+  photo: boolean;
   placed: boolean;
   hint?: string;
   onPress?: () => void;
 }) {
-  const { colors, spacing, sizes, rounded, opacity } = useTheme();
-  const cell = { minHeight: sizes.planCell, borderRadius: rounded.md, padding: spacing.xs + spacing.xxs };
-  const look = placed
-    ? { gap: spacing.xxs, backgroundColor: colors.primarySoft, borderWidth: sizes.checkBorder, borderColor: colors.primary }
-    : !entry
-      ? [styles.center, past ? null : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed' as const, borderColor: colors.controlBorder }]
-      : entry.kind === 'recipe'
-        ? { gap: spacing.xxs, backgroundColor: colors.surface }
-        : [styles.center, { backgroundColor: colors.surfaceMuted }];
+  const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
+  const cell = { minHeight: photo ? sizes.planPhotoCell : sizes.planCell, borderRadius: rounded.md, padding: spacing.xs + spacing.xxs };
+  const placedBorder = { borderWidth: sizes.checkBorder, borderColor: colors.primary };
+  const photoCell = photo && entry?.kind === 'recipe';
+  const look = photoCell
+    ? [styles.photoCell, { backgroundColor: aisles[recipeHue(entry.recipeId!)].soft }, placed ? placedBorder : null]
+    : placed
+      ? [{ gap: spacing.xxs, backgroundColor: colors.primarySoft }, placedBorder]
+      : !entry
+        ? [styles.center, past ? null : { borderWidth: sizes.dashedBorder, borderStyle: 'dashed' as const, borderColor: colors.controlBorder }]
+        : entry.kind === 'recipe'
+          ? { gap: spacing.xxs, backgroundColor: colors.surface }
+          : [styles.center, { backgroundColor: colors.surfaceMuted }];
+  // The photo style quiets past days' filled cells as a whole; the compact one only greys the name.
+  const rest = photo && past && entry ? opacity.disabled : 1;
   return (
     <Pressable
       testID={`slot-${day}-${meal}`}
@@ -170,8 +189,10 @@ function GridCell({
       accessibilityHint={hint}
       accessibilityState={placed ? { selected: true } : undefined}
       onPress={onPress}
-      style={({ pressed }) => [cell, look, { opacity: pressed ? opacity.pressed : 1 }]}>
-      {!entry ? (
+      style={({ pressed }) => [cell, look, { opacity: pressed ? opacity.pressed * rest : rest }]}>
+      {photoCell ? (
+        <PhotoFill entry={entry} />
+      ) : !entry ? (
         past ? null : (
           <Icon name="plus" color="inkTertiary" size={sizes.iconSmall} weight="semibold" />
         )
@@ -196,8 +217,42 @@ function GridCell({
   );
 }
 
+/**
+ * A recipe's photo filling its cell (the household's own, else the site's, through `useRecipePhoto`), over
+ * the cell's tile colour, which shows without a photo, while it loads and if it fails; then the name in
+ * white on the `photoScrim` band, two lines at most.
+ */
+function PhotoFill({ entry }: { entry: PlanEntry }) {
+  const { spacing, photoScrim } = useTheme();
+  const { source, onError } = useRecipePhoto({ imageUrl: entry.recipeImageUrl, photoPath: entry.recipePhotoPath });
+  return (
+    <>
+      {source !== null ? (
+        <Image
+          testID="recipe-photo"
+          source={source}
+          contentFit="cover"
+          cachePolicy="disk"
+          accessible={false}
+          onError={onError}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <View
+        testID="photo-band"
+        style={{ backgroundColor: photoScrim.fill, paddingHorizontal: spacing.xs + spacing.xxs, paddingVertical: spacing.xs }}>
+        <ThemedText variant="caption" numberOfLines={2} style={{ color: photoScrim.text }}>
+          {entryText(entry)}
+        </ThemedText>
+      </View>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // No padding, so the photo and its band reach the edges; the band sits at the bottom.
+  photoCell: { padding: 0, overflow: 'hidden', justifyContent: 'flex-end', borderCurve: 'continuous' },
   row: { flexDirection: 'row', alignItems: 'stretch' },
   center: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   note: { fontStyle: 'italic', textAlign: 'center' },

@@ -8,6 +8,7 @@ import {
   Motion,
   Opacity,
   Palette,
+  PhotoScrim,
   Rounded,
   Shadows,
   Sizes,
@@ -36,6 +37,8 @@ export function useTheme() {
     sizes: Sizes,
     motion: Motion,
     opacity: Opacity,
+    /** The band under a name on a photo; the same in both schemes. */
+    photoScrim: PhotoScrim,
   };
 }
 

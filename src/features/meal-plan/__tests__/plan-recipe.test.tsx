@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { AisleColors, MealHues, Palette } from '@/constants/theme';
 import { db, recipes } from '@/db';
+import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -16,6 +17,7 @@ import { clearOutbox, outboxPatches } from '@/test/outbox';
 
 import PlanRecipeSheet from '@/app/plan-recipe';
 
+import { setPlanGridStyle } from '../grid-style';
 import { PlanBadges } from '../plan-badges';
 import {
   doneLabel,
@@ -338,6 +340,48 @@ describe('the plan modal', () => {
     deleteRecipe(tacos);
     open();
     expect(lines()).toEqual([]);
+  });
+
+  describe('in the photo grid style', () => {
+    const hostOf = (day: string, meal: Meal) =>
+      tree!.root.find((n) => typeof n.type === 'string' && n.props.testID === `slot-${day}-${meal}`);
+    const photosIn = (node: ReactTestInstance) => node.findAll((n) => n.type === ('ExpoImage' as never));
+
+    beforeEach(() => setPlanGridStyle('photo'));
+
+    test('a placed cell keeps the photo, with the primary border over it, and the name on the band', () => {
+      db.update(recipes).set({ imageUrl: 'https://example.com/tacos.jpg' }).where(eq(recipes.id, tacos)).run();
+      open();
+      expect(StyleSheet.flatten(hostOf(THURSDAY, 'dinner').props.style)).toMatchObject({ borderStyle: 'dashed', minHeight: 84 });
+      tap(THURSDAY, 'dinner');
+      expect(isPlacedCell(THURSDAY, 'dinner')).toBe(true);
+      const style = StyleSheet.flatten(hostOf(THURSDAY, 'dinner').props.style);
+      expect(style).toMatchObject({ borderColor: Palette.light.primary, borderWidth: 2, overflow: 'hidden', minHeight: 84 });
+      expect(style.borderStyle).toBeUndefined();
+      // The photo over the recipe's tile colour fills the cell, not primarySoft (which green's tile shares).
+      expect(style.backgroundColor).toBe(AisleColors.light[recipeHue(tacos)].soft);
+      expect(photosIn(hostOf(THURSDAY, 'dinner')).map((i) => i.props.source)).toEqual(['https://example.com/tacos.jpg']);
+      const band = hostOf(THURSDAY, 'dinner').find((n) => n.props.testID === 'photo-band' && typeof n.type === 'string');
+      expect(textOf(band)).toBe('Chicken tacos');
+      expect(cell(THURSDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to remove');
+
+      // Taken out again: no border, what was there (an empty slot).
+      tap(THURSDAY, 'dinner');
+      expect(isPlacedCell(THURSDAY, 'dinner')).toBe(false);
+      expect(photosIn(hostOf(THURSDAY, 'dinner'))).toHaveLength(0);
+      expect(StyleSheet.flatten(hostOf(THURSDAY, 'dinner').props.style)).toMatchObject({ borderStyle: 'dashed' });
+    });
+
+    test('placing over another recipe shows the placed recipe’s photo', () => {
+      db.update(recipes).set({ imageUrl: 'https://example.com/pasta.jpg' }).where(eq(recipes.id, pasta)).run();
+      db.update(recipes).set({ imageUrl: 'https://example.com/tacos.jpg' }).where(eq(recipes.id, tacos)).run();
+      setSlot(home, SATURDAY, 'dinner', { kind: 'recipe', recipeId: pasta });
+      open();
+      expect(photosIn(hostOf(SATURDAY, 'dinner')).map((i) => i.props.source)).toEqual(['https://example.com/pasta.jpg']);
+      tap(SATURDAY, 'dinner');
+      expect(photosIn(hostOf(SATURDAY, 'dinner')).map((i) => i.props.source)).toEqual(['https://example.com/tacos.jpg']);
+      expect(StyleSheet.flatten(hostOf(SATURDAY, 'dinner').props.style).borderColor).toBe(Palette.light.primary);
+    });
   });
 });
 

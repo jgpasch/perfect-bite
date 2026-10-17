@@ -334,6 +334,8 @@ export const Sizes = {
   planDayColumn: 52,
   planCell: 64,
   planTile: 24,
+  /** a recipe or note cell in the grid's photo style, the photo filling it (a minimum, for Dynamic Type) */
+  planPhotoCell: 84,
   /** a grid column's width once the grid scrolls sideways at large text sizes */
   planScrollColumn: 160,
   /** a meal's letter chip in the agenda */
@@ -366,6 +368,15 @@ export const Opacity = {
   shadow: 0.25,
   pressed: 0.85,
   disabled: 0.4,
+} as const;
+
+/**
+ * The band under a recipe's name on its photo (the plan grid's photo style, spec 4.16). It's the same in
+ * both schemes, as it sits on a photo rather than on the screen, and so is its white text.
+ */
+export const PhotoScrim = {
+  fill: 'rgba(20, 28, 23, 0.66)',
+  text: '#FFFFFF',
 } as const;
 
 /** Mix a hex color token with an alpha, for tints (e.g. status chip 12% background). */

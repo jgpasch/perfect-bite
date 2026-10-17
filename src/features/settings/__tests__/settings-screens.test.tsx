@@ -35,6 +35,7 @@ import {
   setKeepScreenOn,
   setPlanTab,
 } from '../device-settings';
+import { getPlanGridStyle, PLAN_GRID_STYLE_KEY, setPlanGridStyle } from '@/features/meal-plan/grid-style';
 import { FONT_SET_KEY, getFontSetSetting, loadFontSet, setFontSetSetting } from '../font-set';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
 import * as deviceSettings from '../device-settings';
@@ -353,6 +354,71 @@ describe('Settings', () => {
       expect(familyOf('Design trials')).toBe('Figtree');
       act(() => setFontSetSetting('nunito'));
       expect(familyOf('Design trials')).toBe('Nunito Sans');
+    });
+
+    describe('Plan grid', () => {
+      const control = (root: ReactTestRenderer) => {
+        const found = labelled(root, 'Plan grid style');
+        expect(found).toHaveLength(1);
+        expect(found[0].props.accessibilityRole).toBe('tablist');
+        return found[0];
+      };
+      const segments = (root: ReactTestRenderer) =>
+        control(root).findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tab');
+      const states = (root: ReactTestRenderer) =>
+        segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
+
+      it('follows the Fonts row, Compact selected until another style is picked', () => {
+        const root = render(<SettingsScreen />);
+        expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque Plan grid Compact Photo Expand');
+        expect(states(root)).toEqual([
+          ['Compact', true],
+          ['Photo', false],
+          ['Expand', false],
+        ]);
+        expect(deviceSettings.getDeviceSetting(PLAN_GRID_STYLE_KEY, null)).toBeNull();
+      });
+
+      it('saves plan.gridStyle and selects the picked style', () => {
+        const root = render(<SettingsScreen />);
+        click(segments(root)[1]);
+        expect(deviceSettings.getDeviceSetting(PLAN_GRID_STYLE_KEY, null)).toBe('photo');
+        expect(getPlanGridStyle()).toBe('photo');
+        expect(states(root)).toEqual([
+          ['Compact', false],
+          ['Photo', true],
+          ['Expand', false],
+        ]);
+        click(segments(root)[2]);
+        expect(getPlanGridStyle()).toBe('expand');
+        click(segments(root)[0]);
+        expect(getPlanGridStyle()).toBe('compact');
+      });
+
+      it('shows a style saved before, and follows a change made elsewhere', () => {
+        setPlanGridStyle('expand');
+        const root = render(<SettingsScreen />);
+        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Expand');
+        act(() => setPlanGridStyle('photo'));
+        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Photo');
+      });
+
+      it('an unknown saved value shows Compact', () => {
+        deviceSettings.setDeviceSetting(PLAN_GRID_STYLE_KEY, 'tiles');
+        const root = render(<SettingsScreen />);
+        expect(states(root)[0]).toEqual(['Compact', true]);
+      });
+
+      it('in Spanish', () => {
+        initI18n('es');
+        try {
+          const root = render(<SettingsScreen />);
+          expect(labelled(root, 'Estilo de la cuadrícula del plan')).toHaveLength(1);
+          expect(textOf(root)).toContain('Cuadrícula del plan Compacta Foto Ampliada');
+        } finally {
+          initI18n('en');
+        }
+      });
     });
   });
 

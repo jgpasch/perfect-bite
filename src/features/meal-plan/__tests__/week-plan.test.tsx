@@ -6,7 +6,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households, recipes } from '@/db';
-import { Palette } from '@/constants/theme';
+import { AisleColors, Opacity, Palette, Rounded, Typography } from '@/constants/theme';
+import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { createRecipe } from '@/features/recipes/recipes';
 import {
@@ -20,6 +21,7 @@ import { resetDb } from '@/test/db';
 import PlanScreen from '@/app/(tabs)/plan/index';
 
 import { resetEarlierDays } from '../earlier-fold-store';
+import { getPlanGridStyle, PLAN_GRID_STYLE_KEY, readPlanGridStyle, setPlanGridStyle } from '../grid-style';
 import { WeekPlan } from '../week-plan';
 import { setSlot } from '../write';
 
@@ -245,6 +247,160 @@ describe('the grid', () => {
     const scroll = root.root.find((n) => n.props.testID === 'week-grid-scroll' && n.props.horizontal === true);
     expect(scroll).toBeDefined();
     expect(byTestID(root, 'week-grid')).toHaveLength(1);
+  });
+});
+
+describe('the grid style setting', () => {
+  test('readPlanGridStyle keeps the three styles and falls back to compact', () => {
+    expect(readPlanGridStyle('compact')).toBe('compact');
+    expect(readPlanGridStyle('photo')).toBe('photo');
+    expect(readPlanGridStyle('expand')).toBe('expand');
+    expect(readPlanGridStyle(null)).toBe('compact');
+    expect(readPlanGridStyle(undefined)).toBe('compact');
+    expect(readPlanGridStyle('Photo')).toBe('compact');
+    expect(readPlanGridStyle('grid')).toBe('compact');
+    expect(readPlanGridStyle(1)).toBe('compact');
+    expect(readPlanGridStyle({ style: 'photo' })).toBe('compact');
+  });
+
+  test('compact until set; saved as plan.gridStyle; an unknown saved value reads as compact', () => {
+    expect(getPlanGridStyle()).toBe('compact');
+    setPlanGridStyle('photo');
+    expect(getDeviceSetting(PLAN_GRID_STYLE_KEY, null)).toBe('photo');
+    expect(getPlanGridStyle()).toBe('photo');
+    setDeviceSetting(PLAN_GRID_STYLE_KEY, 'mosaic');
+    expect(getPlanGridStyle()).toBe('compact');
+  });
+});
+
+describe('the grid in the photo style', () => {
+  const host = (root: ReactTestRenderer, day: string, meal: string) => flat(slot(root, day, meal).props.style);
+  const photos = (node: ReactTestInstance) => node.findAll((n) => n.type === ('ExpoImage' as never));
+  const band = (node: ReactTestInstance) => node.find((n) => n.type === ('View' as never) && n.props.testID === 'photo-band');
+  const tileColour = (recipeId: string) => AisleColors.light[recipeHue(recipeId)].soft;
+
+  beforeEach(() => setPlanGridStyle('photo'));
+
+  test('a recipe without a photo: its tile colour fills the 84 pt cell, the name in white on the scrim band', () => {
+    const root = render();
+    const cell = slot(root, '2026-10-15', 'dinner');
+    expect(host(root, '2026-10-15', 'dinner')).toMatchObject({
+      minHeight: 84,
+      padding: 0,
+      overflow: 'hidden',
+      justifyContent: 'flex-end',
+      borderRadius: Rounded.md,
+      backgroundColor: tileColour(tacos),
+      opacity: 1,
+    });
+    expect(photos(cell)).toHaveLength(0);
+    expect(flat(band(cell).props.style).backgroundColor).toBe('rgba(20, 28, 23, 0.66)');
+    const name = band(cell).find((n) => n.type === ('Text' as never));
+    expect(name.props.children).toBe('Chicken tacos');
+    expect(name.props.numberOfLines).toBe(2);
+    expect(flat(name.props.style)).toMatchObject({ color: '#FFFFFF', fontSize: Typography.caption.fontSize });
+    // No small tile, as in the compact style.
+    expect(cell.findAll((n) => n.props.testID === 'recipe-photo')).toHaveLength(0);
+    expect(label(root, '2026-10-15', 'dinner')).toBe('Thursday dinner, Chicken tacos');
+  });
+
+  test("a site's photo fills the cell, covering it, over the tile colour", () => {
+    db.update(recipes).set({ imageUrl: 'https://example.com/tacos.jpg' }).where(eq(recipes.id, tacos)).run();
+    const root = render();
+    const [image] = photos(slot(root, '2026-10-15', 'dinner'));
+    expect(image.props).toMatchObject({ source: 'https://example.com/tacos.jpg', contentFit: 'cover', accessible: false });
+    expect(flat(image.props.style)).toMatchObject({ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 });
+    expect(host(root, '2026-10-15', 'dinner').backgroundColor).toBe(tileColour(tacos));
+    expect(texts(band(slot(root, '2026-10-15', 'dinner')))).toEqual(['Chicken tacos']);
+  });
+
+  test("the household's own photo wins over the site's, loaded from Storage by its path", () => {
+    db.update(recipes)
+      .set({ imageUrl: 'https://example.com/tacos.jpg', photoPath: `${home}/tacos.jpg` })
+      .where(eq(recipes.id, tacos))
+      .run();
+    const root = render();
+    const [image] = photos(slot(root, '2026-10-15', 'dinner'));
+    expect(image.props.source).toMatchObject({
+      uri: expect.stringContaining(`/storage/v1/object/authenticated/recipe-photos/${home}/tacos.jpg`),
+      cacheKey: `${home}/tacos.jpg`,
+    });
+  });
+
+  test("a photo that fails to load leaves the tile colour and the name", () => {
+    db.update(recipes).set({ imageUrl: 'https://example.com/gone.jpg' }).where(eq(recipes.id, tacos)).run();
+    const root = render();
+    act(() => photos(slot(root, '2026-10-15', 'dinner'))[0].props.onError({ error: 'HTTP 404' }));
+    expect(photos(slot(root, '2026-10-15', 'dinner'))).toHaveLength(0);
+    expect(host(root, '2026-10-15', 'dinner').backgroundColor).toBe(tileColour(tacos));
+    expect(texts(band(slot(root, '2026-10-15', 'dinner')))).toEqual(['Chicken tacos']);
+  });
+
+  test("past days' recipes and notes at opacity.disabled; today's and later ones, and empty cells, at full", () => {
+    setSlot(home, '2026-10-13', 'lunch', { kind: 'leftovers' });
+    const root = render();
+    expect(host(root, '2026-10-12', 'dinner').opacity).toBe(Opacity.disabled); // past recipe
+    expect(host(root, '2026-10-13', 'lunch').opacity).toBe(Opacity.disabled); // past note
+    expect(host(root, '2026-10-15', 'dinner').opacity).toBe(1); // today
+    expect(host(root, '2026-10-16', 'breakfast').opacity).toBe(1); // a later note
+    expect(host(root, '2026-10-14', 'lunch').opacity).toBe(1); // a past empty slot
+    // Pressed, a past cell dims further from where it rests.
+    const pressable = root.root.find(
+      (n) => n.props.testID === 'slot-2026-10-12-dinner' && typeof n.type !== 'string' && typeof n.props.style === 'function',
+    );
+    const pressed = Object.assign({}, ...[pressable.props.style({ pressed: true })].flat(Infinity).filter(Boolean));
+    expect(pressed.opacity).toBeCloseTo(Opacity.pressed * Opacity.disabled);
+  });
+
+  test('notes, empty cells and the today pill are as in the compact style, at the taller height', () => {
+    const root = render();
+    const note = slot(root, '2026-10-16', 'breakfast');
+    expect(host(root, '2026-10-16', 'breakfast')).toMatchObject({ minHeight: 84, backgroundColor: Palette.light.surfaceMuted });
+    expect(flat(note.find((n) => n.type === ('Text' as never)).props.style)).toMatchObject({
+      fontStyle: 'italic',
+      color: Palette.light.inkSecondary,
+    });
+    expect(host(root, '2026-10-16', 'lunch')).toMatchObject({ minHeight: 84, borderStyle: 'dashed', borderColor: Palette.light.controlBorder });
+    expect(icons(slot(root, '2026-10-16', 'lunch')).map((i) => i.props.name)).toEqual(['plus']);
+    expect(icons(slot(root, '2026-10-14', 'lunch'))).toHaveLength(0);
+    expect(label(root, '2026-10-14', 'lunch')).toBe('Wednesday lunch, empty');
+    expect(texts(one(root, 'today-pill'))).toEqual(['Thu', '15']);
+    expect(root.root.findAll((n) => n.type === ('View' as never) && /^slot-/.test(n.props.testID ?? ''))).toHaveLength(21);
+  });
+
+  test('still scrolls sideways at large text sizes', () => {
+    mockWindow.fontScale = 2;
+    const root = render();
+    expect(root.root.findAll((n) => n.props.testID === 'week-grid-scroll' && n.props.horizontal === true)).not.toHaveLength(0);
+    expect(byTestID(root, 'photo-band').length).toBeGreaterThan(0);
+  });
+
+  test('the agenda is unchanged', () => {
+    setDeviceSetting(PLAN_VIEW_KEY, 'agenda');
+    const root = render();
+    expect(byTestID(root, 'week-agenda')).toHaveLength(1);
+    expect(byTestID(root, 'photo-band')).toHaveLength(0);
+  });
+});
+
+describe('the grid in the compact and expand styles', () => {
+  test.each(['compact', 'expand'] as const)('%s: the small tile over the name, at the compact height, past names greyed', (style) => {
+    setPlanGridStyle(style);
+    const root = render();
+    expect(byTestID(root, 'photo-band')).toHaveLength(0);
+    expect(flat(slot(root, '2026-10-15', 'dinner').props.style)).toMatchObject({ minHeight: 64, backgroundColor: Palette.light.surface, opacity: 1 });
+    expect(flat(slot(root, '2026-10-12', 'dinner').props.style).opacity).toBe(1);
+    expect(texts(slot(root, '2026-10-15', 'dinner'))).toEqual(['Chicken tacos']);
+  });
+
+  test('a grid on screen follows a change of style at once', () => {
+    const root = render();
+    expect(byTestID(root, 'photo-band')).toHaveLength(0);
+    act(() => setPlanGridStyle('photo'));
+    expect(byTestID(root, 'photo-band').length).toBeGreaterThan(0);
+    expect(flat(slot(root, '2026-10-15', 'dinner').props.style).minHeight).toBe(84);
+    act(() => setPlanGridStyle('compact'));
+    expect(byTestID(root, 'photo-band')).toHaveLength(0);
   });
 });
 

@@ -8,6 +8,7 @@ import { avatarColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { SegmentedControl } from '@/components/segmented-control';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Toast } from '@/components/toast';
@@ -38,6 +39,7 @@ import {
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
+import { PLAN_GRID_STYLES, setPlanGridStyle, usePlanGridStyle, type PlanGridStyle } from '@/features/meal-plan/grid-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import {
@@ -75,6 +77,7 @@ export default function SettingsScreen() {
   const keepScreenOn = useKeepScreenOnSetting();
   const planTab = usePlanTabSetting();
   const fontSet = useFontSet();
+  const planGridStyle = usePlanGridStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -241,8 +244,19 @@ export default function SettingsScreen() {
             value={FontSetSpecs[fontSet].display}
             icon={{ name: 'textformat', hue: 'plum' }}
             onPress={() => router.push('/font-sets')}
-            last
           />
+          {/* The week grid's cells (spec 4.16), on the Plan tab and in the plan modal. */}
+          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
+              {t('settings.planGrid')}
+            </ThemedText>
+            <SegmentedControl<PlanGridStyle>
+              accessibilityLabel={t('settings.planGridLabel')}
+              segments={PLAN_GRID_STYLES.map((style) => ({ value: style, label: t(PLAN_GRID_STYLE_LABELS[style]) }))}
+              value={planGridStyle}
+              onChange={setPlanGridStyle}
+            />
+          </View>
         </SettingsSection>
 
         {__DEV__ ? (
@@ -325,6 +339,12 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
 }
 
 /** Full screen while the account is deleted; it can't be dismissed. */
+const PLAN_GRID_STYLE_LABELS = {
+  compact: 'settings.planGridCompact',
+  photo: 'settings.planGridPhoto',
+  expand: 'settings.planGridExpand',
+} as const satisfies Record<PlanGridStyle, string>;
+
 function DeletingOverlay({ visible }: { visible: boolean }) {
   const { colors, spacing } = useTheme();
   const t = useT();

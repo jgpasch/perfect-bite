@@ -6,6 +6,7 @@ import {
   FontSetSpecs,
   MealHues,
   Palette,
+  PhotoScrim,
   Rounded,
   Typography,
   typographyFor,
@@ -13,7 +14,7 @@ import {
   type ColorToken,
   type FontSet,
 } from '@/constants/theme';
-import { contrastRatio } from '@/domain/contrast';
+import { contrastRatio, mix } from '@/domain/contrast';
 import { hueHeaderBand } from '@/components/appearance';
 import { MEAL_HUES, MEAL_SECTIONS } from '@/features/recipes/recipe-sort';
 
@@ -108,6 +109,36 @@ describe('Palette', () => {
   it('is a dark scheme in dark mode', () => {
     expect(contrastRatio(Palette.dark.background, '#000000')).toBeLessThan(1.5);
     expect(contrastRatio(Palette.light.background, '#FFFFFF')).toBeLessThan(1.2);
+  });
+});
+
+describe('PhotoScrim', () => {
+  const parts = /^rgba\((\d+), (\d+), (\d+), (0?\.\d+)\)$/.exec(PhotoScrim.fill);
+  const hex = (n: string) => Number(n).toString(16).padStart(2, '0').toUpperCase();
+  const [, r, g, b, a] = parts ?? [];
+  const fill = `#${hex(r)}${hex(g)}${hex(b)}`;
+  const alpha = Number(a);
+
+  it('is the board A band, rgba(20, 28, 23, 0.66), with white text', () => {
+    expect(PhotoScrim).toEqual({ fill: 'rgba(20, 28, 23, 0.66)', text: '#FFFFFF' });
+    expect(fill).toBe('#141C17');
+    expect(alpha).toBe(0.66);
+  });
+
+  it('keeps white text at 4.5:1 or better over any photo, a white one at worst', () => {
+    // Composited on white is the band at its lightest.
+    expect(contrastRatio(PhotoScrim.text, mix(fill, '#FFFFFF', alpha))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(PhotoScrim.text, mix(fill, '#000000', alpha))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(SCHEMES)('also holds over every tile colour in the %s scheme (a recipe with no photo)', (scheme) => {
+    for (const hue of Object.values(AisleColors[scheme])) {
+      expect(contrastRatio(PhotoScrim.text, mix(fill, hue.soft, alpha))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('would fail with a lighter band, so the check means something', () => {
+    expect(contrastRatio(PhotoScrim.text, mix(fill, '#FFFFFF', 0.4))).toBeLessThan(4.5);
   });
 });
 

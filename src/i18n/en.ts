@@ -787,6 +787,11 @@ export const en = {
     developerRow: 'Siri queue and log',
     designTrials: 'Design trials',
     fonts: 'Fonts',
+    planGrid: 'Plan grid',
+    planGridLabel: 'Plan grid style',
+    planGridCompact: 'Compact',
+    planGridPhoto: 'Photo',
+    planGridExpand: 'Expand',
     /** Settings > Design trials > Fonts: a set's sample line in its body face, "Figtree · Chicken tacos with lime crema". */
     fontsScreen: {
       sample: '{{body}} · Chicken tacos with lime crema',

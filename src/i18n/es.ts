@@ -697,6 +697,11 @@ export const es = {
     developerRow: 'Cola y registro de Siri',
     designTrials: 'Pruebas de diseño',
     fonts: 'Tipografías',
+    planGrid: 'Cuadrícula del plan',
+    planGridLabel: 'Estilo de la cuadrícula del plan',
+    planGridCompact: 'Compacta',
+    planGridPhoto: 'Foto',
+    planGridExpand: 'Ampliada',
     /** Settings > Design trials > Fonts. */
     fontsScreen: {
       sample: '{{body}} · Tacos de pollo con crema de lima',

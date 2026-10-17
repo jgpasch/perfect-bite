@@ -19,14 +19,17 @@ type Props<T extends string> = {
   onChange: (value: T) => void;
   /** Colours for a coloured ground, e.g. the list screen's green header (`listHeaderColors().segments`). */
   look?: { track: string; text: string; selected: string; selectedText: string };
+  /** What VoiceOver calls the whole control, e.g. "Plan grid style". */
+  accessibilityLabel?: string;
 };
 
 /** A track with a filled selected segment. Each segment is a tab with its selected state. */
-export function SegmentedControl<T extends string>({ segments, value, onChange, look: custom }: Props<T>) {
+export function SegmentedControl<T extends string>({ segments, value, onChange, look: custom, accessibilityLabel }: Props<T>) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
     <View
       accessibilityRole="tablist"
+      accessibilityLabel={accessibilityLabel}
       style={[
         styles.track,
         {
