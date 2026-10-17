@@ -642,7 +642,7 @@ create unique index one_open_item_per_ingredient
   where deleted_at is null and checked_at is null;
 -- photo_path: '<household_id>/<list_item_id>/<uuid>.jpg', lowercase, its folders the row's own
 -- household and id (check list_items_photo_path_shape). Synced, field-level LWW like note.
--- Item photos: Storage bucket item-photos, set up as recipe-photos (below): private, image/jpeg
+-- Item photos: Storage bucket item-photos, set up as recipe-photos (above): private, image/jpeg
 -- only, 2 MB, member select/insert/delete on the first folder, no update. Cleanup is the same too,
 -- through its own queue private.item_photo_deletions (the old object when photo_path changes or is
 -- cleared, an item's object when its row is deleted, the household's prefix when a household is
