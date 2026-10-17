@@ -947,6 +947,20 @@ Errors: `invalid_request` (400), `not_entitled` (403), `not_a_recipe` (422), `ra
 
 **Tools.** `yarn ai:recipe-photo <image> [<image>…]` (1 to 3 paths; `--model`, `--categorize-model`, `--raw`, `--quiet`, `--json`, `-h`) runs the handler against in-memory stores (nothing written, no rate limits) and prints each LLM call in full, then the recipe: name, servings, time, tags, the ingredient table with categories, and the step match in `yarn ai:steps`' format. The media type comes from the extension; `.heic`/`.heif` is converted to JPEG with macOS's `sips` into the temp folder (or the CLI says how to convert it where there's no `sips`), and a file over 2 MB is resized with `sips -Z 2000` first, which the CLI reports. `--raw` shows the provider's request and response bodies with image data as `<N bytes base64>`. It uses the real model unless `--model mock`, and is run by hand only.
 
+### 6.11 Photo search
+The `photo-search` Edge Function searches free stock photos on Pexels (https://www.pexels.com/api/documentation/) for the Choose a photo sheet (4.5). It takes a JWT-authenticated `POST` of `PhotoSearchRequest` (`src/shared/schemas/photo-search.ts`, shared with the app): `{ query, page }`, the query trimmed and 1 to 100 characters, the page an integer from 1 to 10 (default 1). There's no AI call and no plan feature: any signed-in user can call it. The Pexels key (`PEXELS_API_KEY`) is a function secret, sent to Pexels only from the server; the app never sees it.
+
+**Flow**
+1. Validate the request (`400 invalid_request`: not JSON, or a bad query or page, before anything is counted; a body over 8 KB is `413`).
+2. Without `PEXELS_API_KEY`, answer `503 unavailable`, before anything is read or counted.
+3. Look up the cache, `private.photo_search_cache`, by the query's key (`photoSearchKey`: lowercased, runs of whitespace as one space) and the page. An answer fetched in the last 24 hours is a hit.
+4. Check the per-user limits and, unless it's a hit, the global cap (below). A hit is then answered as cached, without calling Pexels.
+5. Otherwise call Pexels' `GET /v1/search` with the key as the query, the page, `per_page=20` and `orientation=landscape`, with an 8 s timeout. Each photo becomes `{ id, thumb, full, width, height, author, authorUrl, pageUrl, alt }`: `thumb` is `src.medium`, `full` is `src.large2x`, `author` and `authorUrl` are `photographer` and `photographer_url`, `pageUrl` is `url`, and `alt` is Pexels' description, or null when it's empty. A photo with a URL that isn't `https://` (or over 2048 characters), an author that isn't 1 to 200 characters (what `recipes.photo_credit` takes, 5), or a missing field is dropped. `hasMore` is whether Pexels gives a `next_page`, and is false on page 10. Answer `200 { photos, hasMore }` and cache it, empty answers included; a failure to save the cache doesn't fail the search.
+
+Errors: `invalid_request` (400), `rate_limited` (429), `unavailable` (503 with `Retry-After: 3600`: no key, the global cap, or Pexels answering 429), `search_failed` (502: Pexels answered another error, something that isn't its JSON, or nothing within 8 s).
+
+**Cost.** Pexels is free, with its own rate limits; the caps keep us under them. Per user: 20 searches a minute and 100 a day (429 beyond either), counted in Postgres by `check_photo_search_limit` (service role only; a refused search uses no budget; usage rows are pruned daily). A cache hit counts against the user's limits but not the global cap. Globally: `PHOTO_SEARCH_DAILY_CAP` (default 3,000) searches a day that reach Pexels. The cache is read and written only through `get_photo_search_cache` and `save_photo_search_cache` (service role only), holds no user id, and rows over 24 hours old are pruned daily.
+
 ---
 
 ## 7. Sync
