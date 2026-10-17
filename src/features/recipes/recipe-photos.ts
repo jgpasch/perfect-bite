@@ -6,6 +6,7 @@ import { useSyncExternalStore } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { RecipePhotosErrorSchema, RecipePhotosResponseSchema } from '@/shared/schemas/recipe-photos';
 
+import type { RecipePhotoFields } from './recipe-photo-source';
 import { updateRecipePhoto } from './recipes';
 import { knownOffline } from './suggest-tags';
 
@@ -54,8 +55,21 @@ async function errorCode(error: unknown): Promise<PagePhotosError> {
   return 'failed';
 }
 
+/** The photo a recipe has after picking a page photo: the site photo, and no own photo. */
+export function pagePhoto(imageUrl: string): RecipePhotoFields {
+  return { imageUrl, photoPath: null };
+}
+
+/**
+ * The photo a recipe has after Remove photo: an own photo goes, so the site's (if any) shows
+ * again; otherwise the site photo goes.
+ */
+export function photoAfterRemove(current: RecipePhotoFields): RecipePhotoFields {
+  return current.photoPath !== null ? { imageUrl: current.imageUrl, photoPath: null } : { imageUrl: null, photoPath: null };
+}
+
 /** A photo change the sheet made, for the recipe screen's toast: what it was before, for Undo. */
-export type PhotoChange = { recipeId: string; previous: string | null; removed: boolean; key: number };
+export type PhotoChange = { recipeId: string; previous: RecipePhotoFields; next: RecipePhotoFields; removed: boolean; key: number };
 
 let change: PhotoChange | null = null;
 let nextKey = 1;
@@ -66,20 +80,31 @@ function emit(next: PhotoChange | null) {
   for (const listener of [...listeners]) listener();
 }
 
-/**
- * Sets the recipe's photo (`imageUrl`, or null to remove it) through the usual recipe update, so it
- * syncs, and leaves the change for the recipe screen's toast. Picking the photo it already has
- * writes nothing.
- */
-export function chooseRecipePhoto(recipeId: string, previous: string | null, imageUrl: string | null): void {
-  if (imageUrl === previous) return;
-  updateRecipePhoto(recipeId, imageUrl);
-  emit({ recipeId, previous, removed: imageUrl === null, key: nextKey++ });
+/** The fields of `next` that differ from `from`, so an unchanged one keeps its clock. */
+function changedFields(from: RecipePhotoFields, next: RecipePhotoFields): Partial<RecipePhotoFields> {
+  return {
+    ...(next.imageUrl !== from.imageUrl ? { imageUrl: next.imageUrl } : {}),
+    ...(next.photoPath !== from.photoPath ? { photoPath: next.photoPath } : {}),
+  };
 }
 
-/** The toast's Undo: puts the photo back as it was and ends the toast. */
+/**
+ * Sets the recipe's photo fields (`next`, from `previous`) through the usual recipe update, so they
+ * sync, and leaves the change for the recipe screen's toast ("Photo removed" when `next` is what
+ * Remove photo leaves). Picking the photo it already has writes nothing.
+ */
+export function chooseRecipePhoto(recipeId: string, previous: RecipePhotoFields, next: RecipePhotoFields): void {
+  const patch = changedFields(previous, next);
+  if (Object.keys(patch).length === 0) return;
+  updateRecipePhoto(recipeId, patch);
+  const afterRemove = photoAfterRemove(previous);
+  const removed = next.imageUrl === afterRemove.imageUrl && next.photoPath === afterRemove.photoPath;
+  emit({ recipeId, previous, next, removed, key: nextKey++ });
+}
+
+/** The toast's Undo: puts both photo fields back as they were and ends the toast. */
 export function undoPhotoChange(c: PhotoChange): void {
-  updateRecipePhoto(c.recipeId, c.previous);
+  updateRecipePhoto(c.recipeId, changedFields(c.next, c.previous));
   if (change?.key === c.key) emit(null);
 }
 

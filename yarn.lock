@@ -6553,6 +6553,37 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-image-loader@npm:~57.0.1":
+  version: 57.0.1
+  resolution: "expo-image-loader@npm:57.0.1"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/c68a12901d789bfc395b045305a68a352e05d4b3e4fcbbe382591a5fff5fcd896e81c4cbb082dfaa520c5ac6ee2c3221c3887b0292b7b831e21779bd360936f0
+  languageName: node
+  linkType: hard
+
+"expo-image-manipulator@npm:~57.0.21":
+  version: 57.0.21
+  resolution: "expo-image-manipulator@npm:57.0.21"
+  dependencies:
+    expo-image-loader: "npm:~57.0.1"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/a0790bc19bf0e5d151c864ca5026a505d110b918bec590a67036b85afdd37f2a9ad864c7dbd0501b460730d814e5703300000db9ee4c62c5084d6bc301220a1d
+  languageName: node
+  linkType: hard
+
+"expo-image-picker@npm:~57.0.20":
+  version: 57.0.20
+  resolution: "expo-image-picker@npm:57.0.20"
+  dependencies:
+    expo-image-loader: "npm:~57.0.1"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/8469929213426125ad1568205dd787a7a9576a9708e0d0e2fb2ba4060881fc25e4cfa94f1d21465748552db0a8f5e2c367f03ca182ff07076ca0a9d8a6c0a17b
+  languageName: node
+  linkType: hard
+
 "expo-image@npm:~57.0.5":
   version: 57.0.5
   resolution: "expo-image@npm:57.0.5"
@@ -10269,6 +10300,8 @@ __metadata:
     expo-glass-effect: "npm:~57.0.4"
     expo-haptics: "npm:~57.0.3"
     expo-image: "npm:~57.0.5"
+    expo-image-manipulator: "npm:~57.0.21"
+    expo-image-picker: "npm:~57.0.20"
     expo-keep-awake: "npm:~57.0.2"
     expo-linking: "npm:~57.0.12"
     expo-localization: "npm:~57.0.2"

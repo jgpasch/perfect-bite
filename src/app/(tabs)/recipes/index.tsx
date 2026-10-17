@@ -631,7 +631,7 @@ function RecipeRow({
             borderColor: highlighted ? colors.primary : 'transparent',
           },
         ]}>
-        <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
+        <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} photoPath={recipe.photoPath} />
         <View style={styles.flex}>
           <View style={[styles.nameLine, { gap: spacing.xs }]}>
             <ThemedText variant="headline" numberOfLines={1} style={styles.shrink}>
@@ -820,7 +820,7 @@ function RecipeTile({
           borderCurve: 'continuous',
         }}>
         <View style={{ marginBottom: spacing.xs }}>
-          <RecipePhotoCover recipeId={recipe.id} imageUrl={recipe.imageUrl} />
+          <RecipePhotoCover recipeId={recipe.id} imageUrl={recipe.imageUrl} photoPath={recipe.photoPath} />
           {onList ? (
             <View style={[styles.tileBadge, { top: spacing.xs, end: spacing.xs }]}>
               <Badge label={t('recipes.tab.onList', { name: onList })} />

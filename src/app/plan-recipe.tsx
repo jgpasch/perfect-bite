@@ -56,7 +56,13 @@ export default function PlanRecipeSheet() {
 
   if (!recipe) return <Screen />;
 
-  const placed = { id: recipe.id, name: recipe.name, totalMinutes: recipe.totalMinutes, imageUrl: recipe.imageUrl };
+  const placed = {
+    id: recipe.id,
+    name: recipe.name,
+    totalMinutes: recipe.totalMinutes,
+    imageUrl: recipe.imageUrl,
+    photoPath: recipe.photoPath,
+  };
   const shownPlan = withPlacements(plan, placements, placed, householdId);
   const meals = MEALS.filter((meal) => recipe.tags?.meal.includes(meal));
 
@@ -90,7 +96,7 @@ export default function PlanRecipeSheet() {
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.lg }}>
         <View style={{ backgroundColor: header.ground, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.xs }}>
           <View accessible accessibilityRole="header" style={[styles.row, { gap: spacing.md, paddingHorizontal: spacing.xs }]}>
-            <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} />
+            <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} photoPath={recipe.photoPath} />
             <View style={styles.flex}>
               <ThemedText variant="sheetTitle" numberOfLines={2} style={{ color: header.title }}>
                 {recipe.name}

@@ -183,6 +183,11 @@ export const recipes = sqliteTable(
     servings: integer('servings'),
     /** The site's own photo URL, loaded remotely; we store no image. */
     imageUrl: text('image_url'),
+    /**
+     * The household's own photo (spec 4.5): `<household_id>/<recipe_id>/<uuid>.jpg` in the private
+     * `recipe-photos` bucket. Shown instead of `imageUrl` when set. Null = none.
+     */
+    photoPath: text('photo_path'),
     /** Set by the server to whoever inserted it; never sent (spec 5). */
     addedBy: text('added_by'),
     deletedAt,

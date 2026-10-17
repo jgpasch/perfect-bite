@@ -12,7 +12,10 @@ const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 /** False until EXPO_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY are set (see README "Local backend"). */
 export const isSupabaseConfigured = !!url && !!publishableKey;
 
-export const supabase: SupabaseClient = createClient(url ?? 'http://supabase.invalid', publishableKey ?? 'missing', {
+/** The project's URL, e.g. for Storage URLs that `expo-image` loads itself. */
+export const supabaseUrl = url ?? 'http://supabase.invalid';
+
+export const supabase: SupabaseClient = createClient(supabaseUrl, publishableKey ?? 'missing', {
   auth: {
     storage: localStorage,
     autoRefreshToken: true,

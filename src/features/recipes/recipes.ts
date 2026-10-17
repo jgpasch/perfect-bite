@@ -31,6 +31,7 @@ export function recipesQuery() {
       householdName: households.name,
       sourceUrl: recipes.sourceUrl,
       imageUrl: recipes.imageUrl,
+      photoPath: recipes.photoPath,
       updatedAt: recipes.updatedAt,
       tags: recipes.tags,
       totalMinutes: recipes.totalMinutes,
@@ -170,9 +171,12 @@ export function setRecipeSaved(id: string, slug: SavedTag, on: boolean): void {
   });
 }
 
-/** The Choose a photo sheet (spec 4.5): sets the recipe's photo to a page image, or clears it with null. */
-export function updateRecipePhoto(id: string, imageUrl: string | null): void {
-  updateRows(db, recipes, eq(recipes.id, id), { imageUrl });
+/**
+ * The Choose a photo sheet (spec 4.5): sets the site photo (`imageUrl`) and the household's own
+ * (`photoPath`), each only when given, so an unchanged one keeps its clock.
+ */
+export function updateRecipePhoto(id: string, photo: { imageUrl?: string | null; photoPath?: string | null }): void {
+  updateRows(db, recipes, eq(recipes.id, id), photo);
 }
 
 /** Saves the Steps sheet: the method in order, or null for none. Hand-made and imported recipes alike. */

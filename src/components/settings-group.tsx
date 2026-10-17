@@ -49,6 +49,8 @@ type RowProps = {
   selected?: boolean;
   /** The last row in its card has no hairline under it. */
   last?: boolean;
+  /** A button that can't be used now: dimmed to `opacity.disabled`, ignores taps, and says so to VoiceOver. */
+  disabled?: boolean;
 };
 
 /** A row in a settings card: optional icon tile, the label, then a value, trailing content and a chevron. */
@@ -65,6 +67,7 @@ export function SettingsRow({
   chevron = true,
   selected,
   last,
+  disabled = false,
 }: RowProps) {
   const choice = selected !== undefined;
   const { colors, spacing, sizes, opacity } = useTheme();
@@ -119,9 +122,10 @@ export function SettingsRow({
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={choice ? { selected } : undefined}
+      accessibilityState={choice ? { selected, ...(disabled ? { disabled } : {}) } : disabled ? { disabled } : undefined}
       onPress={onPress}
-      style={({ pressed }) => [rowStyle, { opacity: pressed ? opacity.pressed : 1 }]}>
+      disabled={disabled}
+      style={({ pressed }) => [rowStyle, { opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1 }]}>
       {content}
     </Pressable>
   );

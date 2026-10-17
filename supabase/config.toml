@@ -118,6 +118,13 @@ enabled = true
 # The maximum file size allowed (e.g. "5MB", "500KB").
 file_size_limit = "50MiB"
 
+# A household's own recipe photos (spec 4.5, 5). The migration 20261029120000_recipe_photo_storage.sql
+# creates the same bucket on hosted projects, with its policies.
+[storage.buckets.recipe-photos]
+public = false
+file_size_limit = "2MiB"
+allowed_mime_types = ["image/jpeg"]
+
 # Uncomment to configure local storage buckets
 # [storage.buckets.images]
 # public = false
@@ -404,6 +411,10 @@ deno_version = 2
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
+
+# Called by cron with a secret API key (not a JWT), which the function checks itself.
+[functions.photo-cleanup]
+verify_jwt = false
 
 [analytics]
 enabled = false

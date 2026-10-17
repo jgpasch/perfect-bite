@@ -39,6 +39,7 @@ export type ShopEntry = {
   recipeId: string;
   recipeName: string;
   recipeImageUrl: string | null;
+  recipePhotoPath: string | null;
 };
 
 /**
@@ -50,8 +51,18 @@ export function shopEntries(plan: WeekPlan, days: readonly Day[]): ShopEntry[] {
     MEALS.flatMap((meal) => {
       const shown = plan.slotEntries(day, meal)[0];
       if (shown?.kind !== 'recipe' || !shown.recipeId) return [];
-      const { id, recipeId, recipeName, recipeImageUrl } = shown;
-      return [{ id, day, meal, recipeId, recipeName: recipeName ?? '', recipeImageUrl: recipeImageUrl ?? null }];
+      const { id, recipeId, recipeName, recipeImageUrl, recipePhotoPath } = shown;
+      return [
+        {
+          id,
+          day,
+          meal,
+          recipeId,
+          recipeName: recipeName ?? '',
+          recipeImageUrl: recipeImageUrl ?? null,
+          recipePhotoPath: recipePhotoPath ?? null,
+        },
+      ];
     }),
   );
 }

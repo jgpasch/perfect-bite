@@ -38,6 +38,7 @@ import { EMPTY_SHARE_QUEUE_STATUS, setShareQueueStatus } from '@/features/recipe
 import { KEEP_SCREEN_ON_KEY } from '@/features/settings/device-settings';
 import { emptyQueues } from '@/features/siri/app-group';
 import { clearSiriListSnapshot } from '@/features/siri/list-snapshot';
+import { clearPhotoCache } from '@/lib/photo-cache';
 
 /**
  * Device settings that survive the wipe: preferences of this device that hold no user data, and
@@ -100,7 +101,8 @@ export const KEEP_LIST: Record<string, string> = Object.fromEntries(
 /**
  * Deletes the user's data from this device (spec 4.8): every user and household row in SQLite in
  * one transaction (throws if that fails, leaving them all), then the App Group list snapshot and
- * queues, the plans store and its cached answer, the in-memory invites and notifications.
+ * queues, the plans store and its cached answer, the in-memory invites and notifications, and
+ * expo-image's cache of recipe photos.
  * Safe to run again.
  */
 export function wipeLocalData(): void {
@@ -120,4 +122,5 @@ export function wipeLocalData(): void {
   clearMyInvites();
   clearNotifications();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
+  void clearPhotoCache();
 }

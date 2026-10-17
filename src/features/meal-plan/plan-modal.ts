@@ -18,7 +18,13 @@ export type Placement = { day: Day; meal: Meal; previous: ShownEntry | null };
 export type Placements = readonly Placement[];
 
 /** The recipe, for the cells it's placed in. */
-export type PlacedRecipe = { id: string; name: string; totalMinutes: number | null; imageUrl: string | null };
+export type PlacedRecipe = {
+  id: string;
+  name: string;
+  totalMinutes: number | null;
+  imageUrl: string | null;
+  photoPath: string | null;
+};
 
 const isSlot = (p: Placement, day: Day, meal: Meal) => p.day === day && p.meal === meal;
 
@@ -77,6 +83,7 @@ export function withPlacements(plan: WeekPlan, placements: Placements, recipe: P
               recipeName: recipe.name,
               recipeTotalMinutes: recipe.totalMinutes,
               recipeImageUrl: recipe.imageUrl,
+              recipePhotoPath: recipe.photoPath,
             },
           ]
         : plan.slotEntries(day, meal),

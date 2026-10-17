@@ -430,6 +430,13 @@ export const en = {
       remove: 'Remove photo',
       updated: 'Photo updated',
       removed: 'Photo removed',
+      library: 'Photo library',
+      camera: 'Take photo',
+      needsConnection: 'Needs a connection',
+      cameraDeniedTitle: 'Camera access is off',
+      cameraDenied: 'To take a photo, allow camera access for Perfect Bite in Settings.',
+      uploading: 'Uploading photo',
+      uploadFailed: "Couldn't upload the photo",
     },
     /** The recipe band's link row. */
     link: {

@@ -35,7 +35,9 @@ import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
-import { RecipePhotoHeader, usePhotoFailed } from '@/features/recipes/recipe-photo';
+import { dismissPhotoUpload, retryPhotoUpload, usePhotoUpload } from '@/features/recipes/photo-upload';
+import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
+import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
@@ -86,11 +88,16 @@ export default function RecipeScreen() {
   const dismissToast = useCallback(() => setDeleted(null), []);
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
-  const photo = usePhotoFailed(recipe?.imageUrl ?? null);
+  // The household's own photo, else the site's (spec 4.5).
+  const photo = useRecipePhoto(recipe ?? null);
   // The Choose a photo sheet's change, for the "Photo updated" toast; it ends when the screen closes.
   const photoChange = usePhotoChange(id);
   useEffect(() => () => dismissPhotoChange(), []);
   const dismissPhotoToast = useCallback(() => dismissPhotoChange(photoChange?.key), [photoChange?.key]);
+  // A photo from the library or camera on its way up, then "Couldn't upload the photo" if it fails.
+  const upload = usePhotoUpload(id);
+  useEffect(() => () => dismissPhotoUpload(), []);
+  const dismissUploadToast = useCallback(() => dismissPhotoUpload(upload?.key), [upload?.key]);
   // Ingredients | Method, only with steps. Opens on Ingredients every visit and isn't saved.
   const [tab, setTab] = useState<RecipeTab>('ingredients');
   const scroll = useRef<ScrollView>(null);
@@ -108,7 +115,10 @@ export default function RecipeScreen() {
 
   const hue = recipeHue(recipe.id);
   // A photo that failed to load is dropped for this visit, and the band's tinted header comes back.
-  const imageUrl = photo.failed ? null : recipe.imageUrl;
+  // While a new photo uploads, it shows from the device.
+  const uploading = upload?.status === 'uploading';
+  const photoSource = uploading ? upload.localUri : photo.source;
+  const hasPhoto = recipe.imageUrl !== null || recipe.photoPath !== null;
   const base = recipe.servings;
   const servings = base === null ? null : (chosen ?? base);
   const steps = recipe.steps?.length ?? 0;
@@ -171,7 +181,7 @@ export default function RecipeScreen() {
           tint, so back and actions sit on it (board 06). */}
       <Stack.Screen
         options={
-          imageUrl
+          photoSource
             ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
             : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
         }
@@ -181,7 +191,7 @@ export default function RecipeScreen() {
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
             {t('recipes.screen.rename')}
           </Stack.Toolbar.MenuAction>
-          {recipe.imageUrl !== null ? (
+          {hasPhoto ? (
             <Stack.Toolbar.MenuAction icon="photo" onPress={openPhoto}>
               {t('recipes.photo.change')}
             </Stack.Toolbar.MenuAction>
@@ -193,7 +203,7 @@ export default function RecipeScreen() {
       </Stack.Toolbar>
 
       {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
-      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={imageUrl ? 0 : headerHeight}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={photoSource ? 0 : headerHeight}>
         <ScrollView
           ref={scroll}
           style={styles.flex}
@@ -204,10 +214,20 @@ export default function RecipeScreen() {
           // The photo runs up under the status bar and the header's buttons.
           contentInsetAdjustmentBehavior="never"
           contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          {imageUrl ? <RecipePhotoHeader imageUrl={imageUrl} tint={aisles[hue].soft} sourceUrl={recipe.sourceUrl} onError={photo.onError} /> : null}
+          {photoSource ? (
+            <RecipePhotoHeader
+              source={photoSource}
+              tint={aisles[hue].soft}
+              // The source credit is for the site's photo, never the household's own.
+              sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
+              uploading={uploading}
+              onError={uploading ? () => {} : photo.onError}
+            />
+          ) : null}
           <RecipeBand
             recipe={recipe}
             hue={hue}
+            showAddPhoto={!hasPhoto && !uploading}
             hasIngredients={ingredients.length > 0}
             onEditServings={editServings}
             onPlan={openPlan}
@@ -331,6 +351,16 @@ export default function RecipeScreen() {
             />
           </View>
         ) : null}
+        {upload?.status === 'failed' ? (
+          <View style={{ paddingBottom: spacing.sm }}>
+            <Toast
+              key={`upload-${upload.key}`}
+              message={t('recipes.photo.uploadFailed')}
+              actions={[{ label: t('common.tryAgain'), onPress: () => void retryPhotoUpload(upload) }]}
+              onDismiss={dismissUploadToast}
+            />
+          </View>
+        ) : null}
         {deleted ? (
           <View style={{ paddingBottom: spacing.sm }}>
             <Toast
@@ -359,12 +389,13 @@ export default function RecipeScreen() {
  * The header band in the recipe's soft tint: its name, source link and servings, tags and notes. The notes
  * are edited in place and saved when the field loses focus; the link row is RecipeLinkRow. "Serves 4", or a
  * dashed "Add servings" without them, opens the servings prompt (`onEditServings`). Under the name, the
- * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo, a dashed Add photo
- * tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`).
+ * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo (`showAddPhoto`), a
+ * dashed Add photo tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`).
  */
 function RecipeBand({
   recipe,
   hue,
+  showAddPhoto,
   hasIngredients,
   onEditServings,
   onPlan,
@@ -372,6 +403,7 @@ function RecipeBand({
 }: {
   recipe: Recipe;
   hue: AisleHue;
+  showAddPhoto: boolean;
   hasIngredients: boolean;
   onEditServings: () => void;
   onPlan: () => void;
@@ -399,7 +431,7 @@ function RecipeBand({
         paddingBottom: spacing.lg + spacing.xs,
         gap: spacing.sm,
       }}>
-      {recipe.imageUrl === null ? <AddPhotoTile onPress={onAddPhoto} /> : null}
+      {showAddPhoto ? <AddPhotoTile onPress={onAddPhoto} /> : null}
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>

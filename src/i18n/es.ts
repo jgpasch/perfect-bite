@@ -386,6 +386,13 @@ export const es = {
       remove: 'Quitar foto',
       updated: 'Foto actualizada',
       removed: 'Se quitó la foto',
+      library: 'Fototeca',
+      camera: 'Tomar foto',
+      needsConnection: 'Necesita conexión',
+      cameraDeniedTitle: 'El acceso a la cámara está desactivado',
+      cameraDenied: 'Para tomar una foto, permite el acceso a la cámara para Perfect Bite en Ajustes.',
+      uploading: 'Subiendo foto',
+      uploadFailed: 'No se pudo subir la foto',
     },
     link: {
       placeholder: 'Agrega un enlace a la receta',

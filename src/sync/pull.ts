@@ -53,6 +53,7 @@ import { getAccount } from '@/features/auth/account';
 import { ensureMissingIngredients, householdCombinesLanguages, localFamilyKey } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { refreshAllMemberNames } from '@/features/households/member-names';
+import { clearPhotoCache } from '@/lib/photo-cache';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 import { reportSyncActivity } from './activity';
@@ -577,6 +578,7 @@ export function onMemberships(userId: string, listener: MembershipListener): () 
  */
 function purgeLostHouseholds(current: string[]): void {
   if (current.length === 0) return;
+  let purged = false;
   db.transaction((tx) => {
     const state = readState(tx);
     const lost = (state.memberships ?? []).filter((id) => !current.includes(id));
@@ -589,7 +591,10 @@ function purgeLostHouseholds(current: string[]): void {
       for (const key of Object.keys(cursors)) if (key.startsWith(prefix)) delete cursors[key];
     }
     writeState(tx, { cursors, memberships: current });
+    purged = lost.length > 0;
   });
+  // Its photos may be in expo-image's cache (spec 4.5): a former member's phone doesn't keep them.
+  if (purged) void clearPhotoCache();
 }
 
 async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullSummary> {

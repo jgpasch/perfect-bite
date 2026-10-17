@@ -237,7 +237,7 @@ function EntryChoice({
         },
       ]}>
       <CheckCircle checked={on} />
-      <RecipePhotoTile recipeId={entry.recipeId} imageUrl={entry.recipeImageUrl} />
+      <RecipePhotoTile recipeId={entry.recipeId} imageUrl={entry.recipeImageUrl} photoPath={entry.recipePhotoPath} />
       <View style={styles.flex}>
         <ThemedText variant="body" color={on ? 'ink' : 'inkSecondary'} numberOfLines={2}>
           {entry.recipeName}

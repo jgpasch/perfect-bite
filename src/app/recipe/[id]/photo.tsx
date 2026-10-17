@@ -1,14 +1,25 @@
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { SoftDangerButton } from '@/components/button';
+import { Card } from '@/components/card';
+import { SettingsRow } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import { pickRecipePhoto, uploadRecipePhoto, type PhotoSource } from '@/features/recipes/photo-upload';
 import { recipeLinkUrl } from '@/features/recipes/recipe-link';
-import { chooseRecipePhoto, loadPagePhotos, type PagePhotosResult } from '@/features/recipes/recipe-photos';
+import type { RecipePhotoFields } from '@/features/recipes/recipe-photo-source';
+import {
+  chooseRecipePhoto,
+  loadPagePhotos,
+  pagePhoto,
+  photoAfterRemove,
+  type PagePhotosResult,
+} from '@/features/recipes/recipe-photos';
 import { getRecipe } from '@/features/recipes/recipes';
+import { knownOffline } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
@@ -19,8 +30,11 @@ const PLACEHOLDERS = 4;
  * The Choose a photo sheet (spec 4.5), from the recipe screen's Add photo tile or Change photo….
  * **From the page**, only when the recipe's link opens: the page's photos (`recipe-photos`, up to
  * 12) in a two-column grid of 4:3 tiles, the current photo outlined in `primary`; picking one sets
- * it and closes the sheet, and the recipe screen shows "Photo updated" with Undo. **Remove photo**
- * when there is one. A page photo that fails to load is left out of the grid.
+ * it (and drops an own photo) and closes the sheet, and the recipe screen shows "Photo updated" with
+ * Undo. **Photo library** and **Take photo** pick a photo, close the sheet and upload it as the
+ * household's own (`photo-upload.ts`); offline they're disabled, "Needs a connection". **Remove
+ * photo** when there is one: the own photo if set (the site's comes back), else the site's. A page
+ * photo that fails to load is left out of the grid.
  */
 export default function RecipePhotoSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,6 +46,10 @@ export default function RecipePhotoSheet() {
   const [result, setResult] = useState<PagePhotosResult | null>(null);
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
 
+  // Photo library and Take photo upload, so they need a connection; null until known.
+  const [offline, setOffline] = useState<boolean | null>(null);
+  const [picking, setPicking] = useState(false);
+
   useEffect(() => {
     if (!link) return;
     let live = true;
@@ -41,13 +59,40 @@ export default function RecipePhotoSheet() {
     };
   }, [link]);
 
+  useEffect(() => {
+    let live = true;
+    void knownOffline().then((off) => live && setOffline(off));
+    return () => {
+      live = false;
+    };
+  }, []);
+
   if (!recipe) return <Screen />;
 
-  const current = recipe.imageUrl;
-  const choose = (imageUrl: string | null) => {
-    chooseRecipePhoto(recipe.id, current, imageUrl);
+  const current = { imageUrl: recipe.imageUrl, photoPath: recipe.photoPath };
+  const choose = (next: RecipePhotoFields) => {
+    chooseRecipePhoto(recipe.id, current, next);
     router.back();
   };
+  // Picks, then closes the sheet while it uploads; the recipe screen shows it with a spinner.
+  const pick = async (from: PhotoSource) => {
+    if (picking) return;
+    setPicking(true);
+    try {
+      const picked = await pickRecipePhoto(from);
+      if (picked.ok) {
+        void uploadRecipePhoto(recipe.id, picked.uri);
+        router.back();
+      } else if (picked.reason === 'denied') {
+        Alert.alert(t('recipes.photo.cameraDeniedTitle'), t('recipes.photo.cameraDenied'));
+      }
+    } catch (e) {
+      console.warn('[photo] pick failed', e);
+    } finally {
+      setPicking(false);
+    }
+  };
+  const needsConnection = offline === true ? t('recipes.photo.needsConnection') : undefined;
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
 
   return (
@@ -68,16 +113,37 @@ export default function RecipePhotoSheet() {
           <PageSection
             result={result}
             images={result?.ok ? result.images.filter((url) => !broken.has(url)) : []}
-            current={current}
-            onPick={choose}
+            // An own photo is shown instead of the site's, so no page photo is the current one.
+            current={current.photoPath === null ? current.imageUrl : null}
+            onPick={(url) => choose(pagePhoto(url))}
             onBroken={(url) => setBroken((prev) => new Set(prev).add(url))}
           />
         </View>
       ) : null}
 
-      {current !== null ? (
+      <Card>
+        <SettingsRow
+          label={t('recipes.photo.library')}
+          detail={needsConnection}
+          icon={{ name: 'photo.on.rectangle', hue: 'blue' }}
+          onPress={() => void pick('library')}
+          chevron={false}
+          disabled={offline !== false || picking}
+        />
+        <SettingsRow
+          label={t('recipes.photo.camera')}
+          detail={needsConnection}
+          icon={{ name: 'camera', hue: 'teal' }}
+          onPress={() => void pick('camera')}
+          chevron={false}
+          disabled={offline !== false || picking}
+          last
+        />
+      </Card>
+
+      {current.imageUrl !== null || current.photoPath !== null ? (
         <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
-          <SoftDangerButton label={t('recipes.photo.remove')} onPress={() => choose(null)} />
+          <SoftDangerButton label={t('recipes.photo.remove')} onPress={() => choose(photoAfterRemove(current))} />
         </View>
       ) : null}
     </Screen>

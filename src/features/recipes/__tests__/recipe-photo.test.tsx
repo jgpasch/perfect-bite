@@ -10,6 +10,7 @@ import { AisleColors, Rounded as rounded, Sizes as sizes } from '@/constants/the
 import { RecipePhotoCover, RecipePhotoHeader, RecipePhotoTile } from '../recipe-photo';
 
 jest.mock('@/global.css', () => ({}));
+jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('expo-image', () => {
   const { createElement } = require('react');
@@ -80,7 +81,7 @@ describe('RecipePhotoTile', () => {
 describe('RecipePhotoHeader', () => {
   test('full width at 16:9 in the band tint, the photo covering it, cached on disk, hidden from VoiceOver', () => {
     const onError = jest.fn();
-    const root = render(<RecipePhotoHeader imageUrl={URL} tint="#FBE3E6" onError={onError} />);
+    const root = render(<RecipePhotoHeader source={URL} tint="#FBE3E6" onError={onError} />);
     const header = root.root.find((n) => String(n.type) === 'View' && n.props.accessibilityElementsHidden === true);
     expect(flatStyle(header.props.style)).toMatchObject({ width: '100%', aspectRatio: 16 / 9, backgroundColor: '#FBE3E6' });
     expect(header.props.importantForAccessibility).toBe('no-hide-descendants');

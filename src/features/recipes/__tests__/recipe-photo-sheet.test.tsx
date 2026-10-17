@@ -18,6 +18,10 @@ import { outboxMutations } from '@/test/outbox';
 import RecipeScreen from '@/app/recipe/[id]/index';
 import RecipePhotoSheet from '@/app/recipe/[id]/photo';
 
+import { emitAuthEvent, makeSession, resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
+
+import { resetPhotoUpload } from '../photo-upload';
+import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
 import { createRecipe, getRecipe, updateRecipe } from '../recipes';
 
@@ -43,7 +47,11 @@ jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
   const { createElement } = require('react');
   return { __esModule: true, default: ({ children }: { children?: unknown }) => createElement('Swipeable', null, children) };
 });
-jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+const mockNetwork = { connected: true };
+jest.mock('expo-network', () => ({
+  addNetworkStateListener: () => ({ remove: () => {} }),
+  getNetworkStateAsync: async () => ({ isConnected: mockNetwork.connected, isInternetReachable: mockNetwork.connected }),
+}));
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
@@ -102,6 +110,34 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('expo-linking', () => ({ openURL: () => Promise.resolve(true) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: () => Promise.resolve(true) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
+// Photo library and Take photo: the picker, the downscale and the file read are faked; the upload
+// goes to the fake Storage.
+const mockPicker = {
+  library: jest.fn(async (_options: object): Promise<object> => ({ canceled: false, assets: [{ uri: 'file:///picked.heic' }] })),
+  camera: jest.fn(async (_options: object): Promise<object> => ({ canceled: false, assets: [{ uri: 'file:///shot.jpg' }] })),
+  permission: jest.fn(async () => ({ granted: true })),
+};
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: (o: object) => mockPicker.library(o),
+  launchCameraAsync: (o: object) => mockPicker.camera(o),
+  requestCameraPermissionsAsync: () => mockPicker.permission(),
+}));
+jest.mock('expo-image-manipulator', () => {
+  const image = {
+    width: 4032,
+    height: 3024,
+    saveAsync: async () => ({ uri: 'file:///cache/small.jpg', width: 1600, height: 1200 }),
+  };
+  const context = { resize: () => context, renderAsync: async () => image };
+  return { ImageManipulator: { manipulate: () => context }, SaveFormat: { JPEG: 'jpeg' } };
+});
+jest.mock('expo-file-system', () => ({
+  File: class {
+    async arrayBuffer() {
+      return new ArrayBuffer(8);
+    }
+  },
+}));
 // The server call; the rest of the module (the change store) stays real.
 let resolvePhotos: (result: PagePhotosResult) => void = () => {};
 const mockLoad = jest.fn((_url: string) => new Promise<PagePhotosResult>((resolve) => (resolvePhotos = resolve)));
@@ -129,12 +165,19 @@ beforeEach(() => {
   mockBack.mockClear();
   mockLoad.mockClear();
   setFeatures(DEFAULT_FEATURES);
+  resetSupabase();
+  resetPhotoSession();
+  mockNetwork.connected = true;
+  mockPicker.library.mockClear();
+  mockPicker.camera.mockClear();
+  mockPicker.permission.mockReset().mockResolvedValue({ granted: true });
 });
 
 afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
   dismissPhotoChange();
+  resetPhotoUpload();
 });
 
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
@@ -144,6 +187,13 @@ function render(element: React.ReactElement): ReactTestRenderer {
     tree = create(<SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>);
   });
   return tree!;
+}
+
+/** The sheet, once it knows whether it's online. */
+async function renderSheet(): Promise<ReactTestRenderer> {
+  const root = render(<RecipePhotoSheet />);
+  await act(async () => {});
+  return root;
 }
 
 const setPhoto = (url: string | null) => db.update(recipes).set({ imageUrl: url }).where(eq(recipes.id, bread)).run();
@@ -204,9 +254,9 @@ describe('the recipe screen', () => {
 describe('the Choose a photo sheet', () => {
   test('with a link: the title, From the page, placeholder tiles while loading, then the page photos', async () => {
     setLink(LINK);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     expect(mockLoad).toHaveBeenCalledWith(LINK);
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page']);
+    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Photo library', 'Take photo']);
     const placeholders = root.root.find((n) => n.props.testID === 'photo-placeholders' && String(n.type) === 'View');
     expect(placeholders.props.accessibilityLabel).toBe('Loading photos from the page');
     expect(tiles(root)).toHaveLength(0);
@@ -227,7 +277,7 @@ describe('the Choose a photo sheet', () => {
   test('the current photo is selected, outlined in primary; the others are not', async () => {
     setLink(LINK);
     setPhoto(B);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: true, images: [A, B] });
     const [a, b] = tiles(root);
     expect([a.props.accessibilityState.selected, b.props.accessibilityState.selected]).toEqual([false, true]);
@@ -236,45 +286,45 @@ describe('the Choose a photo sheet', () => {
     expect(look(a).borderColor).toBe('transparent');
   });
 
-  test('without a link that opens: no From the page section and no request; Remove photo when there is one', () => {
+  test('without a link that opens: no From the page section and no request; Remove photo when there is one', async () => {
     setLink('grandma’s card');
     setPhoto(A);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     expect(mockLoad).not.toHaveBeenCalled();
-    expect(texts(root)).toEqual(['Choose a photo', 'Remove photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'Photo library', 'Take photo', 'Remove photo']);
     expect(removeButton(root)).toHaveLength(1);
   });
 
   test('offline: the section says to connect', async () => {
     setLink(LINK);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: false, error: 'offline' });
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Connect to see photos from the page']);
+    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Connect to see photos from the page', 'Photo library', 'Take photo']);
     expect(tiles(root)).toHaveLength(0);
   });
 
   test('a page that could not be fetched, or has no photos: "No photos found on the page"', async () => {
     setLink(LINK);
-    let root = render(<RecipePhotoSheet />);
+    let root = await renderSheet();
     await answer({ ok: false, error: 'none' });
     expect(texts(root)).toContain('No photos found on the page');
     act(() => root.unmount());
 
-    root = render(<RecipePhotoSheet />);
+    root = await renderSheet();
     await answer({ ok: true, images: [] });
     expect(texts(root)).toContain('No photos found on the page');
   });
 
   test('any other failure says to try later', async () => {
     setLink(LINK);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: false, error: 'failed' });
     expect(texts(root)).toContain("Couldn't load the page's photos. Try again later.");
   });
 
   test('a page photo that fails to load leaves the grid, and the rest are renumbered', async () => {
     setLink(LINK);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: true, images: [A, B, C] });
     act(() => byType(root, 'ExpoImage')[1].props.onError({ error: '403' }));
     expect(tiles(root).map((t) => t.props.accessibilityLabel)).toEqual(['Photo 1 of 2 from the page', 'Photo 2 of 2 from the page']);
@@ -283,7 +333,7 @@ describe('the Choose a photo sheet', () => {
 
   test('picking a page photo writes image_url through the recipe update (synced) and closes the sheet', async () => {
     setLink(LINK);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: true, images: [A, B] });
     press(tiles(root)[1]);
     expect(getRecipe(bread)!.imageUrl).toBe(B);
@@ -295,25 +345,25 @@ describe('the Choose a photo sheet', () => {
     setLink(LINK);
     setPhoto(A);
     const before = outboxMutations().length;
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     await answer({ ok: true, images: [A, B] });
     press(tiles(root)[0]);
     expect(outboxMutations()).toHaveLength(before);
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  test('Remove photo clears image_url and closes the sheet', () => {
+  test('Remove photo clears image_url and closes the sheet', async () => {
     setPhoto(A);
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     press(removeButton(root)[0]);
     expect(getRecipe(bread)!.imageUrl).toBeNull();
     expect(outboxMutations().at(-1)).toMatchObject({ table: 'recipes', id: bread, fields: { image_url: null } });
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  test('a missing recipe renders an empty sheet', () => {
+  test('a missing recipe renders an empty sheet', async () => {
     mockParams.id = 'nope';
-    const root = render(<RecipePhotoSheet />);
+    const root = await renderSheet();
     expect(texts(root)).toEqual([]);
     expect(mockLoad).not.toHaveBeenCalled();
   });
@@ -322,7 +372,7 @@ describe('the Choose a photo sheet', () => {
 describe('the toast after a change', () => {
   /** Picks `url` in the sheet (or removes the photo with null), then shows the recipe screen. */
   async function change(url: string | null): Promise<ReactTestRenderer> {
-    const sheet = render(<RecipePhotoSheet />);
+    const sheet = await renderSheet();
     if (url === null) {
       press(removeButton(sheet)[0]);
     } else {
@@ -389,5 +439,199 @@ describe('the toast after a change', () => {
     tree = null;
     const again = render(<RecipeScreen />);
     expect(toasts(again)).toHaveLength(0);
+  });
+});
+
+describe("the household's own photo (Photo library and Take photo)", () => {
+  const OWN = () => `${getRecipe(bread)!.householdId}/${bread}/0190a000-0000-7000-8000-000000000001.jpg`;
+  const setOwn = (path: string | null) => db.update(recipes).set({ photoPath: path }).where(eq(recipes.id, bread)).run();
+  const row = (root: ReactTestRenderer, label: string) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityLabel?.startsWith(label));
+
+  test('online: both rows are buttons that work', async () => {
+    const root = await renderSheet();
+    for (const label of ['Photo library', 'Take photo']) {
+      const r = row(root, label);
+      expect(r.props.accessibilityLabel).toBe(label);
+      expect(r.props.disabled).toBe(false);
+    }
+  });
+
+  test('offline: both rows are disabled with "Needs a connection", and a tap does nothing', async () => {
+    mockNetwork.connected = false;
+    const root = await renderSheet();
+    for (const label of ['Photo library', 'Take photo']) {
+      const r = row(root, label);
+      expect(r.props.accessibilityLabel).toBe(`${label}, Needs a connection`);
+      expect(r.props.disabled).toBe(true);
+      expect(r.props.accessibilityState).toEqual({ disabled: true });
+    }
+    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(2);
+  });
+
+  test('Photo library: picks with a 4:3 crop, uploads the small JPEG under <household>/<recipe>/<uuid>.jpg, sets photo_path, closes', async () => {
+    setPhoto(A);
+    const root = await renderSheet();
+    await act(async () => row(root, 'Photo library').props.onPress());
+
+    expect(mockPicker.library).toHaveBeenCalledWith({ mediaTypes: 'images', allowsEditing: true, aspect: [4, 3], quality: 1 });
+    const [bucket, path, body, options] = storageUploads().at(-1)!;
+    expect(bucket).toBe('recipe-photos');
+    expect(path).toMatch(new RegExp(`^${getRecipe(bread)!.householdId}/${bread}/[0-9a-f-]{36}\\.jpg$`));
+    expect(body).toBeInstanceOf(ArrayBuffer);
+    expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    // The site photo stays, for Remove; only photo_path is sent.
+    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A });
+    expect(outboxMutations().at(-1)).toEqual(expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path } }));
+  });
+
+  test('Take photo asks for the camera; denied shows an alert and uploads nothing', async () => {
+    const alert = jest.spyOn(require('react-native').Alert, 'alert').mockImplementation(() => {});
+    mockPicker.permission.mockResolvedValue({ granted: false });
+    const root = await renderSheet();
+    await act(async () => row(root, 'Take photo').props.onPress());
+    expect(mockPicker.camera).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledWith('Camera access is off', 'To take a photo, allow camera access for Perfect Bite in Settings.');
+    expect(storageUploads()).toHaveLength(0);
+    expect(mockBack).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  test('cancelling the picker keeps the sheet open and changes nothing', async () => {
+    mockPicker.library.mockResolvedValueOnce({ canceled: true, assets: null });
+    const root = await renderSheet();
+    await act(async () => row(root, 'Photo library').props.onPress());
+    expect(storageUploads()).toHaveLength(0);
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(getRecipe(bread)!.photoPath).toBeNull();
+  });
+
+  test('while it uploads, the recipe screen shows the photo from the device with a spinner, then the stored one', async () => {
+    let finish: (r: { data: unknown; error: unknown }) => void = () => {};
+    const pending = new Promise<{ data: unknown; error: unknown }>((resolve) => (finish = resolve));
+    supabase.storage.from.mockImplementationOnce(() => ({ upload: () => pending }) as never);
+    const sheet = await renderSheet();
+    await act(async () => row(sheet, 'Take photo').props.onPress());
+    act(() => sheet.unmount());
+
+    const root = render(<RecipeScreen />);
+    expect(byType(root, 'ExpoImage')[0].props.source).toBe('file:///cache/small.jpg');
+    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading' && String(n.type) === 'View')).toHaveLength(1);
+    expect(byTestId(root, 'add-photo')).toHaveLength(0);
+
+    await act(async () => finish({ data: {}, error: null }));
+    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading')).toHaveLength(0);
+    const path = getRecipe(bread)!.photoPath!;
+    expect(byType(root, 'ExpoImage')[0].props.source).toMatchObject({ cacheKey: path });
+    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
+  });
+
+  test("a failed upload leaves the recipe as it was and says \"Couldn't upload the photo\" with Try again, which retries", async () => {
+    setPhoto(A);
+    const upload = jest.fn(async (..._args: unknown[]) => ({ data: null, error: { message: 'Network request failed' } }));
+    supabase.storage.from.mockImplementation(() => ({ upload }) as never);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const sheet = await renderSheet();
+    await act(async () => row(sheet, 'Photo library').props.onPress());
+    act(() => sheet.unmount());
+
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null });
+    const root = render(<RecipeScreen />);
+    // The photo as it was, with no spinner.
+    expect(byType(root, 'ExpoImage')[0].props.source).toBe(A);
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe("Couldn't upload the photo");
+    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
+
+    upload.mockResolvedValueOnce({ data: {}, error: null });
+    await act(async () => toast.props.actions[0].onPress());
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(getRecipe(bread)!.photoPath).toMatch(/\.jpg$/);
+    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
+  });
+
+  test('an own photo loads from Storage with the token and is cached by its path; no credit chip', async () => {
+    setLink(LINK);
+    setPhoto(A);
+    setOwn(OWN());
+    const root = render(<RecipeScreen />);
+    act(() => emitAuthEvent('SIGNED_IN', { ...makeSession(USER), access_token: 'token-1' }));
+    expect(byType(root, 'ExpoImage')[0].props.source).toEqual({
+      uri: `https://project.supabase.test/storage/v1/object/authenticated/recipe-photos/${OWN()}`,
+      cacheKey: OWN(),
+      headers: { Authorization: 'Bearer token-1' },
+    });
+    expect(root.root.findAll((n) => n.props.testID === 'recipe-credit-photo')).toHaveLength(0);
+  });
+
+  test('a site photo keeps its credit chip', () => {
+    setLink(LINK);
+    setPhoto(A);
+    const root = render(<RecipeScreen />);
+    expect(root.root.findAll((n) => n.props.testID === 'recipe-credit-photo').length).toBeGreaterThan(0);
+  });
+
+  test('with only an own photo: no Add photo tile, and Change photo… in the menu', () => {
+    setOwn(OWN());
+    const root = render(<RecipeScreen />);
+    expect(byTestId(root, 'add-photo')).toHaveLength(0);
+    expect(menuTitles(root)).toContain('Change photo…');
+  });
+
+  test('Remove photo with an own photo clears photo_path only, so the site photo shows again', async () => {
+    setPhoto(A);
+    setOwn(OWN());
+    const sheet = await renderSheet();
+    press(removeButton(sheet)[0]);
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null, imageUrl: A });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
+    act(() => sheet.unmount());
+
+    const root = render(<RecipeScreen />);
+    expect(byType(root, 'ExpoImage')[0].props.source).toBe(A);
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe('Photo removed');
+    // Undo puts the own photo back.
+    act(() => toast.props.actions[0].onPress());
+    expect(getRecipe(bread)).toMatchObject({ photoPath: OWN(), imageUrl: A });
+  });
+
+  test('Remove photo with only a site photo clears image_url', async () => {
+    setPhoto(A);
+    const sheet = await renderSheet();
+    press(removeButton(sheet)[0]);
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null, imageUrl: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: null });
+  });
+
+  test('picking a page photo sets image_url and clears photo_path; Undo restores both', async () => {
+    setLink(LINK);
+    setPhoto(A);
+    setOwn(OWN());
+    const sheet = await renderSheet();
+    await answer({ ok: true, images: [A, B] });
+    // With an own photo showing, no page photo is the current one.
+    expect(tiles(sheet).map((t) => t.props.accessibilityState.selected)).toEqual([false, false]);
+    press(tiles(sheet)[1]);
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: B, photoPath: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null });
+    act(() => sheet.unmount());
+
+    const root = render(<RecipeScreen />);
+    act(() => toasts(root)[0].props.actions[0].onPress());
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN() });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN() });
+  });
+
+  test('picking the page photo it already shows, with an own photo, still switches to it', async () => {
+    setLink(LINK);
+    setPhoto(A);
+    setOwn(OWN());
+    const sheet = await renderSheet();
+    await answer({ ok: true, images: [A] });
+    press(tiles(sheet)[0]);
+    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
   });
 });

@@ -177,7 +177,12 @@ function GridCell({
         )
       ) : entry.kind === 'recipe' ? (
         <>
-          <RecipePhotoTile recipeId={entry.recipeId!} imageUrl={entry.recipeImageUrl} size={sizes.planTile} />
+          <RecipePhotoTile
+            recipeId={entry.recipeId!}
+            imageUrl={entry.recipeImageUrl}
+            photoPath={entry.recipePhotoPath}
+            size={sizes.planTile}
+          />
           <ThemedText variant="caption" color={placed ? 'onPrimarySoft' : past ? 'inkSecondary' : 'ink'} numberOfLines={2}>
             {entryText(entry)}
           </ThemedText>

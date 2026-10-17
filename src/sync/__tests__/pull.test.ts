@@ -1187,6 +1187,79 @@ describe('recipe step ingredients (spec 4.5, 5)', () => {
   });
 });
 
+describe("a recipe's own photo (spec 4.5, 5)", () => {
+  const PATH = `${H1}/r1/0190a000-0000-7000-8000-000000000001.jpg`;
+  const SITE = 'https://example.com/tacos.jpg';
+  const RECIPE_CLOCK = { household_id: OLD, name: OLD, image_url: OLD, photo_path: OLD, deleted_at: OLD };
+  const remoteRecipe = (updated: string, extra: Partial<ServerRow> = {}): ServerRow => ({
+    id: 'r1',
+    household_id: H1,
+    name: 'Tacos',
+    notes: null,
+    source_url: null,
+    tags: null,
+    tags_edited: false,
+    total_minutes: null,
+    steps: null,
+    step_ingredients: null,
+    servings: null,
+    image_url: SITE,
+    photo_path: PATH,
+    added_by: 'u2',
+    deleted_at: null,
+    field_clock: RECIPE_CLOCK,
+    created_at: ts(0),
+    updated_at: updated,
+    ...extra,
+  });
+  const recipeRow = () => db.select().from(recipes).where(eq(recipes.id, 'r1')).get()!;
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('recipes', remoteRecipe(ts(2)));
+    await pullNow();
+  });
+
+  test('a pull applies the path, next to the site photo', () => {
+    expect(recipeRow()).toMatchObject({ photoPath: PATH, imageUrl: SITE });
+  });
+
+  test('a newer remote clear wins and leaves image_url alone', async () => {
+    server.recipes = [remoteRecipe(ts(10), { photo_path: null, field_clock: { ...RECIPE_CLOCK, photo_path: NEW } })];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ photoPath: null, imageUrl: SITE });
+    expect(recipeRow().fieldClock).toMatchObject({ photo_path: NEW, image_url: OLD });
+  });
+
+  test('a local unpushed photo beats an older remote one, field by field', async () => {
+    const mine = `${H1}/r1/0190a000-0000-7000-8000-000000000002.jpg`;
+    updateRows(db, recipes, eq(recipes.id, 'r1'), { photoPath: mine });
+    server.recipes = [
+      remoteRecipe(ts(10), {
+        photo_path: null,
+        image_url: 'https://example.com/other.jpg',
+        field_clock: { ...RECIPE_CLOCK, photo_path: '1500000000000-0000-remote', image_url: NEW },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ photoPath: mine, imageUrl: 'https://example.com/other.jpg' });
+    expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ photo_path: mine }]);
+  });
+
+  test('a server without the column yet leaves the photo alone', async () => {
+    const { photo_path: _p, ...older } = remoteRecipe(ts(10), { name: 'Tacos!' });
+    server.recipes = [{ ...older, field_clock: { ...RECIPE_CLOCK, name: NEW } }];
+
+    await pullNow();
+
+    expect(recipeRow()).toMatchObject({ name: 'Tacos!', photoPath: PATH });
+  });
+});
+
 describe("the household's aisles (spec 4.3.2)", () => {
   const customCategory = (id: string, name: string, updated: string, householdId = H1): ServerRow => ({
     id,

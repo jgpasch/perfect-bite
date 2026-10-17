@@ -119,12 +119,18 @@ describe('loadPagePhotos', () => {
 });
 
 describe('chooseRecipePhoto and Undo', () => {
+  const NONE = { imageUrl: null, photoPath: null };
+  const site = (imageUrl: string) => ({ imageUrl, photoPath: null });
+
   test('sets image_url, leaves a change for that recipe, and Undo restores the previous photo', () => {
     const id = createRecipe('Bread');
-    chooseRecipePhoto(id, null, A);
+    chooseRecipePhoto(id, NONE, site(A));
     expect(getRecipe(id)!.imageUrl).toBe(A);
+    // Only the field that changed is sent.
+    expect(outboxMutations().at(-1)).toMatchObject({ table: 'recipes', id, fields: { image_url: A } });
+    expect(outboxMutations().at(-1)!.fields).not.toHaveProperty('photo_path');
     const change = usePhotoChange(id)!;
-    expect(change).toMatchObject({ recipeId: id, previous: null, removed: false });
+    expect(change).toMatchObject({ recipeId: id, previous: NONE, next: site(A), removed: false });
     expect(usePhotoChange('other')).toBeNull();
 
     undoPhotoChange(change);
@@ -135,21 +141,21 @@ describe('chooseRecipePhoto and Undo', () => {
 
   test('removing is a change marked removed; picking the same photo is no change', () => {
     const id = createRecipe('Bread');
-    chooseRecipePhoto(id, null, A);
+    chooseRecipePhoto(id, NONE, site(A));
     const before = outboxMutations().length;
-    chooseRecipePhoto(id, A, A);
+    chooseRecipePhoto(id, site(A), site(A));
     expect(outboxMutations()).toHaveLength(before);
 
-    chooseRecipePhoto(id, A, null);
+    chooseRecipePhoto(id, site(A), NONE);
     expect(getRecipe(id)!.imageUrl).toBeNull();
-    expect(usePhotoChange(id)).toMatchObject({ previous: A, removed: true });
+    expect(usePhotoChange(id)).toMatchObject({ previous: site(A), removed: true });
   });
 
   test('a later change replaces the toast; dismissing an older one leaves it', () => {
     const id = createRecipe('Bread');
-    chooseRecipePhoto(id, null, A);
+    chooseRecipePhoto(id, NONE, site(A));
     const first = usePhotoChange(id)!;
-    chooseRecipePhoto(id, A, B);
+    chooseRecipePhoto(id, site(A), site(B));
     const second = usePhotoChange(id)!;
     expect(second.key).not.toBe(first.key);
     dismissPhotoChange(first.key);

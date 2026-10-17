@@ -31,6 +31,7 @@ const entryColumns = {
   recipeName: recipes.name,
   recipeTotalMinutes: recipes.totalMinutes,
   recipeImageUrl: recipes.imageUrl,
+  recipePhotoPath: recipes.photoPath,
 };
 
 /**

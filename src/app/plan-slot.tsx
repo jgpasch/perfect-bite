@@ -108,7 +108,7 @@ export default function PlanSlotSheet() {
                     opacity: pressed ? opacity.pressed : 1,
                   },
                 ]}>
-                <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} />
+                <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} photoPath={r.photoPath} />
                 <ThemedText variant="body" numberOfLines={2} style={styles.flex}>
                   {r.name}
                 </ThemedText>

@@ -253,6 +253,9 @@ type Result = { data: unknown; error: unknown };
 type AsyncFn = (...args: any[]) => Promise<Result>;
 
 const storageUpload = jest.fn<AsyncFn>();
+const storageFrom = (bucket: string) => ({
+  upload: (...args: unknown[]) => storageUpload(bucket, ...args),
+});
 
 export const supabase = {
   from: jest.fn((table: string) => queryBuilder(table)),
@@ -267,12 +270,11 @@ export const supabase = {
     invoke: jest.fn<AsyncFn>(),
   },
   storage: {
-    from: jest.fn((bucket: string) => ({
-      upload: (...args: unknown[]) => storageUpload(bucket, ...args),
-    })),
+    from: jest.fn(storageFrom),
   },
   auth: {
     getSession: jest.fn<AsyncFn>(),
+    refreshSession: jest.fn<AsyncFn>(),
     onAuthStateChange: jest.fn((listener: AuthListener) => {
       authListeners.push(listener);
       return { data: { subscription: { unsubscribe: () => authListeners.splice(authListeners.indexOf(listener), 1) } } };
@@ -289,6 +291,8 @@ export const supabase = {
 export function storageUploads() {
   return storageUpload.mock.calls;
 }
+
+export const supabaseUrl = 'https://project.supabase.test';
 
 export let isSupabaseConfigured = true;
 
@@ -312,10 +316,11 @@ export function resetSupabase() {
   realtimeChannels.length = 0;
   supabase.channel.mockClear();
   supabase.removeChannel.mockClear();
-  supabase.storage.from.mockClear();
+  supabase.storage.from.mockReset().mockImplementation(storageFrom);
   storageUpload.mockReset().mockImplementation(ok);
   supabase.functions.invoke.mockReset().mockImplementation(ok);
   supabase.auth.getSession.mockReset().mockResolvedValue({ data: { session: null }, error: null });
+  supabase.auth.refreshSession.mockReset().mockResolvedValue({ data: { session: null }, error: null });
   supabase.auth.onAuthStateChange.mockClear();
   for (const fn of [supabase.auth.signInWithOtp, supabase.auth.verifyOtp, supabase.auth.signOut]) {
     fn.mockReset().mockImplementation(ok);
