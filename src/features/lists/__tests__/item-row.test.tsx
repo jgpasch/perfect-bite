@@ -132,6 +132,33 @@ describe('ItemRow', () => {
     }
   });
 
+  test('an item with a photo (spec 4.4): a photo glyph after the name, and VoiceOver says "has a photo"', () => {
+    const tree = render({ item: item({ photoPath: 'h1/i1/p.jpg' }) });
+    const glyph = hosts(tree, (n) => n.props.testID === 'photo-glyph');
+    expect(glyph).toHaveLength(1);
+    expect(glyph[0].props.accessible).toBe(false);
+    byLabel(tree, 'Limes, has a photo, 3');
+  });
+
+  test('a photo glyph and a NEW badge both show, the glyph first', () => {
+    const tree = render({ item: item({ photoPath: 'h1/i1/p.jpg' }), isNew: true });
+    const json = text(tree);
+    expect(json.indexOf('"Limes"')).toBeLessThan(json.indexOf('photo-glyph'));
+    expect(json.indexOf('photo-glyph')).toBeLessThan(json.indexOf('"NEW"'));
+    byLabel(tree, 'Limes, new, has a photo, 3');
+  });
+
+  test('no photo, a null one, or one in Spanish', () => {
+    expect(hosts(render(), (n) => n.props.testID === 'photo-glyph')).toHaveLength(0);
+    expect(hosts(render({ item: item({ photoPath: null }) }), (n) => n.props.testID === 'photo-glyph')).toHaveLength(0);
+    initI18n('es');
+    try {
+      byLabel(render({ item: item({ photoPath: 'h1/i1/p.jpg' }) }), 'Limes, tiene una foto, 3');
+    } finally {
+      initI18n('en');
+    }
+  });
+
   test('a row with no news has no badge and its own second line only', () => {
     const tree = render({ hint: 'from Chicken tacos' });
     expect(text(tree)).not.toContain('NEW');

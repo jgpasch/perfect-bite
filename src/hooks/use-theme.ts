@@ -9,6 +9,7 @@ import {
   Opacity,
   Palette,
   PhotoScrim,
+  PhotoViewer,
   Rounded,
   Shadows,
   Sizes,
@@ -39,6 +40,8 @@ export function useTheme() {
     opacity: Opacity,
     /** The band under a name on a photo; the same in both schemes. */
     photoScrim: PhotoScrim,
+    /** The full-screen photo viewer's ground; the same in both schemes. */
+    photoViewer: PhotoViewer,
   };
 }
 

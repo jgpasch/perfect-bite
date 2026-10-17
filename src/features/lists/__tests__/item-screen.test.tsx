@@ -53,6 +53,11 @@ jest.mock('@expo/ui/swift-ui', () => {
       return createElement(type, props, children);
     };
   return {
+    Button: host('SwiftButton'),
+    ContextMenu: Object.assign(host('SwiftContextMenu'), {
+      Items: host('SwiftContextMenuItems'),
+      Trigger: host('SwiftContextMenuTrigger'),
+    }),
     Host: host('SwiftHost'),
     Menu: ({ label, children, ...props }: { label?: unknown; children?: unknown }) =>
       createElement('SwiftMenu', props, label, children),
@@ -65,7 +70,19 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   accessibilityLabel: (value: string) => ({ accessibilityLabel: value }),
   accessibilityHint: (value: string) => ({ accessibilityHint: value }),
+  disabled: (value: boolean) => ({ disabled: value }),
 }));
+// The item photo's rows follow the connection.
+jest.mock('expo-network', () => ({
+  getNetworkStateAsync: () => Promise.resolve({ isConnected: true, isInternetReachable: true }),
+  addNetworkStateListener: () => ({ remove: () => {} }),
+}));
+// The item photo's toasts animate in.
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native');
+  const builder: object = new Proxy({}, { get: () => () => builder });
+  return { __esModule: true, default: { View }, FadeIn: builder, FadeInDown: builder, FadeOut: builder, LinearTransition: builder, useReducedMotion: () => false };
+});
 
 const mockParams: { id?: string; itemId?: string } = {};
 const mockPush = jest.fn();
@@ -788,7 +805,10 @@ describe('in Spanish', () => {
   test('the unit menu and its groups', () => {
     const { itemId } = addItem(listId, '2 lb milk', USER)!;
     open(itemId);
-    const menu = tree!.root.find((n) => n.type === ('SwiftMenu' as never));
+    // The unit menu; the sheet's other native menu is the Add photo tile's.
+    const menus = tree!.root.findAll((n) => n.type === ('SwiftMenu' as never));
+    const menu = menus.find((m) => m.props.modifiers?.[0]?.accessibilityLabel !== 'Agregar foto')!;
+    expect(menus).toHaveLength(2);
     expect(menu.props.modifiers).toEqual([{ accessibilityLabel: 'Unidad, lb' }, { accessibilityHint: 'Muestra las unidades' }]);
     const titles = tree!.root.findAll((n) => n.type === ('SwiftSection' as never)).map((s) => s.props.title);
     expect(titles).toEqual([undefined, 'Piezas', 'Peso', 'Volumen', 'Paquetes']);

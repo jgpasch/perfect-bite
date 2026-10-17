@@ -500,14 +500,30 @@ export function withLingering<I extends { id: string; checkedAt: Date | null }>(
 }
 
 /**
- * What VoiceOver reads for an item row: name, amount, note and hint, then its aisle (As added shows it
+ * What VoiceOver reads for an item row: name, "new", "has a photo" (spec 4.4), amount, note and hint, then its aisle (As added shows it
  * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
  */
 export function itemRowLabel(
-  parts: { name: string; news?: string; amountText?: string; note?: string | null; hint?: string; aisle?: string },
+  parts: {
+    name: string;
+    news?: string;
+    photo?: string;
+    amountText?: string;
+    note?: string | null;
+    hint?: string;
+    aisle?: string;
+  },
   sorting = false,
 ): string {
-  return [parts.name, parts.news, parts.amountText, parts.note, parts.hint, sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle]
+  return [
+    parts.name,
+    parts.news,
+    parts.photo,
+    parts.amountText,
+    parts.note,
+    parts.hint,
+    sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle,
+  ]
     .filter(Boolean)
     .join(', ');
 }

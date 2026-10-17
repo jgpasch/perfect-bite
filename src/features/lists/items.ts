@@ -764,6 +764,34 @@ export function stepItemAmount(itemId: string, direction: 1 | -1, usualUnit: Uni
   });
 }
 
+/**
+ * Sets the item's photo (`photo_path` in `item-photos`, spec 4.4; null removes it) through the usual
+ * item update, so it syncs. False, with nothing written, when the item is gone.
+ */
+export function setItemPhoto(itemId: string, photoPath: string | null): boolean {
+  return db.transaction((tx) => {
+    const item = tx
+      .select({ photoPath: listItems.photoPath })
+      .from(listItems)
+      .where(and(eq(listItems.id, itemId), liveItem))
+      .get();
+    if (!item) return false;
+    if (item.photoPath !== photoPath) updateRows(tx, listItems, eq(listItems.id, itemId), { photoPath });
+    return true;
+  });
+}
+
+/** The live item's household and photo, for an upload; null when it's gone. */
+export function getItemPhoto(itemId: string): { householdId: string; photoPath: string | null } | null {
+  return (
+    db
+      .select({ householdId: listItems.householdId, photoPath: listItems.photoPath })
+      .from(listItems)
+      .where(and(eq(listItems.id, itemId), liveItem))
+      .get() ?? null
+  );
+}
+
 // --- Reads ---------------------------------------------------------------------------------
 
 /** One row per (item, contribution), with the household's category; group with `groupItems`. */
@@ -774,6 +802,7 @@ export function listItemsQuery(listId: string) {
       ingredientName: listItems.ingredientName,
       displayName: listItems.displayName,
       note: listItems.note,
+      photoPath: listItems.photoPath,
       checkedAt: listItems.checkedAt,
       createdAt: listItems.createdAt,
       defaultCategoryId: ingredients.defaultCategoryId,
@@ -864,6 +893,8 @@ export type ItemView = {
   categoryId: string;
   displayName: string;
   note: string | null;
+  /** The item's photo in `item-photos` (spec 4.4), shown as a glyph on its row; null or absent = none. */
+  photoPath?: string | null;
   checkedAt: Date | null;
   /** When the item row was made; As added (spec 4.6) goes by its amounts and falls back to this. */
   createdAt: Date;
@@ -907,6 +938,7 @@ export function groupItems(
         categoryId: effectiveCategoryId(row.overrideCategoryId, row.defaultCategoryId, row.ingredientStatus, sorts),
         displayName: row.displayName,
         note: row.note,
+        photoPath: row.photoPath,
         checkedAt: row.checkedAt,
         createdAt: row.createdAt,
         amounts: [],
@@ -1139,6 +1171,14 @@ export function restoreRecipeOnList({ contributionIds, itemIds, deletedAt }: Rem
 export function itemStatusQuery(itemId: string) {
   return db
     .select({ listId: listItems.listId, checkedAt: listItems.checkedAt, checkedBy: listItems.checkedBy })
+    .from(listItems)
+    .where(and(eq(listItems.id, itemId), liveItem));
+}
+
+/** The live item's photo (spec 4.4), for the edit sheet; follows a pull, Undo and Remove. */
+export function itemPhotoQuery(itemId: string) {
+  return db
+    .select({ photoPath: listItems.photoPath })
     .from(listItems)
     .where(and(eq(listItems.id, itemId), liveItem));
 }

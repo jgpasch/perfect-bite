@@ -45,6 +45,7 @@ import {
   getItemEdit,
   getItemHouseholdName,
   getMoveTargets,
+  itemPhotoQuery,
   itemStatusQuery,
   itemTotal,
   moveItemToList,
@@ -55,14 +56,15 @@ import {
   updateItem,
   type ItemEdit,
 } from '@/features/lists/items';
+import { ItemPhotoSection } from '@/features/lists/item-photo';
 import { setMoveResult } from '@/features/lists/move-result';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { displayItemName, OTHER_CATEGORY_ID, type Unit } from '@/shared';
 
 /**
- * Item edit sheet (spec 4.2, 4.3.2, board 04): the name (the title, edited in place) and its check, amount, note, the
- * amounts added (a recipe's opens it), aisle, and Move to another list.
+ * Item edit sheet (spec 4.2, 4.3.2, board 04): the name (the title, edited in place) and its check, the item's photo
+ * (spec 4.4, board G), amount, note, the amounts added (a recipe's opens it), aisle, and Move to another list.
  */
 export default function ItemEditSheet() {
   const { itemId } = useLocalSearchParams<{ id: string; itemId: string }>();
@@ -82,6 +84,7 @@ export default function ItemEditSheet() {
   );
   const { data: contributions } = useLiveQueryOn(contributionsQuery(itemId), [listItemContributions], [itemId]);
   const { data: statusRows } = useLiveQueryOn(itemStatusQuery(itemId), [listItems], [itemId]);
+  const { data: photoRows } = useLiveQueryOn(itemPhotoQuery(itemId), [listItems], [itemId]);
   const memberNames = useMemberNames(initial?.householdId);
   const status = statusRows[0];
   // Move is left out when the household has no other list.
@@ -310,6 +313,8 @@ export default function ItemEditSheet() {
           />
         </View>
       </View>
+
+      <ItemPhotoSection itemId={itemId} name={initial.name} photoPath={photoRows[0]?.photoPath ?? null} />
 
       <Card>
         <FieldRow label={t('item.amount')} first>

@@ -304,6 +304,10 @@ export const Sizes = {
   iconWell: 36,
   /** the item's icon tile beside its name at the top of the item sheet */
   sheetIcon: 52,
+  /** the item sheet's dashed Add photo tile (its height, a minimum, for Dynamic Type) */
+  itemPhotoTile: 64,
+  /** the round … button on an item's photo; give it `hitSlop` up to 44 */
+  itemPhotoMore: 32,
   /** a recipe's photo (or tinted icon tile) at the start of its row in the Recipes tab */
   recipeTile: 48,
   /** a page's thumbnail (its width; 3:4) in the import sheet for a photo import */
@@ -398,6 +402,11 @@ export const Opacity = {
 export const PhotoScrim = {
   fill: 'rgba(20, 28, 23, 0.66)',
   text: '#FFFFFF',
+} as const;
+
+/** The full-screen photo viewer (an item's photo, spec 4.4): black behind the photo in both schemes. */
+export const PhotoViewer = {
+  background: '#000000',
 } as const;
 
 /** Mix a hex color token with an alpha, for tints (e.g. status chip 12% background). */

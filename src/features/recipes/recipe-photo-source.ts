@@ -1,5 +1,7 @@
 // Which photo a recipe shows, and how `expo-image` loads it (spec 4.5): the household's own photo
 // (`photo_path`, in the private `recipe-photos` bucket) when set, else the site's (`image_url`).
+// An item's photo (spec 4.4, `item-photos`) loads the same way, through `ownPhotoSource` and
+// `usePhotoFallback`.
 //
 // An own photo loads from Storage's authenticated endpoint with the session's token as a header
 // (expo-image sends `headers` on iOS and Android), cached on disk by its path, so the cached copy
@@ -27,24 +29,30 @@ export type PhotoSession = { accessToken: string } | null;
 /** What `<Image source>` takes for a recipe: a site photo's URL, an own photo's request, or none. */
 export type RecipeImageSource = string | ImageSource;
 
-/** The Storage URL of an own photo, read with the caller's token (members only, by the bucket's policies). */
-export function photoObjectUrl(path: string): string {
-  return `${supabaseUrl}/storage/v1/object/authenticated/${RECIPE_PHOTOS_BUCKET}/${path}`;
+/**
+ * The Storage URL of an own photo in `bucket` (`recipe-photos` by default; an item's is in
+ * `item-photos`), read with the caller's token (members only, by the bucket's policies).
+ */
+export function photoObjectUrl(path: string, bucket: string = RECIPE_PHOTOS_BUCKET): string {
+  return `${supabaseUrl}/storage/v1/object/authenticated/${bucket}/${path}`;
 }
 
 /**
- * The `expo-image` source for a recipe's photo. An own photo is keyed by its path (`cacheKey`), so
- * a new token or no session at all still finds it on disk; without a session it's asked for
- * without the header, which only the cache can answer. Null when the recipe has no photo.
+ * The `expo-image` source for a household's own photo at `path` in a private `bucket`. It's keyed
+ * by its path (`cacheKey`), so a new token or no session at all still finds it on disk; without a
+ * session it's asked for without the header, which only the cache can answer.
  */
+export function ownPhotoSource(bucket: string, path: string, session: PhotoSession): ImageSource {
+  return {
+    uri: photoObjectUrl(path, bucket),
+    cacheKey: path,
+    ...(session ? { headers: { Authorization: `Bearer ${session.accessToken}` } } : {}),
+  };
+}
+
+/** The `expo-image` source for a recipe's photo: its own (`ownPhotoSource`), else the site's. Null when it has no photo. */
 export function recipePhotoSource(recipe: RecipePhotoSourceFields, session: PhotoSession): RecipeImageSource | null {
-  if (recipe.photoPath) {
-    return {
-      uri: photoObjectUrl(recipe.photoPath),
-      cacheKey: recipe.photoPath,
-      ...(session ? { headers: { Authorization: `Bearer ${session.accessToken}` } } : {}),
-    };
-  }
+  if (recipe.photoPath) return ownPhotoSource(RECIPE_PHOTOS_BUCKET, recipe.photoPath, session);
   return recipe.imageUrl ?? null;
 }
 
@@ -117,23 +125,17 @@ export function isAuthFailure(message: string | undefined): boolean {
 }
 
 /**
- * A recipe's photo for a view: its source, whether it's the household's own (no source credit),
- * the own photo's `credit` (a stock photo's, else null), and whether it failed for good in this
- * view. An own photo the server turns away gets one retry after refreshing the session; then, or
- * for any other failure, it falls back (`failed`), and the caller shows the icon tile. A different
- * photo gets its own try.
+ * Whether the photo `key` (its path or URL; null for none) failed for good in this view, and the
+ * `onError` that decides it. An `own` photo the server turns away gets one retry after refreshing
+ * the session; then, or for any other failure, it's `failed`. A different key gets its own try.
  */
-export function useRecipePhoto(recipe: RecipePhotoSourceFields | null) {
-  const session = usePhotoSession();
-  const key = recipe ? (recipe.photoPath ?? recipe.imageUrl) : null;
+export function usePhotoFallback(key: string | null, own: boolean) {
   const [state, setState] = useState<{ key: string | null; retried: boolean; failed: boolean }>({
     key,
     retried: false,
     failed: false,
   });
   const current = state.key === key ? state : { key, retried: false, failed: false };
-  const own = recipe?.photoPath != null;
-  const source = recipe && !current.failed ? recipePhotoSource(recipe, session) : null;
 
   const onError = (event?: { error?: string }) => {
     if (key === null) return;
@@ -147,7 +149,21 @@ export function useRecipePhoto(recipe: RecipePhotoSourceFields | null) {
     setState({ key, retried: current.retried, failed: true });
   };
 
+  return { failed: key !== null && current.failed, onError };
+}
+
+/**
+ * A recipe's photo for a view: its source, whether it's the household's own (no source credit),
+ * the own photo's `credit` (a stock photo's, else null), and whether it failed for good in this
+ * view (`usePhotoFallback`), when the caller shows the icon tile.
+ */
+export function useRecipePhoto(recipe: RecipePhotoSourceFields | null) {
+  const session = usePhotoSession();
+  const key = recipe ? (recipe.photoPath ?? recipe.imageUrl) : null;
+  const own = recipe?.photoPath != null;
+  const { failed, onError } = usePhotoFallback(key, own);
+  const source = recipe && !failed ? recipePhotoSource(recipe, session) : null;
   const credit = own ? (recipe?.photoCredit ?? null) : null;
 
-  return { source, own, credit, failed: key !== null && current.failed, onError };
+  return { source, own, credit, failed, onError };
 }

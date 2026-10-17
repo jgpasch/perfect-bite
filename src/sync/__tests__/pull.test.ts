@@ -1190,6 +1190,56 @@ describe('recipe step ingredients (spec 4.5, 5)', () => {
   });
 });
 
+describe("an item's photo (spec 4.4, 5)", () => {
+  const PATH = `${H1}/i1/0190a000-0000-7000-8000-000000000001.jpg`;
+  const CLOCK = { ...ITEM_CLOCK, photo_path: OLD };
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('list_items', remoteItem('i1', ts(2), { photo_path: PATH, field_clock: CLOCK }));
+    await pullNow();
+  });
+
+  test('a pull applies the path', () => {
+    expect(itemRow('i1')).toMatchObject({ photoPath: PATH, displayName: 'milk' });
+  });
+
+  test('a newer remote clear wins and leaves the other fields alone', async () => {
+    server.list_items = [remoteItem('i1', ts(10), { photo_path: null, field_clock: { ...CLOCK, photo_path: NEW } })];
+
+    await pullNow();
+
+    expect(itemRow('i1')).toMatchObject({ photoPath: null, displayName: 'milk' });
+    expect(itemRow('i1')!.fieldClock).toMatchObject({ photo_path: NEW, note: OLD });
+  });
+
+  test("a local unpushed photo beats an older remote one, while the remote's newer note applies", async () => {
+    const mine = `${H1}/i1/0190a000-0000-7000-8000-000000000002.jpg`;
+    updateRows(db, listItems, eq(listItems.id, 'i1'), { photoPath: mine });
+    server.list_items = [
+      remoteItem('i1', ts(10), {
+        photo_path: null,
+        note: 'the green jar',
+        field_clock: { ...CLOCK, photo_path: '1500000000000-0000-remote', note: NEW },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(itemRow('i1')).toMatchObject({ photoPath: mine, note: 'the green jar' });
+    expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ photo_path: mine }]);
+  });
+
+  test('a server without the column yet leaves the photo alone', async () => {
+    const { photo_path: _p, ...older } = remoteItem('i1', ts(10), { display_name: 'whole milk' });
+    server.list_items = [{ ...older, field_clock: { ...CLOCK, display_name: NEW } }];
+
+    await pullNow();
+
+    expect(itemRow('i1')).toMatchObject({ displayName: 'whole milk', photoPath: PATH });
+  });
+});
+
 describe("a recipe's own photo (spec 4.5, 5)", () => {
   const PATH = `${H1}/r1/0190a000-0000-7000-8000-000000000001.jpg`;
   const SITE = 'https://example.com/tacos.jpg';

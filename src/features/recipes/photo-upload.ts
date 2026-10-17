@@ -31,10 +31,11 @@ export function recipePhotoPath(householdId: string, recipeId: string, id: strin
 export type PickResult = { ok: true; uri: string } | { ok: false; reason: 'cancelled' | 'denied' };
 
 /**
- * Lets the user pick a photo (cropping to 4:3 allowed) and returns it shrunk for upload
- * (`UPLOAD_PHOTO`). The library needs no permission (the system picker); the camera asks.
+ * Lets the user pick a photo (cropping to 4:3 allowed) and returns it as picked, full size. The
+ * library needs no permission (the system picker); the camera asks. An item's photo (spec 4.4)
+ * is shrunk as it uploads.
  */
-export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
+export async function pickPhoto(from: PhotoSource): Promise<PickResult> {
   const options: ImagePicker.ImagePickerOptions = { mediaTypes: 'images', allowsEditing: true, aspect: [4, 3], quality: 1 };
   let result: ImagePicker.ImagePickerResult;
   if (from === 'camera') {
@@ -46,7 +47,14 @@ export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
   }
   const asset = result.canceled ? undefined : result.assets[0];
   if (!asset) return { ok: false, reason: 'cancelled' };
-  const photo = await downscalePhoto(asset.uri, UPLOAD_PHOTO);
+  return { ok: true, uri: asset.uri };
+}
+
+/** `pickPhoto`, returning the photo shrunk for upload (`UPLOAD_PHOTO`). */
+export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
+  const picked = await pickPhoto(from);
+  if (!picked.ok) return picked;
+  const photo = await downscalePhoto(picked.uri, UPLOAD_PHOTO);
   return { ok: true, uri: photo.uri };
 }
 

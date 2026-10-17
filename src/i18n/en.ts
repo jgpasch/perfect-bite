@@ -87,6 +87,8 @@ export const en = {
       uncheckAction: 'Uncheck',
       opensDetails: 'Opens details',
       selectHint: 'Double-tap to select',
+      /** VoiceOver, after the name of an item with a photo (spec 4.4). */
+      hasPhoto: 'has a photo',
     },
     /** NEW rows (spec 4.1): what other members added since this device last showed the list, or while it shows. */
     news: {
@@ -267,6 +269,28 @@ export const en = {
     moveToAnotherMenu: 'Move to another list…',
     moveHint: 'Shows the other lists',
     deleteItem: 'Delete item',
+    /** The item's photo (spec 4.4): the Add photo tile, the photo and its menu, the full-screen view. */
+    photo: {
+      add: 'Add photo',
+      addHint: 'Take a photo or choose one from your library',
+      takePhoto: 'Take photo',
+      chooseFromLibrary: 'Choose from library',
+      replace: 'Replace photo',
+      remove: 'Remove photo',
+      /** VoiceOver's name for the photo: "Photo of za'atar". */
+      label: 'Photo of {{name}}',
+      openHint: 'Opens it full screen',
+      more: 'Photo options',
+      needsConnection: 'Needs a connection',
+      uploading: 'Uploading photo',
+      updated: 'Photo updated',
+      removed: 'Photo removed',
+      uploadFailed: "Couldn't upload the photo",
+      cameraDeniedTitle: 'Camera access is off',
+      cameraDenied: 'To take a photo, allow camera access for Perfect Bite in Settings.',
+      close: 'Close',
+      viewerHint: 'Pinch to zoom, swipe down to close',
+    },
   },
   /** Who added or checked an item, and when: "You, Tuesday", "Checked 5 min ago by you". */
   addedBy: {

@@ -121,7 +121,15 @@ export function ItemRow({
   const banded = look !== undefined && look.tint !== background;
   const label = [
     itemRowLabel(
-      { name, news: isNew ? t('lists.news.rowLabel') : undefined, amountText, note: item.note, hint, aisle: aisle?.name },
+      {
+        name,
+        news: isNew ? t('lists.news.rowLabel') : undefined,
+        photo: item.photoPath ? t('lists.row.hasPhoto') : undefined,
+        amountText,
+        note: item.note,
+        hint,
+        aisle: aisle?.name,
+      },
       sorting && !checked,
     ),
     alreadyOnList ? ALREADY_ON_LIST_LABEL : null,
@@ -164,6 +172,12 @@ export function ItemRow({
               name
             )}
           </ThemedText>
+          {item.photoPath ? (
+            // The item has a photo (spec 4.4): a small glyph before any NEW badge; the row's label says so.
+            <View testID="photo-glyph" accessible={false}>
+              <Icon name="photo" color="inkSecondary" size={sizes.iconSmall} weight="semibold" />
+            </View>
+          ) : null}
           {isNew ? (
             <Animated.View testID="new-badge" exiting={reduceMotion ? undefined : exiting}>
               <Badge label={t('lists.news.badge')} />

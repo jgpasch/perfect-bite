@@ -1,6 +1,5 @@
 import { DatePicker, Host } from '@expo/ui/swift-ui';
 import { datePickerStyle, disabled as disabledModifier, labelsHidden } from '@expo/ui/swift-ui/modifiers';
-import { addNetworkStateListener, getNetworkStateAsync } from 'expo-network';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppState, Linking, Switch, View } from 'react-native';
 
@@ -10,7 +9,7 @@ import { IconTile } from '@/components/icon-tile';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { cameToForeground, isOnline } from '@/features/categories/catch-up';
+import { cameToForeground } from '@/features/categories/catch-up';
 import { getPushPermission, requestPushPermission, type PushPermission } from '@/features/push/registration';
 import {
   dateAt,
@@ -26,25 +25,9 @@ import {
   validQuietHours,
   type NotificationSettings,
 } from '@/features/push/settings';
+import { useOnline } from '@/hooks/use-online';
 import { useTheme } from '@/hooks/use-theme';
 import { i18n, useT } from '@/i18n';
-
-/** Online until the OS says otherwise; follows connectivity changes. */
-function useOnline(): boolean {
-  const [online, setOnline] = useState(true);
-  useEffect(() => {
-    let live = true;
-    getNetworkStateAsync()
-      .then((state) => live && setOnline(isOnline(state)))
-      .catch(() => {});
-    const subscription = addNetworkStateListener((state) => setOnline(isOnline(state)));
-    return () => {
-      live = false;
-      subscription.remove();
-    };
-  }, []);
-  return online;
-}
 
 /** The OS permission, read on open and again on coming back (from iOS Settings, say). */
 function usePushPermission(): [PushPermission | null, (next: PushPermission) => void] {

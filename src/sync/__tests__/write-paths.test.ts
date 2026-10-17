@@ -190,6 +190,7 @@ describe('list items', () => {
           checked_at: null,
           checked_by: null,
           added_by: USER,
+          photo_path: null,
           deleted_at: null,
           created_at: ISO,
         },

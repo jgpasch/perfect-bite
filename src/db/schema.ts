@@ -149,6 +149,11 @@ export const listItems = sqliteTable(
     checkedAt: integer('checked_at', { mode: 'timestamp_ms' }),
     checkedBy: text('checked_by'),
     addedBy: text('added_by'),
+    /**
+     * The item's photo (spec 4.4): `<household_id>/<list_item_id>/<uuid>.jpg` in the private
+     * `item-photos` bucket. Null = none.
+     */
+    photoPath: text('photo_path'),
     deletedAt,
     ...timestamps,
   },

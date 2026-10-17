@@ -24,6 +24,7 @@ import m0019 from './0019_step_ingredients.sql';
 import m0020 from './0020_household_member_names.sql';
 import m0021 from './0021_recipe_photo_path.sql';
 import m0022 from './0022_recipe_photo_credit.sql';
+import m0023 from './0023_item_photo_path.sql';
 
   export default {
     journal,
@@ -50,7 +51,8 @@ m0018,
 m0019,
 m0020,
 m0021,
-m0022
+m0022,
+m0023
     }
   }
   
