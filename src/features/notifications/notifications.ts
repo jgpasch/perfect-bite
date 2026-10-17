@@ -8,7 +8,11 @@ import type { IconName } from '@/components/icon';
 import type { AisleHue } from '@/domain/aisle-color';
 
 /** One per use case, so per-kind settings (spec 11.1) can switch them off later. */
-export type NotificationKind = 'recipeImport';
+export type NotificationKind =
+  | 'recipeImport'
+  /** A household-mate's push that arrived while the app was open (spec 4.13). */
+  | 'itemsAdded'
+  | 'shopping';
 
 export type AppNotification = {
   /** Posting the same id again replaces the notification in place. */

@@ -10,6 +10,7 @@ import { startAccount, useAccountState } from '@/features/auth/account';
 import { wipeIfOtherUser } from '@/features/auth/sign-out';
 import { NotificationHost } from '@/features/notifications/notification-host';
 import { clearNotifications } from '@/features/notifications/notifications';
+import { startForegroundPushes, usePushResponses } from '@/features/push/receiving';
 import { PageCaptureHost } from '@/features/recipes/page-capture-host';
 import { loadFontSet } from '@/features/settings/font-set';
 import { startupLanguage } from '@/features/settings/language';
@@ -28,6 +29,8 @@ initI18n(startupLanguage());
 loadFontSet();
 SplashScreen.preventAutoHideAsync();
 startAccount({ beforeReady: wipeIfOtherUser });
+// A push arriving while the app is open shows in the app, not as an OS banner (spec 4.13).
+startForegroundPushes();
 
 export default function RootLayout() {
   const t = useT();
@@ -45,6 +48,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready) clearNotifications();
   }, [ready]);
+
+  // A tapped push opens its list (spec 4.13): a cold start's once signed in, and taps while running.
+  usePushResponses(ready);
 
   if (account.status === 'loading') return null;
 

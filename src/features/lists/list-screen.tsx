@@ -126,6 +126,7 @@ import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { useFeature } from '@/features/plans/features';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { dismissListPushes, markListVisible, onListUnavailable, takeListUnavailable } from '@/features/push/receiving';
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { onShareImports } from '@/features/recipes/share-drain';
@@ -606,6 +607,23 @@ export function ListScreen({ id }: { id: string }) {
         ),
       [],
     ),
+  );
+  // Push (spec 4.13): while this list is on screen its pushes post no banner, and opening it clears
+  // its delivered ones from Notification Center.
+  useEffect(() => {
+    if (!onThisList) return;
+    void dismissListPushes(id);
+    return markListVisible(id);
+  }, [onThisList, id]);
+  // A tapped push whose list isn't on this device opens the List tab with this toast.
+  useFocusEffect(
+    useCallback(() => {
+      const show = () => {
+        if (takeListUnavailable()) setToast({ key: `unavailable-${Date.now()}`, message: t('lists.toasts.listUnavailable'), actions: [] });
+      };
+      show();
+      return onListUnavailable(show);
+    }, [t]),
   );
   // Recipes shared to the extension (spec 4.10): one with Undo and View recipe, several as one toast.
   // Recipe-only shares put nothing on a list, so they get no list toast.

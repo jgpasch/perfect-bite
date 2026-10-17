@@ -125,6 +125,8 @@ export const en = {
       removedRecipe: 'Removed {{name}} from the list',
       siriAdded_one: 'Siri added {{count}} item',
       siriAdded_other: 'Siri added {{count}} items',
+      /** A tapped push for a list that isn't on this device (spec 4.13). */
+      listUnavailable: "That list isn't available",
       orderReset: 'Order reset',
       /** On a recipe added from the add bar: opens its add sheet. */
       adjust: 'Adjust',

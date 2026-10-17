@@ -116,6 +116,7 @@ export const es = {
       removedRecipe: 'Se quitó {{name}} de la lista',
       siriAdded_one: 'Siri agregó {{count}} artículo',
       siriAdded_other: 'Siri agregó {{count}} artículos',
+      listUnavailable: 'Esa lista no está disponible',
       orderReset: 'Se restableció el orden',
       adjust: 'Ajustar',
     },
