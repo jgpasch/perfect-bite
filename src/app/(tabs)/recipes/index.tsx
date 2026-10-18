@@ -154,7 +154,7 @@ export default function RecipesScreen() {
   };
   // One tile per row at the largest accessibility text sizes.
   const columns = recipeGridColumns(useWindowDimensions().fontScale);
-  // By meal's folded sections, kept for the app session.
+  // The grouped sections that are folded, kept for the app session (keyed by household and grouping).
   const folded = useFoldedMealSections();
   // A household with no matches has no group, so it's hidden. Search and filters apply first; households
   // keep their order whatever the sort.
@@ -320,6 +320,7 @@ export default function RecipesScreen() {
         ) : null}
         <RecipeRow
           recipe={r}
+          group={grouping}
           ingredientMatch={r.ingredientMatch}
           onList={onList.get(r.id) ?? null}
           highlighted={toast?.recipeId === r.id}
@@ -332,7 +333,7 @@ export default function RecipesScreen() {
     ));
 
   // Large photos: the same recipes as tiles, each its own card on the screen's ground, two per row (one at the
-  // largest text sizes) and 12 apart. Under a meal's header band they start 12 below it.
+  // largest text sizes) and 12 apart. Under a section's header band they start 12 below it.
   const renderGrid = (tiles: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) => (
     <View testID="recipe-grid" style={{ paddingTop: underHeader ? spacing.md : 0, gap: spacing.md }}>
       {gridRows(tiles, columns).map((row) => (
@@ -341,6 +342,7 @@ export default function RecipesScreen() {
             <View key={r.id} testID="recipe-grid-cell" style={styles.flex}>
               <RecipeTile
                 recipe={r}
+                group={grouping}
                 ingredientMatch={r.ingredientMatch}
                 onList={onList.get(r.id) ?? null}
                 highlighted={toast?.recipeId === r.id}
@@ -434,7 +436,12 @@ export default function RecipesScreen() {
                       selected={filtering}
                       onPress={openFilters}
                     />
-                    <RecipeSortButton sort={sort} group={grouping} onChange={setSortChoice} />
+                    <RecipeSortButton
+                      sort={sort}
+                      group={grouping}
+                      onSortChange={(next) => setSortChoice({ sort: next, group: grouping })}
+                      onGroupChange={(next) => setSortChoice({ sort, group: next })}
+                    />
                     <PhotoSizeToggle value={photoSize} onChange={setPhotoSize} />
                   </View>
                 </View>
@@ -591,6 +598,7 @@ function RecipeSearchField({ count, query, onChange }: { count: number; query: s
  */
 function RecipeRow({
   recipe,
+  group,
   ingredientMatch,
   onList,
   highlighted,
@@ -600,6 +608,8 @@ function RecipeRow({
   onSwipeClose,
 }: {
   recipe: RecipeSummary;
+  /** The tab's grouping: grouped by cuisine, the meta line shows the cuisine in place of the meal. */
+  group: RecipeGroup;
   /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the meta line. */
   ingredientMatch: string | null;
   onList: string | null;
@@ -620,7 +630,7 @@ function RecipeRow({
   // Dragged past FULL_SWIPE of the card: letting go asks to delete, rather than leaving Delete showing.
   const fullSwipe = useRef(false);
   const setFullSwipe = useCallback((full: boolean) => (fullSwipe.current = full), []);
-  const meta = recipeMetaLine(recipe);
+  const meta = recipeMetaLine(recipe, group);
 
   // The menu's Delete, the swipe's and VoiceOver's; Cancel closes a swiped card.
   const confirmDelete = () => confirmDeleteRecipe(recipe, () => swipeable.current?.close());
@@ -628,6 +638,7 @@ function RecipeRow({
   // eslint-disable-next-line react-hooks/refs -- `confirmDelete` reads the ref only when pressed, not during render
   const card = recipeLink({
     recipe,
+    group,
     onList,
     ingredientMatch,
     quickAddTo,
@@ -720,6 +731,7 @@ function confirmDeleteRecipe(recipe: { id: string; name: string }, onCancel?: ()
  */
 function recipeLink({
   recipe,
+  group,
   onList,
   ingredientMatch,
   quickAddTo,
@@ -728,6 +740,7 @@ function recipeLink({
   children,
 }: {
   recipe: RecipeSummary;
+  group: RecipeGroup;
   onList: string | null;
   ingredientMatch: string | null;
   quickAddTo: { id: string; name: string } | null;
@@ -744,7 +757,7 @@ function recipeLink({
       <Link.Trigger>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch)}
+          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch, group)}
           accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
           onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}>
           {/* Layout lives on the children: Link's trigger replaces the Pressable's style. */}
@@ -802,6 +815,7 @@ function recipeLink({
  */
 function RecipeTile({
   recipe,
+  group,
   ingredientMatch,
   onList,
   highlighted,
@@ -809,6 +823,7 @@ function RecipeTile({
   onQuickAdd,
 }: {
   recipe: RecipeSummary;
+  group: RecipeGroup;
   ingredientMatch: string | null;
   onList: string | null;
   /** Just imported: outlined in `primary` while the toast shows. */
@@ -821,6 +836,7 @@ function RecipeTile({
   const time = recipeTimeLabel(recipe.totalMinutes);
   return recipeLink({
     recipe,
+    group,
     onList,
     ingredientMatch,
     quickAddTo,

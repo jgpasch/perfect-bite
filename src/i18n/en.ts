@@ -389,11 +389,23 @@ export const en = {
     },
     /** The sort pill on the green header and its menu (spec 4.5). */
     sort: {
-      menuTitle: 'Sort and group',
+      /** The menu's two sections. */
+      sortSection: 'Sort',
+      groupSection: 'Group by',
       recent: 'Recently added',
       name: 'A–Z',
       /** The pill's short label for Recently added. */
       recentShort: 'Recent',
+      /** The Group by section's items. */
+      groupItems: {
+        none: 'None',
+        meal: 'Meal',
+        cuisine: 'Cuisine',
+        protein: 'Protein',
+        method: 'Method',
+        time: 'Time',
+        saved: 'Saved',
+      },
       /** The pill's label when the recipes are grouped. */
       groups: {
         meal: 'By meal',
@@ -1369,7 +1381,7 @@ export const en = {
         'no-cook': 'No cook',
       },
     },
-    /** Cuisine regions (11.5), by key. */
+    /** Cuisine regions, Group by cuisine's section titles (4.5), by key. */
     cuisineRegions: {
       american: 'American',
       latin: 'Latin',

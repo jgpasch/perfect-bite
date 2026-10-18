@@ -6,7 +6,6 @@ import { listHeaderColors } from '@/components/appearance';
 import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import {
-  recipeGroupLabel,
   recipeSortButtonLabel,
   recipeSortLabel,
   recipeSortPillLabel,
@@ -16,21 +15,38 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
-type SortChoice = { sort: RecipeSort; group: RecipeGroup };
+const SORTS: readonly { sort: RecipeSort; icon: IconName }[] = [
+  { sort: 'recent', icon: 'clock' },
+  { sort: 'name', icon: 'textformat' },
+];
 
-// Recently added, A–Z and By meal (A–Z grouped by meal), until the menu offers the sort and the grouping apart.
-const CHOICES: readonly (SortChoice & { icon: IconName; label: () => string })[] = [
-  { sort: 'recent', group: 'none', icon: 'clock', label: () => recipeSortLabel('recent') },
-  { sort: 'name', group: 'none', icon: 'textformat', label: () => recipeSortLabel('name') },
-  { sort: 'name', group: 'meal', icon: 'fork.knife', label: () => recipeGroupLabel('meal') },
+const GROUPS: readonly { group: RecipeGroup; icon: IconName }[] = [
+  { group: 'none', icon: 'list.bullet' },
+  { group: 'meal', icon: 'fork.knife' },
+  { group: 'cuisine', icon: 'globe.americas' },
+  { group: 'protein', icon: 'fish' },
+  { group: 'method', icon: 'frying.pan' },
+  { group: 'time', icon: 'timer' },
+  { group: 'saved', icon: 'heart' },
 ];
 
 /**
  * The Recipes tab's sort pill (spec 4.5): a white-wash pill on the green header reading the current choice,
- * "Recent ⌄", that opens a native "Sort and group" menu, the current choice ticked: a 32 pt pill padded to a
- * 44 pt tap area.
+ * "Recent ⌄", that opens a native "Sort and group" menu: a **Sort** section (Recently added, A–Z) and a
+ * **Group by** section (None, Meal, Cuisine, Protein, Method, Time, Saved), the current choice ticked in each.
+ * Picking in one section keeps the other's choice. A 32 pt pill padded to a 44 pt tap area.
  */
-export function RecipeSortButton({ sort, group, onChange }: SortChoice & { onChange: (choice: SortChoice) => void }) {
+export function RecipeSortButton({
+  sort,
+  group,
+  onSortChange,
+  onGroupChange,
+}: {
+  sort: RecipeSort;
+  group: RecipeGroup;
+  onSortChange: (sort: RecipeSort) => void;
+  onGroupChange: (group: RecipeGroup) => void;
+}) {
   const { colors, scheme, sizes, spacing, rounded } = useTheme();
   const t = useT();
   const look = listHeaderColors(colors).viewButton;
@@ -63,14 +79,25 @@ export function RecipeSortButton({ sort, group, onChange }: SortChoice & { onCha
             </RNHostView>
           }
           modifiers={[accessibilityLabel(recipeSortButtonLabel(sort, group)), accessibilityHint(t('recipes.sort.buttonHint'))]}>
-          <Section title={t('recipes.sort.menuTitle')}>
-            {CHOICES.map((choice) => (
+          <Section title={t('recipes.sort.sortSection')}>
+            {SORTS.map((item) => (
               <Toggle
-                key={`${choice.sort}:${choice.group}`}
-                label={choice.label()}
-                systemImage={choice.icon}
-                isOn={group === 'none' ? choice.group === 'none' && choice.sort === sort : choice.group === group}
-                onIsOnChange={() => onChange({ sort: choice.sort, group: choice.group })}
+                key={item.sort}
+                label={recipeSortLabel(item.sort)}
+                systemImage={item.icon}
+                isOn={item.sort === sort}
+                onIsOnChange={() => onSortChange(item.sort)}
+              />
+            ))}
+          </Section>
+          <Section title={t('recipes.sort.groupSection')}>
+            {GROUPS.map((item) => (
+              <Toggle
+                key={item.group}
+                label={t(`recipes.sort.groupItems.${item.group}`)}
+                systemImage={item.icon}
+                isOn={item.group === group}
+                onIsOnChange={() => onGroupChange(item.group)}
               />
             ))}
           </Section>

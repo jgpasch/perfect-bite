@@ -101,7 +101,7 @@ export type ProteinTag = (typeof PROTEIN)[number]['slug'];
 export type DietTag = (typeof DIET)[number]['slug'];
 export type MethodTag = (typeof METHOD)[number]['slug'];
 
-/** The broad region of each cuisine, for the Later "by category" view (spec 11.5). */
+/** The broad region of each cuisine: the Recipes tab's sections when grouped by cuisine (spec 4.5, 4.14). */
 export const CUISINE_REGIONS = {
   american: 'american',
   mexican: 'latin',

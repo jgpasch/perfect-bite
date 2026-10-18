@@ -341,10 +341,20 @@ export const es = {
       untaggedHint: 'Quita los filtros y muestra solo las recetas sin etiquetas.',
     },
     sort: {
-      menuTitle: 'Ordenar y agrupar',
+      sortSection: 'Ordenar',
+      groupSection: 'Agrupar por',
       recent: 'Agregadas recientemente',
       name: 'A–Z',
       recentShort: 'Recientes',
+      groupItems: {
+        none: 'Ninguno',
+        meal: 'Comida',
+        cuisine: 'Cocina',
+        protein: 'Proteína',
+        method: 'Método',
+        time: 'Tiempo',
+        saved: 'Guardadas',
+      },
       groups: {
         meal: 'Por comida',
         cuisine: 'Por cocina',

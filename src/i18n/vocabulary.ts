@@ -59,7 +59,7 @@ export function tagLabel(facet: RecipeTagFacetKey, slug: string): string | null 
   return i18n.t(`vocab.tags.${facet}.${slug}` as `vocab.tags.meal.dinner`);
 }
 
-/** A cuisine region's name (spec 11.5): `latin` → "Latin". */
+/** A cuisine region's name, a Group by cuisine section's title (spec 4.5, 4.14): `latin` → "Latin". */
 export function cuisineRegionLabel(region: CuisineRegion): string {
   return i18n.t(`vocab.cuisineRegions.${region}`);
 }
