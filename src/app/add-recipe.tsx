@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActionSheetIOS, Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, PrimaryButton } from '@/components/button';
@@ -13,10 +13,11 @@ import { useFeature } from '@/features/plans/features';
 import { NAME_IS_LINK_FOOTNOTE, nameAction } from '@/features/recipes/add-recipe';
 import { urlFromText } from '@/features/recipes/import-sheet';
 import { collectImportPhotos, photosParam } from '@/features/recipes/photo-import';
+import { askForAnother, cameraDenied, chooseSource } from '@/features/recipes/photo-import-prompts';
 import type { PhotoSource } from '@/features/recipes/photo-upload';
 import { createRecipe } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
-import { i18n, useT } from '@/i18n';
+import { useT } from '@/i18n';
 
 /**
  * "Add recipe" (spec 4.5), the Recipes tab's one way to add: name a blank recipe, or (with
@@ -220,30 +221,6 @@ function FromPhotoRow({ disabled, onPress }: { disabled: boolean; onPress: () =>
       <Icon name="chevron.right" color="inkTertiary" size={sizes.iconSmall} weight="semibold" />
     </Pressable>
   );
-}
-
-/** Take photo / Choose from library / Cancel. */
-function chooseSource(run: (from: PhotoSource) => void) {
-  const sources: PhotoSource[] = ['camera', 'library'];
-  const options = [i18n.t('recipes.add.takePhoto'), i18n.t('recipes.add.chooseFromLibrary'), i18n.t('common.cancel')];
-  ActionSheetIOS.showActionSheetWithOptions({ options, cancelButtonIndex: sources.length }, (index) => {
-    const from = sources[index];
-    if (from) run(from);
-  });
-}
-
-/** After a camera shot: Add another page, or Use photos. */
-function askForAnother(): Promise<boolean> {
-  return new Promise((resolve) =>
-    Alert.alert(i18n.t('recipes.add.anotherPage'), undefined, [
-      { text: i18n.t('recipes.add.usePhotos'), style: 'cancel', onPress: () => resolve(false) },
-      { text: i18n.t('recipes.add.addAnotherPage'), onPress: () => resolve(true) },
-    ]),
-  );
-}
-
-function cameraDenied() {
-  Alert.alert(i18n.t('recipes.photo.cameraDeniedTitle'), i18n.t('recipes.photo.cameraDenied'));
 }
 
 const styles = StyleSheet.create({

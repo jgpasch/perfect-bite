@@ -1,23 +1,46 @@
+import { Button as SwiftButton, ContextMenu, Host, RNHostView } from '@expo/ui/swift-ui';
 import type { BottomTabBarProps } from 'expo-router/tabs';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon } from '@/components/icon';
+import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 
+/** An item in the + button's long-press menu. */
+export type TabBarAddMenuItem = { key: string; label: string; icon: IconName; onPress: () => void };
+
 type Props = BottomTabBarProps & {
-  /** The round + on the right: adds on the tab that's showing. */
+  /** The round + on the right: adds an item to a list. */
   onAdd: () => void;
   addLabel: string;
+  /** A long-press on +, as its menu opens (the haptic). */
+  onAddLongPress: () => void;
+  /** The + button's long-press menu: the other ways to add. */
+  addMenu: readonly TabBarAddMenuItem[];
+  /** VoiceOver's custom action on +, "More ways to add", and what it does. */
+  addMoreLabel: string;
+  onAddMore: () => void;
 };
+
+const MORE_ACTION = 'more';
 
 /**
  * The app's tab bar (spec 4.1): a floating pill of the tabs on the left and a round `primary` + on the right,
  * on the screen's ground. A tab's icon comes from its `tabBarIcon`, its label from `title`; a tab with
- * `href: null` is left out.
+ * `href: null` is left out. A long-press on + opens a native menu over it.
  */
-export function TabBar({ state, descriptors, navigation, onAdd, addLabel }: Props) {
+export function TabBar({
+  state,
+  descriptors,
+  navigation,
+  onAdd,
+  addLabel,
+  onAddLongPress,
+  addMenu,
+  addMoreLabel,
+  onAddMore,
+}: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, opacity } = useTheme();
   const insets = useSafeAreaInsets();
   const inset = spacing.xs + spacing.xxs;
@@ -108,24 +131,43 @@ export function TabBar({ state, descriptors, navigation, onAdd, addLabel }: Prop
           );
         })}
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={addLabel}
-        testID="tab-add"
-        onPress={onAdd}
-        style={({ pressed }) => [
-          styles.add,
-          floating,
-          {
-            width: sizes.tabBar,
-            height: sizes.tabBar,
-            borderRadius: rounded.full,
-            backgroundColor: colors.primary,
-            opacity: pressed ? opacity.pressed : 1,
-          },
-        ]}>
-        <Icon name="plus" color="onPrimary" size={sizes.iconLarge + spacing.xs} weight="semibold" />
-      </Pressable>
+      {/* A native context menu on long press, as the recipe link row's. */}
+      <Host style={{ width: sizes.tabBar, height: sizes.tabBar }} colorScheme={scheme} seedColor={colors.primary}>
+        <ContextMenu>
+          <ContextMenu.Items>
+            {addMenu.map((item) => (
+              <SwiftButton key={item.key} label={item.label} systemImage={item.icon} onPress={item.onPress} />
+            ))}
+          </ContextMenu.Items>
+          <ContextMenu.Trigger>
+            <RNHostView>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={addLabel}
+                accessibilityActions={[{ name: MORE_ACTION, label: addMoreLabel }]}
+                onAccessibilityAction={({ nativeEvent }) => {
+                  if (nativeEvent.actionName === MORE_ACTION) onAddMore();
+                }}
+                testID="tab-add"
+                onPress={onAdd}
+                onLongPress={onAddLongPress}
+                style={({ pressed }) => [
+                  styles.add,
+                  floating,
+                  {
+                    width: sizes.tabBar,
+                    height: sizes.tabBar,
+                    borderRadius: rounded.full,
+                    backgroundColor: colors.primary,
+                    opacity: pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <Icon name="plus" color="onPrimary" size={sizes.iconLarge + spacing.xs} weight="semibold" />
+              </Pressable>
+            </RNHostView>
+          </ContextMenu.Trigger>
+        </ContextMenu>
+      </Host>
     </View>
   );
 }

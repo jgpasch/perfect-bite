@@ -315,6 +315,7 @@ export const es = {
       empty: 'Todavía no hay recetas.',
       newRecipe: 'Nueva receta',
       importFromLink: 'Importar de un enlace',
+      addRecipe: 'Agregar receta',
       openList: 'Abrir lista',
       has: 'Lleva',
       ingredients_one: '{{count}} ingrediente',
@@ -668,6 +669,13 @@ export const es = {
     backTitle: 'Listas',
     add: 'Añadir',
     editList: 'Editar lista',
+    addMore: 'Más formas de agregar',
+    addMenu: {
+      item: 'Agregar artículo',
+      recipe: 'Agregar receta',
+      link: 'Agregar receta desde un enlace',
+      photo: 'Agregar receta desde una foto',
+    },
   },
   mealPlan: {
     title: 'Esta semana',

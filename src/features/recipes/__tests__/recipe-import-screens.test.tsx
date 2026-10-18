@@ -18,7 +18,7 @@ import {
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { setFeatures } from '@/features/plans/features';
-import { pressAddButton } from '@/features/tabs/add-button';
+import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
 import { getDeviceSetting, setDeviceSetting, setPlanTab } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
 
@@ -838,12 +838,32 @@ describe('RecipesScreen', () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
-  test("the tab bar's + opens the sheet too, not a prompt", () => {
+  test("the header's round + opens the sheet too, not a prompt", () => {
     const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
-    render(<RecipesScreen />);
-    act(() => pressAddButton());
+    const root = render(<RecipesScreen />);
+    const add = root.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'recipes-add' && 'onPress' in n.props);
+    expect(add.props.accessibilityRole).toBe('button');
+    expect(add.props.accessibilityLabel).toBe('Add recipe');
+    act(() => add.props.onPress());
     expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  test("the tab bar's + on Recipes opens the List tab's add field, not the sheet", () => {
+    render(<RecipesScreen />);
+    act(() => pressAddButton());
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockNavigate.mock.calls).toEqual([['/lists']]);
+    expect(takePendingListAdd()).toBe(true);
+    expect(takePendingListAdd()).toBe(false);
+  });
+
+  test('the round + shows with recipes too, beside the title', () => {
+    createRecipe('Tacos');
+    const root = render(<RecipesScreen />);
+    expect(texts(root)).toContain('Tacos');
+    press(byA11y(root, 'Add recipe'));
+    expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
   });
 
   test('a row per recipe in its household’s card, with its meal and time and the list it is on', () => {

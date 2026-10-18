@@ -21,7 +21,8 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
-import { pressAddButton } from '@/features/tabs/add-button';
+import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
+import { runAddMenuItem } from '@/features/tabs/add-menu';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import {
@@ -1416,6 +1417,14 @@ describe("the tab bar's +", () => {
     expect(all('ItemAddBar')).toHaveLength(1);
     act(() => all('ItemAddBar')[0].props.onTextChange(''));
     expect(all('ItemAddBar')).toHaveLength(0);
+  });
+
+  test("the long-press menu's Add item opens this list's add bar, as a tap does, without leaving the list", () => {
+    render();
+    act(() => runAddMenuItem('item'));
+    expect(all('ItemAddBar')).toHaveLength(1);
+    expect(all('ItemAddBar')[0].props.autoFocus).toBe(true);
+    expect(takePendingListAdd()).toBe(false);
   });
 
   test('+ in Select mode leaves it for the add bar', () => {

@@ -357,6 +357,8 @@ export const en = {
       empty: 'No recipes yet.',
       newRecipe: 'New recipe',
       importFromLink: 'Import from link',
+      /** The round + on the green header, beside the title. */
+      addRecipe: 'Add recipe',
       openList: 'Open list',
       /** Before the bold ingredient a search matched: "Has **chicken thighs**". */
       has: 'Has',
@@ -744,6 +746,14 @@ export const en = {
     backTitle: 'Lists',
     add: 'Add',
     editList: 'Edit list',
+    /** Long-press on the tab bar's + (spec 4.1), and its VoiceOver custom action. */
+    addMore: 'More ways to add',
+    addMenu: {
+      item: 'Add item',
+      recipe: 'Add recipe',
+      link: 'Add recipe from link',
+      photo: 'Add recipe from photo',
+    },
   },
   /** The meal plan's week screen (spec 4.16). */
   mealPlan: {

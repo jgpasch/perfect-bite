@@ -44,7 +44,6 @@ import {
 } from '@/features/recipes/recipe-photo-size';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
-import { useAddButton } from '@/features/tabs/add-button';
 import {
   addedRecipeWithStaplesToast,
   groupRecipesByHousehold,
@@ -102,7 +101,7 @@ import type { RecipeTags } from '@/shared/recipe-tags';
  */
 export default function RecipesScreen() {
   const t = useT();
-  const { spacing, scheme, colors, sizes, rounded } = useTheme();
+  const { spacing, scheme, colors, sizes, rounded, opacity } = useTheme();
   const header = listHeaderColors(colors);
   // Light status bar content on the green header, also while the Filters sheet is up over it.
   const pathname = usePathname();
@@ -213,7 +212,6 @@ export default function RecipesScreen() {
 
   // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
   const addRecipe = () => router.push('/add-recipe');
-  useAddButton(addRecipe);
   const importFromLink = () => router.push({ pathname: '/add-recipe', params: { focus: 'link' } });
   // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
   const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
@@ -370,9 +368,33 @@ export default function RecipesScreen() {
           {/* Pulling down past the top shows more green, not the tab's ground. */}
           <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
           <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
-            <ThemedText variant="largeTitle" color="onHeader" accessibilityRole="header" style={{ paddingHorizontal: spacing.xs }}>
-              {t('recipes.tab.title')}
-            </ThemedText>
+            <View style={[styles.titleRow, { gap: spacing.md }]}>
+              <ThemedText
+                variant="largeTitle"
+                color="onHeader"
+                accessibilityRole="header"
+                style={[styles.shrink, { paddingHorizontal: spacing.xs }]}>
+                {t('recipes.tab.title')}
+              </ThemedText>
+              {/* Spec 4.1: the tab bar's + adds items, so adding a recipe has its own button here. */}
+              <Pressable
+                testID="recipes-add"
+                accessibilityRole="button"
+                accessibilityLabel={t('recipes.tab.addRecipe')}
+                onPress={addRecipe}
+                style={({ pressed }) => [
+                  styles.action,
+                  {
+                    width: sizes.minTapTarget,
+                    height: sizes.minTapTarget,
+                    borderRadius: rounded.full,
+                    backgroundColor: colors.surface,
+                    opacity: pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <Icon name="plus" tint={colors.header} size={sizes.icon} weight="semibold" />
+              </Pressable>
+            </View>
             {planTab ? null : (
               // Spec 4.16, board 5: the week lives here while the Plan tab is off. The control's own inset
               // would double the header's.
@@ -910,6 +932,7 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', alignItems: 'flex-start' },
   tileBadge: { position: 'absolute', maxWidth: '80%' },
   headerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerPills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flexShrink: 1 },
   search: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },

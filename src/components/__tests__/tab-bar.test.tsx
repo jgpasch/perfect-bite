@@ -8,6 +8,23 @@ import { TabBar } from '../tab-bar';
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }) }));
+// SwiftUI views as host elements.
+jest.mock('@expo/ui/swift-ui', () => {
+  const { createElement } = require('react');
+  const host = (type: string) =>
+    function Host({ children, ...props }: { children?: unknown }) {
+      return createElement(type, props, children);
+    };
+  return {
+    Button: host('SwiftButton'),
+    ContextMenu: Object.assign(host('SwiftContextMenu'), {
+      Items: host('SwiftContextMenuItems'),
+      Trigger: host('SwiftContextMenuTrigger'),
+    }),
+    Host: host('SwiftHost'),
+    RNHostView: host('RNHostView'),
+  };
+});
 
 let tree: ReactTestRenderer | null = null;
 afterEach(() => {
@@ -25,6 +42,12 @@ const routes = [
 function render(index = 0) {
   const navigation = { emit: jest.fn(() => ({ defaultPrevented: false })), navigate: jest.fn() };
   const onAdd = jest.fn();
+  const onAddLongPress = jest.fn();
+  const onAddMore = jest.fn();
+  const addMenu = [
+    { key: 'item', label: 'Add item', icon: 'plus' as const, onPress: jest.fn() },
+    { key: 'recipe', label: 'Add recipe', icon: 'book' as const, onPress: jest.fn() },
+  ];
   const props = {
     state: { index, routes: routes.map(({ key, name }) => ({ key, name, params: undefined })) },
     descriptors: Object.fromEntries(
@@ -36,9 +59,19 @@ function render(index = 0) {
     navigation,
   } as unknown as BottomTabBarProps;
   act(() => {
-    tree = create(<TabBar {...props} onAdd={onAdd} addLabel="Add" />);
+    tree = create(
+      <TabBar
+        {...props}
+        onAdd={onAdd}
+        addLabel="Add"
+        onAddLongPress={onAddLongPress}
+        addMenu={addMenu}
+        addMoreLabel="More ways to add"
+        onAddMore={onAddMore}
+      />,
+    );
   });
-  return { navigation, onAdd };
+  return { navigation, onAdd, onAddLongPress, onAddMore, addMenu };
 }
 
 const tabs = () => tree!.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'tab' && 'onPress' in n.props);
@@ -66,5 +99,38 @@ describe('TabBar', () => {
     expect(plus.props.accessibilityRole).toBe('button');
     act(() => plus.props.onPress());
     expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it('a long-press on + calls its handler (the haptic) and not onAdd', () => {
+    const { onAdd, onAddLongPress } = render();
+    act(() => add().props.onLongPress());
+    expect(onAddLongPress).toHaveBeenCalledTimes(1);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('the + is the trigger of a native context menu holding the items, in order, with their icons', () => {
+    const { addMenu, onAdd } = render();
+    const menu = tree!.root.findByType('SwiftContextMenu' as never);
+    const trigger = menu.findByType('SwiftContextMenuTrigger' as never);
+    expect(trigger.findAll((n) => n === add())).toHaveLength(1);
+    const items = menu.findByType('SwiftContextMenuItems' as never).findAllByType('SwiftButton' as never);
+    expect(items.map((n) => [n.props.label, n.props.systemImage])).toEqual([
+      ['Add item', 'plus'],
+      ['Add recipe', 'book'],
+    ]);
+    act(() => items[1].props.onPress());
+    expect(addMenu[1].onPress).toHaveBeenCalledTimes(1);
+    expect(addMenu[0].onPress).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('VoiceOver gets "More ways to add" as a custom action on +', () => {
+    const { onAddMore, onAdd } = render();
+    expect(add().props.accessibilityActions).toEqual([{ name: 'more', label: 'More ways to add' }]);
+    act(() => add().props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } }));
+    expect(onAddMore).not.toHaveBeenCalled();
+    act(() => add().props.onAccessibilityAction({ nativeEvent: { actionName: 'more' } }));
+    expect(onAddMore).toHaveBeenCalledTimes(1);
+    expect(onAdd).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,12 @@
 // Recipe import needs plus (spec 4.12): without `recipe_import`, the Recipes tab's empty-state "Import
-// from link" is hidden; the toolbar's one + opens the Add recipe sheet either way. The list menu no
+// from link" is hidden; the header's round + opens the Add recipe sheet either way. The list menu no
 // longer offers import at all; the Recipes tab is the way in.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { setFeatures, type Feature } from '@/features/plans/features';
-import { pressAddButton } from '@/features/tabs/add-button';
+import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
 import { resetDb } from '@/test/db';
 
 import { ListScreen } from '@/features/lists/list-screen';
@@ -56,6 +56,7 @@ jest.mock('@/features/lists/reorderable-rows', () => ({ ReorderableRows: () => n
 
 let listId: string;
 const mockPush = jest.fn();
+const mockNavigate = jest.fn();
 // Toolbar items render as host elements so the test can find them by type.
 jest.mock('expo-router', () => {
   const { createElement, Fragment } = require('react');
@@ -79,7 +80,7 @@ jest.mock('expo-router', () => {
   return {
     Link,
     Stack: { Screen: () => null, Title: passThrough(), Toolbar, SearchBar: () => null },
-    router: { push: (...args: unknown[]) => mockPush(...args), back: () => {} },
+    router: { push: (...args: unknown[]) => mockPush(...args), navigate: (...args: unknown[]) => mockNavigate(...args), back: () => {} },
     // The screen is focused while it's mounted.
     useFocusEffect: (effect: () => void | (() => void)) => require('react').useEffect(effect, [effect]),
     usePathname: () => '/lists',
@@ -100,6 +101,7 @@ beforeEach(() => {
   ensureStarterData(USER);
   listId = getDefaultListId(USER)!;
   mockPush.mockClear();
+  mockNavigate.mockClear();
 });
 
 afterEach(() => {
@@ -175,11 +177,24 @@ describe('the Recipes tab', () => {
     expect(toolbarLabels(root)).toEqual([]);
   });
 
-  test("the tab bar's + and the empty New recipe open the same sheet", () => {
+  test("the header's round + and the empty New recipe open the same sheet", () => {
     const root = render(() => <RecipesScreen />, PLUS);
-    act(() => pressAddButton());
+    press(root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Add recipe' && 'onPress' in n.props)[0]);
     press(root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'New recipe')[0]);
     expect(mockPush.mock.calls).toEqual([['/add-recipe'], ['/add-recipe']]);
+  });
+
+  test("the tab bar's + on Recipes opens the List tab instead, with or without plus", () => {
+    for (const features of [PLUS, STANDARD]) {
+      render(() => <RecipesScreen />, features);
+      act(() => pressAddButton());
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockNavigate.mock.calls).toEqual([['/lists']]);
+      expect(takePendingListAdd()).toBe(true);
+      mockNavigate.mockClear();
+      act(() => tree?.unmount());
+      tree = null;
+    }
   });
 
   test('gaining recipe_import shows it without leaving the tab', () => {
