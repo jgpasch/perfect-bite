@@ -6,7 +6,6 @@ export * from './recipe-jsonld.ts';
 export * from './recipe-tags.ts';
 export * from './schemas/generate-recipe-photo.ts';
 export * from './schemas/match-recipe-steps.ts';
-export * from './schemas/photo-search.ts';
 export * from './schemas/recipe-import.ts';
 export * from './schemas/recipe-photo-import.ts';
 export * from './schemas/recipe-photos.ts';

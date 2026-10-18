@@ -8,7 +8,6 @@ import { resetDb } from '@/test/db';
 import { makeSession, resetSupabase, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 import { outboxMutations } from '@/test/outbox';
 
-import type { PhotoCredit } from '@/shared/photo-credit';
 
 import {
   chooseRecipePhoto,
@@ -129,8 +128,8 @@ describe('loadPagePhotos', () => {
 });
 
 describe('chooseRecipePhoto and Undo', () => {
-  const NONE = { imageUrl: null, photoPath: null, photoCredit: null };
-  const site = (imageUrl: string) => ({ imageUrl, photoPath: null, photoCredit: null });
+  const NONE = { imageUrl: null, photoPath: null };
+  const site = (imageUrl: string) => ({ imageUrl, photoPath: null });
 
   test('sets image_url, leaves a change for that recipe, and Undo restores the previous photo', () => {
     const id = createRecipe('Bread');
@@ -175,85 +174,30 @@ describe('chooseRecipePhoto and Undo', () => {
   });
 });
 
-describe("a stock photo's credit (spec 4.5)", () => {
-  const CREDIT: PhotoCredit = {
-    provider: 'Pixabay',
-    author: 'Jane Doe',
-    authorUrl: 'https://pixabay.com/users/jane',
-    pageUrl: 'https://pixabay.com/photos/bread-123/',
-  };
-  const OTHER: PhotoCredit = { ...CREDIT, author: 'Sam Lee', pageUrl: 'https://pixabay.com/photos/bread-456/' };
+describe('pagePhoto and photoAfterRemove (spec 4.5)', () => {
   const PATH = 'h/r/0190a000-0000-7000-8000-000000000001.jpg';
-  const PATH2 = 'h/r/0190a000-0000-7000-8000-000000000002.jpg';
-  const stock = { imageUrl: A, photoPath: PATH, photoCredit: CREDIT };
-  const NONE_PHOTO = { imageUrl: null, photoPath: null, photoCredit: null };
+  const own = { imageUrl: A, photoPath: PATH };
 
-  test('pagePhoto has no own photo and no credit', () => {
-    expect(pagePhoto(B)).toEqual({ imageUrl: B, photoPath: null, photoCredit: null });
+  test('pagePhoto has no own photo', () => {
+    expect(pagePhoto(B)).toEqual({ imageUrl: B, photoPath: null });
   });
 
-  test('photoAfterRemove drops an own photo with its credit, keeping the site photo', () => {
-    expect(photoAfterRemove(stock)).toEqual({ imageUrl: A, photoPath: null, photoCredit: null });
-    expect(photoAfterRemove({ imageUrl: A, photoPath: null, photoCredit: null })).toEqual({
-      imageUrl: null,
-      photoPath: null,
-      photoCredit: null,
-    });
+  test('photoAfterRemove drops an own photo, keeping the site photo; else the site photo goes', () => {
+    expect(photoAfterRemove(own)).toEqual({ imageUrl: A, photoPath: null });
+    expect(photoAfterRemove({ imageUrl: A, photoPath: null })).toEqual({ imageUrl: null, photoPath: null });
   });
 
-  test('picking a page photo over a credited one clears the credit with the path', () => {
+  test('Remove of an own photo is marked removed; Undo puts it back', () => {
     const id = createRecipe('Bread');
-    chooseRecipePhoto(id, { imageUrl: A, photoPath: null, photoCredit: null }, stock);
-    expect(getRecipe(id)).toMatchObject({ photoPath: PATH, photoCredit: CREDIT });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: PATH, photo_credit: CREDIT });
-
-    chooseRecipePhoto(id, stock, pagePhoto(B));
-    expect(getRecipe(id)).toMatchObject({ imageUrl: B, photoPath: null, photoCredit: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null, photo_credit: null });
-    expect(usePhotoChange(id)).toMatchObject({ removed: false });
-  });
-
-  test('Remove clears the credit and is marked removed; Undo puts the photo and credit back', () => {
-    const id = createRecipe('Bread');
-    chooseRecipePhoto(id, NONE_PHOTO, stock);
-
-    chooseRecipePhoto(id, stock, photoAfterRemove(stock));
-    expect(getRecipe(id)).toMatchObject({ imageUrl: A, photoPath: null, photoCredit: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
+    chooseRecipePhoto(id, { imageUrl: null, photoPath: null }, own);
+    chooseRecipePhoto(id, own, photoAfterRemove(own));
+    expect(getRecipe(id)).toMatchObject({ imageUrl: A, photoPath: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
     const change = usePhotoChange(id)!;
     expect(change.removed).toBe(true);
 
     undoPhotoChange(change);
-    expect(getRecipe(id)).toMatchObject({ imageUrl: A, photoPath: PATH, photoCredit: CREDIT });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: PATH, photo_credit: CREDIT });
-  });
-
-  test('a new path always carries its credit, even an unchanged null one', () => {
-    const id = createRecipe('Bread');
-    chooseRecipePhoto(id, NONE_PHOTO, { imageUrl: null, photoPath: PATH, photoCredit: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: PATH, photo_credit: null });
-  });
-
-  test('a different credit on the same path is a change; the same credit (a copy) is none', () => {
-    const id = createRecipe('Bread');
-    chooseRecipePhoto(id, NONE_PHOTO, stock);
-    const before = outboxMutations().length;
-    chooseRecipePhoto(id, stock, { ...stock, photoCredit: { ...CREDIT } });
-    expect(outboxMutations()).toHaveLength(before);
-
-    chooseRecipePhoto(id, stock, { ...stock, photoCredit: OTHER });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_credit: OTHER });
-    expect(getRecipe(id)!.photoCredit).toEqual(OTHER);
-  });
-
-  test('replacing a credited photo with a different stock photo undoes back to the first credit', () => {
-    const id = createRecipe('Bread');
-    chooseRecipePhoto(id, NONE_PHOTO, stock);
-    const second = { imageUrl: A, photoPath: PATH2, photoCredit: OTHER };
-    chooseRecipePhoto(id, stock, second);
-    expect(getRecipe(id)).toMatchObject({ photoPath: PATH2, photoCredit: OTHER });
-
-    undoPhotoChange(usePhotoChange(id)!);
-    expect(getRecipe(id)).toMatchObject({ photoPath: PATH, photoCredit: CREDIT });
+    expect(getRecipe(id)).toMatchObject({ imageUrl: A, photoPath: PATH });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: PATH });
   });
 });

@@ -301,7 +301,6 @@ test('a recipe insert sends its tags, tags_edited and total_minutes but never ad
     servings: null,
     image_url: null,
     photo_path: null,
-    photo_credit: null,
     source_pages: null,
     deleted_at: null,
     created_at: AT.toISOString(),

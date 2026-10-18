@@ -74,7 +74,7 @@ export default function RecipePhotoSheet() {
 
   if (!recipe) return <Screen />;
 
-  const current = { imageUrl: recipe.imageUrl, photoPath: recipe.photoPath, photoCredit: recipe.photoCredit };
+  const current = { imageUrl: recipe.imageUrl, photoPath: recipe.photoPath };
   const hasPhoto = current.imageUrl !== null || current.photoPath !== null;
   const choose = (next: RecipePhotoFields) => {
     chooseRecipePhoto(recipe.id, current, next);

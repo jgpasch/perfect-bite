@@ -176,6 +176,13 @@
       "when": 1792299632576,
       "tag": "0024_recipe_source_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1792341254483,
+      "tag": "0025_drop_recipe_photo_credit",
+      "breakpoints": true
     }
   ]
 }

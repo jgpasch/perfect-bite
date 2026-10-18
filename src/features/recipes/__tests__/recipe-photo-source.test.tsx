@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { IconTile } from '@/components/icon-tile';
-import type { PhotoCredit } from '@/shared/photo-credit';
 import { emitAuthEvent, makeSession, resetSupabase, supabase } from '@/test/fake-supabase';
 
 import { RecipePhotoCover, RecipePhotoTile } from '../recipe-photo';
@@ -14,8 +13,6 @@ import {
   photoObjectUrl,
   recipePhotoSource,
   resetPhotoSession,
-  useRecipePhoto,
-  type RecipePhotoSourceFields,
 } from '../recipe-photo-source';
 
 jest.mock('@/global.css', () => ({}));
@@ -160,41 +157,5 @@ describe('loading an own photo', () => {
     // The own photo removed: the site photo shows.
     act(() => tree!.update(<RecipePhotoTile recipeId="r1" imageUrl={SITE} photoPath={null} />));
     expect(images(root).map((i) => i.props.source)).toEqual([SITE]);
-  });
-});
-
-describe("useRecipePhoto's credit", () => {
-  const CREDIT: PhotoCredit = {
-    provider: 'Pixabay',
-    author: 'Jane Doe',
-    authorUrl: 'https://pixabay.com/users/jane',
-    pageUrl: 'https://pixabay.com/photos/tacos-123/',
-  };
-  let seen: ReturnType<typeof useRecipePhoto> | null = null;
-  function Probe({ recipe }: { recipe: RecipePhotoSourceFields | null }) {
-    seen = useRecipePhoto(recipe);
-    return null;
-  }
-  const probe = (recipe: RecipePhotoSourceFields | null) => {
-    act(() => {
-      tree = create(<Probe recipe={recipe} />);
-    });
-    return seen!;
-  };
-
-  test('an own photo with a credit returns it', () => {
-    expect(probe({ imageUrl: SITE, photoPath: PATH, photoCredit: CREDIT })).toMatchObject({ own: true, credit: CREDIT });
-  });
-
-  test('an own photo without one (library, camera) returns null', () => {
-    expect(probe({ imageUrl: null, photoPath: PATH, photoCredit: null })).toMatchObject({ own: true, credit: null });
-    act(() => tree?.unmount());
-    expect(probe({ imageUrl: null, photoPath: PATH })).toMatchObject({ own: true, credit: null });
-  });
-
-  test('a site photo or no photo has no credit, even with a stray one', () => {
-    expect(probe({ imageUrl: SITE, photoPath: null, photoCredit: CREDIT })).toMatchObject({ own: false, credit: null });
-    act(() => tree?.unmount());
-    expect(probe(null)).toMatchObject({ source: null, credit: null });
   });
 });

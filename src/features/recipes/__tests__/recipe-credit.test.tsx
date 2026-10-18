@@ -17,7 +17,7 @@ import { resetDb } from '@/test/db';
 import CookScreen from '@/app/recipe/[id]/cook';
 import RecipeScreen from '@/app/recipe/[id]/index';
 
-import { PhotoCreditChip, RecipeCredit } from '../recipe-credit';
+import { RecipeCredit } from '../recipe-credit';
 import { RecipeMethodCard } from '../recipe-method-card';
 import { createRecipe, getRecipe } from '../recipes';
 
@@ -203,51 +203,6 @@ describe('RecipeCredit', () => {
     expect(StyleSheet.flatten(credit.props.style)).toMatchObject({ minHeight: 44, borderTopWidth: StyleSheet.hairlineWidth });
     const text = credit.find((n) => String(n.type) === 'Text');
     expect(StyleSheet.flatten(text.props.style).color).toBe(Palette.light.inkSecondary);
-  });
-});
-
-describe('PhotoCreditChip', () => {
-  const CREDIT = {
-    provider: 'Pixabay',
-    author: 'Jane Doe',
-    authorUrl: 'https://pixabay.com/users/jane',
-    pageUrl: 'https://pixabay.com/photos/bread-123/',
-  };
-
-  test('"Photo: Jane Doe / Pixabay", read as "Photo by Jane Doe on Pixabay", a link to the photo\'s page (not the photographer\'s)', () => {
-    const root = render(<PhotoCreditChip credit={CREDIT} />);
-    const [chip] = credits(root, 'photo-credit');
-    expect(textOf(chip)).toBe('Photo: Jane Doe / Pixabay');
-    expect(chip.props.accessibilityRole).toBe('link');
-    expect(chip.props.accessibilityLabel).toBe('Photo by Jane Doe on Pixabay');
-    press(pressable(root, 'photo-credit'));
-    expect(mockOpenURL).toHaveBeenCalledTimes(1);
-    expect(mockOpenURL).toHaveBeenCalledWith(CREDIT.pageUrl);
-  });
-
-  test.each([
-    ['no credit', null],
-    ['an undefined credit', undefined],
-  ])('%s: nothing', (_, credit) => {
-    const root = render(<PhotoCreditChip credit={credit} />);
-    expect(credits(root, 'photo-credit')).toHaveLength(0);
-    expect(hostTexts(root)).toEqual([]);
-  });
-
-  test('in Spanish: "Foto: Jane Doe / Pixabay", read as "Foto de Jane Doe en Pixabay"', async () => {
-    await act(async () => {
-      await i18n.changeLanguage('es');
-    });
-    const root = render(<PhotoCreditChip credit={CREDIT} />);
-    const [chip] = credits(root, 'photo-credit');
-    expect(textOf(chip)).toBe('Foto: Jane Doe / Pixabay');
-    expect(chip.props.accessibilityLabel).toBe('Foto de Jane Doe en Pixabay');
-  });
-
-  test('a long name stays on one line', () => {
-    const root = render(<PhotoCreditChip credit={{ ...CREDIT, author: 'A'.repeat(200) }} />);
-    const text = credits(root, 'photo-credit')[0].find((n) => String(n.type) === 'Text');
-    expect(text.props.numberOfLines).toBe(1);
   });
 });
 

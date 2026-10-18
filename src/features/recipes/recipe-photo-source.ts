@@ -10,20 +10,13 @@ import type { ImageSource } from 'expo-image';
 import { useState, useSyncExternalStore } from 'react';
 
 import { isSupabaseConfigured, supabase, supabaseUrl } from '@/lib/supabase';
-import type { PhotoCredit } from '@/shared/photo-credit';
 
 export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
 /** A photo import's pages (spec 4.10, `recipes.source_pages`). */
 export const RECIPE_PAGES_BUCKET = 'recipe-pages';
 
-/**
- * The photo columns of a recipe. `photoCredit` goes with `photoPath` (a stock photo's credit, else
- * null), and every photo change keeps the three consistent.
- */
-export type RecipePhotoFields = { imageUrl: string | null; photoPath: string | null; photoCredit: PhotoCredit | null };
-
-/** What showing a recipe's photo needs; a tile that shows no credit can leave `photoCredit` out. */
-export type RecipePhotoSourceFields = Omit<RecipePhotoFields, 'photoCredit'> & { photoCredit?: PhotoCredit | null };
+/** The photo columns of a recipe. */
+export type RecipePhotoFields = { imageUrl: string | null; photoPath: string | null };
 
 /** What an own photo needs to load: the signed-in session's access token. */
 export type PhotoSession = { accessToken: string } | null;
@@ -57,7 +50,7 @@ export function ownPhotoSource(bucket: string, path: string, session: PhotoSessi
  * Null when it has no photo. A page of a photo import (spec 4.5) loads the same way from `recipe-pages`.
  */
 export function recipePhotoSource(
-  recipe: RecipePhotoSourceFields,
+  recipe: RecipePhotoFields,
   session: PhotoSession,
   bucket: string = RECIPE_PHOTOS_BUCKET,
 ): RecipeImageSource | null {
@@ -175,16 +168,14 @@ export function usePhotoFallback(key: string | null, own: boolean) {
 
 /**
  * A recipe's photo for a view: its source, whether it's the household's own (no source credit),
- * the own photo's `credit` (a stock photo's, else null), and whether it failed for good in this
- * view (`usePhotoFallback`), when the caller shows the icon tile.
+ * and whether it failed for good in this view (`usePhotoFallback`), when the caller shows the icon tile.
  */
-export function useRecipePhoto(recipe: RecipePhotoSourceFields | null) {
+export function useRecipePhoto(recipe: RecipePhotoFields | null) {
   const session = usePhotoSession();
   const key = recipe ? (recipe.photoPath ?? recipe.imageUrl) : null;
   const own = recipe?.photoPath != null;
   const { failed, onError } = usePhotoFallback(key, own);
   const source = recipe && !failed ? recipePhotoSource(recipe, session) : null;
-  const credit = own ? (recipe?.photoCredit ?? null) : null;
 
-  return { source, own, credit, failed, onError };
+  return { source, own, failed, onError };
 }

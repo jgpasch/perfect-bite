@@ -5,7 +5,6 @@ import { ThemedText } from '@/components/themed-text';
 import { openRecipeLink, recipeLinkParts } from '@/features/recipes/recipe-link';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import type { PhotoCredit } from '@/shared/photo-credit';
 
 /**
  * The recipe's source credit (spec 4.5): "From seriouseats.com" (the host without `www.`), a link that
@@ -98,46 +97,6 @@ export function PagesCredit({ count, onPress }: { count: number; onPress: () => 
         <ThemedText variant="footnote" color="primary" style={styles.strong}>
           {t('recipes.pages.viewPages')}
         </ThemedText>
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-/**
- * A stock photo's credit (spec 4.5) on the recipe photo's bottom-right corner, where a site photo's
- * source credit sits: "Photo: Jane Doe / Pixabay" (the credit's provider) in `caption` `inkSecondary`
- * on a `surface` chip, a link that opens the photo's page in Safari. VoiceOver: "Photo by Jane Doe on
- * Pixabay, link".
- * Nothing without a credit (a library or camera photo).
- */
-export function PhotoCreditChip({ credit }: { credit: PhotoCredit | null | undefined }) {
-  const t = useT();
-  const { colors, spacing, rounded, opacity } = useTheme();
-  if (!credit) return null;
-  return (
-    <Pressable
-      testID="photo-credit"
-      onPress={() => void openRecipeLink(credit.pageUrl)}
-      accessibilityRole="link"
-      accessibilityLabel={t('recipes.photoCredit.label', { author: credit.author, provider: credit.provider })}
-      accessibilityHint={t('recipes.photoCredit.hint', { provider: credit.provider })}
-      hitSlop={spacing.sm}
-      style={({ pressed }) => [
-        styles.center,
-        {
-          position: 'absolute',
-          right: spacing.sm,
-          bottom: spacing.sm,
-          maxWidth: '70%',
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xxs,
-          borderRadius: rounded.full,
-          backgroundColor: colors.surface,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <ThemedText variant="caption" color="inkSecondary" numberOfLines={1}>
-        {t('recipes.photoCredit.text', { author: credit.author, provider: credit.provider })}
       </ThemedText>
     </Pressable>
   );

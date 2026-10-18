@@ -1,7 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
-import type { PhotoCredit } from '../shared/photo-credit';
 import type { Unit } from '../shared/quantity-parser';
 import type { RecipeTags } from '../shared/recipe-tags';
 import type { StepIngredients } from '../shared/step-ingredients';
@@ -195,7 +194,6 @@ export const recipes = sqliteTable(
      */
     photoPath: text('photo_path'),
     /** Who to credit for the own photo, when it's a stock photo (spec 4.5). Only with `photoPath`. Null = none. */
-    photoCredit: text('photo_credit', { mode: 'json' }).$type<PhotoCredit>(),
     /**
      * A photo import's pages in order (spec 4.10): `<household_id>/<recipe_id>/<uuid>.jpg` each, in
      * the private `recipe-pages` bucket. Null = none.

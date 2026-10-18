@@ -20,7 +20,7 @@ import RecipePhotoSheet from '@/app/recipe/[id]/photo';
 
 import { emitAuthEvent, makeSession, resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
 
-import { resetPhotoUpload, uploadStockPhoto } from '../photo-upload';
+import { resetPhotoUpload } from '../photo-upload';
 import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
 import { createRecipe, getRecipe, updateRecipe } from '../recipes';
@@ -138,14 +138,9 @@ jest.mock('expo-image-manipulator', () => {
   const context = { resize: () => context, renderAsync: async () => image };
   return { ImageManipulator: { manipulate: () => context }, SaveFormat: { JPEG: 'jpeg' } };
 });
-// A stock photo's download, which `mockDownload` can fail.
-const mockDownload = jest.fn(async (_url: string, destination: object) => destination);
 jest.mock('expo-file-system', () => {
   class File {
-    uri = 'file:///cache/stock.jpg';
-    static downloadFileAsync(url: string, destination: File) {
-      return mockDownload(url, destination);
-    }
+    uri = 'file:///cache/photo.jpg';
     async arrayBuffer() {
       return new ArrayBuffer(8);
     }
@@ -180,7 +175,6 @@ beforeEach(() => {
   mockBack.mockClear();
   mockLoad.mockClear();
   mockOpenURL.mockClear();
-  mockDownload.mockClear();
   setFeatures(DEFAULT_FEATURES);
   resetSupabase();
   resetPhotoSession();
@@ -507,10 +501,10 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(body).toBeInstanceOf(ArrayBuffer);
     expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
     expect(mockBack).toHaveBeenCalledTimes(1);
-    // The site photo stays, for Remove; only photo_path is sent, with its (null) credit.
-    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A, photoCredit: null });
+    // The site photo stays, for Remove; only photo_path is sent.
+    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A });
     expect(outboxMutations().at(-1)).toEqual(
-      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path, photo_credit: null } }),
+      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path } }),
     );
   });
 
@@ -612,13 +606,13 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(menuTitles(root)).toContain('Change photo…');
   });
 
-  test('Remove photo with an own photo clears photo_path (and its credit) only, so the site photo shows again', async () => {
+  test('Remove photo with an own photo clears photo_path only, so the site photo shows again', async () => {
     setPhoto(A);
     setOwn(OWN());
     const sheet = await renderSheet();
     press(removeButton(sheet)[0]);
     expect(getRecipe(bread)).toMatchObject({ photoPath: null, imageUrl: A });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
     act(() => sheet.unmount());
 
     const root = render(<RecipeScreen />);
@@ -648,36 +642,13 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     expect(tiles(sheet).map((t) => t.props.accessibilityState.selected)).toEqual([false, false]);
     press(tiles(sheet)[1]);
     expect(getRecipe(bread)).toMatchObject({ imageUrl: B, photoPath: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null, photo_credit: null });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: B, photo_path: null });
     act(() => sheet.unmount());
 
     const root = render(<RecipeScreen />);
     act(() => toasts(root)[0].props.actions[0].onPress());
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN() });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN(), photo_credit: null });
-  });
-
-  test('picking a page photo over a stock photo clears its credit; Undo puts the credit back', async () => {
-    const credit = {
-      provider: 'Pixabay',
-      author: 'Jane Doe',
-      authorUrl: 'https://pixabay.com/users/jane',
-      pageUrl: 'https://pixabay.com/photos/bread-123/',
-    };
-    setLink(LINK);
-    setPhoto(A);
-    setOwn(OWN());
-    db.update(recipes).set({ photoCredit: credit }).where(eq(recipes.id, bread)).run();
-    const sheet = await renderSheet();
-    await answer({ ok: true, images: [A, B] });
-    press(tiles(sheet)[1]);
-    expect(getRecipe(bread)).toMatchObject({ imageUrl: B, photoPath: null, photoCredit: null });
-    act(() => sheet.unmount());
-
-    const root = render(<RecipeScreen />);
-    act(() => toasts(root)[0].props.actions[0].onPress());
-    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN(), photoCredit: credit });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN(), photo_credit: credit });
+    expect(outboxMutations().at(-1)!.fields).toEqual({ image_url: A, photo_path: OWN() });
   });
 
   test('picking the page photo it already shows, with an own photo, still switches to it', async () => {
@@ -688,175 +659,7 @@ describe("the household's own photo (Photo library and Take photo)", () => {
     await answer({ ok: true, images: [A] });
     press(tiles(sheet)[0]);
     expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null, photo_credit: null });
-  });
-});
-
-// The sheet no longer searches stock photos; `uploadStockPhoto` stays until Pixabay is removed, and
-// photos already picked keep their credit.
-describe('a stock photo, and its credit', () => {
-  const stock = (id: number, author: string) => ({
-    id: String(id),
-    thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
-    full: `https://pixabay.com/get/${id}/large2x.jpeg`,
-    width: 1200,
-    height: 900,
-    author,
-    authorUrl: `https://pixabay.com/users/${author.toLowerCase().replace(/ /g, '-')}`,
-    pageUrl: `https://pixabay.com/photos/${id}/`,
-    alt: null,
-  });
-  const JANE = stock(1, 'Jane Doe');
-  const ANA = stock(2, 'Ana Ruiz');
-  const creditOf = (p: ReturnType<typeof stock>) => ({
-    provider: 'Pixabay',
-    author: p.author,
-    authorUrl: p.authorUrl,
-    pageUrl: p.pageUrl,
-  });
-  const OWN = () => `${getRecipe(bread)!.householdId}/${bread}/0190a000-0000-7000-8000-000000000001.jpg`;
-  const chips = (root: ReactTestRenderer) => byTestId(root, 'photo-credit');
-  const siteCredits = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'recipe-credit-photo');
-  const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity as 1));
-  const signIn = () => act(() => emitAuthEvent('SIGNED_IN', { ...makeSession(USER), access_token: 'token-1' }));
-
-  /** Uploads the `index`th of `photos` as a stock photo from Pixabay. */
-  async function pickStock(index: number, photos = [JANE, ANA]) {
-    await act(async () => {
-      void uploadStockPhoto(bread, { ...photos[index], provider: 'Pixabay' });
-    });
-  }
-
-  test('a stock photo is downloaded in full and uploaded with its credit', async () => {
-    setPhoto(A);
-    await pickStock(1);
-    expect(mockDownload).toHaveBeenCalledTimes(1);
-    expect(mockDownload.mock.calls[0][0]).toBe(ANA.full);
-    const [bucket, path, , options] = storageUploads().at(-1)!;
-    expect(bucket).toBe('recipe-photos');
-    expect(path).toMatch(new RegExp(`^${getRecipe(bread)!.householdId}/${bread}/[0-9a-f-]{36}\\.jpg$`));
-    expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
-    // The site photo stays, for Remove.
-    expect(getRecipe(bread)).toMatchObject({ photoPath: path, imageUrl: A, photoCredit: creditOf(ANA) });
-    expect(outboxMutations().at(-1)).toEqual(
-      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: path, photo_credit: creditOf(ANA) } }),
-    );
-  });
-
-  test('while it downloads, the recipe screen shows the thumb with a spinner and no credit; then the photo, its credit and "Photo updated"', async () => {
-    let finish: (file: object) => void = () => {};
-    mockDownload.mockImplementationOnce((_url, destination) => new Promise((resolve) => (finish = () => resolve(destination))));
-    await pickStock(0);
-
-    const root = render(<RecipeScreen />);
-    signIn();
-    expect(byType(root, 'ExpoImage')[0].props.source).toBe(JANE.thumb);
-    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading' && String(n.type) === 'View')).toHaveLength(1);
-    expect(byTestId(root, 'add-photo')).toHaveLength(0);
-    expect(chips(root)).toHaveLength(0);
-
-    await act(async () => finish({}));
-    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading')).toHaveLength(0);
-    const path = getRecipe(bread)!.photoPath!;
-    expect(byType(root, 'ExpoImage')[0].props.source).toMatchObject({ cacheKey: path });
-    expect(chips(root)).toHaveLength(1);
-    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
-  });
-
-  test('the credit chip: "Photo: Jane Doe / Pixabay" in caption inkSecondary on a surface chip at the bottom right, a link to the photo\'s page', async () => {
-    // A link that opens: the site's source credit still never shows on an own photo.
-    setLink(LINK);
-    setPhoto(A);
-    await pickStock(0);
-    const root = render(<RecipeScreen />);
-    signIn();
-
-    const [chip] = chips(root);
-    expect(chip.props).toMatchObject({
-      accessibilityRole: 'link',
-      accessibilityLabel: 'Photo by Jane Doe on Pixabay',
-      accessibilityHint: 'Opens the photo on Pixabay in Safari',
-    });
-    expect(flat(chip.props.style({ pressed: false }))).toMatchObject({
-      position: 'absolute',
-      right: 8,
-      bottom: 8,
-      backgroundColor: Palette.light.surface,
-      borderRadius: Rounded.full,
-    });
-    const text = chip.find((n) => String(n.type) === 'Text');
-    expect(text.props.children).toBe('Photo: Jane Doe / Pixabay');
-    expect(text.props.numberOfLines).toBe(1);
-    expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 12 });
-    expect(siteCredits(root)).toHaveLength(0);
-
-    press(chip);
-    expect(mockOpenURL).toHaveBeenCalledWith(JANE.pageUrl);
-  });
-
-  test('a library photo shows no credit chip', async () => {
-    setLink(LINK);
-    const sheet = await renderSheet();
-    const library = sheet.root.find(
-      (n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Photo library',
-    );
-    await act(async () => library.props.onPress());
-    act(() => sheet.unmount());
-    expect(getRecipe(bread)).toMatchObject({ photoCredit: null });
-    expect(getRecipe(bread)!.photoPath).not.toBeNull();
-
-    const root = render(<RecipeScreen />);
-    signIn();
-    expect(byType(root, 'ExpoImage')).toHaveLength(1);
-    expect(chips(root)).toHaveLength(0);
-    expect(siteCredits(root)).toHaveLength(0);
-  });
-
-  test('a site photo shows its source credit, not a photo credit', () => {
-    setLink(LINK);
-    setPhoto(A);
-    const root = render(<RecipeScreen />);
-    expect(chips(root)).toHaveLength(0);
-    expect(siteCredits(root).length).toBeGreaterThan(0);
-  });
-
-  test('a failed download leaves the recipe as it was and offers Try again, which retries the whole pick', async () => {
-    setPhoto(A);
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockDownload.mockRejectedValueOnce(new Error('UnableToDownload: 404'));
-    await pickStock(0);
-    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: null, photoCredit: null });
-    expect(storageUploads()).toHaveLength(0);
-
-    const root = render(<RecipeScreen />);
-    // The photo as it was, with no spinner.
-    expect(byType(root, 'ExpoImage')[0].props.source).toBe(A);
-    expect(root.root.findAll((n) => n.props.testID === 'photo-uploading')).toHaveLength(0);
-    const [toast] = toasts(root);
-    expect(toast.props.message).toBe("Couldn't upload the photo");
-    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
-
-    await act(async () => toast.props.actions[0].onPress());
-    expect(mockDownload).toHaveBeenCalledTimes(2);
-    expect(mockDownload.mock.calls[1][0]).toBe(JANE.full);
-    expect(storageUploads()).toHaveLength(1);
-    expect(getRecipe(bread)).toMatchObject({ photoCredit: creditOf(JANE) });
-    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
-  });
-
-  test('Undo of a stock pick restores the old photo and its credit', async () => {
-    setPhoto(A);
-    db.update(recipes).set({ photoPath: OWN(), photoCredit: creditOf(ANA) }).where(eq(recipes.id, bread)).run();
-    await pickStock(0);
-    expect(getRecipe(bread)!.photoCredit).toEqual(creditOf(JANE));
-
-    const root = render(<RecipeScreen />);
-    signIn();
-    act(() => toasts(root)[0].props.actions[0].onPress());
-    expect(getRecipe(bread)).toMatchObject({ imageUrl: A, photoPath: OWN(), photoCredit: creditOf(ANA) });
-    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: OWN(), photo_credit: creditOf(ANA) });
-    const [chip] = chips(root);
-    expect(chip.find((n) => String(n.type) === 'Text').props.children).toBe('Photo: Ana Ruiz / Pixabay');
+    expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: null });
   });
 });
 
@@ -978,9 +781,9 @@ describe('Generate with AI', () => {
 
     await finish({ data: { path: AI() }, error: null });
     expect(generating(root)).toHaveLength(0);
-    expect(getRecipe(bread)).toMatchObject({ photoPath: AI(), photoCredit: null, imageUrl: null });
+    expect(getRecipe(bread)).toMatchObject({ photoPath: AI(), imageUrl: null });
     expect(outboxMutations().at(-1)).toEqual(
-      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: AI(), photo_credit: null } }),
+      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: AI() } }),
     );
     const [toast] = toasts(root);
     expect(toast.props.message).toBe('Photo updated');
@@ -988,7 +791,7 @@ describe('Generate with AI', () => {
 
     // Undo clears it again; the recipe has still had its one AI photo, so nothing is asked again.
     act(() => toast.props.actions[0].onPress());
-    expect(getRecipe(bread)).toMatchObject({ photoPath: null, photoCredit: null });
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null });
     expect(invoke).toHaveBeenCalledTimes(1);
     act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
     expect(byTestId(root, 'add-photo')).toHaveLength(1);
@@ -1015,7 +818,7 @@ describe('Generate with AI', () => {
     const [toast] = toasts(root);
     expect(toast.props.message).toBe(message);
     expect(toast.props.actions).toEqual([]);
-    expect(getRecipe(bread)).toMatchObject({ photoPath: null, photoCredit: null });
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null });
     // The Add photo tile is back.
     expect(byTestId(root, 'add-photo')).toHaveLength(1);
   });

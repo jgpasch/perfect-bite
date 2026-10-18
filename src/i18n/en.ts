@@ -527,16 +527,6 @@ export const en = {
       noneFound: 'No photos found on the page',
       offline: 'Connect to see photos from the page',
       failed: "Couldn't load the page's photos. Try again later.",
-      search: 'Search photos',
-      searchTile: 'Photo by {{author}}, {{index}} of {{count}}',
-      searchTileAlt: '{{alt}}, photo by {{author}}, {{index}} of {{count}}',
-      searching: 'Searching photos',
-      searchNone: 'No photos for “{{query}}”. Try another word.',
-      searchRateLimited: "You've searched a lot today. Try again later.",
-      searchFailed: "Couldn't search photos. Try again later.",
-      loadMore: 'Load more',
-      provider: 'Photos provided by {{provider}}',
-      providerHint: 'Opens {{provider}} in Safari',
       remove: 'Remove photo',
       updated: 'Photo updated',
       removed: 'Photo removed',
@@ -592,12 +582,6 @@ export const en = {
       creditLabel_one: 'From your photos, {{count}} page',
       creditLabel_other: 'From your photos, {{count}} pages',
       creditHint: 'Opens the pages',
-    },
-    /** A stock photo's credit on the recipe photo. */
-    photoCredit: {
-      text: 'Photo: {{author}} / {{provider}}',
-      label: 'Photo by {{author}} on {{provider}}',
-      hint: 'Opens the photo on {{provider}} in Safari',
     },
     /** The Method card, the Steps sheet and their steps. */
     method: {

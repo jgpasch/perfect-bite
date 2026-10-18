@@ -1,20 +1,17 @@
 // A household's own recipe photo (spec 4.5): picking it from the library or the camera, shrinking it
 // on the device, uploading it to the private recipe-photos bucket, and setting `photo_path` through
 // the usual recipe update. While it uploads, the recipe screen shows the photo from the device with
-// a spinner; a failure leaves the recipe as it was and the screen offers Try again. A stock photo
-// (from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
+// a spinner; a failure leaves the recipe as it was and the screen offers Try again.
 // A photo import's pages (spec 4.10) upload the same way to the private recipe-pages bucket.
 // Generate with AI asks the server for the recipe's one AI photo and sets `photo_path` to it.
-import { File, Paths } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import type { PhotoCredit } from '@/shared/photo-credit';
 import { GenerateRecipePhotoErrorSchema, GenerateRecipePhotoResponseSchema } from '@/shared/schemas/generate-recipe-photo';
-import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
 
 import { downscalePhoto, UPLOAD_PHOTO } from './downscale-photo';
 import { RECIPE_PAGES_BUCKET, RECIPE_PHOTOS_BUCKET } from './recipe-photo-source';
@@ -100,27 +97,10 @@ export async function uploadRecipePages(householdId: string, recipeId: string, u
   }
 }
 
-/**
- * What a stock pick needs: the photo to download (`full`), one to show meanwhile (`thumb`), and the
- * credit's names and links, `provider` being the name the search answer gave for its service.
- */
-export type StockPhoto = Pick<PhotoSearchResult, 'thumb' | 'full' | 'author' | 'authorUrl' | 'pageUrl'> & { provider: string };
-
-/** A stock photo's `recipes.photo_credit`. */
-export function stockPhotoCredit(photo: StockPhoto): PhotoCredit {
-  return { provider: photo.provider, author: photo.author, authorUrl: photo.authorUrl, pageUrl: photo.pageUrl };
-}
-
-/**
- * An upload the recipe screen shows: the photo (`localUri`, from the device; a stock photo's
- * `thumb` while it downloads) and its credit, uploading or failed. `stock` is set for a stock pick,
- * so Try again downloads it again.
- */
+/** An upload the recipe screen shows: the photo (`localUri`, from the device), uploading or failed. */
 export type PhotoUpload = {
   recipeId: string;
   localUri: string;
-  credit: PhotoCredit | null;
-  stock: StockPhoto | null;
   status: 'uploading' | 'failed';
   key: number;
 };
@@ -135,74 +115,37 @@ function emit(next: PhotoUpload | null) {
 }
 
 /**
- * Shows `shown` as uploading, gets the file to upload (`prepare`), uploads it and, once it's stored,
- * sets `photo_path` to it and `photo_credit` to `credit`, with the usual "Photo updated" change (the
- * site photo stays, for Remove). Resolves false on failure, leaving the recipe as it was and the
- * upload `failed` for the screen's toast. Never throws.
+ * Uploads the photo at `localUri` (already shrunk) for the recipe, showing it as uploading, and once
+ * it's stored sets `photo_path` to it, with the usual "Photo updated" change (the site photo stays,
+ * for Remove). Resolves false on failure, leaving the recipe as it was and the upload `failed` for
+ * the screen's toast. Never throws.
  */
-async function runUpload(
-  recipeId: string,
-  shown: string,
-  credit: PhotoCredit | null,
-  stock: StockPhoto | null,
-  prepare: () => Promise<string>,
-): Promise<boolean> {
+export async function uploadRecipePhoto(recipeId: string, localUri: string): Promise<boolean> {
   const key = nextKey++;
-  emit({ recipeId, localUri: shown, credit, stock, status: 'uploading', key });
+  emit({ recipeId, localUri, status: 'uploading', key });
   try {
     const recipe = getRecipe(recipeId);
     if (!recipe) throw new Error('recipe gone');
-    const localUri = await prepare();
     const path = recipePhotoPath(recipe.householdId, recipeId);
     await uploadJpeg(RECIPE_PHOTOS_BUCKET, path, localUri);
     // Read again: the recipe may have changed while it uploaded.
     const now = getRecipe(recipeId);
     if (now) {
-      const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath, photoCredit: now.photoCredit };
-      chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: path, photoCredit: credit });
+      const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath };
+      chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: path });
     }
     if (upload?.key === key) emit(null);
     return true;
   } catch (e) {
     console.warn('[photo] upload failed', e);
-    if (upload?.key === key) emit({ recipeId, localUri: shown, credit, stock, status: 'failed', key });
+    if (upload?.key === key) emit({ recipeId, localUri, status: 'failed', key });
     return false;
   }
 }
 
-/**
- * Uploads the photo at `localUri` (already shrunk) for the recipe and sets `photo_path` to it, and
- * `photo_credit` to `credit` (a stock photo's; a library or camera photo has none). Never throws.
- */
-export function uploadRecipePhoto(recipeId: string, localUri: string, credit: PhotoCredit | null = null): Promise<boolean> {
-  return runUpload(recipeId, localUri, credit, null, async () => localUri);
-}
-
-/**
- * A stock photo picked in Search photos: downloads `full` to the cache directory, shrinks it for
- * upload (`UPLOAD_PHOTO`) and uploads it as the household's own photo with the photo's credit. While
- * it downloads, the screen shows the `thumb` the sheet already loaded. A failed download or upload
- * leaves the recipe as it was, and Try again starts over from the download. Never throws.
- */
-export function uploadStockPhoto(recipeId: string, photo: StockPhoto): Promise<boolean> {
-  return runUpload(recipeId, photo.thumb, stockPhotoCredit(photo), photo, async () => {
-    const downloaded = await File.downloadFileAsync(photo.full, new File(Paths.cache, `stock-${newId()}.jpg`), {
-      idempotent: true,
-    });
-    try {
-      return (await downscalePhoto(downloaded.uri, UPLOAD_PHOTO)).uri;
-    } finally {
-      // The shrunk copy is what's uploaded; the full-size download isn't needed again.
-      try {
-        downloaded.delete();
-      } catch {}
-    }
-  });
-}
-
-/** Try again on the failure toast: uploads the same photo (with its credit) again; a stock photo is downloaded again. */
+/** Try again on the failure toast: uploads the same photo again. */
 export function retryPhotoUpload(u: PhotoUpload): Promise<boolean> {
-  return u.stock ? uploadStockPhoto(u.recipeId, u.stock) : uploadRecipePhoto(u.recipeId, u.localUri, u.credit);
+  return uploadRecipePhoto(u.recipeId, u.localUri);
 }
 
 /** Ends a failed upload's toast (dismissed, timed out, or the screen closed). Leaves one in flight alone. */
@@ -299,7 +242,7 @@ async function generationError(error: unknown): Promise<PhotoGenerationError> {
 
 /**
  * Generate with AI (spec 4.5): asks the server for the recipe's one AI photo and, once it answers,
- * sets `photo_path` to it and `photo_credit` to null through the usual recipe update, with "Photo
+ * sets `photo_path` to it through the usual recipe update, with "Photo
  * updated" and Undo. Runs outside the sheet and the screen, so leaving the recipe doesn't drop it.
  * A failure is kept for the recipe screen's toast if one shows the recipe, else dropped. Resolves
  * whether it worked; never throws.
@@ -311,8 +254,8 @@ export async function generateRecipePhoto(recipeId: string): Promise<boolean> {
   const result = await requestGeneratedPhoto(recipeId);
   const now = getRecipe(recipeId);
   if (result.ok && now) {
-    const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath, photoCredit: now.photoCredit };
-    chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: result.path, photoCredit: null });
+    const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath };
+    chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: result.path });
   }
   if (generations.get(recipeId)?.key === key) {
     const shown = (watchers.get(recipeId) ?? 0) > 0;
