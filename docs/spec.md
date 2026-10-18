@@ -566,6 +566,7 @@ create table recipes (
   image_url     text check (image_url like 'https://%' and char_length(image_url) <= 2048),
   photo_path    text,                            -- 4.5; the household's own photo, null = none (recipes_photo_path_shape)
   photo_credit  jsonb,                           -- 4.5; a stock own photo's credit, null = none (recipes_photo_credit_shape)
+  source_pages  jsonb,                           -- 4.10; the original pages of a photo import, null = none (recipes_source_pages_shape)
   added_by      uuid references auth.users on delete set null,  -- the server sets it on insert
   deleted_at   timestamptz,
   field_clock  jsonb not null default '{}'
@@ -579,6 +580,10 @@ create table recipes (
 -- recipes_photo_credit_shape: exactly { "provider": <the provider's name, 1–40 chars>, "author": <1–200 chars>, "authorUrl":
 -- <https://, ≤ 2048 chars>, "pageUrl": <https://, ≤ 2048 chars> }, and only when photo_path is set.
 -- Synced and merged per field like photo_path; the app always writes it with a new photo_path.
+-- recipes_source_pages_shape (private.recipe_source_pages_ok): an array of 1–3 distinct paths in
+-- page order, each '<household_id>/<recipe_id>/<uuid>.jpg' (lowercase uuids), its folders the row's
+-- own household_id and id. Synced and merged per field like photo_path (the whole array is one
+-- field). The objects live in the recipe-pages bucket (below).
 -- recipes_step_ingredients_shape: { "v": 1, "basis": "<hash>", "steps": [[{ "id": "<recipe_ingredient_id>",
 -- "quantity": null }], …] }, one entry per step: 1–100 steps of at most 80 uses each, quantity null
 -- (all of it, or not stated) or the step's positive share. The ids aren't checked against
@@ -600,6 +605,17 @@ create table recipes (
 -- least an hour old (claim_recipe_photo_deletions, which drops objects a recipe points at again, as
 -- after Undo, and ones already gone), removes them through the Storage API (SQL can't delete
 -- Storage files) and completes them (complete_recipe_photo_deletions). Both are service role only.
+-- A recipe's original pages (4.10): Storage bucket recipe-pages, set up as recipe-photos: private,
+-- image/jpeg only, 2 MB per object (also in supabase/config.toml), objects at
+-- <household_id>/<recipe_id>/<uuid>.jpg, select, insert (name of that shape) and delete for members
+-- of the household in the first folder, no update. Cleaned up through its own queue
+-- private.recipe_page_deletions: each old path no longer in the array when source_pages changes or
+-- is cleared, the recipe's '<household_id>/<recipe_id>/' prefix when its row is deleted (a purge or
+-- a household's cascade; it also catches uploads that never made it into source_pages), and the
+-- '<household_id>/' prefix when a household is deleted. claim_recipe_page_deletions /
+-- complete_recipe_page_deletions (service role only) work as the photo ones: entries at least an
+-- hour old, never a page a recipe points at again. The same cron job calls photo-cleanup when any
+-- queue has entries.
 
 -- The household's meal plan (4.16). One row per entry in a slot (a day and a meal). A slot holds one
 -- entry for now; position orders several, so allowing more later needs no migration.
@@ -649,7 +665,8 @@ create unique index one_open_item_per_ingredient
 -- through its own queue private.item_photo_deletions (the old object when photo_path changes or is
 -- cleared, an item's object when its row is deleted, the household's prefix when a household is
 -- deleted) and claim_item_photo_deletions / complete_item_photo_deletions. The same cron job calls
--- photo-cleanup when either queue has entries, and photo-cleanup sweeps both buckets.
+-- photo-cleanup when any queue (these, recipe photos' or recipe pages') has entries, and
+-- photo-cleanup sweeps all three buckets.
 
 create table list_item_contributions (
   id           uuid primary key,
@@ -993,7 +1010,7 @@ Errors: `invalid_request` (400), `not_entitled` (403), `not_a_recipe` (422), `ra
 - **Output.** `ExtractedRecipe` with the same validation as 6.6 (caps, units, tags, time, `cleanRecipeSteps`, the step match checked and mapped). `image_url` is always null: the model never sets it.
 - **Call limits.** `temperature: 0`, no tools, `maxRetries: 1`, a 45 s timeout, `maxOutputTokens` as extract-recipe's for page text (80 ingredient lines plus 40 steps: 7,500). Model `AI_MODEL_RECIPE_PHOTO`, defaulting to `AI_MODEL_RECIPE`'s model when unset (and then also to `AI_MODEL_RECIPE_FALLBACK`); optional `AI_MODEL_RECIPE_PHOTO_FALLBACK`. Both registered providers (Gemini and Claude) take base64 image parts in the AI SDK version the functions use. Thinking: the recipe setting, `AI_THINKING_RECIPE_PHOTO` overrides it.
 - **Cost.** Per user: 5 photo imports a minute and 30 a day (429 beyond either), counted in Postgres by `check_recipe_photo_limit` (service role only; a refused request uses no budget; usage rows are pruned daily), separately from the link-import limits. Globally: `RECIPE_PHOTO_DAILY_CAP` (default 300) a day. `mock` never touches the network: it returns a fixed recipe ("Mock photo recipe", three ingredients, two steps, matched), or `is_recipe: false` when the first image is under 1 KB, so tests reach both answers.
-- **Privacy.** `ai_calls` stores the prompt text with each image replaced by `[image: <media type>, <bytes> bytes, sha256 <hex>]`, and the output, but no user id (6.5) and never the image bytes. No image is written anywhere else: not to Storage, a table or the logs.
+- **Privacy.** `ai_calls` stores the prompt text with each image replaced by `[image: <media type>, <bytes> bytes, sha256 <hex>]`, and the output, but no user id (6.5) and never the image bytes. The function writes no image anywhere else: not to Storage, a table or the logs. The app keeps the pages itself (4.10): after a successful import it uploads them to the household's private `recipe-pages` bucket and sets `recipes.source_pages` (5), so only the household's members can see them, and the server deletes them with the recipe or the household.
 
 **Tools.** `yarn ai:recipe-photo <image> [<image>…]` (1 to 3 paths; `--model`, `--categorize-model`, `--raw`, `--quiet`, `--json`, `-h`) runs the handler against in-memory stores (nothing written, no rate limits) and prints each LLM call in full, then the recipe: name, servings, time, tags, the ingredient table with categories, and the step match in `yarn ai:steps`' format. The media type comes from the extension; `.heic`/`.heif` is converted to JPEG with macOS's `sips` into the temp folder (or the CLI says how to convert it where there's no `sips`), and a file over 2 MB is resized with `sips -Z 2000` first, which the CLI reports. `--raw` shows the provider's request and response bodies with image data as `<N bytes base64>`. It uses the real model unless `--model mock`, and is run by hand only.
 

@@ -277,7 +277,9 @@ select vault.create_secret('http://host.docker.internal:55321', 'project_url');
 select vault.create_secret('test-key', 'photo_cleanup_key');
 select is(private.request_recipe_photo_cleanup(), true, 'with only item photos queued, photo-cleanup is called');
 delete from private.item_photo_deletions;
-select is(private.request_recipe_photo_cleanup(), false, 'with both queues empty, nothing is called');
+-- The deleted households also queued their recipe-pages prefixes (recipe_pages.sql).
+delete from private.recipe_page_deletions;
+select is(private.request_recipe_photo_cleanup(), false, 'with every queue empty, nothing is called');
 
 select * from finish();
 rollback;

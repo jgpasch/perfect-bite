@@ -1,7 +1,7 @@
-// Removing recipe and item photos nothing points at any more (spec 4.4, 4.5, 5). The database
-// queues them, one queue per bucket (20261029120000_recipe_photo_storage.sql,
-// 20261106120000_item_photos.sql); this removes them through the Storage API, which is the only way
-// to delete the files, then marks the queue entries done.
+// Removing recipe photos, item photos and recipe pages nothing points at any more (spec 4.4, 4.5,
+// 4.10, 5). The database queues them, one queue per bucket (20261029120000_recipe_photo_storage.sql,
+// 20261106120000_item_photos.sql, 20261107120000_recipe_pages.sql); this removes them through the
+// Storage API, which is the only way to delete the files, then marks the queue entries done.
 
 /** One bucket's queue and the bucket, over the service-role client in index.ts and fakes in tests. */
 export type CleanupStore = {
@@ -12,6 +12,38 @@ export type CleanupStore = {
   /** Drops the queue entries whose objects are removed. */
   complete(ids: number[]): Promise<void>;
 };
+
+/** Each bucket and the RPCs over its queue, swept in this order. */
+export const CLEANUP_BUCKETS = [
+  { bucket: 'recipe-photos', claim: 'claim_recipe_photo_deletions', complete: 'complete_recipe_photo_deletions' },
+  { bucket: 'item-photos', claim: 'claim_item_photo_deletions', complete: 'complete_item_photo_deletions' },
+  { bucket: 'recipe-pages', claim: 'claim_recipe_page_deletions', complete: 'complete_recipe_page_deletions' },
+] as const;
+
+/** The parts of the service-role client a sweep uses. */
+export type CleanupClient = {
+  rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }>;
+  storage: { from(bucket: string): { remove(names: string[]): PromiseLike<{ error: unknown }> } };
+};
+
+/** One store per bucket in CLEANUP_BUCKETS, over the client. */
+export function bucketStores(admin: CleanupClient): CleanupStore[] {
+  return CLEANUP_BUCKETS.map((b) => ({
+    async claim(limit) {
+      const { data, error } = await admin.rpc(b.claim, { p_limit: limit });
+      if (error) throw error;
+      return (data ?? []) as { queue_id: number; name: string }[];
+    },
+    async remove(names) {
+      const { error } = await admin.storage.from(b.bucket).remove(names);
+      if (error) throw error;
+    },
+    async complete(ids) {
+      const { error } = await admin.rpc(b.complete, { p_ids: ids });
+      if (error) throw error;
+    },
+  }));
+}
 
 /** Queue entries per run; the next run (cron, every 15 minutes) takes the rest. */
 export const CLAIM_LIMIT = 100;
@@ -37,7 +69,7 @@ export async function cleanUpPhotos(store: CleanupStore, limit = CLAIM_LIMIT): P
 }
 
 /**
- * Sweeps every bucket (recipe-photos, item-photos) and adds up the counts. A failing bucket doesn't
+ * Sweeps every bucket (recipe-photos, item-photos, recipe-pages) and adds up the counts. A failing bucket doesn't
  * stop the others; the first failure is thrown once they've all run.
  */
 export async function cleanUpBuckets(stores: CleanupStore[], limit = CLAIM_LIMIT): Promise<CleanupResult> {

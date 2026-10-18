@@ -1,6 +1,15 @@
 import { assertEquals, assertRejects } from '@std/assert';
 
-import { cleanUpBuckets, cleanUpPhotos, handleRequest, REMOVE_BATCH, type CleanupStore } from './handler.ts';
+import {
+  bucketStores,
+  CLEANUP_BUCKETS,
+  cleanUpBuckets,
+  cleanUpPhotos,
+  handleRequest,
+  REMOVE_BATCH,
+  type CleanupClient,
+  type CleanupStore,
+} from './handler.ts';
 
 const H = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const photo = (n: number) => `${H}/a3000000-0000-7000-8000-000000000001/c0000000-0000-7000-8000-${String(n).padStart(12, '0')}.jpg`;
@@ -114,4 +123,80 @@ Deno.test('a failing bucket still lets the next one run, then throws', async () 
 
 Deno.test('no buckets: nothing to do', async () => {
   assertEquals(await cleanUpBuckets([]), { removed: 0, completed: 0 });
+});
+
+/** A service-role client whose queues hold `queued` (per claim RPC) and that records removes. */
+function fakeClient(queued: Record<string, { queue_id: number; name: string }[]>, failClaim?: string) {
+  const calls = { rpc: [] as [string, Record<string, unknown>][], remove: [] as [string, string[]][] };
+  const client: CleanupClient = {
+    rpc: async (fn, args) => {
+      calls.rpc.push([fn, args]);
+      if (fn === failClaim) return { data: null, error: new Error('db down') };
+      return { data: fn.startsWith('claim_') ? (queued[fn] ?? []) : null, error: null };
+    },
+    storage: {
+      from: (bucket) => ({
+        remove: async (names) => {
+          calls.remove.push([bucket, names]);
+          return { error: null };
+        },
+      }),
+    },
+  };
+  return { client, calls };
+}
+
+const page = (n: number) => `${H}/a3000000-0000-7000-8000-000000000001/e0000000-0000-7000-8000-${String(n).padStart(12, '0')}.jpg`;
+
+Deno.test('the buckets swept: recipe-photos, item-photos, then recipe-pages', () => {
+  assertEquals(
+    CLEANUP_BUCKETS.map((b) => [b.bucket, b.claim, b.complete]),
+    [
+      ['recipe-photos', 'claim_recipe_photo_deletions', 'complete_recipe_photo_deletions'],
+      ['item-photos', 'claim_item_photo_deletions', 'complete_item_photo_deletions'],
+      ['recipe-pages', 'claim_recipe_page_deletions', 'complete_recipe_page_deletions'],
+    ],
+  );
+});
+
+Deno.test('removes queued recipe-pages objects from recipe-pages, then completes their entries', async () => {
+  const { client, calls } = fakeClient({
+    claim_recipe_page_deletions: [
+      { queue_id: 3, name: page(1) },
+      { queue_id: 4, name: page(2) },
+      { queue_id: 4, name: page(3) },
+    ],
+  });
+  assertEquals(await cleanUpBuckets(bucketStores(client)), { removed: 3, completed: 2 });
+  assertEquals(calls.remove, [['recipe-pages', [page(1), page(2), page(3)]]]);
+  assertEquals(calls.rpc, [
+    ['claim_recipe_photo_deletions', { p_limit: 100 }],
+    ['claim_item_photo_deletions', { p_limit: 100 }],
+    ['claim_recipe_page_deletions', { p_limit: 100 }],
+    ['complete_recipe_page_deletions', { p_ids: [3, 4] }],
+  ]);
+});
+
+Deno.test("each bucket removes only its own queue's objects", async () => {
+  const { client, calls } = fakeClient({
+    claim_recipe_photo_deletions: [{ queue_id: 1, name: photo(1) }],
+    claim_recipe_page_deletions: [{ queue_id: 1, name: page(1) }],
+  });
+  assertEquals(await cleanUpBuckets(bucketStores(client)), { removed: 2, completed: 2 });
+  assertEquals(calls.remove, [
+    ['recipe-photos', [photo(1)]],
+    ['recipe-pages', [page(1)]],
+  ]);
+});
+
+Deno.test('a failed recipe-pages claim throws and completes nothing there', async () => {
+  const { client, calls } = fakeClient(
+    { claim_recipe_photo_deletions: [{ queue_id: 1, name: photo(1) }] },
+    'claim_recipe_page_deletions',
+  );
+  await assertRejects(() => cleanUpBuckets(bucketStores(client)), Error, 'db down');
+  assertEquals(
+    calls.rpc.filter(([fn]) => fn.startsWith('complete_')).map(([fn]) => fn),
+    ['complete_recipe_photo_deletions'],
+  );
 });
