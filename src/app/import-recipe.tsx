@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
+import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { SettingsRow } from '@/components/settings-group';
 import { TextField } from '@/components/text-field';
@@ -54,7 +55,8 @@ import { useT } from '@/i18n';
  * notification: "Recipe added" (tapping opens the list with its toast), "Recipe saved" (opens the
  * recipe) or "Couldn't import recipe", which reopens the sheet with the same `household`, `add`, `to`
  * (list) and `url`. With `photos` (from Add recipe's From photo…), it imports those pages instead of
- * a link, showing their thumbnails where the link field would be; a failed photo import's
+ * a link, showing their thumbnails where the link field would be, with a note that the pages are
+ * kept with the recipe; a failed photo import's
  * notification opens Add recipe, since the photos go with the sheet.
  */
 export default function ImportRecipeSheet() {
@@ -251,7 +253,10 @@ export default function ImportRecipeSheet() {
 
         <Label>{t(photos ? 'recipes.import.pages' : 'recipes.import.link')}</Label>
         {photos ? (
-          <PageThumbnails uris={photos} />
+          <>
+            <PageThumbnails uris={photos} />
+            <PagesKeptNote />
+          </>
         ) : (
           <Card>
             <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
@@ -335,8 +340,23 @@ function PageThumbnails({ uris }: { uris: string[] }) {
   );
 }
 
+/** Under the thumbnails: the pages stay with the recipe (spec 4.10). */
+function PagesKeptNote() {
+  const t = useT();
+  const { spacing, sizes } = useTheme();
+  return (
+    <View style={[styles.note, { gap: spacing.sm, paddingHorizontal: spacing.lg + spacing.xs }]}>
+      <Icon name="doc.text" color="inkSecondary" size={sizes.iconSmall} style={{ marginTop: spacing.xxs }} />
+      <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
+        {t('recipes.import.pagesKept')}
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  note: { flexDirection: 'row', alignItems: 'flex-start' },
   page: { aspectRatio: 3 / 4, overflow: 'hidden', borderCurve: 'continuous' },
   row: { flexDirection: 'row', alignItems: 'center' },
   wrap: { flexWrap: 'wrap' },

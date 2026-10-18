@@ -3,6 +3,7 @@
 // the usual recipe update. While it uploads, the recipe screen shows the photo from the device with
 // a spinner; a failure leaves the recipe as it was and the screen offers Try again. A stock photo
 // (from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
+// A photo import's pages (spec 4.10) upload the same way to the private recipe-pages bucket.
 import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useSyncExternalStore } from 'react';
@@ -13,7 +14,7 @@ import type { PhotoCredit } from '@/shared/photo-credit';
 import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
 
 import { downscalePhoto, UPLOAD_PHOTO } from './downscale-photo';
-import { RECIPE_PHOTOS_BUCKET } from './recipe-photo-source';
+import { RECIPE_PAGES_BUCKET, RECIPE_PHOTOS_BUCKET } from './recipe-photo-source';
 import { chooseRecipePhoto } from './recipe-photos';
 import { getRecipe } from './recipes';
 
@@ -59,6 +60,42 @@ export async function pickRecipePhoto(from: PhotoSource): Promise<PickResult> {
 }
 
 // --- The upload ----------------------------------------------------------------------------------
+
+/** Stores the JPEG at `localUri` as a new object at `path` in `bucket`. Throws on failure. */
+async function uploadJpeg(bucket: string, path: string, localUri: string): Promise<void> {
+  const body = await new File(localUri).arrayBuffer();
+  const { error } = await supabase.storage.from(bucket).upload(path, body, { contentType: 'image/jpeg', upsert: false });
+  if (error) throw error;
+}
+
+/**
+ * A photo import's pages (spec 4.10): uploads each (already shrunk) to `recipe-pages` at a new path,
+ * one at a time and in order, and returns the paths for `source_pages`. Best effort: if one fails,
+ * removes those that went up and resolves null. Never throws.
+ */
+export async function uploadRecipePages(householdId: string, recipeId: string, uris: readonly string[]): Promise<string[] | null> {
+  const uploaded: string[] = [];
+  try {
+    for (const uri of uris) {
+      const path = recipePhotoPath(householdId, recipeId);
+      await uploadJpeg(RECIPE_PAGES_BUCKET, path, uri);
+      uploaded.push(path);
+    }
+    return uploaded;
+  } catch (e) {
+    console.warn('[pages] upload failed', e);
+    if (uploaded.length > 0) {
+      try {
+        const { error } = await supabase.storage.from(RECIPE_PAGES_BUCKET).remove(uploaded);
+        if (error) throw error;
+      } catch (removeError) {
+        // Nothing points at them; they stay until the recipe or household goes.
+        console.warn('[pages] removing the uploaded pages failed', removeError);
+      }
+    }
+    return null;
+  }
+}
 
 /**
  * What a stock pick needs: the photo to download (`full`), one to show meanwhile (`thumb`), and the
@@ -114,11 +151,7 @@ async function runUpload(
     if (!recipe) throw new Error('recipe gone');
     const localUri = await prepare();
     const path = recipePhotoPath(recipe.householdId, recipeId);
-    const body = await new File(localUri).arrayBuffer();
-    const { error } = await supabase.storage
-      .from(RECIPE_PHOTOS_BUCKET)
-      .upload(path, body, { contentType: 'image/jpeg', upsert: false });
-    if (error) throw error;
+    await uploadJpeg(RECIPE_PHOTOS_BUCKET, path, localUri);
     // Read again: the recipe may have changed while it uploaded.
     const now = getRecipe(recipeId);
     if (now) {

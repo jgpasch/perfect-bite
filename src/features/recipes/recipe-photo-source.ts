@@ -13,6 +13,8 @@ import { isSupabaseConfigured, supabase, supabaseUrl } from '@/lib/supabase';
 import type { PhotoCredit } from '@/shared/photo-credit';
 
 export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
+/** A photo import's pages (spec 4.10, `recipes.source_pages`). */
+export const RECIPE_PAGES_BUCKET = 'recipe-pages';
 
 /**
  * The photo columns of a recipe. `photoCredit` goes with `photoPath` (a stock photo's credit, else

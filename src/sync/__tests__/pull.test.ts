@@ -1312,6 +1312,40 @@ describe("a recipe's own photo (spec 4.5, 5)", () => {
     expect(recipeRow()).toMatchObject({ name: 'Tacos!', photoPath: PATH });
   });
 
+  describe("a photo import's pages (spec 4.10)", () => {
+    const PAGES = [
+      `${H1}/r1/0190a000-0000-7000-8000-000000000011.jpg`,
+      `${H1}/r1/0190a000-0000-7000-8000-000000000012.jpg`,
+    ];
+    const CLOCK = { ...RECIPE_CLOCK, source_pages: OLD };
+
+    test('a pull applies the pages as an array, in order, and a newer clear removes them', async () => {
+      server.recipes = [remoteRecipe(ts(10), { source_pages: PAGES, field_clock: { ...CLOCK, source_pages: NEW } })];
+      await pullNow();
+      expect(recipeRow().sourcePages).toEqual(PAGES);
+
+      server.recipes = [remoteRecipe(ts(20), { source_pages: null, field_clock: { ...CLOCK, source_pages: '9500000000000-0000-remote' } })];
+      await pullNow();
+      expect(recipeRow()).toMatchObject({ sourcePages: null, photoPath: PATH });
+    });
+
+    test('a local unpushed change beats an older remote one, field by field, and is pushed alone', async () => {
+      updateRows(db, recipes, eq(recipes.id, 'r1'), { sourcePages: PAGES });
+      server.recipes = [
+        remoteRecipe(ts(10), {
+          source_pages: null,
+          name: 'Tacos!',
+          field_clock: { ...CLOCK, source_pages: '1500000000000-0000-remote', name: NEW },
+        }),
+      ];
+
+      await pullNow();
+
+      expect(recipeRow()).toMatchObject({ sourcePages: PAGES, name: 'Tacos!' });
+      expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ source_pages: PAGES }]);
+    });
+  });
+
   describe("a stock photo's credit", () => {
     const CREDIT = {
       provider: 'Pixabay',

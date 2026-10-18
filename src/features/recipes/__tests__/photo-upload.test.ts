@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 
 import { ensureStarterData } from '@/features/lists/lists';
 import { resetDb } from '@/test/db';
-import { resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
+import {
+  resetSupabase,
+  storageRemovals,
+  storageRemoveMock,
+  storageUploadMock,
+  storageUploads,
+  supabase,
+} from '@/test/fake-supabase';
 import { outboxMutations } from '@/test/outbox';
 import type { PhotoCredit } from '@/shared/photo-credit';
 
@@ -15,6 +22,7 @@ import {
   resetPhotoUpload,
   retryPhotoUpload,
   stockPhotoCredit,
+  uploadRecipePages,
   uploadRecipePhoto,
   uploadStockPhoto,
   usePhotoUpload,
@@ -370,5 +378,44 @@ describe('uploadStockPhoto (spec 4.5)', () => {
     expect(await uploadStockPhoto(id, PHOTO)).toBe(false);
     expect(mockDownload).not.toHaveBeenCalled();
     expect(storageUploads()).toHaveLength(0);
+  });
+});
+
+describe('uploadRecipePages (spec 4.10)', () => {
+  const URIS = ['file:///cache/p1.jpg', 'file:///cache/p2.jpg'];
+
+  test('uploads each page in order to recipe-pages at a new path, and returns the paths', async () => {
+    const paths = await uploadRecipePages('h1', 'r1', URIS);
+    expect(paths).toHaveLength(2);
+    expect(storageUploads().map(([bucket, path, , options]) => [bucket, path, options])).toEqual(
+      paths!.map((p) => ['recipe-pages', p, { contentType: 'image/jpeg', upsert: false }]),
+    );
+    for (const p of paths!) expect(p).toMatch(/^h1\/r1\/[0-9a-f-]{36}\.jpg$/);
+    expect(paths![0]).not.toBe(paths![1]);
+    expect(storageRemovals()).toEqual([]);
+  });
+
+  test('a failure removes the pages that went up and resolves null', async () => {
+    storageUploadMock
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'Network', statusCode: '500' } });
+    expect(await uploadRecipePages('h1', 'r1', [...URIS, 'file:///cache/p3.jpg'])).toBeNull();
+    const [[, first]] = storageUploads();
+    expect(storageUploads()).toHaveLength(2);
+    expect(storageRemovals()).toEqual([['recipe-pages', [first]]]);
+    expect(warn).toHaveBeenCalledWith('[pages] upload failed', expect.anything());
+  });
+
+  test('a failed removal is only warned about: still null, never throws', async () => {
+    storageUploadMock.mockResolvedValueOnce({ data: null, error: null }).mockRejectedValueOnce(new Error('offline'));
+    storageRemoveMock.mockResolvedValueOnce({ data: null, error: { message: 'Network', statusCode: '500' } });
+    expect(await uploadRecipePages('h1', 'r1', URIS)).toBeNull();
+    expect(storageRemovals()).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith('[pages] removing the uploaded pages failed', expect.anything());
+  });
+
+  test('no pages: nothing uploaded, an empty list', async () => {
+    expect(await uploadRecipePages('h1', 'r1', [])).toEqual([]);
+    expect(storageUploads()).toEqual([]);
   });
 });

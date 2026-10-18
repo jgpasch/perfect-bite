@@ -719,6 +719,7 @@ export const en = {
       photoTitle: 'Add recipe from photo',
       pages: 'Pages',
       page: 'Page {{index}} of {{count}}',
+      pagesKept: 'The pages are kept with the recipe, so everyone in the household can see the original.',
       saveTo: 'Save to',
       alsoAdd: 'Also add ingredients to a list',
       alsoAddHint: "Adds the recipe's ingredients to the chosen list",

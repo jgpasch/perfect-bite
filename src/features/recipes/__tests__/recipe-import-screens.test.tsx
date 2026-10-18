@@ -24,6 +24,7 @@ import { resetDb } from '@/test/db';
 
 import { StatusBar } from 'expo-status-bar';
 
+import { Sizes } from '@/constants/theme';
 import { recipeHue } from '@/domain/aisle-color';
 
 import ImportRecipeSheet from '@/app/import-recipe';
@@ -696,7 +697,8 @@ describe('ImportRecipeSheet', () => {
 
   describe('with photos (spec 4.10)', () => {
     const PAGES = ['file:///cache/page-1.jpg', 'file:///cache/page-2.jpg'];
-    const pages = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'import-page' && typeof n.type === 'string');
+    const PAGES_KEPT = 'The pages are kept with the recipe, so everyone in the household can see the original.';
+    const pages =(root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'import-page' && typeof n.type === 'string');
 
     beforeEach(() => {
       mockParams.photos = photosParam(PAGES);
@@ -719,6 +721,17 @@ describe('ImportRecipeSheet', () => {
       const root = render(<ImportRecipeSheet />);
       expect(texts(root)).toContain('Add recipe from link');
       expect(pages(root)).toEqual([]);
+      expect(texts(root)).not.toContain(PAGES_KEPT);
+    });
+
+    test('under the thumbnails, a note with a page glyph says the pages are kept with the recipe', () => {
+      const root = render(<ImportRecipeSheet />);
+      const all = texts(root);
+      expect(all).toContain(PAGES_KEPT);
+      expect(all.indexOf(PAGES_KEPT)).toBeGreaterThan(all.indexOf('Pages'));
+      const glyphs = root.root.findAll((n) => n.props.name === 'doc.text');
+      expect(glyphs).toHaveLength(1);
+      expect(glyphs[0].props).toMatchObject({ color: 'inkSecondary', size: Sizes.iconSmall });
     });
 
     test('switch on: Save closes at once with Importing, then "Recipe added" opens the list with its toast', async () => {

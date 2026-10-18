@@ -196,6 +196,11 @@ export const recipes = sqliteTable(
     photoPath: text('photo_path'),
     /** Who to credit for the own photo, when it's a stock photo (spec 4.5). Only with `photoPath`. Null = none. */
     photoCredit: text('photo_credit', { mode: 'json' }).$type<PhotoCredit>(),
+    /**
+     * A photo import's pages in order (spec 4.10): `<household_id>/<recipe_id>/<uuid>.jpg` each, in
+     * the private `recipe-pages` bucket. Null = none.
+     */
+    sourcePages: text('source_pages', { mode: 'json' }).$type<string[]>(),
     /** Set by the server to whoever inserted it; never sent (spec 5). */
     addedBy: text('added_by'),
     deletedAt,

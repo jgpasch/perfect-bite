@@ -26,6 +26,9 @@ import {
   respondToRpc,
   rpcCallsFor,
   setSupabaseConfigured,
+  storageRemovals,
+  storageUploadMock,
+  storageUploads,
   supabase,
 } from '@/test/fake-supabase';
 
@@ -45,6 +48,8 @@ jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/features/categories/catch-up', () => ({ startCatchUpTriggers: () => () => {} }));
 // A photo's bytes as base64: its file name, so a test can see which page went where.
 const mockBase64 = jest.fn(async (uri: string) => Buffer.from(uri).toString('base64'));
+// The page files deleted from the cache, and what each upload's bytes came from.
+const mockDeleted: string[] = [];
 jest.mock('expo-file-system', () => ({
   File: class {
     mockUri: string;
@@ -53,6 +58,12 @@ jest.mock('expo-file-system', () => ({
     }
     base64() {
       return mockBase64(this.mockUri);
+    }
+    async arrayBuffer() {
+      return new TextEncoder().encode(this.mockUri).buffer;
+    }
+    delete() {
+      mockDeleted.push(this.mockUri);
     }
   },
 }));
@@ -1199,5 +1210,82 @@ describe('from photos (spec 4.10, 6.10)', () => {
   test('no photos sends nothing', async () => {
     expect(await importRecipeFromPhotos({ listId, photoUris: [] })).toEqual({ ok: false, error: 'failed' });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  describe('keeps the pages (spec 4.10)', () => {
+    const sourcePages = (id: string) => db.select({ sourcePages: recipes.sourcePages }).from(recipes).where(eq(recipes.id, id)).get()?.sourcePages;
+    const bytesOf = (body: unknown) => new TextDecoder().decode(body as ArrayBuffer);
+
+    beforeEach(() => {
+      mockDeleted.length = 0;
+    });
+
+    test('uploads every page in order to recipe-pages and sets source_pages to their paths', async () => {
+      const result = await importRecipeFromPhotos({ listId, photoUris: PAGES });
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      const householdId = db.select().from(households).get()!.id;
+      const uploads = storageUploads();
+      expect(uploads).toHaveLength(3);
+      expect(uploads.map(([bucket]) => bucket)).toEqual(['recipe-pages', 'recipe-pages', 'recipe-pages']);
+      expect(uploads.map(([, , body]) => bytesOf(body))).toEqual(PAGES);
+      expect(uploads.map(([, , , options]) => options)).toEqual(Array(3).fill({ contentType: 'image/jpeg', upsert: false }));
+      const paths = uploads.map(([, path]) => path as string);
+      for (const path of paths) {
+        expect(path).toMatch(new RegExp(`^${householdId}/${result.recipeId}/[0-9a-f-]{36}\\.jpg$`));
+      }
+      expect(new Set(paths).size).toBe(3);
+      expect(sourcePages(result.recipeId)).toEqual(paths);
+      // Written through the usual recipe update, so it's pushed with the recipe.
+      const pushed = db
+        .select()
+        .from(outbox)
+        .all()
+        .map((r) => r.mutation)
+        .filter((m) => m.table === 'recipes' && m.id === result.recipeId);
+      expect(pushed.at(-1)?.fields).toMatchObject({ source_pages: paths });
+      expect(storageRemovals()).toEqual([]);
+      expect(mockDeleted).toEqual(PAGES);
+    });
+
+    test('a failed page upload removes the ones that went up, leaves source_pages null, and the recipe is still saved', async () => {
+      storageUploadMock
+        .mockResolvedValueOnce({ data: null, error: null })
+        .mockResolvedValueOnce({ data: null, error: { message: 'Network', statusCode: '500' } });
+      const result = await importRecipeFromPhotos({ listId, photoUris: PAGES });
+      expect(result).toMatchObject({ ok: true, recipeName: 'Chicken tikka masala', created: true, added: 4 });
+      if (!result.ok) return;
+      const uploads = storageUploads();
+      // The third page is never tried.
+      expect(uploads).toHaveLength(2);
+      expect(storageRemovals()).toEqual([['recipe-pages', [uploads[0][1]]]]);
+      expect(sourcePages(result.recipeId)).toBeNull();
+      expect(liveRecipes().map((r) => r.id)).toEqual([result.recipeId]);
+      expect(warn).toHaveBeenCalledWith('[pages] upload failed', expect.anything());
+      expect(mockDeleted).toEqual(PAGES);
+    });
+
+    test('a failed first page removes nothing', async () => {
+      storageUploadMock.mockResolvedValueOnce({ data: null, error: { message: 'Payload too large', statusCode: '413' } });
+      const result = await importRecipeFromPhotos({ listId, photoUris: PAGES });
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      expect(storageUploads()).toHaveLength(1);
+      expect(storageRemovals()).toEqual([]);
+      expect(sourcePages(result.recipeId)).toBeNull();
+    });
+
+    test('a failed import uploads nothing and keeps the page files', async () => {
+      respondWithError(422, { error: 'not_a_recipe', message: 'No' });
+      expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'not_a_recipe' });
+      expect(storageUploads()).toEqual([]);
+      expect(mockDeleted).toEqual([]);
+    });
+
+    test('a link import uploads nothing', async () => {
+      respond(TIKKA);
+      const result = await importRecipe({ listId, url: URL_ });
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      expect(storageUploads()).toEqual([]);
+      expect(sourcePages(result.recipeId)).toBeNull();
+    });
   });
 });

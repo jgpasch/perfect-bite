@@ -183,6 +183,11 @@ export function updateRecipePhoto(
   updateRows(db, recipes, eq(recipes.id, id), photo);
 }
 
+/** Sets a photo import's kept pages (spec 4.10), their paths in order, or clears them with null. */
+export function updateRecipeSourcePages(id: string, sourcePages: string[] | null): void {
+  updateRows(db, recipes, eq(recipes.id, id), { sourcePages: sourcePages && sourcePages.length > 0 ? sourcePages : null });
+}
+
 /** Saves the Steps sheet: the method in order, or null for none. Hand-made and imported recipes alike. */
 export function updateRecipeSteps(id: string, steps: string[] | null): void {
   updateRows(db, recipes, eq(recipes.id, id), { steps: steps && steps.length > 0 ? steps : null });

@@ -26,7 +26,8 @@ import { insertRow, updateRows } from '@/sync/mutate';
 
 import { ensureStepMatch } from './ensure-step-match';
 import { capturePage, toRequestPage } from './page-capture';
-import { addParsedRecipeIngredients, deleteRecipe } from './recipes';
+import { uploadRecipePages } from './photo-upload';
+import { addParsedRecipeIngredients, deleteRecipe, getRecipe, updateRecipeSourcePages } from './recipes';
 
 /** The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe id. */
 export const IMPORT_ID_NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
@@ -128,8 +129,9 @@ export type ImportRecipePhotosInput = ImportTarget & { photoUris: readonly strin
 /**
  * Imports the recipe in the photos (spec 4.10, 6.10): reads each downscaled JPEG as base64, sends
  * them to `import-recipe-photo` and saves the answer as a link import does, onto the list or into
- * the household. A photo import always creates a new recipe, with no link and no photo. The image
- * data lives only for the call. Never throws: errors come back as a result, and an error writes nothing.
+ * the household. A photo import always creates a new recipe, with no link and no photo. Once it's
+ * saved, the pages go up to `recipe-pages` and `source_pages` points at them (best effort), and the
+ * page files are deleted. Never throws: errors come back as a result, and an error writes nothing.
  */
 export async function importRecipeFromPhotos(
   input: ImportRecipePhotosInput & { listId: string },
@@ -161,7 +163,28 @@ export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Pr
     return { ok: false, error: 'offline' };
   }
   const target: ImportTarget = input.listId ? { listId: input.listId } : { householdId: input.householdId! };
-  return saveAndMatch(target, recipe, userId);
+  const result = saveAndMatch(target, recipe, userId);
+  if (result.ok) await keepPages(result.recipeId, input.photoUris);
+  return result;
+}
+
+/**
+ * Keeps a saved photo import's pages with the recipe (spec 4.10): uploads them and sets
+ * `source_pages`, best effort (a failed upload leaves it null and the import still succeeds), then
+ * deletes the page files from the cache.
+ */
+async function keepPages(recipeId: string, photoUris: readonly string[]): Promise<void> {
+  const recipe = getRecipe(recipeId);
+  if (recipe) {
+    const paths = await uploadRecipePages(recipe.householdId, recipeId, photoUris);
+    // Undone while it uploaded: the recipe is gone, and the server removes its pages.
+    if (paths && getRecipe(recipeId)) updateRecipeSourcePages(recipeId, paths);
+  }
+  for (const uri of photoUris) {
+    try {
+      new File(uri).delete();
+    } catch {}
+  }
 }
 
 function saveAndMatch(input: SaveInput, recipe: RecipeImportResponse, userId: string): ImportRecipeResult {

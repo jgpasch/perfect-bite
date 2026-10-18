@@ -639,6 +639,7 @@ export const es = {
       photoTitle: 'Agregar receta de una foto',
       pages: 'Páginas',
       page: 'Página {{index}} de {{count}}',
+      pagesKept: 'Las páginas se guardan con la receta, así todos en el hogar pueden ver el original.',
       saveTo: 'Guardar en',
       alsoAdd: 'También agregar los ingredientes a una lista',
       alsoAddHint: 'Agrega los ingredientes de la receta a la lista elegida',

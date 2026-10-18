@@ -253,8 +253,10 @@ type Result = { data: unknown; error: unknown };
 type AsyncFn = (...args: any[]) => Promise<Result>;
 
 const storageUpload = jest.fn<AsyncFn>();
+const storageRemove = jest.fn<AsyncFn>();
 const storageFrom = (bucket: string) => ({
   upload: (...args: unknown[]) => storageUpload(bucket, ...args),
+  remove: (...args: unknown[]) => storageRemove(bucket, ...args),
 });
 
 export const supabase = {
@@ -292,6 +294,17 @@ export function storageUploads() {
   return storageUpload.mock.calls;
 }
 
+/** The upload mock, so a test can answer one upload with an error (`mockResolvedValueOnce`). */
+export const storageUploadMock = storageUpload;
+
+/** The remove mock, so a test can fail one. */
+export const storageRemoveMock = storageRemove;
+
+/** `storage.from(bucket).remove(paths)` calls, as `[bucket, paths]`. */
+export function storageRemovals() {
+  return storageRemove.mock.calls;
+}
+
 export const supabaseUrl = 'https://project.supabase.test';
 
 export let isSupabaseConfigured = true;
@@ -318,6 +331,7 @@ export function resetSupabase() {
   supabase.removeChannel.mockClear();
   supabase.storage.from.mockReset().mockImplementation(storageFrom);
   storageUpload.mockReset().mockImplementation(ok);
+  storageRemove.mockReset().mockImplementation(ok);
   supabase.functions.invoke.mockReset().mockImplementation(ok);
   supabase.auth.getSession.mockReset().mockResolvedValue({ data: { session: null }, error: null });
   supabase.auth.refreshSession.mockReset().mockResolvedValue({ data: { session: null }, error: null });
