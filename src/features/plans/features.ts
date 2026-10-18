@@ -3,7 +3,14 @@
 // or stops by mistake. The app only hides or skips; Edge Functions enforce.
 import { useSyncExternalStore } from 'react';
 
-export const FEATURES = ['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags', 'step_ingredients'] as const;
+export const FEATURES = [
+  'categorize',
+  'recipe_import',
+  'recipe_import_photo',
+  'recipe_photo_ai',
+  'recipe_tags',
+  'step_ingredients',
+] as const;
 export type Feature = (typeof FEATURES)[number];
 
 /** The default plan's features (standard), assumed until the first load. */

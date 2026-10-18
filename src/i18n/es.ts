@@ -479,6 +479,13 @@ export const es = {
       cameraDenied: 'Para tomar una foto, permite el acceso a la cámara para Perfect Bite en Ajustes.',
       uploading: 'Subiendo foto',
       uploadFailed: 'No se pudo subir la foto',
+      generate: 'Generar con IA',
+      generateLabel: 'Generar una foto con IA',
+      generateNote: 'Crea una foto a partir de la receta. Una por receta.',
+      generating: 'Generando foto…',
+      generateNotFood: 'No se pudo crear una foto para esta receta',
+      generateAlready: 'Esta receta ya tuvo su foto con IA',
+      generateFailed: 'No se pudo crear una foto. Inténtalo más tarde.',
     },
     link: {
       placeholder: 'Agrega un enlace a la receta',

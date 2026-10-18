@@ -4,13 +4,16 @@
 // a spinner; a failure leaves the recipe as it was and the screen offers Try again. A stock photo
 // (from the sheet's Search photos) is downloaded first and then goes the same way, with its credit.
 // A photo import's pages (spec 4.10) upload the same way to the private recipe-pages bucket.
+// Generate with AI asks the server for the recipe's one AI photo and sets `photo_path` to it.
 import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
+import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
-import { supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { PhotoCredit } from '@/shared/photo-credit';
+import { GenerateRecipePhotoErrorSchema, GenerateRecipePhotoResponseSchema } from '@/shared/schemas/generate-recipe-photo';
 import type { PhotoSearchResult } from '@/shared/schemas/photo-search';
 
 import { downscalePhoto, UPLOAD_PHOTO } from './downscale-photo';
@@ -221,4 +224,121 @@ export function usePhotoUpload(recipeId: string): PhotoUpload | null {
 /** For tests. */
 export function resetPhotoUpload(): void {
   emit(null);
+  generations = new Map();
+  for (const listener of [...listeners]) listener();
+  watchers.clear();
+}
+
+// --- Generate with AI (spec 4.5, 6.11) -----------------------------------------------------------
+
+/**
+ * Why a generation failed: `not_food` (the server wouldn't make a photo for this recipe),
+ * `already_generated` (it has had its one AI photo), `failed` (anything else; the server released
+ * the slot, so it can be tried again).
+ */
+export type PhotoGenerationError = 'not_food' | 'already_generated' | 'failed';
+
+/** A generation the recipe screen shows: running, or failed with why. */
+export type PhotoGeneration =
+  | { recipeId: string; status: 'generating'; key: number }
+  | { recipeId: string; status: 'failed'; error: PhotoGenerationError; key: number };
+
+// One per recipe; replaced (not changed) on every update, for useSyncExternalStore.
+let generations: ReadonlyMap<string, PhotoGeneration> = new Map();
+// How many recipe screens show each recipe, so a failure nobody is looking at is dropped.
+const watchers = new Map<string, number>();
+
+function emitGeneration(recipeId: string, next: PhotoGeneration | null) {
+  const map = new Map(generations);
+  if (next) map.set(recipeId, next);
+  else map.delete(recipeId);
+  generations = map;
+  for (const listener of [...listeners]) listener();
+}
+
+/** Asks `generate-recipe-photo` for the recipe's photo: its path, or why not. Never throws. */
+async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path: string } | { ok: false; error: PhotoGenerationError }> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'failed' };
+  try {
+    const { data: auth } = await supabase.auth.getSession();
+    if (!auth.session) return { ok: false, error: 'failed' };
+    const { data, error } = await supabase.functions.invoke('generate-recipe-photo', { body: { recipeId } });
+    if (error) return { ok: false, error: await generationError(error) };
+    const parsed = GenerateRecipePhotoResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      console.warn('generate-recipe-photo: unexpected response', parsed.error);
+      return { ok: false, error: 'failed' };
+    }
+    return { ok: true, path: parsed.data.path };
+  } catch (e) {
+    console.warn('generate-recipe-photo failed', e);
+    return { ok: false, error: 'failed' };
+  }
+}
+
+/** Maps a `functions.invoke` error by its code, else its status. */
+async function generationError(error: unknown): Promise<PhotoGenerationError> {
+  const response = (error as { context?: unknown } | null)?.context as
+    | { status?: number; json?: () => Promise<unknown> }
+    | undefined;
+  let code: string | undefined;
+  try {
+    const parsed = GenerateRecipePhotoErrorSchema.safeParse(await response?.json?.());
+    if (parsed.success) code = parsed.data.error;
+  } catch {
+    // Not a JSON body; fall back to the status.
+  }
+  const status = response?.status;
+  if (code === 'not_food' || (!code && status === 422)) return 'not_food';
+  if (code === 'already_generated' || (!code && status === 409)) return 'already_generated';
+  // The plan has no AI photos: hide the row now and reload the plan (spec 4.12).
+  if (code === 'not_entitled' || (!code && status === 403)) void lostFeature('recipe_photo_ai');
+  console.warn('generate-recipe-photo returned an error', error);
+  return 'failed';
+}
+
+/**
+ * Generate with AI (spec 4.5): asks the server for the recipe's one AI photo and, once it answers,
+ * sets `photo_path` to it and `photo_credit` to null through the usual recipe update, with "Photo
+ * updated" and Undo. Runs outside the sheet and the screen, so leaving the recipe doesn't drop it.
+ * A failure is kept for the recipe screen's toast if one shows the recipe, else dropped. Resolves
+ * whether it worked; never throws.
+ */
+export async function generateRecipePhoto(recipeId: string): Promise<boolean> {
+  if (generations.get(recipeId)?.status === 'generating') return false;
+  const key = nextKey++;
+  emitGeneration(recipeId, { recipeId, status: 'generating', key });
+  const result = await requestGeneratedPhoto(recipeId);
+  const now = getRecipe(recipeId);
+  if (result.ok && now) {
+    const previous = { imageUrl: now.imageUrl, photoPath: now.photoPath, photoCredit: now.photoCredit };
+    chooseRecipePhoto(recipeId, previous, { imageUrl: now.imageUrl, photoPath: result.path, photoCredit: null });
+  }
+  if (generations.get(recipeId)?.key === key) {
+    const shown = (watchers.get(recipeId) ?? 0) > 0;
+    emitGeneration(recipeId, result.ok || !now || !shown ? null : { recipeId, status: 'failed', error: result.error, key });
+  }
+  return result.ok && now !== undefined;
+}
+
+/** Ends a failed generation's toast for the recipe (dismissed, timed out, or the screen closed). Leaves one in flight alone. */
+export function dismissPhotoGeneration(recipeId: string, key?: number): void {
+  const current = generations.get(recipeId);
+  if (current?.status === 'failed' && (key === undefined || current.key === key)) emitGeneration(recipeId, null);
+}
+
+/**
+ * The generation for `recipeId`, if any. The recipe screen calls it, which also marks the recipe as
+ * shown, so a failure that comes back while it's open is kept for its toast.
+ */
+export function usePhotoGeneration(recipeId: string): PhotoGeneration | null {
+  useEffect(() => {
+    watchers.set(recipeId, (watchers.get(recipeId) ?? 0) + 1);
+    return () => {
+      const left = (watchers.get(recipeId) ?? 1) - 1;
+      if (left > 0) watchers.set(recipeId, left);
+      else watchers.delete(recipeId);
+    };
+  }, [recipeId]);
+  return useSyncExternalStore(subscribe, () => generations.get(recipeId) ?? null);
 }

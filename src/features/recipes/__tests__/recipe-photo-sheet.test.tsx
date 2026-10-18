@@ -20,13 +20,10 @@ import RecipePhotoSheet from '@/app/recipe/[id]/photo';
 
 import { emitAuthEvent, makeSession, resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
 
-import type { PhotoSearchFailure, PhotoSearchOutcome } from '../photo-search';
-import { resetPhotoUpload } from '../photo-upload';
+import { resetPhotoUpload, uploadStockPhoto } from '../photo-upload';
 import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
 import { createRecipe, getRecipe, updateRecipe } from '../recipes';
-
-const PIXABAY = { name: 'Pixabay', url: 'https://pixabay.com' };
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -114,6 +111,12 @@ const mockOpenURL = jest.fn((_url: string) => Promise.resolve(true));
 jest.mock('expo-linking', () => ({ openURL: (url: string) => mockOpenURL(url) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: () => Promise.resolve(true) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
+// A not_entitled answer drops the feature and reloads the plan; the reload isn't under test here.
+const mockLostFeature = jest.fn((_feature: string) => Promise.resolve());
+jest.mock('@/features/plans/load', () => ({
+  ...jest.requireActual<object>('@/features/plans/load'),
+  lostFeature: (feature: string) => mockLostFeature(feature),
+}));
 // Photo library and Take photo: the picker, the downscale and the file read are faked; the upload
 // goes to the fake Storage.
 const mockPicker = {
@@ -157,15 +160,6 @@ jest.mock('@/features/recipes/recipe-photos', () => ({
   ...jest.requireActual<object>('@/features/recipes/recipe-photos'),
   loadPagePhotos: (url: string) => mockLoad(url),
 }));
-// The stock photo search's server call, answered by hand in order; photo-search.test.ts covers it.
-let searchAnswers: ((outcome: PhotoSearchOutcome) => void)[] = [];
-const mockSearch = jest.fn(
-  (_query: string, _page?: number) => new Promise<PhotoSearchOutcome>((resolve) => searchAnswers.push(resolve)),
-);
-jest.mock('@/features/recipes/photo-search', () => ({
-  ...jest.requireActual<object>('@/features/recipes/photo-search'),
-  searchPhotos: (query: string, page?: number) => mockSearch(query, page),
-}));
 
 const USER = 'user-1';
 const LINK = 'https://snacks.example.com/blueberry-bread/';
@@ -185,8 +179,6 @@ beforeEach(() => {
   mockPush.mockClear();
   mockBack.mockClear();
   mockLoad.mockClear();
-  mockSearch.mockClear();
-  searchAnswers = [];
   mockOpenURL.mockClear();
   mockDownload.mockClear();
   setFeatures(DEFAULT_FEATURES);
@@ -281,7 +273,7 @@ describe('the Choose a photo sheet', () => {
     setLink(LINK);
     const root = await renderSheet();
     expect(mockLoad).toHaveBeenCalledWith(LINK);
-    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Search photos', 'Photo library', 'Take photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'From the page', 'Photo library', 'Take photo']);
     const placeholders = root.root.find((n) => n.props.testID === 'photo-placeholders' && String(n.type) === 'View');
     expect(placeholders.props.accessibilityLabel).toBe('Loading photos from the page');
     expect(tiles(root)).toHaveLength(0);
@@ -316,7 +308,7 @@ describe('the Choose a photo sheet', () => {
     setPhoto(A);
     const root = await renderSheet();
     expect(mockLoad).not.toHaveBeenCalled();
-    expect(texts(root)).toEqual(['Choose a photo', 'Search photos', 'Photo library', 'Take photo', 'Remove photo']);
+    expect(texts(root)).toEqual(['Choose a photo', 'Photo library', 'Take photo', 'Remove photo']);
     expect(removeButton(root)).toHaveLength(1);
   });
 
@@ -328,7 +320,6 @@ describe('the Choose a photo sheet', () => {
       'Choose a photo',
       'From the page',
       'Connect to see photos from the page',
-      'Search photos',
       'Photo library',
       'Take photo',
     ]);
@@ -455,6 +446,8 @@ describe('the toast after a change', () => {
     const root = await change(A);
     act(() => toasts(root)[0].props.onDismiss());
     expect(toasts(root)).toHaveLength(0);
+    // `change` renders a new screen; this one would stay mounted and follow later tests' recipe.
+    act(() => root.unmount());
 
     await change(B);
     act(() => tree?.unmount());
@@ -498,8 +491,8 @@ describe("the household's own photo (Photo library and Take photo)", () => {
       expect(r.props.disabled).toBe(true);
       expect(r.props.accessibilityState).toEqual({ disabled: true });
     }
-    // The two rows, and the Search photos section.
-    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(3);
+    // The two rows.
+    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(2);
   });
 
   test('Photo library: picks with a 4:3 crop, uploads the small JPEG under <household>/<recipe>/<uuid>.jpg, sets photo_path, closes', async () => {
@@ -699,275 +692,9 @@ describe("the household's own photo (Photo library and Take photo)", () => {
   });
 });
 
-describe('Search photos', () => {
-  const stock = (id: number, author: string, alt: string | null = null) => ({
-    id: String(id),
-    thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
-    full: `https://pixabay.com/get/${id}/large2x.jpeg`,
-    width: 1200,
-    height: 900,
-    author,
-    authorUrl: `https://pixabay.com/users/${author.toLowerCase().replace(/ /g, '-')}`,
-    pageUrl: `https://pixabay.com/photos/${id}/`,
-    alt,
-  });
-  const JANE = stock(1, 'Jane Doe');
-  const ANA = stock(2, 'Ana Ruiz', 'Sliced bread on a board');
-  const LEO = stock(3, 'Leo Park');
-  const MIA = stock(4, 'Mia Chen');
-
-  const field = (root: ReactTestRenderer) =>
-    root.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === 'photo-search-field' && 'editable' in n.props)[0];
-  const results = (root: ReactTestRenderer) =>
-    root.root.findAll(
-      (n) =>
-        typeof n.type !== 'string' &&
-        n.props.testID === 'search-photo' &&
-        n.props.accessibilityRole === 'button' &&
-        n.parent?.props.testID !== 'search-photo',
-    );
-  const labels = (root: ReactTestRenderer) => results(root).map((t) => t.props.accessibilityLabel);
-  const loadMore = (root: ReactTestRenderer) =>
-    root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === 'Load more' && typeof n.props.onPress === 'function');
-  const searchPlaceholders = (root: ReactTestRenderer) =>
-    root.root.findAll((n) => n.props.testID === 'search-placeholders' && String(n.type) === 'View');
-  /** Answers the oldest search still waiting. */
-  async function answerSearch(outcome: PhotoSearchOutcome) {
-    const resolve = searchAnswers.shift();
-    if (!resolve) throw new Error('no search is waiting');
-    await act(async () => resolve(outcome));
-  }
-  const type = (root: ReactTestRenderer, text: string) => act(() => field(root).props.onChangeText(text));
-  const submit = (root: ReactTestRenderer) => act(() => field(root).props.onSubmitEditing({ nativeEvent: { text: '' } }));
-  const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity as 1));
-
-  test('searches once on open with the recipe name, the field pre-filled; placeholder tiles until it answers', async () => {
-    const root = await renderSheet();
-    expect(mockSearch.mock.calls).toEqual([['Blueberry bread', 1]]);
-    expect(field(root).props).toMatchObject({
-      value: 'Blueberry bread',
-      returnKeyType: 'search',
-      accessibilityLabel: 'Search photos',
-      editable: true,
-    });
-    const [placeholders] = searchPlaceholders(root);
-    expect(placeholders.props.accessibilityLabel).toBe('Searching photos');
-    const muted = placeholders.findAll((n) => String(n.type) === 'View' && flat(n.props.style).backgroundColor === Palette.light.surfaceMuted);
-    expect(muted).toHaveLength(4);
-    expect(results(root)).toHaveLength(0);
-
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA, LEO], hasMore: false });
-    expect(searchPlaceholders(root)).toHaveLength(0);
-    expect(labels(root)).toEqual([
-      'Photo by Jane Doe, 1 of 3',
-      'Sliced bread on a board, photo by Ana Ruiz, 2 of 3',
-      'Photo by Leo Park, 3 of 3',
-    ]);
-    expect(byType(root, 'ExpoImage').map((i) => [i.props.source, i.props.contentFit, i.props.cachePolicy])).toEqual([
-      [JANE.thumb, 'cover', 'disk'],
-      [ANA.thumb, 'cover', 'disk'],
-      [LEO.thumb, 'cover', 'disk'],
-    ]);
-    expect(texts(root)).toEqual([
-      'Choose a photo',
-      'Search photos',
-      'Jane Doe',
-      'Ana Ruiz',
-      'Leo Park',
-      'Photos provided by Pixabay',
-      'Photo library',
-      'Take photo',
-    ]);
-    expect(mockSearch).toHaveBeenCalledTimes(1);
-  });
-
-  test('the section sits between From the page and Photo library', async () => {
-    setLink(LINK);
-    const root = await renderSheet();
-    await answer({ ok: true, images: [A] });
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    expect(texts(root)).toEqual([
-      'Choose a photo',
-      'From the page',
-      'Search photos',
-      'Jane Doe',
-      'Photos provided by Pixabay',
-      'Photo library',
-      'Take photo',
-    ]);
-  });
-
-  test('a long recipe name is searched cut to 100 characters', async () => {
-    updateRecipe(bread, { name: 'x'.repeat(130), notes: '', sourceUrl: '' });
-    await renderSheet();
-    expect(mockSearch.mock.calls).toEqual([['x'.repeat(100), 1]]);
-  });
-
-  test('tiles are 4:3 and rounded md, the name on a surface chip in caption inkSecondary', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    const [tile] = results(root);
-    expect(flat(tile.props.style({ pressed: false }))).toMatchObject({ aspectRatio: 4 / 3, borderRadius: Rounded.md, overflow: 'hidden' });
-    const chip = root.root.find((n) => n.props.testID === 'search-photo-author' && String(n.type) === 'View');
-    expect(flat(chip.props.style)).toMatchObject({ backgroundColor: Palette.light.surface, borderRadius: Rounded.full });
-    const name = chip.find((n) => String(n.type) === 'Text');
-    expect(flat(name.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 12 });
-    expect(name.props.numberOfLines).toBe(1);
-  });
-
-  test("typing doesn't search; Return searches what's typed, and the old results go", async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    type(root, 'b');
-    type(root, 'banana');
-    type(root, '  banana loaf ');
-    expect(mockSearch).toHaveBeenCalledTimes(1);
-
-    submit(root);
-    expect(mockSearch.mock.calls[1]).toEqual(['banana loaf', 1]);
-    expect(results(root)).toHaveLength(0);
-    expect(searchPlaceholders(root)).toHaveLength(1);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [LEO, MIA], hasMore: false });
-    expect(labels(root)).toEqual(['Photo by Leo Park, 1 of 2', 'Photo by Mia Chen, 2 of 2']);
-  });
-
-  test('Return with an empty field searches nothing and keeps the results', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    type(root, '   ');
-    submit(root);
-    expect(mockSearch).toHaveBeenCalledTimes(1);
-    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 1']);
-  });
-
-  test('a late answer to an older search is dropped', async () => {
-    const root = await renderSheet();
-    type(root, 'scones');
-    submit(root);
-    // The search on open answers after the newer one started: it's ignored.
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    expect(results(root)).toHaveLength(0);
-    expect(searchPlaceholders(root)).toHaveLength(1);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [MIA], hasMore: false });
-    expect(labels(root)).toEqual(['Photo by Mia Chen, 1 of 1']);
-  });
-
-  test('Load more, while there are more pages, appends the next page of the same search', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA], hasMore: true });
-    expect(loadMore(root)).toHaveLength(1);
-    // Editing the field doesn't change what Load more asks for.
-    type(root, 'something else');
-
-    press(loadMore(root)[0]);
-    expect(mockSearch.mock.calls[1]).toEqual(['Blueberry bread', 2]);
-    expect(loadMore(root)[0].props).toMatchObject({ loading: true, disabled: true });
-    // A second tap while it loads asks for nothing more.
-    press(loadMore(root)[0]);
-    expect(mockSearch).toHaveBeenCalledTimes(2);
-    expect(labels(root)).toHaveLength(2);
-
-    // A photo already shown isn't added twice.
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [ANA, LEO, MIA], hasMore: true });
-    expect(labels(root)).toEqual([
-      'Photo by Jane Doe, 1 of 4',
-      'Sliced bread on a board, photo by Ana Ruiz, 2 of 4',
-      'Photo by Leo Park, 3 of 4',
-      'Photo by Mia Chen, 4 of 4',
-    ]);
-    expect(loadMore(root)[0].props).toMatchObject({ loading: false, disabled: false });
-
-    press(loadMore(root)[0]);
-    expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 3]);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [stock(5, 'Kai Lo')], hasMore: false });
-    expect(labels(root)).toHaveLength(5);
-    expect(loadMore(root)).toHaveLength(0);
-  });
-
-  test('no Load more when the first page is the only one', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    expect(loadMore(root)).toHaveLength(0);
-  });
-
-  test('a failed Load more keeps the photos, says why and can be tried again', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: true });
-    press(loadMore(root)[0]);
-    await answerSearch({ ok: false, error: 'rate_limited' });
-    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 1']);
-    expect(texts(root)).toContain("You've searched a lot today. Try again later.");
-    press(loadMore(root)[0]);
-    expect(mockSearch.mock.calls[2]).toEqual(['Blueberry bread', 2]);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [LEO], hasMore: false });
-    expect(labels(root)).toEqual(['Photo by Jane Doe, 1 of 2', 'Photo by Leo Park, 2 of 2']);
-    expect(texts(root)).not.toContain("You've searched a lot today. Try again later.");
-  });
-
-  test('offline: the field is disabled and says "Needs a connection"', async () => {
-    mockNetwork.connected = false;
-    const root = await renderSheet();
-    await answerSearch({ ok: false, error: 'offline' });
-    expect(field(root).props).toMatchObject({ editable: false, accessibilityState: { disabled: true } });
-    expect(texts(root).slice(0, 3)).toEqual(['Choose a photo', 'Search photos', 'Needs a connection']);
-    expect(results(root)).toHaveLength(0);
-    expect(searchPlaceholders(root)).toHaveLength(0);
-  });
-
-  test('a search that finds itself offline also disables the field', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: false, error: 'offline' });
-    expect(field(root).props.editable).toBe(false);
-    expect(texts(root).slice(0, 3)).toEqual(['Choose a photo', 'Search photos', 'Needs a connection']);
-  });
-
-  test('no results: "No photos for “X”. Try another word."', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [], hasMore: false });
-    expect(texts(root)).toContain('No photos for “Blueberry bread”. Try another word.');
-    type(root, '  zzzz ');
-    submit(root);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [], hasMore: false });
-    expect(texts(root)).toContain('No photos for “zzzz”. Try another word.');
-  });
-
-  test.each<[PhotoSearchFailure, string]>([
-    ['rate_limited', "You've searched a lot today. Try again later."],
-    ['failed', "Couldn't search photos. Try again later."],
-  ])('%s: %s', async (error, message) => {
-    const root = await renderSheet();
-    await answerSearch({ ok: false, error });
-    // No answer names a provider, so there's no provider link.
-    expect(texts(root).slice(0, 4)).toEqual(['Choose a photo', 'Search photos', message, 'Photo library']);
-    // The field still works, so another search can be tried.
-    expect(field(root).props.editable).toBe(true);
-  });
-
-  test('a result that fails to load leaves the grid, and the rest are renumbered', async () => {
-    const root = await renderSheet();
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE, ANA, LEO], hasMore: false });
-    act(() => byType(root, 'ExpoImage')[0].props.onError({ error: '404' }));
-    expect(labels(root)).toEqual(['Sliced bread on a board, photo by Ana Ruiz, 1 of 2', 'Photo by Leo Park, 2 of 2']);
-  });
-
-  test('"Photos provided by Pixabay": the provider the answer names, as a footnote link to its home page', async () => {
-    const root = await renderSheet();
-    expect(byTestId(root, 'provider-link')).toHaveLength(0);
-    await answerSearch({ ok: true, provider: PIXABAY, photos: [JANE], hasMore: false });
-    const [link] = byTestId(root, 'provider-link');
-    expect(link.props).toMatchObject({
-      accessibilityRole: 'link',
-      accessibilityLabel: 'Photos provided by Pixabay',
-      accessibilityHint: 'Opens Pixabay in Safari',
-    });
-    const text = link.find((n) => String(n.type) === 'Text');
-    expect(flat(text.props.style)).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 13 });
-    press(link);
-    expect(mockOpenURL).toHaveBeenCalledWith('https://pixabay.com');
-  });
-});
-
-describe('picking a stock photo, and its credit', () => {
+// The sheet no longer searches stock photos; `uploadStockPhoto` stays until Pixabay is removed, and
+// photos already picked keep their credit.
+describe('a stock photo, and its credit', () => {
   const stock = (id: number, author: string) => ({
     id: String(id),
     thumb: `https://pixabay.com/get/${id}/medium.jpeg`,
@@ -988,24 +715,21 @@ describe('picking a stock photo, and its credit', () => {
     pageUrl: p.pageUrl,
   });
   const OWN = () => `${getRecipe(bread)!.householdId}/${bread}/0190a000-0000-7000-8000-000000000001.jpg`;
-  const results = (root: ReactTestRenderer) => byTestId(root, 'search-photo');
   const chips = (root: ReactTestRenderer) => byTestId(root, 'photo-credit');
   const siteCredits = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'recipe-credit-photo');
   const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity as 1));
   const signIn = () => act(() => emitAuthEvent('SIGNED_IN', { ...makeSession(USER), access_token: 'token-1' }));
 
-  /** Opens the sheet, answers its search with `photos` and taps the `index`th result. */
+  /** Uploads the `index`th of `photos` as a stock photo from Pixabay. */
   async function pickStock(index: number, photos = [JANE, ANA]) {
-    const sheet = await renderSheet();
-    await act(async () => searchAnswers.shift()!({ ok: true, provider: PIXABAY, photos, hasMore: false }));
-    await act(async () => results(sheet)[index].props.onPress());
-    act(() => sheet.unmount());
+    await act(async () => {
+      void uploadStockPhoto(bread, { ...photos[index], provider: 'Pixabay' });
+    });
   }
 
-  test('tapping a result closes the sheet, downloads the full photo and uploads it with its credit', async () => {
+  test('a stock photo is downloaded in full and uploaded with its credit', async () => {
     setPhoto(A);
     await pickStock(1);
-    expect(mockBack).toHaveBeenCalledTimes(1);
     expect(mockDownload).toHaveBeenCalledTimes(1);
     expect(mockDownload.mock.calls[0][0]).toBe(ANA.full);
     const [bucket, path, , options] = storageUploads().at(-1)!;
@@ -1133,5 +857,237 @@ describe('picking a stock photo, and its credit', () => {
     expect(outboxMutations().at(-1)!.fields).toEqual({ photo_path: OWN(), photo_credit: creditOf(ANA) });
     const [chip] = chips(root);
     expect(chip.find((n) => String(n.type) === 'Text').props.children).toBe('Photo: Ana Ruiz / Pixabay');
+  });
+});
+
+describe('Generate with AI', () => {
+  const invoke = supabase.functions.invoke;
+  const AI = () => `${getRecipe(bread)!.householdId}/${bread}/0190a000-0000-7000-8000-0000000000a1.jpg`;
+  const generateRow = (root: ReactTestRenderer) =>
+    root.root.findAll(
+      (n) =>
+        typeof n.type !== 'string' &&
+        n.props.accessibilityRole === 'button' &&
+        typeof n.props.accessibilityLabel === 'string' &&
+        n.props.accessibilityLabel.startsWith('Generate a photo with AI'),
+    );
+  const generating = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.props.testID === 'photo-generating' && String(n.type) === 'View');
+  const signedIn = () =>
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null } as never);
+  /** Answers the next call with `status` and `body`, as a FunctionsHttpError. */
+  const failWith = (status: number, body: unknown) =>
+    invoke.mockResolvedValueOnce({
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: { status, json: () => Promise.resolve(body) },
+      },
+    });
+  /** Holds the next call open until `finish` is called with its answer. */
+  function holdNext() {
+    let finish: (answer: { data: unknown; error: unknown }) => void = () => {};
+    invoke.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    return (answer: { data: unknown; error: unknown }) => act(async () => finish(answer));
+  }
+  /** With the recipe screen open, opens the sheet over it and taps Generate with AI; the sheet closes. */
+  async function generate(): Promise<ReactTestRenderer> {
+    const screen = render(<RecipeScreen />);
+    let sheet: ReactTestRenderer | null = null;
+    act(() => {
+      sheet = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <RecipePhotoSheet />
+        </SafeAreaProvider>,
+      );
+    });
+    await act(async () => {});
+    await act(async () => generateRow(sheet!)[0].props.onPress());
+    act(() => sheet!.unmount());
+    return screen;
+  }
+
+  beforeEach(() => {
+    setFeatures([...DEFAULT_FEATURES, 'recipe_photo_ai']);
+    signedIn();
+    mockLostFeature.mockClear();
+  });
+
+  test('in the Add photo sheet with the feature: a sparkles row, read as "Generate a photo with AI", with its note under it', async () => {
+    const root = await renderSheet();
+    expect(texts(root)).toEqual([
+      'Choose a photo',
+      'Generate with AI',
+      'Makes one photo from the recipe. One per recipe.',
+      'Photo library',
+      'Take photo',
+    ]);
+    const [row] = generateRow(root);
+    expect(row.props.accessibilityLabel).toBe('Generate a photo with AI');
+    expect(row.props.disabled).toBe(false);
+    expect(root.root.findAll((n) => n.props.name === 'sparkles' && n.props.hue === 'plum')).toHaveLength(1);
+    const note = root.root.find((n) => String(n.type) === 'Text' && n.props.children === 'Makes one photo from the recipe. One per recipe.');
+    const flat = Object.assign({}, ...[note.props.style].flat(Infinity as 1));
+    expect(flat).toMatchObject({ color: Palette.light.inkSecondary, fontSize: 13 });
+  });
+
+  test('not without the feature', async () => {
+    setFeatures(DEFAULT_FEATURES);
+    const root = await renderSheet();
+    expect(generateRow(root)).toHaveLength(0);
+    expect(texts(root)).not.toContain('Generate with AI');
+  });
+
+  test('not in Change photo… (the recipe has a photo, its own or the site\'s)', async () => {
+    setPhoto(A);
+    let root = await renderSheet();
+    expect(generateRow(root)).toHaveLength(0);
+    act(() => root.unmount());
+
+    setPhoto(null);
+    db.update(recipes).set({ photoPath: AI() }).where(eq(recipes.id, bread)).run();
+    root = await renderSheet();
+    expect(generateRow(root)).toHaveLength(0);
+  });
+
+  test('offline: the row is disabled with "Needs a connection"', async () => {
+    mockNetwork.connected = false;
+    const root = await renderSheet();
+    const [row] = generateRow(root);
+    expect(row.props.accessibilityLabel).toBe('Generate a photo with AI, Needs a connection');
+    expect(row.props.disabled).toBe(true);
+    expect(row.props.accessibilityState).toEqual({ disabled: true });
+    expect(texts(root).filter((s) => s === 'Needs a connection')).toHaveLength(3);
+  });
+
+  test('tapping it closes the sheet and asks the server with only the recipe id; the screen shows the placeholder, then the photo with Undo', async () => {
+    const finish = holdNext();
+    const root = await generate();
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith('generate-recipe-photo', { body: { recipeId: bread } });
+
+    const [placeholder] = generating(root);
+    expect(placeholder.props).toMatchObject({ accessibilityRole: 'progressbar', accessibilityLabel: 'Generating photo…' });
+    const style = Object.assign({}, ...[placeholder.props.style].flat(Infinity as 1));
+    expect(style).toMatchObject({ backgroundColor: Palette.light.surfaceMuted, borderRadius: Rounded.md, aspectRatio: 16 / 9 });
+    expect(texts(root)).toContain('Generating photo…');
+    expect(byTestId(root, 'add-photo')).toHaveLength(0);
+    expect(toasts(root)).toHaveLength(0);
+
+    await finish({ data: { path: AI() }, error: null });
+    expect(generating(root)).toHaveLength(0);
+    expect(getRecipe(bread)).toMatchObject({ photoPath: AI(), photoCredit: null, imageUrl: null });
+    expect(outboxMutations().at(-1)).toEqual(
+      expect.objectContaining({ table: 'recipes', id: bread, fields: { photo_path: AI(), photo_credit: null } }),
+    );
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe('Photo updated');
+    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Undo']);
+
+    // Undo clears it again; the recipe has still had its one AI photo, so nothing is asked again.
+    act(() => toast.props.actions[0].onPress());
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null, photoCredit: null });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
+    expect(byTestId(root, 'add-photo')).toHaveLength(1);
+  });
+
+  test('leaving the recipe screen doesn\'t stop it: the photo is still set', async () => {
+    const finish = holdNext();
+    const root = await generate();
+    act(() => root.unmount());
+    tree = null;
+    await finish({ data: { path: AI() }, error: null });
+    expect(getRecipe(bread)!.photoPath).toBe(AI());
+  });
+
+  test.each<[string, number, unknown, string]>([
+    ['not_food', 422, { error: 'not_food', message: 'x' }, "Couldn't make a photo for this recipe"],
+    ['already_generated', 409, { error: 'already_generated', message: 'x' }, 'This recipe already had its AI photo'],
+  ])('%s (%i): its toast has no Try again, and the recipe is as it was', async (_code, status, body, message) => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    failWith(status, body);
+    const root = await generate();
+    await act(async () => {});
+    expect(generating(root)).toHaveLength(0);
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe(message);
+    expect(toast.props.actions).toEqual([]);
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null, photoCredit: null });
+    // The Add photo tile is back.
+    expect(byTestId(root, 'add-photo')).toHaveLength(1);
+  });
+
+  test.each<[string, () => void]>([
+    ['a model failure (502)', () => failWith(502, { error: 'generation_failed', message: 'x' })],
+    ['the cap (503)', () => failWith(503, { error: 'unavailable', message: 'x' })],
+    ['a plan without the feature (403)', () => failWith(403, { error: 'not_entitled', message: 'x' })],
+    ['an error with no JSON body', () => failWith(500, 'oops')],
+    ['no connection', () => invoke.mockResolvedValueOnce({ data: null, error: { name: 'FunctionsFetchError', message: 'x' } })],
+    ['an answer that isn\'t a photo path', () => invoke.mockResolvedValueOnce({ data: { path: '../../etc/passwd' }, error: null })],
+    ['a thrown error', () => invoke.mockRejectedValueOnce(new Error('boom'))],
+  ])('anything else, like %s: "Couldn\'t make a photo. Try again later." with Try again, which asks again', async (name, fail) => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    fail();
+    const root = await generate();
+    await act(async () => {});
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe("Couldn't make a photo. Try again later.");
+    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
+    expect(getRecipe(bread)!.photoPath).toBeNull();
+
+    // Only a plan without the feature drops it (spec 4.12).
+    expect(mockLostFeature.mock.calls).toEqual(name.includes('403') ? [['recipe_photo_ai']] : []);
+
+    invoke.mockResolvedValueOnce({ data: { path: AI() }, error: null });
+    await act(async () => toast.props.actions[0].onPress());
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(getRecipe(bread)!.photoPath).toBe(AI());
+    expect(toasts(root).map((t) => t.props.message)).toEqual(['Photo updated']);
+  });
+
+  test('signed out: fails without asking the server', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null } as never);
+    const root = await generate();
+    await act(async () => {});
+    expect(invoke).not.toHaveBeenCalled();
+    expect(toasts(root).map((t) => t.props.message)).toEqual(["Couldn't make a photo. Try again later."]);
+  });
+
+  test('a failure that comes back while the recipe screen is closed is dropped', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const finish = holdNext();
+    let root = await generate();
+    act(() => root.unmount());
+    tree = null;
+    await finish({ data: null, error: { name: 'FunctionsHttpError', message: 'x', context: { status: 422, json: async () => ({ error: 'not_food', message: 'x' }) } } });
+    root = render(<RecipeScreen />);
+    expect(toasts(root)).toHaveLength(0);
+    expect(generating(root)).toHaveLength(0);
+    expect(byTestId(root, 'add-photo')).toHaveLength(1);
+  });
+
+  test('the failure toast is dismissed when it times out', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    failWith(422, { error: 'not_food', message: 'x' });
+    const root = await generate();
+    await act(async () => {});
+    act(() => toasts(root)[0].props.onDismiss());
+    expect(toasts(root)).toHaveLength(0);
+  });
+
+  test('a second tap while one is running asks nothing more', async () => {
+    const finish = holdNext();
+    await generate();
+    act(() => tree?.unmount());
+    tree = null;
+    // The sheet can't be opened from the screen while it runs, but the runner guards anyway.
+    const sheet = await renderSheet();
+    await act(async () => generateRow(sheet)[0].props.onPress());
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await finish({ data: { path: AI() }, error: null });
   });
 });

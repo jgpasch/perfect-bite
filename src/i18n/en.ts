@@ -547,6 +547,14 @@ export const en = {
       cameraDenied: 'To take a photo, allow camera access for Perfect Bite in Settings.',
       uploading: 'Uploading photo',
       uploadFailed: "Couldn't upload the photo",
+      /** Generate with AI (spec 4.5): the Add photo sheet's row, and the recipe screen while it runs. */
+      generate: 'Generate with AI',
+      generateLabel: 'Generate a photo with AI',
+      generateNote: 'Makes one photo from the recipe. One per recipe.',
+      generating: 'Generating photo…',
+      generateNotFood: "Couldn't make a photo for this recipe",
+      generateAlready: 'This recipe already had its AI photo',
+      generateFailed: "Couldn't make a photo. Try again later.",
     },
     /** The recipe band's link row. */
     link: {

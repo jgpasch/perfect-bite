@@ -4,6 +4,7 @@ import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Pressable,
@@ -58,7 +59,15 @@ import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
-import { dismissPhotoUpload, retryPhotoUpload, usePhotoUpload } from '@/features/recipes/photo-upload';
+import {
+  dismissPhotoGeneration,
+  dismissPhotoUpload,
+  generateRecipePhoto,
+  retryPhotoUpload,
+  usePhotoGeneration,
+  usePhotoUpload,
+  type PhotoGenerationError,
+} from '@/features/recipes/photo-upload';
 import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
@@ -128,6 +137,10 @@ export default function RecipeScreen() {
   const upload = usePhotoUpload(id);
   useEffect(() => () => dismissPhotoUpload(), []);
   const dismissUploadToast = useCallback(() => dismissPhotoUpload(upload?.key), [upload?.key]);
+  // Generate with AI (spec 4.5): a placeholder while it runs, then a toast if it fails.
+  const generation = usePhotoGeneration(id);
+  useEffect(() => () => dismissPhotoGeneration(id), [id]);
+  const dismissGenerationToast = useCallback(() => dismissPhotoGeneration(id, generation?.key), [id, generation?.key]);
   // "Pages deleted" after Delete pages on the pages screen (spec 4.5); it ends when the screen closes.
   const pagesDeleted = usePagesDeleted(id);
   useEffect(() => () => dismissPagesDeleted(), []);
@@ -345,7 +358,8 @@ export default function RecipeScreen() {
             <RecipeBand
               recipe={recipe}
               hue={hue}
-              showAddPhoto={!hasPhoto && !uploading}
+              showAddPhoto={!hasPhoto && !uploading && generation?.status !== 'generating'}
+              generating={!hasPhoto && generation?.status === 'generating'}
               hasIngredients={ingredients.length > 0}
               onEditServings={editServings}
               onPlan={openPlan}
@@ -473,6 +487,21 @@ export default function RecipeScreen() {
                 />
               </View>
             ) : null}
+            {generation?.status === 'failed' ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={`generate-${generation.key}`}
+                  message={t(GENERATION_MESSAGES[generation.error])}
+                  actions={
+                    // The server released the slot, so only a plain failure can be tried again.
+                    generation.error === 'failed'
+                      ? [{ label: t('common.tryAgain'), onPress: () => void generateRecipePhoto(id) }]
+                      : []
+                  }
+                  onDismiss={dismissGenerationToast}
+                />
+              </View>
+            ) : null}
             {pagesDeleted ? (
               <View style={{ paddingBottom: spacing.sm }}>
                 <Toast key={`pages-${pagesDeleted.key}`} message={t('recipes.pages.deleted')} actions={[]} onDismiss={dismissPagesToast} />
@@ -536,12 +565,14 @@ export default function RecipeScreen() {
  * saved when it loses focus; the link row is RecipeLinkRow. Without servings, a dashed "Add servings" beside
  * the link opens the servings prompt (`onEditServings`). Under the name, the
  * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo (`showAddPhoto`), a
- * dashed Add photo tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`).
+ * dashed Add photo tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`);
+ * while Generate with AI runs (`generating`), a placeholder sits there instead.
  */
 function RecipeBand({
   recipe,
   hue,
   showAddPhoto,
+  generating,
   hasIngredients,
   onEditServings,
   onPlan,
@@ -550,6 +581,7 @@ function RecipeBand({
   recipe: Recipe;
   hue: AisleHue;
   showAddPhoto: boolean;
+  generating: boolean;
   hasIngredients: boolean;
   onEditServings: () => void;
   onPlan: () => void;
@@ -580,6 +612,7 @@ function RecipeBand({
         gap: spacing.sm,
       }}>
       {showAddPhoto ? <AddPhotoTile onPress={onAddPhoto} /> : null}
+      {generating ? <GeneratingPhoto /> : null}
       <ThemedText variant="screenTitle" accessibilityRole="header">
         {recipe.name}
       </ThemedText>
@@ -682,6 +715,38 @@ function AddPhotoTile({ onPress }: { onPress: () => void }) {
   );
 }
 
+/** Each Generate with AI failure's toast (spec 4.5). */
+const GENERATION_MESSAGES = {
+  not_food: 'recipes.photo.generateNotFood',
+  already_generated: 'recipes.photo.generateAlready',
+  failed: 'recipes.photo.generateFailed',
+} as const satisfies Record<PhotoGenerationError, string>;
+
+/**
+ * Where the photo will be while Generate with AI runs (spec 4.5): a 16:9 `surfaceMuted` tile, radius
+ * `md`, with a spinner over "Generating photo…" (`footnote` `inkSecondary`), read as one progress bar.
+ */
+function GeneratingPhoto() {
+  const t = useT();
+  const { colors, spacing, rounded } = useTheme();
+  return (
+    <View
+      testID="photo-generating"
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={t('recipes.photo.generating')}
+      style={[
+        styles.generating,
+        { gap: spacing.sm, marginBottom: spacing.xs, borderRadius: rounded.md, backgroundColor: colors.surfaceMuted },
+      ]}>
+      <ActivityIndicator color={colors.inkSecondary} />
+      <ThemedText variant="footnote" color="inkSecondary">
+        {t('recipes.photo.generating')}
+      </ThemedText>
+    </View>
+  );
+}
+
 /**
  * The Ingredients card's last row (spec 4.5): a `plus` and "Add ingredient" in `primary` `headline`, 20 pt in,
  * at least 52 pt (`addRow`) tall, with no hairline under it. It opens the add bar over the keyboard.
@@ -719,4 +784,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center' },
   start: { alignSelf: 'flex-start' },
+  generating: { aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderCurve: 'continuous' },
 });
