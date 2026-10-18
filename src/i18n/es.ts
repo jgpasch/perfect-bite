@@ -395,6 +395,7 @@ export const es = {
       removed: 'Se quitó {{name}}',
       addPlaceholder: 'Agrega 2 tazas de harina…',
       addLabel: 'Agregar un ingrediente',
+      addIngredient: 'Agregar ingrediente',
       addNotes: 'Agregar notas',
       notes: 'Notas',
       notesLabel: 'Notas: {{notes}}',

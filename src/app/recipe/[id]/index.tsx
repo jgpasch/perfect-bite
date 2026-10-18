@@ -2,7 +2,17 @@ import * as Haptics from 'expo-haptics';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActionSheetIOS, Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import {
+  ActionSheetIOS,
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -126,6 +136,36 @@ export default function RecipeScreen() {
   const switchY = useRef(0);
   // The floating dock's height, measured; until then, a CTA in its padding over a 16 pt gap.
   const [dockHeight, setDockHeight] = useState(sizes.cta + spacing.sm * 2 + spacing.lg);
+  // The add bar shows on demand, as the list's does (spec 4.1, 4.2): Add ingredient opens it focused, and it
+  // goes once the field loses focus with nothing typed. With text, the first tap out only hides the keyboard;
+  // a second hides the bar too (`addTucked`), keeping the text for Add ingredient to bring back.
+  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addText, setAddText] = useState('');
+  const [addTucked, setAddTucked] = useState(false);
+  const addInputRef = useRef<TextInput>(null);
+  const showAddBar = addOpen || adding || (addText !== '' && !addTucked);
+  const tapOutHidesBar = showAddBar && !adding && addText !== '';
+  const openAdd = () => {
+    setAddOpen(true);
+    setAddTucked(false);
+    addInputRef.current?.focus();
+  };
+  const addFocusChange = (focused: boolean) => {
+    setAdding(focused);
+    setAddOpen(false);
+    if (focused) setAddTucked(false);
+  };
+  // After an add, the card's next layout scrolls its foot (the new row and Add ingredient) into view.
+  const viewportHeight = useRef(0);
+  const scrollAfterAdd = useRef(false);
+  const ingredientsLayout = (e: LayoutChangeEvent) => {
+    const bottom = e.nativeEvent.layout.y + e.nativeEvent.layout.height;
+    if (!scrollAfterAdd.current) return;
+    scrollAfterAdd.current = false;
+    const y = bottom + spacing.lg - viewportHeight.current;
+    if (y > scrollY.current) scroll.current?.scrollTo({ y, animated: true });
+  };
   // Switching brings the card into view when the switch has scrolled off the top.
   const switchTab = (next: RecipeTab) => {
     setTab(next);
@@ -258,18 +298,25 @@ export default function RecipeScreen() {
       {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={photoSource ? 0 : headerHeight}>
         {/* The actions float over the scroll view's bottom (spec 4.5), and its content ends above them. */}
-        <View style={styles.flex}>
+        {/* A tap out that no row or control claims tucks a kept add bar away; while the field is focused,
+            the scroll view's own tap out hides the keyboard instead. */}
+        <View
+          testID="recipe-viewport"
+          style={styles.flex}
+          onStartShouldSetResponder={() => tapOutHidesBar}
+          onResponderRelease={() => setAddTucked(true)}>
           <ScrollView
             ref={scroll}
             style={styles.flex}
+            onLayout={(e) => (viewportHeight.current = e.nativeEvent.layout.height)}
             onScroll={(e) => (scrollY.current = e.nativeEvent.contentOffset.y)}
             scrollEventThrottle={16}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             // The photo runs up under the status bar and the header's buttons.
             contentInsetAdjustmentBehavior="never"
-            // The last row and the Method card's last line scroll clear of the dock.
-            contentContainerStyle={{ paddingBottom: dockHeight + spacing.lg }}>
+            // The last row and the Method card's last line scroll clear of the dock, hidden while adding.
+            contentContainerStyle={{ paddingBottom: (showAddBar ? 0 : dockHeight) + spacing.lg }}>
             {photoSource ? (
               <RecipePhotoHeader
                 source={photoSource}
@@ -304,6 +351,7 @@ export default function RecipeScreen() {
               </View>
             ) : null}
             {steps === 0 || tab === 'ingredients' ? (
+              <View testID="recipe-ingredients" onLayout={ingredientsLayout}>
               <Card>
                 <SectionHeader
                   title={t('recipes.screen.ingredients')}
@@ -352,7 +400,9 @@ export default function RecipeScreen() {
                     />
                   ))
                 )}
+                <AddIngredientRow onPress={openAdd} />
               </Card>
+              </View>
             ) : null}
             {steps === 0 ? <View style={{ height: spacing.md }} /> : null}
             {steps === 0 || tab === 'method' ? (
@@ -386,7 +436,8 @@ export default function RecipeScreen() {
                 : undefined
             }
             onPlan={openPlan}
-            onHeight={setDockHeight}>
+            onHeight={setDockHeight}
+            hidden={showAddBar}>
             {photoChange ? (
               <View style={{ paddingBottom: spacing.sm }}>
                 <Toast
@@ -437,15 +488,23 @@ export default function RecipeScreen() {
             ) : null}
           </RecipeActionDock>
         </View>
-        <ItemAddBar
-          householdId={recipe.householdId}
-          onAdd={(text) => {
-            void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? []);
-            ensureStepMatchSoon(id);
-          }}
-          placeholder={t('recipes.screen.addPlaceholder')}
-          accessibilityLabel={t('recipes.screen.addLabel')}
-        />
+        {showAddBar ? (
+          <ItemAddBar
+            householdId={recipe.householdId}
+            onAdd={(text) => {
+              void categorizePending(addRecipeIngredient(id, text)?.pendingNames ?? []);
+              ensureStepMatchSoon(id);
+              scrollAfterAdd.current = true;
+            }}
+            onTextChange={setAddText}
+            onFocusChange={addFocusChange}
+            placeholder={t('recipes.screen.addPlaceholder')}
+            accessibilityLabel={t('recipes.screen.addLabel')}
+            inputRef={addInputRef}
+            initialText={addText}
+            autoFocus
+          />
+        ) : null}
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -598,6 +657,36 @@ function AddPhotoTile({ onPress }: { onPress: () => void }) {
       <Icon name="photo.badge.plus" tint={colors.inkSecondary} weight="semibold" />
       <ThemedText variant="headline" color="inkSecondary">
         {t('recipes.photo.add')}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+/**
+ * The Ingredients card's last row (spec 4.5): a `plus` and "Add ingredient" in `primary` `headline`, 20 pt in,
+ * at least 52 pt (`addRow`) tall, with no hairline under it. It opens the add bar over the keyboard.
+ */
+function AddIngredientRow({ onPress }: { onPress: () => void }) {
+  const t = useT();
+  const { colors, spacing, sizes, opacity } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('recipes.screen.addLabel')}
+      testID="add-ingredient-row"
+      style={({ pressed }) => [
+        styles.row,
+        {
+          gap: spacing.sm,
+          minHeight: sizes.addRow,
+          paddingHorizontal: spacing.lg + spacing.xs,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <Icon name="plus" tint={colors.primary} weight="semibold" />
+      <ThemedText variant="headline" color="primary">
+        {t('recipes.screen.addIngredient')}
       </ThemedText>
     </Pressable>
   );

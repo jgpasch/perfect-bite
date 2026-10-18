@@ -251,12 +251,18 @@ describe('ingredient edits on the recipe screen', () => {
   });
 
   const addBar = (root: ReactTestRenderer) => root.root.find((n) => String(n.type) === 'ItemAddBar');
+  // The bar shows on demand (spec 4.5): Add ingredient opens it, and focusing keeps it up.
+  const openAddBar = (root: ReactTestRenderer) => {
+    act(() => root.root.find((n) => n.props.testID === 'add-ingredient-row' && typeof n.props.onPress === 'function').props.onPress());
+    act(() => addBar(root).props.onFocusChange(true));
+  };
 
   test('an add matches 2 s after the last edit', async () => {
     const root = render(<RecipeScreen />);
     await act(() => jest.advanceTimersByTimeAsync(0));
     expect(matchCalls()).toHaveLength(1); // Opening found the match fresh.
 
+    openAddBar(root);
     act(() => addBar(root).props.onAdd('tortillas'));
     await act(() => jest.advanceTimersByTimeAsync(1500));
     act(() => addBar(root).props.onAdd('1 onion'));

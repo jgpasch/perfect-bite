@@ -1,17 +1,19 @@
 // The recipe screen and its "Add to a list" sheet (spec 4.5, boards 06 and 07), rendered against the
 // in-memory database: ingredients, edit/delete/undo, the menu, and choosing list, servings and ingredients.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { AccessibilityInfo, ActionSheetIOS, Alert, Text, type AlertButton } from 'react-native';
+import { AccessibilityInfo, ActionSheetIOS, Alert, ScrollView, Text, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { eq } from 'drizzle-orm';
 
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
+import { ThemedText } from '@/components/themed-text';
 import { db, households, lists, outbox, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { resolveCurrentListId, setCurrentList } from '@/features/lists/current-list';
@@ -255,6 +257,7 @@ describe('RecipeScreen', () => {
 
   test('the add bar adds a parsed ingredient and categorizes its new name', () => {
     const root = render(<RecipeScreen />);
+    press(byA11y(root, 'Add an ingredient'));
     const bar = byType(root, 'ItemAddBar')[0];
     expect(bar.props.placeholder).toBe('Add 2 cups flour…');
     expect(bar.props.householdId).toBe(getRecipe(tacos)!.householdId);
@@ -1691,5 +1694,170 @@ describe('AddRecipeToListSheet', () => {
     act(() => cancel.props.onPress());
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(listRows(groceries)).toEqual([]);
+  });
+});
+
+describe('adding an ingredient on demand (spec 4.5)', () => {
+  const bars = (root: ReactTestRenderer) => byType(root, 'ItemAddBar');
+  const dockShows = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'View' && n.props.testID === 'recipe-dock').length > 0;
+  const byTestID = (root: ReactTestRenderer, testID: string) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.testID === testID);
+  const addRow = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'add-ingredient-row' && typeof n.props.onPress === 'function');
+  const openAdd = (root: ReactTestRenderer) => press(addRow(root));
+  const layout = (y: number, height: number) => ({ nativeEvent: { layout: { x: 0, y, width: 390, height } } });
+  /** A tap on the screen's empty space: the viewport takes it only if it asks to, then hides the bar on release. */
+  const tapOut = (root: ReactTestRenderer) => {
+    const taken = byTestID(root, 'recipe-viewport').props.onStartShouldSetResponder();
+    if (taken) act(() => byTestID(root, 'recipe-viewport').props.onResponderRelease());
+    return taken;
+  };
+  const typeThenBlur = (root: ReactTestRenderer, value: string) => {
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => bars(root)[0].props.onTextChange(value));
+    act(() => bars(root)[0].props.onFocusChange(false));
+  };
+  const setSteps = (steps: string[] | null) => db.update(recipes).set({ steps }).where(eq(recipes.id, tacos)).run();
+  const ingredientsCard = (root: ReactTestRenderer) => byTestID(root, 'recipe-ingredients').findByType(Card);
+  const cardHasAddRow = (root: ReactTestRenderer) =>
+    ingredientsCard(root).findAll((n) => n.props.testID === 'add-ingredient-row').length > 0;
+
+  test('at rest there is no add field, the dock shows, and the card ends with Add ingredient', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    const root = render(<RecipeScreen />);
+    expect(bars(root)).toHaveLength(0);
+    expect(dockShows(root)).toBe(true);
+    const row = addRow(root);
+    expect(row.props.accessibilityRole).toBe('button');
+    expect(row.props.accessibilityLabel).toBe('Add an ingredient');
+    const style = Object.assign({}, ...[row.props.style({ pressed: false })].flat());
+    expect(style).toMatchObject({ minHeight: 52, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' });
+    expect(style.borderBottomWidth).toBeUndefined();
+    const label = row.findByType(ThemedText);
+    expect([label.props.variant, label.props.color, label.props.children]).toEqual(['headline', 'primary', 'Add ingredient']);
+    expect(row.findByType(Icon).props.name).toBe('plus');
+    // The card's last row, after the ingredient.
+    const order = ingredientsCard(root).findAll((n) => n.type === RecipeIngredientRow || n === row);
+    expect(order.map((n) => (n === row ? 'add' : 'ingredient'))).toEqual(['ingredient', 'add']);
+  });
+
+  test('an empty card has Add ingredient under "No ingredients yet"', () => {
+    const root = render(<RecipeScreen />);
+    const row = addRow(root);
+    const parts = ingredientsCard(root).findAll((n) => (n.type === ThemedText && n.props.children === 'No ingredients yet. Add them below.') || n === row);
+    expect(parts.map((n) => (n === row ? 'add' : 'empty'))).toEqual(['empty', 'add']);
+  });
+
+  test('a recipe with steps has Add ingredient on its Ingredients card too', () => {
+    setSteps(['Warm the tortillas.']);
+    const root = render(<RecipeScreen />);
+    expect(cardHasAddRow(root)).toBe(true);
+  });
+
+  test('tapping Add ingredient shows the field focused and hides the dock', () => {
+    const root = render(<RecipeScreen />);
+    openAdd(root);
+    const [bar] = bars(root);
+    expect(bar.props.autoFocus).toBe(true);
+    expect(bar.props.initialText).toBe('');
+    expect(bar.props.placeholder).toBe('Add 2 cups flour…');
+    expect(bar.props.accessibilityLabel).toBe('Add an ingredient');
+    expect(bar.props.householdId).toBe(getRecipe(tacos)!.householdId);
+    expect(dockShows(root)).toBe(false);
+    // Focusing keeps it up and the dock away.
+    act(() => bars(root)[0].props.onFocusChange(true));
+    expect(bars(root)).toHaveLength(1);
+    expect(dockShows(root)).toBe(false);
+  });
+
+  test('adding "2 cloves garlic" adds it, keeps the field open and scrolls the card foot into view', () => {
+    const root = render(<RecipeScreen />);
+    const scrollTo = jest.fn();
+    root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
+    act(() => root.root.findByType(ScrollView).props.onLayout(layout(0, 400)));
+    openAdd(root);
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => bars(root)[0].props.onAdd('2 cloves garlic'));
+    const [row] = recipeIngredientsQuery(tacos).all();
+    expect([row.quantity, row.unit, row.ingredientName]).toEqual([2, 'clove', 'garlic']);
+    expect(bars(root)).toHaveLength(1);
+    expect(dockShows(root)).toBe(false);
+    // The card's next layout ends at 600, below the 400 pt viewport: it scrolls so the card ends 16 pt above its foot.
+    act(() => byTestID(root, 'recipe-ingredients').props.onLayout(layout(300, 300)));
+    expect(scrollTo).toHaveBeenCalledWith({ y: 216, animated: true });
+    // Once per add: a later layout doesn't scroll.
+    act(() => byTestID(root, 'recipe-ingredients').props.onLayout(layout(300, 320)));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  test('an add whose row is already in view does not scroll', () => {
+    const root = render(<RecipeScreen />);
+    const scrollTo = jest.fn();
+    root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
+    act(() => root.root.findByType(ScrollView).props.onLayout(layout(0, 800)));
+    openAdd(root);
+    act(() => bars(root)[0].props.onAdd('salt'));
+    act(() => byTestID(root, 'recipe-ingredients').props.onLayout(layout(300, 200)));
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  test("the scroll view's content ends above the dock, and only 16 pt down while adding", () => {
+    const root = render(<RecipeScreen />);
+    const padding = () => root.root.findByType(ScrollView).props.contentContainerStyle.paddingBottom;
+    expect(padding()).toBeGreaterThan(16);
+    openAdd(root);
+    expect(padding()).toBe(16);
+  });
+
+  test('losing focus while empty hides it at once and the dock comes back', () => {
+    const root = render(<RecipeScreen />);
+    openAdd(root);
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => bars(root)[0].props.onFocusChange(false));
+    expect(bars(root)).toHaveLength(0);
+    expect(dockShows(root)).toBe(true);
+    // Nothing for a tap out to hide.
+    expect(tapOut(root)).toBe(false);
+  });
+
+  test('with text, blur keeps it; a second tap out hides it; Add ingredient brings it back with the text', () => {
+    const root = render(<RecipeScreen />);
+    openAdd(root);
+    typeThenBlur(root, '2 cloves gar');
+    expect(bars(root)).toHaveLength(1);
+    expect(dockShows(root)).toBe(false);
+    expect(tapOut(root)).toBe(true);
+    expect(bars(root)).toHaveLength(0);
+    expect(dockShows(root)).toBe(true);
+    openAdd(root);
+    expect(bars(root)[0].props.initialText).toBe('2 cloves gar');
+    expect(bars(root)[0].props.autoFocus).toBe(true);
+    expect(dockShows(root)).toBe(false);
+    // Focused again, a blur keeps it, and it can be tucked away again.
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => bars(root)[0].props.onFocusChange(false));
+    expect(bars(root)).toHaveLength(1);
+    expect(tapOut(root)).toBe(true);
+    expect(bars(root)).toHaveLength(0);
+  });
+
+  test('while the field is focused a tap out is left to hide the keyboard, and the bar stays', () => {
+    const root = render(<RecipeScreen />);
+    openAdd(root);
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => bars(root)[0].props.onTextChange('gar'));
+    expect(tapOut(root)).toBe(false);
+    expect(bars(root)).toHaveLength(1);
+  });
+
+  test('a toast still shows while the dock is hidden', () => {
+    addRecipeIngredient(tacos, '2 limes');
+    const root = render(<RecipeScreen />);
+    openAdd(root);
+    act(() => bars(root)[0].props.onFocusChange(true));
+    act(() => byType(root, 'Swipeable')[0].props.onSwipeableOpen());
+    expect(texts(root)).toContain('Removed Limes');
+    expect(dockShows(root)).toBe(false);
   });
 });

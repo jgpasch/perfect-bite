@@ -17,6 +17,8 @@ type Props = {
   onPlan: () => void;
   /** The dock's height with its bottom gap, so the scroll view's content can end above it. */
   onHeight: (height: number) => void;
+  /** Hides the pill and its fade, e.g. while the ingredient add bar is up; the toasts still show. */
+  hidden?: boolean;
   /** Toasts, floating above the dock. */
   children?: ReactNode;
 };
@@ -26,8 +28,9 @@ type Props = {
  * hairline `controlBorder` edge, `shadows.soft` in light mode, 16 pt from the sides and above the bottom safe area.
  * **Add to a list** takes the room, then the compact Cook (with steps) and Plan. A short fade to `background` sits
  * above it so rows slide under it; toasts float above that. Put it last over the scroll view: it's absolute.
+ * `hidden` leaves only the toasts.
  */
-export function RecipeActionDock({ tint, addDisabled, onAddToList, onCook, onPlan, onHeight, children }: Props) {
+export function RecipeActionDock({ tint, addDisabled, onAddToList, onCook, onPlan, onHeight, hidden, children }: Props) {
   const t = useT();
   const { colors, spacing, rounded, shadows, scheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -36,6 +39,8 @@ export function RecipeActionDock({ tint, addDisabled, onAddToList, onCook, onPla
   return (
     <View pointerEvents="box-none" style={styles.overlay}>
       {children}
+      {hidden ? null : (
+        <>
       <View
         pointerEvents="none"
         testID="recipe-dock-fade"
@@ -81,6 +86,8 @@ export function RecipeActionDock({ tint, addDisabled, onAddToList, onCook, onPla
           <SurfaceButton layout="stacked" label={t('recipes.screen.plan')} icon="calendar" iconTint={tint} onPress={onPlan} />
         </View>
       </View>
+        </>
+      )}
     </View>
   );
 }

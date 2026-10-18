@@ -293,6 +293,8 @@ export const Sizes = {
   stackedButton: 64,
   /** add bar input and the toast */
   bar: 52,
+  /** the recipe Ingredients card's Add ingredient row, a minimum */
+  addRow: 52,
   /** the round + inside the add bar, and the toast's Undo pill */
   barButton: 40,
   /** focus ring around the add bar */

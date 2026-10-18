@@ -453,6 +453,8 @@ export const en = {
       removed: 'Removed {{name}}',
       addPlaceholder: 'Add 2 cups flour…',
       addLabel: 'Add an ingredient',
+      /** The Ingredients card's last row, which opens the add bar (spec 4.5); VoiceOver reads `addLabel`. */
+      addIngredient: 'Add ingredient',
       addNotes: 'Add notes',
       notes: 'Notes',
       notesLabel: 'Notes: {{notes}}',
