@@ -60,10 +60,10 @@ describe('reading the stored choices', () => {
     for (const group of RECIPE_GROUPS) expect(readRecipeGroup(group)).toBe(group);
   });
 
-  test('anything else is Recently added and no grouping', () => {
-    expect(DEFAULT_RECIPE_SORT).toBe('recent');
+  test('anything else is A–Z and no grouping', () => {
+    expect(DEFAULT_RECIPE_SORT).toBe('name');
     expect(DEFAULT_RECIPE_GROUP).toBe('none');
-    for (const value of [null, undefined, '', 'cuisine', 'Meal', 3, { sort: 'meal' }]) expect(readRecipeSort(value)).toBe('recent');
+    for (const value of [null, undefined, '', 'cuisine', 'Meal', 3, { sort: 'meal' }]) expect(readRecipeSort(value)).toBe('name');
     for (const value of [null, undefined, '', 'diet', 'Meal', 'region', 2, ['meal']]) expect(readRecipeGroup(value)).toBe('none');
   });
 
@@ -76,8 +76,8 @@ describe('reading the stored choices', () => {
   test('new values read as they are, with nothing to write back', () => {
     expect(readRecipeSortChoice('recent', 'cuisine')).toEqual({ sort: 'recent', group: 'cuisine', legacy: false });
     expect(readRecipeSortChoice('name', null)).toEqual({ sort: 'name', group: 'none', legacy: false });
-    expect(readRecipeSortChoice(null, null)).toEqual({ sort: 'recent', group: 'none', legacy: false });
-    expect(readRecipeSortChoice('cuisine', 'diet')).toEqual({ sort: 'recent', group: 'none', legacy: false });
+    expect(readRecipeSortChoice(null, null)).toEqual({ sort: 'name', group: 'none', legacy: false });
+    expect(readRecipeSortChoice('cuisine', 'diet')).toEqual({ sort: 'name', group: 'none', legacy: false });
   });
 });
 

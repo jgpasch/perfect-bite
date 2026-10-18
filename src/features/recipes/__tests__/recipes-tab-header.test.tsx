@@ -277,7 +277,7 @@ describe('the sort button', () => {
     pick(sortMenu(root)[0], 'Large photos');
     expect(hostByTestID(root, 'recipe-grid')).toHaveLength(1);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('large');
-    expect(sortMenu(root)[0].props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, large photos' });
+    expect(sortMenu(root)[0].props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, large photos' });
     pick(sortMenu(root)[0], 'Small photos');
     expect(hostByTestID(root, 'recipe-grid')).toHaveLength(0);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('small');

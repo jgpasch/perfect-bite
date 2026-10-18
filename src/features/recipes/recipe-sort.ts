@@ -21,7 +21,7 @@ export type RecipeSort = 'recent' | 'name';
 
 /** The sort choices, in order. */
 export const RECIPE_SORTS: readonly RecipeSort[] = ['recent', 'name'];
-export const DEFAULT_RECIPE_SORT: RecipeSort = 'recent';
+export const DEFAULT_RECIPE_SORT: RecipeSort = 'name';
 
 /** The device setting that remembers the sort on this device. */
 export const RECIPE_SORT_KEY = 'recipes.sort';

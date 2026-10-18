@@ -386,6 +386,12 @@ export const en = {
       untagged_other: "{{count}} recipes without tags aren't shown",
       untaggedHint: 'Clears the filters and shows only recipes without tags.',
     },
+    /** The shelves above All recipes (spec 4.5). */
+    shelves: {
+      thisWeek: 'This week',
+      recent: 'Recently added',
+      favorites: 'Favorites',
+    },
     /** The sort button on the green header and its menu (spec 4.5). */
     sort: {
       /** The menu's two sections. */

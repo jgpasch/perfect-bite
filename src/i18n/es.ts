@@ -339,6 +339,11 @@ export const es = {
       untagged_other: 'No se muestran {{count}} recetas sin etiquetas',
       untaggedHint: 'Quita los filtros y muestra solo las recetas sin etiquetas.',
     },
+    shelves: {
+      thisWeek: 'Esta semana',
+      recent: 'Agregadas recientemente',
+      favorites: 'Favoritas',
+    },
     sort: {
       sortSection: 'Ordenar',
       groupSection: 'Agrupar por',

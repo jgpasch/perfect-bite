@@ -223,9 +223,9 @@ describe('the photo size, in the sort button’s menu', () => {
 
   test('the button reads the photo size after the sort', () => {
     const root = render();
-    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, small photos' });
+    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, small photos' });
     choose(root, 'Large photos');
-    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, large photos' });
+    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, large photos' });
   });
 
   test('Large photos: a two-column grid of tiles on the screen\'s ground, saved on this device', () => {
@@ -235,11 +235,11 @@ describe('the photo size, in the sort button’s menu', () => {
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('large');
     const [grid] = grids(root.root);
     expect(grids(root.root)).toHaveLength(1);
-    // Recently added order, two per row; the short last row keeps an empty cell so its tile stays a column wide.
+    // A–Z order, two per row; the short last row keeps an empty cell so its tile stays a column wide.
     expect(gridLayout(grid)).toEqual([
-      ['Tacos', 'Frittata'],
       ['Apple crumble', 'Banana bread'],
-      ['Curry', null],
+      ['Curry', 'Frittata'],
+      ['Tacos', null],
     ]);
     // No household card around the tiles; 12 between rows and columns.
     expect(flat(grid.props.style)).toMatchObject({ paddingTop: 0, gap: 12 });
@@ -307,7 +307,7 @@ describe('the photo size, in the sort button’s menu', () => {
     setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'large');
     mockWindow.fontScale = 2.35;
     const root = render();
-    expect(gridLayout(grids(root.root)[0])).toEqual([['Tacos'], ['Frittata'], ['Apple crumble'], ['Banana bread'], ['Curry']]);
+    expect(gridLayout(grids(root.root)[0])).toEqual([['Apple crumble'], ['Banana bread'], ['Curry'], ['Frittata'], ['Tacos']]);
   });
 });
 
