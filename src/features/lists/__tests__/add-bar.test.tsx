@@ -129,6 +129,23 @@ describe('ItemAddBar', () => {
     expect(input().props.value).toBe('');
   });
 
+  test('initialText fills the field and its chips at once, and the field works as typed text', () => {
+    addItem(listId, 'oat milk', USER);
+    const props = renderBar({ initialText: '2 oat' });
+    expect(input().props.value).toBe('2 oat');
+    expect(chipLabels()).toContain('Add Oat milk');
+    act(() => input().props.onSubmitEditing());
+    expect(props.onAdd).toHaveBeenCalledWith('2 oat');
+    expect(input().props.value).toBe('');
+  });
+
+  test('without initialText the field starts empty, with no chips', () => {
+    addItem(listId, 'oat milk', USER);
+    renderBar();
+    expect(input().props.value).toBe('');
+    expect(chipLabels()).toEqual([]);
+  });
+
   test('the catalog fills in when history has little; catalog chips have no remove menu', () => {
     seedCatalog();
     renderBar();

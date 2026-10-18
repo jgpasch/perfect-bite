@@ -25,6 +25,8 @@ type Props = {
   inputRef?: Ref<TextInput>;
   /** Focus the field as soon as the bar appears. */
   autoFocus?: boolean;
+  /** The field's text when the bar appears, e.g. text kept while a list's bar was hidden. */
+  initialText?: string;
 };
 
 /**
@@ -43,9 +45,10 @@ export function ItemAddBar({
   accessibilityLabel,
   inputRef,
   autoFocus,
+  initialText = '',
 }: Props) {
   const t = useT();
-  const [text, setTextState] = useState('');
+  const [text, setTextState] = useState(initialText);
   // Bumped after "Remove from suggestions" and after adding an item or a recipe, so suggestions are read again.
   const [version, setVersion] = useState(0);
   const setText = (value: string) => {

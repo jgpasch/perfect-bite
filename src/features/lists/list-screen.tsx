@@ -379,15 +379,21 @@ export function ListScreen({ id }: { id: string }) {
     addModeOffset.current = null;
   }, [addMode, listRef]);
   // The add bar is hidden at rest: the tab bar's + opens it focused, and it goes again once the field
-  // loses focus with nothing typed.
+  // loses focus with nothing typed. With text, the first tap out only hides the keyboard; a second one hides
+  // the bar too (`addTucked`), keeping the text for + to bring back.
   const [addOpen, setAddOpen] = useState(false);
+  const [addTucked, setAddTucked] = useState(false);
   const addInputRef = useRef<TextInput>(null);
-  const showAddBar = !selection && (addOpen || adding || addText !== '');
+  const showAddBar = !selection && (addOpen || adding || (addText !== '' && !addTucked));
   const openAdd = () => {
     setSelection(null);
     setAddOpen(true);
+    setAddTucked(false);
     addInputRef.current?.focus();
   };
+  // A tap on the list's empty space, between or below the rows or on the header, that no row or control
+  // claimed. While the field is focused the list's own tap-out hides the keyboard instead.
+  const tapOutHidesBar = showAddBar && !adding && addText !== '';
   useAddButton(openAdd);
   useFocusEffect(
     useCallback(() => {
@@ -398,6 +404,7 @@ export function ListScreen({ id }: { id: string }) {
   const addFocusChange = (focused: boolean) => {
     setAdding(focused);
     setAddOpen(false);
+    if (focused) setAddTucked(false);
   };
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {
@@ -1106,7 +1113,12 @@ export function ListScreen({ id }: { id: string }) {
       </Stack.Toolbar>
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
-        <View ref={viewportRef} testID="list-viewport" style={styles.flex}>
+        <View
+          ref={viewportRef}
+          testID="list-viewport"
+          style={styles.flex}
+          onStartShouldSetResponder={() => tapOutHidesBar}
+          onResponderRelease={() => setAddTucked(true)}>
           <FlatList
             ref={listRef}
             scrollEnabled={!dragging}
@@ -1187,6 +1199,7 @@ export function ListScreen({ id }: { id: string }) {
             placeholder={LIST_ADD_PLACEHOLDER}
             accessibilityLabel={LIST_ADD_LABEL}
             inputRef={addInputRef}
+            initialText={addText}
             autoFocus
           />
         ) : null}

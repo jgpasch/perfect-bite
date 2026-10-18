@@ -1419,6 +1419,96 @@ describe("the tab bar's +", () => {
     expect(all('ItemAddBar')).toHaveLength(0);
   });
 
+  describe('a second tap out', () => {
+    const viewport = () => tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'list-viewport');
+    /** A tap on the list's empty space: the viewport takes it only if it asks to, then hides the bar on release. */
+    const tapOut = () => {
+      const taken = viewport().props.onStartShouldSetResponder();
+      if (taken) act(() => viewport().props.onResponderRelease());
+      return taken;
+    };
+    const typeThenBlur = (value: string) => {
+      onBar((bar) => bar.props.onFocusChange(true));
+      onBar((bar) => bar.props.onTextChange(value));
+      act(() => all('ItemAddBar')[0].props.onFocusChange(false));
+    };
+
+    test('after the keyboard goes, the bar still shows the text; a tap out then hides it', () => {
+      render();
+      typeThenBlur('mil');
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(tapOut()).toBe(true);
+      expect(all('ItemAddBar')).toHaveLength(0);
+    });
+
+    test('while the field is focused a tap out is left to hide the keyboard, and the bar stays', () => {
+      render();
+      onBar((bar) => bar.props.onFocusChange(true));
+      onBar((bar) => bar.props.onTextChange('mil'));
+      expect(tapOut()).toBe(false);
+      expect(all('ItemAddBar')).toHaveLength(1);
+    });
+
+    test('+ brings the bar back focused, with the kept text', () => {
+      render();
+      typeThenBlur('2 mil');
+      tapOut();
+      act(() => pressAddButton());
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(all('ItemAddBar')[0].props.initialText).toBe('2 mil');
+      expect(all('ItemAddBar')[0].props.autoFocus).toBe(true);
+      // And it stays up once the field focuses, as before.
+      act(() => all('ItemAddBar')[0].props.onFocusChange(true));
+      expect(all('ItemAddBar')).toHaveLength(1);
+    });
+
+    test('a bar brought back can be tucked away again', () => {
+      render();
+      typeThenBlur('mil');
+      tapOut();
+      act(() => pressAddButton());
+      act(() => all('ItemAddBar')[0].props.onFocusChange(true));
+      act(() => all('ItemAddBar')[0].props.onFocusChange(false));
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(tapOut()).toBe(true);
+      expect(all('ItemAddBar')).toHaveLength(0);
+    });
+
+    test('with an empty field, losing focus hides the bar at once, and a tap out has nothing to hide', () => {
+      render();
+      onBar((bar) => bar.props.onFocusChange(true));
+      act(() => all('ItemAddBar')[0].props.onFocusChange(false));
+      expect(all('ItemAddBar')).toHaveLength(0);
+      expect(tapOut()).toBe(false);
+    });
+
+    test('at rest, with no bar, a tap out is not taken', () => {
+      render();
+      expect(tapOut()).toBe(false);
+      expect(all('ItemAddBar')).toHaveLength(0);
+    });
+
+    test('tapping a row while the bar is up and unfocused leaves it showing', () => {
+      put('milk');
+      render();
+      typeThenBlur('egg');
+      act(() => row('milk').props.onToggle());
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(all('ItemAddBar')[0].props.initialText).toBe('egg');
+    });
+
+    test('Select mode still swaps the bar out and clears the kept text', () => {
+      put('milk');
+      render();
+      typeThenBlur('egg');
+      tapOut();
+      press(menuAction('Select items'));
+      act(() => pressAddButton());
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(all('ItemAddBar')[0].props.initialText).toBe('');
+    });
+  });
+
   test("the long-press menu's Add item opens this list's add bar, as a tap does, without leaving the list", () => {
     render();
     act(() => runAddMenuItem('item'));
