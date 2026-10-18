@@ -418,9 +418,12 @@ describe('Group by', () => {
     // Two regions: in both.
     addRecipe('home', 'Enchiladas', -2, [], { cuisine: ['mexican', 'italian'] });
   };
+  // A row's label, not a shelf tile's (spec 4.5: with 8+ recipes the shelves come first).
+  const onShelf = (n: ReactTestInstance | null): boolean =>
+    n !== null && (String(n.props.testID ?? '').startsWith('recipe-shelf-') || onShelf(n.parent));
   const rowLabel = (root: ReactTestRenderer, name: string) =>
     root.root
-      .findAll((n) => n.props.accessibilityRole === 'button' && typeof n.props.accessibilityLabel === 'string')
+      .findAll((n) => n.props.accessibilityRole === 'button' && typeof n.props.accessibilityLabel === 'string' && !onShelf(n))
       .map((n) => n.props.accessibilityLabel as string)
       .find((label) => label === name || label.startsWith(`${name},`));
 

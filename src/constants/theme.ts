@@ -318,6 +318,8 @@ export const Sizes = {
   itemPhotoMore: 32,
   /** a recipe's photo (or tinted icon tile) at the start of its row in the Recipes tab */
   recipeTile: 48,
+  /** a tile's width on a Recipes tab shelf (This week, Recently added, Favorites) */
+  shelfTile: 140,
   /** a page's thumbnail (its width; 3:4) in the import sheet for a photo import */
   importPageThumb: 72,
   /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */

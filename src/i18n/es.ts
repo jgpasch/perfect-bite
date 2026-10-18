@@ -343,6 +343,8 @@ export const es = {
       thisWeek: 'Esta semana',
       recent: 'Agregadas recientemente',
       favorites: 'Favoritas',
+      seeAll: 'Ver todas ({{count}})',
+      allRecipes: 'Todas las recetas',
     },
     sort: {
       sortSection: 'Ordenar',

@@ -4,6 +4,7 @@ import { currentLanguage, i18n, type Language } from '@/i18n';
 import { shortSlotName } from '@/features/meal-plan/plan-modal';
 import type { PlanEntry } from '@/features/meal-plan/queries';
 import { addDays, type Day, MEALS, weekStart } from '@/features/meal-plan/week';
+import { dayName, mealLabel } from '@/features/meal-plan/week-view';
 import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import { activeFilterCount, type RecipeFilters } from './recipe-filters';
@@ -19,8 +20,11 @@ export const SHELF_MAX_ITEMS = 10;
 
 export type RecipeShelfKey = 'thisWeek' | 'recent' | 'favorites';
 
-/** A tile: the recipe, and the line under its name ("Thu dinner", "35 min"), or none. */
-export type RecipeShelfItem<R> = { recipe: R; caption: string | null };
+/**
+ * A tile: the recipe, the line under its name ("Thu dinner", "35 min") or none, and that line as VoiceOver
+ * reads it ("Thursday dinner").
+ */
+export type RecipeShelfItem<R> = { recipe: R; caption: string | null; spokenCaption: string | null };
 
 /** A shelf: `count` is what its See all counts, which can be more than the tiles shown. */
 export type RecipeShelf<R> = { key: RecipeShelfKey; title: string; count: number; items: RecipeShelfItem<R>[] };
@@ -41,7 +45,14 @@ export function shelvesShown({
   return recipeCount >= SHELVES_MIN_RECIPES && !foldForSearch(query) && activeFilterCount(filters) === 0;
 }
 
-const isFavorite = (recipe: ShelfRecipe) => knownTags(recipe.tags)?.saved.includes('favorite') ?? false;
+/** A tile's VoiceOver label: "Tacos, Thursday dinner", "Tacos, 35 min, on Groceries". */
+export function shelfTileLabel(item: { recipe: { name: string }; spokenCaption: string | null }, onList: string | null): string {
+  return [item.recipe.name, item.spokenCaption, onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null]
+    .filter(Boolean)
+    .join(', ');
+}
+
+const isFavorite =(recipe: ShelfRecipe) => knownTags(recipe.tags)?.saved.includes('favorite') ?? false;
 
 /**
  * The shelves to show, in order: This week (recipes planned from `today` to the week's end, by day then meal,
@@ -62,7 +73,10 @@ export function recipeShelves<R extends ShelfRecipe>({
 }): RecipeShelf<R>[] {
   if (recipes.length < SHELVES_MIN_RECIPES) return [];
   const title = (key: RecipeShelfKey) => i18n.t(`recipes.shelves.${key}`, { lng: language });
-  const withTime = (recipe: R): RecipeShelfItem<R> => ({ recipe, caption: recipeTimeLabel(recipe.totalMinutes) });
+  const withTime = (recipe: R): RecipeShelfItem<R> => {
+    const caption = recipeTimeLabel(recipe.totalMinutes);
+    return { recipe, caption, spokenCaption: caption };
+  };
 
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const weekEnd = addDays(weekStart(today), 6);
@@ -79,7 +93,16 @@ export function recipeShelves<R extends ShelfRecipe>({
   for (const entry of planned) {
     if (seen.has(entry.recipeId!)) continue;
     seen.add(entry.recipeId!);
-    thisWeek.push({ recipe: byId.get(entry.recipeId!)!, caption: shortSlotName(entry.planDate, entry.meal, today, language) });
+    thisWeek.push({
+      recipe: byId.get(entry.recipeId!)!,
+      caption: shortSlotName(entry.planDate, entry.meal, today, language),
+      // Always in this week, so always a weekday.
+      spokenCaption: i18n.t('mealPlan.slotShort', {
+        lng: language,
+        day: dayName(entry.planDate, 'long', language),
+        meal: mealLabel(entry.meal).toLocaleLowerCase(language),
+      }),
+    });
   }
 
   const favorites = sortRecipesByName(recipes.filter(isFavorite));

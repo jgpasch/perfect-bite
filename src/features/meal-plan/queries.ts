@@ -81,6 +81,19 @@ export function groupWeek(entries: readonly PlanEntry[]): WeekPlan {
 }
 
 /**
+ * Every household's live entries from `from` (today) to the end of its week (live query), for the Recipes
+ * tab's This week shelf (spec 4.5).
+ */
+export function restOfWeekEntriesQuery(from: Day) {
+  return db
+    .select(entryColumns)
+    .from(mealPlanEntries)
+    .leftJoin(recipes, eq(recipes.id, mealPlanEntries.recipeId))
+    .where(and(gte(mealPlanEntries.planDate, from), lte(mealPlanEntries.planDate, addDays(weekStart(from), 6)), liveEntry))
+    .orderBy(asc(mealPlanEntries.planDate), asc(mealOrder), asc(mealPlanEntries.position));
+}
+
+/**
  * The recipe's live entries from `from` (today) on (live query), soonest first, for the recipe
  * screen's plan badges. None once the recipe is deleted.
  */

@@ -16,7 +16,7 @@ import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon, type IconName } from '@/components/icon';
-import { FoldingSection } from '@/components/section-header';
+import { FoldingSection, SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
@@ -27,6 +27,8 @@ import { categorizePending } from '@/features/categories/categorization';
 import { openList, resolveCurrentListId, useCurrentListVersion } from '@/features/lists/current-list';
 import { getList, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipesSegment, usePlanTabSetting, useRecipesSegment, type RecipesSegment } from '@/features/meal-plan/plan-tab';
+import { MEAL_PLAN_QUERY_TABLES, restOfWeekEntriesQuery } from '@/features/meal-plan/queries';
+import { today as todayOf } from '@/features/meal-plan/week';
 import { WeekPlan } from '@/features/meal-plan/week-plan';
 import { mix } from '@/domain/contrast';
 import { useFeature } from '@/features/plans/features';
@@ -55,6 +57,14 @@ import {
   recipeTimeLabel,
 } from '@/features/recipes/recipe-view';
 import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
+import { RecipeShelf, RecipeShelfTile } from '@/features/recipes/recipe-shelf';
+import {
+  recipeShelves,
+  shelfTileLabel,
+  shelvesShown,
+  type RecipeShelfItem,
+  type RecipeShelfKey,
+} from '@/features/recipes/recipe-shelves';
 import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
 import {
   groupRecipes,
@@ -79,6 +89,7 @@ import {
   matchesRecipeFilters,
   noRecipeFilters,
   removeFilterChip,
+  toggleRecipeFilter,
   untaggedFootnote,
   untaggedOnlyFilters,
 } from '@/features/recipes/recipe-filters';
@@ -95,13 +106,15 @@ import {
 import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
+import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { i18n, useT } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
 /**
  * Recipes tab (spec 4.5): the List tab's green header (the title, the sort button and +, then the search field
- * holding Filters) over a card of recipe rows per household.
+ * holding Filters) over a card of recipe rows per household; with no search or filters, shelves (This week,
+ * Recently added, Favorites) and an All recipes heading come first.
  */
 export default function RecipesScreen() {
   const t = useT();
@@ -175,6 +188,30 @@ export default function RecipesScreen() {
   const untaggedHidden =
     filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
+
+  // Spec 4.5: with no search or filters, shelves over an All recipes heading (none below 8 recipes).
+  const today = todayOf();
+  const { data: weekEntries } = useLiveQueryOn(restOfWeekEntriesQuery(today), MEAL_PLAN_QUERY_TABLES);
+  const showShelves = !week && shelvesShown({ query, filters, recipeCount: data.length });
+  const shelves = useMemo(
+    () => (showShelves ? recipeShelves({ recipes: data, entries: weekEntries, today }) : []),
+    [showShelves, data, weekEntries, today],
+  );
+  const scroll = useRef<ScrollView>(null);
+  const allRecipesY = useRef(0);
+  const { reduceMotion } = useMotion();
+  const seeAll = (key: RecipeShelfKey) => {
+    if (key === 'thisWeek') {
+      if (planTab) router.navigate('/plan');
+      else setRecipesSegment('week');
+    } else if (key === 'recent') {
+      setSortChoice({ sort: 'recent', group: grouping });
+      scroll.current?.scrollTo({ y: allRecipesY.current, animated: !reduceMotion });
+    } else {
+      // The shelves give way to the filter's results.
+      setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorite'));
+    }
+  };
 
   // Spec 4.5: the card menu's quick add goes to the current list (the List tab's), re-resolved as lists change.
   const { data: allLists } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
@@ -359,6 +396,23 @@ export default function RecipesScreen() {
       ))}
     </View>
   );
+  // A shelf's tile: the card's link, long-press menu and badge, read as "Tacos, Thursday dinner".
+  const renderShelfTile = (item: RecipeShelfItem<RecipeSummary>) => {
+    const { recipe } = item;
+    const listName = onList.get(recipe.id) ?? null;
+    return recipeLink({
+      recipe,
+      group: grouping,
+      onList: listName,
+      ingredientMatch: null,
+      quickAddTo: quickAddList(currentList, recipe),
+      onQuickAdd: quickAdd,
+      onDelete: () => confirmDeleteRecipe(recipe),
+      label: shelfTileLabel(item, listName),
+      children: <RecipeShelfTile recipe={recipe} caption={item.caption} onList={listName} />,
+    });
+  };
+
   const renderRecipes = (recipes: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) =>
     photoSize === 'large' ? renderGrid(recipes, underHeader) : renderRows(recipes);
 
@@ -366,6 +420,7 @@ export default function RecipesScreen() {
     <Screen>
       {onRecipes ? <StatusBar style="light" /> : null}
       <ScrollView
+        ref={scroll}
         contentInsetAdjustmentBehavior="automatic"
         onScrollBeginDrag={closeOpenCard}
         keyboardShouldPersistTaps="handled"
@@ -452,6 +507,27 @@ export default function RecipesScreen() {
             onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
             onClear={() => setRecipeFilters(noRecipeFilters())}
           />
+        ) : null}
+        {showShelves && shelves.length > 0 ? (
+          <View style={{ gap: spacing.xl - spacing.xxs, paddingTop: spacing.xs }}>
+            {shelves.map((shelf) => (
+              <RecipeShelf key={shelf.key} shelf={shelf} onSeeAll={() => seeAll(shelf.key)} renderTile={renderShelfTile} />
+            ))}
+          </View>
+        ) : null}
+        {showShelves ? (
+          // A direct child of the scroll view, so its y is where Recently added's See all scrolls to.
+          <View
+            testID="recipes-all-heading"
+            onLayout={(e) => (allRecipesY.current = e.nativeEvent.layout.y)}
+            style={{ paddingTop: shelves.length > 0 ? spacing.sm : 0 }}>
+            <SectionHeader
+              title={t('recipes.shelves.allRecipes')}
+              count={data.length}
+              countPlacement="title"
+              countUnit={recipeSectionUnit()}
+            />
+          </View>
         ) : null}
         {!week && data.length > 0 && (searching || filtering) && groups.length === 0 ? (
           <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
@@ -814,6 +890,7 @@ function recipeLink({
   quickAddTo,
   onQuickAdd,
   onDelete,
+  label,
   children,
 }: {
   recipe: RecipeSummary;
@@ -823,6 +900,8 @@ function recipeLink({
   quickAddTo: { id: string; name: string } | null;
   onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
   onDelete: () => void;
+  /** VoiceOver's label in place of the row's, e.g. a shelf tile's "Tacos, Thursday dinner". */
+  label?: string;
   children: ReactNode;
 }) {
   const t = i18n.t.bind(i18n);
@@ -834,7 +913,7 @@ function recipeLink({
       <Link.Trigger>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={recipeRowLabel(recipe, onList, ingredientMatch, group)}
+          accessibilityLabel={label ?? recipeRowLabel(recipe, onList, ingredientMatch, group)}
           accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
           onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}>
           {/* Layout lives on the children: Link's trigger replaces the Pressable's style. */}

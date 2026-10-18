@@ -7,7 +7,7 @@ import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
 
 import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
-import { recipeShelves, SHELF_MAX_ITEMS, SHELVES_MIN_RECIPES, shelvesShown } from '../recipe-shelves';
+import { recipeShelves, SHELF_MAX_ITEMS, SHELVES_MIN_RECIPES, shelfTileLabel, shelvesShown } from '../recipe-shelves';
 import { RECIPE_GROUP_KEY, RECIPE_SORT_KEY } from '../recipe-sort';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -194,6 +194,35 @@ describe('recipeShelves', () => {
     const result = recipeShelves({ recipes: RECIPES, entries: [entry('2026-10-15', 'dinner', 'r1')], today: TODAY, language: 'es' });
     expect(result.map((s) => s.title)).toEqual(['Esta semana', 'Agregadas recientemente', 'Favoritas']);
     expect(result[0].items[0].caption).toBe('cena del jue');
+    expect(result[0].items[0].spokenCaption).toBe('cena del jueves');
+  });
+
+  test('VoiceOver reads a planned slot with the whole weekday; a time as shown; no time as nothing', () => {
+    const result = shelves(RECIPES, [entry('2026-10-15', 'dinner', 'r1'), entry('2026-10-17', 'breakfast', 'r3')]);
+    expect(result[0].items.map((i) => [i.caption, i.spokenCaption])).toEqual([
+      ['Thu dinner', 'Thursday dinner'],
+      ['Sat breakfast', 'Saturday breakfast'],
+    ]);
+    const recent = result.find((s) => s.key === 'recent')!;
+    expect(recent.items[0]).toMatchObject({ caption: '35 min', spokenCaption: '35 min' });
+    expect(recent.items.find((i) => i.recipe.name === 'Frittata')).toMatchObject({ caption: null, spokenCaption: null });
+  });
+});
+
+describe('shelfTileLabel', () => {
+  test('the name, then the spoken caption, then the list it is on', () => {
+    const tacos = { recipe: { name: 'Tacos' }, spokenCaption: 'Thursday dinner' };
+    expect(shelfTileLabel(tacos, null)).toBe('Tacos, Thursday dinner');
+    expect(shelfTileLabel({ recipe: { name: 'Tacos' }, spokenCaption: '35 min' }, null)).toBe('Tacos, 35 min');
+    expect(shelfTileLabel(tacos, 'Groceries')).toBe('Tacos, Thursday dinner, on Groceries');
+    // No caption: just the name (and the list).
+    expect(shelfTileLabel({ recipe: { name: 'Frittata' }, spokenCaption: null }, null)).toBe('Frittata');
+    expect(shelfTileLabel({ recipe: { name: 'Frittata' }, spokenCaption: null }, 'Groceries')).toBe('Frittata, on Groceries');
+  });
+
+  test('in Spanish', () => {
+    initI18n('es');
+    expect(shelfTileLabel({ recipe: { name: 'Tacos' }, spokenCaption: 'cena del jueves' }, 'Súper')).toBe('Tacos, cena del jueves, en Súper');
   });
 });
 

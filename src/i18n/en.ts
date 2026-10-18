@@ -391,6 +391,9 @@ export const en = {
       thisWeek: 'This week',
       recent: 'Recently added',
       favorites: 'Favorites',
+      seeAll: 'See all {{count}}',
+      /** The heading over the household cards while shelves show. */
+      allRecipes: 'All recipes',
     },
     /** The sort button on the green header and its menu (spec 4.5). */
     sort: {

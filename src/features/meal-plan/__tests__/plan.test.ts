@@ -7,7 +7,7 @@ import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations } from '@/test/outbox';
 
-import { groupWeek, upcomingRecipeEntriesQuery, weekEntriesQuery, type PlanEntry } from '../queries';
+import { groupWeek, restOfWeekEntriesQuery, upcomingRecipeEntriesQuery, weekEntriesQuery, type PlanEntry } from '../queries';
 import { applyPlanChanges, cleanNote, clearSlot, setSlot } from '../write';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -169,6 +169,39 @@ describe('upcomingRecipeEntriesQuery', () => {
     setSlot(home, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: tacos });
     deleteRecipe(tacos);
     expect(upcomingRecipeEntriesQuery(tacos, '2026-10-15').all()).toEqual([]);
+  });
+});
+
+describe('restOfWeekEntriesQuery', () => {
+  test("every household's live entries from today through Saturday, by day then meal", () => {
+    const pie = createRecipe('Pie', CABIN);
+    setSlot(home, '2026-10-14', 'dinner', { kind: 'recipe', recipeId: tacos }); // yesterday
+    setSlot(home, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: tacos });
+    setSlot(CABIN, '2026-10-15', 'breakfast', { kind: 'recipe', recipeId: pie });
+    setSlot(home, '2026-10-16', 'lunch', { kind: 'note', note: 'Pizza night' });
+    setSlot(home, '2026-10-17', 'dinner', { kind: 'recipe', recipeId: soup }); // Saturday, kept
+    setSlot(home, '2026-10-18', 'dinner', { kind: 'recipe', recipeId: soup }); // next Sunday
+    setSlot(home, '2026-10-16', 'dinner', { kind: 'recipe', recipeId: soup });
+    clearSlot(home, '2026-10-16', 'dinner');
+
+    expect(
+      restOfWeekEntriesQuery('2026-10-15')
+        .all()
+        .map((e) => [e.householdId === CABIN ? 'cabin' : 'home', e.planDate, e.meal, e.kind, e.recipeName]),
+    ).toEqual([
+      ['cabin', '2026-10-15', 'breakfast', 'recipe', 'Pie'],
+      ['home', '2026-10-15', 'dinner', 'recipe', 'Tacos'],
+      ['home', '2026-10-16', 'lunch', 'note', null],
+      ['home', '2026-10-17', 'dinner', 'recipe', 'Soup'],
+    ]);
+  });
+
+  test("a deleted recipe's entry is left out; on Saturday only Saturday is left", () => {
+    setSlot(home, '2026-10-17', 'dinner', { kind: 'recipe', recipeId: tacos });
+    setSlot(home, '2026-10-17', 'lunch', { kind: 'recipe', recipeId: soup });
+    deleteRecipe(soup);
+    expect(restOfWeekEntriesQuery('2026-10-17').all().map((e) => [e.planDate, e.meal])).toEqual([['2026-10-17', 'dinner']]);
+    expect(restOfWeekEntriesQuery('2026-10-18').all()).toEqual([]);
   });
 });
 
