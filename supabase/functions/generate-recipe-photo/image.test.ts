@@ -1,0 +1,130 @@
+// The image call (spec 6.11) over a fake OpenAI: the request it sends, refusals, failures, the
+// timeout, the mock and the kill switch. Nothing touches the network.
+import { assert, assertEquals, assertRejects } from '@std/assert';
+
+import { MOCK_RECIPE_PHOTO_JPEG } from '../_shared/fixtures/mock-recipe-photo.ts';
+import {
+  estimateImageCost,
+  generateImage,
+  ImageFailedError,
+  ImageRefusedError,
+  imageModel,
+  imageQuality,
+  isContentPolicyError,
+  isImageEnabled,
+  OPENAI_IMAGES_URL,
+} from './image.ts';
+
+const envOf = (vars: Record<string, string>) => (key: string) => vars[key];
+const KEYED = envOf({ OPENAI_API_KEY: 'sk-test' });
+
+type Sent = { url: string; init: RequestInit };
+
+/** A fake fetch answering `status` and `body`, recording what it was sent. */
+function fakeFetch(status: number, body: unknown) {
+  const sent: Sent[] = [];
+  const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sent.push({ url: String(url), init: init ?? {} });
+    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  return { sent, fetch };
+}
+
+const OK_BODY = { data: [{ b64_json: btoa(String.fromCharCode(0xff, 0xd8, 0x10, 0xff, 0xd9)) }], usage: { input_tokens: 70, output_tokens: 1584 } };
+
+Deno.test('sends one JPEG request to the Images API with the defaults, and decodes the answer', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  const image = await generateImage('A bowl of soup', { env: KEYED, fetch });
+  assertEquals(sent.length, 1);
+  assertEquals(sent[0].url, OPENAI_IMAGES_URL);
+  assertEquals(sent[0].init.method, 'POST');
+  assertEquals((sent[0].init.headers as Record<string, string>).authorization, 'Bearer sk-test');
+  assertEquals(JSON.parse(String(sent[0].init.body)), {
+    model: 'gpt-image-1-mini',
+    prompt: 'A bowl of soup',
+    quality: 'medium',
+    size: '1536x1024',
+    n: 1,
+    output_format: 'jpeg',
+    output_compression: 80,
+  });
+  assertEquals([...image.bytes], [0xff, 0xd8, 0x10, 0xff, 0xd9]);
+  assertEquals([image.model, image.quality], ['gpt-image-1-mini', 'medium']);
+  assertEquals(image.usage, { inputTokens: 70, outputTokens: 1584 });
+});
+
+Deno.test('AI_IMAGE_MODEL and AI_IMAGE_QUALITY change the request; an unknown quality is medium', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  await generateImage('x', { env: envOf({ OPENAI_API_KEY: 'k', AI_IMAGE_MODEL: 'gpt-image-1', AI_IMAGE_QUALITY: 'low' }), fetch });
+  const body = JSON.parse(String(sent[0].init.body));
+  assertEquals([body.model, body.quality], ['gpt-image-1', 'low']);
+  assertEquals(imageQuality(envOf({ AI_IMAGE_QUALITY: 'ultra' })), 'medium');
+  assertEquals(imageModel(envOf({ AI_IMAGE_MODEL: '  ' })), 'gpt-image-1-mini');
+});
+
+Deno.test('a moderation refusal is ImageRefusedError', async () => {
+  const blocked = fakeFetch(400, { error: { code: 'moderation_blocked', message: 'Your request was rejected by the safety system.' } });
+  await assertRejects(() => generateImage('x', { env: KEYED, fetch: blocked.fetch }), ImageRefusedError);
+  const policy = fakeFetch(400, { error: { code: null, type: 'invalid_request_error', message: 'This request violates our content policy.' } });
+  await assertRejects(() => generateImage('x', { env: KEYED, fetch: policy.fetch }), ImageRefusedError);
+});
+
+Deno.test('any other error is ImageFailedError: an HTTP error, no image, bad JSON, a network error', async () => {
+  for (const [status, body] of [
+    [500, { error: { message: 'server error' } }],
+    [429, { error: { code: 'rate_limit_exceeded', message: 'slow down' } }],
+    [200, { data: [] }],
+    [200, 'not json at all'],
+  ] as const) {
+    const { fetch } = fakeFetch(status, body);
+    await assertRejects(() => generateImage('x', { env: KEYED, fetch }), ImageFailedError, undefined, `${status} ${JSON.stringify(body)}`);
+  }
+  const broken = (async () => {
+    throw new TypeError('connection reset');
+  }) as typeof globalThis.fetch;
+  await assertRejects(() => generateImage('x', { env: KEYED, fetch: broken }), ImageFailedError, 'connection reset');
+});
+
+Deno.test('no answer within the timeout is ImageFailedError', async () => {
+  const hanging = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      const signal = init!.signal!;
+      signal.addEventListener('abort', () => reject(signal.reason));
+    })) as typeof globalThis.fetch;
+  await assertRejects(() => generateImage('x', { env: KEYED, fetch: hanging, timeoutMs: 20 }), ImageFailedError, 'timeout');
+});
+
+Deno.test('mock answers the fixed JPEG with no network call or key; off and a missing key fail', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  const image = await generateImage('x', { env: envOf({ AI_IMAGE_MODEL: 'mock' }), fetch });
+  assertEquals(sent, []);
+  assertEquals(image.bytes, MOCK_RECIPE_PHOTO_JPEG);
+  assertEquals([image.model, image.usage], ['mock', null]);
+  await assertRejects(() => generateImage('x', { env: envOf({ AI_IMAGE_MODEL: 'off', OPENAI_API_KEY: 'k' }), fetch }), ImageFailedError);
+  await assertRejects(() => generateImage('x', { env: envOf({}), fetch }), ImageFailedError, 'OPENAI_API_KEY');
+  assertEquals(sent, []);
+  assertEquals(isImageEnabled(envOf({ AI_IMAGE_MODEL: 'off' })), false);
+  assertEquals(isImageEnabled(envOf({})), true);
+});
+
+Deno.test('the mock JPEG is a small baseline JPEG', () => {
+  const bytes = MOCK_RECIPE_PHOTO_JPEG;
+  assertEquals([bytes[0], bytes[1]], [0xff, 0xd8], 'starts with SOI');
+  assertEquals([bytes.at(-2), bytes.at(-1)], [0xff, 0xd9], 'ends with EOI');
+  const sof = bytes.findIndex((b, i) => b === 0xff && bytes[i + 1] === 0xc0);
+  assert(sof > 0, 'has a baseline frame header');
+  assertEquals((bytes[sof + 5] << 8) | bytes[sof + 6], 48, 'height');
+  assertEquals((bytes[sof + 7] << 8) | bytes[sof + 8], 64, 'width');
+  assert(bytes.length < 300);
+});
+
+Deno.test('isContentPolicyError and estimateImageCost', () => {
+  assert(isContentPolicyError({ code: 'moderation_blocked' }));
+  assert(isContentPolicyError({ code: 'content_policy_violation' }));
+  assert(!isContentPolicyError({ code: 'rate_limit_exceeded', message: 'Too many requests' }));
+  assert(!isContentPolicyError(null));
+  // About a cent for a medium 1536×1024 image on mini.
+  assertEquals(estimateImageCost({ model: 'gpt-image-1-mini', usage: { inputTokens: 100, outputTokens: 1584 } }), (100 * 2 + 1584 * 8) / 1_000_000);
+  assertEquals(estimateImageCost({ model: 'gpt-image-1', usage: { inputTokens: 1, outputTokens: 1 } }), null);
+  assertEquals(estimateImageCost({ model: 'gpt-image-1-mini', usage: null }), null);
+});

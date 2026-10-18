@@ -21,11 +21,12 @@ import {
 } from '@shared/index.ts';
 import { z } from 'zod';
 
-import { mockCategorizeModel, mockRecipeModel, mockRecipePhotoModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
+import { mockCategorizeModel, mockPhotoDescriptionModel, mockRecipeModel, mockRecipePhotoModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
 import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v1.ts';
 import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v4.ts';
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
+import { MAX_DESCRIPTION_WORDS, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from './prompts/recipe-photo-description.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
@@ -348,6 +349,41 @@ function stepsModel(): string | null {
   return env('AI_MODEL_STEPS') ?? env('AI_MODEL_RECIPE');
 }
 
+/** What the recipe-photo-description model answers (spec 6.11). Run it through `cleanPhotoDescription`. */
+export const PhotoDescriptionOutputSchema = z.object({ isFood: z.boolean(), description: z.string() });
+export type PhotoDescriptionOutput = z.infer<typeof PhotoDescriptionOutputSchema>;
+
+/** A description's characters past this are cut, whatever its word count. */
+export const MAX_DESCRIPTION_LENGTH = 600;
+
+/** A checked description: food with what the image prompt may use, or a refusal. */
+export type PhotoDescription = { isFood: true; description: string } | { isFood: false };
+
+/**
+ * The model's answer as the image prompt may use it: whitespace collapsed, cut to 60 words, then
+ * to 600 characters. Not food is `{ isFood: false }`, whatever the description says. Food with an
+ * empty description is null: the caller treats that as a failed call, not a refusal.
+ */
+export function cleanPhotoDescription(raw: PhotoDescriptionOutput): PhotoDescription | null {
+  if (!raw.isFood) return { isFood: false };
+  const words = collapse(raw.description).split(' ').filter(Boolean).slice(0, MAX_DESCRIPTION_WORDS);
+  const description = truncateText(words.join(' '), MAX_DESCRIPTION_LENGTH).trimEnd();
+  return description === '' ? null : { isFood: true, description };
+}
+
+/** A short answer: a boolean and at most 60 words. */
+export const PHOTO_DESCRIPTION_MAX_OUTPUT_TOKENS = 300;
+
+/** The tag suggester's fallback: `AI_MODEL_TAGS_FALLBACK`, or `AI_MODEL_RECIPE_FALLBACK` while it follows `AI_MODEL_RECIPE`. */
+function tagsFallbackModel(): string | null {
+  return env('AI_MODEL_TAGS_FALLBACK') ?? (env('AI_MODEL_TAGS') ? null : env('AI_MODEL_RECIPE_FALLBACK'));
+}
+
+/** `AI_MODEL_PHOTO_DESCRIPTION`, else the tag suggester's model (`AI_MODEL_TAGS`, else `AI_MODEL_RECIPE`). */
+function photoDescriptionModel(): string | null {
+  return env('AI_MODEL_PHOTO_DESCRIPTION') ?? tagsModel();
+}
+
 export const aiTasks = {
   /** Shelf category and default unit for 1..100 normalized ingredient names in one call. */
   categorize: {
@@ -412,7 +448,7 @@ export const aiTasks = {
     /** `AI_MODEL_TAGS`, defaulting to `AI_MODEL_RECIPE`. */
     model: tagsModel,
     /** `AI_MODEL_TAGS_FALLBACK`; while the model follows `AI_MODEL_RECIPE`, so does its fallback. */
-    fallbackModel: () => env('AI_MODEL_TAGS_FALLBACK') ?? (env('AI_MODEL_TAGS') ? null : env('AI_MODEL_RECIPE_FALLBACK')),
+    fallbackModel: tagsFallbackModel,
     promptVersion: SUGGEST_RECIPE_TAGS_PROMPT_VERSION,
     output: SuggestTagsOutputSchema,
     temperature: 0,
@@ -440,6 +476,25 @@ export const aiTasks = {
     providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_STEPS', RECIPE_THINKING)),
     /** What `AI_MODEL_STEPS=mock` runs. */
     mock: mockStepsModel,
+  },
+  /**
+   * How a recipe's finished dish looks, for its AI photo, or a refusal (spec 6.11). Run the output
+   * through `cleanPhotoDescription` before using it.
+   */
+  recipePhotoDescription: {
+    /** `AI_MODEL_PHOTO_DESCRIPTION`, defaulting to the tag suggester's model. */
+    model: photoDescriptionModel,
+    /** `AI_MODEL_PHOTO_DESCRIPTION_FALLBACK`; while the model follows the tag suggester's, so does its fallback. */
+    fallbackModel: () => env('AI_MODEL_PHOTO_DESCRIPTION_FALLBACK') ?? (env('AI_MODEL_PHOTO_DESCRIPTION') ? null : tagsFallbackModel()),
+    promptVersion: RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION,
+    output: PhotoDescriptionOutputSchema,
+    temperature: 0,
+    /** A short prompt and a short answer, as tag suggestions. */
+    timeoutMs: 15_000,
+    maxOutputTokens: () => PHOTO_DESCRIPTION_MAX_OUTPUT_TOKENS,
+    providerOptions: () => thinkingProviderOptions(thinking('AI_THINKING_PHOTO_DESCRIPTION', RECIPE_THINKING)),
+    /** What `AI_MODEL_PHOTO_DESCRIPTION=mock` runs. */
+    mock: mockPhotoDescriptionModel,
   },
 } as const;
 

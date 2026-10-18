@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { MOCK_MODEL_ID } from './registry.ts';
 import { MEXICAN_WORDS, NO_LINK_EXAMPLES } from './spanish-words.ts';
-import type { CategorizeOutput, ExtractRecipeOutput, MatchRecipeStepsOutput, SuggestTagsOutput } from './tasks.ts';
+import type { CategorizeOutput, ExtractRecipeOutput, MatchRecipeStepsOutput, PhotoDescriptionOutput, SuggestTagsOutput } from './tasks.ts';
 
 /** First match wins, so more specific rules come first. Anything unmatched is pantry. */
 const KEYWORD_RULES: [CategorySlug, string[]][] = [
@@ -248,6 +248,43 @@ export function stepsRecipeFromPrompt(prompt: string): MockStepsRecipe {
   }
 }
 
+/** The recipe the recipe-photo-description prompt carries (`buildRecipePhotoDescriptionPrompt`). */
+export type MockPhotoRecipe = { title: string; ingredients: string[] };
+
+/** The description mock's one answer: fixed, so none of the recipe's text ever reaches an image prompt. */
+export const MOCK_PHOTO_DESCRIPTION = 'A home-cooked dish on a white plate, garnished with fresh herbs, on a wooden table.';
+
+/** In a title or ingredient, makes the description mock refuse, so tests and e2e reach both answers. */
+export const MOCK_NOT_FOOD_WORDS = /\bnot food\b/i;
+
+/**
+ * `AI_MODEL_PHOTO_DESCRIPTION=mock` (spec 6.11): `MOCK_PHOTO_DESCRIPTION`, or `isFood: false` when
+ * there's no title or the title or an ingredient says "not food".
+ */
+export function mockDescribeRecipePhoto(recipe: MockPhotoRecipe): PhotoDescriptionOutput {
+  const refused = recipe.title.trim() === '' || [recipe.title, ...recipe.ingredients].some((text) => MOCK_NOT_FOOD_WORDS.test(text));
+  return refused ? { isFood: false, description: '' } : { isFood: true, description: MOCK_PHOTO_DESCRIPTION };
+}
+
+/** The recipe is the first JSON object in the user prompt; anything else is an empty recipe. */
+export function photoRecipeFromPrompt(prompt: string): MockPhotoRecipe {
+  const start = prompt.indexOf('{');
+  const end = prompt.lastIndexOf('}');
+  const empty: MockPhotoRecipe = { title: '', ingredients: [] };
+  if (start < 0 || end < start) return empty;
+  try {
+    const parsed: unknown = JSON.parse(prompt.slice(start, end + 1));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return empty;
+    const { title, ingredients } = parsed as Record<string, unknown>;
+    return {
+      title: typeof title === 'string' ? title : '',
+      ingredients: Array.isArray(ingredients) ? ingredients.filter((l): l is string => typeof l === 'string') : [],
+    };
+  } catch {
+    return empty;
+  }
+}
+
 /** Below this, the photo mock's first image isn't a recipe, so tests can reach both answers. */
 export const MOCK_PHOTO_MIN_BYTES = 1024;
 
@@ -326,4 +363,8 @@ export function mockTagsModel(): LanguageModel {
 
 export function mockStepsModel(): LanguageModel {
   return mockModel((prompt) => mockMatchSteps(stepsRecipeFromPrompt(prompt)));
+}
+
+export function mockPhotoDescriptionModel(): LanguageModel {
+  return mockModel((prompt) => mockDescribeRecipePhoto(photoRecipeFromPrompt(prompt)));
 }
