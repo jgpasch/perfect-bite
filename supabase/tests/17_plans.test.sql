@@ -31,9 +31,9 @@ select results_eq(
 select results_eq(
   $$ select plan_id, feature from public.plan_features order by plan_id, feature $$,
   $$ values ('plus', 'categorize'), ('plus', 'recipe_import'), ('plus', 'recipe_import_photo'),
-            ('plus', 'recipe_tags'), ('plus', 'step_ingredients'), ('standard', 'categorize'),
+            ('plus', 'recipe_photo_ai'), ('plus', 'recipe_tags'), ('plus', 'step_ingredients'), ('standard', 'categorize'),
             ('standard', 'step_ingredients') $$,
-  'base has no features, standard has categorize and step_ingredients, and plus has all five');
+  'base has no features, standard has categorize and step_ingredients, and plus has all six');
 select is_empty(
   $$ select p.id from public.plans p
      where exists (select 1 from public.plan_features f where f.plan_id = p.id and f.feature = 'recipe_import')
@@ -99,7 +99,7 @@ select is(public.my_features('aaaaaaaa-0000-0000-0000-00000000000a'), array['cat
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
 select is(public.my_features(), '{}'::text[], 'my_features for a base user is empty');
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
-select is(public.my_features(), array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags', 'step_ingredients'],
+select is(public.my_features(), array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_photo_ai', 'recipe_tags', 'step_ingredients'],
   'my_features for a plus user is every feature, sorted, recipe_tags and step_ingredients included');
 
 -- Client access -----------------------------------------------------------------

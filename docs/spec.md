@@ -370,8 +370,8 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 - Its audit row has `action` `delete_user`, the user's id, the note, and `details`: the email, the display name and, per household, its id, name and outcome (with `promoted_user_id` for `promoted`). It returns the same `details`.
 
 **Plans and features.** A feature is a text key; a plan is a named set of features (`plans`, `plan_features`, `user_plans`, 5).
-- v1 features: `categorize` (the LLM categorizes new ingredient names, 6.1), `recipe_import` (4.10; it categorizes in the same request, so a plan with it also has `categorize`, and the pgTAP suite checks every plan for that), `recipe_import_photo` (photo import, 4.10, 6.10; checked by `import-recipe-photo`, which categorizes in the same request too), `recipe_tags` (the AI suggests tags for a recipe on demand, 4.14, 6.7) and `step_ingredients` (the AI matches a recipe's ingredients to its steps for cook mode, 4.5, 6.8).
-- Seeded plans: **base** (no features), **standard** (`categorize`, `step_ingredients`; the default) and **plus** (`categorize`, `recipe_import`, `recipe_import_photo`, `recipe_tags`, `step_ingredients`; imports there are already AI-tagged, so plus is where tag suggestions belong). At most one plan is the default (a partial unique index); if none is, a user with no assignment has no features. New plans are made by hand in SQL; there's no `create_plan`.
+- v1 features: `categorize` (the LLM categorizes new ingredient names, 6.1), `recipe_import` (4.10; it categorizes in the same request, so a plan with it also has `categorize`, and the pgTAP suite checks every plan for that), `recipe_import_photo` (photo import, 4.10, 6.10; checked by `import-recipe-photo`, which categorizes in the same request too), `recipe_tags` (the AI suggests tags for a recipe on demand, 4.14, 6.7), `step_ingredients` (the AI matches a recipe's ingredients to its steps for cook mode, 4.5, 6.8) and `recipe_photo_ai` (the AI makes a recipe's one photo, 4.5, 6.11; checked by `generate-recipe-photo`).
+- Seeded plans: **base** (no features), **standard** (`categorize`, `step_ingredients`; the default) and **plus** (`categorize`, `recipe_import`, `recipe_import_photo`, `recipe_photo_ai`, `recipe_tags`, `step_ingredients`; imports there are already AI-tagged, so plus is where tag suggestions belong). At most one plan is the default (a partial unique index); if none is, a user with no assignment has no features. New plans are made by hand in SQL; there's no `create_plan`.
 - **Per user.** A user's plan is their `user_plans` row, else the default plan. Members of one household can be on different plans, and each gets their own.
 - Changing a plan has no rules beyond the table's constraints, so there's no admin function: add, edit or delete the user's `user_plans` row in the Table Editor (the foreign key only allows real plans; no row means the default; a `before update` trigger sets `assigned_at`). The plans migration puts the owner's account (jgpasch@gmail.com) on plus, so it keeps recipe import on hosted.
 - **Resolution.** `has_feature(user, feature, household)` (for Edge Functions, `service_role` only) and `my_features(household)` (for the app, the caller's features, sorted) are the only places a plan is resolved. Both take the household the action is in, when it's known, and ignore it today. To make plans per household later (so one paying member can't share their plan by inviting anyone), change only that resolution, e.g. to a household's plan or the best plan among its members.
@@ -609,6 +609,9 @@ create table recipes (
 -- least an hour old (claim_recipe_photo_deletions, which drops objects a recipe points at again, as
 -- after Undo, and ones already gone), removes them through the Storage API (SQL can't delete
 -- Storage files) and completes them (complete_recipe_photo_deletions). Both are service role only.
+-- An AI photo (6.11) is queued here too, by complete_recipe_photo_ai, as soon as it's uploaded: if
+-- the app never sets it as photo_path (killed mid-way), the sweep removes it; once it does, the
+-- sweep drops the entry as after Undo.
 -- A recipe's original pages (4.10): Storage bucket recipe-pages, set up as recipe-photos: private,
 -- image/jpeg only, 2 MB per object (also in supabase/config.toml), objects at
 -- <household_id>/<recipe_id>/<uuid>.jpg, select, insert (name of that shape) and delete for members
@@ -811,7 +814,8 @@ create table plans (
 
 create table plan_features (
   plan_id text references plans on delete cascade,
-  feature text not null check (feature in ('categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags')),
+  feature text not null check (feature in ('categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags',
+                                           'step_ingredients', 'recipe_photo_ai')),
   primary key (plan_id, feature)
 );
 
@@ -837,6 +841,11 @@ Note the `create table` order above is for readability; the real migration must 
 - `categorize_usage` / `categorize_daily_total`: LLM-bound names (6.4).
 - `recipe_import_usage` / `recipe_import_daily_total`: imports (6.6).
 - `recipe_tags_usage` / `recipe_tags_daily_total`: tag suggestions (`suggestions`, 6.7), checked by `check_recipe_tags_limit(user_id, daily_cap)`.
+
+**AI photos** (6.11; service role only, in `private`, RLS on, privileges revoked from `public`, `anon` and `authenticated`; not synced). `private.recipe_photo_ai (recipe_id uuid primary key references recipes on delete cascade, household_id uuid not null, created_by uuid references auth.users on delete set null, description text, path text, status text check in ('pending', 'done'), created_at)` only records that a recipe has had its one AI photo: a `done` row stays when the photo is later removed or replaced. `private.recipe_photo_ai_daily_total (day, photos)` counts reservations per UTC day for the global cap (a released one isn't given back, since its model calls were made; pg_cron prunes totals over 30 days old). Three `security definer` functions, `service_role` only:
+- `reserve_recipe_photo_ai(user_id, recipe_id, daily_cap)` returns one `(status, household_id)` row. It locks the recipe row, so two calls for one recipe can't both reserve, then the day's total. `not_found` unless the recipe exists, isn't deleted and the user is a member of its household; `already_generated` when it has a `done` row or a `pending` one under 10 minutes old; `global_cap` when today's total has reached `daily_cap` (a refused call uses no budget); else it inserts a `pending` row (or replaces a stale one), counts one, and returns `ok` with the household id.
+- `complete_recipe_photo_ai(recipe_id, description, path)` marks the pending row `done` with the description and path (returning whether there was one) and always queues `path` in `private.recipe_photo_deletions` (above), so an uploaded photo the app never sets is cleaned up.
+- `release_recipe_photo_ai(recipe_id)` deletes a `pending` row, so a failed generation doesn't use the recipe's one photo; a `done` row is never released.
 
 **Unknown ingredients on insert**: clients can't write `ingredients` (RLS). A `before insert` trigger on `list_items` and `recipe_ingredients` (a `security definer` function) inserts a `pending` ingredient row if the name is missing (`on conflict do nothing`) and records the household in `ingredient_households`. So a list item can always be pushed, even before categorization has run.
 
