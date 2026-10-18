@@ -608,8 +608,6 @@ export const es = {
       noLists: 'Este hogar no tiene listas',
       list: 'Lista',
       link: 'Enlace',
-      canClose: 'Puedes cerrar esto. Te avisamos cuando esté lista.',
-      reading: 'Leyendo la receta…',
       save: 'Guardar receta',
       saveAndAdd: 'Guardar y agregar a {{name}}',
       saveAndAddList: 'Guardar y agregar a la lista',
@@ -1059,6 +1057,8 @@ export const es = {
   notifications: {
     items_one: '{{count}} artículo',
     items_other: '{{count}} artículos',
+    importing: 'Importando tu receta',
+    importingBody: 'Te avisaremos cuando esté lista.',
     recipeAdded: 'Receta agregada',
     recipeAddedBody: 'Se agregó {{name}} · {{items}} a {{list}}',
     opens: 'Abre {{name}}',

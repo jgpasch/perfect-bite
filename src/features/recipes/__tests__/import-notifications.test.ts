@@ -1,11 +1,14 @@
 import { describe, expect, test } from '@jest/globals';
 
 import { recipeHue } from '@/domain/aisle-color';
+import { i18n } from '@/i18n';
 
 import type { ImportRecipeSuccess } from '../import';
 import {
   importedNotification,
   importFailedNotification,
+  importingNotification,
+  importNotificationId,
   photoImportFailedNotification,
   savedNotification,
 } from '../import-notifications';
@@ -20,6 +23,41 @@ const success: ImportRecipeSuccess = {
   combined: 0,
   undo: () => {},
 };
+
+describe('importingNotification', () => {
+  test('the recipe tile, "Importing your recipe", and no tap action', () => {
+    expect(importingNotification('recipe-import-x')).toEqual({
+      id: 'recipe-import-x',
+      kind: 'recipeImport',
+      icon: 'fork.knife',
+      hue: recipeHue('recipe-import-x'),
+      tone: 'success',
+      title: 'Importing your recipe',
+      body: "We'll let you know when it's ready.",
+    });
+  });
+
+  test('in Spanish', () => {
+    i18n.changeLanguage('es');
+    try {
+      expect(importingNotification('a')).toMatchObject({
+        title: 'Importando tu receta',
+        body: 'Te avisaremos cuando esté lista.',
+      });
+    } finally {
+      i18n.changeLanguage('en');
+    }
+  });
+});
+
+describe('importNotificationId', () => {
+  test('a new recipe-import id each time', () => {
+    const a = importNotificationId();
+    const b = importNotificationId();
+    expect(a).toMatch(/^recipe-import-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(b).not.toBe(a);
+  });
+});
 
 describe('importedNotification', () => {
   test('names the recipe, the count and the list, the name in bold', () => {

@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,10 +18,12 @@ import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, LAST_OPENED_LIST_KEY, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { notify } from '@/features/notifications/notifications';
-import { importRecipe, importRecipeFromPhotos, type ImportRecipeSuccess } from '@/features/recipes/import';
+import { importRecipe, importRecipeFromPhotos } from '@/features/recipes/import';
 import {
   importedNotification,
   importFailedNotification,
+  importingNotification,
+  importNotificationId,
   photoImportFailedNotification,
   savedNotification,
 } from '@/features/recipes/import-notifications';
@@ -36,8 +38,8 @@ import {
   saveButtonTitle,
   type SheetEntry,
 } from '@/features/recipes/save-choice';
-import { setSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { useOnline } from '@/hooks/use-online';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
@@ -46,14 +48,14 @@ import { useT } from '@/i18n';
  * an **Also add ingredients to a list** switch that shows that household's list picker. From the
  * Recipes tab the household follows the default rule and the switch starts as last left on this
  * device; from a list's menu (`list`) it's that list's household with the switch on and that list
- * chosen. The clipboard is read only when Paste is tapped, so iOS shows no paste prompt on open. On
- * success the sheet closes: onto a list, the list shows "Added Chicken tikka masala · 12 items";
- * recipe-only, the Recipes tab (or the list it came from) shows "Saved Chicken tikka masala". Closed
- * while reading, the import carries on and its result comes as an in-app notification (spec 4.11); a
- * failed one's notification reopens the sheet with the same `household`, `add`, `to` (list) and `url`.
- * With `photos` (from Add recipe's From photo…), it imports those pages instead of a link, showing
- * their thumbnails where the link field would be; a failed photo import's notification opens Add
- * recipe, since the photos go with the sheet.
+ * chosen. The clipboard is read only when Paste is tapped, so iOS shows no paste prompt on open. Save
+ * keeps a link that isn't one, or being offline, inline with the sheet open; otherwise it starts the
+ * import, closes the sheet and posts "Importing your recipe" (spec 4.11). The result replaces that
+ * notification: "Recipe added" (tapping opens the list with its toast), "Recipe saved" (opens the
+ * recipe) or "Couldn't import recipe", which reopens the sheet with the same `household`, `add`, `to`
+ * (list) and `url`. With `photos` (from Add recipe's From photo…), it imports those pages instead of
+ * a link, showing their thumbnails where the link field would be; a failed photo import's
+ * notification opens Add recipe, since the photos go with the sheet.
  */
 export default function ImportRecipeSheet() {
   const params = useLocalSearchParams<{
@@ -89,17 +91,10 @@ export default function ImportRecipeSheet() {
   );
   const [choice, setChoice] = useState(() => initialSaveChoice(choices, entry));
   const [text, setText] = useState(params.url ?? '');
-  const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Closed while reading: the import still lands, and says so with a notification instead.
-  const open = useRef(true);
-  useEffect(
-    () => () => {
-      open.current = false;
-    },
-    [],
-  );
+  const online = useOnline();
+  // Save starts one import; a second tap before the sheet goes does nothing.
+  const started = useRef(false);
 
   const { householdId, listId } = choice;
   const lists = householdLists(choices.lists, householdId);
@@ -123,46 +118,38 @@ export default function ImportRecipeSheet() {
     setError(null);
   };
 
-  // Recipe-only: the toast shows where the user is (the list it came from, else the Recipes tab).
-  const savedRecipeOnly = (result: ImportRecipeSuccess) => {
-    const saved = { recipeId: result.recipeId, recipeName: result.recipeName, created: result.created, undo: result.undo };
-    if (!open.current) {
-      notify({
-        ...savedNotification(result, householdName),
-        onPress: () => router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } }),
-      });
-      return;
-    }
-    if (fromList) setRecipeAddResult({ kind: 'saved', listId: fromList, ...saved });
-    else setSavedRecipeResult(saved);
-    router.back();
-  };
-
   const submit = async () => {
-    if (!householdId || working) return;
+    if (!householdId || started.current) return;
+    // What fails at once stays inline, with the sheet open.
     const url = photos ? null : urlFromText(text);
     if (!photos && !url) {
       setError(importErrorMessage({ ok: false, error: 'failed', reason: 'invalid_url' }));
       return;
     }
-    setError(null);
-    setWorking(true);
+    if (!online) {
+      setError(importErrorMessage({ ok: false, error: 'offline' }));
+      return;
+    }
+    started.current = true;
+    const id = importNotificationId();
     const target = addToList && listId ? { listId } : { householdId };
-    const result = photos
-      ? await importRecipeFromPhotos({ ...target, photoUris: photos })
-      : await importRecipe({ ...target, url: url! });
+    const importing = photos
+      ? importRecipeFromPhotos({ ...target, photoUris: photos })
+      : importRecipe({ ...target, url: url! });
+    router.back();
+    notify(importingNotification(id));
+    const result = await importing;
+    // The result replaces the Importing banner if it's still up, and queues after it otherwise.
     if (!result.ok) {
-      if (open.current) {
-        setWorking(false);
-        setError(importErrorMessage(result, photos ? 'photo' : 'link'));
-      } else if (photos) {
-        notify({ ...photoImportFailedNotification(result), onPress: () => router.push('/add-recipe') });
+      if (photos) {
+        notify({ ...photoImportFailedNotification(result), id, onPress: () => router.push('/add-recipe') });
       } else {
         // Reopens with the same choices: household, switch, list and link.
         const link = url!;
         const retry = { household: householdId, add: addToList ? '1' : '0', ...(addToList && listId ? { to: listId } : {}), url: link };
         notify({
           ...importFailedNotification(result, link),
+          id,
           onPress: () => router.push({ pathname: '/import-recipe', params: retry }),
         });
       }
@@ -170,33 +157,30 @@ export default function ImportRecipeSheet() {
     }
     const addedTo = result.listId;
     if (addedTo === null) {
-      savedRecipeOnly(result);
-      return;
-    }
-    const added = {
-      kind: 'imported',
-      listId: addedTo,
-      recipeId: result.recipeId,
-      recipeName: result.recipeName,
-      count: result.added,
-      undo: result.undo,
-    } as const;
-    if (!open.current) {
-      const name = choices.lists.find((l) => l.id === addedTo)?.name ?? t('recipes.import.yourList');
       notify({
-        ...importedNotification(result, name),
-        // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
-        onPress: () => {
-          setRecipeAddResult(added);
-          openList(addedTo);
-        },
+        ...savedNotification(result, householdName),
+        id,
+        onPress: () => router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } }),
       });
       return;
     }
-    setRecipeAddResult(added);
-    router.back();
-    // From that list's menu, the list is underneath already.
-    if (addedTo !== fromList) openList(addedTo);
+    const name = choices.lists.find((l) => l.id === addedTo)?.name ?? t('recipes.import.yourList');
+    notify({
+      ...importedNotification(result, name),
+      id,
+      // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
+      onPress: () => {
+        setRecipeAddResult({
+          kind: 'imported',
+          listId: addedTo,
+          recipeId: result.recipeId,
+          recipeName: result.recipeName,
+          count: result.added,
+          undo: result.undo,
+        });
+        openList(addedTo);
+      },
+    });
   };
 
   if (!householdId) return <Screen />;
@@ -224,7 +208,6 @@ export default function ImportRecipeSheet() {
                   key={h.id}
                   label={h.name}
                   selected={h.id === householdId}
-                  disabled={working}
                   onPress={() => chooseHousehold(h.id)}
                 />
               ))}
@@ -241,7 +224,7 @@ export default function ImportRecipeSheet() {
               <Switch
                 value={addToList}
                 onValueChange={toggleAddToList}
-                disabled={working || lists.length === 0}
+                disabled={lists.length === 0}
                 trackColor={{ true: colors.primary }}
                 accessibilityLabel={t('recipes.import.alsoAdd')}
                 accessibilityHint={lists.length === 0 ? NO_LISTS_IN_HOUSEHOLD : t('recipes.import.alsoAddHint')}
@@ -259,7 +242,6 @@ export default function ImportRecipeSheet() {
                   key={l.id}
                   label={l.name}
                   selected={l.id === listId}
-                  disabled={working}
                   onPress={() => setChoice((c) => ({ ...c, listId: l.id }))}
                 />
               ))}
@@ -283,20 +265,13 @@ export default function ImportRecipeSheet() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="go"
-                editable={!working}
                 onSubmitEditing={submit}
                 style={[styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }]}
               />
-              <Button label={t('recipes.add.paste')} variant="plain" disabled={working} onPress={paste} />
+              <Button label={t('recipes.add.paste')} variant="plain" onPress={paste} />
             </View>
           </Card>
         )}
-
-        {working ? (
-          <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-            {t('recipes.import.canClose')}
-          </ThemedText>
-        ) : null}
 
         {error ? (
           <ThemedText
@@ -317,9 +292,9 @@ export default function ImportRecipeSheet() {
           backgroundColor: colors.background,
         }}>
         <PrimaryButton
-          label={working ? t('recipes.import.reading') : saveButtonTitle(addToList, listName)}
-          icon={working ? undefined : photos ? 'camera' : 'link'}
-          disabled={working || (!photos && text.trim() === '')}
+          label={saveButtonTitle(addToList, listName)}
+          icon={photos ? 'camera' : 'link'}
+          disabled={!photos && text.trim() === ''}
           onPress={submit}
         />
       </View>

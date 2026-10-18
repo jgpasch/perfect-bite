@@ -1,14 +1,34 @@
-// The in-app notification for an import whose sheet was closed while it read (spec 4.10, 4.11). Pure
-// content: the caller supplies what tapping does.
+// The in-app notifications for an import from the sheet (spec 4.10, 4.11): "Importing your recipe" as
+// the sheet closes, then its result. Pure content: the caller supplies what tapping does, and posts the
+// result with the Importing one's id so it replaces that banner in place.
 
 import { recipeHue } from '@/domain/aisle-color';
 import type { AppNotification } from '@/features/notifications/notifications';
 import { i18n } from '@/i18n';
+import { newId } from '@/lib/id';
 
 import type { ImportRecipeError, ImportRecipeSuccess } from './import';
 import { importErrorMessage } from './import-sheet';
 
 type Content = Omit<AppNotification, 'onPress'>;
+
+/** A new id for one import's notifications: the Importing banner and then its result. */
+export function importNotificationId(): string {
+  return `recipe-import-${newId()}`;
+}
+
+/** "Importing your recipe" · "We'll let you know when it's ready.", as the sheet closes. Tapping only dismisses it. */
+export function importingNotification(id: string): Content {
+  return {
+    id,
+    kind: 'recipeImport',
+    icon: 'fork.knife',
+    hue: recipeHue(id),
+    tone: 'success',
+    title: i18n.t('notifications.importing'),
+    body: i18n.t('notifications.importingBody'),
+  };
+}
 
 /** "Recipe added" · "Added Chicken tikka masala · 12 items to Groceries", the name in bold. */
 export function importedNotification(result: ImportRecipeSuccess, listName: string): Content {

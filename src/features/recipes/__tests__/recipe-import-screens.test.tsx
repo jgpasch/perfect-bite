@@ -24,6 +24,8 @@ import { resetDb } from '@/test/db';
 
 import { StatusBar } from 'expo-status-bar';
 
+import { recipeHue } from '@/domain/aisle-color';
+
 import ImportRecipeSheet from '@/app/import-recipe';
 import { Card } from '@/components/card';
 import { HeaderPill } from '@/components/header-pill';
@@ -89,7 +91,12 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
-jest.mock('expo-network',() => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+// The connection the import sheet sees when it opens (spec 4.10: offline stays inline).
+let mockConnected = true;
+jest.mock('expo-network', () => ({
+  addNetworkStateListener: () => ({ remove: () => {} }),
+  getNetworkStateAsync: () => Promise.resolve({ isConnected: mockConnected, isInternetReachable: mockConnected }),
+}));
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
@@ -178,6 +185,7 @@ beforeEach(() => {
   mockImport.mockReset();
   mockPhotoImport.mockReset();
   mockClipboard.mockReset();
+  mockConnected = true;
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   setFeatures(['categorize', 'recipe_import']);
   takeRecipeAddResult(groceries);
@@ -380,8 +388,37 @@ describe('ImportRecipeSheet', () => {
     await pressAsync(byLabel(root, 'Save recipe'));
     expect(mockImport).not.toHaveBeenCalled();
     expect(texts(root)).toContain("That doesn't look like a link");
+    // The sheet stays open and nothing is posted.
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockNotify).not.toHaveBeenCalled();
     type(root, 'https://example.com');
     expect(texts(root)).not.toContain("That doesn't look like a link");
+  });
+
+  test('offline: "You\'re offline" inline with the sheet open, nothing imported or posted; typing clears it', async () => {
+    mockConnected = false;
+    const root = render(<ImportRecipeSheet />);
+    await act(async () => {});
+    type(root, 'https://example.com/tikka');
+    await pressAsync(byLabel(root, 'Save recipe'));
+    expect(texts(root)).toContain("You're offline");
+    expect(mockImport).not.toHaveBeenCalled();
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockNotify).not.toHaveBeenCalled();
+    expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+    type(root, 'https://example.com/tikka2');
+    expect(texts(root)).not.toContain("You're offline");
+  });
+
+  test('an invalid link while offline says it isn\'t a link', async () => {
+    mockConnected = false;
+    const root = render(<ImportRecipeSheet />);
+    await act(async () => {});
+    type(root, 'chicken tikka');
+    await pressAsync(byLabel(root, 'Save recipe'));
+    expect(texts(root)).toContain("That doesn't look like a link");
+    expect(texts(root)).not.toContain("You're offline");
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 
   test('Paste fills the field with the link in the clipboard', async () => {
@@ -399,7 +436,7 @@ describe('ImportRecipeSheet', () => {
     expect(field(root).props.value).toBe('abc');
   });
 
-  test('while reading it says so and disables everything; success closes and opens the list', async () => {
+  test('Save closes the sheet at once and posts "Importing your recipe"; the button has no reading state', async () => {
     const party = createList('Party');
     const pending = deferred<ImportRecipeResult>();
     mockImport.mockReturnValue(pending.promise);
@@ -411,24 +448,66 @@ describe('ImportRecipeSheet', () => {
       void byLabel(root, 'Save & add to Party').props.onPress();
     });
     expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', listId: party });
-    expect(texts(root)).toContain("You can close this. We'll let you know when it's ready.");
-    expect(byLabel(root, 'Reading recipe…').props.disabled).toBe(true);
-    expect(byLabel(root, 'Paste').props.disabled).toBe(true);
-    expect(field(root).props.editable).toBe(false);
-    expect(byLabel(root, 'Party').props.disabled).toBe(true);
-    expect(toggle(root).props.disabled).toBe(true);
-    // A second submit while reading does nothing.
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    const importing = mockNotify.mock.calls[0][0] as { id: string; onPress?: unknown };
+    expect(importing).toEqual({
+      id: importing.id,
+      kind: 'recipeImport',
+      icon: 'fork.knife',
+      hue: recipeHue(importing.id),
+      tone: 'success',
+      title: 'Importing your recipe',
+      body: "We'll let you know when it's ready.",
+    });
+    expect(importing.id).toMatch(/^recipe-import-[0-9a-f-]{36}$/);
+    // No tap action beyond dismissing.
+    expect(importing.onPress).toBeUndefined();
+    // Nothing on the sheet says it's reading.
+    expect(allByLabel(root, 'Reading recipe…')).toHaveLength(0);
+    expect(texts(root).some((s) => s.startsWith('You can close this'))).toBe(false);
+    expect(field(root).props.editable).toBeUndefined();
+    // A second submit before the sheet goes does nothing.
     await act(async () => {
       await field(root).props.onSubmitEditing();
     });
     expect(mockImport).toHaveBeenCalledTimes(1);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(success({ listId: party })));
+    expect(mockNotify).toHaveBeenCalledTimes(2);
+  });
 
+  test('success replaces the Importing notification with "Recipe added"; tapping it opens the list with its toast', async () => {
+    const party = createList('Party');
+    const pending = deferred<ImportRecipeResult>();
+    mockImport.mockReturnValue(pending.promise);
+    const root = render(<ImportRecipeSheet />);
+    setSwitch(root, true);
+    press(byLabel(root, 'Party'));
+    type(root, 'https://example.com/tikka');
+    act(() => {
+      void byLabel(root, 'Save & add to Party').props.onPress();
+    });
+    const id = (mockNotify.mock.calls[0][0] as { id: string }).id;
     const result = success({ listId: party });
     await act(async () => pending.resolve(result));
+    // Nothing happens on its own: the sheet closed once and no list opened.
     expect(mockBack).toHaveBeenCalledTimes(1);
-    // The List tab shows that list.
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(takeRecipeAddResult(party)).toBeNull();
+    const notification = mockNotify.mock.calls[1][0] as { id: string; title: string; body: string; hint: string; onPress: () => void };
+    expect(notification).toMatchObject({
+      id,
+      kind: 'recipeImport',
+      tone: 'success',
+      title: 'Recipe added',
+      body: 'Added Chicken tikka masala · 12 items to Party',
+      emphasis: 'Chicken tikka masala',
+      hint: 'Opens Party',
+    });
+    notification.onPress();
     expect(mockNavigate).toHaveBeenCalledWith('/lists');
-    expect(mockPush).not.toHaveBeenCalled();
     expect(currentList()).toBe(party);
     expect(takeRecipeAddResult(party)).toEqual({
       kind: 'imported',
@@ -440,7 +519,23 @@ describe('ImportRecipeSheet', () => {
     });
   });
 
-  test("from a list's menu, success only closes: the list is underneath", async () => {
+  test('each import has its own notification id', async () => {
+    mockImport.mockResolvedValue(success());
+    const first = render(<ImportRecipeSheet />);
+    type(first, 'https://example.com/tikka');
+    await pressAsync(byLabel(first, 'Save recipe'));
+    act(() => first.unmount());
+    const second = render(<ImportRecipeSheet />);
+    type(second, 'https://example.com/tikka');
+    await pressAsync(byLabel(second, 'Save recipe'));
+    const ids = mockNotify.mock.calls.map((c) => (c[0] as { id: string }).id);
+    expect(ids).toHaveLength(4);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[2]).toBe(ids[3]);
+    expect(ids[0]).not.toBe(ids[2]);
+  });
+
+  test("from a list's menu, success comes as the notification too", async () => {
     mockParams.list = groceries;
     mockImport.mockResolvedValue(success());
     const root = render(<ImportRecipeSheet />);
@@ -450,25 +545,30 @@ describe('ImportRecipeSheet', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+    expect(takeRecipeAddResult(groceries)).toBeNull();
+    expect(mockNotify.mock.calls.map((c) => (c[0] as { title: string }).title)).toEqual(['Importing your recipe', 'Recipe added']);
   });
 
-  test('switch off from the Recipes tab: imports recipe-only, leaves lists alone, toast on the Recipes tab', async () => {
+  test('switch off from the Recipes tab: imports recipe-only, leaves lists alone, and says "Recipe saved"', async () => {
     setLastOpenedList(groceries);
-    const undo = jest.fn();
-    const result = success({ listId: null, added: 0, undo });
+    const result = success({ listId: null, added: 0 });
     mockImport.mockResolvedValue(result);
     const root = render(<ImportRecipeSheet />);
     type(root, 'https://example.com/tikka');
     await pressAsync(byLabel(root, 'Save recipe'));
     expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', householdId: personal() });
     expect(mockBack).toHaveBeenCalledTimes(1);
-    // No list opened and no list toast.
+    // No list opened, no list toast and no Recipes tab toast.
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(takeRecipeAddResult(groceries)).toBeNull();
-    expect(takeSavedRecipeResult()).toEqual({ recipeId: 'recipe-1', recipeName: 'Chicken tikka masala', created: true, undo });
+    expect(takeSavedRecipeResult()).toBeNull();
+    const [importing, saved] = mockNotify.mock.calls.map((c) => c[0] as { id: string; title: string; body: string; onPress: () => void });
+    expect(saved).toMatchObject({ id: importing.id, title: 'Recipe saved', body: `Saved Chicken tikka masala to Personal` });
+    saved.onPress();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'recipe-1' } });
   });
 
-  test("switch off from a list's menu: recipe-only, and the toast shows on that list", async () => {
+  test("switch off from a list's menu: recipe-only into that list's household, and \"Recipe saved\"", async () => {
     const cabin = addLake();
     mockParams.list = cabin;
     mockImport.mockResolvedValue(success({ listId: null, added: 0, created: false }));
@@ -480,13 +580,8 @@ describe('ImportRecipeSheet', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(takeSavedRecipeResult()).toBeNull();
-    expect(takeRecipeAddResult(cabin)).toMatchObject({
-      kind: 'saved',
-      listId: cabin,
-      recipeId: 'recipe-1',
-      recipeName: 'Chicken tikka masala',
-      created: false,
-    });
+    expect(takeRecipeAddResult(cabin)).toBeNull();
+    expect(mockNotify.mock.calls[1][0]).toMatchObject({ title: 'Recipe saved', body: 'Saved Chicken tikka masala to Lake house' });
   });
 
   test('a list from another household, after switching household, imports onto that list', async () => {
@@ -505,68 +600,31 @@ describe('ImportRecipeSheet', () => {
     [{ ok: false, error: 'offline' } as const, "You're offline"],
     [{ ok: false, error: 'not_entitled' } as const, "Recipe import isn't included in your plan."],
     [{ ok: false, error: 'failed', reason: 'fetch_failed' } as const, "Couldn't reach that site"],
-  ])('a failed import keeps the sheet open with its reason (%o)', async (result, message) => {
+    [{ ok: false, error: 'blocked' } as const, 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.'],
+    [{ ok: false, error: 'rate_limited' } as const, 'Try again in a minute'],
+  ])('a server failure replaces the Importing notification with its reason; nothing inline (%o)', async (result, message) => {
     mockImport.mockResolvedValue(result);
     const root = render(<ImportRecipeSheet />);
     type(root, 'https://example.com/tikka');
     await pressAsync(byLabel(root, 'Save recipe'));
-    expect(texts(root)).toContain(message);
-    expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
-    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(texts(root)).not.toContain(message);
     expect(takeSavedRecipeResult()).toBeNull();
-  });
-
-  test('closed while reading, success comes as a notification that opens the list with its toast', async () => {
-    // Another list is current; the notification makes the import's list current.
-    setLastOpenedList(createList('Party'));
-    const pending = deferred<ImportRecipeResult>();
-    mockImport.mockReturnValue(pending.promise);
-    const root = render(<ImportRecipeSheet />);
-    setSwitch(root, true);
-    press(byLabel(root, listName(groceries)));
-    type(root, 'https://example.com/tikka');
-    act(() => {
-      void byLabel(root, `Save & add to ${listName(groceries)}`).props.onPress();
+    expect(mockNotify).toHaveBeenCalledTimes(2);
+    const [importing, failed] = mockNotify.mock.calls.map((c) => c[0] as { id: string });
+    expect(failed).toMatchObject({
+      id: importing.id,
+      kind: 'recipeImport',
+      tone: 'warning',
+      hue: 'rose',
+      icon: 'exclamationmark.triangle.fill',
+      title: "Couldn't import recipe",
+      body: message,
+      hint: 'Opens the link again to try once more',
     });
-    act(() => root.unmount());
-    tree = null;
-    await act(async () => pending.resolve(success()));
-    expect(mockBack).not.toHaveBeenCalled();
-    expect(mockNotify).toHaveBeenCalledTimes(1);
-    const notification = mockNotify.mock.calls[0][0] as { title: string; body: string; onPress: () => void };
-    expect(notification.title).toBe('Recipe added');
-    expect(notification.body).toBe(`Added Chicken tikka masala · 12 items to ${listName(groceries)}`);
-    expect(takeRecipeAddResult(groceries)).toBeNull();
-    notification.onPress();
-    expect(mockNavigate).toHaveBeenCalledWith('/lists');
-    expect(currentList()).toBe(groceries);
-    expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala' });
   });
 
-  test('closed while reading, a recipe-only success says "Recipe saved" and opens the recipe', async () => {
-    addLake();
-    const pending = deferred<ImportRecipeResult>();
-    mockImport.mockReturnValue(pending.promise);
-    const root = render(<ImportRecipeSheet />);
-    press(byLabel(root, 'Lake house'));
-    type(root, 'https://example.com/tikka');
-    act(() => {
-      void byLabel(root, 'Save recipe').props.onPress();
-    });
-    act(() => root.unmount());
-    tree = null;
-    await act(async () => pending.resolve(success({ listId: null, added: 0 })));
-    expect(mockBack).not.toHaveBeenCalled();
-    expect(takeSavedRecipeResult()).toBeNull();
-    const notification = mockNotify.mock.calls[0][0] as { title: string; body: string; emphasis: string; onPress: () => void };
-    expect(notification.title).toBe('Recipe saved');
-    expect(notification.body).toBe('Saved Chicken tikka masala to Lake house');
-    expect(notification.emphasis).toBe('Chicken tikka masala');
-    notification.onPress();
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'recipe-1' } });
-  });
-
-  test('closed while reading, a failure comes as a notification that reopens the sheet with the same choices', async () => {
+  test('a failure that lands after the Importing banner went still comes, with the same id', async () => {
     const pending = deferred<ImportRecipeResult>();
     mockImport.mockReturnValue(pending.promise);
     const root = render(<ImportRecipeSheet />);
@@ -574,10 +632,13 @@ describe('ImportRecipeSheet', () => {
     act(() => {
       void byLabel(root, 'Save recipe').props.onPress();
     });
+    // The sheet is gone by the time the answer comes.
     act(() => root.unmount());
     tree = null;
     await act(async () => pending.resolve({ ok: false, error: 'blocked' }));
-    const notification = mockNotify.mock.calls[0][0] as { title: string; onPress: () => void };
+    expect(mockNotify).toHaveBeenCalledTimes(2);
+    const [importing, notification] = mockNotify.mock.calls.map((c) => c[0] as { id: string; title: string; onPress: () => void });
+    expect(notification.id).toBe(importing.id);
     expect(notification.title).toBe("Couldn't import recipe");
     notification.onPress();
     expect(mockPush).toHaveBeenCalledWith({
@@ -599,7 +660,7 @@ describe('ImportRecipeSheet', () => {
     act(() => root.unmount());
     tree = null;
     await act(async () => pending.resolve({ ok: false, error: 'not_a_recipe' }));
-    (mockNotify.mock.calls[0][0] as { onPress: () => void }).onPress();
+    (mockNotify.mock.calls[1][0] as { onPress: () => void }).onPress();
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/import-recipe',
       params: { household: 'lake', add: '1', to: cabin, url: 'https://example.com/tikka' },
@@ -660,55 +721,8 @@ describe('ImportRecipeSheet', () => {
       expect(pages(root)).toEqual([]);
     });
 
-    test('switch on: imports the photos onto the list, then closes and opens the list with its toast', async () => {
+    test('switch on: Save closes at once with Importing, then "Recipe added" opens the list with its toast', async () => {
       const result = success();
-      mockPhotoImport.mockResolvedValue(result);
-      const root = render(<ImportRecipeSheet />);
-      setSwitch(root, true);
-      press(byLabel(root, listName(groceries)));
-      await pressAsync(byLabel(root, `Save & add to ${listName(groceries)}`));
-      expect(mockPhotoImport).toHaveBeenCalledWith({ listId: groceries, photoUris: PAGES });
-      expect(mockImport).not.toHaveBeenCalled();
-      expect(mockBack).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith('/lists');
-      expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala', count: 12, undo: result.undo });
-    });
-
-    test('switch off: recipe-only into the household, toast on the Recipes tab', async () => {
-      mockPhotoImport.mockResolvedValue(success({ listId: null, added: 0 }));
-      const root = render(<ImportRecipeSheet />);
-      await pressAsync(byLabel(root, 'Save recipe'));
-      expect(mockPhotoImport).toHaveBeenCalledWith({ householdId: personal(), photoUris: PAGES });
-      expect(takeSavedRecipeResult()).toMatchObject({ recipeId: 'recipe-1', created: true });
-    });
-
-    test('while reading: "Reading recipe…" and "You can close this…"', () => {
-      mockPhotoImport.mockReturnValue(deferred<ImportRecipeResult>().promise);
-      const root = render(<ImportRecipeSheet />);
-      act(() => {
-        void byLabel(root, 'Save recipe').props.onPress();
-      });
-      expect(byLabel(root, 'Reading recipe…').props.disabled).toBe(true);
-      expect(texts(root)).toContain("You can close this. We'll let you know when it's ready.");
-    });
-
-    test.each([
-      [{ ok: false, error: 'not_a_recipe' } as const, "That photo doesn't look like a recipe"],
-      [{ ok: false, error: 'rate_limited' } as const, 'Try again in a minute'],
-      [{ ok: false, error: 'not_entitled' } as const, "Photo import isn't in your plan"],
-      [{ ok: false, error: 'offline' } as const, "You're offline"],
-    ])('a failed photo import keeps the sheet open with its reason (%o)', async (result, message) => {
-      mockPhotoImport.mockResolvedValue(result);
-      const root = render(<ImportRecipeSheet />);
-      await pressAsync(byLabel(root, 'Save recipe'));
-      expect(texts(root)).toContain(message);
-      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
-      expect(pages(root)).toHaveLength(2);
-      expect(mockBack).not.toHaveBeenCalled();
-      expect(mockNotify).not.toHaveBeenCalled();
-    });
-
-    test('closed while reading, success comes as the "Recipe added" notification', async () => {
       const pending = deferred<ImportRecipeResult>();
       mockPhotoImport.mockReturnValue(pending.promise);
       const root = render(<ImportRecipeSheet />);
@@ -717,19 +731,73 @@ describe('ImportRecipeSheet', () => {
       act(() => {
         void byLabel(root, `Save & add to ${listName(groceries)}`).props.onPress();
       });
+      expect(mockPhotoImport).toHaveBeenCalledWith({ listId: groceries, photoUris: PAGES });
+      expect(mockImport).not.toHaveBeenCalled();
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      const importing = mockNotify.mock.calls[0][0] as { id: string };
+      expect(importing).toMatchObject({ title: 'Importing your recipe', icon: 'fork.knife', hue: recipeHue(importing.id) });
       act(() => root.unmount());
       tree = null;
-      await act(async () => pending.resolve(success()));
-      expect(mockBack).not.toHaveBeenCalled();
-      const notification = mockNotify.mock.calls[0][0] as { title: string; body: string; onPress: () => void };
+      await act(async () => pending.resolve(result));
+      expect(mockNavigate).not.toHaveBeenCalled();
+      const notification = mockNotify.mock.calls[1][0] as { id: string; title: string; body: string; onPress: () => void };
+      expect(notification.id).toBe(importing.id);
       expect(notification.title).toBe('Recipe added');
       expect(notification.body).toBe(`Added Chicken tikka masala · 12 items to ${listName(groceries)}`);
       notification.onPress();
       expect(mockNavigate).toHaveBeenCalledWith('/lists');
-      expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala' });
+      expect(takeRecipeAddResult(groceries)).toMatchObject({ kind: 'imported', recipeName: 'Chicken tikka masala', count: 12, undo: result.undo });
     });
 
-    test('closed while reading, a failure says why for a photo and opens Add recipe', async () => {
+    test('switch off: recipe-only into the household, "Recipe saved"', async () => {
+      mockPhotoImport.mockResolvedValue(success({ listId: null, added: 0 }));
+      const root = render(<ImportRecipeSheet />);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(mockPhotoImport).toHaveBeenCalledWith({ householdId: personal(), photoUris: PAGES });
+      expect(takeSavedRecipeResult()).toBeNull();
+      expect(mockNotify.mock.calls.map((c) => (c[0] as { title: string }).title)).toEqual(['Importing your recipe', 'Recipe saved']);
+    });
+
+    test('no "Reading recipe…" or "You can close this…" on the photo sheet', () => {
+      mockPhotoImport.mockReturnValue(deferred<ImportRecipeResult>().promise);
+      const root = render(<ImportRecipeSheet />);
+      act(() => {
+        void byLabel(root, 'Save recipe').props.onPress();
+      });
+      expect(allByLabel(root, 'Reading recipe…')).toHaveLength(0);
+      expect(byLabel(root, 'Save recipe').props.icon).toBe('camera');
+      expect(texts(root).some((s) => s.startsWith('You can close this'))).toBe(false);
+    });
+
+    test('offline: "You\'re offline" inline, nothing imported or posted', async () => {
+      mockConnected = false;
+      const root = render(<ImportRecipeSheet />);
+      await act(async () => {});
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(texts(root)).toContain("You're offline");
+      expect(pages(root)).toHaveLength(2);
+      expect(mockPhotoImport).not.toHaveBeenCalled();
+      expect(mockBack).not.toHaveBeenCalled();
+      expect(mockNotify).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      [{ ok: false, error: 'not_a_recipe' } as const, "That photo doesn't look like a recipe"],
+      [{ ok: false, error: 'rate_limited' } as const, 'Try again in a minute'],
+      [{ ok: false, error: 'not_entitled' } as const, "Photo import isn't in your plan"],
+      [{ ok: false, error: 'offline' } as const, "You're offline"],
+    ])("a failed photo import replaces Importing with the photo sheet's reason (%o)", async (result, message) => {
+      mockPhotoImport.mockResolvedValue(result);
+      const root = render(<ImportRecipeSheet />);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(texts(root)).not.toContain(message);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      const [importing, failed] = mockNotify.mock.calls.map((c) => c[0] as { id: string });
+      expect(failed).toMatchObject({ id: importing.id, title: "Couldn't import recipe", body: message, tone: 'warning' });
+    });
+
+    test('a failure says why for a photo and opens Add recipe', async () => {
       const pending = deferred<ImportRecipeResult>();
       mockPhotoImport.mockReturnValue(pending.promise);
       const root = render(<ImportRecipeSheet />);
@@ -739,10 +807,11 @@ describe('ImportRecipeSheet', () => {
       act(() => root.unmount());
       tree = null;
       await act(async () => pending.resolve({ ok: false, error: 'not_a_recipe' }));
-      expect(mockNotify).toHaveBeenCalledTimes(1);
-      const notification = mockNotify.mock.calls[0][0] as { id: string; title: string; body: string; hint: string; onPress: () => void };
+      expect(mockNotify).toHaveBeenCalledTimes(2);
+      const id = (mockNotify.mock.calls[0][0] as { id: string }).id;
+      const notification = mockNotify.mock.calls[1][0] as { id: string; title: string; body: string; hint: string; onPress: () => void };
       expect(notification).toMatchObject({
-        id: 'recipe-import-failed-photo',
+        id,
         title: "Couldn't import recipe",
         body: "That photo doesn't look like a recipe",
         hint: 'Opens Add recipe to try again',

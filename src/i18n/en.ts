@@ -679,8 +679,6 @@ export const en = {
       noLists: 'This household has no lists',
       list: 'List',
       link: 'Link',
-      canClose: "You can close this. We'll let you know when it's ready.",
-      reading: 'Reading recipe…',
       save: 'Save recipe',
       saveAndAdd: 'Save & add to {{name}}',
       saveAndAddList: 'Save & add to list',
@@ -1183,6 +1181,8 @@ export const en = {
   notifications: {
     items_one: '{{count}} item',
     items_other: '{{count}} items',
+    importing: 'Importing your recipe',
+    importingBody: "We'll let you know when it's ready.",
     recipeAdded: 'Recipe added',
     recipeAddedBody: 'Added {{name}} · {{items}} to {{list}}',
     opens: 'Opens {{name}}',
