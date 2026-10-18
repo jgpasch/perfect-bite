@@ -199,6 +199,8 @@ function buildTypography(set: FontSet) {
     callout: { fontFamily: body, fontSize: 16, fontWeight: '500', lineHeight: 21 },
     /** Quantities and values at the end of a row. */
     amount: { fontFamily: body, fontSize: 15, fontWeight: '600', lineHeight: 20 },
+    /** A recipe's notes in its header band. */
+    subhead: { fontFamily: body, fontSize: 15, fontWeight: '400', lineHeight: 20 },
     /** Labels above a card ("Members", "Added") and household names above tiles. */
     sectionLabel: { fontFamily: body, fontSize: 13, fontWeight: '700', lineHeight: 18 },
     footnote: { fontFamily: body, fontSize: 13, fontWeight: '400', lineHeight: 18 },

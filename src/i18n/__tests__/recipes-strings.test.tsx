@@ -27,8 +27,8 @@ import {
   untaggedOnlyFilters,
 } from '@/features/recipes/recipe-filters';
 import { NO_RECIPES_MATCH, recipeSearchPlaceholder } from '@/features/recipes/recipe-search';
-import { IMPORT_TAGS_NOTE, RecipeTagRow } from '@/features/recipes/recipe-tag-row';
-import { facetLimitLabel, parseTotalTime, recipeTagPills } from '@/features/recipes/recipe-tags-view';
+import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
+import { facetLimitLabel, parseTotalTime, recipeTagLine, recipeTagPills } from '@/features/recipes/recipe-tags-view';
 import {
   addCtaLabel,
   addedRecipeToListToast,
@@ -166,7 +166,15 @@ describe('recipes strings in Spanish', () => {
     expect(parseTotalTime('1.5', '')).toEqual({ ok: false, error: 'Usa números enteros' });
     expect(parseTotalTime('49', '')).toEqual({ ok: false, error: 'Hasta 48 horas' });
     expect(parseTotalTime('', '')).toEqual({ ok: true, totalMinutes: null });
-    expect(IMPORT_TAGS_NOTE).toBe('Etiquetada al importarla');
+  });
+
+  it('reads the one-line tags in Spanish', () => {
+    initI18n('es');
+    expect(recipeTagLine({ ...emptyRecipeTags(), saved: ['favorite'], meal: ['dinner'] }, 90)).toEqual({
+      favorite: true,
+      text: 'Cena · Más de 1 hora',
+      accessibilityLabel: 'Etiquetas: Favorita, Cena, Más de 1 hora',
+    });
   });
 
   it('says what Suggest tags found, or why it failed', () => {
@@ -337,20 +345,19 @@ describe('recipes strings in Spanish', () => {
     act(() => root.unmount());
   });
 
-  it('renders the tag row: Add tags and Suggest tags when untagged, the time pill and + Etiquetas when tagged', () => {
+  it('renders the tag row: Add tags and Suggest tags when untagged, one line of values when tagged', () => {
     initI18n('es');
     let root!: ReactTestRenderer;
     act(() => {
-      root = create(
-        <RecipeTagRow recipe={{ tags: null, tagsEdited: false, totalMinutes: null }} hue="green" onEdit={() => {}} onSuggest={() => {}} />,
-      );
+      root = create(<RecipeTagRow recipe={{ tags: null, totalMinutes: null }} onEdit={() => {}} onSuggest={() => {}} />);
     });
     expect(texts(root)).toEqual(expect.arrayContaining(['Agregar etiquetas', 'Sugerir etiquetas']));
     act(() => {
-      root.update(<RecipeTagRow recipe={{ tags: null, tagsEdited: false, totalMinutes: 90 }} hue="green" onEdit={() => {}} />);
+      root.update(<RecipeTagRow recipe={{ tags: null, totalMinutes: 90 }} onEdit={() => {}} />);
     });
-    expect(texts(root)).toEqual(expect.arrayContaining(['Tiempo', 'Más de 1 hora', '+ Etiquetas']));
-    expect(labels(root)).toEqual(expect.arrayContaining(['Tiempo: Más de 1 hora', 'Editar etiquetas']));
+    expect(texts(root)).toEqual(expect.arrayContaining(['Más de 1 hora']));
+    expect(labels(root)).toEqual(expect.arrayContaining(['Etiquetas: Más de 1 hora']));
+    expect(root.root.findAll((n) => n.props.accessibilityHint === 'Edita las etiquetas').length).toBeGreaterThan(0);
     act(() => root.unmount());
   });
 });

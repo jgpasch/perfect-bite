@@ -14,6 +14,7 @@ import {
   facetAtMax,
   facetLimitLabel,
   parseTotalTime,
+  showImportTagsNote,
   splitTotalMinutes,
   toggleTag,
 } from '@/features/recipes/recipe-tags-view';
@@ -36,7 +37,7 @@ type Suggestion =
   | { status: 'error'; message: string };
 
 /**
- * The Tags sheet (spec 4.14): one group of toggle pills per facet, capped at its maximum, then the
+ * The Tags sheet (spec 4.14): "Tagged when you imported it" while the import's tags are unedited, then one group of toggle pills per facet, capped at its maximum, then the
  * total time. Save writes the tags, the time and `tagsEdited` in one update; Cancel writes nothing.
  * With `recipe_tags`, Suggest tags fills the picks from the AI (never the time); nothing is saved
  * until Save. `suggest=1` (the recipe band's pill) starts it as the sheet opens.
@@ -126,6 +127,13 @@ export default function RecipeTagsSheet() {
           {t('recipes.tags.save')}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
+
+      {/* Under the title while the import's tags are unedited, as the sheet opened. */}
+      {showImportTagsNote(recipe) ? (
+        <ThemedText variant="footnote" color="inkSecondary" style={inset}>
+          {t('recipes.tags.importNote')}
+        </ThemedText>
+      ) : null}
 
       {canSuggest ? (
         <View style={{ gap: spacing.sm }}>

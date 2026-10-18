@@ -8,6 +8,7 @@ import {
   facetAtMax,
   facetLimitLabel,
   parseTotalTime,
+  recipeTagLine,
   recipeTagPills,
   showImportTagsNote,
   splitTotalMinutes,
@@ -64,6 +65,47 @@ describe('recipeTagPills', () => {
 
   test('slugs the app doesn’t know aren’t shown', () => {
     expect(recipeTagPills(tags({ meal: ['brunch', 'dinner'], diet: ['keto'] }), null).map((p) => p.key)).toEqual(['meal:dinner']);
+  });
+});
+
+describe('recipeTagLine', () => {
+  test('values only, in pill order, joined with " · "; VoiceOver reads them all', () => {
+    expect(recipeTagLine(tags({ protein: ['chicken'], meal: ['dinner', 'lunch'], cuisine: ['american'] }), 50)).toEqual({
+      favorite: false,
+      text: 'Lunch · Dinner · American · Chicken · Under 1 hour',
+      accessibilityLabel: 'Tags: Lunch, Dinner, American, Chicken, Under 1 hour',
+    });
+  });
+
+  test('Favorite becomes the heart, and is still read', () => {
+    expect(recipeTagLine(tags({ saved: ['want-to-try', 'favorite'], meal: ['dinner'] }), null)).toEqual({
+      favorite: true,
+      text: 'Want to try · Dinner',
+      accessibilityLabel: 'Tags: Favorite, Want to try, Dinner',
+    });
+  });
+
+  test('Favorite alone: the heart with no text', () => {
+    expect(recipeTagLine(tags({ saved: ['favorite'] }), null)).toEqual({ favorite: true, text: '', accessibilityLabel: 'Tags: Favorite' });
+  });
+
+  test('a time alone', () => {
+    expect(recipeTagLine(null, 20)).toEqual({ favorite: false, text: 'Under 30 min', accessibilityLabel: 'Tags: Under 30 min' });
+  });
+
+  test('many tags: every value, in order', () => {
+    const line = recipeTagLine(
+      tags({ meal: ['lunch', 'dinner'], cuisine: ['italian', 'french'], protein: ['chicken', 'beef', 'pork'], diet: ['vegan'], method: ['grill', 'one-pot'] }),
+      300,
+    )!;
+    expect(line.text).toBe('Lunch · Dinner · Italian · French · Chicken · Beef · Pork · Vegan · One pot · Grill · Over 1 hour');
+    expect(line.accessibilityLabel.split(', ')).toHaveLength(11);
+  });
+
+  test('nothing to show: null, so the row offers Add tags', () => {
+    expect(recipeTagLine(null, null)).toBeNull();
+    expect(recipeTagLine(emptyRecipeTags(), null)).toBeNull();
+    expect(recipeTagLine(tags({ meal: ['brunch'] }), null)).toBeNull();
   });
 });
 

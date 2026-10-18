@@ -46,7 +46,6 @@ import {
   methodTab,
   parseServings,
   scaledAmount,
-  servesLabel,
   SERVINGS_MAX,
   SERVINGS_MIN,
 } from '@/features/recipes/recipe-view';
@@ -192,6 +191,12 @@ export default function RecipeScreen() {
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
             {t('recipes.screen.rename')}
           </Stack.Toolbar.MenuAction>
+          {/* The band no longer shows "Serves 4", so the recipe's own servings are edited from here. */}
+          {base !== null ? (
+            <Stack.Toolbar.MenuAction icon="person.2" onPress={editServings}>
+              {t('recipes.servings.edit')}
+            </Stack.Toolbar.MenuAction>
+          ) : null}
           {hasPhoto ? (
             <Stack.Toolbar.MenuAction icon="photo" onPress={openPhoto}>
               {t('recipes.photo.change')}
@@ -391,9 +396,10 @@ export default function RecipeScreen() {
 }
 
 /**
- * The header band in the recipe's soft tint: its name, source link and servings, tags and notes. The notes
- * are edited in place and saved when the field loses focus; the link row is RecipeLinkRow. "Serves 4", or a
- * dashed "Add servings" without them, opens the servings prompt (`onEditServings`). Under the name, the
+ * The header band in the recipe's soft tint: its name, source link, one line of tags (RecipeTagRow) and
+ * notes. The notes show as two lines of text, or a small "+ Add notes", and a tap turns them into the field,
+ * saved when it loses focus; the link row is RecipeLinkRow. Without servings, a dashed "Add servings" beside
+ * the link opens the servings prompt (`onEditServings`). Under the name, the
  * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo (`showAddPhoto`), a
  * dashed Add photo tile at the top, where the photo would be, opens the Choose a photo sheet (`onAddPhoto`).
  */
@@ -418,6 +424,8 @@ function RecipeBand({
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
   const canSuggest = useFeature('recipe_tags') && hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
+  // The notes show as text (or "+ Add notes") until tapped, then as the field, focused.
+  const [editingNotes, setEditingNotes] = useState(false);
   const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
   const save = () => updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl });
   const saveLink = (text: string) => {
@@ -441,33 +449,18 @@ function RecipeBand({
         {recipe.name}
       </ThemedText>
       <PlanBadges recipeId={recipe.id} onOpen={onPlan} />
-      {/* The link and the servings share a line (boards 13 and 15). */}
+      {/* The link, and Add servings beside it while the recipe has none (boards 13 and 15). The
+          servings themselves show on the ingredients card's stepper. */}
       <View style={[styles.row, { gap: spacing.md + spacing.xxs }]}>
         <View style={styles.flex}>
           <RecipeLinkRow value={sourceUrl} hue={hue} onSave={saveLink} />
         </View>
-        {recipe.servings !== null ? (
-          <Pressable
-            onPress={onEditServings}
-            accessibilityRole="button"
-            accessibilityLabel={servesLabel(recipe.servings)}
-            accessibilityHint={t('recipes.servings.editHint')}
-            style={({ pressed }) => [
-              styles.row,
-              { gap: spacing.xs + spacing.xxs, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
-            ]}>
-            <Icon name="person.2" tint={tint.strong} weight="semibold" />
-            <ThemedText variant="amount" style={{ color: tint.strong }}>
-              {servesLabel(recipe.servings)}
-            </ThemedText>
-          </Pressable>
-        ) : (
+        {recipe.servings === null ? (
           <Pill dashed icon="person.2" label={t('recipes.servings.add')} onPress={onEditServings} />
-        )}
+        ) : null}
       </View>
       <RecipeTagRow
         recipe={recipe}
-        hue={hue}
         onEdit={() => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id } })}
         onSuggest={
           canSuggest
@@ -475,17 +468,48 @@ function RecipeBand({
             : undefined
         }
       />
-      <TextInput
-        value={notes}
-        onChangeText={setNotes}
-        onEndEditing={save}
-        placeholder={t('recipes.screen.addNotes')}
-        placeholderTextColor={colors.inkSecondary}
-        selectionColor={tint.strong}
-        accessibilityLabel={t('recipes.screen.notes')}
-        multiline
-        style={[typography.callout, { color: colors.ink, minHeight: sizes.minTapTarget }]}
-      />
+      {editingNotes ? (
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          onEndEditing={() => {
+            save();
+            setEditingNotes(false);
+          }}
+          autoFocus
+          placeholder={t('recipes.screen.addNotes')}
+          placeholderTextColor={colors.inkSecondary}
+          selectionColor={tint.strong}
+          accessibilityLabel={t('recipes.screen.notes')}
+          multiline
+          style={[typography.subhead, { color: colors.ink, minHeight: sizes.minTapTarget }]}
+        />
+      ) : notes.trim() ? (
+        <Pressable
+          onPress={() => setEditingNotes(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t('recipes.screen.notesLabel', { notes: notes.trim() })}
+          style={({ pressed }) => [styles.center, { minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 }]}>
+          <ThemedText variant="subhead" numberOfLines={2} ellipsizeMode="tail">
+            {notes.trim()}
+          </ThemedText>
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={() => setEditingNotes(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t('recipes.screen.addNotes')}
+          style={({ pressed }) => [
+            styles.row,
+            styles.start,
+            { gap: spacing.xs, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+          ]}>
+          <Icon name="plus" color="inkSecondary" size={sizes.iconSmall} weight="semibold" />
+          <ThemedText variant="footnote" color="inkSecondary">
+            {t('recipes.screen.addNotes')}
+          </ThemedText>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -531,4 +555,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   wrap: { flexWrap: 'wrap' },
   center: { justifyContent: 'center' },
+  start: { alignSelf: 'flex-start' },
 });

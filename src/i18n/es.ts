@@ -396,6 +396,7 @@ export const es = {
       addLabel: 'Agregar un ingrediente',
       addNotes: 'Agregar notas',
       notes: 'Notas',
+      notesLabel: 'Notas: {{notes}}',
     },
     servings: {
       title: 'Porciones',
@@ -404,7 +405,7 @@ export const es = {
       serves: 'Rinde {{count}}',
       for: 'Para {{count}}',
       recipeServes: 'La receta rinde {{count}}',
-      editHint: 'Edita las porciones',
+      edit: 'Editar porciones',
       add: 'Agregar porciones',
     },
     photo: {
@@ -503,10 +504,9 @@ export const es = {
     tags: {
       title: 'Etiquetas',
       pill: '{{facet}}: {{value}}',
+      line: 'Etiquetas: {{tags}}',
       editHint: 'Edita las etiquetas',
-      more: '+ Etiquetas',
       add: 'Agregar etiquetas',
-      edit: 'Editar etiquetas',
       importNote: 'Etiquetada al importarla',
       suggest: 'Sugerir etiquetas',
       suggestRowHint: 'Abre las etiquetas, con sugerencias de IA.',

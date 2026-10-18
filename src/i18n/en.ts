@@ -453,6 +453,7 @@ export const en = {
       addLabel: 'Add an ingredient',
       addNotes: 'Add notes',
       notes: 'Notes',
+      notesLabel: 'Notes: {{notes}}',
     },
     servings: {
       title: 'Servings',
@@ -461,7 +462,7 @@ export const en = {
       serves: 'Serves {{count}}',
       for: 'For {{count}}',
       recipeServes: 'Recipe serves {{count}}',
-      editHint: 'Edits the servings',
+      edit: 'Edit servings',
       add: 'Add servings',
     },
     /** The Add photo tile, the menu's Change photo… and the Choose a photo sheet (spec 4.5). */
@@ -568,10 +569,9 @@ export const en = {
     tags: {
       title: 'Tags',
       pill: '{{facet}}: {{value}}',
-      editHint: 'Edits the tags',
-      more: '+ Tags',
+      line: 'Tags: {{tags}}',
+      editHint: 'Edits tags',
       add: 'Add tags',
-      edit: 'Edit tags',
       importNote: 'Tagged when you imported it',
       suggest: 'Suggest tags',
       suggestRowHint: 'Opens the tags, with AI suggestions.',

@@ -1,103 +1,85 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { recipeTagPillColors } from '@/components/appearance';
-import { Pill } from '@/components/pill';
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import type { AisleHue } from '@/domain/aisle-color';
-import { recipeTagPills, showImportTagsNote } from '@/features/recipes/recipe-tags-view';
+import { recipeTagLine } from '@/features/recipes/recipe-tags-view';
 import { useTheme } from '@/hooks/use-theme';
-import { i18n, onLanguageChanged, useT } from '@/i18n';
+import { useT } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
-// A live binding: follows the app's language once i18n is initialized.
-export let IMPORT_TAGS_NOTE = '';
-onLanguageChanged(() => {
-  IMPORT_TAGS_NOTE = i18n.t('recipes.tags.importNote');
-});
-
 /**
- * The recipe band's tags (spec 4.14, mockup D): a wrapping row of pills, each its facet over its
- * value, then the time bucket, then a dashed "+ Tags". Untagged, only "Add tags". Every pill opens
- * the Tags sheet (`onEdit`). Under the row, while the import's tags are unedited, a note says so.
- * Untagged and given `onSuggest` (the plan has `recipe_tags` and there are ingredients), a dashed
- * "Suggest tags" follows "Add tags" and opens the sheet suggesting.
+ * The recipe band's tags (spec 4.14): one line, a tag glyph, then the values without facet names
+ * ("Lunch · Dinner · Under 1 hour", Favorite as a heart first), truncated at the tail, then a
+ * chevron. The whole line is one button that opens the Tags sheet (`onEdit`). Untagged, "Add tags"
+ * instead, then " · Suggest tags" when given `onSuggest` (the plan has `recipe_tags` and there are
+ * ingredients), which opens the sheet suggesting.
  */
 export function RecipeTagRow({
   recipe,
-  hue,
   onEdit,
   onSuggest,
 }: {
-  recipe: { tags: RecipeTags | null; tagsEdited: boolean; totalMinutes: number | null };
-  hue: AisleHue;
+  recipe: { tags: RecipeTags | null; totalMinutes: number | null };
   onEdit: () => void;
   onSuggest?: () => void;
 }) {
   const t = useT();
-  const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
-  const pills = recipeTagPills(recipe.tags, recipe.totalMinutes);
-  const look = recipeTagPillColors(hue, colors, aisles);
+  const { colors, spacing, sizes, opacity } = useTheme();
+  const line = recipeTagLine(recipe.tags, recipe.totalMinutes);
+  const pressedStyle = ({ pressed }: { pressed: boolean }) => [
+    styles.row,
+    { minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+  ];
 
-  return (
-    <View style={{ gap: spacing.xs }}>
-      <View style={[styles.wrap, { gap: spacing.sm }]}>
-        {pills.map((pill) => (
-          <Pressable
-            key={pill.key}
-            accessibilityRole="button"
-            accessibilityLabel={pill.accessibilityLabel}
-            accessibilityHint={t('recipes.tags.editHint')}
-            onPress={onEdit}
-            style={({ pressed }) => [
-              styles.tag,
-              {
-                minHeight: sizes.minTapTarget,
-                paddingHorizontal: spacing.md,
-                paddingVertical: spacing.xs,
-                borderRadius: rounded.md,
-                backgroundColor: look.fill,
-                opacity: pressed ? opacity.pressed : 1,
-              },
-            ]}>
-            <ThemedText variant="caption" style={{ color: look.facet }}>
-              {pill.facet}
+  if (!line) {
+    return (
+      <View style={[styles.row, { gap: spacing.xs }]}>
+        <Icon name="tag" color="inkSecondary" size={sizes.iconSmall} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('recipes.tags.add')} onPress={onEdit} style={pressedStyle}>
+          <ThemedText variant="footnote" color="primary">
+            {t('recipes.tags.add')}
+          </ThemedText>
+        </Pressable>
+        {onSuggest ? (
+          <>
+            <ThemedText variant="footnote" color="inkSecondary" importantForAccessibility="no" accessible={false}>
+              ·
             </ThemedText>
-            <ThemedText variant="amount" style={{ color: look.text }}>
-              {pill.value}
-            </ThemedText>
-          </Pressable>
-        ))}
-        <View style={styles.center}>
-          <Pill
-            dashed
-            label={t(pills.length ? 'recipes.tags.more' : 'recipes.tags.add')}
-            accessibilityLabel={t(pills.length ? 'recipes.tags.edit' : 'recipes.tags.add')}
-            onPress={onEdit}
-          />
-        </View>
-        {!pills.length && onSuggest ? (
-          <View style={styles.center}>
-            <Pill
-              dashed
-              icon="sparkles"
-              label={t('recipes.tags.suggest')}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('recipes.tags.suggest')}
               accessibilityHint={t('recipes.tags.suggestRowHint')}
               onPress={onSuggest}
-            />
-          </View>
+              style={pressedStyle}>
+              <ThemedText variant="footnote" color="primary">
+                {t('recipes.tags.suggest')}
+              </ThemedText>
+            </Pressable>
+          </>
         ) : null}
       </View>
-      {showImportTagsNote(recipe) ? (
-        <ThemedText variant="footnote" color="inkSecondary">
-          {IMPORT_TAGS_NOTE}
-        </ThemedText>
-      ) : null}
-    </View>
+    );
+  }
+
+  return (
+    <Pressable
+      testID="recipe-tag-line"
+      accessibilityRole="button"
+      accessibilityLabel={line.accessibilityLabel}
+      accessibilityHint={t('recipes.tags.editHint')}
+      onPress={onEdit}
+      style={(state) => [pressedStyle(state), { gap: spacing.xs }]}>
+      <Icon name="tag" color="inkSecondary" size={sizes.iconSmall} />
+      {line.favorite ? <Icon name="heart.fill" tint={colors.primary} size={sizes.iconSmall} /> : null}
+      <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1} ellipsizeMode="tail" style={styles.shrink}>
+        {line.text}
+      </ThemedText>
+      <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} weight="semibold" />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
-  tag: { justifyContent: 'center', borderCurve: 'continuous' },
-  center: { justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  shrink: { flexShrink: 1 },
 });

@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { eq } from 'drizzle-orm';
 
 import { Button } from '@/components/button';
+import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
@@ -28,7 +29,7 @@ import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 
 import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds } from '../add-to-list';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
-import { IMPORT_TAGS_NOTE, RecipeTagRow } from '../recipe-tag-row';
+import { RecipeTagRow } from '../recipe-tag-row';
 import { NOTHING_SUGGESTED_NOTE, SUGGESTED_NOTE, type SuggestTagsResult } from '../suggest-tags';
 import {
   addRecipeIngredient,
@@ -145,6 +146,7 @@ jest.mock('@/features/recipes/suggest-tags', () => ({
 }));
 
 const USER = 'user-1';
+const IMPORT_TAGS_NOTE = 'Tagged when you imported it';
 let tree: ReactTestRenderer | null = null;
 let groceries: string;
 let tacos: string;
@@ -340,6 +342,7 @@ describe('RecipeScreen', () => {
   test('editing the link and notes saves them when each field loses focus', () => {
     const root = render(<RecipeScreen />);
     const link = linkField(root)!;
+    press(byA11y(root, 'Add notes'));
     const notes = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Notes');
     act(() => link.props.onChangeText('https://example.com/tacos'));
     act(() => link.props.onEndEditing());
@@ -594,14 +597,16 @@ describe('RecipeScreen servings', () => {
     expect(queryA11y(root, 'Reset')).toHaveLength(0);
   });
 
-  test('with servings: "Serves 4" in the band and a stepper at the base, amounts as written', () => {
+  test('with servings: no "Serves 4" in the header, a stepper at the base, amounts as written', () => {
     addRecipeIngredient(tacos, '2 lb chicken thighs');
     addRecipeIngredient(tacos, '1 can chipotle');
     updateRecipeServings(tacos, 4);
     const root = render(<RecipeScreen />);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 4', 'For 4']));
+    expect(texts(root)).toContain('For 4');
+    expect(texts(root).filter((s) => s.startsWith('Serves'))).toEqual([]);
+    expect(queryA11y(root, 'Serves 4')).toHaveLength(0);
     expect(queryA11y(root, 'Add servings')).toHaveLength(0);
-    expect(byA11y(root, 'Serves 4').props.accessibilityHint).toBe('Edits the servings');
+    expect(menuAction(root, 'Edit servings')).toBeDefined();
     const [s] = stepper(root);
     expect([s.props.value, s.props.min, s.props.max, s.props.accessibilityLabel]).toEqual([4, 1, 100, 'Servings']);
     expect(amounts(root)).toEqual(['2 lb Chicken thighs', '1 can Chipotle']);
@@ -711,7 +716,7 @@ describe('RecipeScreen servings', () => {
     expect(getRecipe(tacos)!.servings).toBe(6);
     // The live query re-renders on the write in the app; the mock reads on render.
     act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
-    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 6', 'For 6']));
+    expect(texts(root)).toContain('For 6');
     expect(queryA11y(root, 'Add servings')).toHaveLength(0);
   });
 
@@ -723,17 +728,24 @@ describe('RecipeScreen servings', () => {
     expect(outboxRecipeUpdates().at(-1)?.fields).toEqual(expect.objectContaining({ servings: 3 }));
   });
 
-  test('tapping "Serves 4" edits it: a new number saves and the stepper starts at it', () => {
+  test('without servings the menu has no Edit servings', () => {
+    const root = render(<RecipeScreen />);
+    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Delete recipe']);
+  });
+
+  test('Edit servings in the menu edits them: a new number saves and the stepper starts at it', () => {
     addRecipeIngredient(tacos, '2 limes');
     updateRecipeServings(tacos, 4);
     const { prompt, submit } = servingsPrompt();
     const root = render(<RecipeScreen />);
+    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Edit servings', 'Delete recipe']);
+    expect(menuAction(root, 'Edit servings').props.icon).toBe('person.2');
     step(root, 'More');
-    press(byA11y(root, 'Serves 4'));
+    act(() => menuAction(root, 'Edit servings').props.onPress());
     expect(prompt.mock.calls[0][4]).toBe('4');
     submit('8');
     expect(getRecipe(tacos)!.servings).toBe(8);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Serves 8', 'For 8']));
+    expect(texts(root)).toContain('For 8');
     expect(amounts(root)).toEqual(['2 Limes']);
     expect(queryA11y(root, 'Reset')).toHaveLength(0);
   });
@@ -744,7 +756,7 @@ describe('RecipeScreen servings', () => {
     const { submit } = servingsPrompt();
     const root = render(<RecipeScreen />);
     step(root, 'More');
-    press(byA11y(root, 'Serves 4'));
+    act(() => menuAction(root, 'Edit servings').props.onPress());
     submit('  ');
     expect(getRecipe(tacos)!.servings).toBeNull();
     expect(stepper(root)).toHaveLength(0);
@@ -757,7 +769,7 @@ describe('RecipeScreen servings', () => {
     const { submit } = servingsPrompt();
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     const root = render(<RecipeScreen />);
-    press(byA11y(root, 'Serves 4'));
+    act(() => menuAction(root, 'Edit servings').props.onPress());
     submit(text);
     expect(alert).toHaveBeenCalledWith('Servings must be a whole number from 1 to 100');
     expect(getRecipe(tacos)!.servings).toBe(4);
@@ -765,75 +777,107 @@ describe('RecipeScreen servings', () => {
 });
 
 describe('RecipeScreen tags', () => {
-  /** The tag pills' VoiceOver labels in order, then the dashed pill's. */
-  const tagRow = (root: ReactTestRenderer) =>
-    root.root
-      .findAll(
-        (n) =>
-          // The pressables themselves, not the Pill around the dashed one.
-          typeof n.type !== 'string' &&
-          n.type !== Pill &&
-          typeof n.props.onPress === 'function' &&
-          (/^(Meal|Cuisine|Protein|Diet|Method|Time): /.test(n.props.accessibilityLabel ?? '') ||
-            ['Edit tags', 'Add tags'].includes(n.props.accessibilityLabel)),
-      )
+  const tagRow = (root: ReactTestRenderer) => root.root.find((n) => n.type === RecipeTagRow);
+  /** The one-line tags' button, or undefined when untagged. */
+  const tagLine = (root: ReactTestRenderer) =>
+    tagRow(root).findAll((n) => typeof n.type !== 'string' && n.props.testID === 'recipe-tag-line' && typeof n.props.onPress === 'function')[0];
+  /** The row's buttons' VoiceOver labels in order. */
+  const rowButtons = (root: ReactTestRenderer) =>
+    tagRow(root)
+      .findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && typeof n.props.onPress === 'function')
       .map((n) => n.props.accessibilityLabel);
+  const rowTexts = (root: ReactTestRenderer) => tagRow(root).findAll((n) => n.type === Text).map((n) => n.props.children);
+  const rowIcons = (root: ReactTestRenderer) => tagRow(root).findAll((n) => n.type === Icon).map((n) => n.props.name);
 
-  test('a new, untagged recipe shows only the dashed Add tags pill and no note', () => {
+  test('a new, untagged recipe shows Add tags in primary and no note', () => {
     const root = render(<RecipeScreen />);
-    expect(tagRow(root)).toEqual(['Add tags']);
-    expect(byLabel(root, 'Add tags').props.dashed).toBe(true);
-    expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
-  });
-
-  test('imported tags: facet over value in facet order, then the time, then + Tags, and the note', () => {
-    setTags({ tags: { ...emptyRecipeTags(), protein: ['beef'], meal: ['dinner'], cuisine: ['mexican', 'brunchy'] }, totalMinutes: 75 });
-    const root = render(<RecipeScreen />);
-    expect(tagRow(root)).toEqual(['Meal: Dinner', 'Cuisine: Mexican', 'Protein: Beef', 'Time: Over 1 hour', 'Edit tags']);
-    expect(byLabel(root, '+ Tags').props.dashed).toBe(true);
-    expect(texts(root)).toEqual(
-      expect.arrayContaining(['Meal', 'Dinner', 'Cuisine', 'Mexican', 'Protein', 'Beef', 'Time', 'Over 1 hour', IMPORT_TAGS_NOTE]),
+    expect(tagLine(root)).toBeUndefined();
+    expect(rowButtons(root)).toEqual(['Add tags']);
+    expect(rowTexts(root)).toEqual(['Add tags']);
+    expect(tagRow(root).find((n) => n.type === Text).props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ fontSize: 13 })]),
     );
-    expect(texts(root)).not.toContain('brunchy');
-  });
-
-  test('the note goes once a person has edited the tags', () => {
-    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, tagsEdited: true });
-    const root = render(<RecipeScreen />);
-    expect(tagRow(root)).toEqual(['Meal: Dinner', 'Edit tags']);
+    expect(rowIcons(root)).toEqual(['tag']);
     expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
   });
 
-  test('an import that found no tags or time shows Add tags and no note', () => {
+  test('tags: one line of values without facet names, in pill order, then a chevron; no note in the header', () => {
+    setTags({ tags: { ...emptyRecipeTags(), protein: ['chicken'], meal: ['lunch', 'dinner'], cuisine: ['american', 'brunchy'] }, totalMinutes: 50 });
+    const root = render(<RecipeScreen />);
+    const line = tagLine(root);
+    expect(rowTexts(root)).toEqual(['Lunch · Dinner · American · Chicken · Under 1 hour']);
+    expect(rowIcons(root)).toEqual(['tag', 'chevron.right']);
+    expect(line.props.accessibilityLabel).toBe('Tags: Lunch, Dinner, American, Chicken, Under 1 hour');
+    expect(line.props.accessibilityHint).toBe('Edits tags');
+    expect(rowButtons(root)).toEqual(['Tags: Lunch, Dinner, American, Chicken, Under 1 hour']);
+    const text = tagRow(root).find((n) => n.type === Text);
+    expect([text.props.numberOfLines, text.props.ellipsizeMode]).toEqual([1, 'tail']);
+    // No facet names or old pills, and the import note isn't in the header.
+    expect(texts(root)).not.toEqual(expect.arrayContaining(['Meal']));
+    expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
+    expect(texts(root).join(' ')).not.toContain('brunchy');
+  });
+
+  test('a favorite starts with a heart, read as Favorite', () => {
+    setTags({ tags: { ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] }, tagsEdited: true });
+    const root = render(<RecipeScreen />);
+    expect(rowIcons(root)).toEqual(['tag', 'heart.fill', 'chevron.right']);
+    expect(rowTexts(root)).toEqual(['Want to try · Dinner']);
+    expect(tagLine(root).props.accessibilityLabel).toBe('Tags: Favorite, Want to try, Dinner');
+  });
+
+  test('many tags stay on one line', () => {
+    setTags({
+      tags: {
+        saved: ['want-to-try'],
+        meal: ['lunch', 'dinner'],
+        cuisine: ['american', 'mexican'],
+        protein: ['chicken', 'beef', 'pork'],
+        diet: ['vegetarian'],
+        method: ['grill'],
+      },
+      totalMinutes: 200,
+    });
+    const root = render(<RecipeScreen />);
+    const [text] = rowTexts(root);
+    expect(rowTexts(root)).toHaveLength(1);
+    expect(text.split(' · ')).toHaveLength(11);
+    expect(text.startsWith('Want to try · Lunch · Dinner · American · Mexican')).toBe(true);
+    expect(text.endsWith('Over 1 hour')).toBe(true);
+    expect(rowButtons(root)).toHaveLength(1);
+  });
+
+  test('an import that found no tags or time shows Add tags', () => {
     setTags({ tags: emptyRecipeTags() });
     const root = render(<RecipeScreen />);
-    expect(tagRow(root)).toEqual(['Add tags']);
+    expect(rowButtons(root)).toEqual(['Add tags']);
     expect(texts(root)).not.toContain(IMPORT_TAGS_NOTE);
   });
 
-  test('any pill opens the Tags sheet', () => {
+  test('tapping the line, or Add tags, opens the Tags sheet', () => {
     setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 20 });
-    const root = render(<RecipeScreen />);
-    for (const label of ['Meal: Dinner', 'Time: Under 30 min', 'Edit tags']) press(byA11y(root, label));
-    expect(mockPush).toHaveBeenCalledTimes(3);
+    let root = render(<RecipeScreen />);
+    press(tagLine(root));
+    act(() => tree?.unmount());
+    setTags({ tags: null });
+    root = render(<RecipeScreen />);
+    press(byA11y(root, 'Add tags'));
+    expect(mockPush).toHaveBeenCalledTimes(2);
     for (const call of mockPush.mock.calls) expect(call[0]).toEqual({ pathname: '/recipe/[id]/tags', params: { id: tacos } });
   });
 
   describe('Suggest tags pill', () => {
     const suggestPills = (root: ReactTestRenderer) =>
-      root.root.findAll((n) => n.type === Pill && n.props.label === 'Suggest tags');
+      root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Suggest tags' && typeof n.props.onPress === 'function');
 
-    test('an untagged recipe with ingredients and the feature: a dashed sparkles pill after Add tags', () => {
+    test('an untagged recipe with ingredients and the feature: Add tags · Suggest tags', () => {
       setFeatures(['categorize', 'recipe_tags']);
       addRecipeIngredient(tacos, '1 lb ground beef');
       const root = render(<RecipeScreen />);
       const [suggest] = suggestPills(root);
-      expect(suggest.props).toMatchObject({ dashed: true, icon: 'sparkles', accessibilityHint: 'Opens the tags, with AI suggestions.' });
-      const labels = root.root
-        .find((n) => n.type === RecipeTagRow)
-        .findAll((n) => n.type === Pill && n.props.dashed)
-        .map((n) => n.props.label);
-      expect(labels).toEqual(['Add tags', 'Suggest tags']);
+      expect(suggest.props).toMatchObject({ accessibilityRole: 'button', accessibilityHint: 'Opens the tags, with AI suggestions.' });
+      expect(rowButtons(root)).toEqual(['Add tags', 'Suggest tags']);
+      expect(rowTexts(root)).toEqual(['Add tags', '·', 'Suggest tags']);
       press(suggest);
       expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/tags', params: { id: tacos, suggest: '1' } });
       expect(mockSuggest).not.toHaveBeenCalled();
@@ -879,7 +923,78 @@ describe('RecipeScreen tags', () => {
   });
 });
 
+describe('RecipeScreen notes', () => {
+  const notesField = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Notes')[0];
+  const withNotes = (notes: string) => updateRecipe(tacos, { name: 'Tacos', notes, sourceUrl: '' });
+
+  test('no notes: a small "+ Add notes" and no field; tapping it shows the field, focused', () => {
+    const root = render(<RecipeScreen />);
+    expect(notesField(root)).toBeUndefined();
+    const add = byA11y(root, 'Add notes');
+    expect(add.props.accessibilityRole).toBe('button');
+    expect(add.findAll((n) => n.type === Icon).map((n) => n.props.name)).toEqual(['plus']);
+    const label = add.find((n) => n.type === Text);
+    expect(label.props.children).toBe('Add notes');
+    expect(label.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ fontSize: 13, fontWeight: '400' })]));
+    press(add);
+    const field = notesField(root);
+    expect(field.props.autoFocus).toBe(true);
+    expect(field.props.value).toBe('');
+    expect(queryA11y(root, 'Add notes')).toHaveLength(0);
+  });
+
+  test('a blank edit saves nothing and goes back to "+ Add notes"', () => {
+    const root = render(<RecipeScreen />);
+    press(byA11y(root, 'Add notes'));
+    act(() => notesField(root).props.onChangeText('   '));
+    act(() => notesField(root).props.onEndEditing());
+    expect(getRecipe(tacos)!.notes ?? '').toBe('');
+    expect(notesField(root)).toBeUndefined();
+    expect(queryA11y(root, 'Add notes')).toHaveLength(1);
+  });
+
+  test('existing notes show as two lines of text; tapping edits them in place and blur saves', () => {
+    withNotes('Double the salsa');
+    const root = render(<RecipeScreen />);
+    expect(notesField(root)).toBeUndefined();
+    expect(queryA11y(root, 'Add notes')).toHaveLength(0);
+    const shown = byA11y(root, 'Notes: Double the salsa');
+    expect(shown.props.accessibilityRole).toBe('button');
+    const text = shown.find((n) => n.type === Text);
+    expect([text.props.children, text.props.numberOfLines]).toEqual(['Double the salsa', 2]);
+    expect(text.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ fontSize: 15, fontWeight: '400' })]));
+    press(shown);
+    expect(notesField(root).props.value).toBe('Double the salsa');
+    expect(notesField(root).props.autoFocus).toBe(true);
+    act(() => notesField(root).props.onChangeText('Triple the salsa'));
+    act(() => notesField(root).props.onEndEditing());
+    expect(getRecipe(tacos)!.notes).toBe('Triple the salsa');
+    expect(notesField(root)).toBeUndefined();
+    expect(queryA11y(root, 'Notes: Triple the salsa')).toHaveLength(1);
+  });
+});
+
 describe('RecipeTagsSheet', () => {
+  describe('the import note', () => {
+    test('shows under the title while the import tags are unedited', () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+      const root = render(<RecipeTagsSheet />);
+      expect(texts(root)[0]).toBe(IMPORT_TAGS_NOTE);
+    });
+
+    test('not once edited, nor for an untagged recipe or Saved alone', () => {
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, tagsEdited: true });
+      expect(texts(render(<RecipeTagsSheet />))).not.toContain(IMPORT_TAGS_NOTE);
+      act(() => tree?.unmount());
+      setTags({ tags: null });
+      expect(texts(render(<RecipeTagsSheet />))).not.toContain(IMPORT_TAGS_NOTE);
+      act(() => tree?.unmount());
+      setTags({ tags: { ...emptyRecipeTags(), saved: ['favorite'] } });
+      expect(texts(render(<RecipeTagsSheet />))).not.toContain(IMPORT_TAGS_NOTE);
+    });
+  });
+
   const pill = (root: ReactTestRenderer, label: string) =>
     root.root.find((n) => typeof n.type !== 'string' && n.props.label === label && n.props.accessibilityRole === 'togglebutton');
   const selected = (root: ReactTestRenderer) =>
@@ -1158,7 +1273,7 @@ describe('RecipeTagsSheet', () => {
       expect(updates).toHaveLength(1);
       expect(updates[0].fields).toEqual(expect.objectContaining({ tags: saved, tags_edited: true, total_minutes: 30 }));
       act(() => tree?.unmount());
-      expect(texts(render(<RecipeScreen />))).not.toContain(IMPORT_TAGS_NOTE);
+      expect(texts(render(<RecipeTagsSheet />))).not.toContain(IMPORT_TAGS_NOTE);
     });
 
     test('Cancel during the call drops the answer and writes nothing', async () => {

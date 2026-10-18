@@ -54,6 +54,33 @@ function tagPillLabel(facet: string, value: string): string {
   return i18n.t('recipes.tags.pill', { facet, value });
 }
 
+export type RecipeTagLine = {
+  /** Favorite is tagged: the line starts with a heart instead of the word. */
+  favorite: boolean;
+  /** The other values in pill order, without facet names: "Lunch · Dinner · Under 1 hour". */
+  text: string;
+  /** What VoiceOver reads, every tag in full: "Tags: Favorite, Lunch, Dinner, Under 1 hour". */
+  accessibilityLabel: string;
+};
+
+/**
+ * The recipe band's one-line tags (spec 4.14): `recipeTagPills`' values in their order, joined with
+ * " · ", Favorite pulled out as a heart. Null when there's nothing to show (Add tags instead).
+ */
+export function recipeTagLine(tags: RecipeTags | null, totalMinutes: number | null): RecipeTagLine | null {
+  const pills = recipeTagPills(tags, totalMinutes);
+  if (!pills.length) return null;
+  const favorite = pills.some((p) => p.key === 'saved:favorite');
+  return {
+    favorite,
+    text: pills
+      .filter((p) => p.key !== 'saved:favorite')
+      .map((p) => p.value)
+      .join(' · '),
+    accessibilityLabel: i18n.t('recipes.tags.line', { tags: pills.map((p) => p.value).join(', ') }),
+  };
+}
+
 /**
  * "Tagged when you imported it": shown while no person has edited the tags of a recipe that has
  * some (from its import). Never for an untagged recipe; `saved` (a person's, never the import's)
