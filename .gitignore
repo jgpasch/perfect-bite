@@ -54,3 +54,6 @@ logs/
 
 # yarn ai:translations exports: names typed by real households
 exports/
+
+# yarn ai:image output
+/generated-images/

@@ -74,6 +74,45 @@ describe('PrimaryButton and SurfaceButton icons', () => {
   });
 });
 
+describe('SurfaceButton layout="stacked"', () => {
+  const host = (root: ReactTestRenderer) => byRole(root, 'button')[0];
+  const style = (root: ReactTestRenderer) => StyleSheet.flatten(host(root).props.style);
+
+  it('is a 64 pt surfaceMuted pill, at least 44 pt tall, the glyph over a caption label in ink', () => {
+    const root = render(<SurfaceButton layout="stacked" label="Plan" icon="calendar" iconTint="#123456" />);
+    expect(style(root)).toEqual(
+      expect.objectContaining({ width: 64, minHeight: 44, borderRadius: 999, backgroundColor: Palette.light.surfaceMuted }),
+    );
+    // Stacked: a column, not the inline row.
+    expect(style(root).flexDirection).toBeUndefined();
+    expect(style(root).height).toBeUndefined();
+    expect(icons(root)).toEqual(['calendar']);
+    const parts = host(root).findAll((n) => (n.type as string) === 'Icon' || (n.type as string) === 'Text');
+    expect(parts.map((n) => String(n.type))).toEqual(['Icon', 'Text']);
+    const label = root.root.find((n) => (n.type as string) === 'Text');
+    expect(label.props.children).toBe('Plan');
+    expect(StyleSheet.flatten(label.props.style)).toEqual(expect.objectContaining({ fontSize: 12, color: Palette.light.ink }));
+    expect(label.props.numberOfLines).toBeUndefined();
+  });
+
+  it('keeps ink text whatever `on` says, and the inline form is unchanged', () => {
+    const stacked = render(<SurfaceButton layout="stacked" on="header" label="Cook" />);
+    expect(StyleSheet.flatten(stacked.root.find((n) => (n.type as string) === 'Text').props.style).color).toBe(Palette.light.ink);
+    const inline = render(<SurfaceButton label="Cook" />);
+    expect(style(inline)).toEqual(expect.objectContaining({ flexDirection: 'row', minHeight: 54, backgroundColor: Palette.light.onHeader }));
+  });
+
+  it('fires on press, and not while disabled', () => {
+    const onPress = jest.fn();
+    click(host(render(<SurfaceButton layout="stacked" label="Plan" onPress={onPress} />)));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    const off = render(<SurfaceButton layout="stacked" label="Plan" onPress={onPress} disabled />);
+    expect(host(off).props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+    click(host(off));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('Pill', () => {
   it('reports selected and fires on press', () => {
     const onPress = jest.fn();

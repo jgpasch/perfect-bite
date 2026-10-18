@@ -268,8 +268,9 @@ describe('the Ingredients | Method tabs', () => {
     expect(ingredientsHeader(root)).toHaveLength(1);
     expect(methodHeader(root)).toHaveLength(0);
     expect(stepRows(root)).toHaveLength(0);
-    // The switch sits under the Add to a list / Cook row.
-    expect(texts.indexOf('Cook')).toBeLessThan(texts.indexOf('Method · 3'));
+    // The band runs straight into the switch; Add to a list and Cook are in the dock after the cards.
+    expect(texts.indexOf('Method · 3')).toBeLessThan(texts.indexOf('Chicken thighs'));
+    expect(texts.indexOf('Chicken thighs')).toBeLessThan(texts.indexOf('Cook'));
   });
 
   test('Method shows only the Method card; Ingredients brings its card back', () => {

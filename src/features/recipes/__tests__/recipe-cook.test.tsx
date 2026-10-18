@@ -211,6 +211,8 @@ const lineOf = (card: ReactTestInstance) =>
   card
     .findAll((n) => String(n.type) === 'Text' && StyleSheet.flatten(n.props.style)?.fontSize === Typography.footnote.fontSize)
     .map((n) => [n.props.children].flat().join(''));
+/** The recipe screen's floating action dock: the pill. */
+const dock = (root: ReactTestRenderer) => root.root.find((n) => String(n.type) === 'View' && n.props.testID === 'recipe-dock');
 const byA11y = (root: ReactTestRenderer, label: string) =>
   root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === label && typeof n.props.onPress === 'function');
 
@@ -236,24 +238,25 @@ describe('the Cook button on the recipe screen', () => {
       accessibilityLabel: 'Start cooking',
       icon: 'flame',
       iconTint: AisleColors.light[recipeHue(tacos)].strong,
-      on: 'surface',
+      layout: 'stacked',
     });
   });
 
-  test('a surface pill with ink text beside Add to a list, which takes the rest of the row', () => {
+  test('a compact surfaceMuted button in the dock, its glyph over a caption label in ink', () => {
     setSteps(STEPS);
     const root = render(<RecipeScreen />);
     const host = root.root.find((n) => String(n.type) === 'View' && n.props.accessibilityLabel === 'Start cooking');
-    expect(StyleSheet.flatten(host.props.style)).toMatchObject({ backgroundColor: Palette.light.surface, minHeight: Sizes.cta });
-    expect(StyleSheet.flatten(textIn(host, 'Cook').props.style).color).toBe(Palette.light.ink);
+    expect(StyleSheet.flatten(host.props.style)).toMatchObject({
+      width: Sizes.stackedButton,
+      minHeight: Sizes.minTapTarget,
+      borderRadius: Rounded.full,
+      backgroundColor: Palette.light.surfaceMuted,
+    });
+    expect(StyleSheet.flatten(host.props.style).flexDirection).toBeUndefined();
+    const label = StyleSheet.flatten(textIn(host, 'Cook').props.style);
+    expect(label).toMatchObject({ color: Palette.light.ink, fontSize: Typography.caption.fontSize });
     const glyph = host.find((n) => String(n.type) === 'Icon');
     expect(glyph.props).toMatchObject({ name: 'flame', tint: AisleColors.light[recipeHue(tacos)].strong });
-    // Same row as Add to a list, which grows to take the rest; the row wraps when Plan doesn't fit too.
-    const add = root.root.find((n) => n.type === PrimaryButton && n.props.label === 'Add to a list');
-    const cook = root.root.find(isCook);
-    expect(cook.parent!.findAll((n) => n.type === PrimaryButton).map((n) => n.props.label)).toEqual(['Add to a list']);
-    expect(StyleSheet.flatten(cook.parent!.props.style)).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
-    expect(StyleSheet.flatten(add.parent!.props.style)).toMatchObject({ flexGrow: 1 });
   });
 
   test('opens the cook screen with the stepper\'s servings, or just the id without servings', () => {
@@ -275,10 +278,12 @@ describe('the Cook button on the recipe screen', () => {
 });
 
 describe('Plan on the recipe screen (spec 4.16)', () => {
-  test('a surface button after Add to a list and Cook, opening the plan modal for the recipe', () => {
+  test('a stacked button in the dock after Add to a list and Cook, opening the plan modal for the recipe', () => {
     setSteps(STEPS);
     const root = render(<RecipeScreen />);
-    const row = root.root.find((n) => n.type === SurfaceButton && n.props.label === 'Plan').parent!;
+    const plan = root.root.find((n) => n.type === SurfaceButton && n.props.label === 'Plan');
+    expect(plan.props).toMatchObject({ layout: 'stacked', iconTint: AisleColors.light[recipeHue(tacos)].strong });
+    const row = dock(root);
     expect(
       row.findAll((n) => n.type === PrimaryButton || n.type === SurfaceButton).map((n) => [n.props.label, n.props.icon]),
     ).toEqual([
@@ -304,6 +309,133 @@ describe('Plan on the recipe screen (spec 4.16)', () => {
     const label = `Planned for ${dayName(day, 'short')} dinner`;
     act(() => byA11y(root, label).props.onPress());
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/plan-recipe', params: { recipeId: tacos } });
+  });
+});
+
+describe('the action dock on the recipe screen (spec 4.5)', () => {
+  const actions = (root: ReactTestRenderer) =>
+    dock(root)
+      .findAll((n) => n.type === PrimaryButton || n.type === SurfaceButton)
+      .map((n) => n.props.label);
+  const addToList = (root: ReactTestRenderer) => root.root.find((n) => n.type === PrimaryButton && n.props.label === 'Add to a list');
+  const scrollPadding = (root: ReactTestRenderer) =>
+    StyleSheet.flatten(root.root.findByType(ScrollView).props.contentContainerStyle).paddingBottom;
+  /** The View the dock measures: its pill with the space around it. */
+  const measured = (root: ReactTestRenderer) => {
+    let n = dock(root).parent;
+    while (n && !(String(n.type) === 'View' && typeof n.props.onLayout === 'function')) n = n.parent;
+    return n!;
+  };
+
+  test('Add to a list, Cook and Plan with steps; no Cook without', () => {
+    setSteps(STEPS);
+    let root = render(<RecipeScreen />);
+    expect(actions(root)).toEqual(['Add to a list', 'Cook', 'Plan']);
+    close();
+    setSteps(null);
+    root = render(<RecipeScreen />);
+    expect(actions(root)).toEqual(['Add to a list', 'Plan']);
+  });
+
+  test('the old row under the band is gone: no actions inside the scroll view', () => {
+    setSteps(STEPS);
+    addIngredients('2 cloves garlic');
+    const root = render(<RecipeScreen />);
+    const scroll = root.root.findByType(ScrollView);
+    expect(scroll.findAll((n) => n.type === PrimaryButton || n.type === SurfaceButton)).toHaveLength(0);
+    expect(scroll.findAll((n) => n.props.testID === 'recipe-dock')).toHaveLength(0);
+    // The dock floats over the scroll view, pinned to the bottom.
+    let overlay = dock(root).parent;
+    while (overlay && StyleSheet.flatten(overlay.props.style)?.position !== 'absolute') overlay = overlay.parent;
+    expect(StyleSheet.flatten(overlay!.props.style)).toMatchObject({ position: 'absolute', left: 0, right: 0, bottom: 0 });
+    expect(overlay!.props.pointerEvents).toBe('box-none');
+  });
+
+  test('drawn like the tab bar: a surface pill with a hairline edge, 8 pt padding and gaps, soft shadow in light mode', () => {
+    const root = render(<RecipeScreen />);
+    expect(StyleSheet.flatten(dock(root).props.style)).toMatchObject({
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      padding: Spacing.sm,
+      gap: Spacing.sm,
+      borderRadius: Rounded.full,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: Palette.light.controlBorder,
+      backgroundColor: Palette.light.surface,
+      shadowOpacity: 0.08,
+      shadowColor: Palette.light.ink,
+    });
+    // 16 pt from the sides and above the bottom (the safe area, at least 16 pt), on the screen's ground.
+    expect(StyleSheet.flatten(measured(root).props.style)).toMatchObject({
+      paddingHorizontal: Spacing.lg,
+      paddingBottom: Spacing.lg,
+      backgroundColor: Palette.light.background,
+    });
+    // Add to a list takes the room.
+    expect(StyleSheet.flatten(addToList(root).parent!.props.style)).toMatchObject({ flex: 1 });
+  });
+
+  test('never clips with Large Dynamic Type: no fixed height, so it grows with a wrapped label', () => {
+    setSteps(STEPS);
+    const root = render(<RecipeScreen />);
+    expect(StyleSheet.flatten(dock(root).props.style).height).toBeUndefined();
+    expect(StyleSheet.flatten(measured(root).props.style).height).toBeUndefined();
+    for (const label of ['Start cooking', 'Plan']) {
+      const host = root.root.find((n) => String(n.type) === 'View' && n.props.accessibilityLabel === label);
+      expect(StyleSheet.flatten(host.props.style).height).toBeUndefined();
+    }
+  });
+
+  test('a short fade from transparent to the background above it, which takes no touches', () => {
+    const root = render(<RecipeScreen />);
+    const fade = root.root.find((n) => String(n.type) === 'View' && n.props.testID === 'recipe-dock-fade');
+    expect(fade.props.pointerEvents).toBe('none');
+    const style = StyleSheet.flatten(fade.props.style);
+    expect(style.height).toBe(Spacing.xl);
+    expect(style.experimental_backgroundImage).toBe(
+      `linear-gradient(to bottom, ${Palette.light.background}00, ${Palette.light.background})`,
+    );
+  });
+
+  test("the scroll view's content ends above the dock: its measured height plus a 16 pt gap", () => {
+    const root = render(<RecipeScreen />);
+    // Before it's measured: the CTA in its 8 pt padding over a 16 pt gap.
+    expect(scrollPadding(root)).toBe(Sizes.cta + Spacing.sm * 2 + Spacing.lg + Spacing.lg);
+    act(() => measured(root).props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 120 } } }));
+    expect(scrollPadding(root)).toBe(120 + Spacing.lg);
+  });
+
+  test('Add to a list is disabled with no ingredients, and opens the sheet at the stepper’s servings', () => {
+    let root = render(<RecipeScreen />);
+    expect(addToList(root).props.disabled).toBe(true);
+    close();
+
+    addIngredients('2 cloves garlic');
+    setServings(4);
+    root = render(<RecipeScreen />);
+    expect(addToList(root).props.disabled).toBe(false);
+    act(() => addToList(root).props.onPress());
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos } });
+    act(() => byA11y(root, 'More').props.onPress());
+    act(() => addToList(root).props.onPress());
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/recipe/[id]/add-to-list', params: { id: tacos, servings: '5' } });
+  });
+
+  test('a toast floats above the dock, not in the scroll view', () => {
+    addIngredients('2 cloves garlic');
+    const root = render(<RecipeScreen />);
+    const row = root.root.find((n) => typeof n.props.onDelete === 'function' && n.props.ingredient !== undefined);
+    act(() => row.props.onDelete());
+    const message = root.root.find((n) => String(n.type) === 'Text' && [n.props.children].flat().join('') === 'Removed Garlic');
+    expect(root.root.findByType(ScrollView).findAll((n) => n === message)).toHaveLength(0);
+    // In the dock's overlay, before the fade and the pill.
+    let overlay = measured(root).parent!;
+    while (StyleSheet.flatten(overlay.props.style)?.position !== 'absolute') overlay = overlay.parent!;
+    const order = overlay.findAll(
+      (n) =>
+        n === message || (String(n.type) === 'View' && (n.props.testID === 'recipe-dock-fade' || n.props.testID === 'recipe-dock')),
+    );
+    expect(order.map((n) => n.props.testID ?? 'toast')).toEqual(['toast', 'recipe-dock-fade', 'recipe-dock']);
   });
 });
 

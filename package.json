@@ -90,6 +90,7 @@
     "ai:tags": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/suggest-recipe-tags/cli.ts",
     "ai:eval:recipe": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/import-recipe/eval/eval.ts",
     "ai:steps": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/match-recipe-steps/cli.ts",
+    "ai:image": "deno run --no-lock --allow-env --allow-net=api.openai.com --allow-write=generated-images --env-file=supabase/functions/.env scripts/gen-image.ts",
     "ai:eval:steps": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/match-recipe-steps/eval/eval.ts",
     "e2e": "scripts/e2e.sh",
     "deploy": "scripts/deploy.sh",

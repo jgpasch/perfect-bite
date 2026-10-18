@@ -42,17 +42,49 @@ export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon
  * The main action on the `header` green (the sign-in screen): a 54 pt `onHeader` pill with `header` text, in both schemes.
  * On `surface` it's the action beside a `PrimaryButton` on the screen's ground (Cook): a `surface` pill with `ink` text.
  * `iconTint` colours the glyph alone, e.g. the recipe hue's `strong`.
+ * `layout="stacked"` is the compact form beside a `PrimaryButton` in a dock (the recipe's Cook and Plan): 64 pt wide,
+ * at least 44 pt tall, a `surfaceMuted` pill with the glyph over a `caption` label in `ink`; it grows taller when the
+ * label wraps. `on` doesn't apply to it.
  */
 export function SurfaceButton({
   label,
   icon,
   iconTint,
   on = 'header',
+  layout = 'inline',
   disabled,
   ...rest
-}: Props & { icon?: IconName; iconTint?: string; on?: 'header' | 'surface' }) {
+}: Props & { icon?: IconName; iconTint?: string; on?: 'header' | 'surface'; layout?: 'inline' | 'stacked' }) {
   const { colors, spacing, rounded, sizes, opacity } = useTheme();
-  const text: ColorToken = on === 'header' ? 'header' : 'ink';
+  const text: ColorToken = on === 'header' && layout === 'inline' ? 'header' : 'ink';
+  if (layout === 'stacked') {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: !!disabled }}
+        disabled={disabled}
+        style={({ pressed }) => [
+          styles.stacked,
+          {
+            width: sizes.stackedButton,
+            minHeight: sizes.minTapTarget,
+            paddingVertical: spacing.xs,
+            paddingHorizontal: spacing.xxs,
+            gap: spacing.xxs,
+            borderRadius: rounded.full,
+            backgroundColor: colors.surfaceMuted,
+            opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
+          },
+        ]}
+        {...rest}>
+        {icon ? <Icon name={icon} color={text} tint={iconTint} weight="semibold" /> : null}
+        <ThemedText variant="caption" color={text} style={styles.label}>
+          {label}
+        </ThemedText>
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"
@@ -155,6 +187,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
+  stacked: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   // A label longer than the button's room (Spanish, large Dynamic Type) wraps inside it rather than overflowing.
   label: { flexShrink: 1, textAlign: 'center' },
 });

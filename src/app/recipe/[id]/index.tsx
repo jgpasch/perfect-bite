@@ -4,7 +4,7 @@ import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
+import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
@@ -53,6 +53,7 @@ import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
+import { RecipeActionDock } from '@/features/recipes/recipe-action-dock';
 import {
   forServingsLabel,
   ingredientUnit,
@@ -81,7 +82,7 @@ import { displayItemName } from '@/shared';
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const t = useT();
-  const { spacing, aisles } = useTheme();
+  const { spacing, sizes, aisles } = useTheme();
   const headerHeight = useHeaderHeight();
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
   const recipe = recipeRows[0];
@@ -123,6 +124,8 @@ export default function RecipeScreen() {
   // Opening the recipe matches its steps if they need it (spec 4.5).
   useEnsureStepMatch(id);
   const switchY = useRef(0);
+  // The floating dock's height, measured; until then, a CTA in its padding over a 16 pt gap.
+  const [dockHeight, setDockHeight] = useState(sizes.cta + spacing.sm * 2 + spacing.lg);
   // Switching brings the card into view when the switch has scrolled off the top.
   const switchTab = (next: RecipeTab) => {
     setTab(next);
@@ -254,191 +257,186 @@ export default function RecipeScreen() {
 
       {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={photoSource ? 0 : headerHeight}>
-        <ScrollView
-          ref={scroll}
-          style={styles.flex}
-          onScroll={(e) => (scrollY.current = e.nativeEvent.contentOffset.y)}
-          scrollEventThrottle={16}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          // The photo runs up under the status bar and the header's buttons.
-          contentInsetAdjustmentBehavior="never"
-          contentContainerStyle={{ paddingBottom: spacing.lg }}>
-          {photoSource ? (
-            <RecipePhotoHeader
-              source={photoSource}
-              tint={aisles[hue].soft}
-              // The source credit is for the site's photo, never the household's own; an own photo
-              // shows its own credit (a stock photo's) when it has one.
-              sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
-              credit={uploading ? null : photo.credit}
-              uploading={uploading}
-              onError={uploading ? () => {} : photo.onError}
-            />
-          ) : null}
-          <RecipeBand
-            recipe={recipe}
-            hue={hue}
-            showAddPhoto={!hasPhoto && !uploading}
-            hasIngredients={ingredients.length > 0}
-            onEditServings={editServings}
-            onPlan={openPlan}
-            onAddPhoto={openPhoto}
-          />
-          {/* Board 13: Add to a list takes the row's room, with Cook beside it when there are steps, then Plan
-              (spec 4.16). They wrap when they don't fit. */}
-          <View
-            style={[
-              styles.row,
-              styles.wrap,
-              { gap: spacing.sm + spacing.xxs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md },
-            ]}>
-            <View style={styles.grow}>
-              <PrimaryButton
-                label={t('recipes.screen.addToAList')}
-                icon="cart"
-                disabled={ingredients.length === 0}
-                onPress={() =>
-                  router.push({
-                    pathname: '/recipe/[id]/add-to-list',
-                    // Board 17: the sheet starts at the stepper's servings when it's off the base.
-                    params: servings !== null && servings !== base ? { id, servings: String(servings) } : { id },
-                  })
-                }
-              />
-            </View>
-            {steps > 0 ? (
-              <SurfaceButton
-                label={t('recipes.screen.cook')}
-                accessibilityLabel={t('recipes.screen.startCooking')}
-                icon="flame"
-                iconTint={aisles[hue].strong}
-                on="surface"
-                onPress={() =>
-                  router.push({
-                    pathname: '/recipe/[id]/cook',
-                    // Board 19: the ingredients are scaled to the stepper's servings.
-                    params: servings !== null ? { id, servings: String(servings) } : { id },
-                  })
-                }
+        {/* The actions float over the scroll view's bottom (spec 4.5), and its content ends above them. */}
+        <View style={styles.flex}>
+          <ScrollView
+            ref={scroll}
+            style={styles.flex}
+            onScroll={(e) => (scrollY.current = e.nativeEvent.contentOffset.y)}
+            scrollEventThrottle={16}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            // The photo runs up under the status bar and the header's buttons.
+            contentInsetAdjustmentBehavior="never"
+            // The last row and the Method card's last line scroll clear of the dock.
+            contentContainerStyle={{ paddingBottom: dockHeight + spacing.lg }}>
+            {photoSource ? (
+              <RecipePhotoHeader
+                source={photoSource}
+                tint={aisles[hue].soft}
+                // The source credit is for the site's photo, never the household's own; an own photo
+                // shows its own credit (a stock photo's) when it has one.
+                sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
+                credit={uploading ? null : photo.credit}
+                uploading={uploading}
+                onError={uploading ? () => {} : photo.onError}
               />
             ) : null}
-            <SurfaceButton label={t('recipes.screen.plan')} icon="calendar" iconTint={aisles[hue].strong} on="surface" onPress={openPlan} />
-          </View>
-          {/* With steps, one card at a time under the switch; without, Ingredients over the Method's Add steps. */}
-          {steps > 0 ? (
-            <View onLayout={(e) => (switchY.current = e.nativeEvent.layout.y)} style={{ paddingBottom: spacing.md }}>
-              <SegmentedControl
-                segments={[{ value: 'ingredients', label: t('recipes.screen.ingredients') }, { value: 'method', ...methodTab(steps) }]}
-                value={tab}
-                onChange={switchTab}
-              />
-            </View>
-          ) : null}
-          {steps === 0 || tab === 'ingredients' ? (
-            <Card>
-              <SectionHeader
-                title={t('recipes.screen.ingredients')}
-                count={ingredients.length}
-                countPlacement="title"
-                countUnit={ingredientUnit()}
-                trailing={
-                  base !== null && servings !== null ? (
-                    <View style={[styles.row, { gap: spacing.xxs }]}>
-                      {servings !== base ? (
-                        <Button variant="plain" label={t('recipes.screen.reset')} onPress={() => setChosen(null)} />
-                      ) : null}
-                      <Stepper
-                        value={servings}
-                        min={SERVINGS_MIN}
-                        max={SERVINGS_MAX}
-                        onChange={setChosen}
-                        label={forServingsLabel(servings)}
-                        accessibilityLabel={t('recipes.servings.title')}
-                      />
-                    </View>
-                  ) : undefined
-                }
-              />
-              {ingredients.length === 0 ? (
-                <ThemedText
-                  variant="callout"
-                  color="inkSecondary"
-                  style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-                  {t('recipes.screen.noIngredients')}
-                </ThemedText>
-              ) : (
-                ingredients.map((item) => (
-                  <RecipeIngredientRow
-                    key={item.id}
-                    ingredient={item}
-                    dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
-                    amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
-                    onEdit={() => edit(item)}
-                    onAddToList={() => addToListMenu(item)}
-                    onDelete={() => {
-                      deleteRecipeIngredient(item.id);
-                      ensureStepMatchSoon(id);
-                      setDeleted(item);
-                    }}
-                  />
-                ))
-              )}
-            </Card>
-          ) : null}
-          {steps === 0 ? <View style={{ height: spacing.md }} /> : null}
-          {steps === 0 || tab === 'method' ? (
-            <RecipeMethodCard
-              steps={recipe.steps}
+            <RecipeBand
+              recipe={recipe}
               hue={hue}
-              sourceUrl={recipe.sourceUrl}
-              onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
+              showAddPhoto={!hasPhoto && !uploading}
+              hasIngredients={ingredients.length > 0}
+              onEditServings={editServings}
+              onPlan={openPlan}
+              onAddPhoto={openPhoto}
             />
-          ) : null}
-        </ScrollView>
-        {photoChange ? (
-          <View style={{ paddingBottom: spacing.sm }}>
-            <Toast
-              key={`photo-${photoChange.key}`}
-              message={t(photoChange.removed ? 'recipes.photo.removed' : 'recipes.photo.updated')}
-              actions={[{ label: t('common.undo'), onPress: () => undoPhotoChange(photoChange) }]}
-              onDismiss={dismissPhotoToast}
-            />
-          </View>
-        ) : null}
-        {upload?.status === 'failed' ? (
-          <View style={{ paddingBottom: spacing.sm }}>
-            <Toast
-              key={`upload-${upload.key}`}
-              message={t('recipes.photo.uploadFailed')}
-              actions={[{ label: t('common.tryAgain'), onPress: () => void retryPhotoUpload(upload) }]}
-              onDismiss={dismissUploadToast}
-            />
-          </View>
-        ) : null}
-        {added ? (
-          <View style={{ paddingBottom: spacing.sm }}>
-            <Toast
-              key={added.key}
-              {...addedIngredientToast(added.name, added.listName)}
-              actions={[
-                { label: t('common.undo'), onPress: () => (undoRecipeAdd(added.add), setAdded(null)) },
-                { label: t('recipes.tab.openList'), onPress: () => (setAdded(null), openList(added.listId)) },
-              ]}
-              onDismiss={dismissAddedToast}
-            />
-          </View>
-        ) : null}
-        {deleted ? (
-          <View style={{ paddingBottom: spacing.sm }}>
-            <Toast
-              key={deleted.id}
-              message={t('recipes.screen.removed', { name: displayItemName(deleted.displayName) })}
-              actions={[{ label: t('common.undo'), onPress: () => (undeleteRecipeIngredient(deleted.id), ensureStepMatchSoon(id), setDeleted(null)) }]}
-              onDismiss={dismissToast}
-            />
-          </View>
-        ) : null}
+            {/* The actions are in the dock (spec 4.5), so the band runs straight into the switch or the card. */}
+            <View style={{ height: spacing.lg }} />
+            {/* With steps, one card at a time under the switch; without, Ingredients over the Method's Add steps. */}
+            {steps > 0 ? (
+              <View onLayout={(e) => (switchY.current = e.nativeEvent.layout.y)} style={{ paddingBottom: spacing.md }}>
+                <SegmentedControl
+                  segments={[{ value: 'ingredients', label: t('recipes.screen.ingredients') }, { value: 'method', ...methodTab(steps) }]}
+                  value={tab}
+                  onChange={switchTab}
+                />
+              </View>
+            ) : null}
+            {steps === 0 || tab === 'ingredients' ? (
+              <Card>
+                <SectionHeader
+                  title={t('recipes.screen.ingredients')}
+                  count={ingredients.length}
+                  countPlacement="title"
+                  countUnit={ingredientUnit()}
+                  trailing={
+                    base !== null && servings !== null ? (
+                      <View style={[styles.row, { gap: spacing.xxs }]}>
+                        {servings !== base ? (
+                          <Button variant="plain" label={t('recipes.screen.reset')} onPress={() => setChosen(null)} />
+                        ) : null}
+                        <Stepper
+                          value={servings}
+                          min={SERVINGS_MIN}
+                          max={SERVINGS_MAX}
+                          onChange={setChosen}
+                          label={forServingsLabel(servings)}
+                          accessibilityLabel={t('recipes.servings.title')}
+                        />
+                      </View>
+                    ) : undefined
+                  }
+                />
+                {ingredients.length === 0 ? (
+                  <ThemedText
+                    variant="callout"
+                    color="inkSecondary"
+                    style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+                    {t('recipes.screen.noIngredients')}
+                  </ThemedText>
+                ) : (
+                  ingredients.map((item) => (
+                    <RecipeIngredientRow
+                      key={item.id}
+                      ingredient={item}
+                      dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
+                      amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
+                      onEdit={() => edit(item)}
+                      onAddToList={() => addToListMenu(item)}
+                      onDelete={() => {
+                        deleteRecipeIngredient(item.id);
+                        ensureStepMatchSoon(id);
+                        setDeleted(item);
+                      }}
+                    />
+                  ))
+                )}
+              </Card>
+            ) : null}
+            {steps === 0 ? <View style={{ height: spacing.md }} /> : null}
+            {steps === 0 || tab === 'method' ? (
+              <RecipeMethodCard
+                steps={recipe.steps}
+                hue={hue}
+                sourceUrl={recipe.sourceUrl}
+                onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
+              />
+            ) : null}
+          </ScrollView>
+          {/* The toasts float above the dock. */}
+          <RecipeActionDock
+            tint={aisles[hue].strong}
+            addDisabled={ingredients.length === 0}
+            onAddToList={() =>
+              router.push({
+                pathname: '/recipe/[id]/add-to-list',
+                // Board 17: the sheet starts at the stepper's servings when it's off the base.
+                params: servings !== null && servings !== base ? { id, servings: String(servings) } : { id },
+              })
+            }
+            onCook={
+              steps > 0
+                ? () =>
+                    router.push({
+                      pathname: '/recipe/[id]/cook',
+                      // Board 19: the ingredients are scaled to the stepper's servings.
+                      params: servings !== null ? { id, servings: String(servings) } : { id },
+                    })
+                : undefined
+            }
+            onPlan={openPlan}
+            onHeight={setDockHeight}>
+            {photoChange ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={`photo-${photoChange.key}`}
+                  message={t(photoChange.removed ? 'recipes.photo.removed' : 'recipes.photo.updated')}
+                  actions={[{ label: t('common.undo'), onPress: () => undoPhotoChange(photoChange) }]}
+                  onDismiss={dismissPhotoToast}
+                />
+              </View>
+            ) : null}
+            {upload?.status === 'failed' ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={`upload-${upload.key}`}
+                  message={t('recipes.photo.uploadFailed')}
+                  actions={[{ label: t('common.tryAgain'), onPress: () => void retryPhotoUpload(upload) }]}
+                  onDismiss={dismissUploadToast}
+                />
+              </View>
+            ) : null}
+            {added ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={added.key}
+                  {...addedIngredientToast(added.name, added.listName)}
+                  actions={[
+                    { label: t('common.undo'), onPress: () => (undoRecipeAdd(added.add), setAdded(null)) },
+                    { label: t('recipes.tab.openList'), onPress: () => (setAdded(null), openList(added.listId)) },
+                  ]}
+                  onDismiss={dismissAddedToast}
+                />
+              </View>
+            ) : null}
+            {deleted ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={deleted.id}
+                  message={t('recipes.screen.removed', { name: displayItemName(deleted.displayName) })}
+                  actions={[
+                    {
+                      label: t('common.undo'),
+                      onPress: () => (undeleteRecipeIngredient(deleted.id), ensureStepMatchSoon(id), setDeleted(null)),
+                    },
+                  ]}
+                  onDismiss={dismissToast}
+                />
+              </View>
+            ) : null}
+          </RecipeActionDock>
+        </View>
         <ItemAddBar
           householdId={recipe.householdId}
           onAdd={(text) => {
@@ -609,9 +607,7 @@ type RecipeTab = 'ingredients' | 'method';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  grow: { flexGrow: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  wrap: { flexWrap: 'wrap' },
   center: { justifyContent: 'center' },
   start: { alignSelf: 'flex-start' },
 });

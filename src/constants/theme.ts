@@ -289,6 +289,8 @@ export const Sizes = {
   softButton: 48,
   /** the floating tab bar's pill and the round + beside it */
   tabBar: 62,
+  /** a stacked `SurfaceButton`'s width (the recipe dock's Cook and Plan) */
+  stackedButton: 64,
   /** add bar input and the toast */
   bar: 52,
   /** the round + inside the add bar, and the toast's Undo pill */
