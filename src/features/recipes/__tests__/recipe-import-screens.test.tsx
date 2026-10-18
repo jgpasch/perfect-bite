@@ -29,7 +29,6 @@ import { recipeHue } from '@/domain/aisle-color';
 
 import ImportRecipeSheet from '@/app/import-recipe';
 import { Card } from '@/components/card';
-import { HeaderPill } from '@/components/header-pill';
 import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
 import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
@@ -943,11 +942,13 @@ describe('RecipesScreen', () => {
     expect(title.props.numberOfLines).toBe(1);
   });
 
-  test('the green header: "Recipes", search, "N recipes" and Filters; light status bar', () => {
+  test('the green header: "Recipes", then search holding Filters, no "N recipes"; light status bar', () => {
     createRecipe('Tacos');
     createRecipe('Soup');
     const root = render(<RecipesScreen />);
-    expect(texts(root).slice(0, 3)).toEqual(['Recipes', '2 recipes', 'Filters']);
+    expect(texts(root)[0]).toBe('Recipes');
+    expect(texts(root)).not.toContain('2 recipes');
+    expect(root.root.findAll((n) => String(n.type) === 'View' && n.props.testID === 'recipes-filters')).toHaveLength(1);
     const field = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Search recipes');
     expect(field.props.placeholder).toBe('Search 2 recipes');
     expect(root.root.findAll((n) => n.type === StatusBar).map((n) => n.props.style)).toEqual(['light']);
@@ -1622,8 +1623,14 @@ describe('RecipesScreen filters', () => {
   const search = (root: ReactTestRenderer, text: string) => act(() => searchBar(root).props.onChangeText(text));
   const cardNames = (root: ReactTestRenderer) =>
     byType(root, 'Link').map((l) => (l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string).split(',')[0]);
-  /** The Filters pill, on the green header. */
-  const filtersPill = (root: ReactTestRenderer) => root.root.findByType(HeaderPill);
+  /** The Filters button, at the end of the search field on the green header. */
+  const filtersPill = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'recipes-filters' && n.props.onPress);
+  /** The count the Filters button shows, or null while no filters are on. */
+  const filtersCount = (root: ReactTestRenderer) => {
+    const count = filtersPill(root).findAll((n) => String(n.type) === 'Text');
+    return count.length > 0 ? [count[0].props.children].flat().join('') : null;
+  };
   const chipLabels = (root: ReactTestRenderer) =>
     root.root
       .findAll((n) => typeof n.type !== 'string' && /^Remove .* filter$/.test(n.props.accessibilityLabel ?? '') && n.props.onPress)
@@ -1653,11 +1660,10 @@ describe('RecipesScreen filters', () => {
   });
   afterEach(() => setRecipeFilters(noRecipeFilters()));
 
-  test('the Filters pill opens the sheet with the search text', () => {
+  test('the Filters button opens the sheet with the search text', () => {
     const root = render(<RecipesScreen />);
-    expect(filtersPill(root).props.label).toBe('Filters');
     expect(filtersPill(root).props.accessibilityLabel).toBe('Filters');
-    expect(filtersPill(root).props.selected).toBe(false);
+    expect(filtersCount(root)).toBeNull();
     search(root, 'taco');
     press(filtersPill(root));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipes/filter', params: { q: 'taco' } });
@@ -1669,7 +1675,7 @@ describe('RecipesScreen filters', () => {
     act(() => setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner')));
     expect(chipLabels(root)).toEqual(['Remove Dinner filter']);
     const all = texts(root);
-    expect(all.indexOf('Filters · 1')).toBeLessThan(all.indexOf('Dinner'));
+    expect(all.indexOf('1')).toBeLessThan(all.indexOf('Dinner'));
     expect(all.indexOf('Dinner')).toBeLessThan(all.indexOf('Tacos'));
   });
 
@@ -1684,9 +1690,8 @@ describe('RecipesScreen filters', () => {
     setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'meal', 'dinner'));
     const root = render(<RecipesScreen />);
     expect(cardNames(root).sort()).toEqual(['Curry', 'Tacos']);
-    expect(filtersPill(root).props.label).toBe('Filters · 1');
+    expect(filtersCount(root)).toBe('1');
     expect(filtersPill(root).props.accessibilityLabel).toBe('Filters, 1 active');
-    expect(filtersPill(root).props.selected).toBe(true);
     // On the header only: the chips under it have no second Filters pill.
     expect(root.root.findAll((n) => n.type === Pill && /^Filters/.test(n.props.label))).toHaveLength(0);
 
@@ -1695,7 +1700,8 @@ describe('RecipesScreen filters', () => {
     act(() => setRecipeFilters(toggleRecipeFilter(getRecipeFilters(), 'cuisine', 'indian')));
     expect(cardNames(root)).toEqual(['Curry']);
     expect(chipLabels(root)).toEqual(['Remove Breakfast filter', 'Remove Dinner filter', 'Remove Indian filter']);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Filters · 3', 'Breakfast', 'Dinner', 'Indian']));
+    expect(filtersCount(root)).toBe('3');
+    expect(texts(root)).toEqual(expect.arrayContaining(['Breakfast', 'Dinner', 'Indian']));
   });
 
   test('time buckets filter by total time', () => {
@@ -1739,7 +1745,7 @@ describe('RecipesScreen filters', () => {
     expect(cardNames(root)).toEqual(['Grandma soup']);
     expect(chipLabels(root)).toEqual(['Remove Untagged filter']);
     expect(texts(root)).not.toContain("1 recipe without tags isn't shown");
-    expect(filtersPill(root).props.label).toBe('Filters · 1');
+    expect(filtersCount(root)).toBe('1');
 
     press(byA11y(root, 'Remove Untagged filter'));
     expect(cardNames(root)).toHaveLength(4);

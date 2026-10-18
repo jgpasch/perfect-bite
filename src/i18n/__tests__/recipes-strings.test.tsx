@@ -27,6 +27,7 @@ import {
   untaggedOnlyFilters,
 } from '@/features/recipes/recipe-filters';
 import { NO_RECIPES_MATCH, recipeSearchPlaceholder } from '@/features/recipes/recipe-search';
+import { recipeSortMenuLabel } from '@/features/recipes/recipe-sort';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import { facetLimitLabel, parseTotalTime, recipeTagLine, recipeTagPills } from '@/features/recipes/recipe-tags-view';
 import {
@@ -198,7 +199,7 @@ describe('recipes strings in Spanish', () => {
     expect(quickAddTitle('Súper')).toBe('Agregar a Súper');
   });
 
-  it('labels the Recipes tab rows: meal, time and the header count', () => {
+  it('labels the Recipes tab rows and header: meal, time, the view title and the sort button', () => {
     initI18n('es');
     const tacos = { name: 'Tacos', tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 80 };
     expect(recipeTimeLabel(35)).toBe('35 min');
@@ -208,8 +209,9 @@ describe('recipes strings in Spanish', () => {
     expect(recipeRowLabel(tacos, null, 'pollo')).toBe('Tacos, lleva pollo');
     const saved = { ...tacos, tags: { ...tacos.tags, saved: ['favorite', 'want-to-try'] } };
     expect(recipeRowLabel(saved, 'Súper')).toBe('Tacos, Favorita, Por probar, Cena, 1 h 20 min, en Súper');
-    expect(i18n.t('recipes.tab.count', { count: 1 })).toBe('1 receta');
-    expect(i18n.t('recipes.tab.count', { count: 52 })).toBe('52 recetas');
+    expect(i18n.t('recipes.tab.switchView', { name: 'Recetas' })).toBe('Recetas, cambiar vista');
+    expect(recipeSortMenuLabel('name', 'cuisine', 'small')).toBe('Ordenar: A–Z, agrupadas por cocina, fotos pequeñas');
+    expect(recipeSortMenuLabel('recent', 'none', 'large')).toBe('Ordenar: Agregadas recientemente, fotos grandes');
   });
 
   it('says servings, and rejects ones out of range', () => {

@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
@@ -17,16 +18,19 @@ import { useT } from '@/i18n';
 /**
  * Under a recipe search field (spec 4.14): the Filters pill ("Filters · 2", filled `primary` while
  * some are on), then a chip per active filter ("Dinner ✕") that removes it. Wraps. Without `onOpen`
- * (the Recipes tab, whose Filters pill is on the green header) just the chips, and nothing without any.
+ * (the Recipes tab, whose Filters button is in its search field) just the chips, and nothing without any.
+ * With `onClear`, a plain **Clear** ends the chips and clears every filter.
  */
 export function RecipeFilterBar({
   filters,
   onOpen,
   onRemove,
+  onClear,
 }: {
   filters: RecipeFilters;
   onOpen?: () => void;
   onRemove: (chip: FilterChip) => void;
+  onClear?: () => void;
 }) {
   const t = useT();
   const { spacing } = useTheme();
@@ -48,6 +52,14 @@ export function RecipeFilterBar({
       {chips.map((chip) => (
         <RemovableChip key={chip.key} chip={chip} onPress={() => onRemove(chip)} />
       ))}
+      {onClear && chips.length > 0 ? (
+        <Button
+          label={t('recipes.filters.clear')}
+          accessibilityLabel={t('recipes.filters.clearFilters')}
+          variant="plain"
+          onPress={onClear}
+        />
+      ) : null}
     </View>
   );
 }

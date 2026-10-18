@@ -350,9 +350,8 @@ export const en = {
       search_other: 'Search {{count}} recipes',
       searchLabel: 'Search recipes',
       clearSearch: 'Clear search',
-      /** Under the search field on the green header: "52 recipes". */
-      count_one: '{{count}} recipe',
-      count_other: '{{count}} recipes',
+      /** The title's view menu (spec 4.16, Plan tab off): "Recipes, switch view". */
+      switchView: '{{name}}, switch view',
       noMatch: 'No recipes match',
       empty: 'No recipes yet.',
       newRecipe: 'New recipe',
@@ -387,7 +386,7 @@ export const en = {
       untagged_other: "{{count}} recipes without tags aren't shown",
       untaggedHint: 'Clears the filters and shows only recipes without tags.',
     },
-    /** The sort pill on the green header and its menu (spec 4.5). */
+    /** The sort button on the green header and its menu (spec 4.5). */
     sort: {
       /** The menu's two sections. */
       sortSection: 'Sort',
@@ -426,6 +425,8 @@ export const en = {
       },
       button: 'Sort: {{choice}}',
       buttonGrouped: 'Sort: {{choice}}, grouped by {{group}}',
+      /** The round button's VoiceOver label: the sort, then the photo size. */
+      buttonWithSize: '{{sort}}, {{size}}',
       buttonHint: 'Changes how recipes are sorted and grouped',
       /** Each grouping's last section, for recipes without a value in its facet. */
       noMeal: 'No meal',
@@ -438,11 +439,13 @@ export const en = {
       unit_one: 'recipe',
       unit_other: 'recipes',
     },
-    /** The header's photo-size toggle (spec 4.5). */
+    /** The Photo size section of the sort button's menu (spec 4.5). */
     photoSize: {
       label: 'Photo size',
       small: 'Small photos',
       large: 'Large photos',
+      /** The photo size in the sort button's VoiceOver label. */
+      inLabel: { small: 'small photos', large: 'large photos' },
     },
     /** The Filters pill, its chips and its sheet (spec 4.14). */
     filters: {

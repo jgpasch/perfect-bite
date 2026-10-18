@@ -2,6 +2,7 @@
 // grouping (none, or by a facet). Pure: no React or SQLite.
 
 import type { AisleHue } from '@/domain/aisle-color';
+import type { RecipePhotoSize } from '@/features/recipes/recipe-photo-size';
 import { currentLanguage, i18n } from '@/i18n';
 import { cuisineRegionLabel, tagLabel } from '@/i18n/vocabulary';
 import {
@@ -78,6 +79,14 @@ export function recipeSortButtonLabel(sort: RecipeSort, group: RecipeGroup): str
   return group === 'none'
     ? i18n.t('recipes.sort.button', { choice })
     : i18n.t('recipes.sort.buttonGrouped', { choice, group: i18n.t(`recipes.sort.groupNames.${group}`) });
+}
+
+/** What VoiceOver reads for the header's sort button: "Sort: A–Z, grouped by cuisine, small photos". */
+export function recipeSortMenuLabel(sort: RecipeSort, group: RecipeGroup, photoSize: RecipePhotoSize): string {
+  return i18n.t('recipes.sort.buttonWithSize', {
+    sort: recipeSortButtonLabel(sort, group),
+    size: i18n.t(`recipes.photoSize.inLabel.${photoSize}`),
+  });
 }
 
 let collator: { language: string; compare: (a: string, b: string) => number } | null = null;

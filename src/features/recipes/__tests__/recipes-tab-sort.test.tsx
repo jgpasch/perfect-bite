@@ -151,19 +151,23 @@ const rowNames = (node: ReactTestInstance) =>
   node
     .findAll((n) => n.type === ('Link' as never))
     .map((l) => (l.findAll((n) => n.props.accessibilityRole === 'button')[0].props.accessibilityLabel as string).split(',')[0]);
-const menu = (root: ReactTestRenderer) => root.root.find((n) => n.type === ('SwiftMenu' as never));
-const toggles = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === ('SwiftToggle' as never));
+/** The header's sort button menu (the title's view menu is another). */
+const menu = (root: ReactTestRenderer) =>
+  root.root.find(
+    (n) => n.type === ('SwiftMenu' as never) && n.findAll((c) => c.props.testID === 'recipes-sort' && typeof c.type === 'string').length > 0,
+  );
+const toggles = (root: ReactTestRenderer) => menu(root).findAll((n) => n.type === ('SwiftToggle' as never));
 const choose = (root: ReactTestRenderer, label: string) =>
   act(() => toggles(root).find((t) => t.props.label === label)!.props.onIsOnChange(true));
 /** Each menu section as [title, [label, icon, ticked][]]. */
 const menuSections = (root: ReactTestRenderer) =>
-  root.root
+  menu(root)
     .findAll((n) => n.type === ('SwiftSection' as never))
     .map((s) => [
       s.props.title as string,
       s.findAll((n) => n.type === ('SwiftToggle' as never)).map((t) => [t.props.label, t.props.systemImage, t.props.isOn]),
     ]);
-/** The ticked items, the sort's then the grouping's. */
+/** The ticked items, the sort's, the grouping's, then the photo size's. */
 const ticked = (root: ReactTestRenderer) => toggles(root).filter((t) => t.props.isOn).map((t) => t.props.label as string);
 const sections = (root: ReactTestRenderer) => root.root.findAllByType(FoldingSection);
 /** Each By meal section as [title, count, names]. */
@@ -192,14 +196,11 @@ afterEach(() => {
   setRecipeFilters(noRecipeFilters());
 });
 
-describe('the sort pill', () => {
-  test('reads Recent by default, after Filters, with Sort and Group by sections, Recently added and None ticked', () => {
+describe('the sort button', () => {
+  test('Sort, Group by and Photo size sections, Recently added, None and Small photos ticked by default', () => {
     const root = render();
-    const all = texts(root);
-    expect(all).toContain('Recent');
-    expect(all.indexOf('Filters')).toBeLessThan(all.indexOf('Recent'));
     expect(menu(root).props.modifiers).toEqual([
-      { accessibilityLabel: 'Sort: Recently added' },
+      { accessibilityLabel: 'Sort: Recently added, small photos' },
       { accessibilityHint: 'Changes how recipes are sorted and grouped' },
     ]);
     expect(menuSections(root)).toEqual([
@@ -222,6 +223,13 @@ describe('the sort pill', () => {
           ['Saved', 'heart', false],
         ],
       ],
+      [
+        'Photo size',
+        [
+          ['Small photos', 'list.bullet', true],
+          ['Large photos', 'photo', false],
+        ],
+      ],
     ]);
   });
 
@@ -235,9 +243,8 @@ describe('the sort pill', () => {
     const root = render();
     choose(root, 'A–Z');
     expect(rowNames(root.root)).toEqual(['Apple crumble', 'Banana bread', 'Curry', 'Frittata', 'Tacos']);
-    expect(texts(root)).toContain('A–Z');
-    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z' });
-    expect(ticked(root)).toEqual(['A–Z', 'None']);
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, small photos' });
+    expect(ticked(root)).toEqual(['A–Z', 'None', 'Small photos']);
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
     expect(sections(root)).toHaveLength(0);
   });
@@ -255,15 +262,14 @@ describe('the sort pill', () => {
     choose(root, 'A–Z');
     choose(root, 'Meal');
     root = remount();
-    expect(texts(root)).toContain('By meal');
-    expect(ticked(root)).toEqual(['A–Z', 'Meal']);
+    expect(ticked(root)).toEqual(['A–Z', 'Meal', 'Small photos']);
     expect(sections(root).length).toBeGreaterThan(0);
   });
 
   test('a stored choice the app doesn’t know reads as Recently added', () => {
     setDeviceSetting(RECIPE_SORT_KEY, 'cuisine');
     const root = render();
-    expect(texts(root)).toContain('Recent');
+    expect(ticked(root)).toEqual(['Recently added', 'None', 'Small photos']);
     expect(sections(root)).toHaveLength(0);
   });
 
@@ -272,25 +278,24 @@ describe('the sort pill', () => {
     choose(root, 'Meal');
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('recent');
     expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('meal');
-    expect(ticked(root)).toEqual(['Recently added', 'Meal']);
-    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, grouped by meal' });
+    expect(ticked(root)).toEqual(['Recently added', 'Meal', 'Small photos']);
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, grouped by meal, small photos' });
     choose(root, 'A–Z');
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
     expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('meal');
-    expect(ticked(root)).toEqual(['A–Z', 'Meal']);
-    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, grouped by meal' });
+    expect(ticked(root)).toEqual(['A–Z', 'Meal', 'Small photos']);
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, grouped by meal, small photos' });
     choose(root, 'None');
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
     expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('none');
-    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z' });
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, small photos' });
     expect(sections(root)).toHaveLength(0);
   });
 
   test('an old By meal sort opens as A–Z by meal and writes both settings back', () => {
     setDeviceSetting(RECIPE_SORT_KEY, 'meal');
     const root = render();
-    expect(texts(root)).toContain('By meal');
-    expect(ticked(root)).toEqual(['A–Z', 'Meal']);
+    expect(ticked(root)).toEqual(['A–Z', 'Meal', 'Small photos']);
     expect(mealSections(root).map(([title]) => title)).toEqual(['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'No meal']);
     expect(rowNames(sections(root)[2])).toEqual(['Curry', 'Tacos']);
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
@@ -301,8 +306,7 @@ describe('the sort pill', () => {
     setDeviceSetting(RECIPE_SORT_KEY, 'recent');
     setDeviceSetting(RECIPE_GROUP_KEY, 'saved');
     const root = render();
-    expect(texts(root)).toContain('Saved');
-    expect(ticked(root)).toEqual(['Recently added', 'Saved']);
+    expect(ticked(root)).toEqual(['Recently added', 'Saved', 'Small photos']);
     expect(mealSections(root)).toEqual([['Not saved', 5, ['Tacos', 'Frittata', 'Apple crumble', 'Banana bread', 'Curry']]]);
   });
 });
@@ -425,8 +429,8 @@ describe('Group by', () => {
     const root = render();
     choose(root, 'A–Z');
     choose(root, 'Cuisine');
-    expect(texts(root)).toContain('By cuisine');
-    expect(ticked(root)).toEqual(['A–Z', 'Cuisine']);
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, grouped by cuisine, small photos' });
+    expect(ticked(root)).toEqual(['A–Z', 'Cuisine', 'Small photos']);
     expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('cuisine');
     expect(mealSections(root)).toEqual([
       ['Latin', 1, ['Enchiladas']],
@@ -441,7 +445,7 @@ describe('Group by', () => {
     expect(none.props.band.ground).toBe(AisleColors.light.grey.soft);
 
     choose(root, 'Recently added');
-    expect(ticked(root)).toEqual(['Recently added', 'Cuisine']);
+    expect(ticked(root)).toEqual(['Recently added', 'Cuisine', 'Small photos']);
     expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('cuisine');
     expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('recent');
     expect(mealSections(root)).toEqual([
@@ -479,7 +483,7 @@ describe('Group by', () => {
     const cards = root.root.findAllByType(Card).filter((c) => rowNames(c).length > 0);
     expect(cards).toHaveLength(1);
     expect(rowNames(cards[0])).toEqual(['Tacos', 'Frittata', 'Apple crumble', 'Banana bread', 'Curry']);
-    expect(texts(root)).toContain('Recent');
+    expect(ticked(root)).toEqual(['Recently added', 'None', 'Small photos']);
   });
 
   test('Protein, Method, Time and Saved each draw their own sections', () => {
@@ -488,7 +492,7 @@ describe('Group by', () => {
     const root = render();
     choose(root, 'A–Z');
     choose(root, 'Protein');
-    expect(texts(root)).toContain('By protein');
+    expect(ticked(root)).toEqual(['A–Z', 'Protein', 'Small photos']);
     expect(mealSections(root).map(([title, count]) => [title, count])).toEqual([
       ['Beef', 1],
       ['Shellfish', 1],

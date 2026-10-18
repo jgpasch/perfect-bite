@@ -150,13 +150,16 @@ const flat = (style: unknown): Record<string, unknown> =>
     {},
     ...[typeof style === 'function' ? style({ pressed: false }) : style].flat(Infinity).filter(Boolean),
   );
-const toggle = (root: ReactTestRenderer) =>
-  root.root.find((n) => n.type === ('View' as never) && n.props.accessibilityRole === 'tablist');
-/** The segments' Pressables. */
-const segments = (root: ReactTestRenderer) =>
-  toggle(root).findAll((n) => n.props.accessibilityRole === 'tab' && typeof n.props.onPress === 'function' && typeof n.type !== 'string');
-const segment = (root: ReactTestRenderer, label: string) => segments(root).find((s) => s.props.accessibilityLabel === label)!;
-const choose = (root: ReactTestRenderer, label: 'Small photos' | 'Large photos') => act(() => segment(root, label).props.onPress());
+/** The sort button's Photo size section. */
+const photoSection = (root: ReactTestRenderer) =>
+  root.root.find((n) => n.type === ('SwiftSection' as never) && n.props.title === 'Photo size');
+/** Its items, Small then Large. */
+const segments = (root: ReactTestRenderer) => photoSection(root).findAll((n) => n.type === ('SwiftToggle' as never));
+const segment = (root: ReactTestRenderer, label: string) => segments(root).find((s) => s.props.label === label)!;
+const choose = (root: ReactTestRenderer, label: 'Small photos' | 'Large photos') =>
+  act(() => segment(root, label).props.onIsOnChange(true));
+const sortMenu = (root: ReactTestRenderer) =>
+  root.root.find((n) => n.type === ('SwiftMenu' as never) && n.findAll((c) => c === photoSection(root)).length > 0);
 const grids = (node: ReactTestInstance) => node.findAll((n) => n.type === ('View' as never) && n.props.testID === 'recipe-grid');
 const covers = (node: ReactTestInstance) => node.findAll((n) => n.type === ('View' as never) && n.props.testID === 'recipe-photo-cover');
 const swipeables = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === ('Swipeable' as never));
@@ -203,44 +206,32 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe('the photo-size toggle', () => {
-  test('"Photo size", Small then Large, Small selected by default, at the end of the header row', () => {
+describe('the photo size, in the sort button’s menu', () => {
+  test('a Photo size section after Sort and Group by: Small then Large, Small ticked by default', () => {
     const root = render();
-    expect(toggle(root).props.accessibilityLabel).toBe('Photo size');
-    expect(segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected])).toEqual([
-      ['Small photos', true],
-      ['Large photos', false],
+    expect(segments(root).map((s) => [s.props.label, s.props.systemImage, s.props.isOn])).toEqual([
+      ['Small photos', 'list.bullet', true],
+      ['Large photos', 'photo', false],
     ]);
-    // After the sort pill, last in the pills' row.
-    const pills = toggle(root).parent!;
-    expect(pills.children.at(-1)).toBe(toggle(root));
+    const titles = sortMenu(root)
+      .findAll((n) => n.type === ('SwiftSection' as never))
+      .map((s) => s.props.title);
+    expect(titles).toEqual(['Sort', 'Group by', 'Photo size']);
     expect(grids(root.root)).toHaveLength(0);
     expect(swipeables(root)).toHaveLength(5);
   });
 
-  test('the selected segment is filled onHeader with a header glyph; the other is clear with an onHeader glyph', () => {
+  test('the button reads the photo size after the sort', () => {
     const root = render();
-    const light = Palette.light;
-    const icon = (s: ReactTestInstance) => s.find((n) => n.type === ('Icon' as never)).props;
-    expect(flat(segment(root, 'Small photos').props.style).backgroundColor).toBe(light.onHeader);
-    expect(icon(segment(root, 'Small photos'))).toMatchObject({ name: 'list.bullet', tint: light.header });
-    expect(flat(segment(root, 'Large photos').props.style).backgroundColor).toBe('transparent');
-    expect(icon(segment(root, 'Large photos'))).toMatchObject({ name: 'photo', tint: light.onHeader });
-  });
-
-  test('each segment is at least 44 pt wide and, with its slop, 44 pt tall', () => {
-    const root = render();
-    for (const s of segments(root)) {
-      const style = flat(s.props.style);
-      expect(style.minWidth).toBeGreaterThanOrEqual(44);
-      expect((style.minHeight as number) + s.props.hitSlop.top + s.props.hitSlop.bottom).toBeGreaterThanOrEqual(44);
-    }
+    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, small photos' });
+    choose(root, 'Large photos');
+    expect(sortMenu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: Recently added, large photos' });
   });
 
   test('Large photos: a two-column grid of tiles on the screen\'s ground, saved on this device', () => {
     const root = render();
     choose(root, 'Large photos');
-    expect(segments(root).map((s) => s.props.accessibilityState.selected)).toEqual([false, true]);
+    expect(segments(root).map((s) => s.props.isOn)).toEqual([false, true]);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('large');
     const [grid] = grids(root.root);
     expect(grids(root.root)).toHaveLength(1);
@@ -273,14 +264,14 @@ describe('the photo-size toggle', () => {
     let root = render();
     choose(root, 'Large photos');
     root = remount();
-    expect(segment(root, 'Large photos').props.accessibilityState.selected).toBe(true);
+    expect(segment(root, 'Large photos').props.isOn).toBe(true);
     expect(grids(root.root)).toHaveLength(1);
   });
 
   test('a stored choice the app doesn’t know reads as Small photos', () => {
     setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'huge');
     const root = render();
-    expect(segment(root, 'Small photos').props.accessibilityState.selected).toBe(true);
+    expect(segment(root, 'Small photos').props.isOn).toBe(true);
     expect(grids(root.root)).toHaveLength(0);
   });
 

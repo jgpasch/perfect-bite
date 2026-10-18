@@ -7,15 +7,16 @@ import Animated, { useAnimatedReaction, useAnimatedStyle, type SharedValue } fro
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { hueHeaderBand, listHeaderColors } from '@/components/appearance';
+import { Host, Menu, RNHostView, Toggle } from '@expo/ui/swift-ui';
+import { accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
+
+import { HEADER_WASH, hueHeaderBand, listHeaderColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
-import { HeaderPill } from '@/components/header-pill';
-import { Icon } from '@/components/icon';
+import { Icon, type IconName } from '@/components/icon';
 import { FoldingSection } from '@/components/section-header';
-import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
@@ -25,15 +26,15 @@ import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
 import { openList, resolveCurrentListId, useCurrentListVersion } from '@/features/lists/current-list';
 import { getList, listsWithCountsQuery } from '@/features/lists/lists';
-import { setRecipesSegment, usePlanTabSetting, useRecipesSegment } from '@/features/meal-plan/plan-tab';
+import { setRecipesSegment, usePlanTabSetting, useRecipesSegment, type RecipesSegment } from '@/features/meal-plan/plan-tab';
 import { WeekPlan } from '@/features/meal-plan/week-plan';
+import { mix } from '@/domain/contrast';
 import { useFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
-import { PhotoSizeToggle } from '@/features/recipes/photo-size-toggle';
 import { RecipePhotoCover, RecipePhotoTile } from '@/features/recipes/recipe-photo';
 import {
   gridRows,
@@ -74,7 +75,6 @@ import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-fi
 import {
   activeFilterCount,
   filtersPillAccessibilityLabel,
-  filtersPillLabel,
   isUntaggedRecipe,
   matchesRecipeFilters,
   noRecipeFilters,
@@ -100,8 +100,8 @@ import { i18n, useT } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
 /**
- * Recipes tab (spec 4.5): the List tab's green header (title, search, "N recipes" and Filters) over a card of
- * recipe rows per household.
+ * Recipes tab (spec 4.5): the List tab's green header (the title, the sort button and +, then the search field
+ * holding Filters) over a card of recipe rows per household.
  */
 export default function RecipesScreen() {
   const t = useT();
@@ -374,14 +374,29 @@ export default function RecipesScreen() {
           {/* Pulling down past the top shows more green, not the tab's ground. */}
           <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
           <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
-            <View style={[styles.titleRow, { gap: spacing.md }]}>
-              <ThemedText
-                variant="largeTitle"
-                color="onHeader"
-                accessibilityRole="header"
-                style={[styles.shrink, { paddingHorizontal: spacing.xs }]}>
-                {t('recipes.tab.title')}
-              </ThemedText>
+            <View style={[styles.titleRow, { gap: spacing.sm }]}>
+              {planTab ? (
+                <ThemedText
+                  variant="largeTitle"
+                  color="onHeader"
+                  accessibilityRole="header"
+                  style={[styles.flex, { paddingHorizontal: spacing.xs }]}>
+                  {t('recipes.tab.title')}
+                </ThemedText>
+              ) : (
+                // Spec 4.16: with the Plan tab off, the title switches between All recipes and This week.
+                <RecipesViewTitle week={week} />
+              )}
+              {!week && data.length > 0 ? (
+                <RecipeSortButton
+                  sort={sort}
+                  group={grouping}
+                  photoSize={photoSize}
+                  onSortChange={(next) => setSortChoice({ sort: next, group: grouping })}
+                  onGroupChange={(next) => setSortChoice({ sort, group: next })}
+                  onPhotoSizeChange={setPhotoSize}
+                />
+              ) : null}
               {/* Spec 4.1: the tab bar's + adds items, so adding a recipe has its own button here. */}
               <Pressable
                 testID="recipes-add"
@@ -401,51 +416,14 @@ export default function RecipesScreen() {
                 <Icon name="plus" tint={colors.header} size={sizes.icon} weight="semibold" />
               </Pressable>
             </View>
-            {planTab ? null : (
-              // Spec 4.16, board 5: the week lives here while the Plan tab is off. The control's own inset
-              // would double the header's.
-              <View style={{ marginHorizontal: -spacing.lg }}>
-                <SegmentedControl
-                  segments={[
-                    { value: 'all', label: t('mealPlan.segments.all') },
-                    { value: 'week', label: t('mealPlan.segments.week') },
-                  ]}
-                  value={segment}
-                  onChange={setRecipesSegment}
-                  look={{
-                    track: header.viewButton.fill,
-                    text: colors.onHeader,
-                    selected: colors.onHeader,
-                    selectedText: colors.header,
-                  }}
-                />
-              </View>
-            )}
             {!week && data.length > 0 ? (
-              <>
-                <RecipeSearchField count={data.length} query={query} onChange={setQuery} />
-                <View style={[styles.headerRow, { gap: spacing.md, paddingHorizontal: spacing.xs }]}>
-                  <ThemedText variant="amount" color="onHeaderSecondary">
-                    {t('recipes.tab.count', { count: data.length })}
-                  </ThemedText>
-                  <View style={[styles.headerPills, { gap: spacing.sm }]}>
-                    <HeaderPill
-                      label={filtersPillLabel(activeFilterCount(filters))}
-                      accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
-                      accessibilityHint={t('recipes.filters.pillHint')}
-                      selected={filtering}
-                      onPress={openFilters}
-                    />
-                    <RecipeSortButton
-                      sort={sort}
-                      group={grouping}
-                      onSortChange={(next) => setSortChoice({ sort: next, group: grouping })}
-                      onGroupChange={(next) => setSortChoice({ sort, group: next })}
-                    />
-                    <PhotoSizeToggle value={photoSize} onChange={setPhotoSize} />
-                  </View>
-                </View>
-              </>
+              <RecipeSearchField
+                count={data.length}
+                query={query}
+                onChange={setQuery}
+                filterCount={activeFilterCount(filters)}
+                onOpenFilters={openFilters}
+              />
             ) : null}
           </View>
           <View style={{ height: rounded.card }} />
@@ -469,7 +447,11 @@ export default function RecipesScreen() {
         {!week && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
         {!week && data.length === 0 ? empty : null}
         {!week && data.length > 0 ? (
-          <RecipeFilterBar filters={filters} onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))} />
+          <RecipeFilterBar
+            filters={filters}
+            onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
+            onClear={() => setRecipeFilters(noRecipeFilters())}
+          />
         ) : null}
         {!week && data.length > 0 && (searching || filtering) && groups.length === 0 ? (
           <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
@@ -547,13 +529,75 @@ export default function RecipesScreen() {
   );
 }
 
+const VIEWS: readonly { value: RecipesSegment; icon: IconName }[] = [
+  { value: 'all', icon: 'book' },
+  { value: 'week', icon: 'calendar' },
+];
+
+/**
+ * The title with the Plan tab off (spec 4.16): the view's name ("Recipes", or "This week") then a chevron, one
+ * button opening a native menu of All recipes and This week, the current one ticked. Drawn as the List
+ * tab's switcher title.
+ */
+function RecipesViewTitle({ week }: { week: boolean }) {
+  const t = useT();
+  const { colors, scheme, spacing, sizes } = useTheme();
+  const name = week ? t('mealPlan.segments.week') : t('recipes.tab.title');
+  return (
+    <View style={[styles.flex, styles.start]}>
+      <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
+        <Menu
+          label={
+            <RNHostView matchContents>
+              <View
+                testID="recipes-view-title"
+                style={[styles.switcher, { minHeight: sizes.minTapTarget, paddingLeft: spacing.xs, gap: spacing.xs + spacing.xxs }]}>
+                <ThemedText variant="largeTitle" color="onHeader" numberOfLines={1} style={styles.shrink}>
+                  {name}
+                </ThemedText>
+                <Icon name="chevron.down" color="onHeaderSecondary" size={sizes.iconSmall + spacing.xs} weight="bold" />
+              </View>
+            </RNHostView>
+          }
+          modifiers={[accessibilityLabel(t('recipes.tab.switchView', { name }))]}>
+          {VIEWS.map((view) => (
+            <Toggle
+              key={view.value}
+              label={t(`mealPlan.segments.${view.value}`)}
+              systemImage={view.icon}
+              isOn={(view.value === 'week') === week}
+              onIsOnChange={() => setRecipesSegment(view.value)}
+            />
+          ))}
+        </Menu>
+      </Host>
+    </View>
+  );
+}
+
 /**
  * The search field on the green header (spec 4.14): "Search 52 recipes" in a white wash, results updating
- * live under it. Kept only while the screen is mounted.
+ * live under it, and at its end, after a hairline, the Filters button: a clear glyph while no filters are
+ * on, a filled `onHeader` pill with the count while some are. The search is kept only while the screen is
+ * mounted.
  */
-function RecipeSearchField({ count, query, onChange }: { count: number; query: string; onChange: (text: string) => void }) {
+function RecipeSearchField({
+  count,
+  query,
+  onChange,
+  filterCount,
+  onOpenFilters,
+}: {
+  count: number;
+  query: string;
+  onChange: (text: string) => void;
+  filterCount: number;
+  onOpenFilters: () => void;
+}) {
   const t = useT();
-  const { colors, typography, spacing, sizes, rounded } = useTheme();
+  const { colors, typography, spacing, sizes, rounded, opacity } = useTheme();
+  const wash = listHeaderColors(colors).viewButton.fill;
+  const on = filterCount > 0;
   return (
     <View
       style={[
@@ -561,9 +605,10 @@ function RecipeSearchField({ count, query, onChange }: { count: number; query: s
         {
           minHeight: sizes.minTapTarget,
           gap: spacing.sm,
-          paddingHorizontal: spacing.md,
+          paddingLeft: spacing.md,
+          paddingRight: spacing.xxs,
           borderRadius: rounded.md,
-          backgroundColor: listHeaderColors(colors).viewButton.fill,
+          backgroundColor: wash,
         },
       ]}>
       <Icon name="magnifyingglass" color="onHeaderSecondary" />
@@ -588,6 +633,38 @@ function RecipeSearchField({ count, query, onChange }: { count: number; query: s
           <Icon name="xmark.circle.fill" color="onHeaderSecondary" />
         </Pressable>
       ) : null}
+      <View
+        testID="recipes-search-divider"
+        style={{ width: 1, height: spacing.xl - spacing.xxs, backgroundColor: mix(colors.onHeader, wash, HEADER_WASH) }}
+      />
+      <Pressable
+        testID="recipes-filters"
+        accessibilityRole="button"
+        accessibilityLabel={filtersPillAccessibilityLabel(filterCount)}
+        accessibilityHint={t('recipes.filters.pillHint')}
+        onPress={onOpenFilters}
+        style={({ pressed }) => [styles.action, { minWidth: sizes.minTapTarget, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 }]}>
+        <View
+          style={[
+            styles.filtersPill,
+            on
+              ? {
+                  minHeight: sizes.minTapTarget - spacing.sm,
+                  gap: spacing.xs,
+                  paddingHorizontal: spacing.sm + spacing.xxs,
+                  borderRadius: rounded.md - 3,
+                  backgroundColor: colors.onHeader,
+                }
+              : null,
+          ]}>
+          <Icon name="line.3.horizontal.decrease" tint={on ? colors.header : colors.onHeader} weight="semibold" />
+          {on ? (
+            <ThemedText variant="amount" style={{ color: colors.header, fontWeight: '700' }}>
+              {filterCount}
+            </ThemedText>
+          ) : null}
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -951,10 +1028,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   gridRow: { flexDirection: 'row', alignItems: 'flex-start' },
   tileBadge: { position: 'absolute', maxWidth: '80%' },
-  headerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerPills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flexShrink: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center' },
+  start: { alignItems: 'flex-start' },
+  switcher: { flexDirection: 'row', alignItems: 'center' },
   search: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
+  filtersPill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   overscroll: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 1000 },
   sheetTop: { overflow: 'hidden', borderCurve: 'continuous' },
   action: { alignItems: 'center', justifyContent: 'center' },

@@ -13,8 +13,6 @@ import { resetDb } from '@/test/db';
 import TabsLayout from '@/app/(tabs)/_layout';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
 import { EmptyState } from '@/components/empty-state';
-import { HeaderPill } from '@/components/header-pill';
-import { PhotoSizeToggle } from '@/features/recipes/photo-size-toggle';
 import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
 import { setRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import { noRecipeFilters } from '@/features/recipes/recipe-filters';
@@ -144,21 +142,19 @@ const triggers = (root: ReactTestRenderer) => root.root.findAll((n) => n.type ==
 const visibleTabs = (root: ReactTestRenderer) => triggers(root).filter((n) => !n.props.hidden).map((n) => n.props.name);
 const planTrigger = (root: ReactTestRenderer) => triggers(root).find((n) => n.props.name === 'plan')!;
 
-const tablists = (root: ReactTestRenderer) =>
-  root.root.findAll((n) => n.type === ('View' as never) && n.props.accessibilityRole === 'tablist');
-/** The All recipes | This week segments' Pressables. */
-const segments = (root: ReactTestRenderer) =>
+/** The title's view menu (spec 4.16, Plan tab off). */
+const viewMenus = (root: ReactTestRenderer) =>
   root.root.findAll(
     (n) =>
-      n.props.accessibilityRole === 'tab' &&
-      typeof n.props.onPress === 'function' &&
-      typeof n.type !== 'string' &&
-      ['All recipes', 'This week'].includes(n.props.accessibilityLabel),
+      n.type === ('SwiftMenu' as never) &&
+      n.findAll((c) => c.props.testID === 'recipes-view-title' && typeof c.type === 'string').length > 0,
   );
-const segmentState = (root: ReactTestRenderer) =>
-  segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
+/** The menu's All recipes and This week items. */
+const segments = (root: ReactTestRenderer) =>
+  viewMenus(root).flatMap((m) => m.findAll((n) => n.type === ('SwiftToggle' as never)));
+const segmentState = (root: ReactTestRenderer) => segments(root).map((s) => [s.props.label, s.props.isOn]);
 const choose = (root: ReactTestRenderer, label: 'All recipes' | 'This week') =>
-  act(() => segments(root).find((s) => s.props.accessibilityLabel === label)!.props.onPress());
+  act(() => segments(root).find((s) => s.props.label === label)!.props.onIsOnChange(true));
 const byTestID = (root: ReactTestRenderer, id: string) =>
   root.root.findAll((n) => n.type === ('View' as never) && n.props.testID === id);
 const hasLabel = (node: ReactTestInstance, label: string) =>
@@ -248,8 +244,7 @@ describe('the Recipes tab', () => {
     setPlanTab(true);
     const root = render(<RecipesScreen />);
     expect(segments(root)).toHaveLength(0);
-    // The photo-size toggle is the only tab list.
-    expect(tablists(root)).toHaveLength(1);
+    expect(viewMenus(root)).toHaveLength(0);
     expect(byTestID(root, 'week-toolbar')).toHaveLength(0);
   });
 
@@ -262,17 +257,16 @@ describe('the Recipes tab', () => {
     expect(byTestID(root, 'week-toolbar')).toHaveLength(0);
   });
 
-  test('with the Plan tab off, shows All recipes | This week, All recipes first and selected', () => {
+  test('with the Plan tab off, the title menu offers All recipes and This week, All recipes first and ticked', () => {
     setPlanTab(false);
     const root = render(<RecipesScreen />);
     expect(segmentState(root)).toEqual([
       ['All recipes', true],
       ['This week', false],
     ]);
-    // All recipes is the usual tab: search, Filters, sort, photo size and the recipes.
+    // All recipes is the usual tab: search, Filters, the sort button and the recipes.
     expect(hasLabel(root.root, 'Search recipes')).toBe(true);
-    expect(hasLabel(root.root, 'Photo size')).toBe(true);
-    expect(root.root.findAllByType(HeaderPill)).toHaveLength(1);
+    expect(byTestID(root, 'recipes-filters')).toHaveLength(1);
     expect(root.root.findAllByType(RecipeSortButton)).toHaveLength(1);
     expect(recipeLinks(root)).toHaveLength(1);
     expect(byTestID(root, 'week-toolbar')).toHaveLength(0);
@@ -286,19 +280,17 @@ describe('the Recipes tab', () => {
     expect(segments(root)).toHaveLength(0);
   });
 
-  test('This week shows the week with its toolbar and hides search, Filters, sort, photo size and the recipes', () => {
+  test('This week shows the week with its toolbar and hides search, Filters, the sort button and the recipes', () => {
     setPlanTab(false);
     const root = render(<RecipesScreen />);
     choose(root, 'This week');
     expect(byTestID(root, 'week-toolbar')).toHaveLength(1);
     expect(byTestID(root, 'week-grid')).toHaveLength(1);
     expect(hasLabel(root.root, 'Search recipes')).toBe(false);
-    expect(hasLabel(root.root, 'Photo size')).toBe(false);
-    expect(root.root.findAllByType(HeaderPill)).toHaveLength(0);
+    expect(byTestID(root, 'recipes-filters')).toHaveLength(0);
     expect(root.root.findAllByType(RecipeSortButton)).toHaveLength(0);
-    expect(root.root.findAllByType(PhotoSizeToggle)).toHaveLength(0);
     expect(recipeLinks(root)).toHaveLength(0);
-    // The week's own Agenda/Grid toggle sits in the sheet, below the header's switch.
+    // The week's own Agenda/Grid toggle sits in the sheet, below the header.
     expect(byTestID(root, 'plan-view-toggle')).toHaveLength(1);
   });
 
@@ -347,10 +339,8 @@ describe('the Recipes tab', () => {
     act(() => void i18n.changeLanguage('es'));
     try {
       const root = render(<RecipesScreen />);
-      const labels = root.root
-        .findAll((n) => n.props.accessibilityRole === 'tab' && typeof n.props.onPress === 'function' && typeof n.type !== 'string')
-        .map((n) => n.props.accessibilityLabel);
-      expect(labels).toEqual(expect.arrayContaining(['Todas las recetas', 'Esta semana']));
+      expect(segments(root).map((n) => n.props.label)).toEqual(['Todas las recetas', 'Esta semana']);
+      expect(viewMenus(root)[0].props.modifiers).toEqual([{ accessibilityLabel: 'Recetas, cambiar vista' }]);
     } finally {
       act(() => void i18n.changeLanguage(before));
     }

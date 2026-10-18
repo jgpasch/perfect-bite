@@ -4,14 +4,8 @@ import { StyleSheet, View } from 'react-native';
 
 import { listHeaderColors } from '@/components/appearance';
 import { Icon, type IconName } from '@/components/icon';
-import { ThemedText } from '@/components/themed-text';
-import {
-  recipeSortButtonLabel,
-  recipeSortLabel,
-  recipeSortPillLabel,
-  type RecipeGroup,
-  type RecipeSort,
-} from '@/features/recipes/recipe-sort';
+import { RECIPE_PHOTO_SIZES, recipePhotoSizeLabel, type RecipePhotoSize } from '@/features/recipes/recipe-photo-size';
+import { recipeSortLabel, recipeSortMenuLabel, type RecipeGroup, type RecipeSort } from '@/features/recipes/recipe-sort';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
@@ -30,85 +24,90 @@ const GROUPS: readonly { group: RecipeGroup; icon: IconName }[] = [
   { group: 'saved', icon: 'heart' },
 ];
 
+const PHOTO_SIZE_ICONS: Record<RecipePhotoSize, IconName> = { small: 'list.bullet', large: 'photo' };
+
 /**
- * The Recipes tab's sort pill (spec 4.5): a white-wash pill on the green header reading the current choice,
- * "Recent ⌄", that opens a native "Sort and group" menu: a **Sort** section (Recently added, A–Z) and a
- * **Group by** section (None, Meal, Cuisine, Protein, Method, Time, Saved), the current choice ticked in each.
- * Picking in one section keeps the other's choice. A 32 pt pill padded to a 44 pt tap area.
+ * The Recipes tab's sort button (spec 4.5): a 44 pt round white-wash button on the green header with a
+ * `arrow.up.arrow.down` glyph, opening a native "Sort and group" menu: a **Sort** section (Recently added,
+ * A–Z), a **Group by** section (None, Meal, Cuisine, Protein, Method, Time, Saved) and a **Photo size**
+ * section (Small photos, Large photos), the current choice ticked in each. Picking in one section keeps the
+ * others' choices.
  */
 export function RecipeSortButton({
   sort,
   group,
+  photoSize,
   onSortChange,
   onGroupChange,
+  onPhotoSizeChange,
 }: {
   sort: RecipeSort;
   group: RecipeGroup;
+  photoSize: RecipePhotoSize;
   onSortChange: (sort: RecipeSort) => void;
   onGroupChange: (group: RecipeGroup) => void;
+  onPhotoSizeChange: (size: RecipePhotoSize) => void;
 }) {
-  const { colors, scheme, sizes, spacing, rounded } = useTheme();
+  const { colors, scheme, sizes, rounded } = useTheme();
   const t = useT();
   const look = listHeaderColors(colors).viewButton;
-  const inset = (sizes.minTapTarget - sizes.viewButton) / 2;
   return (
-    <View style={{ marginVertical: -inset }}>
-      <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
-        <Menu
-          label={
-            <RNHostView matchContents>
-              <View style={[styles.start, { paddingVertical: inset }]}>
-                <View
-                  style={[
-                    styles.pill,
-                    {
-                      minHeight: sizes.viewButton,
-                      borderRadius: rounded.full,
-                      paddingLeft: spacing.md,
-                      paddingRight: spacing.md - spacing.xxs,
-                      gap: spacing.xs,
-                      backgroundColor: look.fill,
-                    },
-                  ]}>
-                  <ThemedText variant="amount" style={[styles.label, { color: look.text }]}>
-                    {recipeSortPillLabel(sort, group)}
-                  </ThemedText>
-                  <Icon name="chevron.down" tint={look.text} size={sizes.iconSmall} weight="semibold" />
-                </View>
-              </View>
-            </RNHostView>
-          }
-          modifiers={[accessibilityLabel(recipeSortButtonLabel(sort, group)), accessibilityHint(t('recipes.sort.buttonHint'))]}>
-          <Section title={t('recipes.sort.sortSection')}>
-            {SORTS.map((item) => (
-              <Toggle
-                key={item.sort}
-                label={recipeSortLabel(item.sort)}
-                systemImage={item.icon}
-                isOn={item.sort === sort}
-                onIsOnChange={() => onSortChange(item.sort)}
-              />
-            ))}
-          </Section>
-          <Section title={t('recipes.sort.groupSection')}>
-            {GROUPS.map((item) => (
-              <Toggle
-                key={item.group}
-                label={t(`recipes.sort.groupItems.${item.group}`)}
-                systemImage={item.icon}
-                isOn={item.group === group}
-                onIsOnChange={() => onGroupChange(item.group)}
-              />
-            ))}
-          </Section>
-        </Menu>
-      </Host>
-    </View>
+    <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
+      <Menu
+        label={
+          <RNHostView matchContents>
+            <View
+              testID="recipes-sort"
+              style={[
+                styles.button,
+                { width: sizes.minTapTarget, height: sizes.minTapTarget, borderRadius: rounded.full, backgroundColor: look.fill },
+              ]}>
+              <Icon name="arrow.up.arrow.down" tint={look.text} size={sizes.icon} weight="semibold" />
+            </View>
+          </RNHostView>
+        }
+        modifiers={[
+          accessibilityLabel(recipeSortMenuLabel(sort, group, photoSize)),
+          accessibilityHint(t('recipes.sort.buttonHint')),
+        ]}>
+        <Section title={t('recipes.sort.sortSection')}>
+          {SORTS.map((item) => (
+            <Toggle
+              key={item.sort}
+              label={recipeSortLabel(item.sort)}
+              systemImage={item.icon}
+              isOn={item.sort === sort}
+              onIsOnChange={() => onSortChange(item.sort)}
+            />
+          ))}
+        </Section>
+        <Section title={t('recipes.sort.groupSection')}>
+          {GROUPS.map((item) => (
+            <Toggle
+              key={item.group}
+              label={t(`recipes.sort.groupItems.${item.group}`)}
+              systemImage={item.icon}
+              isOn={item.group === group}
+              onIsOnChange={() => onGroupChange(item.group)}
+            />
+          ))}
+        </Section>
+        <Section title={t('recipes.photoSize.label')}>
+          {RECIPE_PHOTO_SIZES.map((size) => (
+            <Toggle
+              key={size}
+              label={recipePhotoSizeLabel(size)}
+              systemImage={PHOTO_SIZE_ICONS[size]}
+              isOn={size === photoSize}
+              onIsOnChange={() => onPhotoSizeChange(size)}
+            />
+          ))}
+        </Section>
+      </Menu>
+    </Host>
   );
 }
 
 const styles = StyleSheet.create({
-  start: { alignSelf: 'flex-start' },
-  pill: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
-  label: { flexShrink: 1 },
+  button: { alignItems: 'center', justifyContent: 'center' },
 });
