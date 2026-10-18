@@ -52,10 +52,29 @@ export function ownPhotoSource(bucket: string, path: string, session: PhotoSessi
   };
 }
 
-/** The `expo-image` source for a recipe's photo: its own (`ownPhotoSource`), else the site's. Null when it has no photo. */
-export function recipePhotoSource(recipe: RecipePhotoSourceFields, session: PhotoSession): RecipeImageSource | null {
-  if (recipe.photoPath) return ownPhotoSource(RECIPE_PHOTOS_BUCKET, recipe.photoPath, session);
+/**
+ * The `expo-image` source for a recipe's photo: its own (`ownPhotoSource`, in `bucket`), else the site's.
+ * Null when it has no photo. A page of a photo import (spec 4.5) loads the same way from `recipe-pages`.
+ */
+export function recipePhotoSource(
+  recipe: RecipePhotoSourceFields,
+  session: PhotoSession,
+  bucket: string = RECIPE_PHOTOS_BUCKET,
+): RecipeImageSource | null {
+  if (recipe.photoPath) return ownPhotoSource(bucket, recipe.photoPath, session);
   return recipe.imageUrl ?? null;
+}
+
+/**
+ * One of a recipe's original pages (`source_pages`, spec 4.5) for a view: loaded from `recipe-pages` as an
+ * own photo is (the session's header, keyed by its path, one retry after refreshing the session, cached for
+ * offline), and whether it failed for good.
+ */
+export function useRecipePage(path: string) {
+  const session = usePhotoSession();
+  const { failed, onError } = usePhotoFallback(path, true);
+  const source = failed ? null : recipePhotoSource({ imageUrl: null, photoPath: path }, session, RECIPE_PAGES_BUCKET);
+  return { source, failed, onError };
 }
 
 // --- The session's token -------------------------------------------------------------------------

@@ -412,9 +412,19 @@ export const PhotoScrim = {
   text: '#FFFFFF',
 } as const;
 
-/** The full-screen photo viewer (an item's photo, spec 4.4): black behind the photo in both schemes. */
+/**
+ * The full-screen photo viewer (an item's photo, spec 4.4; a recipe's original pages, 4.5): black behind
+ * the photo in both schemes. The pages screen's top bar and dots draw on it in white.
+ */
 export const PhotoViewer = {
   background: '#000000',
+  text: '#FFFFFF',
+  /** The page count under the title. */
+  textSecondary: 'rgba(255, 255, 255, 0.72)',
+  /** The round ✕ and … buttons. */
+  button: 'rgba(255, 255, 255, 0.16)',
+  dot: '#FFFFFF',
+  dotInactive: 'rgba(255, 255, 255, 0.35)',
 } as const;
 
 /** Mix a hex color token with an alpha, for tints (e.g. status chip 12% background). */

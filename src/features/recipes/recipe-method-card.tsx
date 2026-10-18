@@ -9,7 +9,8 @@ import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
-import { RecipeCredit } from './recipe-credit';
+import { PagesCredit, RecipeCredit } from './recipe-credit';
+import { recipeLinkParts } from './recipe-link';
 import { stepLabel, stepUnit } from './recipe-view';
 
 /** How far apart a step's lines sit, as a multiple of `body`'s size: roomier than a list row, for reading while cooking. */
@@ -18,18 +19,25 @@ const STEP_LINE_SPACING = 1.45;
 /**
  * The recipe screen's Method card (board 14): the steps numbered in the recipe hue's soft circles,
  * selectable for copying, with Edit in the header, and the source credit under them when `sourceUrl` is a
- * link that opens. With none, "No steps yet." and Add steps (board 15), and no credit.
+ * link that opens. Without one, a photo import's `pageCount` original pages are credited instead ("From your
+ * photos · View pages", board C), opening them (`onViewPages`). With no steps, "No steps yet." and Add steps
+ * (board 15), and no credit.
  */
 export function RecipeMethodCard({
   steps,
   hue,
   sourceUrl,
+  pageCount = 0,
+  onViewPages,
   onEdit,
 }: {
   steps: readonly string[] | null;
   hue: AisleHue;
   /** The recipe's link, credited under the steps. */
   sourceUrl?: string | null;
+  /** How many original pages the recipe keeps (`source_pages`), credited when there's no link. */
+  pageCount?: number;
+  onViewPages?: () => void;
   onEdit: () => void;
 }) {
   const t = useT();
@@ -100,7 +108,11 @@ export function RecipeMethodCard({
           </ThemedText>
         </View>
       ))}
-      <RecipeCredit sourceUrl={sourceUrl} />
+      {recipeLinkParts(sourceUrl) ? (
+        <RecipeCredit sourceUrl={sourceUrl} />
+      ) : pageCount > 0 && onViewPages ? (
+        <PagesCredit count={pageCount} onPress={onViewPages} />
+      ) : null}
     </Card>
   );
 }

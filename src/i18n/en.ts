@@ -553,6 +553,26 @@ export const en = {
       text: 'From {{host}}',
       label: 'Recipe from {{host}}',
     },
+    /** A photo import's original pages (spec 4.5): the menu item, the pages screen and the Method card's credit. */
+    pages: {
+      see: 'See original pages',
+      pageOf: 'Page {{page}} of {{count}}',
+      done: 'Done',
+      more: 'More',
+      share: 'Share page',
+      shareFailed: "Couldn't share this page",
+      delete: 'Delete pages',
+      deleteTitle: 'Delete the original pages?',
+      deleteMessage: 'The recipe stays. Everyone in the household loses the pages.',
+      deleted: 'Pages deleted',
+      loadFailed: "Couldn't load this page",
+      needsConnection: 'Needs a connection',
+      fromPhotos: 'From your photos',
+      viewPages: 'View pages',
+      creditLabel_one: 'From your photos, {{count}} page',
+      creditLabel_other: 'From your photos, {{count}} pages',
+      creditHint: 'Opens the pages',
+    },
     /** A stock photo's credit on the recipe photo. */
     photoCredit: {
       text: 'Photo: {{author}} / {{provider}}',

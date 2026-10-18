@@ -62,6 +62,7 @@ import { dismissPhotoUpload, retryPhotoUpload, usePhotoUpload } from '@/features
 import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
+import { dismissPagesDeleted, usePagesDeleted } from '@/features/recipes/recipe-pages';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import { RecipeActionDock } from '@/features/recipes/recipe-action-dock';
 import {
@@ -127,6 +128,10 @@ export default function RecipeScreen() {
   const upload = usePhotoUpload(id);
   useEffect(() => () => dismissPhotoUpload(), []);
   const dismissUploadToast = useCallback(() => dismissPhotoUpload(upload?.key), [upload?.key]);
+  // "Pages deleted" after Delete pages on the pages screen (spec 4.5); it ends when the screen closes.
+  const pagesDeleted = usePagesDeleted(id);
+  useEffect(() => () => dismissPagesDeleted(), []);
+  const dismissPagesToast = useCallback(() => dismissPagesDeleted(pagesDeleted?.key), [pagesDeleted?.key]);
   // Ingredients | Method, only with steps. Opens on Ingredients every visit and isn't saved.
   const [tab, setTab] = useState<RecipeTab>('ingredients');
   const scroll = useRef<ScrollView>(null);
@@ -248,6 +253,9 @@ export default function RecipeScreen() {
   const openPlan = () => router.push({ pathname: '/plan-recipe', params: { recipeId: id } });
   // Spec 4.5: the Choose a photo sheet, for the Add photo tile and Change photo….
   const openPhoto = () => router.push({ pathname: '/recipe/[id]/photo', params: { id } });
+  // Spec 4.5: a photo import's original pages, full screen, from the ⋯ menu and the Method card's credit.
+  const pageCount = recipe.sourcePages?.length ?? 0;
+  const openPages = () => router.push({ pathname: '/recipe/[id]/pages', params: { id } });
 
   const confirmDelete = () =>
     Alert.alert(t('recipes.tab.deleteTitle', { name: recipe.name }), t('recipes.tab.deleteMessage'), [
@@ -282,6 +290,11 @@ export default function RecipeScreen() {
           {base !== null ? (
             <Stack.Toolbar.MenuAction icon="person.2" onPress={editServings}>
               {t('recipes.servings.edit')}
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+          {pageCount > 0 ? (
+            <Stack.Toolbar.MenuAction icon="doc.text" onPress={openPages}>
+              {t('recipes.pages.see')}
             </Stack.Toolbar.MenuAction>
           ) : null}
           {hasPhoto ? (
@@ -410,6 +423,8 @@ export default function RecipeScreen() {
                 steps={recipe.steps}
                 hue={hue}
                 sourceUrl={recipe.sourceUrl}
+                pageCount={pageCount}
+                onViewPages={openPages}
                 onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
               />
             ) : null}
@@ -456,6 +471,11 @@ export default function RecipeScreen() {
                   actions={[{ label: t('common.tryAgain'), onPress: () => void retryPhotoUpload(upload) }]}
                   onDismiss={dismissUploadToast}
                 />
+              </View>
+            ) : null}
+            {pagesDeleted ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast key={`pages-${pagesDeleted.key}`} message={t('recipes.pages.deleted')} actions={[]} onDismiss={dismissPagesToast} />
               </View>
             ) : null}
             {added ? (

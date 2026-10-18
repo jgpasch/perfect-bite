@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { openRecipeLink, recipeLinkParts } from '@/features/recipes/recipe-link';
 import { useTheme } from '@/hooks/use-theme';
@@ -65,6 +66,44 @@ export function RecipeCredit({
 }
 
 /**
+ * A photo import's credit at the Method card's foot (spec 4.5, board C), for a recipe with original pages
+ * and no link: a page glyph and "From your photos · **View pages**" (`footnote` `inkSecondary`, "View
+ * pages" in `primary`), one button at least 44 pt tall under a hairline that opens the pages screen.
+ * VoiceOver: "From your photos, 2 pages, button".
+ */
+export function PagesCredit({ count, onPress }: { count: number; onPress: () => void }) {
+  const t = useT();
+  const { colors, spacing, sizes, opacity } = useTheme();
+  return (
+    <Pressable
+      testID="pages-credit"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('recipes.pages.creditLabel', { count })}
+      accessibilityHint={t('recipes.pages.creditHint')}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          gap: spacing.xs,
+          minHeight: sizes.minTapTarget,
+          paddingHorizontal: spacing.lg,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <Icon name="doc.text" color="inkSecondary" size={sizes.iconSmall} />
+      <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1}>
+        {`${t('recipes.pages.fromPhotos')} · `}
+        <ThemedText variant="footnote" color="primary" style={styles.strong}>
+          {t('recipes.pages.viewPages')}
+        </ThemedText>
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+/**
  * A stock photo's credit (spec 4.5) on the recipe photo's bottom-right corner, where a site photo's
  * source credit sits: "Photo: Jane Doe / Pixabay" (the credit's provider) in `caption` `inkSecondary`
  * on a `surface` chip, a link that opens the photo's page in Safari. VoiceOver: "Photo by Jane Doe on
@@ -106,4 +145,6 @@ export function PhotoCreditChip({ credit }: { credit: PhotoCredit | null | undef
 
 const styles = StyleSheet.create({
   center: { justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  strong: { fontWeight: '600' },
 });
