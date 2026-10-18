@@ -264,6 +264,11 @@ export function stepUnit(): readonly [one: string, other: string] {
   return [i18n.t('recipes.method.unit', { count: 1 }), i18n.t('recipes.method.unit', { count: 2 })];
 }
 
+/** What an ingredient count counts, singular and plural, for the ingredients header's VoiceOver label. */
+export function ingredientUnit(): readonly [one: string, other: string] {
+  return [i18n.t('recipes.screen.ingredientUnit', { count: 1 }), i18n.t('recipes.screen.ingredientUnit', { count: 2 })];
+}
+
 /** The cook screen's line under the name (board 19): "For 6 · 2 of 6 steps done", or without servings "2 of 6 steps done". */
 export function cookProgressLabel(servings: number | null, done: number, total: number): string {
   const progress = i18n.t('recipes.cook.progress', { done, count: total });

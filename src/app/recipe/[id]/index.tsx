@@ -42,6 +42,7 @@ import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import {
   forServingsLabel,
+  ingredientUnit,
   methodTab,
   parseServings,
   scaledAmount,
@@ -290,6 +291,8 @@ export default function RecipeScreen() {
               <SectionHeader
                 title={t('recipes.screen.ingredients')}
                 count={ingredients.length}
+                countPlacement="title"
+                countUnit={ingredientUnit()}
                 trailing={
                   base !== null && servings !== null ? (
                     <View style={[styles.row, { gap: spacing.xxs }]}>

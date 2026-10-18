@@ -1,7 +1,7 @@
 // The recipe screen and its "Add to a list" sheet (spec 4.5, boards 06 and 07), rendered against the
 // in-memory database: ingredients, edit/delete/undo, the menu, and choosing list, servings and ingredients.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { AccessibilityInfo, Alert, type AlertButton } from 'react-native';
+import { AccessibilityInfo, Alert, Text, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 
 import { Button } from '@/components/button';
 import { Pill } from '@/components/pill';
+import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
 import { db, households, lists, outbox, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
@@ -605,6 +606,38 @@ describe('RecipeScreen servings', () => {
     expect([s.props.value, s.props.min, s.props.max, s.props.accessibilityLabel]).toEqual([4, 1, 100, 'Servings']);
     expect(amounts(root)).toEqual(['2 lb Chicken thighs', '1 can Chipotle']);
     expect(queryA11y(root, 'Reset')).toHaveLength(0);
+  });
+
+  // The ingredients count sits beside the title (spec 4.5), so "2   − For 4 +" doesn't read as servings.
+  describe('the ingredients header', () => {
+    const header = (root: ReactTestRenderer) =>
+      root.root.find((n) => n.type === SectionHeader && n.props.title === 'Ingredients');
+    const titleGroup = (root: ReactTestRenderer) =>
+      header(root).find((n) => (n.type as unknown) === 'View' && n.props.testID === 'section-header-title-group');
+    const textsIn = (node: ReactTestInstance) => node.findAll((n) => n.type === Text).map((n) => n.props.children);
+    const headerLabel = (root: ReactTestRenderer) =>
+      header(root).find((n) => n.type === Text && n.props.accessibilityRole === 'header').props.accessibilityLabel;
+
+    test('with servings: the count is in the title group and the stepper stands apart on the right', () => {
+      addRecipeIngredient(tacos, '2 limes');
+      addRecipeIngredient(tacos, 'cilantro');
+      updateRecipeServings(tacos, 4);
+      const root = render(<RecipeScreen />);
+      expect(header(root).props.countPlacement).toBe('title');
+      const group = titleGroup(root);
+      expect(textsIn(group)).toEqual(['Ingredients', 2]);
+      expect(group.findAll((n) => n.type === Stepper)).toHaveLength(0);
+      expect(header(root).findAll((n) => n.type === Stepper)).toHaveLength(1);
+      expect(headerLabel(root)).toBe('Ingredients, 2 ingredients');
+    });
+
+    test('without servings: the count still sits beside the title', () => {
+      addRecipeIngredient(tacos, '2 limes');
+      const root = render(<RecipeScreen />);
+      expect(textsIn(titleGroup(root))).toEqual(['Ingredients', 1]);
+      expect(stepper(root)).toHaveLength(0);
+      expect(headerLabel(root)).toBe('Ingredients, 1 ingredient');
+    });
   });
 
   test('stepping scales the amounts shown, and Reset goes back to the base', () => {

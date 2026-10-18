@@ -439,6 +439,9 @@ export const en = {
       /** Opens the plan modal (spec 4.16). */
       plan: 'Plan',
       ingredients: 'Ingredients',
+      /** What the ingredients count counts, for VoiceOver: "Ingredients, 12 ingredients". */
+      ingredientUnit_one: 'ingredient',
+      ingredientUnit_other: 'ingredients',
       reset: 'Reset',
       noIngredients: 'No ingredients yet. Add them below.',
       editIngredient: 'Edit ingredient',

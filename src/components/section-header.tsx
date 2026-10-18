@@ -25,8 +25,13 @@ type Props = {
   ground?: string;
   /** Shown in place of the dot, e.g. a recipe's icon well. */
   leading?: ReactNode;
-  /** The count on the right. */
+  /** The count, on the right unless `countPlacement` is `title`. */
   count?: number;
+  /**
+   * Where the count sits: `trailing` (the default) on the right, as on an aisle card, or `title` just
+   * after the title, so a trailing control (a recipe's servings stepper) stands alone on the right.
+   */
+  countPlacement?: 'trailing' | 'title';
   /** What the count counts, for VoiceOver: singular and plural. Defaults to items. */
   countUnit?: readonly [one: string, other: string];
   /** Reads the count to VoiceOver without showing it, e.g. on an open recipe card. */
@@ -49,7 +54,8 @@ type Props = {
 };
 
 /**
- * A card's section header: aisle dot, the name in the display face, and the count on the right.
+ * A card's section header: aisle dot, the name in the display face, and the count on the right (or
+ * beside the name, with `countPlacement="title"`).
  * With `onSwipeCheck` or `onSwipeRemove` it swipes too.
  */
 export function SectionHeader({ onSwipeCheck, onSwipeRemove, ...header }: Props) {
@@ -67,6 +73,7 @@ function HeaderBody({
   leading,
   count,
   countUnit,
+  countPlacement = 'trailing',
   hideCount = false,
   trailing,
   onLongPress,
@@ -79,29 +86,44 @@ function HeaderBody({
   const label = sectionHeaderLabel(accessibilityLabel ?? title, count, countUnit);
   const { paddingTop, paddingBottom } = headerPadding(spacing, !!band);
   const bandText = band ? { color: band.text } : undefined;
+  const titleText = (
+    <ThemedText
+      variant="sectionTitle"
+      accessibilityRole={onToggle ? undefined : 'header'}
+      accessibilityLabel={onToggle ? undefined : label}
+      style={[countPlacement === 'title' ? styles.titleBesideCount : styles.title, bandText]}>
+      {title}
+    </ThemedText>
+  );
+  const countText =
+    count !== undefined && !hideCount ? (
+      <ThemedText
+        variant="footnote"
+        color="inkSecondary"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.count, bandText]}>
+        {count}
+      </ThemedText>
+    ) : null;
   const content = (
     <>
       {leading ??
         (dotColor && !band ? (
           <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
         ) : null)}
-      <ThemedText
-        variant="sectionTitle"
-        accessibilityRole={onToggle ? undefined : 'header'}
-        accessibilityLabel={onToggle ? undefined : label}
-        style={[styles.title, bandText]}>
-        {title}
-      </ThemedText>
-      {count !== undefined && !hideCount ? (
-        <ThemedText
-          variant="footnote"
-          color="inkSecondary"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[styles.count, bandText]}>
-          {count}
-        </ThemedText>
-      ) : null}
+      {countPlacement === 'title' ? (
+        // The count follows the title on its baseline; the group takes the room the title would.
+        <View testID="section-header-title-group" style={[styles.titleGroup, { gap: spacing.sm }]}>
+          {titleText}
+          {countText}
+        </View>
+      ) : (
+        <>
+          {titleText}
+          {countText}
+        </>
+      )}
     </>
   );
   // The title and count sit at least `md` from the trailing control (spec 4.5). When room runs out the
@@ -272,6 +294,8 @@ const styles = StyleSheet.create({
   toggle: { flex: 1 },
   group: { flex: 1, minWidth: 0 },
   title: { flex: 1, flexShrink: 1 },
+  titleGroup: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline' },
+  titleBesideCount: { flexShrink: 1 },
   count: { fontWeight: '600', flexShrink: 0 },
   fixed: { flexShrink: 0 },
   action: { flex: 1, justifyContent: 'center' },

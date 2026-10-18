@@ -384,6 +384,8 @@ export const es = {
       startCooking: 'Empezar a cocinar',
       plan: 'Planear',
       ingredients: 'Ingredientes',
+      ingredientUnit_one: 'ingrediente',
+      ingredientUnit_other: 'ingredientes',
       reset: 'Restablecer',
       noIngredients: 'Todavía no hay ingredientes. Agrégalos abajo.',
       editIngredient: 'Editar ingrediente',

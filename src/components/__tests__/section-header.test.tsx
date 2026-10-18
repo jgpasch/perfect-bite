@@ -145,3 +145,63 @@ describe('SectionHeader with a count and a trailing control', () => {
     expect(hostViews(tree).filter((v) => flat(v).flexShrink === 0)).toHaveLength(0);
   });
 });
+
+// Where the count sits (spec 4.5): beside the title on the recipe's ingredients card, on the right elsewhere.
+describe('SectionHeader countPlacement', () => {
+  const stepper = <View testID="stepper" />;
+  const plain = { onSwipeCheck: undefined, onSwipeRemove: undefined };
+  const flat = (node: ReactTestInstance) => StyleSheet.flatten(node.props.style) ?? {};
+  const titleGroups = (tree: ReactTestRenderer) =>
+    tree.root.findAll((n) => (n.type as unknown) === 'View' && n.props.testID === 'section-header-title-group');
+  const textOf = (tree: ReactTestRenderer, value: string | number) =>
+    tree.root.find((n) => n.type === Text && n.props.children === value);
+
+  test.each([
+    ['plain', {}],
+    ['folding', { onToggle: () => {}, collapsed: false }],
+  ])('title: a %s header puts the count right after the title, sm apart on its baseline', (_, extra) => {
+    const tree = render({ title: 'Ingredients', count: 12, countPlacement: 'title', trailing: stepper, ...plain, ...extra });
+    const [group] = titleGroups(tree);
+    expect(flat(group)).toMatchObject({ flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm, flex: 1, minWidth: 0 });
+    const kids = group.children as ReactTestInstance[];
+    expect(kids).toHaveLength(2);
+    expect(kids[0].findAll((n) => n.type === Text && n.props.children === 'Ingredients')).toHaveLength(1);
+    expect(kids[1].findAll((n) => n.type === Text && n.props.children === 12)).toHaveLength(1);
+    // The title no longer fills the row, so the count sits against it; the stepper stays out of the group.
+    expect(flat(textOf(tree, 'Ingredients')).flex).toBeUndefined();
+    expect(flat(textOf(tree, 'Ingredients')).flexShrink).toBe(1);
+    expect(flat(textOf(tree, 12))).toMatchObject({ fontWeight: '600', flexShrink: 0 });
+    expect(group.findAll((n) => n.props.testID === 'stepper')).toHaveLength(0);
+  });
+
+  test('title: VoiceOver still reads the title with the count and its unit', () => {
+    const tree = render({
+      title: 'Ingredients',
+      count: 12,
+      countUnit: ['ingredient', 'ingredients'],
+      countPlacement: 'title',
+      ...plain,
+    });
+    expect(textOf(tree, 'Ingredients').props.accessibilityLabel).toBe('Ingredients, 12 ingredients');
+    expect(textOf(tree, 12).props.accessibilityElementsHidden).toBe(true);
+  });
+
+  test('title: a hidden count leaves the title alone in its group', () => {
+    const tree = render({ title: 'Ingredients', count: 3, hideCount: true, countPlacement: 'title', ...plain });
+    expect(titleGroups(tree)).toHaveLength(1);
+    expect(tree.root.findAll((n) => n.type === Text && n.props.children === 3)).toHaveLength(0);
+  });
+
+  test('by default (an aisle header) the count stays on the right: no title group, the title fills the row', () => {
+    const tree = render({ title: 'Produce', count: 3, dotColor: '#0a0', ...plain });
+    expect(titleGroups(tree)).toHaveLength(0);
+    expect(flat(textOf(tree, 'Produce'))).toMatchObject({ flex: 1, flexShrink: 1 });
+    // The count and the title share the plain group: the title's flex pushes the count to its right end.
+    const hostAbove = (node: ReactTestInstance) => {
+      let at = node.parent;
+      while (at && (at.type as unknown) !== 'View') at = at.parent;
+      return at;
+    };
+    expect(hostAbove(textOf(tree, 3))).toBe(hostAbove(textOf(tree, 'Produce')));
+  });
+});
