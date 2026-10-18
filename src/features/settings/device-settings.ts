@@ -14,6 +14,13 @@ import {
   type ManualOrderEntry,
   type NewestItem,
 } from '@/features/lists/list-view';
+import {
+  readRecipeSortChoice,
+  RECIPE_GROUP_KEY,
+  RECIPE_SORT_KEY,
+  type RecipeGroup,
+  type RecipeSort,
+} from '@/features/recipes/recipe-sort';
 
 /** Reads a per-device setting (spec 4.6), or `fallback` if it was never set. */
 export function getDeviceSetting<T>(key: string, fallback: T): T {
@@ -145,4 +152,22 @@ export function getPlanHouseholdId(): string | null {
 
 export function setPlanHouseholdId(householdId: string): void {
   setDeviceSetting(PLAN_HOUSEHOLD_KEY, householdId);
+}
+
+/**
+ * The Recipes tab's sort and grouping on this device (spec 4.5). A By meal stored as the sort by an older
+ * version reads as A–Z grouped by meal, and both settings are written back the first time it's read.
+ */
+export function getRecipeSortChoice(): { sort: RecipeSort; group: RecipeGroup } {
+  const { sort, group, legacy } = readRecipeSortChoice(
+    getDeviceSetting<unknown>(RECIPE_SORT_KEY, null),
+    getDeviceSetting<unknown>(RECIPE_GROUP_KEY, null),
+  );
+  if (legacy) setRecipeSortChoice({ sort, group });
+  return { sort, group };
+}
+
+export function setRecipeSortChoice({ sort, group }: { sort: RecipeSort; group: RecipeGroup }): void {
+  setDeviceSetting(RECIPE_SORT_KEY, sort);
+  setDeviceSetting(RECIPE_GROUP_KEY, group);
 }

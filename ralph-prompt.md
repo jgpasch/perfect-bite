@@ -32,4 +32,10 @@ progress.md, and stop.
 Never delete, skip or weaken existing tests to make the checks pass. Only change an
 existing test when the task changes the behavior it checks, and say so in progress.md.
 
+Never call a paid AI API (OpenAI, Anthropic, Google) for real: they bill the user's own keys.
+Tests use fakes and the `mock` models. Don't run `yarn ai:*` scripts without `--model mock`,
+and don't serve the Edge Functions with `supabase/functions/.env`, which holds real keys
+(`supabase/functions/.env.e2e` uses the mocks). If a task wants a real model run, append it
+to manual-checks.md for the user instead.
+
 Do not work on more than one task. Do not run git commit; the script handles commits.

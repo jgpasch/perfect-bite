@@ -9,7 +9,7 @@ export function getFoldedMealSections(): ReadonlySet<string> {
   return folded;
 }
 
-/** Folds the section (a `mealSectionKey`) if it's open, opens it if it's folded. */
+/** Folds the section (a `recipeSectionKey`) if it's open, opens it if it's folded. */
 export function toggleMealSection(key: string): void {
   const next = new Set(folded);
   if (!next.delete(key)) next.add(key);

@@ -56,16 +56,20 @@ import {
 import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
 import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
 import {
-  groupRecipesByMeal,
-  mealSectionKey,
-  mealSectionUnit,
-  readRecipeSort,
-  RECIPE_SORT_KEY,
+  groupRecipes,
+  recipeSectionKey,
+  recipeSectionUnit,
   sortRecipes,
+  type RecipeGroup,
   type RecipeSort,
 } from '@/features/recipes/recipe-sort';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
-import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import {
+  getDeviceSetting,
+  getRecipeSortChoice,
+  setDeviceSetting,
+  setRecipeSortChoice,
+} from '@/features/settings/device-settings';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import {
   activeFilterCount,
@@ -134,11 +138,11 @@ export default function RecipesScreen() {
   const filters = useRecipeFilters();
   const filtering = activeFilterCount(filters) > 0;
   const searched = useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
-  // Spec 4.5: Recently added, A–Z or By meal, remembered on this device.
-  const [sort, setSortState] = useState<RecipeSort>(() => readRecipeSort(getDeviceSetting<unknown>(RECIPE_SORT_KEY, null)));
-  const setSort = (next: RecipeSort) => {
-    setSortState(next);
-    setDeviceSetting(RECIPE_SORT_KEY, next);
+  // Spec 4.5: a sort (Recently added or A–Z) and a grouping, both remembered on this device.
+  const [{ sort, group: grouping }, setSortChoiceState] = useState<{ sort: RecipeSort; group: RecipeGroup }>(getRecipeSortChoice);
+  const setSortChoice = (next: { sort: RecipeSort; group: RecipeGroup }) => {
+    setSortChoiceState(next);
+    setRecipeSortChoice(next);
   };
   // Spec 4.5: small photos in rows or large ones in a grid, remembered on this device like the sort.
   const [photoSize, setPhotoSizeState] = useState<RecipePhotoSize>(() =>
@@ -163,9 +167,9 @@ export default function RecipesScreen() {
       ).map((group) => ({
         ...group,
         recipes: sortRecipes(group.recipes, sort),
-        meals: sort === 'meal' ? groupRecipesByMeal(group.recipes) : [],
+        sections: groupRecipes(group.recipes, grouping, sort),
       })),
-    [searched, filters, sort],
+    [searched, filters, sort, grouping],
   );
   // Recipes the search found that tag filters hide for having no tags (none with Untagged on).
   const untaggedHidden =
@@ -430,7 +434,7 @@ export default function RecipesScreen() {
                       selected={filtering}
                       onPress={openFilters}
                     />
-                    <RecipeSortButton value={sort} onChange={setSort} />
+                    <RecipeSortButton sort={sort} group={grouping} onChange={setSortChoice} />
                     <PhotoSizeToggle value={photoSize} onChange={setPhotoSize} />
                   </View>
                 </View>
@@ -481,19 +485,19 @@ export default function RecipesScreen() {
                 {group.name}
               </ThemedText>
             ) : null}
-            {sort === 'meal' ? (
-              // Spec 4.5: a folding card per meal, its header tinted in the meal's hue. With large photos the
-              // tiles are their own cards, so the section's ground is the screen's.
+            {grouping !== 'none' ? (
+              // Spec 4.5: a folding card per section, its header tinted in the section's hue. With large photos
+              // the tiles are their own cards, so the section's ground is the screen's.
               <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
-                {group.meals.map((section) => {
-                  const key = mealSectionKey(group.householdId, section.meal);
+                {group.sections.map((section) => {
+                  const key = recipeSectionKey(group.householdId, grouping, section.key);
                   return (
                     <Card key={key} background={photoSize === 'large' ? 'background' : 'surface'}>
                       <FoldingSection
                         title={section.title}
                         band={hueHeaderBand(section.hue, scheme)}
                         count={section.recipes.length}
-                        countUnit={mealSectionUnit()}
+                        countUnit={recipeSectionUnit()}
                         collapsed={folded.has(key)}
                         onToggle={() => toggleMealSection(key)}>
                         {renderRecipes(section.recipes, true)}

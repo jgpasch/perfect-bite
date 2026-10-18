@@ -392,13 +392,36 @@ export const en = {
       menuTitle: 'Sort and group',
       recent: 'Recently added',
       name: 'A–Z',
-      meal: 'By meal',
       /** The pill's short label for Recently added. */
       recentShort: 'Recent',
+      /** The pill's label when the recipes are grouped. */
+      groups: {
+        meal: 'By meal',
+        cuisine: 'By cuisine',
+        protein: 'By protein',
+        method: 'By method',
+        time: 'By time',
+        saved: 'Saved',
+      },
+      /** A grouping in the pill's VoiceOver label: "grouped by cuisine". */
+      groupNames: {
+        meal: 'meal',
+        cuisine: 'cuisine',
+        protein: 'protein',
+        method: 'method',
+        time: 'time',
+        saved: 'saved',
+      },
       button: 'Sort: {{choice}}',
+      buttonGrouped: 'Sort: {{choice}}, grouped by {{group}}',
       buttonHint: 'Changes how recipes are sorted and grouped',
-      /** By meal's last section, for recipes without a meal tag. */
+      /** Each grouping's last section, for recipes without a value in its facet. */
       noMeal: 'No meal',
+      noCuisine: 'No cuisine',
+      noProtein: 'No protein',
+      noMethod: 'No method',
+      noTime: 'No time',
+      notSaved: 'Not saved',
       /** What a section's count counts, for VoiceOver: "Dinner, 3 recipes". */
       unit_one: 'recipe',
       unit_other: 'recipes',

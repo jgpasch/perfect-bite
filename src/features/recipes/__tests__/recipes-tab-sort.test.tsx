@@ -17,7 +17,7 @@ import { FoldingSection } from '@/components/section-header';
 import { getFoldedMealSections, resetFoldedMealSections } from '../recipe-fold-store';
 import { setRecipeFilters } from '../recipe-filter-store';
 import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
-import { RECIPE_SORT_KEY } from '../recipe-sort';
+import { RECIPE_GROUP_KEY, RECIPE_SORT_KEY } from '../recipe-sort';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -230,6 +230,35 @@ describe('the sort pill', () => {
     expect(texts(root)).toContain('Recent');
     expect(sections(root)).toHaveLength(0);
   });
+
+  test('By meal saves A–Z and the meal grouping; VoiceOver reads both', () => {
+    const root = render();
+    choose(root, 'By meal');
+    expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
+    expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('meal');
+    expect(menu(root).props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, grouped by meal' });
+    choose(root, 'Recently added');
+    expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('recent');
+    expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('none');
+    expect(sections(root)).toHaveLength(0);
+  });
+
+  test('an old By meal sort opens as A–Z by meal and writes both settings back', () => {
+    setDeviceSetting(RECIPE_SORT_KEY, 'meal');
+    const root = render();
+    expect(texts(root)).toContain('By meal');
+    expect(toggles(root).map((t) => t.props.isOn)).toEqual([false, false, true]);
+    expect(getDeviceSetting(RECIPE_SORT_KEY, null)).toBe('name');
+    expect(getDeviceSetting(RECIPE_GROUP_KEY, null)).toBe('meal');
+  });
+
+  test('a stored grouping the menu doesn’t offer yet still groups the tab', () => {
+    setDeviceSetting(RECIPE_SORT_KEY, 'recent');
+    setDeviceSetting(RECIPE_GROUP_KEY, 'saved');
+    const root = render();
+    expect(texts(root)).toContain('Saved');
+    expect(mealSections(root)).toEqual([['Not saved', 5, ['Tacos', 'Frittata', 'Apple crumble', 'Banana bread', 'Curry']]]);
+  });
 });
 
 describe('By meal', () => {
@@ -285,7 +314,7 @@ describe('By meal', () => {
     act(() => homeDinner().props.onToggle());
     expect(homeDinner().props.collapsed).toBe(true);
     expect(lakeDinner().props.collapsed).toBe(false);
-    expect([...getFoldedMealSections()]).toEqual(['home:dinner']);
+    expect([...getFoldedMealSections()]).toEqual(['home:meal:dinner']);
     // Its rows are hidden from VoiceOver and taps while folded.
     const clip = homeDinner().findAll((n) => n.props.accessibilityElementsHidden !== undefined && n.props.pointerEvents)[0];
     expect(clip.props.accessibilityElementsHidden).toBe(true);

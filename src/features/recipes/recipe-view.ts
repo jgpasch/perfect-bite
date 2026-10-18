@@ -6,6 +6,8 @@ import { i18n, onLanguageChanged } from '@/i18n';
 import { tagLabel } from '@/i18n/vocabulary';
 import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
+import type { RecipeGroup } from './recipe-sort';
+
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
 
 /** Recipes under their household's name, households in order of their first recipe, recipes in order. */
@@ -66,16 +68,24 @@ export function recipeTimeLabel(totalMinutes: number | null | undefined): string
 
 /**
  * The parts of a recipe row's meta line (spec 4.5): its first `meal` tag's label (in the facet's order)
- * and its time, ["Dinner", "35 min"]. Either alone if the other is missing; none if both are.
+ * and its time, ["Dinner", "35 min"]. Grouped by cuisine, its first cuisine in place of the meal: ["Thai",
+ * "30 min"]. Either alone if the other is missing; none if both are.
  */
-export function recipeMetaParts(recipe: { tags: RecipeTags | null; totalMinutes: number | null }): string[] {
-  const meal = knownTags(recipe.tags)?.meal[0];
-  return [meal ? tagLabel('meal', meal) : null, recipeTimeLabel(recipe.totalMinutes)].filter((p): p is string => !!p);
+export function recipeMetaParts(
+  recipe: { tags: RecipeTags | null; totalMinutes: number | null },
+  group: RecipeGroup = 'none',
+): string[] {
+  const facet = group === 'cuisine' ? 'cuisine' : 'meal';
+  const tag = knownTags(recipe.tags)?.[facet][0];
+  return [tag ? tagLabel(facet, tag) : null, recipeTimeLabel(recipe.totalMinutes)].filter((p): p is string => !!p);
 }
 
 /** A recipe row's meta line: "Dinner · 35 min", "Dinner", "35 min", or null. */
-export function recipeMetaLine(recipe: { tags: RecipeTags | null; totalMinutes: number | null }): string | null {
-  const parts = recipeMetaParts(recipe);
+export function recipeMetaLine(
+  recipe: { tags: RecipeTags | null; totalMinutes: number | null },
+  group: RecipeGroup = 'none',
+): string | null {
+  const parts = recipeMetaParts(recipe, group);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
@@ -94,13 +104,14 @@ export function recipeRowLabel(
   recipe: { name: string; tags: RecipeTags | null; totalMinutes: number | null },
   onList?: string | null,
   ingredientMatch?: string | null,
+  group: RecipeGroup = 'none',
 ): string {
   const marks = recipeSavedMarks(recipe.tags);
   return [
     recipe.name,
     marks.favorite ? tagLabel('saved', 'favorite') : null,
     marks.wantToTry ? tagLabel('saved', 'want-to-try') : null,
-    ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe)),
+    ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe, group)),
     onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,
   ]
     .filter(Boolean)

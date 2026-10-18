@@ -16,7 +16,7 @@ import {
 } from '@/constants/theme';
 import { contrastRatio, mix } from '@/domain/contrast';
 import { hueHeaderBand } from '@/components/appearance';
-import { MEAL_HUES, MEAL_SECTIONS } from '@/features/recipes/recipe-sort';
+import { RECIPE_GROUP_SECTIONS } from '@/features/recipes/recipe-sort';
 
 // The web font variables; Jest can't parse CSS.
 jest.mock('@/global.css', () => ({}));
@@ -189,9 +189,11 @@ describe('AisleColors', () => {
       },
     );
 
-    it.each(MEAL_SECTIONS)('keeps the Recipes tab’s %s section header readable on its band', (meal) => {
-      const band = hueHeaderBand(MEAL_HUES[meal], scheme);
-      expect(band.ground).toBe(AisleColors[scheme][MEAL_HUES[meal]].soft);
+    it.each(
+      Object.entries(RECIPE_GROUP_SECTIONS).flatMap(([group, sections]) => sections.map((s) => [group, s.key, s.hue] as const)),
+    )('keeps the Recipes tab’s %s grouping’s %s section header (%s) readable on its band', (_group, _key, hue) => {
+      const band = hueHeaderBand(hue, scheme);
+      expect(band.ground).toBe(AisleColors[scheme][hue].soft);
       expect(contrastRatio(band.text, band.ground)).toBeGreaterThanOrEqual(4.5);
     });
 
