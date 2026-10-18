@@ -11,9 +11,8 @@ import { useLiveQueryOn } from '@/db/live-query';
 import { onPlanTab, setRecipesSegment, usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importsBadgeCount, useShareQueueStatus } from '@/features/recipes/share-queue-status';
-import { useFeature } from '@/features/plans/features';
 import { pressAddButton } from '@/features/tabs/add-button';
-import { addMenuEntries, addMenuKeys, showAddMenuSheet } from '@/features/tabs/add-menu';
+import { ADD_MENU_KEYS, addMenuEntries, showAddMenuSheet } from '@/features/tabs/add-menu';
 import { useT } from '@/i18n';
 
 const addLongPress = () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -44,11 +43,6 @@ export default function TabsLayout() {
   const planTab = usePlanTabSetting();
   const onPlan = onPlanTab(usePathname());
   const leavePlan = !planTab && onPlan;
-  // Spec 4.1: long-press on + offers the other ways to add; the imports only with their features (4.12).
-  const addMenu = addMenuKeys({
-    recipeImport: useFeature('recipe_import'),
-    recipeImportPhoto: useFeature('recipe_import_photo'),
-  });
   useEffect(() => {
     if (!leavePlan) return;
     setRecipesSegment('week');
@@ -65,9 +59,9 @@ export default function TabsLayout() {
           onAdd={pressAddButton}
           addLabel={t('tabs.add')}
           onAddLongPress={addLongPress}
-          addMenu={addMenuEntries(addMenu)}
+          addMenu={addMenuEntries(ADD_MENU_KEYS)}
           addMoreLabel={t('tabs.addMore')}
-          onAddMore={() => showAddMenuSheet(addMenu)}
+          onAddMore={() => showAddMenuSheet(ADD_MENU_KEYS)}
         />
       )}>
       <Tabs.Screen name="lists" options={{ title: t('tabs.list'), tabBarIcon: tabIcon('checklist') }} />

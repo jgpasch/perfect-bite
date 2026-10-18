@@ -391,6 +391,7 @@ export const es = {
       noIngredients: 'Todavía no hay ingredientes. Agrégalos abajo.',
       editIngredient: 'Editar ingrediente',
       ingredientHint: 'Toca dos veces para editar',
+      addIngredientToList: 'Agregar a una lista',
       removed: 'Se quitó {{name}}',
       addPlaceholder: 'Agrega 2 tazas de harina…',
       addLabel: 'Agregar un ingrediente',
@@ -555,6 +556,7 @@ export const es = {
       newRecipeHint: 'Escribe un nombre y luego toca Intro para crear la receta',
     },
     toasts: {
+      addedIngredient: 'Se agregó {{name}} a {{list}}',
       added_one: 'Se agregó {{name}} · {{count}} artículo',
       added_other: 'Se agregó {{name}} · {{count}} artículos',
       addedTo_one: 'Se agregó {{name}} a {{list}} · {{count}} artículo',
@@ -673,8 +675,6 @@ export const es = {
     addMenu: {
       item: 'Agregar artículo',
       recipe: 'Agregar receta',
-      link: 'Agregar receta desde un enlace',
-      photo: 'Agregar receta desde una foto',
     },
   },
   mealPlan: {

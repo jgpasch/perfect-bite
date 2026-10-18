@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Method card with photo credit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #EEF3EC; font-family: Figtree, sans-serif; color: #1D2A22; position: relative; overflow: hidden; display: flex; flex-direction: column">
+  <div style="height: 54px; flex-shrink: 0"></div>
+  <div style="margin: 60px 16px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: #DCE4DA; border-radius: 999px; padding: 3px">
+    <div style="text-align: center; padding: 8px 0; font-weight: 600; font-size: 15px; color: #55635A">Ingredients</div>
+    <div style="background: #FFFFFF; border-radius: 999px; text-align: center; padding: 8px 0; font-weight: 600; font-size: 15px">Method</div>
+  </div>
+
+  <div style="margin: 12px 16px 0; background: #FFFFFF; border-radius: 20px; overflow: hidden">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px 8px">
+      <span style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 19px">Method</span>
+      <span style="font-size: 13px; color: #55635A">3 steps · <span style="color: #2E6B45; font-weight: 600">Edit</span></span>
+    </div>
+    <div style="display: flex; gap: 12px; padding: 12px 16px 14px; border-top: 1px solid #EEF1EC">
+      <div style="width: 26px; height: 26px; border-radius: 13px; background: #F7ECD6; color: #8A5A12; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">1</div>
+      <div style="font-size: 17px; line-height: 1.45">Heat oven to 350°. Cut butter into flour and powdered sugar; press into a 9×13 pan.</div>
+    </div>
+    <div style="display: flex; gap: 12px; padding: 12px 16px 14px; border-top: 1px solid #EEF1EC">
+      <div style="width: 26px; height: 26px; border-radius: 13px; background: #F7ECD6; color: #8A5A12; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">2</div>
+      <div style="font-size: 17px; line-height: 1.45">Bake 20 minutes, until just golden.</div>
+    </div>
+    <div style="display: flex; gap: 12px; padding: 12px 16px 14px; border-top: 1px solid #EEF1EC">
+      <div style="width: 26px; height: 26px; border-radius: 13px; background: #F7ECD6; color: #8A5A12; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">3</div>
+      <div style="font-size: 17px; line-height: 1.45">Beat eggs, sugar, lemon juice and zest with the ¼ cup flour. Pour over the crust and bake 25 minutes more.</div>
+    </div>
+    <div style="border-top: 1px solid #EEF1EC; padding: 6px 16px 10px">
+      <button aria-label="From your photos, 2 pages. Opens the pages." style="border: none; background: transparent; padding: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; font-size: 13px; color: #55635A">
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#55635A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+        From your photos · <span style="color: #2E6B45; font-weight: 600">View pages</span>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

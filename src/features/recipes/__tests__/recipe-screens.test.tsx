@@ -1,7 +1,7 @@
 // The recipe screen and its "Add to a list" sheet (spec 4.5, boards 06 and 07), rendered against the
 // in-memory database: ingredients, edit/delete/undo, the menu, and choosing list, servings and ingredients.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { AccessibilityInfo, Alert, Text, type AlertButton } from 'react-native';
+import { AccessibilityInfo, ActionSheetIOS, Alert, Text, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -14,9 +14,9 @@ import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
 import { db, households, lists, outbox, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
-import { resolveCurrentListId } from '@/features/lists/current-list';
+import { resolveCurrentListId, setCurrentList } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
-import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
+import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery, setListArchived } from '@/features/lists/lists';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -312,6 +312,85 @@ describe('RecipeScreen', () => {
     expect(recipeIngredientsQuery(tacos).all()).toHaveLength(1);
     act(() => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
     expect(recipeIngredientsQuery(tacos).all()).toHaveLength(0);
+  });
+
+  describe('long-press an ingredient to add it to a list', () => {
+    type SheetOptions = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[0];
+    const spySheet = () => jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    const sheet = (spy: ReturnType<typeof spySheet>) => {
+      const [options, callback] = spy.mock.calls[spy.mock.calls.length - 1];
+      return { options: options as SheetOptions, pick: (index: number) => act(() => callback(index)) };
+    };
+    const onList = () => groupItems(listItemsQuery(groceries).all()).unchecked.map((i) => [i.amountText, i.displayName]);
+
+    test("offers the household's open lists, the current one first, and Cancel", () => {
+      addRecipeIngredient(tacos, '2 limes');
+      const party = createList('Party');
+      setListArchived(createList('Old'), true);
+      setCurrentList(party);
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '2 Limes').props.onLongPress());
+      const { options } = sheet(spy);
+      expect(options.title).toBe('Limes');
+      expect(options.options).toEqual(['Add to Party', 'Add to Groceries', 'Cancel']);
+      expect(options.cancelButtonIndex).toBe(2);
+    });
+
+    test('picking a list adds the ingredient there, with Undo and Open list on a toast', () => {
+      addRecipeIngredient(tacos, '2 limes');
+      addRecipeIngredient(tacos, 'cilantro');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '2 Limes').props.onLongPress());
+      sheet(spy).pick(0);
+      expect(onList()).toEqual([['2', 'limes']]);
+      expect(mockCategorize).toHaveBeenCalled();
+      expect(texts(root)).toContain('Added Limes to Groceries');
+      press(byA11y(root, 'Undo'));
+      expect(onList()).toEqual([]);
+      expect(texts(root)).not.toContain('Added Limes to Groceries');
+
+      act(() => byA11y(root, 'Cilantro').props.onLongPress());
+      sheet(spy).pick(0);
+      press(byA11y(root, 'Open list'));
+      expect(mockNavigate).toHaveBeenCalledWith('/lists');
+      expect(onList()).toEqual([['', 'cilantro']]);
+    });
+
+    test('Cancel adds nothing', () => {
+      addRecipeIngredient(tacos, '2 limes');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '2 Limes').props.onLongPress());
+      sheet(spy).pick(1);
+      expect(onList()).toEqual([]);
+      expect(texts(root)).not.toContain('Added Limes to Groceries');
+    });
+
+    test("adds the amount the row shows at the stepper's servings", () => {
+      addRecipeIngredient(tacos, '4 limes');
+      updateRecipeServings(tacos, 4);
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      const more = root.root
+        .findAll((n) => n.type === Stepper)[0]
+        .find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'More' && typeof n.props.onPress === 'function');
+      press(more);
+      act(() => byA11y(root, '5 Limes').props.onLongPress());
+      sheet(spy).pick(0);
+      expect(onList()).toEqual([['5', 'limes']]);
+    });
+
+    test("VoiceOver's Add to a list action opens the same menu", () => {
+      addRecipeIngredient(tacos, '2 limes');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      const row = byA11y(root, '2 Limes');
+      expect(row.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual(['Add to a list', 'Delete']);
+      act(() => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'addToList' } }));
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
   });
 
   test('Rename in the menu prompts with the current name and saves it', () => {
@@ -1333,7 +1412,7 @@ describe('RecipeIngredientRow', () => {
     const ingredient = { ...recipeIngredientsQuery(tacos).all().find((i) => i.id === id)!, note: 'verde' };
     const onEdit = jest.fn();
     const onDelete = jest.fn();
-    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={onEdit} onDelete={onDelete} />);
+    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={onEdit} onDelete={onDelete} onAddToList={() => {}} />);
     expect(texts(root)).toEqual(['Salsa', 'verde', '1 cup']);
     const row = byA11y(root, '1 cup Salsa verde');
     press(row);
@@ -1347,7 +1426,7 @@ describe('RecipeIngredientRow', () => {
   test('without an amount it shows the name alone', () => {
     addRecipeIngredient(tacos, 'cilantro');
     const [ingredient] = recipeIngredientsQuery(tacos).all();
-    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={() => {}} onDelete={() => {}} />);
+    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={() => {}} onDelete={() => {}} onAddToList={() => {}} />);
     expect(texts(root)).toEqual(['Cilantro']);
     expect(queryA11y(root, 'Cilantro')).toHaveLength(1);
   });

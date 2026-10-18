@@ -19,10 +19,15 @@ type Props = {
   amount?: string;
   onEdit: () => void;
   onDelete: () => void;
+  /** Long-press, and VoiceOver's "Add to a list" action: the menu of lists to add it to (spec 4.5). */
+  onAddToList: () => void;
 };
 
-/** A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, swipe left to delete. */
-export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete }: Props) {
+/**
+ * A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, long-press to add it to a list,
+ * swipe left to delete.
+ */
+export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete, onAddToList }: Props) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
@@ -44,11 +49,18 @@ export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdi
         )}>
         <Pressable
           onPress={onEdit}
+          onLongPress={onAddToList}
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityHint={t('recipes.screen.ingredientHint')}
-          accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
-          onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}
+          accessibilityActions={[
+            { name: 'addToList', label: t('recipes.screen.addIngredientToList') },
+            { name: 'delete', label: t('common.delete') },
+          ]}
+          onAccessibilityAction={({ nativeEvent }) => {
+            if (nativeEvent.actionName === 'addToList') onAddToList();
+            if (nativeEvent.actionName === 'delete') onDelete();
+          }}
           style={({ pressed }) => [
             styles.row,
             {

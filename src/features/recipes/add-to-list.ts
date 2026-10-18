@@ -5,6 +5,7 @@ import { stapleNames } from '@/features/households/staples';
 import { addItemsBulk, undoAdds, type AddItemResult, type BulkAdd } from '@/features/lists/items';
 import { getList } from '@/features/lists/lists';
 import { i18n } from '@/i18n';
+import { displayItemName } from '@/shared';
 
 import { SERVINGS_MAX, SERVINGS_MIN } from './recipe-view';
 import { getRecipe, recipeIngredientsQuery } from './recipes';
@@ -122,4 +123,35 @@ export function replaceRecipeAdd(
 ): RecipeListAdd {
   undoRecipeAdd(previous);
   return addRecipeToList(listId, adds, userId);
+}
+
+/**
+ * Long-press on a recipe screen ingredient (spec 4.5): that one ingredient, scaled by `servings` as its row shows it,
+ * added as a single add would be (Combine, a checked match reopened). A staple isn't left out: it was picked.
+ */
+export function addIngredientToList(
+  listId: string,
+  recipeId: string,
+  ingredient: RecipeIngredient,
+  servings: number,
+  userId: string | null,
+): RecipeListAdd {
+  return addRecipeToList(listId, buildRecipeAdds(recipeId, [ingredient], new Set([ingredient.id]), servings), userId);
+}
+
+/** The lists an ingredient's long-press offers (spec 4.5): the open ones in the recipe's household, the current list first. */
+export function ingredientMenuLists<T extends { id: string; householdId: string; archivedAt: Date | null }>(
+  lists: readonly T[],
+  householdId: string,
+  currentId: string | null,
+): T[] {
+  const offered = lists.filter((l) => l.archivedAt === null && l.householdId === householdId);
+  const current = offered.find((l) => l.id === currentId);
+  return current ? [current, ...offered.filter((l) => l !== current)] : offered;
+}
+
+/** The toast after an ingredient's long-press add: "Added Flour to Groceries"; the name is set in bold. */
+export function addedIngredientToast(displayName: string, listName: string): { message: string; emphasis: string } {
+  const name = displayItemName(displayName);
+  return { message: i18n.t('recipes.toasts.addedIngredient', { name, list: listName }), emphasis: name };
 }

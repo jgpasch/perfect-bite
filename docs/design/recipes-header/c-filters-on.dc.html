@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B with filters on</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 760px; box-sizing: border-box; background: #163A26; color: #FFFFFF; font-family: Figtree, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<div style="padding: 60px 16px 0; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 8px">
+<button aria-label="Recipes, switch to This week" style="flex: 1; display: flex; align-items: center; gap: 6px; padding: 0; border: none; background: transparent; color: #FFFFFF; text-align: left">
+<span style="font-family: Fraunces, serif; font-size: 40px; font-weight: 700; letter-spacing: -0.01em">Recipes</span>
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B7D2BF" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" style="margin-top: 6px"><path d="m6 9 6 6 6-6"></path></svg>
+</button>
+<button aria-label="Sort and photo size" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: rgba(255,255,255,0.14); color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"></path></svg></button>
+<button aria-label="Add recipe" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #FFFFFF; color: #163A26; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<label style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 4px 0 14px; border-radius: 14px; background: rgba(255,255,255,0.14); color: #B7D2BF; margin-bottom: 4px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<input placeholder="Search 24 recipes" aria-label="Search recipes" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #FFFFFF; font: inherit; font-size: 17px">
+<button aria-label="Filters, 2 active" style="height: 36px; padding: 0 10px; border: none; border-radius: 11px; background: #FFFFFF; color: #163A26; display: flex; align-items: center; gap: 5px; font-size: 15px; font-weight: 700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h3M13 17h7"></path><circle cx="16" cy="7" r="2.5"></circle><circle cx="10" cy="17" r="2.5"></circle></svg>2</button>
+</label>
+</div>
+<div style="margin-top: 14px; flex-grow: 1; background: #111915; border-radius: 24px 24px 0 0; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<button aria-label="Remove Dinner filter" style="height: 34px; padding: 0 10px 0 14px; border: none; border-radius: 17px; background: #1E3A28; color: #CDEBD7; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px">Dinner <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+<button aria-label="Remove Under 30 min filter" style="height: 34px; padding: 0 10px 0 14px; border: none; border-radius: 17px; background: #1E3A28; color: #CDEBD7; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px">Under 30 min <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+<button style="min-height: 44px; padding: 0 6px; border: none; background: transparent; color: #7CC395; font-size: 15px; font-weight: 600">Clear</button>
+</div>
+<div style="display: flex; align-items: baseline; gap: 8px; padding: 0 2px">
+<h3 style="margin: 0; font-size: 19px; font-weight: 700; color: #E8EFE9">3 recipes</h3>
+<span style="font-size: 13px; color: #A7B4AB">A–Z</span>
+</div>
+<div style="background: #1B241F; border-radius: 18px; overflow: hidden; display: flex; flex-direction: column">
+<sc-for list="{{recipes}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 64px; box-sizing: border-box; border-bottom: 1px solid #26302A">
+<div style="width: 48px; height: 48px; flex-shrink: 0; border-radius: 12px; background: {{r.soft}}; color: {{r.dot}}; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v7a2 2 0 0 0 4 0V3M9 12v9M17 3c-2 2-2.5 5-2.5 8H17v10"></path></svg></div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<div style="font-size: 17px; font-weight: 600; color: #E8EFE9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</div>
+<div style="font-size: 13px; color: #A7B4AB">{{r.meta}}</div>
+</div>
+</div>
+</sc-for>
+</div>
+<button style="align-self: flex-start; min-height: 44px; padding: 0 2px; border: none; background: transparent; color: #A7B4AB; font-size: 13px; text-decoration: underline">4 recipes without tags aren’t shown</button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":760}}'>
+class Component extends DCLogic {
+renderVals() {
+return { recipes: [
+{ name: 'Garlic Butter Shrimp', meta: 'Dinner · 20 min', soft: '#3E2229', dot: '#E07E92' },
+{ name: 'Lemon Herb Salmon', meta: 'Dinner · 25 min', soft: '#1D2E40', dot: '#6FA3D8' },
+{ name: 'Sesame Noodles', meta: 'Dinner · 15 min', soft: '#2E2440', dot: '#B08AD0' }
+] };
+}
+}
+</script>
+</body>
+</html>

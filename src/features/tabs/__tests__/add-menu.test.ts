@@ -5,7 +5,7 @@ import { ActionSheetIOS } from 'react-native';
 import { i18n } from '@/i18n';
 
 import { pressAddButton, takePendingListAdd } from '../add-button';
-import { addMenuEntries, addMenuKeys, runAddMenuItem, showAddMenuSheet } from '../add-menu';
+import { ADD_MENU_KEYS, addMenuEntries, runAddMenuItem, showAddMenuSheet } from '../add-menu';
 
 const mockPush = jest.fn();
 const mockNavigate = jest.fn();
@@ -13,11 +13,9 @@ jest.mock('expo-router', () => ({
   router: { push: (...args: unknown[]) => mockPush(...args), navigate: (...args: unknown[]) => mockNavigate(...args) },
   useFocusEffect: () => {},
 }));
-const mockImportFromPhoto = jest.fn();
-jest.mock('@/features/recipes/photo-import-prompts', () => ({ importRecipeFromPhoto: () => mockImportFromPhoto() }));
 
 beforeEach(() => {
-  for (const fn of [mockPush, mockNavigate, mockImportFromPhoto]) fn.mockClear();
+  for (const fn of [mockPush, mockNavigate]) fn.mockClear();
   takePendingListAdd();
 });
 
@@ -25,43 +23,30 @@ afterEach(async () => {
   await i18n.changeLanguage('en');
 });
 
-describe('addMenuKeys', () => {
-  test('Add item and Add recipe always; the link and photo imports with their features', () => {
-    expect(addMenuKeys({ recipeImport: false, recipeImportPhoto: false })).toEqual(['item', 'recipe']);
-    expect(addMenuKeys({ recipeImport: true, recipeImportPhoto: false })).toEqual(['item', 'recipe', 'link']);
-    expect(addMenuKeys({ recipeImport: true, recipeImportPhoto: true })).toEqual(['item', 'recipe', 'link', 'photo']);
-  });
-
-  test('photo import shows without link import, as its own feature', () => {
-    expect(addMenuKeys({ recipeImport: false, recipeImportPhoto: true })).toEqual(['item', 'recipe', 'photo']);
+describe('ADD_MENU_KEYS', () => {
+  test('only Add item and Add recipe: the link and photo imports live in the Add recipe sheet', () => {
+    expect(ADD_MENU_KEYS).toEqual(['item', 'recipe']);
   });
 });
 
 describe('addMenuEntries', () => {
   test('labels and icons, in order', () => {
-    const entries = addMenuEntries(['item', 'recipe', 'link', 'photo']);
+    const entries = addMenuEntries(ADD_MENU_KEYS);
     expect(entries.map(({ key, label, icon }) => [key, label, icon])).toEqual([
       ['item', 'Add item', 'plus'],
       ['recipe', 'Add recipe', 'book'],
-      ['link', 'Add recipe from link', 'link'],
-      ['photo', 'Add recipe from photo', 'camera'],
     ]);
   });
 
   test('in Spanish', async () => {
     await i18n.changeLanguage('es');
-    expect(addMenuEntries(['item', 'recipe', 'link', 'photo']).map((e) => e.label)).toEqual([
-      'Agregar artículo',
-      'Agregar receta',
-      'Agregar receta desde un enlace',
-      'Agregar receta desde una foto',
-    ]);
+    expect(addMenuEntries(ADD_MENU_KEYS).map((e) => e.label)).toEqual(['Agregar artículo', 'Agregar receta']);
     expect(i18n.t('tabs.addMore')).toBe('Más formas de agregar');
   });
 
   test("an entry's onPress runs its item", () => {
-    addMenuEntries(['link'])[0].onPress();
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/add-recipe', params: { focus: 'link' } });
+    addMenuEntries(['recipe'])[0].onPress();
+    expect(mockPush).toHaveBeenCalledWith('/add-recipe');
   });
 });
 
@@ -80,17 +65,6 @@ describe('runAddMenuItem', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(takePendingListAdd()).toBe(false);
   });
-
-  test('Add recipe from link opens the sheet with the link field focused', () => {
-    runAddMenuItem('link');
-    expect(mockPush.mock.calls).toEqual([[{ pathname: '/add-recipe', params: { focus: 'link' } }]]);
-  });
-
-  test('Add recipe from photo starts From photo…, not the sheet', () => {
-    runAddMenuItem('photo');
-    expect(mockImportFromPhoto).toHaveBeenCalledTimes(1);
-    expect(mockPush).not.toHaveBeenCalled();
-  });
 });
 
 describe('pressAddButton', () => {
@@ -104,10 +78,10 @@ describe('pressAddButton', () => {
 describe('showAddMenuSheet (VoiceOver)', () => {
   test('the same items and Cancel; choosing one runs it, Cancel runs nothing', () => {
     const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
-    showAddMenuSheet(['item', 'recipe', 'link']);
+    showAddMenuSheet(ADD_MENU_KEYS);
     const [options, choose] = sheet.mock.calls[0];
-    expect(options).toEqual({ options: ['Add item', 'Add recipe', 'Add recipe from link', 'Cancel'], cancelButtonIndex: 3 });
-    choose(3);
+    expect(options).toEqual({ options: ['Add item', 'Add recipe', 'Cancel'], cancelButtonIndex: 2 });
+    choose(2);
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
     choose(1);

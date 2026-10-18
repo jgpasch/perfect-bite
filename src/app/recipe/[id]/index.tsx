@@ -1,7 +1,8 @@
+import * as Haptics from 'expo-haptics';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActionSheetIOS, Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
 import { Card } from '@/components/card';
@@ -24,13 +25,25 @@ import {
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor, recipeHue, type AisleHue } from '@/domain/aisle-color';
 import { formatAmount } from '@/domain/quantity-display';
+import { getAccount } from '@/features/auth/account';
 import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
 import { ItemAddBar } from '@/features/lists/add-bar';
+import { openList, resolveCurrentListId } from '@/features/lists/current-list';
+import { listsWithCountsQuery } from '@/features/lists/lists';
 import { PlanBadges } from '@/features/meal-plan/plan-badges';
 import { useFeature } from '@/features/plans/features';
+import {
+  addedIngredientToast,
+  addIngredientToList,
+  ingredientMenuLists,
+  servingsMultiplier,
+  undoRecipeAdd,
+  type RecipeListAdd,
+} from '@/features/recipes/add-to-list';
 import { ensureStepMatchSoon, useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
+import { quickAddTitle } from '@/features/recipes/quick-add';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
@@ -86,6 +99,11 @@ export default function RecipeScreen() {
   );
   const [deleted, setDeleted] = useState<RecipeIngredient | null>(null);
   const dismissToast = useCallback(() => setDeleted(null), []);
+  // An ingredient's long-press add, for its "Added Flour to Groceries" toast.
+  const [added, setAdded] = useState<{ key: string; name: string; listId: string; listName: string; add: RecipeListAdd } | null>(
+    null,
+  );
+  const dismissAddedToast = useCallback(() => setAdded(null), []);
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
   // The household's own photo, else the site's (spec 4.5).
@@ -154,6 +172,32 @@ export default function RecipeScreen() {
       },
       'plain-text',
       amount ? `${amount} ${ingredient.displayName}` : ingredient.displayName,
+    );
+  };
+
+  // Spec 4.5: long-pressing an ingredient (light haptic) offers the household's open lists, the current one first,
+  // and adds it at the stepper's servings, as its row shows it. The screen stays put, with Undo and Open list.
+  const addToListMenu = (ingredient: RecipeIngredient) => {
+    const userId = getAccount()?.userId ?? null;
+    const all = listsWithCountsQuery().all();
+    const open = all.filter((l) => l.archivedAt === null);
+    const offered = ingredientMenuLists(all, recipe.householdId, resolveCurrentListId(open, userId));
+    if (offered.length === 0) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const multiplier = base !== null && servings !== null ? servingsMultiplier(servings, base) : 1;
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: displayItemName(ingredient.displayName),
+        options: [...offered.map((l) => quickAddTitle(l.name)), t('common.cancel')],
+        cancelButtonIndex: offered.length,
+      },
+      (index) => {
+        const list = offered[index];
+        if (!list) return;
+        const add = addIngredientToList(list.id, id, ingredient, multiplier, userId);
+        void categorizePending(add.pendingNames);
+        setAdded({ key: `${ingredient.id}-${Date.now()}`, name: ingredient.displayName, listId: list.id, listName: list.name, add });
+      },
     );
   };
 
@@ -331,6 +375,7 @@ export default function RecipeScreen() {
                     dotColor={aisles[aisleColor(aisleOf.get(item.ingredientName)?.slug)].dot}
                     amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
                     onEdit={() => edit(item)}
+                    onAddToList={() => addToListMenu(item)}
                     onDelete={() => {
                       deleteRecipeIngredient(item.id);
                       ensureStepMatchSoon(id);
@@ -368,6 +413,19 @@ export default function RecipeScreen() {
               message={t('recipes.photo.uploadFailed')}
               actions={[{ label: t('common.tryAgain'), onPress: () => void retryPhotoUpload(upload) }]}
               onDismiss={dismissUploadToast}
+            />
+          </View>
+        ) : null}
+        {added ? (
+          <View style={{ paddingBottom: spacing.sm }}>
+            <Toast
+              key={added.key}
+              {...addedIngredientToast(added.name, added.listName)}
+              actions={[
+                { label: t('common.undo'), onPress: () => (undoRecipeAdd(added.add), setAdded(null)) },
+                { label: t('recipes.tab.openList'), onPress: () => (setAdded(null), openList(added.listId)) },
+              ]}
+              onDismiss={dismissAddedToast}
             />
           </View>
         ) : null}

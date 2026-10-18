@@ -20,10 +20,13 @@ import { createList, ensureStarterData, getDefaultListId, getList } from '@/feat
 import { resetDb } from '@/test/db';
 
 import {
+  addedIngredientToast,
+  addIngredientToList,
   addRecipeToList,
   addWholeRecipeToList,
   buildRecipeAdds,
   defaultSelection,
+  ingredientMenuLists,
   recipeServesLabel,
   replaceRecipeAdd,
   servingsMultiplier,
@@ -517,5 +520,45 @@ describe('by servings (board 17)', () => {
       [0.42, 'cup'],
       [33, 'g'],
     ]);
+  });
+});
+
+describe('one ingredient from the recipe screen (spec 4.5)', () => {
+  const limes = () => recipeIngredientsQuery(tacos).all().find((i) => i.displayName === 'limes')!;
+
+  test('adds just that ingredient, scaled, under the recipe', () => {
+    const added = addIngredientToList(listId, tacos, limes(), 1.5, USER);
+    expect(added.count).toBe(1);
+    expect(rows()).toEqual(['3 limes']);
+    expect(contributionsQuery(added.results[0]!.itemId).all().map((c) => c.recipeId)).toEqual([tacos]);
+  });
+
+  test('Combines with an open item, and Undo takes it back', () => {
+    addItem(listId, '1 limes', USER);
+    const added = addIngredientToList(listId, tacos, limes(), 1, USER);
+    expect(added.results[0]?.kind).toBe('combine');
+    expect(rows()).toEqual(['3 limes']);
+    undoRecipeAdd(added);
+    expect(rows()).toEqual(['1 limes']);
+  });
+
+  test('a staple is added anyway: it was picked', () => {
+    const householdId = getList(listId)!.householdId;
+    setStaple(householdId, 'lime', true, USER);
+    expect(addIngredientToList(listId, tacos, limes(), 1, USER).count).toBe(1);
+    expect(rows()).toEqual(['2 limes']);
+  });
+
+  test("the menu's lists: open ones in the household, the current one first", () => {
+    const at = (id: string, householdId = 'h1', archivedAt: Date | null = null) => ({ id, householdId, archivedAt });
+    const all = [at('a'), at('b'), at('c', 'h2'), at('d', 'h1', new Date())];
+    expect(ingredientMenuLists(all, 'h1', 'b').map((l) => l.id)).toEqual(['b', 'a']);
+    expect(ingredientMenuLists(all, 'h1', 'c').map((l) => l.id)).toEqual(['a', 'b']);
+    expect(ingredientMenuLists(all, 'h1', null).map((l) => l.id)).toEqual(['a', 'b']);
+    expect(ingredientMenuLists(all, 'h3', 'a')).toEqual([]);
+  });
+
+  test('the toast names the ingredient, in sentence case, and the list', () => {
+    expect(addedIngredientToast('limes', 'Groceries')).toEqual({ message: 'Added Limes to Groceries', emphasis: 'Limes' });
   });
 });

@@ -388,7 +388,7 @@ export default function RecipesScreen() {
                     width: sizes.minTapTarget,
                     height: sizes.minTapTarget,
                     borderRadius: rounded.full,
-                    backgroundColor: colors.surface,
+                    backgroundColor: colors.onHeader,
                     opacity: pressed ? opacity.pressed : 1,
                   },
                 ]}>

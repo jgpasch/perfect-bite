@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adding an ingredient</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;family=Fraunces:opsz,wght@9..144,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+input{font:inherit;color:inherit;border:0;outline:0;background:transparent}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #111915; color: #E7EEE8; font-family: Figtree, sans-serif; box-sizing: border-box;">
+  <div style="padding: 54px 16px 0; display: flex; flex-direction: column; gap: 14px;">
+    <div style="border-radius: 22px; background: #1B241F; overflow: hidden;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 18px 20px 12px; border-bottom: 1px solid #26302A;">
+        <h2 style="margin: 0; font-family: Fraunces, serif; font-weight: 600; font-size: 22px;">Ingredients</h2>
+        <span style="font-size: 15px; color: #A6B3AA;">8</span>
+      </div>
+      <sc-for list="{{rows}}" as="row" hint-placeholder-count="5">
+        <div style="display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid #26302A; background: {{row.bg}};">
+          <span style="width: 10px; height: 10px; border-radius: 5px; flex: none; background: {{row.dot}};"></span>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 17px; font-weight: 500;">{{row.name}}</span>
+            <span style="font-size: 14px; color: #A6B3AA;">{{row.note}}</span>
+          </div>
+          <span style="font-size: 16px; font-weight: 600; color: #A6B3AA;">{{row.qty}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 336px; padding: 10px 12px; background: #1B241F; border-top: 1px solid #26302A; display: flex; align-items: center; gap: 8px;">
+    <label for="add-ing" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Add an ingredient</label>
+    <div style="flex: 1; height: 48px; border-radius: 24px; background: #28332C; border: 1px solid #7CC395; display: flex; align-items: center; padding: 0 6px 0 18px;">
+      <input id="add-ing" value="2 cups flour" style="flex: 1; min-width: 0; font-size: 17px;">
+      <button aria-label="Add" style="width: 40px; height: 40px; border-radius: 20px; background: #7CC395; display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0E1F14" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <button style="height: 44px; padding: 0 10px; background: transparent; color: #7CC395; font-weight: 700; font-size: 16px;">Done</button>
+  </div>
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 336px; background: #28332C; display: flex; align-items: center; justify-content: center; color: #7E8B82; font-size: 14px; letter-spacing: 0.04em;">[ SYSTEM KEYBOARD ]</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+rows: [
+{ name: 'Sabaa Bharat', note: 'heaped (page 20)', qty: '1 tsp', dot: '#EE9762', bg: 'transparent' },
+{ name: 'Sea salt', note: 'to taste', qty: '', dot: '#EE9762', bg: 'transparent' },
+{ name: 'Paprika', note: '', qty: '1 tsp', dot: '#EE9762', bg: 'transparent' },
+{ name: 'Garlic', note: 'just added', qty: '2 cloves', dot: '#6FBF8A', bg: '#1E3A28' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

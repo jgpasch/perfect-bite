@@ -448,6 +448,8 @@ export const en = {
       noIngredients: 'No ingredients yet. Add them below.',
       editIngredient: 'Edit ingredient',
       ingredientHint: 'Double-tap to edit',
+      /** An ingredient row's long-press menu and VoiceOver action (spec 4.5). */
+      addIngredientToList: 'Add to a list',
       removed: 'Removed {{name}}',
       addPlaceholder: 'Add 2 cups flour…',
       addLabel: 'Add an ingredient',
@@ -623,6 +625,8 @@ export const en = {
       newRecipeHint: 'Type a name, then Return to make the recipe',
     },
     toasts: {
+      /** An ingredient's long-press add on the recipe screen (spec 4.5). */
+      addedIngredient: 'Added {{name}} to {{list}}',
       added_one: 'Added {{name}} · {{count}} item',
       added_other: 'Added {{name}} · {{count}} items',
       addedTo_one: 'Added {{name}} to {{list}} · {{count}} item',
@@ -751,8 +755,6 @@ export const en = {
     addMenu: {
       item: 'Add item',
       recipe: 'Add recipe',
-      link: 'Add recipe from link',
-      photo: 'Add recipe from photo',
     },
   },
   /** The meal plan's week screen (spec 4.16). */
