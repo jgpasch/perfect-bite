@@ -381,6 +381,28 @@ test('output that fails the schema: 503 unavailable, logged as invalid_output', 
   assertEquals(aiCalls[0].status, 'invalid_output');
 });
 
+test('an empty answer: 503 unavailable, logged as invalid_output with its finish reason', async () => {
+  const empty = {
+    instance: new MockLanguageModelV4({
+      doGenerate: async () => ({
+        content: [],
+        finishReason: { unified: 'content-filter' as const, raw: 'RECITATION' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 0, text: 0, reasoning: undefined },
+        },
+        warnings: [],
+      }),
+    }),
+    modelId: 'test:empty',
+  };
+  const { post, aiCalls } = setup({ model: empty });
+  await expectError(await post({ images: [PAGE_1] }), 503, 'unavailable');
+  assertEquals(aiCalls.length, 1);
+  assertEquals(aiCalls[0].status, 'invalid_output');
+  assertEquals(aiCalls[0].finish_reason, 'content-filter');
+});
+
 test('an unexpected error is a 500 that says nothing about it', async () => {
   const { post } = setup({ model: failingModel(new Error('bug')) });
   const res = await post({ images: [PAGE_1] });

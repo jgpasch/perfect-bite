@@ -3,6 +3,7 @@ import {
   APICallError,
   generateText,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   Output,
   RetryError,
   type LanguageModel,
@@ -131,6 +132,17 @@ function isApiFailure(err: unknown): boolean {
   return APICallError.isInstance(err) || RetryError.isInstance(err);
 }
 
+/** False when the model's answer had no structured output (`result.output` would throw). */
+function hasOutput(result: { readonly output: unknown }): boolean {
+  try {
+    void result.output;
+    return true;
+  } catch (err) {
+    if (NoOutputGeneratedError.isInstance(err)) return false;
+    throw err;
+  }
+}
+
 export async function runAiTask<N extends AiTaskName>(
   name: N,
   input: RunAiTaskInput,
@@ -199,6 +211,18 @@ export async function runAiTask<N extends AiTaskName>(
         maxRetries: 1,
         include: { requestBody: traceListener !== null, responseBody: traceListener !== null },
       });
+      // An empty answer (a safety block, say) has no output, and reading it throws
+      // NoOutputGeneratedError, which callers don't handle. Make it invalid output, which they do,
+      // so it is recorded with its finish reason.
+      if (!hasOutput(result)) {
+        throw new NoObjectGeneratedError({
+          message: `No output generated (finish reason: ${result.finishReason})`,
+          text: result.text,
+          response: result.response,
+          usage: result.usage,
+          finishReason: result.finishReason,
+        });
+      }
     } catch (err) {
       const invalid = NoObjectGeneratedError.isInstance(err) ? err : null;
       const apiError = apiCallError(err);
