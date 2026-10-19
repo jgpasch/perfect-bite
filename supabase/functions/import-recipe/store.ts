@@ -6,18 +6,12 @@ import type { CachedImport, RecipeImportStore } from './handler.ts';
 
 /**
  * RecipeImportStore over the service-role client. `recipe_imports` has no user id; the plan check
- * and the rate limit are per `userId`, and the global limit is `dailyCap` imports a day.
+ * and the rate limit are per `userId`.
  */
-export function createRecipeImportStore(
-  admin: SupabaseClient,
-  limits: { userId: string; dailyCap: number },
-): RecipeImportStore {
+export function createRecipeImportStore(admin: SupabaseClient, limits: { userId: string }): RecipeImportStore {
   return {
     async checkLimit() {
-      const { data, error } = await admin.rpc('check_recipe_import_limit', {
-        p_user_id: limits.userId,
-        p_daily_cap: limits.dailyCap,
-      });
+      const { data, error } = await admin.rpc('check_recipe_import_limit', { p_user_id: limits.userId });
       if (error) throw error;
       return data as LimitResult;
     },

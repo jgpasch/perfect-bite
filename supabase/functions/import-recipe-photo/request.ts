@@ -8,24 +8,16 @@ import {
 } from '@shared/index.ts';
 
 import { reportError } from '../_shared/sentry.ts';
-import { parseCap, readBody } from '../categorize-ingredients/request.ts';
+import { readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipePhotoError, type PhotoImportFailure } from './handler.ts';
 
 /** Request body cap. The app's downscaled JPEGs (2000 px, quality 0.8) are well under it. */
 export const MAX_BODY_BYTES = MAX_PHOTO_IMPORT_BODY_BYTES;
 
-/** Photo imports a day across all users, unless RECIPE_PHOTO_DAILY_CAP says otherwise. */
-export const DEFAULT_DAILY_PHOTO_CAP = 300;
-
-/** Seconds a client should wait after the global cap or with the kill switch on. */
+/** Seconds a client should wait with the kill switch on. */
 export const PAUSED_RETRY_AFTER = 3600;
 /** Seconds a client should wait after a provider error, timeout or invalid output. */
 export const AI_FAILED_RETRY_AFTER = 30;
-
-/** RECIPE_PHOTO_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */
-export function dailyPhotoCap(value: string | undefined): number {
-  return parseCap(value, DEFAULT_DAILY_PHOTO_CAP);
-}
 
 export type RequestDeps = {
   importRecipePhoto: (request: RecipePhotoImportRequest) => Promise<RecipeImportResponse>;

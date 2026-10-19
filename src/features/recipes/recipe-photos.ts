@@ -14,7 +14,7 @@ import { knownOffline } from './suggest-tags';
 /**
  * `offline`: no connection, session or config. `none`: the page couldn't be fetched or isn't a
  * link that can be (`fetch_failed`, `invalid_url`), shown as "No photos found on the page", as an
- * empty list is. `failed`: the rate limit, the global cap or anything else.
+ * empty list is. `failed`: the rate limit or anything else.
  */
 export type PagePhotosError = 'offline' | 'none' | 'failed';
 

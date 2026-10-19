@@ -11,7 +11,7 @@ import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describ
 import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, isImageEnabled, type GeneratedImage } from './image.ts';
 
 /** `reserve_recipe_photo_ai`'s answer. */
-export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'global_cap' };
+export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' };
 
 /** The recipe as stored: its name, its live ingredients' display names in order, and its `tags`. */
 export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown };
@@ -20,7 +20,7 @@ export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown 
 export interface RecipePhotoStore {
   /** Throws NotEntitledError unless the caller's plan has `feature`. Called first. */
   requireFeature(feature: Feature): Promise<void>;
-  /** `public.reserve_recipe_photo_ai` for the caller, this recipe and the daily cap. */
+  /** `public.reserve_recipe_photo_ai` for the caller and this recipe. */
   reserve(recipeId: string): Promise<ReserveResult>;
   /** The live recipe in `householdId`, or null when it's gone. */
   readRecipe(recipeId: string, householdId: string): Promise<StoredRecipe | null>;
@@ -53,7 +53,7 @@ export type GenerateFailure =
   | { code: 'already_generated' }
   | { code: 'not_food'; by: 'description' | 'image' }
   | { code: 'generation_failed'; step: 'description' | 'image' }
-  | { code: 'unavailable'; reason: 'global_cap' | 'ai_off' };
+  | { code: 'unavailable'; reason: 'ai_off' };
 
 export class GeneratePhotoError extends Error {
   override name = 'GeneratePhotoError';
@@ -98,8 +98,6 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
       throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
     case 'already_generated':
       throw new GeneratePhotoError({ code: 'already_generated' }, 'This recipe already has had its AI photo');
-    case 'global_cap':
-      throw new GeneratePhotoError({ code: 'unavailable', reason: 'global_cap' }, 'AI photos are paused for now');
   }
   const { householdId } = reserved;
 

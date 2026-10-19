@@ -235,18 +235,6 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
   });
 });
 
-Deno.test('the global cap is 503 unavailable with Retry-After an hour, and no model call', async () => {
-  await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
-    const { store, post } = setup();
-    store.limit = 'global_cap';
-    const res = await post(TIKKA);
-    assertEquals(res.status, 503);
-    assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-    assertEquals((await res.json()).error, 'unavailable');
-    assertEquals(store.steps, ['feature:recipe_tags', 'limit']);
-  });
-});
-
 Deno.test('AI_MODEL_TAGS=off is 503 unavailable, using no budget and calling no model', async () => {
   await withEnv({ AI_MODEL_TAGS: 'off', AI_MODEL_RECIPE: 'mock' }, async () => {
     const { store, post } = setup();

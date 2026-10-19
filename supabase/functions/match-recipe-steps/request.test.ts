@@ -4,8 +4,6 @@ import { assertEquals, assertStringIncludes } from '@std/assert';
 import { MatchStepsError, type MatchStepsFailure } from './handler.ts';
 import {
   AI_FAILED_RETRY_AFTER,
-  dailyStepMatchCap,
-  DEFAULT_STEP_MATCH_DAILY_CAP,
   handleRequest,
   MAX_BODY_BYTES,
   PAUSED_RETRY_AFTER,
@@ -124,7 +122,6 @@ Deno.test('each failure maps to its status, code and Retry-After', async () => {
   const cases = [
     [{ code: 'not_entitled' }, 403, 'not_entitled', null],
     [{ code: 'rate_limited' }, 429, 'rate_limited', null],
-    [{ code: 'unavailable', reason: 'global_cap' }, 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
     [{ code: 'unavailable', reason: 'ai_off' }, 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
     [{ code: 'unavailable', reason: 'ai_failed' }, 503, 'unavailable', String(AI_FAILED_RETRY_AFTER)],
   ] as const;
@@ -169,16 +166,6 @@ Deno.test('neither AI_MODEL_STEPS nor AI_MODEL_RECIPE set is a 500 not_configure
   assertEquals(none.calls, []);
   const recipeOnly = deps({ env: (k) => (k === 'AI_MODEL_RECIPE' ? 'mock' : undefined) });
   assertEquals((await handleRequest(post(SIMPLE), recipeOnly.d)).status, 200);
-});
-
-Deno.test('dailyStepMatchCap reads STEP_MATCH_DAILY_CAP, falling back to 5,000', () => {
-  assertEquals(DEFAULT_STEP_MATCH_DAILY_CAP, 5000);
-  assertEquals(dailyStepMatchCap(undefined), 5000);
-  assertEquals(dailyStepMatchCap(''), 5000);
-  assertEquals(dailyStepMatchCap(' 50 '), 50);
-  assertEquals(dailyStepMatchCap('0'), 0);
-  assertEquals(dailyStepMatchCap('-1'), 5000);
-  assertEquals(dailyStepMatchCap('abc'), 5000);
 });
 
 // --- Auth -------------------------------------------------------------------------------------------

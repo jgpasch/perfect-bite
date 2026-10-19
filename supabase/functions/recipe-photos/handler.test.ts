@@ -5,7 +5,7 @@ import { assertEquals } from '@std/assert';
 import { fetchPage } from '../_shared/fetch-page.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import { recipePhotos, type RecipePhotosDeps } from './handler.ts';
-import { handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
+import { handleRequest } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/recipe-photos';
 
@@ -132,12 +132,4 @@ Deno.test('rate limit: the per-user limit is 429 and the page is not fetched; th
   const res = await post({ url: BREAD_URL });
   assertEquals(res.status, 200);
   assertEquals(store.calls, 2);
-});
-
-Deno.test('the global cap is 503 unavailable with Retry-After, and the page is not fetched', async () => {
-  const { post, fetched } = setup(['global_cap']);
-  const res = await post({ url: BREAD_URL });
-  assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-  await expectError(res, 503, 'unavailable');
-  assertEquals(fetched, []);
 });

@@ -3,7 +3,7 @@ import { assertEquals } from '@std/assert';
 
 import { NotEntitledError } from '../_shared/entitlements.ts';
 import { CategorizeInputError, CategorizeLimitError, type CategorizeResponse } from './handler.ts';
-import { dailyNameCap, DEFAULT_DAILY_NAME_CAP, handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
+import { handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
 
 const ENDPOINT ='http://localhost/functions/v1/categorize-ingredients';
 const OK: CategorizeResponse = {
@@ -219,7 +219,7 @@ Deno.test('413 is checked before the body is parsed', async () => {
   await expectError(await handleRequest(post(big), d), 413, 'payload_too_large');
 });
 
-// --- 429 / 503 ----------------------------------------------------------------------------------
+// --- 429 ----------------------------------------------------------------------------------------
 
 Deno.test('the per-user limit is 429 with no Retry-After', async () => {
   const { d } = deps({ categorize: () => Promise.reject(new CategorizeLimitError('user_limit')) });
@@ -227,15 +227,6 @@ Deno.test('the per-user limit is 429 with no Retry-After', async () => {
   assertEquals(res.status, 429);
   assertEquals(res.headers.get('retry-after'), null);
   assertEquals(await res.json(), { error: 'rate_limited', message: 'Too many requests; try again later' });
-});
-
-Deno.test('the global cap is 503 with Retry-After: 3600', async () => {
-  const { d } = deps({ categorize: () => Promise.reject(new CategorizeLimitError('global_cap')) });
-  const res = await handleRequest(post(JSON.stringify({ names: ['milk'] })), d);
-  assertEquals(res.status, 503);
-  assertEquals(res.headers.get('retry-after'), '3600');
-  assertEquals(res.headers.get('content-type'), 'application/json');
-  assertEquals((await res.json()).error, 'daily_cap_reached');
 });
 
 Deno.test('a bad request is 400 before the rate limit is reached', async () => {
@@ -266,25 +257,4 @@ Deno.test('not_entitled comes from categorize with the names; a bad body is stil
   assertEquals(calls, [['milk']]);
   await expectError(await handleRequest(post('not json'), d), 400, 'invalid_request');
   assertEquals(calls.length, 1);
-});
-
-// --- CATEGORIZE_DAILY_NAME_CAP ------------------------------------------------------------------
-
-Deno.test('dailyNameCap reads a non-negative integer and falls back to 20,000', () => {
-  assertEquals(DEFAULT_DAILY_NAME_CAP, 20_000);
-  const cases: [string | undefined, number][] = [
-    [undefined, 20_000],
-    ['', 20_000],
-    ['  ', 20_000],
-    ['500', 500],
-    [' 42 ', 42],
-    ['0', 0],
-    ['-5', 20_000],
-    ['1.5', 20_000],
-    ['1e3', 20_000],
-    ['abc', 20_000],
-    ['2147483647', 2_147_483_647],
-    ['2147483648', 20_000],
-  ];
-  for (const [value, expected] of cases) assertEquals(dailyNameCap(value), expected, `value ${JSON.stringify(value)}`);
 });

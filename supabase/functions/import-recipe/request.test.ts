@@ -4,8 +4,6 @@ import { assertEquals } from '@std/assert';
 import { ImportRecipeError, type ImportFailure } from './handler.ts';
 import {
   AI_FAILED_RETRY_AFTER,
-  dailyImportCap,
-  DEFAULT_DAILY_IMPORT_CAP,
   handleRequest,
   MAX_BODY_BYTES,
   PAUSED_RETRY_AFTER,
@@ -71,7 +69,6 @@ Deno.test('each import failure maps to its status and code', async () => {
 
 Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after a model failure', async () => {
   for (const [reason, retryAfter] of [
-    ['global_cap', PAUSED_RETRY_AFTER],
     ['ai_off', PAUSED_RETRY_AFTER],
     ['ai_failed', AI_FAILED_RETRY_AFTER],
   ] as const) {
@@ -155,18 +152,6 @@ Deno.test('an unset AI_MODEL_RECIPE is a 500 not_configured', async () => {
   const { d, calls } = deps({ env: () => undefined });
   await expectError(await handleRequest(post('{"url":"https://a.example"}'), d), 500, 'not_configured');
   assertEquals(calls, []);
-});
-
-Deno.test('dailyImportCap reads RECIPE_IMPORT_DAILY_CAP, falling back to 2,000', () => {
-  assertEquals(DEFAULT_DAILY_IMPORT_CAP, 2000);
-  assertEquals(dailyImportCap(undefined), 2000);
-  assertEquals(dailyImportCap(''), 2000);
-  assertEquals(dailyImportCap(' 50 '), 50);
-  assertEquals(dailyImportCap('0'), 0);
-  assertEquals(dailyImportCap('-1'), 2000);
-  assertEquals(dailyImportCap('1.5'), 2000);
-  assertEquals(dailyImportCap('abc'), 2000);
-  assertEquals(dailyImportCap('2147483648'), 2000);
 });
 
 // --- Auth -------------------------------------------------------------------------------------------

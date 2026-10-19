@@ -16,7 +16,7 @@ export interface SuggestTagsStore {
    * `_shared/entitlements.ts`). Called first, before the rate limit or the model.
    */
   requireFeature(feature: Feature): Promise<void>;
-  /** Counts one suggestion against the per-user and global limits (`public.check_recipe_tags_limit`). */
+  /** Counts one suggestion against the per-user limits (`public.check_recipe_tags_limit`). */
   checkLimit(): Promise<LimitResult>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
@@ -32,7 +32,7 @@ export type SuggestDeps = {
 export type SuggestFailure =
   | { code: 'not_entitled' }
   | { code: 'rate_limited' }
-  | { code: 'unavailable'; reason: 'global_cap' | 'ai_off' | 'ai_failed' };
+  | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
 export class SuggestTagsError extends Error {
   override name = 'SuggestTagsError';
@@ -66,9 +66,6 @@ export async function suggestRecipeTags(request: SuggestRecipeTagsRequest, deps:
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new SuggestTagsError({ code: 'rate_limited' }, 'Too many tag suggestions; try again later');
-  if (limit === 'global_cap') {
-    throw new SuggestTagsError({ code: 'unavailable', reason: 'global_cap' }, 'Tag suggestions are paused for now');
-  }
 
   let output;
   try {

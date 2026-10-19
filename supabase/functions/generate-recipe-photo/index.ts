@@ -6,15 +6,12 @@
 import { withSupabase } from '@supabase/server';
 
 import { generateRecipePhoto } from './handler.ts';
-import { dailyPhotoAiCap, handleRequest } from './request.ts';
+import { handleRequest } from './request.ts';
 import { createRecipePhotoStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createRecipePhotoStore(ctx.supabaseAdmin, {
-      userId: ctx.userClaims!.id,
-      dailyCap: dailyPhotoAiCap(Deno.env.get('RECIPE_PHOTO_AI_DAILY_CAP')),
-    });
+    const store = createRecipePhotoStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
     return handleRequest(req, { generateRecipePhoto: (request) => generateRecipePhoto(request, { store }) });
   }),
 };

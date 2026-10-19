@@ -287,15 +287,6 @@ test('the per-user limit: 429, with no model call', async () => {
   assertEquals(aiCalls.length, 0);
 });
 
-test('the global cap: 503 with Retry-After an hour, with no model call', async () => {
-  const { post, store, aiCalls } = setup();
-  store.limit = 'global_cap';
-  const res = await post({ images: [PAGE_1] });
-  assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-  assertEquals(await res.json(), { error: 'unavailable', message: 'Photo import is paused for now' });
-  assertEquals(aiCalls.length, 0);
-});
-
 test('an invalid request is a 400 before the plan, the limits or the model', async () => {
   const { post, store, aiCalls } = setup();
   await expectError(await post({ images: [] }), 400, 'invalid_request');

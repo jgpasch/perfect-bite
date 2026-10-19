@@ -5,26 +5,19 @@
 import { withSupabase } from '@supabase/server';
 
 import { categorize } from '../categorize-ingredients/handler.ts';
-import { dailyNameCap } from '../categorize-ingredients/request.ts';
 import { createCategorizeStore } from '../categorize-ingredients/store.ts';
 import { importRecipePhoto } from './handler.ts';
-import { dailyPhotoCap, handleRequest } from './request.ts';
+import { handleRequest } from './request.ts';
 import { createRecipePhotoImportStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
     const userId = ctx.userClaims!.id;
-    const store = createRecipePhotoImportStore(ctx.supabaseAdmin, {
-      userId,
-      dailyCap: dailyPhotoCap(Deno.env.get('RECIPE_PHOTO_DAILY_CAP')),
-    });
+    const store = createRecipePhotoImportStore(ctx.supabaseAdmin, { userId });
     // `recipe_import_photo` implies `categorize` (spec 4.12), and importRecipePhoto checks it
     // first, so the inline categorize doesn't check its own feature again.
     const categorizeStore = {
-      ...createCategorizeStore(ctx.supabaseAdmin, {
-        userId,
-        dailyNameCap: dailyNameCap(Deno.env.get('CATEGORIZE_DAILY_NAME_CAP')),
-      }),
+      ...createCategorizeStore(ctx.supabaseAdmin, { userId }),
       requireFeature: () => Promise.resolve(),
     };
     return handleRequest(req, {

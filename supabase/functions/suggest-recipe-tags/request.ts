@@ -3,7 +3,7 @@
 import { SuggestRecipeTagsRequestSchema, type SuggestRecipeTagsRequest, type SuggestRecipeTagsResponse } from '@shared/index.ts';
 
 import { reportError } from '../_shared/sentry.ts';
-import { parseCap, readBody } from '../categorize-ingredients/request.ts';
+import { readBody } from '../categorize-ingredients/request.ts';
 import { SuggestTagsError, type SuggestFailure } from './handler.ts';
 
 /**
@@ -12,18 +12,10 @@ import { SuggestTagsError, type SuggestFailure } from './handler.ts';
  */
 export const MAX_BODY_BYTES = 256 * 1024;
 
-/** Suggestions a day across all users, unless RECIPE_TAGS_DAILY_CAP says otherwise. */
-export const DEFAULT_DAILY_TAGS_CAP = 2_000;
-
-/** Seconds a client should wait after the global cap or with the kill switch on. */
+/** Seconds a client should wait with the kill switch on. */
 export const PAUSED_RETRY_AFTER = 3600;
 /** Seconds a client should wait after a provider error, timeout or invalid output. */
 export const AI_FAILED_RETRY_AFTER = 30;
-
-/** RECIPE_TAGS_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */
-export function dailyTagsCap(value: string | undefined): number {
-  return parseCap(value, DEFAULT_DAILY_TAGS_CAP);
-}
 
 export type RequestDeps = {
   suggestRecipeTags: (request: SuggestRecipeTagsRequest) => Promise<SuggestRecipeTagsResponse>;

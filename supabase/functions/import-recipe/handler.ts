@@ -38,7 +38,7 @@ export type CachedImport = { result: unknown; is_recipe: boolean; created_at: st
 /** The tables import-recipe uses, as it sees them. index.ts implements it with the service role. */
 export interface RecipeImportStore {
   /**
-   * Counts one import against the per-user and global limits (`public.check_recipe_import_limit`).
+   * Counts one import against the per-user limits (`public.check_recipe_import_limit`).
    * Called once per request, before the cache is read.
    */
   checkLimit(): Promise<LimitResult>;
@@ -70,7 +70,7 @@ export type ImportDeps = {
 export type ImportFailure =
   | { code: Exclude<RecipeImportErrorCode, 'rate_limited' | 'unavailable'> }
   | { code: 'rate_limited' }
-  | { code: 'unavailable'; reason: 'global_cap' | 'ai_off' | 'ai_failed' };
+  | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
 export class ImportRecipeError extends Error {
   override name = 'ImportRecipeError';
@@ -178,9 +178,6 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new ImportRecipeError({ code: 'rate_limited' }, 'Too many imports; try again later');
-  if (limit === 'global_cap') {
-    throw new ImportRecipeError({ code: 'unavailable', reason: 'global_cap' }, 'Recipe import is paused for now');
-  }
 
   let recipe: ExtractedRecipe | null = null;
   const cached = await deps.store.getCached(urlKey, EXTRACT_RECIPE_PROMPT_VERSION);

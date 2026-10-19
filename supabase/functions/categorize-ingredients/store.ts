@@ -6,12 +6,9 @@ import type { CategorizedAnswer, CategorizeStore, IngredientRow, LimitResult } f
 
 /**
  * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The plan
- * check and the rate limit are per `userId`; the global limit is `dailyNameCap` new names a day.
+ * check and the rate limit are per `userId`.
  */
-export function createCategorizeStore(
-  admin: SupabaseClient,
-  limits: { userId: string; dailyNameCap: number },
-): CategorizeStore {
+export function createCategorizeStore(admin: SupabaseClient, limits: { userId: string }): CategorizeStore {
   const ingredients = () => admin.from('ingredients');
 
   return {
@@ -111,7 +108,6 @@ export function createCategorizeStore(
       const { data, error } = await admin.rpc('check_categorize_limit', {
         p_user_id: limits.userId,
         p_new_names: newNames,
-        p_daily_cap: limits.dailyNameCap,
       });
       if (error) throw error;
       return data as LimitResult;

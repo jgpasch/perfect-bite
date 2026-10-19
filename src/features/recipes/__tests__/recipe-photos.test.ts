@@ -110,7 +110,7 @@ describe('loadPagePhotos', () => {
     expect(await loadPagePhotos(URL)).toEqual({ ok: false, error: 'none' });
   });
 
-  test('the rate limit, the global cap and other errors are failed', async () => {
+  test('the rate limit, a 503 and other errors are failed', async () => {
     respondWithError(429, { error: 'rate_limited', message: 'Too many requests' });
     expect(await loadPagePhotos(URL)).toEqual({ ok: false, error: 'failed' });
     respondWithError(503, { error: 'unavailable', message: 'Paused' });

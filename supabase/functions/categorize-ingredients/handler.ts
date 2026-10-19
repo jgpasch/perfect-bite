@@ -95,7 +95,7 @@ export interface CategorizeStore {
   requireFeature(feature: Feature): Promise<void>;
 }
 
-export type LimitResult = 'ok' | 'user_limit' | 'global_cap';
+export type LimitResult = 'ok' | 'user_limit';
 
 export type CategorizeResult = {
   status: IngredientStatus;

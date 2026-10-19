@@ -5,23 +5,15 @@ import { GenerateRecipePhotoRequestSchema, type GenerateRecipePhotoRequest, type
 import { reportError } from '../_shared/sentry.ts';
 import { MOCK_MODEL_ID } from '../_shared/ai/registry.ts';
 import { AI_OFF } from '../_shared/ai/tasks.ts';
-import { parseCap, readBody } from '../categorize-ingredients/request.ts';
+import { readBody } from '../categorize-ingredients/request.ts';
 import { GeneratePhotoError, type GenerateFailure } from './handler.ts';
 import { imageModel } from './image.ts';
 
 /** A recipe id fits many times over. */
 export const MAX_BODY_BYTES = 4 * 1024;
 
-/** AI photos a day across all users, unless RECIPE_PHOTO_AI_DAILY_CAP says otherwise. */
-export const DEFAULT_DAILY_PHOTO_AI_CAP = 500;
-
-/** Seconds a client should wait after the global cap or with a kill switch on. */
+/** Seconds a client should wait with a kill switch on. */
 export const PAUSED_RETRY_AFTER = 3600;
-
-/** RECIPE_PHOTO_AI_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */
-export function dailyPhotoAiCap(value: string | undefined): number {
-  return parseCap(value, DEFAULT_DAILY_PHOTO_AI_CAP);
-}
 
 export type RequestDeps = {
   generateRecipePhoto: (request: GenerateRecipePhotoRequest) => Promise<GenerateRecipePhotoResponse>;

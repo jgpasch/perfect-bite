@@ -976,16 +976,6 @@ test('rate limit → 429 before any fetch, cache read or LLM call', async () => 
   assertEquals(aiCalls, []);
 });
 
-test('the global cap → 503 with Retry-After', async () => {
-  const { post, store, fetched, aiCalls } = setup();
-  store.limit = 'global_cap';
-  const res = await post({ url: PASTA_URL });
-  await expectError(res, 503, 'unavailable');
-  assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-  assertEquals(fetched, []);
-  assertEquals(aiCalls, []);
-});
-
 Deno.test('AI_MODEL_RECIPE=off → 503 without counting against the limits', () =>
   withEnv({ AI_MODEL_RECIPE: 'off', AI_MODEL_CATEGORIZE: 'mock' }, async () => {
     const { post, store, fetched } = setup();
@@ -1135,13 +1125,13 @@ test('a page that can’t be fetched → 502 fetch_failed, not cached', async ()
 
 test('importRecipe throws ImportRecipeError with the failure', async () => {
   const { deps, store } = setup();
-  store.limit = 'global_cap';
+  store.limit = 'user_limit';
   try {
     await importRecipe({ url: PASTA_URL }, deps);
     throw new Error('expected a throw');
   } catch (err) {
     assert(err instanceof ImportRecipeError);
-    assertEquals(err.failure, { code: 'unavailable', reason: 'global_cap' });
+    assertEquals(err.failure, { code: 'rate_limited' });
   }
   assert(!(new CategorizeLimitError('user_limit') instanceof ImportRecipeError));
 });

@@ -479,7 +479,7 @@ Deno.test('AI_MODEL_CATEGORIZE off: the limit check counts 0 new names', () =>
     assertEquals(store.limitChecks, [0]);
   }));
 
-for (const reason of ['user_limit', 'global_cap'] as const) {
+for (const reason of ['user_limit'] as const) {
   test(`${reason}: the request is refused whole, with no LLM call and nothing written`, async () => {
     const store = new FakeStore();
     store.seed('milk');

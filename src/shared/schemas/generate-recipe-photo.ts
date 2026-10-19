@@ -26,7 +26,7 @@ export type GenerateRecipePhotoResponse = z.infer<typeof GenerateRecipePhotoResp
  * has had its one AI photo, or one is being made. `not_food` (422): the recipe isn't food, or its
  * text isn't something to put in a food photo, or the image model refused it.
  * `generation_failed` (502): a model failed or timed out; the slot was released, so try again.
- * `unavailable` (503, with Retry-After): the global cap or a kill switch.
+ * `unavailable` (503, with Retry-After): a kill switch.
  */
 export const GENERATE_RECIPE_PHOTO_ERROR_CODES = [
   'invalid_request',

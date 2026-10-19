@@ -5,15 +5,12 @@
 import { withSupabase } from '@supabase/server';
 
 import { suggestRecipeTags } from './handler.ts';
-import { dailyTagsCap, handleRequest } from './request.ts';
+import { handleRequest } from './request.ts';
 import { createSuggestTagsStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createSuggestTagsStore(ctx.supabaseAdmin, {
-      userId: ctx.userClaims!.id,
-      dailyCap: dailyTagsCap(Deno.env.get('RECIPE_TAGS_DAILY_CAP')),
-    });
+    const store = createSuggestTagsStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
     return handleRequest(req, { suggestRecipeTags: (request) => suggestRecipeTags(request, { store }) });
   }),
 };

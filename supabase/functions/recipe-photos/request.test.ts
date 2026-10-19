@@ -2,7 +2,7 @@ import type { RecipePhotosRequest } from '@shared/index.ts';
 import { assertEquals } from '@std/assert';
 
 import { RecipePhotosError } from './handler.ts';
-import { dailyRecipePhotosCap, DEFAULT_RECIPE_PHOTOS_DAILY_CAP, handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
+import { handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/recipe-photos';
 
@@ -59,12 +59,4 @@ Deno.test('failures map to their statuses; anything else is a 500', async () => 
   await expectError(await handleRequest(post(body), failing(new RecipePhotosError({ code: 'fetch_failed' }, 'x'))), 502, 'fetch_failed');
   await expectError(await handleRequest(post(body), failing(new RecipePhotosError({ code: 'rate_limited' }, 'x'))), 429, 'rate_limited');
   await expectError(await handleRequest(post(body), failing(new Error('db down'))), 500, 'internal_error');
-});
-
-Deno.test('RECIPE_PHOTOS_DAILY_CAP: a non-negative integer, else the default', () => {
-  assertEquals(dailyRecipePhotosCap('500'), 500);
-  assertEquals(dailyRecipePhotosCap('0'), 0);
-  assertEquals(dailyRecipePhotosCap(undefined), DEFAULT_RECIPE_PHOTOS_DAILY_CAP);
-  assertEquals(dailyRecipePhotosCap('-1'), DEFAULT_RECIPE_PHOTOS_DAILY_CAP);
-  assertEquals(dailyRecipePhotosCap('lots'), DEFAULT_RECIPE_PHOTOS_DAILY_CAP);
 });

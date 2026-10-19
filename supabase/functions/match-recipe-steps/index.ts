@@ -5,15 +5,12 @@
 import { withSupabase } from '@supabase/server';
 
 import { matchSteps } from './handler.ts';
-import { dailyStepMatchCap, handleRequest } from './request.ts';
+import { handleRequest } from './request.ts';
 import { createStepMatchStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createStepMatchStore(ctx.supabaseAdmin, {
-      userId: ctx.userClaims!.id,
-      dailyCap: dailyStepMatchCap(Deno.env.get('STEP_MATCH_DAILY_CAP')),
-    });
+    const store = createStepMatchStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
     return handleRequest(req, { matchSteps: (request) => matchSteps(request, { store }) });
   }),
 };

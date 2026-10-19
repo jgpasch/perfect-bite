@@ -16,7 +16,7 @@ export interface StepMatchStore {
    * `_shared/entitlements.ts`). Called first, before the rate limit or the model.
    */
   requireFeature(feature: Feature): Promise<void>;
-  /** Counts one match against the per-user and global limits (`public.check_step_match_limit`). */
+  /** Counts one match against the per-user limits (`public.check_step_match_limit`). */
   checkLimit(): Promise<LimitResult>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
@@ -32,7 +32,7 @@ export type MatchStepsDeps = {
 export type MatchStepsFailure =
   | { code: 'not_entitled' }
   | { code: 'rate_limited' }
-  | { code: 'unavailable'; reason: 'global_cap' | 'ai_off' | 'ai_failed' };
+  | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
 export class MatchStepsError extends Error {
   override name = 'MatchStepsError';
@@ -67,9 +67,6 @@ export async function matchSteps(request: MatchRecipeStepsRequest, deps: MatchSt
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new MatchStepsError({ code: 'rate_limited' }, 'Too many step matches; try again later');
-  if (limit === 'global_cap') {
-    throw new MatchStepsError({ code: 'unavailable', reason: 'global_cap' }, 'Step matching is paused for now');
-  }
 
   const sent = request.steps.flatMap((text, i) => (text === '' ? [] : [i]));
   let result;

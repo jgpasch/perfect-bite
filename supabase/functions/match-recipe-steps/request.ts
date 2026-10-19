@@ -3,7 +3,7 @@
 import { MatchRecipeStepsRequestSchema, type MatchRecipeStepsRequest, type MatchRecipeStepsResponse } from '@shared/index.ts';
 
 import { reportError } from '../_shared/sentry.ts';
-import { parseCap, readBody } from '../categorize-ingredients/request.ts';
+import { readBody } from '../categorize-ingredients/request.ts';
 import { AI_FAILED_RETRY_AFTER, PAUSED_RETRY_AFTER } from '../suggest-recipe-tags/request.ts';
 import { MatchStepsError, type MatchStepsFailure } from './handler.ts';
 
@@ -14,14 +14,6 @@ export { AI_FAILED_RETRY_AFTER, PAUSED_RETRY_AFTER };
  * extra ingredients under it are cut, not refused.
  */
 export const MAX_BODY_BYTES = 256 * 1024;
-
-/** Matches a day across all users, unless STEP_MATCH_DAILY_CAP says otherwise. */
-export const DEFAULT_STEP_MATCH_DAILY_CAP = 5_000;
-
-/** STEP_MATCH_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */
-export function dailyStepMatchCap(value: string | undefined): number {
-  return parseCap(value, DEFAULT_STEP_MATCH_DAILY_CAP);
-}
 
 export type RequestDeps = {
   matchSteps: (request: MatchRecipeStepsRequest) => Promise<MatchRecipeStepsResponse>;

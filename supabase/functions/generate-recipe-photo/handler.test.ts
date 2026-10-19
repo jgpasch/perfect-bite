@@ -10,7 +10,7 @@ import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { generateRecipePhoto, type GenerateDeps, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
 import { ImageFailedError, ImageRefusedError, type GeneratedImage } from './image.ts';
-import { DEFAULT_DAILY_PHOTO_AI_CAP, dailyPhotoAiCap, handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
+import { handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/generate-recipe-photo';
 const RECIPE_ID = '6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f';
@@ -250,12 +250,11 @@ Deno.test('the image kill switch (AI_IMAGE_MODEL=off): 503 before the reservatio
   });
 });
 
-Deno.test('reservation answers: not_found 404, already_generated 409, global_cap 503, with no model call or release', async () => {
+Deno.test('reservation answers: not_found 404, already_generated 409, with no model call or release', async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const cases: [ReserveResult['status'], number, string][] = [
       ['not_found', 404, 'not_found'],
       ['already_generated', 409, 'already_generated'],
-      ['global_cap', 503, 'unavailable'],
     ];
     for (const [status, httpStatus, code] of cases) {
       const store = new FakeStore();
@@ -392,13 +391,4 @@ Deno.test('not configured: no description model, or no OpenAI key for a real ima
     generateRecipePhoto: notCalled,
   });
   assertEquals(mockImage.status, 400);
-});
-
-Deno.test('dailyPhotoAiCap reads RECIPE_PHOTO_AI_DAILY_CAP, defaulting to 500', () => {
-  assertEquals(DEFAULT_DAILY_PHOTO_AI_CAP, 500);
-  assertEquals(dailyPhotoAiCap(undefined), 500);
-  assertEquals(dailyPhotoAiCap('abc'), 500);
-  assertEquals(dailyPhotoAiCap('-1'), 500);
-  assertEquals(dailyPhotoAiCap(' 25 '), 25);
-  assertEquals(dailyPhotoAiCap('0'), 0);
 });

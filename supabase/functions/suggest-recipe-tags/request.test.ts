@@ -5,8 +5,6 @@ import { assertEquals } from '@std/assert';
 import { SuggestTagsError, type SuggestFailure } from './handler.ts';
 import {
   AI_FAILED_RETRY_AFTER,
-  dailyTagsCap,
-  DEFAULT_DAILY_TAGS_CAP,
   handleRequest,
   MAX_BODY_BYTES,
   PAUSED_RETRY_AFTER,
@@ -126,7 +124,6 @@ Deno.test('each failure maps to its status, code and Retry-After', async () => {
   const cases = [
     [{ code: 'not_entitled' }, 403, 'not_entitled', null],
     [{ code: 'rate_limited' }, 429, 'rate_limited', null],
-    [{ code: 'unavailable', reason: 'global_cap' }, 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
     [{ code: 'unavailable', reason: 'ai_off' }, 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
     [{ code: 'unavailable', reason: 'ai_failed' }, 503, 'unavailable', String(AI_FAILED_RETRY_AFTER)],
   ] as const;
@@ -171,16 +168,6 @@ Deno.test('neither AI_MODEL_TAGS nor AI_MODEL_RECIPE set is a 500 not_configured
   assertEquals(none.calls, []);
   const recipeOnly = deps({ env: (k) => (k === 'AI_MODEL_RECIPE' ? 'mock' : undefined) });
   assertEquals((await handleRequest(post(body), recipeOnly.d)).status, 200);
-});
-
-Deno.test('dailyTagsCap reads RECIPE_TAGS_DAILY_CAP, falling back to 2,000', () => {
-  assertEquals(DEFAULT_DAILY_TAGS_CAP, 2000);
-  assertEquals(dailyTagsCap(undefined), 2000);
-  assertEquals(dailyTagsCap(''), 2000);
-  assertEquals(dailyTagsCap(' 50 '), 50);
-  assertEquals(dailyTagsCap('0'), 0);
-  assertEquals(dailyTagsCap('-1'), 2000);
-  assertEquals(dailyTagsCap('abc'), 2000);
 });
 
 // --- Auth -------------------------------------------------------------------------------------------

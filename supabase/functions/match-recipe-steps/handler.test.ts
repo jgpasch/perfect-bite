@@ -247,18 +247,6 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
   });
 });
 
-Deno.test('the global cap is 503 unavailable with Retry-After an hour, and no model call', async () => {
-  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
-    const { store, post } = setup();
-    store.limit = 'global_cap';
-    const res = await post(TACOS);
-    assertEquals(res.status, 503);
-    assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-    assertEquals(await res.json(), { error: 'unavailable', message: 'Step matching is paused for now' });
-    assertEquals(store.steps, ['feature:step_ingredients', 'limit']);
-  });
-});
-
 Deno.test('a provider error is 503 unavailable with Retry-After 30 s, logged as api_error', async () => {
   await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
     const err = new APICallError({ message: 'overloaded', url: 'https://x', requestBodyValues: {}, statusCode: 503, isRetryable: false });

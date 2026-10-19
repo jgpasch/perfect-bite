@@ -222,7 +222,7 @@ export class MemoryStore implements CategorizeStore {
     this.aiCalls.push(call);
   }
 
-  /** Local and manual: no rate limits, no global cap. */
+  /** Local and manual: no rate limits. */
   async checkLimit(_newNames = 0): Promise<LimitResult> {
     return 'ok';
   }

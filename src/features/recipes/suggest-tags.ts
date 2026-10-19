@@ -19,7 +19,7 @@ import { getRecipe, recipeIngredientsQuery } from './recipes';
 /**
  * `offline`: no connection, session or config. `no-ingredients`: the recipe has none, so nothing
  * was sent. `not-entitled`: the plan has no `recipe_tags` (4.12). `rate-limited`: the per-user
- * limit. `unavailable`: the global cap, the kill switch or the model failed. `failed`: anything else.
+ * limit. `unavailable`: the kill switch or the model failed. `failed`: anything else.
  */
 export type SuggestTagsError = 'offline' | 'no-ingredients' | 'not-entitled' | 'rate-limited' | 'unavailable' | 'failed';
 

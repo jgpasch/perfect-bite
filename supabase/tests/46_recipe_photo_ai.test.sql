@@ -1,9 +1,9 @@
 -- AI photos (spec 4.12, 5, 6.11): the recipe_photo_ai feature, private.recipe_photo_ai and its
--- reserve / complete / release functions, the global cap, and how a completed photo meets the
+-- reserve / complete / release functions, no global cap, and how a completed photo meets the
 -- recipe-photos cleanup queue. now() is fixed within the transaction, so ages are set by hand.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(43);
+select plan(42);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex owns household A, with recipes R1, R2, R3, R4 and the deleted D. Sam owns household S.
@@ -22,7 +22,6 @@ insert into public.recipes (id, household_id, name, deleted_at) values
   ('a4000000-0000-7000-8000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Soup', null),
   ('a4000000-0000-7000-8000-000000000004', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Salad', null),
   ('a4000000-0000-7000-8000-00000000000d', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Gone', now());
-delete from private.recipe_photo_ai_daily_total;
 
 -- The feature -----------------------------------------------------------------
 select ok(exists (select 1 from public.plan_features where plan_id = 'plus' and feature = 'recipe_photo_ai')
@@ -41,14 +40,12 @@ select ok(
   and not has_table_privilege('anon', 'private.recipe_photo_ai', 'select')
   and not has_table_privilege('anon', 'private.recipe_photo_ai', 'insert'),
   'clients have no privileges on the table');
+select hasnt_table('private', 'recipe_photo_ai_daily_total', 'there''s no daily total (no global cap)');
 select ok(
-  not has_table_privilege('authenticated', 'private.recipe_photo_ai_daily_total', 'select')
-  and not has_table_privilege('anon', 'private.recipe_photo_ai_daily_total', 'select'),
-  'clients can''t read the daily total');
-select ok(
-  not has_function_privilege('authenticated', 'public.reserve_recipe_photo_ai(uuid, uuid, integer)', 'execute')
-  and not has_function_privilege('anon', 'public.reserve_recipe_photo_ai(uuid, uuid, integer)', 'execute')
-  and has_function_privilege('service_role', 'public.reserve_recipe_photo_ai(uuid, uuid, integer)', 'execute'),
+  not has_function_privilege('authenticated', 'public.reserve_recipe_photo_ai(uuid, uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.reserve_recipe_photo_ai(uuid, uuid)', 'execute')
+  and not has_function_privilege('public', 'public.reserve_recipe_photo_ai(uuid, uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.reserve_recipe_photo_ai(uuid, uuid)', 'execute'),
   'only service_role can reserve');
 select ok(
   not has_function_privilege('authenticated', 'public.complete_recipe_photo_ai(uuid, text, text)', 'execute')
@@ -65,7 +62,7 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 select throws_ok($$ select * from private.recipe_photo_ai $$, '42501', null, 'a member can''t read the table');
 select throws_ok(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   '42501', null, 'a member can''t reserve');
 select throws_ok(
   $$ select public.release_recipe_photo_ai('a4000000-0000-7000-8000-000000000001') $$,
@@ -74,14 +71,14 @@ reset role;
 
 set local role service_role;
 select results_eq(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000004', 500) $$,
+  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000004') $$,
   $$ values ('ok'::text, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid) $$,
   'service_role can reserve');
 reset role;
 
 -- Reserve ---------------------------------------------------------------------
 select results_eq(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('ok'::text, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid) $$,
   'a member reserves a recipe with no AI photo, getting its household');
 select results_eq(
@@ -91,7 +88,7 @@ select results_eq(
              'pending'::text, null::text, null::text) $$,
   'the reservation is a pending row by the caller');
 select results_eq(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('already_generated'::text, null::uuid) $$,
   'a second reserve while the first is pending is already_generated');
 
@@ -100,7 +97,7 @@ select lives_ok($$ select public.release_recipe_photo_ai('a4000000-0000-7000-800
 select is_empty($$ select 1 from private.recipe_photo_ai where recipe_id = 'a4000000-0000-7000-8000-000000000001' $$,
   'release deletes the pending row');
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('ok'::text) $$,
   'a released recipe can be reserved again');
 
@@ -108,13 +105,13 @@ select results_eq(
 update private.recipe_photo_ai set created_at = now() - interval '9 minutes 59 seconds'
   where recipe_id = 'a4000000-0000-7000-8000-000000000001';
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('already_generated'::text) $$,
   'a pending row under 10 minutes old still holds the slot');
 update private.recipe_photo_ai set created_at = now() - interval '10 minutes 1 second', created_by = null
   where recipe_id = 'a4000000-0000-7000-8000-000000000001';
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('ok'::text) $$,
   'a pending row over 10 minutes old is replaced');
 select results_eq(
@@ -125,15 +122,15 @@ select results_eq(
 
 -- Not found
 select results_eq(
-  $$ select * from public.reserve_recipe_photo_ai('22222222-2222-2222-2222-222222222222', 'a4000000-0000-7000-8000-000000000002', 500) $$,
+  $$ select * from public.reserve_recipe_photo_ai('22222222-2222-2222-2222-222222222222', 'a4000000-0000-7000-8000-000000000002') $$,
   $$ values ('not_found'::text, null::uuid) $$,
   'someone outside the household gets not_found');
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-00000000000d', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-00000000000d') $$,
   $$ values ('not_found'::text) $$,
   'a deleted recipe is not_found');
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-0000000000ff', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-0000000000ff') $$,
   $$ values ('not_found'::text) $$,
   'an unknown recipe is not_found');
 select is_empty(
@@ -142,8 +139,8 @@ select is_empty(
   'not_found reserves nothing');
 
 select throws_ok(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000002', -1) $$,
-  '22023', null, 'a negative cap is refused');
+  $$ select * from public.reserve_recipe_photo_ai(null, 'a4000000-0000-7000-8000-000000000002') $$,
+  '22023', null, 'a null user is refused');
 
 -- Complete --------------------------------------------------------------------
 select is(
@@ -160,7 +157,7 @@ select results_eq(
   $$ values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/a4000000-0000-7000-8000-000000000001/c1000000-0000-7000-8000-000000000001.jpg'::text, false) $$,
   'complete queues the new object for cleanup');
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('already_generated'::text) $$,
   'a recipe with a done photo is already_generated');
 
@@ -169,13 +166,13 @@ update public.recipes
   where id = 'a4000000-0000-7000-8000-000000000001';
 update public.recipes set photo_path = null where id = 'a4000000-0000-7000-8000-000000000001';
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('already_generated'::text) $$,
   'still already_generated after the photo was removed');
 update private.recipe_photo_ai set created_at = now() - interval '1 day'
   where recipe_id = 'a4000000-0000-7000-8000-000000000001';
 select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001', 500) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('already_generated'::text) $$,
   'a done row never goes stale');
 do $$ begin perform public.release_recipe_photo_ai('a4000000-0000-7000-8000-000000000001'); end $$;
@@ -197,21 +194,16 @@ select throws_ok(
   $$ select public.complete_recipe_photo_ai('a4000000-0000-7000-8000-000000000001', 'x', null) $$,
   '22023', null, 'complete needs a path');
 
--- The global cap --------------------------------------------------------------
--- Today: R4, then R1 three times (two reserves, one replacing a stale row) = 4 photos.
-select is((select photos from private.recipe_photo_ai_daily_total), 4, 'each ok reserve counts one photo today');
+-- No global cap ---------------------------------------------------------------
+-- Today: R4, then R1 three times (two reserves, one replacing a stale row); nothing caps the day.
 select results_eq(
-  $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000002', 4) $$,
-  $$ values ('global_cap'::text, null::uuid) $$,
-  'at the cap, a reserve is global_cap');
-select ok(
-  (select photos from private.recipe_photo_ai_daily_total) = 4
-  and not exists (select 1 from private.recipe_photo_ai where recipe_id = 'a4000000-0000-7000-8000-000000000002'),
-  'a refused call uses no budget and reserves nothing');
-select results_eq(
-  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000002', 5) $$,
+  $$ select status from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000002') $$,
   $$ values ('ok'::text) $$,
-  'under the cap it reserves');
+  'another recipe still reserves, however many photos were made today');
+select hasnt_function('public', 'reserve_recipe_photo_ai', array['uuid', 'uuid', 'integer'],
+  'the three-argument reserve_recipe_photo_ai (with p_daily_cap) is gone');
+select ok(not exists (select 1 from cron.job where jobname = 'recipe-photo-ai-total-retention'),
+  'the daily total''s retention job is gone');
 
 -- Cleanup ---------------------------------------------------------------------
 -- R2's photo is set as its photo_path, R3's never is: claim drops R2's entry and deletes R3's.

@@ -3,7 +3,7 @@ import type { RecipePhotoImportRequest } from '@shared/index.ts';
 import { assertEquals, assertStringIncludes } from '@std/assert';
 
 import { ImportRecipePhotoError } from './handler.ts';
-import { DEFAULT_DAILY_PHOTO_CAP, dailyPhotoCap, handleRequest, MAX_BODY_BYTES, PAUSED_RETRY_AFTER } from './request.ts';
+import { handleRequest, MAX_BODY_BYTES, PAUSED_RETRY_AFTER } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/import-recipe-photo';
 
@@ -119,7 +119,6 @@ Deno.test('each failure’s status and body', async () => {
     [new ImportRecipePhotoError({ code: 'not_a_recipe' }, 'no'), 422, 'not_a_recipe', null],
     [new ImportRecipePhotoError({ code: 'rate_limited' }, 'no'), 429, 'rate_limited', null],
     [new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_off' }, 'no'), 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
-    [new ImportRecipePhotoError({ code: 'unavailable', reason: 'global_cap' }, 'no'), 503, 'unavailable', '3600'],
     [new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_failed' }, 'no'), 503, 'unavailable', '30'],
   ];
   for (const [err, status, code, retryAfter] of cases) {
@@ -131,16 +130,6 @@ Deno.test('each failure’s status and body', async () => {
     assertEquals(await res.json(), { error: code, message: 'no' });
     assertEquals(res.headers.get('Retry-After'), retryAfter, code);
   }
-});
-
-Deno.test('dailyPhotoCap reads RECIPE_PHOTO_DAILY_CAP, falling back to 300', () => {
-  assertEquals(DEFAULT_DAILY_PHOTO_CAP, 300);
-  assertEquals(dailyPhotoCap(undefined), 300);
-  assertEquals(dailyPhotoCap(''), 300);
-  assertEquals(dailyPhotoCap('abc'), 300);
-  assertEquals(dailyPhotoCap('-1'), 300);
-  assertEquals(dailyPhotoCap('0'), 0);
-  assertEquals(dailyPhotoCap(' 50 '), 50);
 });
 
 // --- Auth -------------------------------------------------------------------------------------------

@@ -176,7 +176,7 @@ export class MemoryStepMatchStore implements StepMatchStore {
   /** No database, so no plans: every feature is granted. */
   async requireFeature(_feature: Feature) {}
 
-  /** Local and manual: no rate limits, no global cap. */
+  /** Local and manual: no rate limits. */
   async checkLimit() {
     return 'ok' as const;
   }

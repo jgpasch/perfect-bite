@@ -51,7 +51,7 @@ Check against reality with `yarn dlx eas-cli env:list --environment production` 
 | --- | --- | --- | --- |
 | Migrations | `supabase db push` | `supabase migration list` | ⏳ see [alpha-testing §2](alpha-testing.md#2-hosted-supabase) |
 | Edge Functions | `supabase functions deploy` | `supabase functions list` | ⏳ |
-| Function secrets: `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_MODEL_*`, daily caps, `EXPO_ACCESS_TOKEN` (optional) | `supabase secrets set` | `supabase secrets list` | ✅ (push token ❓) |
+| Function secrets: `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_MODEL_*`, `EXPO_ACCESS_TOKEN` (optional) | `supabase secrets set` | `supabase secrets list` | ✅ (push token ❓) |
 | Google auth provider | Dashboard → Auth → Providers | Dashboard | ✅ |
 | Vault: `project_url`, `notifications_worker_key`, `photo_cleanup_key` | SQL editor, [push-setup §5](push-setup.md#5-vault-secrets) | `select name from vault.secrets` | ❓ |
 | Auth site URL / redirect URLs (`perfectbite://`) | Dashboard → Auth → URL Configuration | Dashboard | ❓ |

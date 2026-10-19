@@ -826,7 +826,7 @@ describe('Generate with AI', () => {
 
   test.each<[string, () => void]>([
     ['a model failure (502)', () => failWith(502, { error: 'generation_failed', message: 'x' })],
-    ['the cap (503)', () => failWith(503, { error: 'unavailable', message: 'x' })],
+    ['a kill switch (503)', () => failWith(503, { error: 'unavailable', message: 'x' })],
     ['a plan without the feature (403)', () => failWith(403, { error: 'not_entitled', message: 'x' })],
     ['an error with no JSON body', () => failWith(500, 'oops')],
     ['no connection', () => invoke.mockResolvedValueOnce({ data: null, error: { name: 'FunctionsFetchError', message: 'x' } })],

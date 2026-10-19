@@ -7,10 +7,10 @@ export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
 
 /**
  * RecipePhotoStore over the service-role client. The plan check and the reservation are for
- * `userId` (the reservation also checks they're in the recipe's household), and the global cap is
- * `dailyCap` photos a day. `ai_calls` has no user id.
+ * `userId` (the reservation also checks they're in the recipe's household). `ai_calls` has no
+ * user id.
  */
-export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: string; dailyCap: number }): RecipePhotoStore {
+export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: string }): RecipePhotoStore {
   return {
     requireFeature(feature) {
       return requireFeature(admin, limits.userId, feature);
@@ -20,12 +20,11 @@ export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: 
       const { data, error } = await admin.rpc('reserve_recipe_photo_ai', {
         p_user_id: limits.userId,
         p_recipe_id: recipeId,
-        p_daily_cap: limits.dailyCap,
       });
       if (error) throw error;
       const row = (data as { status: string; household_id: string | null }[])[0];
       if (row?.status === 'ok' && row.household_id) return { status: 'ok', householdId: row.household_id };
-      if (row?.status === 'not_found' || row?.status === 'already_generated' || row?.status === 'global_cap') return { status: row.status };
+      if (row?.status === 'not_found' || row?.status === 'already_generated') return { status: row.status };
       throw new Error(`reserve_recipe_photo_ai answered ${JSON.stringify(data)}`);
     },
 

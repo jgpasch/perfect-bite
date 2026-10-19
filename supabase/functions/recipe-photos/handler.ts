@@ -8,7 +8,7 @@ import type { LimitResult } from '../categorize-ingredients/handler.ts';
 
 /** What recipe-photos uses, as it sees it. index.ts implements it with the service role. */
 export interface RecipePhotosStore {
-  /** Counts one request against the per-user and global limits (`public.check_recipe_photos_limit`). */
+  /** Counts one request against the per-user limits (`public.check_recipe_photos_limit`). */
   checkLimit(): Promise<LimitResult>;
 }
 
@@ -22,8 +22,7 @@ export type RecipePhotosDeps = {
 export type RecipePhotosFailure =
   | { code: 'invalid_url' }
   | { code: 'fetch_failed' }
-  | { code: 'rate_limited' }
-  | { code: 'unavailable'; reason: 'global_cap' };
+  | { code: 'rate_limited' };
 
 export class RecipePhotosError extends Error {
   override name = 'RecipePhotosError';
@@ -46,9 +45,6 @@ export async function recipePhotos(request: RecipePhotosRequest, deps: RecipePho
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new RecipePhotosError({ code: 'rate_limited' }, 'Too many requests; try again later');
-  if (limit === 'global_cap') {
-    throw new RecipePhotosError({ code: 'unavailable', reason: 'global_cap' }, 'Page photos are paused for now');
-  }
 
   try {
     const page = await deps.fetchPage(request.url.trim());

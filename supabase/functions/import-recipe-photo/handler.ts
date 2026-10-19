@@ -17,7 +17,7 @@ export interface RecipePhotoImportStore {
    * `_shared/entitlements.ts`). Called first, before the kill switch, the rate limit or the model.
    */
   requireFeature(feature: Feature): Promise<void>;
-  /** Counts one photo import against the per-user and global limits (`public.check_recipe_photo_limit`). */
+  /** Counts one photo import against the per-user limits (`public.check_recipe_photo_limit`). */
   checkLimit(): Promise<LimitResult>;
   /** Writes one `ai_calls` row. Its prompt describes each image; it never holds the bytes. */
   logAiCall(call: AiCallRecord): Promise<void>;
@@ -36,7 +36,7 @@ export type PhotoImportFailure =
   | { code: 'not_entitled' }
   | { code: 'not_a_recipe' }
   | { code: 'rate_limited' }
-  | { code: 'unavailable'; reason: 'global_cap' | 'ai_off' | 'ai_failed' };
+  | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
 export class ImportRecipePhotoError extends Error {
   override name = 'ImportRecipePhotoError';
@@ -71,9 +71,6 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new ImportRecipePhotoError({ code: 'rate_limited' }, 'Too many photo imports; try again later');
-  if (limit === 'global_cap') {
-    throw new ImportRecipePhotoError({ code: 'unavailable', reason: 'global_cap' }, 'Photo import is paused for now');
-  }
 
   let output;
   try {

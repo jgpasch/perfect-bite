@@ -3,24 +3,16 @@
 import { RecipeImportRequestSchema, type RecipeImportRequest, type RecipeImportResponse } from '@shared/index.ts';
 
 import { reportError } from '../_shared/sentry.ts';
-import { parseCap, readBody } from '../categorize-ingredients/request.ts';
+import { readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipeError, type ImportFailure } from './handler.ts';
 
 /** Request body cap: 10 JSON-LD blocks of 200 KB and 50 KB of text, with room for JSON escaping. */
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-/** Imports a day across all users, unless RECIPE_IMPORT_DAILY_CAP says otherwise. */
-export const DEFAULT_DAILY_IMPORT_CAP = 2_000;
-
-/** Seconds a client should wait after the global cap or with the kill switch on. */
+/** Seconds a client should wait with the kill switch on. */
 export const PAUSED_RETRY_AFTER = 3600;
 /** Seconds a client should wait after a provider error or timeout. */
 export const AI_FAILED_RETRY_AFTER = 30;
-
-/** RECIPE_IMPORT_DAILY_CAP as a non-negative integer; unset or invalid falls back to the default. */
-export function dailyImportCap(value: string | undefined): number {
-  return parseCap(value, DEFAULT_DAILY_IMPORT_CAP);
-}
 
 export type RequestDeps = {
   importRecipe: (request: RecipeImportRequest) => Promise<RecipeImportResponse>;
