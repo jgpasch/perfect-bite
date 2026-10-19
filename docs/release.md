@@ -37,6 +37,8 @@ Native change (new native module, extension code, `app.json`):
 yarn dlx eas-cli build -p ios --profile production --auto-submit
 ```
 
+EAS Build uploads source maps to Sentry when the `SENTRY_AUTH_TOKEN` secret is set (once: `yarn dlx eas-cli env:create --name SENTRY_AUTH_TOKEN --value <token> --visibility secret --environment production --environment preview`).
+
 JS-only change:
 
 ```bash

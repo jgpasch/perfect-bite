@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { MatchRecipeStepsRequestSchema, type MatchRecipeStepsRequest, type MatchRecipeStepsResponse } from '@shared/index.ts';
 
+import { reportError } from '../_shared/sentry.ts';
 import { parseCap, readBody } from '../categorize-ingredients/request.ts';
 import { AI_FAILED_RETRY_AFTER, PAUSED_RETRY_AFTER } from '../suggest-recipe-tags/request.ts';
 import { MatchStepsError, type MatchStepsFailure } from './handler.ts';
@@ -92,6 +93,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return failureResponse(err.failure, err.message);
     }
     console.error('match-recipe-steps failed:', err instanceof Error ? err.message : String(err));
+    reportError('match-recipe-steps', err);
     return error(500, 'internal_error', 'Step matching failed');
   }
 }

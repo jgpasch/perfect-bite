@@ -270,6 +270,14 @@
             "usePrecompiledModules": false
           }
         }
+      ],
+      [
+        "@sentry/react-native",
+        {
+          "url": "https://sentry.io/",
+          "organization": "john-paschal",
+          "project": "perfect-bite"
+        }
       ]
     ],
     "experiments": {

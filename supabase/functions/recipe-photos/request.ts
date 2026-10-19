@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { RecipePhotosRequestSchema, type RecipePhotosRequest, type RecipePhotosResponse } from '@shared/index.ts';
 
+import { reportError } from '../_shared/sentry.ts';
 import { parseCap, readBody } from '../categorize-ingredients/request.ts';
 import { RecipePhotosError, type RecipePhotosFailure } from './handler.ts';
 
@@ -78,6 +79,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   } catch (err) {
     if (err instanceof RecipePhotosError) return failureResponse(err.failure, err.message);
     console.error('recipe-photos failed:', err instanceof Error ? err.message : String(err));
+    reportError('recipe-photos', err);
     return error(500, 'internal_error', 'Reading the page failed');
   }
 }

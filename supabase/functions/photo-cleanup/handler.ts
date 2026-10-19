@@ -3,6 +3,8 @@
 // 20261106120000_item_photos.sql, 20261107120000_recipe_pages.sql); this removes them through the
 // Storage API, which is the only way to delete the files, then marks the queue entries done.
 
+import { reportError } from '../_shared/sentry.ts';
+
 /** One bucket's queue and the bucket, over the service-role client in index.ts and fakes in tests. */
 export type CleanupStore = {
   /** Due queue entries with the object names each stands for (a household prefix: several). */
@@ -95,6 +97,7 @@ export async function handleRequest(req: Request, sweep: () => Promise<CleanupRe
     return Response.json(await sweep());
   } catch (err) {
     console.error('photo-cleanup failed:', err instanceof Error ? err.message : String(err));
+    reportError('photo-cleanup', err);
     return Response.json({ error: 'internal', message: 'Cleanup failed' }, { status: 500 });
   }
 }

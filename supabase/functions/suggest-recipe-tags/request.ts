@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { SuggestRecipeTagsRequestSchema, type SuggestRecipeTagsRequest, type SuggestRecipeTagsResponse } from '@shared/index.ts';
 
+import { reportError } from '../_shared/sentry.ts';
 import { parseCap, readBody } from '../categorize-ingredients/request.ts';
 import { SuggestTagsError, type SuggestFailure } from './handler.ts';
 
@@ -94,6 +95,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return failureResponse(err.failure, err.message);
     }
     console.error('suggest-recipe-tags failed:', err instanceof Error ? err.message : String(err));
+    reportError('suggest-recipe-tags', err);
     return error(500, 'internal_error', 'Tag suggestion failed');
   }
 }

@@ -2,6 +2,7 @@
 // events per (household, actor, list, kind), sends one push per ready group to the household's
 // other members, and checks the receipts of earlier pushes.
 
+import { reportError } from '../_shared/sentry.ts';
 import type { ExpoClient, ExpoMessage, PushTicket } from './expo.ts';
 
 export type EventKind = 'items_added' | 'shopping';
@@ -224,6 +225,7 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
       // they go stale.
       result.failed += 1;
       console.error(`send-notifications: a ${group.kind} group failed:`, message(err));
+      reportError('send-notifications', err);
       continue;
     }
     if (outcome === 'dropped') {
@@ -247,6 +249,7 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     result.tokensRemoved += checked.tokensRemoved;
   } catch (err) {
     console.error('send-notifications: receipts failed:', message(err));
+    reportError('send-notifications', err);
   }
   return result;
 }
@@ -315,6 +318,7 @@ export async function handleRequest(req: Request, run: () => Promise<RunResult>)
     return Response.json(await run());
   } catch (err) {
     console.error('send-notifications failed:', message(err));
+    reportError('send-notifications', err);
     return Response.json({ error: 'internal', message: 'Sending notifications failed' }, { status: 500 });
   }
 }

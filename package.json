@@ -14,6 +14,7 @@
     "@expo-google-fonts/young-serif": "^0.4.0",
     "@expo/ui": "~57.0.22",
     "@react-native-google-signin/google-signin": "^16.1.5",
+    "@sentry/react-native": "~7.11.0",
     "@supabase/supabase-js": "^2.117.3",
     "drizzle-orm": "^0.45.3",
     "expo": "~57.0.27",

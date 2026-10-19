@@ -7,6 +7,7 @@ import {
   type RecipePhotoImportRequest,
 } from '@shared/index.ts';
 
+import { reportError } from '../_shared/sentry.ts';
 import { parseCap, readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipePhotoError, type PhotoImportFailure } from './handler.ts';
 
@@ -99,6 +100,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return failureResponse(err.failure, err.message);
     }
     console.error('import-recipe-photo failed:', err instanceof Error ? err.message : String(err));
+    reportError('import-recipe-photo', err);
     return error(500, 'internal_error', 'Photo import failed');
   }
 }

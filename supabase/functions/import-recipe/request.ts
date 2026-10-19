@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { RecipeImportRequestSchema, type RecipeImportRequest, type RecipeImportResponse } from '@shared/index.ts';
 
+import { reportError } from '../_shared/sentry.ts';
 import { parseCap, readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipeError, type ImportFailure } from './handler.ts';
 
@@ -97,6 +98,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return failureResponse(err.failure, err.message);
     }
     console.error('import-recipe failed:', err instanceof Error ? err.message : String(err));
+    reportError('import-recipe', err);
     return error(500, 'internal_error', 'Recipe import failed');
   }
 }

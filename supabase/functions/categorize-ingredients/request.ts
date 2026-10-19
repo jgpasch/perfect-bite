@@ -1,5 +1,6 @@
 // HTTP layer for categorize-ingredients, kept free of `@supabase/server` so Deno tests can call it.
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
+import { reportError } from '../_shared/sentry.ts';
 import { NotEntitledError } from '../_shared/entitlements.ts';
 import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
@@ -107,6 +108,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return res;
     }
     console.error('categorize-ingredients failed:', err instanceof Error ? err.message : String(err));
+    reportError('categorize-ingredients', err);
     return error(500, 'internal_error', 'Categorization failed');
   }
 }
