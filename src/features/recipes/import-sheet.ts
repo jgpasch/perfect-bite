@@ -1,5 +1,6 @@
 // What the "Add recipe from link…" sheet shows (spec 4.10). Pure, so it can be tested without rendering.
 
+import { resetDate } from '@/features/plans/limits';
 import { i18n, onLanguageChanged } from '@/i18n';
 
 import { addedRecipeToListToast } from './recipe-view';
@@ -47,6 +48,15 @@ onLanguageChanged(() => {
   NOT_ENTITLED_MESSAGE = i18n.t('recipes.import.errors.notEntitled');
 });
 
+/**
+ * The plan's monthly imports are used up (spec 4.12): "You've used this month's recipe imports.
+ * They reset on Nov 1." (photo imports for photos). Never "Try again in a minute".
+ */
+export function importLimitMessage(resetsAt: string, from: 'link' | 'photo' = 'link'): string {
+  const key = from === 'photo' ? 'recipes.import.errors.photoLimitReached' : 'recipes.import.errors.limitReached';
+  return i18n.t(key, { date: resetDate(resetsAt) });
+}
+
 /** Spec 4.10's inline failure copy, for a link or photos; the sheet stays open. */
 export function importErrorMessage(error: ImportRecipeError, from: 'link' | 'photo' = 'link'): string {
   switch (error.error) {
@@ -56,6 +66,8 @@ export function importErrorMessage(error: ImportRecipeError, from: 'link' | 'pho
       return from === 'photo' ? i18n.t('recipes.import.errors.photoNotEntitled') : NOT_ENTITLED_MESSAGE;
     case 'rate_limited':
       return i18n.t('recipes.import.errors.rateLimited');
+    case 'limit_reached':
+      return importLimitMessage(error.resetsAt, from);
     case 'offline':
       return i18n.t('recipes.import.errors.offline');
     case 'blocked':

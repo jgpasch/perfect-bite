@@ -135,6 +135,14 @@ Deno.test('each failure maps to its status, code and Retry-After', async () => {
   assertEquals([PAUSED_RETRY_AFTER, AI_FAILED_RETRY_AFTER], [3600, 30]);
 });
 
+Deno.test('limit_reached is 429 with resets_at, the first instant of next month (UTC)', async () => {
+  const d = { ...failingDeps({ code: 'limit_reached' }), now: () => Date.parse('2026-10-18T09:00:00Z') };
+  const res = await handleRequest(post(JSON.stringify({ name: 'Toast', notes: null, ingredients: [] })), d);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'limit_reached', message: 'nope', resets_at: '2026-11-01T00:00:00.000Z' });
+});
+
 Deno.test('an unexpected error is a 500 internal_error', async () => {
   const { d } = deps({ suggestRecipeTags: () => Promise.reject(new Error('boom')) });
   await expectError(await handleRequest(post('{"name":"Toast","notes":null,"ingredients":[]}'), d), 500, 'internal_error');

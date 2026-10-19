@@ -67,6 +67,13 @@ Deno.test('each import failure maps to its status and code', async () => {
   await expectError(await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'rate_limited' })), 429, 'rate_limited');
 });
 
+Deno.test('limit_reached is 429 with resets_at, the first instant of next month (UTC)', async () => {
+  const d = { ...failing({ code: 'limit_reached' }), now: () => Date.parse('2026-12-31T23:30:00Z') };
+  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  assertEquals(res.status, 429);
+  assertEquals(await res.json(), { error: 'limit_reached', message: 'nope', resets_at: '2027-01-01T00:00:00.000Z' });
+});
+
 Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after a model failure', async () => {
   for (const [reason, retryAfter] of [
     ['ai_off', PAUSED_RETRY_AFTER],

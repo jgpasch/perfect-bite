@@ -1,7 +1,8 @@
 // POST /functions/v1/import-recipe-photo — body: RecipePhotoImportRequest (spec 6.10).
 // 200 RecipeImportResponse · 400 invalid_request · 401 no/invalid user (from withSupabase) · 403
 // not_entitled (the caller's plan has no `recipe_import_photo`, spec 4.12) · 405 · 413 · 422
-// not_a_recipe · 429 rate_limited · 503 unavailable (with Retry-After) · 500.
+// not_a_recipe · 429 rate_limited (per minute) or limit_reached (the plan's monthly photo imports,
+// with resets_at) · 503 unavailable (with Retry-After) · 500.
 import { withSupabase } from '@supabase/server';
 
 import { categorize } from '../categorize-ingredients/handler.ts';

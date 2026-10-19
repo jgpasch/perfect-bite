@@ -267,6 +267,7 @@ function setup(overrides: Partial<ImportDeps> = {}) {
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       importRecipe: (request) => importRecipe(request, deps),
       env: (key) => Deno.env.get(key),
+      now: () => store.now,
     });
   return { store, catStore, deps, aiCalls, fetched, calls, post };
 }
@@ -976,6 +977,22 @@ test('rate limit → 429 before any fetch, cache read or LLM call', async () => 
   assertEquals(aiCalls, []);
 });
 
+test('monthly limit → 429 limit_reached with next month as resets_at, before any fetch or LLM call', async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  store.limit = 'monthly_limit';
+  store.getCached = () => Promise.reject(new Error('should not be read'));
+  const res = await post({ url: PASTA_URL });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), {
+    error: 'limit_reached',
+    message: "This month's recipe imports are used up",
+    resets_at: '2026-11-01T00:00:00.000Z',
+  });
+  assertEquals(fetched, []);
+  assertEquals(aiCalls, []);
+});
+
 Deno.test('AI_MODEL_RECIPE=off → 503 without counting against the limits', () =>
   withEnv({ AI_MODEL_RECIPE: 'off', AI_MODEL_CATEGORIZE: 'mock' }, async () => {
     const { post, store, fetched } = setup();
@@ -986,18 +1003,20 @@ Deno.test('AI_MODEL_RECIPE=off → 503 without counting against the limits', () 
     assertEquals(fetched, []);
   }));
 
-test('categorize’s own limit doesn’t fail the import: the names come back pending', async () => {
-  const { post, catStore, calls } = setup();
-  catStore.limit = 'user_limit';
-  const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
-  assertEquals(body.ingredients.map((i) => [i.ingredientName, i.categoryId, i.status]), [
-    ['garlic', null, 'pending'],
-    ['spaghetti', null, 'pending'],
-    ['olive oil', null, 'pending'],
-    ['salt', null, 'pending'],
-  ]);
-  assertEquals(calls('categorize'), 0);
-});
+for (const limit of ['user_limit', 'monthly_limit'] as const) {
+  test(`categorize’s own limit (${limit}) doesn’t fail the import: the names come back pending`, async () => {
+    const { post, catStore, calls } = setup();
+    catStore.limit = limit;
+    const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
+    assertEquals(body.ingredients.map((i) => [i.ingredientName, i.categoryId, i.status]), [
+      ['garlic', null, 'pending'],
+      ['spaghetti', null, 'pending'],
+      ['olive oil', null, 'pending'],
+      ['salt', null, 'pending'],
+    ]);
+    assertEquals(calls('categorize'), 0);
+  });
+}
 
 test('categorize’s other errors are a 500', async () => {
   const { post } = setup({ categorize: () => Promise.reject(new Error('db down')) });

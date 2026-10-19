@@ -229,6 +229,21 @@ Deno.test('the per-user limit is 429 with no Retry-After', async () => {
   assertEquals(await res.json(), { error: 'rate_limited', message: 'Too many requests; try again later' });
 });
 
+Deno.test('the monthly limit is 429 limit_reached with next month as resets_at', async () => {
+  const { d } = deps({
+    categorize: () => Promise.reject(new CategorizeLimitError('monthly_limit')),
+    now: () => Date.parse('2026-10-18T22:31:00Z'),
+  });
+  const res = await handleRequest(post(JSON.stringify({ names: ['milk'] })), d);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('retry-after'), null);
+  assertEquals(await res.json(), {
+    error: 'limit_reached',
+    message: "This month's categorizing is used up",
+    resets_at: '2026-11-01T00:00:00.000Z',
+  });
+});
+
 Deno.test('a bad request is 400 before the rate limit is reached', async () => {
   const { d, calls } = deps({ categorize: () => Promise.reject(new CategorizeLimitError('user_limit')) });
   await expectError(await handleRequest(post('not json'), d), 400, 'invalid_request');

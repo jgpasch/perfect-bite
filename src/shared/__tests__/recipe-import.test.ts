@@ -419,15 +419,27 @@ describe('RecipeImportResponseSchema', () => {
 });
 
 describe('error codes', () => {
-  it('are exactly the five from spec 6.6 plus not_entitled from 4.12', () => {
+  it('are exactly the five from spec 6.6 plus not_entitled and limit_reached from 4.12', () => {
     expect(RECIPE_IMPORT_ERROR_CODES).toEqual([
       'invalid_url',
       'fetch_failed',
       'not_a_recipe',
       'rate_limited',
+      'limit_reached',
       'unavailable',
       'not_entitled',
     ]);
+  });
+
+  it('read limit_reached with resets_at; a body without it, or with a bad one, has none', () => {
+    const body = { error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' };
+    expect(RecipeImportErrorSchema.parse(body)).toEqual(body);
+    expect(RecipeImportErrorSchema.parse({ error: 'limit_reached', message: 'Used up' }).resets_at).toBeUndefined();
+    expect(RecipeImportErrorSchema.parse({ ...body, resets_at: 'next month' }).resets_at).toBeUndefined();
+    expect(RecipeImportErrorSchema.parse({ error: 'rate_limited', message: 'Slow down' })).toEqual({
+      error: 'rate_limited',
+      message: 'Slow down',
+    });
   });
 
   it('parse a not_entitled error body', () => {

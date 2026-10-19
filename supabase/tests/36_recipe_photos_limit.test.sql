@@ -1,4 +1,5 @@
--- recipe-photos rate limits (spec 6.9): per user 10 a minute and 50 a day, no global cap, a refused
+-- recipe-photos rate limits (spec 6.9): per user 10 a minute and 50 a day on every plan (no LLM, so
+-- no monthly limit), no global cap, a refused
 -- call uses no budget, separate from the import limit, the retention job, and only service_role
 -- can call it. now() is fixed within the transaction, so every call lands in the same minute; the
 -- window reset is simulated by moving minute_start back.
@@ -66,21 +67,22 @@ select hasnt_function('public', 'check_recipe_photos_limit', array['uuid', 'inte
   'the two-argument check_recipe_photos_limit (with p_daily_cap) is gone');
 select hasnt_table('private', 'recipe_photos_daily_total', 'recipe_photos_daily_total is gone');
 select is((select command from cron.job where jobname = 'recipe-photos-usage-retention'),
-  $$delete from private.recipe_photos_usage where day < (now() at time zone 'utc')::date - 1$$,
-  'the retention job prunes only recipe_photos_usage');
+  $$delete from private.recipe_photos_usage where day < (now() at time zone 'utc')::date - 40$$,
+  'the retention job keeps recipe_photos_usage 40 days, like the other usage tables, and prunes nothing else');
 
 -- The import limit is separate ------------------------------------------------------------
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
   'a user out of page-photo requests can still import');
 
 -- Retention -----------------------------------------------------------------------------
-insert into private.recipe_photos_usage (user_id, day, minute_start)
-  values ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 2, now() - interval '2 days');
+insert into private.recipe_photos_usage (user_id, day, minute_start) values
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 41, now() - interval '41 days'),
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 2, now() - interval '2 days');
 select ok(exists (select 1 from cron.job where jobname = 'recipe-photos-usage-retention'), 'usage retention job is scheduled');
 do $$ begin execute (select command from cron.job where jobname = 'recipe-photos-usage-retention'); end $$;
-select is((select count(*)::int from private.recipe_photos_usage where day < (now() at time zone 'utc')::date), 0,
-  'the retention job deletes old usage rows');
-select is((select count(*)::int from private.recipe_photos_usage), 3, 'and keeps today''s');
+select is((select count(*)::int from private.recipe_photos_usage where day < (now() at time zone 'utc')::date - 40), 0,
+  'the retention job deletes usage rows older than 40 days');
+select is((select count(*)::int from private.recipe_photos_usage), 4, 'and keeps newer ones and today''s');
 
 -- Bad arguments and access ----------------------------------------------------------
 select throws_ok($$ select public.check_recipe_photos_limit(null) $$, '22023', null, 'a null user is rejected');

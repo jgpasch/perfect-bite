@@ -1,15 +1,16 @@
--- suggest-recipe-tags rate limits (spec 6.7): per user 20 a minute and 100 a day, no global cap, a
--- refused call uses no budget, the retention job, and only service_role can call it. now() is
--- fixed within the transaction, so every call lands in the same minute; the window reset is
--- simulated by moving minute_start back.
+-- suggest-recipe-tags rate limits (spec 6.7): per user 20 a minute and the plan's monthly limit
+-- (plus: 50; 48_plan_limits covers each plan), no global cap, a refused call uses no budget, the
+-- retention job, and only service_role can call it. now() is fixed within the transaction, so
+-- every call lands in the same minute; the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(25);
 
-insert into auth.users (id, email, aud, role) values
-  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
-  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated');
+-- Older than 30 days, so the default plan's (plus's) limits apply undoubled.
+insert into auth.users (id, email, aud, role, created_at) values
+  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
 
 -- Per-minute limit ------------------------------------------------------------------
 create temp table results (n int, result text);
@@ -34,12 +35,12 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 21) $$,
   'a new window starts at 1; the day keeps counting');
 
--- Per-user daily limit ----------------------------------------------------------------
--- 21 so far; run 79 more, a minute window every 20, to reach exactly 100.
+-- Monthly limit (plus: 50) ------------------------------------------------------------
+-- 21 so far; run 29 more, a minute window every 19, to reach exactly 50.
 do $$
 declare i int;
 begin
-  for i in 1..79 loop
+  for i in 1..29 loop
     if i % 19 = 0 then
       update private.recipe_tags_usage set minute_start = minute_start - interval '1 minute'
         where user_id = '11111111-1111-1111-1111-111111111111';
@@ -49,16 +50,16 @@ begin
     end if;
   end loop;
 end $$;
-select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 100,
-  '100 suggestions a day pass');
+select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
+  '50 suggestions a month pass');
 update private.recipe_tags_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'user_limit',
-  'the 101st suggestion in a day is refused, even in a fresh minute');
-select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 100,
+select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
+  'the 51st suggestion in a month is refused, even in a fresh minute');
+select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused suggestion is not counted');
 
--- No global cap (101 suggestions so far across users) ----------------------------------
+-- No global cap (51 suggestions so far across users) ----------------------------------
 select is(public.check_recipe_tags_limit('33333333-3333-3333-3333-333333333333'), 'ok',
   'another user still gets suggestions, whatever others used');
 select results_eq(
@@ -68,21 +69,24 @@ select hasnt_function('public', 'check_recipe_tags_limit', array['uuid', 'intege
   'the two-argument check_recipe_tags_limit (with p_daily_cap) is gone');
 select hasnt_table('private', 'recipe_tags_daily_total', 'recipe_tags_daily_total is gone');
 select is((select command from cron.job where jobname = 'recipe-tags-usage-retention'),
-  $$delete from private.recipe_tags_usage where day < (now() at time zone 'utc')::date - 1$$,
-  'the retention job prunes only recipe_tags_usage');
+  $$delete from private.recipe_tags_usage where day < (now() at time zone 'utc')::date - 40$$,
+  'the retention job keeps recipe_tags_usage 40 days, and prunes nothing else');
 
 -- The import limits are separate ----------------------------------------------------------
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
   'a user out of tag suggestions can still import');
 
 -- Retention -----------------------------------------------------------------------------
-insert into private.recipe_tags_usage (user_id, day, minute_start)
-  values ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 2, now() - interval '2 days');
+insert into private.recipe_tags_usage (user_id, day, minute_start) values
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 41, now() - interval '41 days'),
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 40, now() - interval '40 days');
 select ok(exists (select 1 from cron.job where jobname = 'recipe-tags-usage-retention'), 'usage retention job is scheduled');
 do $$ begin execute (select command from cron.job where jobname = 'recipe-tags-usage-retention'); end $$;
-select is((select count(*)::int from private.recipe_tags_usage where day < (now() at time zone 'utc')::date), 0,
-  'the retention job deletes old usage rows');
-select is((select count(*)::int from private.recipe_tags_usage), 3, 'and keeps today''s');
+select is((select count(*)::int from private.recipe_tags_usage where day < (now() at time zone 'utc')::date - 40), 0,
+  'the retention job deletes usage rows older than 40 days');
+select is((select count(*)::int from private.recipe_tags_usage where day = (now() at time zone 'utc')::date - 40), 1,
+  'and keeps the row 40 days old');
+select is((select count(*)::int from private.recipe_tags_usage), 4, 'and today''s');
 
 -- Bad arguments and access ----------------------------------------------------------
 select throws_ok($$ select public.check_recipe_tags_limit(null) $$, '22023', null, 'a null user is rejected');

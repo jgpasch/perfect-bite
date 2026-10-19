@@ -68,8 +68,9 @@ export type ImportDeps = {
 
 /** Why an import failed; request.ts turns it into the HTTP status. */
 export type ImportFailure =
-  | { code: Exclude<RecipeImportErrorCode, 'rate_limited' | 'unavailable'> }
+  | { code: Exclude<RecipeImportErrorCode, 'rate_limited' | 'limit_reached' | 'unavailable'> }
   | { code: 'rate_limited' }
+  | { code: 'limit_reached' }
   | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
 export class ImportRecipeError extends Error {
@@ -178,6 +179,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new ImportRecipeError({ code: 'rate_limited' }, 'Too many imports; try again later');
+  if (limit === 'monthly_limit') throw new ImportRecipeError({ code: 'limit_reached' }, "This month's recipe imports are used up");
 
   let recipe: ExtractedRecipe | null = null;
   const cached = await deps.store.getCached(urlKey, EXTRACT_RECIPE_PROMPT_VERSION);

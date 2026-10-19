@@ -95,7 +95,12 @@ export interface CategorizeStore {
   requireFeature(feature: Feature): Promise<void>;
 }
 
-export type LimitResult = 'ok' | 'user_limit';
+/**
+ * A limit function's answer: `user_limit` is the per-minute limit (every plan); `monthly_limit` is
+ * the user's plan's monthly limit (`plan_limits`, spec 4.12). Functions answer them 429
+ * `rate_limited` and 429 `limit_reached`.
+ */
+export type LimitResult = 'ok' | 'user_limit' | 'monthly_limit';
 
 export type CategorizeResult = {
   status: IngredientStatus;

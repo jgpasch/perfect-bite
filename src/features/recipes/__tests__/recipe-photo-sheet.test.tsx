@@ -12,6 +12,7 @@ import { Palette, Rounded, Sizes } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
+import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import { outboxMutations } from '@/test/outbox';
 
@@ -20,7 +21,7 @@ import RecipePhotoSheet from '@/app/recipe/[id]/photo';
 
 import { emitAuthEvent, makeSession, resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
 
-import { resetPhotoUpload } from '../photo-upload';
+import { photoGenerationMessage, resetPhotoUpload } from '../photo-upload';
 import { resetPhotoSession } from '../recipe-photo-source';
 import { dismissPhotoChange, type PagePhotosResult } from '../recipe-photos';
 import { createRecipe, getRecipe, updateRecipe } from '../recipes';
@@ -810,6 +811,12 @@ describe('Generate with AI', () => {
   test.each<[string, number, unknown, string]>([
     ['not_food', 422, { error: 'not_food', message: 'x' }, "Couldn't make a photo for this recipe"],
     ['already_generated', 409, { error: 'already_generated', message: 'x' }, 'This recipe already had its AI photo'],
+    [
+      'limit_reached',
+      429,
+      { error: 'limit_reached', message: 'x', resets_at: '2026-11-01T00:00:00.000Z' },
+      "You've used this month's AI photos. They reset on Nov 1.",
+    ],
   ])('%s (%i): its toast has no Try again, and the recipe is as it was', async (_code, status, body, message) => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     failWith(status, body);
@@ -822,6 +829,35 @@ describe('Generate with AI', () => {
     expect(getRecipe(bread)).toMatchObject({ photoPath: null });
     // The Add photo tile is back.
     expect(byTestId(root, 'add-photo')).toHaveLength(1);
+  });
+
+  test('the monthly limit never asks to try again in a minute, and keeps the plan', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    failWith(429, { error: 'limit_reached', message: 'x', resets_at: '2026-12-01T00:00:00.000Z' });
+    const root = await generate();
+    await act(async () => {});
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe("You've used this month's AI photos. They reset on Dec 1.");
+    expect(toast.props.message).not.toMatch(/minute/);
+    expect(mockLostFeature.mock.calls).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('photoGenerationMessage: each failure, the monthly limit in English and Spanish', () => {
+    expect(photoGenerationMessage({ error: 'not_food' })).toBe("Couldn't make a photo for this recipe");
+    expect(photoGenerationMessage({ error: 'already_generated' })).toBe('This recipe already had its AI photo');
+    expect(photoGenerationMessage({ error: 'failed' })).toBe("Couldn't make a photo. Try again later.");
+    expect(photoGenerationMessage({ error: 'limit_reached', resetsAt: '2027-01-01T00:00:00.000Z' })).toBe(
+      "You've used this month's AI photos. They reset on Jan 1.",
+    );
+    initI18n('es');
+    try {
+      expect(photoGenerationMessage({ error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' })).toBe(
+        'Ya usaste las fotos con IA de este mes. Se renuevan el 1 nov.',
+      );
+    } finally {
+      initI18n('en');
+    }
   });
 
   test.each<[string, () => void]>([

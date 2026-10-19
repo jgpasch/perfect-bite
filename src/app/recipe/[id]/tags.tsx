@@ -23,6 +23,7 @@ import {
   NOTHING_SUGGESTED_NOTE,
   suggestRecipeTags,
   SUGGESTED_NOTE,
+  suggestTagsFailureMessage,
   suggestTagsMessage,
 } from '@/features/recipes/suggest-tags';
 import { useTheme } from '@/hooks/use-theme';
@@ -63,7 +64,7 @@ export default function RecipeTagsSheet() {
     const result = await suggestRecipeTags(id);
     if (mine !== run.current) return;
     if (!result.ok) {
-      const message = suggestTagsMessage(result.error);
+      const message = suggestTagsFailureMessage(result);
       setSuggestion({ status: 'error', message });
       AccessibilityInfo.announceForAccessibility(message);
       return;

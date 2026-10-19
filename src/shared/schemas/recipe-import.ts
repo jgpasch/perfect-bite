@@ -239,15 +239,24 @@ export const RECIPE_IMPORT_ERROR_CODES = [
   'fetch_failed',
   'not_a_recipe',
   'rate_limited',
+  'limit_reached',
   'unavailable',
   'not_entitled',
 ] as const;
 export const RecipeImportErrorCodeSchema = z.enum(RECIPE_IMPORT_ERROR_CODES);
 export type RecipeImportErrorCode = z.infer<typeof RecipeImportErrorCodeSchema>;
 
+/**
+ * With 429 `limit_reached` (the plan's monthly limit, spec 4.12): when it resets, the first instant
+ * of next month (UTC, ISO 8601). `rate_limited` (the per-minute limit) has none. Every AI function's
+ * error body carries it.
+ */
+export const ResetsAtSchema = z.iso.datetime().optional().catch(undefined);
+
 /** An error response body, the same shape as categorize-ingredients'. */
 export const RecipeImportErrorSchema = z.object({
   error: RecipeImportErrorCodeSchema,
   message: z.string(),
+  resets_at: ResetsAtSchema,
 });
 export type RecipeImportError = z.infer<typeof RecipeImportErrorSchema>;

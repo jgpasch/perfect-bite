@@ -851,6 +851,23 @@ describe('errors write nothing', () => {
     expect(await run()).toEqual({ ok: false, error: 'rate_limited' });
   });
 
+  test('the monthly limit is limit_reached with its resets_at, never rate_limited', async () => {
+    respondWithError(429, { error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' });
+    expect(await run()).toEqual({ ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+  });
+
+  test('limit_reached without a readable resets_at falls back to the start of next month (UTC)', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-12-14T10:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    try {
+      respondWithError(429, { error: 'limit_reached', message: 'Used up' });
+      expect(await run()).toEqual({ ok: false, error: 'limit_reached', resetsAt: '2027-01-01T00:00:00.000Z' });
+      respondWithError(429, { error: 'limit_reached', message: 'Used up', resets_at: 'soon' });
+      expect(await run()).toEqual({ ok: false, error: 'limit_reached', resetsAt: '2027-01-01T00:00:00.000Z' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('service unavailable reads as rate limited ("Try again in a minute")', async () => {
     respondWithError(503, { error: 'unavailable', message: 'Off' });
     expect(await run()).toEqual({ ok: false, error: 'rate_limited' });
@@ -1182,10 +1199,11 @@ describe('from photos (spec 4.10, 6.10)', () => {
   test.each([
     ['not_a_recipe', 422, { ok: false, error: 'not_a_recipe' }],
     ['rate_limited', 429, { ok: false, error: 'rate_limited' }],
+    ['limit_reached', 429, { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' }],
     ['unavailable', 503, { ok: false, error: 'rate_limited' }],
     ['invalid_request', 400, { ok: false, error: 'failed' }],
   ])('%s (%i) comes back as %o and writes nothing', async (code, status, expected) => {
-    respondWithError(status, { error: code, message: 'No' });
+    respondWithError(status, { error: code, message: 'No', resets_at: '2026-11-01T00:00:00.000Z' });
     const before = snapshot();
     expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(expected);
     expect(snapshot()).toEqual(before);

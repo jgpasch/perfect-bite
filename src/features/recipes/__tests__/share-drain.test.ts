@@ -32,6 +32,7 @@ import {
   importsCardHeading,
   queuedShareDetail,
   setShareQueueStatus,
+  waitReasonText,
   type QueuedShare,
 } from '../share-queue-status';
 import { sharedImportsToast } from '../import-sheet';
@@ -251,6 +252,46 @@ describe('drainShareQueue', () => {
     expect(importedUrls()).toEqual([TIKKA_URL]);
     expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
     expect(getDeviceSetting(shareAttemptsKey(E2), 0)).toBe(0);
+  });
+
+  test('the monthly limit (limit_reached) keeps the file without counting a try, and the rest of the queue waits', async () => {
+    const limitReached = {
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: {
+          status: 429,
+          json: () => Promise.resolve({ error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' }),
+        },
+      },
+    };
+    respond({ [TIKKA_URL]: limitReached, [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(importedUrls()).toEqual([TIKKA_URL]);
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(0);
+    expect(getDeviceSetting(shareAttemptsKey(E2), 0)).toBe(0);
+    expect(getShareQueueStatus()).toMatchObject({ waitReason: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+    expect(importsCardHeading(0, getShareQueueStatus())?.subtitle).toBe(
+      "You've used this month's recipe imports. They reset on Nov 1.",
+    );
+
+    // However many drains run before the month resets, it never becomes a failed import.
+    for (let i = 0; i < MAX_SHARE_ATTEMPTS + 1; i++) await drain();
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(0);
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(recordFailed).not.toHaveBeenCalled();
+
+    // The month resets: both import.
+    respond({ [TIKKA_URL]: TIKKA, [SOUP_URL]: SOUP });
+    const result = await drain();
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala', 'Leek soup']);
+    expect(queued()).toEqual([]);
+    expect(getShareQueueStatus()).toEqual({ queued: [], importing: null, waitReason: null });
   });
 
   test('a failure that isn’t offline or rate limited moves on to the next share', async () => {
@@ -666,6 +707,17 @@ describe('imports card copy', () => {
       "The import service is busy. They'll import next time you open the app.",
     );
     expect(importsCardHeading(0, idle([share(E1)]))?.title).toBe('1 recipe waiting');
+  });
+
+  test("waiting on the monthly limit gives the import sheet's wording and the reset date", () => {
+    const queue = { ...idle([share(E1)]), waitReason: 'limit_reached' as const, resetsAt: '2026-12-01T00:00:00.000Z' };
+    expect(importsCardHeading(0, queue)?.subtitle).toBe("You've used this month's recipe imports. They reset on Dec 1.");
+    expect(importsCardHeading(1, queue)?.subtitle).toBe(
+      "1 more waiting · You've used this month's recipe imports. They reset on Dec 1.",
+    );
+    expect(waitReasonText('limit_reached', '2026-11-01T00:00:00.000Z')).toBe(
+      "You've used this month's recipe imports. They reset on Nov 1.",
+    );
   });
 
   test('failed imports lead, with the queue under them', () => {

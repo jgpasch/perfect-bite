@@ -148,6 +148,7 @@ async function call(setup: Setup = {}, body: unknown = { recipeId: RECIPE_ID }) 
     env: read,
     generateRecipePhoto: (request) =>
       generateRecipePhoto(request, { store, model: setup.model, generateImage: image.generate, newId: () => PHOTO_ID, env: read }),
+    now: () => Date.parse('2026-10-18T12:00:00Z'),
   });
   return { res, json: await res.json(), store, image };
 }
@@ -250,11 +251,12 @@ Deno.test('the image kill switch (AI_IMAGE_MODEL=off): 503 before the reservatio
   });
 });
 
-Deno.test('reservation answers: not_found 404, already_generated 409, with no model call or release', async () => {
+Deno.test('reservation answers: not_found 404, already_generated 409, monthly_limit 429, with no model call or release', async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const cases: [ReserveResult['status'], number, string][] = [
       ['not_found', 404, 'not_found'],
       ['already_generated', 409, 'already_generated'],
+      ['monthly_limit', 429, 'limit_reached'],
     ];
     for (const [status, httpStatus, code] of cases) {
       const store = new FakeStore();
@@ -266,6 +268,17 @@ Deno.test('reservation answers: not_found 404, already_generated 409, with no mo
       assertEquals(store.aiCalls, [], `${status}: no description call`);
       assertEquals(image.prompts, [], `${status}: no image call`);
     }
+  });
+});
+
+Deno.test('the monthly limit: 429 limit_reached with next month as resets_at', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.reservation = { status: 'monthly_limit' };
+    const { res, json } = await call({ store });
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(json, { error: 'limit_reached', message: "This month's AI photos are used up", resets_at: '2026-11-01T00:00:00.000Z' });
   });
 });
 

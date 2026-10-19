@@ -45,10 +45,16 @@ describe('GenerateRecipePhotoErrorSchema', () => {
       'already_generated',
       'not_food',
       'generation_failed',
+      'limit_reached',
       'unavailable',
     ]);
     expect(GenerateRecipePhotoErrorSchema.parse({ error: 'not_food', message: 'No' })).toEqual({ error: 'not_food', message: 'No' });
     expect(GenerateRecipePhotoErrorSchema.safeParse({ error: 'rate_limited', message: 'No' }).success).toBe(false);
+  });
+
+  it('reads limit_reached with its resets_at', () => {
+    const body = { error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' };
+    expect(GenerateRecipePhotoErrorSchema.parse(body)).toEqual(body);
   });
 
   it('is exported from the shared index', () => {

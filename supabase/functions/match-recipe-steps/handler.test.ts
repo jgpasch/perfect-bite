@@ -93,6 +93,7 @@ function setup(overrides: Partial<MatchStepsDeps> = {}) {
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       matchSteps: (request) => matchSteps(request, deps),
       env: (k) => Deno.env.get(k),
+      now: () => Date.parse('2026-10-18T12:00:00Z'),
     });
   return { store, post };
 }
@@ -244,6 +245,23 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
     assertEquals(res.headers.get('Retry-After'), null);
     assertEquals(await res.json(), { error: 'rate_limited', message: 'Too many step matches; try again later' });
     assertEquals(store.steps, ['feature:step_ingredients', 'limit']);
+  });
+});
+
+Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, and no model call', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.limit = 'monthly_limit';
+    const res = await post(TACOS);
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(await res.json(), {
+      error: 'limit_reached',
+      message: "This month's step matches are used up",
+      resets_at: '2026-11-01T00:00:00.000Z',
+    });
+    assertEquals(store.steps, ['feature:step_ingredients', 'limit']);
+    assertEquals(store.aiCalls, []);
   });
 });
 

@@ -193,6 +193,29 @@ describe('retryFailedImport', () => {
     expect(liveRecipes()).toEqual([]);
   });
 
+  test("past the plan's monthly imports, it keeps it, and the card gives the import sheet's wording", async () => {
+    const id = recordFailedImport({ url: TIKKA_URL, title: 'Tikka', reason: 'rate_limited' });
+    invoke.mockResolvedValue({
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: {
+          status: 429,
+          json: () => Promise.resolve({ error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' }),
+        },
+      },
+    });
+
+    expect(await retryFailedImport(id, USER)).toEqual({ ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+    const [row] = rows();
+    expect([row.id, row.reason]).toEqual([id, 'limit_reached']);
+    expect(failedImportReason(row.reason, Date.parse('2026-10-18T12:00:00Z'))).toBe(
+      "You've used this month's recipe imports. They reset on Nov 1.",
+    );
+    expect(liveRecipes()).toEqual([]);
+  });
+
   test('signed out (no session) keeps it as offline and calls nothing', async () => {
     const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed' });
     supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });

@@ -110,10 +110,12 @@ function publishStatus(
   pending: () => PendingShare[],
   importing: ShareQueueStatus['importing'],
   waitReason: ShareQueueStatus['waitReason'],
+  resetsAt?: string,
 ): void {
   try {
     const queued = queuedShares(pending(), userId);
-    setShareQueueStatus({ queued, importing, waitReason: queued.length > 0 ? waitReason : null });
+    const reason = queued.length > 0 ? waitReason : null;
+    setShareQueueStatus({ queued, importing, waitReason: reason, ...(reason === 'limit_reached' && resetsAt ? { resetsAt } : {}) });
   } catch (err) {
     console.warn('[share] reading the queue failed', err);
   }
@@ -127,7 +129,8 @@ const removed = new Set<string>();
  * Imports `pending` (oldest first) as `userId`, one at a time, deleting each file once imported.
  * Bad files are logged and deleted. "Not a recipe" and "not in your plan" are recorded as failed at once; other failures
  * keep the file and count a try, and the fifth is recorded as failed. Offline or rate-limited, the
- * rest wait for the next drain, as they would fail the same way. One drain at a time: a drain
+ * rest wait for the next drain, as they would fail the same way. Past the plan's monthly imports
+ * (`limit_reached`), the share keeps its file without counting a try, and the rest wait too. One drain at a time: a drain
  * started during another does nothing.
  */
 export async function drainShareQueue(userId: string, options: ShareDrainOptions = {}): Promise<ShareDrainResult> {
@@ -136,6 +139,7 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
   if (draining) return result;
   draining = true;
   let waitReason: ShareQueueStatus['waitReason'] = null;
+  let resetsAt: string | undefined;
   try {
     const items = pending();
     const total = items.filter((item) => item.ok).length;
@@ -160,6 +164,13 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
         remove(item);
         continue;
       }
+      // The plan's monthly imports are used up: keep the file without counting a try, and stop, as
+      // every share after it would be refused the same way. They import once the month resets.
+      if (imported.error === 'limit_reached') {
+        waitReason = imported.error;
+        resetsAt = imported.resetsAt;
+        break;
+      }
       // Trying again won't change the page or the plan: these fail at once.
       const final = imported.error === 'not_a_recipe' || imported.error === 'not_entitled';
       const attempts = final ? MAX_SHARE_ATTEMPTS : getDeviceSetting(key, 0) + 1;
@@ -179,7 +190,7 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
   } finally {
     draining = false;
     removed.clear();
-    publishStatus(userId, pending, null, waitReason);
+    publishStatus(userId, pending, null, waitReason, resetsAt);
   }
   return result;
 }
@@ -197,7 +208,7 @@ export function removeQueuedShare(id: string, userId: string, options: Pick<Shar
   if (draining) removed.add(id);
   remove(item);
   clearDeviceSetting(shareAttemptsKey(id));
-  publishStatus(userId, pending, current.importing, current.waitReason);
+  publishStatus(userId, pending, current.importing, current.waitReason, current.resetsAt);
   return true;
 }
 

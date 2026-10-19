@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { MatchRecipeStepsRequestSchema, type MatchRecipeStepsRequest, type MatchRecipeStepsResponse } from '@shared/index.ts';
 
+import { limitReachedResponse } from '../_shared/limits.ts';
 import { reportError } from '../_shared/sentry.ts';
 import { readBody } from '../categorize-ingredients/request.ts';
 import { AI_FAILED_RETRY_AFTER, PAUSED_RETRY_AFTER } from '../suggest-recipe-tags/request.ts';
@@ -19,6 +20,8 @@ export type RequestDeps = {
   matchSteps: (request: MatchRecipeStepsRequest) => Promise<MatchRecipeStepsResponse>;
   /** Reads an env var. Defaults to `Deno.env.get`. */
   env?: (key: string) => string | undefined;
+  /** The clock for `resets_at`; defaults to `Date.now`. */
+  now?: () => number;
 };
 
 const error = (status: number, code: string, message: string, retryAfter?: number) => {
@@ -27,12 +30,14 @@ const error = (status: number, code: string, message: string, retryAfter?: numbe
   return res;
 };
 
-function failureResponse(failure: MatchStepsFailure, message: string): Response {
+function failureResponse(failure: MatchStepsFailure, message: string, now?: number): Response {
   switch (failure.code) {
     case 'not_entitled':
       return error(403, 'not_entitled', message);
     case 'rate_limited':
       return error(429, 'rate_limited', message);
+    case 'limit_reached':
+      return limitReachedResponse(message, now);
     case 'unavailable':
       return error(503, 'unavailable', message, failure.reason === 'ai_failed' ? AI_FAILED_RETRY_AFTER : PAUSED_RETRY_AFTER);
   }
@@ -82,7 +87,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       if (err.failure.code === 'unavailable') {
         console.warn(JSON.stringify({ level: 'warn', event: 'step_match_failed', reason: err.failure.reason, error: err.message.slice(0, 200) }));
       }
-      return failureResponse(err.failure, err.message);
+      return failureResponse(err.failure, err.message, deps.now?.());
     }
     console.error('match-recipe-steps failed:', err instanceof Error ? err.message : String(err));
     reportError('match-recipe-steps', err);

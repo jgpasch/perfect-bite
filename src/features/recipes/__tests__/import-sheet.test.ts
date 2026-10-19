@@ -1,5 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
 
+import { initI18n } from '@/i18n';
+
 import { importedOnRecipesToast, importedToast, importErrorMessage, savedRecipeToast, urlFromText } from '../import-sheet';
 
 describe('urlFromText', () => {
@@ -72,6 +74,26 @@ describe('importErrorMessage', () => {
 
   test('an unexplained failure asks to try again', () => {
     expect(importErrorMessage({ ok: false, error: 'failed' })).toBe("Couldn't import that recipe. Try again.");
+  });
+
+  test("the monthly limit says when it resets, never 'Try again in a minute'", () => {
+    const error = { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' } as const;
+    expect(importErrorMessage(error)).toBe("You've used this month's recipe imports. They reset on Nov 1.");
+    expect(importErrorMessage(error, 'photo')).toBe("You've used this month's photo imports. They reset on Nov 1.");
+    expect(importErrorMessage({ ...error, resetsAt: '2027-01-01T00:00:00.000Z' })).toBe(
+      "You've used this month's recipe imports. They reset on Jan 1.",
+    );
+  });
+
+  test('the monthly limit in Spanish', () => {
+    initI18n('es');
+    try {
+      const error = { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' } as const;
+      expect(importErrorMessage(error)).toBe('Ya usaste las importaciones de recetas de este mes. Se renuevan el 1 nov.');
+      expect(importErrorMessage(error, 'photo')).toBe('Ya usaste las importaciones de fotos de este mes. Se renuevan el 1 nov.');
+    } finally {
+      initI18n('en');
+    }
   });
 });
 

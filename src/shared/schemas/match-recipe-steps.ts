@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { MAX_RECIPE_STEP_LENGTH, MAX_RECIPE_STEPS } from '../recipe-jsonld.ts';
-import { MAX_RECIPE_INGREDIENTS } from './recipe-import.ts';
+import { MAX_RECIPE_INGREDIENTS, ResetsAtSchema } from './recipe-import.ts';
 import { SuggestRecipeTagsIngredientSchema } from './suggest-recipe-tags.ts';
 
 // Spec 4.5, 6.8. The match-recipe-steps Edge Function and the app share these: the request the
@@ -50,7 +50,7 @@ export const MatchRecipeStepsResponseSchema = z.object({
 });
 export type MatchRecipeStepsResponse = z.infer<typeof MatchRecipeStepsResponseSchema>;
 
-export const MATCH_RECIPE_STEPS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'unavailable'] as const;
+export const MATCH_RECIPE_STEPS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'limit_reached', 'unavailable'] as const;
 export const MatchRecipeStepsErrorCodeSchema = z.enum(MATCH_RECIPE_STEPS_ERROR_CODES);
 export type MatchRecipeStepsErrorCode = z.infer<typeof MatchRecipeStepsErrorCodeSchema>;
 
@@ -58,5 +58,6 @@ export type MatchRecipeStepsErrorCode = z.infer<typeof MatchRecipeStepsErrorCode
 export const MatchRecipeStepsErrorSchema = z.object({
   error: MatchRecipeStepsErrorCodeSchema,
   message: z.string(),
+  resets_at: ResetsAtSchema,
 });
 export type MatchRecipeStepsError = z.infer<typeof MatchRecipeStepsErrorSchema>;

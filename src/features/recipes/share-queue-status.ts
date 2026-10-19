@@ -2,9 +2,11 @@
 // The share drain publishes it; screens read it with `useShareQueueStatus`.
 import { useSyncExternalStore } from 'react';
 
+import { limitResetsAt } from '@/features/plans/limits';
 import { i18n } from '@/i18n';
 
 import type { ImportRecipeError } from './import';
+import { importLimitMessage } from './import-sheet';
 
 /** A share waiting in the App Group queue. */
 export type QueuedShare = {
@@ -28,6 +30,8 @@ export type ShareQueueStatus = {
   importing: { id: string; position: number; total: number } | null;
   /** Why the queue is waiting: the error the last kept share failed with, or null. */
   waitReason: ImportRecipeError['error'] | null;
+  /** With `limit_reached`: when the plan's monthly imports reset. */
+  resetsAt?: string;
 };
 
 export const EMPTY_SHARE_QUEUE_STATUS: ShareQueueStatus = { queued: [], importing: null, waitReason: null };
@@ -76,13 +80,18 @@ function recipes(count: number): string {
   return i18n.t('recipes.imports.recipes', { count });
 }
 
-/** Why the queue is waiting, in plain words, for the card's heading. */
-export function waitReasonText(reason: ShareQueueStatus['waitReason']): string {
+/**
+ * Why the queue is waiting, in plain words, for the card's heading. Past the plan's monthly imports
+ * it's the import sheet's wording, with `resetsAt` (else the start of next month).
+ */
+export function waitReasonText(reason: ShareQueueStatus['waitReason'], resetsAt?: string): string {
   switch (reason) {
     case 'offline':
       return i18n.t('recipes.imports.waitOffline');
     case 'rate_limited':
       return i18n.t('recipes.imports.waitBusy');
+    case 'limit_reached':
+      return importLimitMessage(limitResetsAt(resetsAt));
     case null:
       return i18n.t('recipes.imports.waitIdle');
     default:
@@ -131,7 +140,8 @@ export function importsCardHeading(failed: number, queue: ShareQueueStatus): Imp
     return {
       tone: 'failed',
       title: i18n.t('recipes.imports.couldntImport', { recipes: recipes(failed) }),
-      subtitle: progress ?? (waiting && queue.waitReason ? `${waiting} · ${waitReasonText(queue.waitReason)}` : waiting),
+      subtitle:
+        progress ?? (waiting && queue.waitReason ? `${waiting} · ${waitReasonText(queue.waitReason, queue.resetsAt)}` : waiting),
     };
   }
   if (importing) {
@@ -144,7 +154,7 @@ export function importsCardHeading(failed: number, queue: ShareQueueStatus): Imp
     return {
       tone: 'waiting',
       title: i18n.t('recipes.imports.waiting', { recipes: recipes(queued.length) }),
-      subtitle: waitReasonText(queue.waitReason),
+      subtitle: waitReasonText(queue.waitReason, queue.resetsAt),
     };
   }
   return null;

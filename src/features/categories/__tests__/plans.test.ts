@@ -212,6 +212,27 @@ describe('with categorize (basic)', () => {
     expect(hasFeature('categorize')).toBe(true);
     expect(rpcCallsFor('my_features')).toHaveLength(1);
   });
+
+  test('the monthly limit (limit_reached) leaves the names pending for a later catch-up, and the plan alone', async () => {
+    addItem(listId, 'kashk', USER);
+    invoke.mockResolvedValue({
+      data: null,
+      error: {
+        context: {
+          status: 429,
+          json: () => Promise.resolve({ error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' }),
+        },
+      },
+    });
+    await categorizePending(['kashk']);
+    expect(row('kashk')).toMatchObject({ status: 'pending', defaultCategoryId: null });
+    expect(hasFeature('categorize')).toBe(true);
+    expect(rpcCallsFor('my_features')).toHaveLength(1);
+    // The next catch-up sends the name again: a refused request cost nothing.
+    await categorizePending();
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenLastCalledWith('categorize-ingredients', { body: { names: ['kashk'] } });
+  });
 });
 
 describe('isNotEntitled', () => {

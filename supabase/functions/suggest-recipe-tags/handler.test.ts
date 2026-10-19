@@ -88,6 +88,7 @@ function setup(overrides: Partial<SuggestDeps> = {}) {
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       suggestRecipeTags: (request) => suggestRecipeTags(request, deps),
       env: (k) => Deno.env.get(k),
+      now: () => Date.parse('2026-10-18T12:00:00Z'),
     });
   return { store, post };
 }
@@ -231,6 +232,22 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
     assertEquals(res.status, 429);
     assertEquals(res.headers.get('Retry-After'), null);
     assertEquals((await res.json()).error, 'rate_limited');
+    assertEquals(store.steps, ['feature:recipe_tags', 'limit']);
+  });
+});
+
+Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, and no model call', async () => {
+  await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.limit = 'monthly_limit';
+    const res = await post(TIKKA);
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(await res.json(), {
+      error: 'limit_reached',
+      message: "This month's tag suggestions are used up",
+      resets_at: '2026-11-01T00:00:00.000Z',
+    });
     assertEquals(store.steps, ['feature:recipe_tags', 'limit']);
   });
 });

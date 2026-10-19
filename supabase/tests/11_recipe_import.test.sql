@@ -1,15 +1,16 @@
 -- import-recipe (spec 6.6): the recipe_imports cache is service role only with no user id, the
--- retention jobs are scheduled and delete only old rows, and the per-user import limits (there is
--- no global cap). now() is fixed within the transaction, so every call lands in the same minute;
+-- retention jobs are scheduled and delete only old rows, and the per-user import limits: per minute
+-- and the plan's monthly one (no global cap; 48_plan_limits covers each plan). now() is fixed within the transaction, so every call lands in the same minute;
 -- the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(35);
 
-insert into auth.users (id, email, aud, role) values
-  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
-  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated');
+-- Older than 30 days, so the default plan's (plus's) limits apply undoubled.
+insert into auth.users (id, email, aud, role, created_at) values
+  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
 
 -- recipe_imports ---------------------------------------------------------------------
 select has_pk('public', 'recipe_imports', 'recipe_imports has a primary key');
@@ -59,12 +60,12 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 11) $$,
   'a new window starts at 1 import; the day keeps counting');
 
--- Per-user daily limit ----------------------------------------------------------------
--- 11 imports so far; run 39 more, a minute window at a time, to reach exactly 50.
+-- Monthly limit (plus: 40) -------------------------------------------------------------
+-- 11 imports so far; run 29 more, a minute window at a time, to reach exactly 40.
 do $$
 declare i int;
 begin
-  for i in 1..39 loop
+  for i in 1..29 loop
     update private.recipe_import_usage set minute_start = minute_start - interval '1 minute'
       where user_id = '11111111-1111-1111-1111-111111111111';
     if public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111') <> 'ok' then
@@ -72,16 +73,16 @@ begin
     end if;
   end loop;
 end $$;
-select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
-  '50 imports a day pass');
+select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 40,
+  '40 imports a month pass');
 update private.recipe_import_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'user_limit',
-  'the 51st import in a day is refused, even in a fresh minute');
-select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
+  'the 41st import in a month is refused, even in a fresh minute');
+select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 40,
   'the refused import is not counted');
 
--- No global cap (51 imports so far across users) --------------------------------------
+-- No global cap (41 imports so far across users) --------------------------------------
 select is(public.check_recipe_import_limit('33333333-3333-3333-3333-333333333333'), 'ok',
   'another user still imports, whatever others used');
 select results_eq(
@@ -91,8 +92,8 @@ select hasnt_function('public', 'check_recipe_import_limit', array['uuid', 'inte
   'the two-argument check_recipe_import_limit (with p_daily_cap) is gone');
 select hasnt_table('private', 'recipe_import_daily_total', 'recipe_import_daily_total is gone');
 select is((select command from cron.job where jobname = 'recipe-import-usage-retention'),
-  $$delete from private.recipe_import_usage where day < (now() at time zone 'utc')::date - 1$$,
-  'the usage retention job still prunes recipe_import_usage, and nothing else');
+  $$delete from private.recipe_import_usage where day < (now() at time zone 'utc')::date - 40$$,
+  'the usage retention job keeps recipe_import_usage 40 days, and prunes nothing else');
 
 -- Bad arguments and access ----------------------------------------------------------
 select throws_ok($$ select public.check_recipe_import_limit(null) $$, '22023', null, 'a null user is rejected');

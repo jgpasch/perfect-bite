@@ -132,6 +132,17 @@ Deno.test('each failure’s status and body', async () => {
   }
 });
 
+Deno.test('limit_reached is 429 with resets_at, the first instant of next month (UTC)', async () => {
+  const res = await handleRequest(post(JSON.stringify({ images: [jpeg()] })), {
+    importRecipePhoto: () => Promise.reject(new ImportRecipePhotoError({ code: 'limit_reached' }, 'no')),
+    env: () => 'mock',
+    now: () => Date.parse('2026-10-18T09:00:00Z'),
+  });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'limit_reached', message: 'no', resets_at: '2026-11-01T00:00:00.000Z' });
+});
+
 // --- Auth -------------------------------------------------------------------------------------------
 
 Deno.test('the deployed function answers 401 without a JWT, before any work', async () => {

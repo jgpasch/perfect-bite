@@ -4,6 +4,7 @@
 import { getNetworkStateAsync } from 'expo-network';
 
 import { isOnline } from '@/features/categories/catch-up';
+import { limitResetsAt, resetDate } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { i18n, onLanguageChanged } from '@/i18n';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -18,17 +19,17 @@ import { getRecipe, recipeIngredientsQuery } from './recipes';
 
 /**
  * `offline`: no connection, session or config. `no-ingredients`: the recipe has none, so nothing
- * was sent. `not-entitled`: the plan has no `recipe_tags` (4.12). `rate-limited`: the per-user
+ * was sent. `not-entitled`: the plan has no `recipe_tags` (4.12). `rate-limited`: the per-minute
  * limit. `unavailable`: the kill switch or the model failed. `failed`: anything else.
  */
 export type SuggestTagsError = 'offline' | 'no-ingredients' | 'not-entitled' | 'rate-limited' | 'unavailable' | 'failed';
 
-export type SuggestTagsResult = { ok: true; tags: AiRecipeTags } | { ok: false; error: SuggestTagsError };
+/** A failed suggestion; `limit-reached` is the plan's monthly limit (4.12), back at `resetsAt`. */
+export type SuggestTagsFailure = { ok: false; error: SuggestTagsError } | { ok: false; error: 'limit-reached'; resetsAt: string };
 
-/**
- * What to tell the person for each error. The server answers both the per-minute and the per-day
- * limit with the same `rate_limited`, so `rate-limited` has one message.
- */
+export type SuggestTagsResult = { ok: true; tags: AiRecipeTags } | SuggestTagsFailure;
+
+/** What to tell the person for each error but `limit-reached`, whose message has a date (`suggestTagsFailureMessage`). */
 export let SUGGEST_TAGS_MESSAGES: Record<SuggestTagsError, string>;
 
 /** The Tags sheet's line under Suggest tags once a suggestion comes back, and when nothing fit. */
@@ -51,6 +52,12 @@ onLanguageChanged(() => {
 
 export function suggestTagsMessage(error: SuggestTagsError): string {
   return SUGGEST_TAGS_MESSAGES[error];
+}
+
+/** A failure's message: "You've used this month's tag suggestions. They reset on Nov 1." for the monthly limit. */
+export function suggestTagsFailureMessage(failure: SuggestTagsFailure): string {
+  if (failure.error === 'limit-reached') return i18n.t('recipes.tags.errors.limitReached', { date: resetDate(failure.resetsAt) });
+  return suggestTagsMessage(failure.error);
 }
 
 /** The request for a recipe: its name, notes as stored and live ingredients in order. Null if it's gone. */
@@ -85,7 +92,7 @@ export async function suggestRecipeTags(recipeId: string): Promise<SuggestTagsRe
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'offline' };
     const { data, error } = await supabase.functions.invoke('suggest-recipe-tags', { body });
-    if (error) return { ok: false, error: await errorCode(error) };
+    if (error) return await failure(error);
     const parsed = SuggestRecipeTagsResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('suggest-recipe-tags: unexpected response', parsed.error);
@@ -99,16 +106,18 @@ export async function suggestRecipeTags(recipeId: string): Promise<SuggestTagsRe
 }
 
 /** Maps a `functions.invoke` error: a network failure is offline, an HTTP error by its code, else its status. */
-async function errorCode(error: unknown): Promise<SuggestTagsError> {
+async function failure(error: unknown): Promise<SuggestTagsFailure> {
+  const fail = (code: SuggestTagsError): SuggestTagsFailure => ({ ok: false, error: code });
   const name = (error as { name?: unknown } | null)?.name;
-  if (name === 'FunctionsFetchError') return 'offline';
+  if (name === 'FunctionsFetchError') return fail('offline');
   const response = (error as { context?: unknown } | null)?.context as
     | { status?: number; json?: () => Promise<unknown> }
     | undefined;
   let code: string | undefined;
+  let resetsAt: string | undefined;
   try {
     const parsed = SuggestRecipeTagsErrorSchema.safeParse(await response?.json?.());
-    if (parsed.success) code = parsed.data.error;
+    if (parsed.success) ({ error: code, resets_at: resetsAt } = parsed.data);
   } catch {
     // Not a JSON body; fall back to the status.
   }
@@ -116,10 +125,11 @@ async function errorCode(error: unknown): Promise<SuggestTagsError> {
   if (code === 'not_entitled' || (!code && status === 403)) {
     // The plan has no tag suggestions: hide the entry points now and reload the plan (spec 4.12).
     void lostFeature('recipe_tags');
-    return 'not-entitled';
+    return fail('not-entitled');
   }
-  if (code === 'rate_limited' || (!code && status === 429)) return 'rate-limited';
-  if (code === 'unavailable' || (!code && status === 503)) return 'unavailable';
+  if (code === 'limit_reached') return { ok: false, error: 'limit-reached', resetsAt: limitResetsAt(resetsAt) };
+  if (code === 'rate_limited' || (!code && status === 429)) return fail('rate-limited');
+  if (code === 'unavailable' || (!code && status === 503)) return fail('unavailable');
   console.warn('suggest-recipe-tags returned an error', error);
-  return 'failed';
+  return fail('failed');
 }

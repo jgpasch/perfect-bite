@@ -9,6 +9,7 @@ import { db, households, lists, recipeIngredients, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
 import type { Feature } from '@/features/plans/features';
+import { limitResetsAt } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -64,13 +65,15 @@ export type ImportRecipeSuccess<ListId extends string | null = string | null> = 
 
 /**
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
- * `rate_limited`: a rate limit or the service is unavailable ("Try again in a minute").
+ * `rate_limited`: the per-minute limit or the service is unavailable ("Try again in a minute").
+ * `limit_reached`: the plan's monthly imports are used up (spec 4.12); `resetsAt` is when they come back.
  * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
  * `not_entitled`: the user's plan doesn't have `recipe_import` (`recipe_import_photo` for photos, spec 4.12).
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
   | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'not_entitled' }
+  | { ok: false; error: 'limit_reached'; resetsAt: string }
   | { ok: false; error: 'failed'; reason?: 'invalid_url' | 'fetch_failed' };
 
 export type ImportRecipeResult<ListId extends string | null = string | null> =
@@ -231,13 +234,15 @@ async function errorResult(error: unknown, fn: string, feature: Feature): Promis
     | { status?: number; json?: () => Promise<unknown> }
     | undefined;
   let code: string | undefined;
+  let resetsAt: string | undefined;
   try {
     const parsed = RecipeImportErrorSchema.safeParse(await response?.json?.());
-    if (parsed.success) code = parsed.data.error;
+    if (parsed.success) ({ error: code, resets_at: resetsAt } = parsed.data);
   } catch {
     // Not a JSON body; fall back to the status.
   }
   const status = response?.status;
+  if (code === 'limit_reached') return { ok: false, error: 'limit_reached', resetsAt: limitResetsAt(resetsAt) };
   if (code === 'not_entitled' || (!code && status === 403)) {
     // The plan has no recipe import (or photo import): hide its entry points now and reload the plan (spec 4.12).
     void lostFeature(feature);

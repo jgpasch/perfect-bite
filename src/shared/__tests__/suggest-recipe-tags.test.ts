@@ -96,7 +96,7 @@ describe('SuggestRecipeTagsResponseSchema', () => {
 
 describe('errors', () => {
   it('lists the codes the function answers with', () => {
-    expect(SUGGEST_RECIPE_TAGS_ERROR_CODES).toEqual(['invalid_request', 'not_entitled', 'rate_limited', 'unavailable']);
+    expect(SUGGEST_RECIPE_TAGS_ERROR_CODES).toEqual(['invalid_request', 'not_entitled', 'rate_limited', 'limit_reached', 'unavailable']);
     expect(SuggestRecipeTagsErrorSchema.parse({ error: 'rate_limited', message: 'Slow down' })).toEqual({ error: 'rate_limited', message: 'Slow down' });
     expect(SuggestRecipeTagsErrorSchema.safeParse({ error: 'fetch_failed', message: 'x' }).success).toBe(false);
   });

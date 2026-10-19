@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ResetsAtSchema } from './recipe-import.ts';
+
 // Spec 4.5, 6.11. The generate-recipe-photo Edge Function and the app share these. The app sends
 // only the recipe's id: the server reads the recipe itself, so no text the app sends reaches a model.
 
@@ -26,6 +28,7 @@ export type GenerateRecipePhotoResponse = z.infer<typeof GenerateRecipePhotoResp
  * has had its one AI photo, or one is being made. `not_food` (422): the recipe isn't food, or its
  * text isn't something to put in a food photo, or the image model refused it.
  * `generation_failed` (502): a model failed or timed out; the slot was released, so try again.
+ * `limit_reached` (429, with `resets_at`): the user has made their plan's AI photos this month.
  * `unavailable` (503, with Retry-After): a kill switch.
  */
 export const GENERATE_RECIPE_PHOTO_ERROR_CODES = [
@@ -35,6 +38,7 @@ export const GENERATE_RECIPE_PHOTO_ERROR_CODES = [
   'already_generated',
   'not_food',
   'generation_failed',
+  'limit_reached',
   'unavailable',
 ] as const;
 export const GenerateRecipePhotoErrorCodeSchema = z.enum(GENERATE_RECIPE_PHOTO_ERROR_CODES);
@@ -44,5 +48,6 @@ export type GenerateRecipePhotoErrorCode = z.infer<typeof GenerateRecipePhotoErr
 export const GenerateRecipePhotoErrorSchema = z.object({
   error: GenerateRecipePhotoErrorCodeSchema,
   message: z.string(),
+  resets_at: ResetsAtSchema,
 });
 export type GenerateRecipePhotoError = z.infer<typeof GenerateRecipePhotoErrorSchema>;

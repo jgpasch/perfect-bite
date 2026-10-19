@@ -548,6 +548,8 @@ export const en = {
       generateNotFood: "Couldn't make a photo for this recipe",
       generateAlready: 'This recipe already had its AI photo',
       generateFailed: "Couldn't make a photo. Try again later.",
+      /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
+      generateLimitReached: "You've used this month's AI photos. They reset on {{date}}.",
     },
     /** The recipe band's link row. */
     link: {
@@ -688,6 +690,8 @@ export const en = {
         noIngredients: "Add some ingredients first, so there's something to go on.",
         notEntitled: "Tag suggestions aren't included in your plan.",
         rateLimited: "That's a lot of suggestions. Try again in a minute.",
+        /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
+        limitReached: "You've used this month's tag suggestions. They reset on {{date}}.",
         unavailable: "Couldn't suggest tags right now. Try again later.",
       },
     },
@@ -790,6 +794,9 @@ export const en = {
         photoNotARecipe: "That photo doesn't look like a recipe",
         photoNotEntitled: "Photo import isn't in your plan",
         rateLimited: 'Try again in a minute',
+        /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
+        limitReached: "You've used this month's recipe imports. They reset on {{date}}.",
+        photoLimitReached: "You've used this month's photo imports. They reset on {{date}}.",
         offline: "You're offline",
         blocked: 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.',
         fetchFailed: "Couldn't reach that site",

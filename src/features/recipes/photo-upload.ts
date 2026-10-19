@@ -8,7 +8,9 @@ import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useSyncExternalStore } from 'react';
 
+import { limitResetsAt, resetDate } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
+import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { GenerateRecipePhotoErrorSchema, GenerateRecipePhotoResponseSchema } from '@/shared/schemas/generate-recipe-photo';
@@ -176,15 +178,18 @@ export function resetPhotoUpload(): void {
 
 /**
  * Why a generation failed: `not_food` (the server wouldn't make a photo for this recipe),
- * `already_generated` (it has had its one AI photo), `failed` (anything else; the server released
+ * `already_generated` (it has had its one AI photo), `limit_reached` (the plan's AI photos this
+ * month are made, spec 4.12; back at `resetsAt`), `failed` (anything else; the server released
  * the slot, so it can be tried again).
  */
-export type PhotoGenerationError = 'not_food' | 'already_generated' | 'failed';
+export type PhotoGenerationError = 'not_food' | 'already_generated' | 'limit_reached' | 'failed';
+
+type GenerationFailure = { error: Exclude<PhotoGenerationError, 'limit_reached'> } | { error: 'limit_reached'; resetsAt: string };
 
 /** A generation the recipe screen shows: running, or failed with why. */
 export type PhotoGeneration =
   | { recipeId: string; status: 'generating'; key: number }
-  | { recipeId: string; status: 'failed'; error: PhotoGenerationError; key: number };
+  | ({ recipeId: string; status: 'failed'; key: number } & GenerationFailure);
 
 // One per recipe; replaced (not changed) on every update, for useSyncExternalStore.
 let generations: ReadonlyMap<string, PhotoGeneration> = new Map();
@@ -200,13 +205,13 @@ function emitGeneration(recipeId: string, next: PhotoGeneration | null) {
 }
 
 /** Asks `generate-recipe-photo` for the recipe's photo: its path, or why not. Never throws. */
-async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path: string } | { ok: false; error: PhotoGenerationError }> {
+async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path: string } | ({ ok: false } & GenerationFailure)> {
   if (!isSupabaseConfigured) return { ok: false, error: 'failed' };
   try {
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'failed' };
     const { data, error } = await supabase.functions.invoke('generate-recipe-photo', { body: { recipeId } });
-    if (error) return { ok: false, error: await generationError(error) };
+    if (error) return { ok: false, ...(await generationError(error)) };
     const parsed = GenerateRecipePhotoResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('generate-recipe-photo: unexpected response', parsed.error);
@@ -220,24 +225,44 @@ async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path
 }
 
 /** Maps a `functions.invoke` error by its code, else its status. */
-async function generationError(error: unknown): Promise<PhotoGenerationError> {
+async function generationError(error: unknown): Promise<GenerationFailure> {
   const response = (error as { context?: unknown } | null)?.context as
     | { status?: number; json?: () => Promise<unknown> }
     | undefined;
   let code: string | undefined;
+  let resetsAt: string | undefined;
   try {
     const parsed = GenerateRecipePhotoErrorSchema.safeParse(await response?.json?.());
-    if (parsed.success) code = parsed.data.error;
+    if (parsed.success) ({ error: code, resets_at: resetsAt } = parsed.data);
   } catch {
     // Not a JSON body; fall back to the status.
   }
   const status = response?.status;
-  if (code === 'not_food' || (!code && status === 422)) return 'not_food';
-  if (code === 'already_generated' || (!code && status === 409)) return 'already_generated';
+  if (code === 'not_food' || (!code && status === 422)) return { error: 'not_food' };
+  if (code === 'already_generated' || (!code && status === 409)) return { error: 'already_generated' };
+  if (code === 'limit_reached') return { error: 'limit_reached', resetsAt: limitResetsAt(resetsAt) };
   // The plan has no AI photos: hide the row now and reload the plan (spec 4.12).
   if (code === 'not_entitled' || (!code && status === 403)) void lostFeature('recipe_photo_ai');
   console.warn('generate-recipe-photo returned an error', error);
-  return 'failed';
+  return { error: 'failed' };
+}
+
+function failureOf(result: { ok: false } & GenerationFailure): GenerationFailure {
+  return result.error === 'limit_reached' ? { error: 'limit_reached', resetsAt: result.resetsAt } : { error: result.error };
+}
+
+/** A failed generation's toast (spec 4.5): "You've used this month's AI photos. They reset on Nov 1." for the monthly limit. */
+export function photoGenerationMessage(failure: GenerationFailure): string {
+  switch (failure.error) {
+    case 'not_food':
+      return i18n.t('recipes.photo.generateNotFood');
+    case 'already_generated':
+      return i18n.t('recipes.photo.generateAlready');
+    case 'limit_reached':
+      return i18n.t('recipes.photo.generateLimitReached', { date: resetDate(failure.resetsAt) });
+    case 'failed':
+      return i18n.t('recipes.photo.generateFailed');
+  }
 }
 
 /**
@@ -259,7 +284,7 @@ export async function generateRecipePhoto(recipeId: string): Promise<boolean> {
   }
   if (generations.get(recipeId)?.key === key) {
     const shown = (watchers.get(recipeId) ?? 0) > 0;
-    emitGeneration(recipeId, result.ok || !now || !shown ? null : { recipeId, status: 'failed', error: result.error, key });
+    emitGeneration(recipeId, result.ok || !now || !shown ? null : { ...failureOf(result), recipeId, status: 'failed', key });
   }
   return result.ok && now !== undefined;
 }

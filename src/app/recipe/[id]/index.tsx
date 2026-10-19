@@ -63,10 +63,10 @@ import {
   dismissPhotoGeneration,
   dismissPhotoUpload,
   generateRecipePhoto,
+  photoGenerationMessage,
   retryPhotoUpload,
   usePhotoGeneration,
   usePhotoUpload,
-  type PhotoGenerationError,
 } from '@/features/recipes/photo-upload';
 import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
@@ -496,7 +496,7 @@ export default function RecipeScreen() {
               <View style={{ paddingBottom: spacing.sm }}>
                 <Toast
                   key={`generate-${generation.key}`}
-                  message={t(GENERATION_MESSAGES[generation.error])}
+                  message={photoGenerationMessage(generation)}
                   actions={
                     // The server released the slot, so only a plain failure can be tried again.
                     generation.error === 'failed'
@@ -720,12 +720,6 @@ function AddPhotoTile({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** Each Generate with AI failure's toast (spec 4.5). */
-const GENERATION_MESSAGES = {
-  not_food: 'recipes.photo.generateNotFood',
-  already_generated: 'recipes.photo.generateAlready',
-  failed: 'recipes.photo.generateFailed',
-} as const satisfies Record<PhotoGenerationError, string>;
 
 /**
  * Where the photo will be while Generate with AI runs (spec 4.5): a 16:9 `surfaceMuted` tile, radius

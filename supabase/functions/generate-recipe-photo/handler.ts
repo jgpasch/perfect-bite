@@ -10,8 +10,8 @@ import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
 import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, isImageEnabled, type GeneratedImage } from './image.ts';
 
-/** `reserve_recipe_photo_ai`'s answer. */
-export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' };
+/** `reserve_recipe_photo_ai`'s answer. `monthly_limit`: the caller has reserved their plan's AI photos this month. */
+export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'monthly_limit' };
 
 /** The recipe as stored: its name, its live ingredients' display names in order, and its `tags`. */
 export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown };
@@ -51,6 +51,7 @@ export type GenerateFailure =
   | { code: 'not_entitled' }
   | { code: 'not_found' }
   | { code: 'already_generated' }
+  | { code: 'limit_reached' }
   | { code: 'not_food'; by: 'description' | 'image' }
   | { code: 'generation_failed'; step: 'description' | 'image' }
   | { code: 'unavailable'; reason: 'ai_off' };
@@ -98,6 +99,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
       throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
     case 'already_generated':
       throw new GeneratePhotoError({ code: 'already_generated' }, 'This recipe already has had its AI photo');
+    case 'monthly_limit':
+      throw new GeneratePhotoError({ code: 'limit_reached' }, "This month's AI photos are used up");
   }
   const { householdId } = reserved;
 

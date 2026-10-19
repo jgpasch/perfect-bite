@@ -2,6 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { reportError } from '../_shared/sentry.ts';
 import { NotEntitledError } from '../_shared/entitlements.ts';
+import { limitReachedResponse } from '../_shared/limits.ts';
 import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
 /** Request body cap: 100 names of 64 characters fit with room for JSON and multi-byte text. */
@@ -13,6 +14,8 @@ export type RequestDeps = {
   categorize: (names: string[]) => Promise<CategorizeResponse>;
   /** Reads an env var. Defaults to `Deno.env.get`. */
   env?: (key: string) => string | undefined;
+  /** The clock for `resets_at`; defaults to `Date.now`. */
+  now?: () => number;
 };
 
 const error = (status: number, code: string, message: string) =>
@@ -58,7 +61,10 @@ function parseNames(bytes: Uint8Array): string[] | string {
   return names;
 }
 
-/** POST { names: string[] } → 200 CategorizeResponse · 400 · 403 · 405 · 413 · 429 · 500. Never logs headers. */
+/**
+ * POST { names: string[] } → 200 CategorizeResponse · 400 · 403 · 405 · 413 · 429 rate_limited (per
+ * minute) or limit_reached (the plan's monthly names, with resets_at) · 500. Never logs headers.
+ */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
   if (req.method !== 'POST') return error(405, 'method_not_allowed', 'Use POST');
 
@@ -83,7 +89,10 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   } catch (err) {
     if (err instanceof NotEntitledError) return error(403, 'not_entitled', "Categorizing isn't included in your plan");
     if (err instanceof CategorizeInputError) return error(400, 'invalid_request', err.message);
-    if (err instanceof CategorizeLimitError) return error(429, 'rate_limited', 'Too many requests; try again later');
+    if (err instanceof CategorizeLimitError) {
+      if (err.reason === 'monthly_limit') return limitReachedResponse("This month's categorizing is used up", deps.now?.());
+      return error(429, 'rate_limited', 'Too many requests; try again later');
+    }
     console.error('categorize-ingredients failed:', err instanceof Error ? err.message : String(err));
     reportError('categorize-ingredients', err);
     return error(500, 'internal_error', 'Categorization failed');

@@ -148,6 +148,7 @@ function setup(overrides: Partial<PhotoImportDeps> = {}) {
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       importRecipePhoto: (request) => importRecipePhoto(request, deps),
       env: (key) => Deno.env.get(key),
+      now: () => Date.parse('2026-10-18T12:00:00Z'),
     });
   return { store, catStore, deps, aiCalls, calls, post };
 }
@@ -283,6 +284,20 @@ test('the per-user limit: 429, with no model call', async () => {
   const { post, store, aiCalls } = setup();
   store.limit = 'user_limit';
   await expectError(await post({ images: [PAGE_1] }), 429, 'rate_limited');
+  assertEquals(store.limitChecks, 1);
+  assertEquals(aiCalls.length, 0);
+});
+
+test('the monthly limit: 429 limit_reached with next month as resets_at, and no model call', async () => {
+  const { post, store, aiCalls } = setup();
+  store.limit = 'monthly_limit';
+  const res = await post({ images: [PAGE_1] });
+  assertEquals(res.status, 429);
+  assertEquals(await res.json(), {
+    error: 'limit_reached',
+    message: "This month's photo imports are used up",
+    resets_at: '2026-11-01T00:00:00.000Z',
+  });
   assertEquals(store.limitChecks, 1);
   assertEquals(aiCalls.length, 0);
 });

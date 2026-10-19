@@ -403,7 +403,14 @@ export const outbox = sqliteTable(
 // --- Recipe import (spec 4.10) -------------------------------------------------------------
 
 /** Why a shared recipe didn't import: `ImportRecipeError['error']` in `src/features/recipes/import.ts`. */
-export type FailedImportReason = 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'not_entitled' | 'failed';
+export type FailedImportReason =
+  | 'not_a_recipe'
+  | 'offline'
+  | 'rate_limited'
+  | 'limit_reached'
+  | 'blocked'
+  | 'not_entitled'
+  | 'failed';
 
 /** Shares that won't import, shown on the Recipes tab until retried or dismissed. Device-only, never synced. */
 export const failedImports = sqliteTable('failed_imports', {

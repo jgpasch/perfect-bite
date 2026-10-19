@@ -6,6 +6,7 @@ import { db, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
+import { initI18n } from '@/i18n';
 import type { AiRecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
@@ -23,6 +24,7 @@ import {
   buildSuggestTagsRequest,
   SUGGEST_TAGS_MESSAGES,
   suggestRecipeTags,
+  suggestTagsFailureMessage,
   suggestTagsMessage,
   type SuggestTagsError,
 } from '../suggest-tags';
@@ -250,6 +252,21 @@ describe('errors', () => {
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'rate-limited' });
   });
 
+  test('the monthly limit (limit_reached) is limit-reached with its resets_at, not rate-limited', async () => {
+    respondWithError(429, { error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' });
+    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+  });
+
+  test('limit_reached without resets_at falls back to the start of next month (UTC)', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-18T12:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    try {
+      respondWithError(429, { error: 'limit_reached', message: 'Used up' });
+      expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('a 500 not_configured is failed', async () => {
     respondWithError(500, { error: 'not_configured', message: 'AI_MODEL_TAGS is not set' });
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'failed' });
@@ -285,6 +302,24 @@ describe('messages', () => {
     });
     expect(suggestTagsMessage('offline')).toBe("You're offline. Try again when you're connected.");
     expect(suggestTagsMessage('rate-limited')).toBe("That's a lot of suggestions. Try again in a minute.");
+  });
+
+  test('a failure: the monthly limit says when it resets', () => {
+    expect(suggestTagsFailureMessage({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' })).toBe(
+      "You've used this month's tag suggestions. They reset on Nov 1.",
+    );
+    expect(suggestTagsFailureMessage({ ok: false, error: 'rate-limited' })).toBe("That's a lot of suggestions. Try again in a minute.");
+  });
+
+  test('the monthly limit in Spanish', () => {
+    initI18n('es');
+    try {
+      expect(suggestTagsFailureMessage({ ok: false, error: 'limit-reached', resetsAt: '2026-12-01T00:00:00.000Z' })).toBe(
+        'Ya usaste las sugerencias de etiquetas de este mes. Se renuevan el 1 dic.',
+      );
+    } finally {
+      initI18n('en');
+    }
   });
 });
 

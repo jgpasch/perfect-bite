@@ -3,11 +3,12 @@
 import { desc, eq } from 'drizzle-orm';
 
 import { db, failedImports, type FailedImportReason } from '@/db';
+import { limitResetsAt } from '@/features/plans/limits';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 
 import { importRecipe, type ImportRecipeResult } from './import';
-import { NOT_ENTITLED_MESSAGE } from './import-sheet';
+import { importLimitMessage, NOT_ENTITLED_MESSAGE } from './import-sheet';
 import { requestedFromRecord, resolveImportTarget } from './import-target';
 import type { FailedShare } from './share-drain';
 
@@ -65,9 +66,14 @@ export async function retryFailedImport(id: string, userId: string): Promise<Imp
 /** A row's name: the page title, else the link's host without `www.`, else the link as shared. */
 export { importName as failedImportName } from './share-queue-status';
 
-/** Why it failed, in plain words. */
-export function failedImportReason(reason: FailedImportReason): string {
+/**
+ * Why it failed, in plain words. `limit_reached` (a Try again past the plan's monthly imports) says
+ * when they reset: the start of next month, as the row keeps no date.
+ */
+export function failedImportReason(reason: FailedImportReason, now: number = Date.now()): string {
   switch (reason) {
+    case 'limit_reached':
+      return importLimitMessage(limitResetsAt(null, now));
     case 'not_a_recipe':
       return i18n.t('recipes.imports.reasons.notARecipe');
     case 'blocked':

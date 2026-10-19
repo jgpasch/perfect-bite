@@ -405,6 +405,32 @@ describe('the pauses', () => {
     await ensureStepMatch(recipeId);
     expect(matchCalls()).toHaveLength(2);
   });
+
+  test("the monthly limit (limit_reached) stops matching for the session, silently, and keeps the plan", async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const other = createRecipe('Lime soda');
+    updateRecipeSteps(other, ['Squeeze the limes.']);
+    addRecipeIngredient(other, '2 limes');
+
+    respondWithError(429, { error: 'limit_reached', message: 'x', resets_at: '2026-11-01T00:00:00.000Z' });
+    await ensureStepMatch(recipeId);
+    expect(hasFeature('step_ingredients')).toBe(true);
+
+    // Not a pause: an hour later, or any time this session, nothing more is sent.
+    respond();
+    now += 10 * STEP_MATCH_PAUSE_MS;
+    await ensureStepMatch(recipeId);
+    await ensureStepMatch(other);
+    expect(matchCalls()).toHaveLength(1);
+    expect(saved()).toBeNull();
+    expect(saved(other)).toBeNull();
+
+    resetStepMatching(); // A new session.
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(2);
+    expect(saved()).not.toBeNull();
+  });
 });
 
 describe('ensureStepMatchSoon', () => {

@@ -2,7 +2,13 @@ import { z } from 'zod';
 
 import { UNITS } from '../quantity-parser.ts';
 import { AiRecipeTagsSchema } from '../recipe-tags.ts';
-import { MAX_RECIPE_INGREDIENT_NAME_LENGTH, MAX_RECIPE_INGREDIENTS, MAX_RECIPE_NAME_LENGTH, MAX_RECIPE_NOTE_LENGTH } from './recipe-import.ts';
+import {
+  MAX_RECIPE_INGREDIENT_NAME_LENGTH,
+  MAX_RECIPE_INGREDIENTS,
+  MAX_RECIPE_NAME_LENGTH,
+  MAX_RECIPE_NOTE_LENGTH,
+  ResetsAtSchema,
+} from './recipe-import.ts';
 
 // Spec 4.14, 6.7. The suggest-recipe-tags Edge Function and the app share these: the request the
 // app builds from a recipe on the device, and the response.
@@ -58,7 +64,7 @@ export const SuggestRecipeTagsResponseSchema = z.object({
 });
 export type SuggestRecipeTagsResponse = z.infer<typeof SuggestRecipeTagsResponseSchema>;
 
-export const SUGGEST_RECIPE_TAGS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'unavailable'] as const;
+export const SUGGEST_RECIPE_TAGS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'limit_reached', 'unavailable'] as const;
 export const SuggestRecipeTagsErrorCodeSchema = z.enum(SUGGEST_RECIPE_TAGS_ERROR_CODES);
 export type SuggestRecipeTagsErrorCode = z.infer<typeof SuggestRecipeTagsErrorCodeSchema>;
 
@@ -66,5 +72,6 @@ export type SuggestRecipeTagsErrorCode = z.infer<typeof SuggestRecipeTagsErrorCo
 export const SuggestRecipeTagsErrorSchema = z.object({
   error: SuggestRecipeTagsErrorCodeSchema,
   message: z.string(),
+  resets_at: ResetsAtSchema,
 });
 export type SuggestRecipeTagsError = z.infer<typeof SuggestRecipeTagsErrorSchema>;
