@@ -1,4 +1,4 @@
-import { Stack, ThemeProvider } from 'expo-router';
+import { ErrorBoundary as RouterErrorBoundary, type ErrorBoundaryProps, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -18,12 +18,19 @@ import { startupLanguage } from '@/features/settings/language';
 import { useNavigationTheme, useStackScreenOptions } from '@/hooks/use-navigation-theme';
 import { useTheme } from '@/hooks/use-theme';
 import { initI18n, useT } from '@/i18n';
+import { initSentry, reportError, setSentryUser, wrapRoot } from '@/lib/sentry';
 
-export { ErrorBoundary } from 'expo-router';
+// Expo Router's error screen, reporting what it caught to Sentry first.
+export function ErrorBoundary(props: ErrorBoundaryProps) {
+  useEffect(() => reportError(props.error), [props.error]);
+  return <RouterErrorBoundary {...props} />;
+}
 
 // A deep link (to a recipe, an invite) still gets the tabs underneath to go back to.
 export const unstable_settings = { initialRouteName: '(tabs)' };
 
+// Crash reporting in release builds, first so it sees anything below that throws.
+initSentry();
 // The app's strings, in the language picked in Settings or else the phone's (spec 4.15), before anything renders.
 initI18n(startupLanguage());
 // The font set picked in Settings > Design trials, before anything renders.
@@ -33,17 +40,20 @@ startAccount({ beforeReady: wipeIfOtherUser });
 // A push arriving while the app is open shows in the app, not as an OS banner (spec 4.13).
 startForegroundPushes();
 
-export default function RootLayout() {
+function RootLayout() {
   const t = useT();
   const navigationTheme = useNavigationTheme();
   const screenOptions = useStackScreenOptions();
   const { colors, scheme } = useTheme();
   const account = useAccountState();
   const ready = account.status === 'ready';
+  const userId = ready ? account.account.userId : null;
 
   useEffect(() => {
     if (account.status !== 'loading') SplashScreen.hideAsync();
   }, [account.status]);
+
+  useEffect(() => setSentryUser(userId), [userId]);
 
   // In-app notifications are the signed-in user's (spec 4.11): none survive signing out.
   useEffect(() => {
@@ -168,3 +178,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRoot(RootLayout);

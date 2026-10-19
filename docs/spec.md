@@ -1132,6 +1132,7 @@ Settings > "Sync status" (as stash): pending outbox count, last successful sync,
 | Auth | Google via Supabase Auth; dev email-code stub until OAuth IDs exist | Same as stash |
 | LLM | Vercel AI SDK in an Edge Function; the model is set per task by env var (`AI_MODEL_CATEGORIZE` etc.), currently Gemini 3.8 Flash (`google:gemini-3.8-flash`); Anthropic is a registered alternative | Key stays server-side; provider is config |
 | UI and i18n | `@expo/ui`, `expo-glass-effect`, `expo-image`, `expo-symbols`; `i18next` + `react-i18next` (4.15) | Native controls; strings in one place |
+| Crash reporting | Sentry's free Developer plan. App: `@sentry/react-native`, errors from release builds only, no tracing or replays, the user tagged by id alone. Edge Functions: `@sentry/deno` (`_shared/sentry.ts`), every 500 with the function's name, only when `SENTRY_DSN` is set | Find crashes in production without collecting list contents |
 | Other native | `expo-mail-composer`, `expo-sms` (invites), `react-native-webview` (recipe page capture, 4.10), `expo-keep-awake`, `expo-haptics` | |
 | Shared code | Zod schemas, normalizer, quantity parser in `src/shared/`, imported by app and Edge Functions | One implementation of the ingredient key |
 
