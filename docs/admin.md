@@ -6,7 +6,7 @@ There's no admin portal. The app is run from the Supabase dashboard: Authenticat
 
 **Never delete users or household rows by hand** (in Authentication → Users, the Table Editor, or with a plain `delete`). The dashboard runs as `postgres` and doesn't know the app's rules: deleting a user there skips owner promotion and leaves their personal household behind with nobody in it, and deleting a `household_members` row can leave a household with no owner. Use the snippets below, which go through tested functions in the `admin` schema and write an audit row to `admin.admin_actions`.
 
-Changes with no rules beyond the table's own constraints (a user's plan) can be made in the Table Editor.
+Changes with no rules beyond the table's own constraints (a user's plan, a plan's monthly limits) can be made in the Table Editor.
 
 ## Common jobs
 
@@ -75,15 +75,44 @@ A user's plan decides which AI features they get (spec 4.12):
 - **none**: no AI features.
 - **basic**: categorizing new ingredients and matching ingredients to steps for cook mode.
 - **plus** (the default): also recipe import from a link and from photos, AI tag suggestions and AI recipe photos; every feature today.
-- **unlimited**: every feature.
+- **unlimited**: every feature, with no monthly limits. It's the plan for family.
 
-A user with no `user_plans` row is on the default plan.
+A user with no `user_plans` row is on the default plan. Each plan also sets how much of each feature a user may use a month (below).
 
 1. Find their id in Authentication → Users.
 2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`none`, `basic`, `plus` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
 3. To put them back on the default plan, delete their row.
 
 The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.
+
+### Change a plan's monthly limits
+
+Each AI feature has a monthly limit per plan, per user, in `public.plan_limits` (spec 4.12): the calendar month in UTC, resetting on the 1st. `categorize` counts names sent to the AI; the others count calls. Seeded:
+
+| plan | categorize | step_ingredients | recipe_import | recipe_import_photo | recipe_tags | recipe_photo_ai |
+|---|---|---|---|---|---|---|
+| plus | 250 | 100 | 40 | 20 | 50 | 15 |
+| basic | 250 | 100 | | | | |
+| unlimited | null | null | null | null | null | null |
+
+- Table Editor → `plan_limits`: edit `monthly_limit` to change a limit. It takes effect on the next call.
+- A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
+- An account younger than 30 days gets twice its plan's limits.
+- The per-minute limits (which catch a client stuck in a loop) and one AI photo per recipe apply on every plan, unlimited too, and aren't in the table.
+- Past a limit, the app says "You've used this month's … They reset on Nov 1." Usage is counted even with no limit:
+
+```sql
+select u.email, f.feature, private.monthly_usage(u.id, f.feature) as used,
+  private.monthly_limit(u.id, f.feature) as monthly_limit
+from auth.users u
+cross join (values ('categorize'), ('step_ingredients'), ('recipe_import'), ('recipe_import_photo'),
+                   ('recipe_tags'), ('recipe_photo_ai')) f(feature)
+where u.email = '<email>';
+```
+
+### Add a plan
+
+There's no `create_plan`. In the SQL Editor, insert the `plans` row, then its `plan_features` rows (a plan with `recipe_import` must also have `categorize`) and its `plan_limits` rows. A feature with no `plan_limits` row has no monthly limit, so add one for each feature you want limited.
 
 ### Which plan is each user on
 
