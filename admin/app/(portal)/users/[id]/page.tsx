@@ -3,13 +3,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ChangePlan } from "@/components/change-plan";
 import { Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
 import { featureColors } from "@/lib/features";
 import { mediumDate } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
-import { loadPlanNames, type PlanNames } from "@/lib/supabase/plans";
+import { loadPlans, planNames, type PlanNames } from "@/lib/supabase/plans";
 import { forbidIfNotAuthorized } from "@/lib/supabase/session";
-import type { AdminUserDetail } from "@/lib/types";
+import type { AdminPlanList, AdminUserDetail } from "@/lib/types";
 import { historyPlan, isUuid, planName, usageRow, whoWording } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = { title: "User · Back office" };
 type Params = Promise<{ id: string }>;
 
 // One user (spec 4.12), from admin_user_detail: who they are, their plan, this month's usage per
-// feature, their households and how their plan has changed.
+// feature, their households and how their plan has changed. Change plan is on the Plan card.
 export default function UserPage({ params }: { params: Params }) {
   return (
     <>
@@ -41,20 +42,21 @@ async function UserDetail({ params }: { params: Params }) {
   if (!isUuid(id)) return <NoSuchUser />;
 
   const supabase = await createClient();
-  const [{ data, error }, plans] = await Promise.all([
+  const [{ data, error }, planList] = await Promise.all([
     supabase.rpc("admin_user_detail", { p_user_id: id }),
-    loadPlanNames(supabase),
+    loadPlans(supabase),
   ]);
   forbidIfNotAuthorized(error);
   if (error?.code === "P0002") return <NoSuchUser />;
   if (error) throw new Error(`Couldn't load the user: ${error.message}`);
   const user = data as AdminUserDetail;
+  const plans = planNames(planList);
 
   return (
     <div className="flex max-w-4xl flex-col gap-5">
       <Header user={user} plans={plans} />
       <div className="grid gap-5 md:grid-cols-[1fr_2fr]">
-        <PlanCard user={user} plans={plans} />
+        <PlanCard user={user} plans={plans} planList={planList} />
         <UsageCard user={user} />
       </div>
       <HouseholdsCard user={user} />
@@ -105,7 +107,7 @@ function Header({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) {
   );
 }
 
-function PlanCard({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) {
+function PlanCard({ user, plans, planList }: { user: AdminUserDetail; plans: PlanNames; planList: AdminPlanList }) {
   return (
     <Card title="Plan">
       <p className="text-[22px] font-bold text-ink">{user.plan.name ?? planName(user.plan.id, plans.names)}</p>
@@ -124,6 +126,12 @@ function PlanCard({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) 
           "The default plan (none of their own)"
         )}
       </p>
+      <ChangePlan
+        userId={user.user_id}
+        email={user.email}
+        plans={planList}
+        currentPlanId={user.plan.assigned ? user.plan.id : null}
+      />
     </Card>
   );
 }

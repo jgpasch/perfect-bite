@@ -23,6 +23,8 @@
   --color-pending: var(--pending);
   --color-pending-soft: var(--pending-soft);
   --color-gold: var(--gold);
+  --color-toast: var(--toast);
+  --color-on-toast: var(--on-toast);
   --color-sidebar-green: var(--sidebar-green);
   --color-on-sidebar: var(--on-sidebar);
   --color-on-sidebar-secondary: var(--on-sidebar-secondary);

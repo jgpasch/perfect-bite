@@ -11,14 +11,22 @@ export type PlanNames = {
   defaultName: string | null;
 };
 
-// The plans' names from admin_list_plans, for pages that only have plan ids.
-export async function loadPlanNames(supabase: SupabaseClient): Promise<PlanNames> {
+// Every plan from admin_list_plans, by id.
+export async function loadPlans(supabase: SupabaseClient): Promise<AdminPlanList> {
   const { data, error } = await supabase.rpc("admin_list_plans");
   forbidIfNotAuthorized(error);
   if (error) throw new Error(`Couldn't load the plans: ${error.message}`);
-  const plans = (data ?? []) as AdminPlanList;
+  return (data ?? []) as AdminPlanList;
+}
+
+export function planNames(plans: AdminPlanList): PlanNames {
   return {
     names: new Map(plans.map((plan) => [plan.id, plan.name])),
     defaultName: plans.find((plan) => plan.is_default)?.name ?? null,
   };
+}
+
+// The plans' names from admin_list_plans, for pages that only have plan ids.
+export async function loadPlanNames(supabase: SupabaseClient): Promise<PlanNames> {
+  return planNames(await loadPlans(supabase));
 }
