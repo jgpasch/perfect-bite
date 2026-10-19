@@ -33,7 +33,10 @@ export const es = {
     screen: {
       toGet: '{{count}} por comprar',
       allDone: 'Todo listo',
-      empty: 'Esta lista está vacía. Agrega un artículo abajo.',
+      emptyTitle: 'Tu lista está vacía',
+      empty: 'Agrega lo que necesitas o trae los ingredientes de una receta de una vez.',
+      emptyAddItem: 'Agregar un artículo',
+      emptyAddFromRecipe: 'Agregar de una receta',
       listActions: 'Acciones de la lista',
       selectItems: 'Seleccionar artículos',
       shareList: 'Compartir lista',

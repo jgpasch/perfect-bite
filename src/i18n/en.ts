@@ -35,7 +35,10 @@ export const en = {
     screen: {
       toGet: '{{count}} to get',
       allDone: 'All done',
-      empty: 'Nothing on this list yet. Add an item below.',
+      emptyTitle: 'Your list is empty',
+      empty: "Add what you need, or pull in a recipe's ingredients in one go.",
+      emptyAddItem: 'Add an item',
+      emptyAddFromRecipe: 'Add from a recipe',
       listActions: 'List actions',
       selectItems: 'Select items',
       shareList: 'Share list',

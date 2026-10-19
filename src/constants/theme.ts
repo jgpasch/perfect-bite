@@ -285,6 +285,8 @@ export const Sizes = {
   stepperButtonLarge: 40,
   /** primary CTA */
   cta: 54,
+  /** the glyph tile over an `EmptyState`'s title (the empty list) */
+  emptyIcon: 72,
   /** soft destructive button */
   softButton: 48,
   /** the floating tab bar's pill and the round + beside it */

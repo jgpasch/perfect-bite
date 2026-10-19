@@ -23,7 +23,10 @@ common.sectionCount_one,"{{name}}, {{count}} item","{{name}}, {{count}} artícul
 common.sectionCount_other,"{{name}}, {{count}} items","{{name}}, {{count}} artículos",Plural form for every other count.
 lists.screen.toGet,{{count}} to get,{{count}} por comprar,
 lists.screen.allDone,All done,Todo listo,
-lists.screen.empty,Nothing on this list yet. Add an item below.,Esta lista está vacía. Agrega un artículo abajo.,
+lists.screen.emptyTitle,Your list is empty,Tu lista está vacía,
+lists.screen.empty,"Add what you need, or pull in a recipe's ingredients in one go.",Agrega lo que necesitas o trae los ingredientes de una receta de una vez.,
+lists.screen.emptyAddItem,Add an item,Agregar un artículo,
+lists.screen.emptyAddFromRecipe,Add from a recipe,Agregar de una receta,
 lists.screen.listActions,List actions,Acciones de la lista,
 lists.screen.selectItems,Select items,Seleccionar artículos,
 lists.screen.shareList,Share list,Compartir lista,

@@ -25,6 +25,7 @@ import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
+import { Pill } from '@/components/pill';
 import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
@@ -1039,6 +1040,9 @@ export function ListScreen({ id }: { id: string }) {
     );
   };
 
+  // Spec 4.1: nothing on the list at all; a list with only checked items isn't empty.
+  const empty = unchecked.length === 0 && checked.length === 0;
+
   // Loading (a few ms), or just deleted on the way back.
   if (!list) return <Screen />;
 
@@ -1072,7 +1076,8 @@ export function ListScreen({ id }: { id: string }) {
           tintColor={header.viewButton.fill}
           accessibilityLabel={viewButtonAccessibilityLabel(viewMode)}
           accessibilityHint={VIEW_BUTTON_HINT}
-          hidden={!!selection}>
+          // Nothing to sort on an empty list, as the Recipes tab drops its sort button with no recipes.
+          hidden={!!selection || empty}>
           <Stack.Toolbar.Menu inline>
             {LIST_VIEW_MODES.map((mode) => (
               <Stack.Toolbar.MenuAction
@@ -1181,8 +1186,25 @@ export function ListScreen({ id }: { id: string }) {
               checkNewInSight();
             }}
             scrollEventThrottle={16}
-            contentContainerStyle={blocks.length === 0 ? styles.flex : { paddingBottom: spacing.lg }}
-            ListEmptyComponent={<EmptyState message={t('lists.screen.empty')} />}
+            contentContainerStyle={blocks.length === 0 ? styles.grow : { paddingBottom: spacing.lg }}
+            ListEmptyComponent={
+              <EmptyState
+                icon="cart"
+                title={t('lists.screen.emptyTitle')}
+                message={t('lists.screen.empty')}
+                actions={[
+                  <Pill key="add" soft icon="plus" label={t('lists.screen.emptyAddItem')} onPress={openAdd} />,
+                  // Spec 4.1: the recipe path, the Recipes tab.
+                  <Button
+                    key="recipe"
+                    variant="plain"
+                    icon="fork.knife"
+                    label={t('lists.screen.emptyAddFromRecipe')}
+                    onPress={() => router.navigate('/recipes')}
+                  />,
+                ]}
+              />
+            }
             renderItem={({ item: block }) => renderBlock(block)}
             onScrollToIndexFailed={({ index, averageItemLength }) =>
               listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
@@ -1404,6 +1426,7 @@ function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: 
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  grow: { flexGrow: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center' },
   switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },

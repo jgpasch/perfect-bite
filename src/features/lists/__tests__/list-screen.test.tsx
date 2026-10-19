@@ -37,6 +37,9 @@ import {
 import type { MyInvite } from '@/features/households/invites';
 import { setStaple } from '@/features/households/staples';
 import { recordListOpened } from '@/features/siri/list-snapshot';
+import { Button } from '@/components/button';
+import { EmptyState } from '@/components/empty-state';
+import { Pill } from '@/components/pill';
 import { initI18n } from '@/i18n';
 import { SYSTEM_CATEGORIES } from '@/shared';
 import { resetDb } from '@/test/db';
@@ -142,6 +145,7 @@ jest.mock('@/features/households/my-invites', () => ({ useMyInvites: () => mockI
 const mockPath: { current: string } = { current: '/lists' };
 const mockPush = jest.fn();
 const mockBack = jest.fn();
+const mockNavigate = jest.fn();
 jest.mock('expo-router', () => {
   const { createElement, Fragment, useEffect } = require('react');
   const passThrough = () =>
@@ -161,7 +165,11 @@ jest.mock('expo-router', () => {
   });
   return {
     Stack: { Screen: () => null, Title: passThrough(), Toolbar },
-    router: { push: (...args: unknown[]) => mockPush(...args), back: () => mockBack() },
+    router: {
+      push: (...args: unknown[]) => mockPush(...args),
+      navigate: (...args: unknown[]) => mockNavigate(...args),
+      back: () => mockBack(),
+    },
     // The screen is focused while it's mounted.
     useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
     usePathname: () => mockPath.current,
@@ -212,6 +220,7 @@ beforeEach(() => {
   mockInvites.current = [];
   mockPush.mockClear();
   mockBack.mockClear();
+  mockNavigate.mockClear();
   mockOpenLink.mockClear();
   jest.mocked(categorizePending).mockClear();
 });
@@ -318,10 +327,95 @@ describe('the list', () => {
 
   test('an empty list says so and offers the add bar', () => {
     render();
-    expect(text()).toContain('Nothing on this list yet. Add an item below.');
+    expect(lines()).toContain('Your list is empty');
+    expect(lines()).toContain("Add what you need, or pull in a recipe's ingredients in one go.");
     expect(addBar().props.placeholder).toBeTruthy();
     expect(lines()).toContain('Groceries');
     expect(switcherLabel()).not.toContain('to get');
+  });
+
+  describe('the empty list (board C)', () => {
+    const viewMenuNode = () => all('ToolbarMenu').find((n) => n.props.icon === 'arrow.up.arrow.down')!;
+    const emptyStates = () => tree!.root.findAll((n) => n.type === EmptyState);
+
+    test('shows the cart tile, the title as a header, the message and both actions in order', () => {
+      render();
+      const [empty] = emptyStates();
+      expect(empty.props.icon).toBe('cart');
+      expect(empty.props.title).toBe('Your list is empty');
+      expect(empty.props.message).toBe("Add what you need, or pull in a recipe's ingredients in one go.");
+      const titleText = tree!.root.find((n) => n.type === ('Text' as never) && n.props.children === 'Your list is empty');
+      expect(titleText.props.accessibilityRole).toBe('header');
+      const labels = lines();
+      expect(labels.indexOf('Your list is empty')).toBeLessThan(labels.indexOf('Add an item'));
+      expect(labels.indexOf('Add an item')).toBeLessThan(labels.indexOf('Add from a recipe'));
+      // Add an item is a soft pill with a + glyph; Add from a recipe a plain primary button with fork.knife.
+      const pill = tree!.root.find((n) => n.type === Pill);
+      expect(pill.props).toMatchObject({ label: 'Add an item', soft: true, icon: 'plus' });
+      const button = tree!.root.find((n) => n.type === Button && n.props.label === 'Add from a recipe');
+      expect(button.props).toMatchObject({ variant: 'plain', icon: 'fork.knife' });
+    });
+
+    test('both actions have at least a 44 pt tap target', () => {
+      render();
+      const target = (label: string) => {
+        const host = hostByLabel(label);
+        const height = StyleSheet.flatten(host.props.style).minHeight as number;
+        const slop = (host.props.hitSlop ?? 0) as number;
+        return height + slop * 2;
+      };
+      expect(target('Add an item')).toBeGreaterThanOrEqual(44);
+      expect(target('Add from a recipe')).toBeGreaterThanOrEqual(44);
+    });
+
+    test('Add an item opens the add bar, focused, as the tab bar + does', () => {
+      render();
+      expect(all('ItemAddBar')).toHaveLength(0);
+      press(pressable('Add an item'));
+      expect(all('ItemAddBar')).toHaveLength(1);
+      expect(all('ItemAddBar')[0].props.autoFocus).toBe(true);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    test('Add from a recipe opens the Recipes tab', () => {
+      render();
+      press(pressable('Add from a recipe'));
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/recipes');
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(all('ItemAddBar')).toHaveLength(0);
+    });
+
+    test('the view menu is hidden while the list is empty and back once an item is added; ⋯ stays', () => {
+      render();
+      expect(viewMenuNode().props.hidden).toBe(true);
+      expect(moreMenu().props.hidden).toBe(false);
+      add('milk');
+      expect(viewMenuNode().props.hidden).toBe(false);
+      expect(emptyStates()).toHaveLength(0);
+      expect(lines()).not.toContain('Your list is empty');
+    });
+
+    test('a list with only checked items is not empty: no empty state, and the view menu shows', () => {
+      for (const name of ['milk', 'egg']) {
+        const added = put(name)!;
+        setItemChecked(added.itemId, true, USER);
+      }
+      render();
+      expect(switcherLabel()).not.toContain('to get');
+      expect(rowNames().sort()).toEqual(['egg', 'milk']);
+      expect(emptyStates()).toHaveLength(0);
+      expect(lines()).not.toContain('Your list is empty');
+      expect(viewMenuNode().props.hidden).toBe(false);
+    });
+
+    test('Select mode still hides the view menu once there are items', () => {
+      put('milk');
+      render();
+      expect(viewMenuNode().props.hidden).toBe(false);
+      press(menuAction('Select items'));
+      expect(viewMenuNode().props.hidden).toBe(true);
+    });
   });
 
   test('the name is the list switcher, opening Your lists', () => {
@@ -2042,7 +2136,14 @@ describe('the list screen in Spanish', () => {
   test('an empty list says so in Spanish', () => {
     initI18n('es');
     render();
-    expect(text()).toContain('Esta lista está vacía. Agrega un artículo abajo.');
+    expect(lines()).toEqual(
+      expect.arrayContaining([
+        'Tu lista está vacía',
+        'Agrega lo que necesitas o trae los ingredientes de una receta de una vez.',
+        'Agregar un artículo',
+        'Agregar de una receta',
+      ]),
+    );
   });
 
   test('the header, switcher and ⋯ menu', () => {
