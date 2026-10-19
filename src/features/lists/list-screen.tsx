@@ -378,22 +378,17 @@ export function ListScreen({ id }: { id: string }) {
     listRef.current?.scrollToOffset({ offset: addModeOffset.current, animated: true });
     addModeOffset.current = null;
   }, [addMode, listRef]);
-  // The add bar is hidden at rest: the tab bar's + opens it focused, and it goes again once the field
-  // loses focus with nothing typed. With text, the first tap out only hides the keyboard; a second one hides
-  // the bar too (`addTucked`), keeping the text for + to bring back.
+  // The add bar is hidden at rest: the tab bar's + opens it focused. It goes once the field loses focus,
+  // e.g. on a tap out on the list's empty space or the header, which hides the keyboard and the bar together
+  // and throws away what was typed, so + next opens an empty bar.
   const [addOpen, setAddOpen] = useState(false);
-  const [addTucked, setAddTucked] = useState(false);
   const addInputRef = useRef<TextInput>(null);
-  const showAddBar = !selection && (addOpen || adding || (addText !== '' && !addTucked));
+  const showAddBar = !selection && (addOpen || adding);
   const openAdd = () => {
     setSelection(null);
     setAddOpen(true);
-    setAddTucked(false);
     addInputRef.current?.focus();
   };
-  // A tap on the list's empty space, between or below the rows or on the header, that no row or control
-  // claimed. While the field is focused the list's own tap-out hides the keyboard instead.
-  const tapOutHidesBar = showAddBar && !adding && addText !== '';
   useAddButton(openAdd);
   useFocusEffect(
     useCallback(() => {
@@ -404,7 +399,8 @@ export function ListScreen({ id }: { id: string }) {
   const addFocusChange = (focused: boolean) => {
     setAdding(focused);
     setAddOpen(false);
-    if (focused) setAddTucked(false);
+    // The bar unmounts, taking its text and chips with it.
+    if (!focused) setAddText('');
   };
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {
@@ -1113,12 +1109,7 @@ export function ListScreen({ id }: { id: string }) {
       </Stack.Toolbar>
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
-        <View
-          ref={viewportRef}
-          testID="list-viewport"
-          style={styles.flex}
-          onStartShouldSetResponder={() => tapOutHidesBar}
-          onResponderRelease={() => setAddTucked(true)}>
+        <View ref={viewportRef} testID="list-viewport" style={styles.flex}>
           <FlatList
             ref={listRef}
             scrollEnabled={!dragging}

@@ -25,7 +25,7 @@ type Props = {
   inputRef?: Ref<TextInput>;
   /** Focus the field as soon as the bar appears. */
   autoFocus?: boolean;
-  /** The field's text when the bar appears, e.g. text kept while a list's bar was hidden. */
+  /** The field's text when the bar appears, e.g. text kept while a recipe's bar was hidden. */
   initialText?: string;
 };
 
