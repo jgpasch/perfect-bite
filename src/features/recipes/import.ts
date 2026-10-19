@@ -12,7 +12,7 @@ import type { Feature } from '@/features/plans/features';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { stepIngredientsBasis, type StepIngredients } from '@/shared';
+import { stepIngredientsBasis, stepTexts, type StepIngredients } from '@/shared';
 import {
   canonicalRecipeUrl,
   RecipeImportErrorSchema,
@@ -368,7 +368,7 @@ function createImportedRecipe(
     // Only a recipe this import creates; a reused one keeps its own (spec 4.14). Never `saved`.
     tags: imported.tags && { saved: [], ...imported.tags },
     totalMinutes: imported.totalMinutes,
-    steps: imported.steps.length > 0 ? imported.steps : null,
+    steps: stepTexts(imported.steps).length > 0 ? imported.steps : null,
     servings: servingsOf(imported.servings),
     imageUrl: imported.imageUrl,
   });
@@ -383,7 +383,9 @@ function createImportedRecipe(
  */
 function importedStepIngredients(exec: Exec, recipeId: string, imported: RecipeImportResponse): StepIngredients | null {
   const match = imported.stepIngredients;
-  if (!match || imported.steps.length === 0 || match.length !== imported.steps.length) return null;
+  // One entry per step string: headings aren't steps.
+  const stepCount = stepTexts(imported.steps).length;
+  if (!match || stepCount === 0 || match.length !== stepCount) return null;
   const ids = exec
     .select({ id: recipeIngredients.id })
     .from(recipeIngredients)

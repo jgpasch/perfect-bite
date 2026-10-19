@@ -4,6 +4,7 @@ import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { i18n, onLanguageChanged } from '@/i18n';
 import { tagLabel } from '@/i18n/vocabulary';
+import { stepTexts, type RecipeStepEntry } from '@/shared/recipe-steps';
 import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import type { RecipeGroup } from './recipe-sort';
@@ -247,7 +248,7 @@ export function addedToRecipeToast(count: number, recipeName: string): { message
  * The Steps sheet's text as the recipe's steps: one per line, each trimmed, empty lines dropped.
  * Nothing left is null (no steps), so clearing the field removes them.
  */
-export function stepsFromText(text: string): string[] | null {
+export function stepsFromText(text: string): RecipeStepEntry[] | null {
   const steps = text
     .split(/\r\n|\r|\n/)
     .map((line) => line.trim())
@@ -255,9 +256,9 @@ export function stepsFromText(text: string): string[] | null {
   return steps.length > 0 ? steps : null;
 }
 
-/** The recipe's steps as the Steps sheet's text, one per line. */
-export function stepsToText(steps: readonly string[] | null | undefined): string {
-  return (steps ?? []).join('\n');
+/** The recipe's steps as the Steps sheet's text, one per line. Section headings aren't shown yet (spec 4.5). */
+export function stepsToText(steps: readonly RecipeStepEntry[] | null | undefined): string {
+  return stepTexts(steps).join('\n');
 }
 
 /** What VoiceOver reads for a step in the Method card: "Step 2 of 7, Toss the chicken…". `index` is 0-based. */

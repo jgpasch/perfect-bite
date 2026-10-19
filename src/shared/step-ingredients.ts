@@ -1,6 +1,7 @@
 // Spec 4.5, 5. Which ingredients each method step uses, saved on the recipe as
 // `recipes.step_ingredients` and synced. `basis` records what the match was made from, so the app
 // can tell when the steps or ingredients have changed since (a stale match is still shown).
+import { stepTexts, type RecipeStepEntry } from './recipe-steps.ts';
 
 /** One use of an ingredient in a step. `quantity` is the step's share in the ingredient's own unit; null = all of it or not stated. */
 export type StepIngredientUse = { id: string; quantity: number | null };
@@ -23,10 +24,11 @@ function hash53(text: string): string {
 }
 
 /**
- * A stable hash of the step texts (in order) and the live ingredient ids (in any order: they're
- * sorted). A match whose basis differs from the recipe's current one is stale.
+ * A stable hash of the step texts (`stepTexts`, in order: headings don't count, so editing one
+ * leaves the match fresh) and the live ingredient ids (in any order: they're sorted). A match whose
+ * basis differs from the recipe's current one is stale.
  */
-export function stepIngredientsBasis(steps: readonly string[] | null | undefined, liveIngredientIds: readonly string[]): string {
+export function stepIngredientsBasis(steps: readonly RecipeStepEntry[] | null | undefined, liveIngredientIds: readonly string[]): string {
   const ids = [...liveIngredientIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return hash53(JSON.stringify([steps ?? [], ids]));
+  return hash53(JSON.stringify([stepTexts(steps), ids]));
 }

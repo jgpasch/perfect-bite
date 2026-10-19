@@ -8,6 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import type { AisleHue } from '@/domain/aisle-color';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import { stepTexts, type RecipeStepEntry } from '@/shared';
 
 import { PagesCredit, RecipeCredit } from './recipe-credit';
 import { recipeLinkParts } from './recipe-link';
@@ -31,7 +32,8 @@ export function RecipeMethodCard({
   onViewPages,
   onEdit,
 }: {
-  steps: readonly string[] | null;
+  /** `recipes.steps`; section headings aren't shown yet (spec 4.5), only the step strings. */
+  steps: readonly RecipeStepEntry[] | null;
   hue: AisleHue;
   /** The recipe's link, credited under the steps. */
   sourceUrl?: string | null;
@@ -43,7 +45,7 @@ export function RecipeMethodCard({
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, rounded } = useTheme();
   const tint = aisles[hue];
-  const list = steps ?? [];
+  const list = stepTexts(steps);
 
   if (list.length === 0) {
     return (

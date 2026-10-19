@@ -34,6 +34,17 @@ describe('stepIngredientsBasis', () => {
     expect(stepIngredientsBasis(['a'], ['b'])).not.toBe(stepIngredientsBasis(['a', 'b'], []));
   });
 
+  test('is the same hash as before headings existed, so saved matches stay fresh', () => {
+    expect(stepIngredientsBasis(STEPS, IDS)).toBe('0d9b499f7259a6');
+  });
+
+  test('ignores section headings: adding, renaming or marking one leaves the basis alone', () => {
+    const basis = stepIngredientsBasis(STEPS, IDS);
+    expect(stepIngredientsBasis([{ section: 'Cook' }, STEPS[0], { section: 'Finish', choice: true }, STEPS[1]], IDS)).toBe(basis);
+    expect(stepIngredientsBasis([{ section: 'Cook it' }, STEPS[0], { section: 'Finish' }, STEPS[1]], IDS)).toBe(basis);
+    expect(stepIngredientsBasis([{ section: 'Cook' }, ...STEPS, 'Serve.'], IDS)).not.toBe(basis);
+  });
+
   test('null steps hash like no steps', () => {
     expect(stepIngredientsBasis(null, IDS)).toBe(stepIngredientsBasis([], IDS));
     expect(stepIngredientsBasis(null, IDS)).not.toBe(stepIngredientsBasis(STEPS, IDS));

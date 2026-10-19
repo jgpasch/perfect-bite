@@ -11,7 +11,7 @@ import { db, recipes } from '@/db';
 import { hasFeature } from '@/features/plans/features';
 import { lostFeature } from '@/features/plans/load';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { stepIngredientsBasis } from '@/shared';
+import { stepIngredientsBasis, stepTexts } from '@/shared';
 import {
   MatchRecipeStepsErrorSchema,
   MatchRecipeStepsResponseSchema,
@@ -79,7 +79,8 @@ export function useEnsureStepMatch(recipeId: string | undefined): void {
 function pending(recipeId: string): { body: MatchRecipeStepsRequestInput; basis: string } | null {
   const recipe = getRecipe(recipeId);
   if (!recipe) return null;
-  const steps = recipe.steps ?? [];
+  // Only the step strings are sent, so the answer lines up with them.
+  const steps = stepTexts(recipe.steps);
   if (!steps.some((s) => s.trim() !== '')) return null;
   const ingredients = recipeIngredientsQuery(recipeId).all();
   if (ingredients.length === 0) return null;

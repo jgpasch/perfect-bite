@@ -96,7 +96,7 @@ import {
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import { displayItemName } from '@/shared';
+import { displayItemName, stepTexts } from '@/shared';
 
 /** A recipe (spec 4.5, board 06): ingredients added with the same field and parser as lists. */
 export default function RecipeScreen() {
@@ -200,7 +200,8 @@ export default function RecipeScreen() {
   const hasPhoto = recipe.imageUrl !== null || recipe.photoPath !== null;
   const base = recipe.servings;
   const servings = base === null ? null : (chosen ?? base);
-  const steps = recipe.steps?.length ?? 0;
+  // Headings aren't steps: "Method · N" counts the step strings.
+  const steps = stepTexts(recipe.steps).length;
 
   const editServings = () =>
     Alert.prompt(

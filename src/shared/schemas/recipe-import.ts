@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { UNITS } from '../quantity-parser.ts';
 import { MAX_IMAGE_URL_LENGTH, MAX_RECIPE_STEP_LENGTH, MAX_RECIPE_STEPS } from '../recipe-jsonld.ts';
+import { MAX_RECIPE_SECTION_LENGTH, type RecipeStepEntry } from '../recipe-steps.ts';
 import {
   AI_TAG_FACETS,
   AiRecipeTagsSchema,
@@ -123,11 +124,27 @@ export const ExtractedRecipeTagsSchema = z
 /** `recipes.total_minutes`: whole minutes, 1 to 2880 (spec 4.14). */
 export const TotalMinutesSchema = z.number().int().min(MIN_TOTAL_MINUTES).max(MAX_TOTAL_MINUTES);
 
-/** One method step as `recipes.steps` holds it: 1 to 2000 characters, counted as Postgres does (code points). */
-const RecipeStepSchema = z.string().refine((step) => {
-  const length = Array.from(step).length;
-  return length >= 1 && length <= MAX_RECIPE_STEP_LENGTH;
-}, 'A step is 1 to 2000 characters');
+/** Between 1 and `max` code points, counted as Postgres counts characters. */
+function codePointsBetween1And(max: number) {
+  return (text: string) => {
+    const length = Array.from(text).length;
+    return length >= 1 && length <= max;
+  };
+}
+
+/**
+ * One entry as `recipes.steps` holds it (spec 4.5, 5): a step of 1 to 2000 characters, or a section
+ * heading `{ section, choice?: true }` of 1 to 80, no other keys.
+ */
+const RecipeStepSchema = z.union([
+  z.string().refine(codePointsBetween1And(MAX_RECIPE_STEP_LENGTH), 'A step is 1 to 2000 characters'),
+  z
+    .object({
+      section: z.string().refine(codePointsBetween1And(MAX_RECIPE_SECTION_LENGTH), 'A section is 1 to 80 characters'),
+      choice: z.literal(true).optional(),
+    })
+    .strict(),
+]) satisfies z.ZodType<RecipeStepEntry, unknown>;
 
 /**
  * Which ingredients each step uses (v4, cook mode, spec 4.5): one list per step, each use by its
@@ -197,8 +214,11 @@ export const RecipeImportResponseSchema = z.object({
   tags: AiRecipeTagsSchema.nullable().catch(null),
   /** Minutes, from the page's JSON-LD or the model; null when neither said, or it's out of range. */
   totalMinutes: TotalMinutesSchema.nullable().catch(null),
-  /** The method, in order; `[]` when there's none, or from an older server that sends none. */
-  steps: z.array(z.string()).catch([]),
+  /**
+   * The method, in order, its step strings and section headings (spec 4.5); `[]` when there's none,
+   * or from an older server that sends none.
+   */
+  steps: z.array(z.union([z.string(), z.object({ section: z.string(), choice: z.literal(true).optional() })])).catch([]),
   /**
    * Which ingredients each step uses (spec 4.5, 4.10): one list per step, each use by its index
    * into `ingredients`, with the step's share (null for all of it). Null when the server matched

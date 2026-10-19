@@ -32,7 +32,7 @@ import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { stepMatch } from '@/features/recipes/step-match';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import { displayItemName } from '@/shared';
+import { displayItemName, stepTexts } from '@/shared';
 
 /** The text scale from which the current step's pills go one per line: iOS's largest accessibility sizes (AX3 on). */
 const PILLS_STACK_FONT_SCALE = 2;
@@ -53,7 +53,8 @@ export default function CookScreen() {
   // Nothing here is edited, so read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
   const [ingredients] = useState(() => recipeIngredientsQuery(id).all());
-  const steps = recipe?.steps ?? [];
+  // The step strings only: section headings aren't shown yet (spec 4.5).
+  const steps = stepTexts(recipe?.steps);
   const [stepsDone, setStepsDone] = useState(() => steps.map(() => false));
   const [ingredientsDone, setIngredientsDone] = useState<ReadonlySet<string>>(() => new Set());
   // With a match: the ticked uses (`tickKey`), and whether All ingredients is unfolded.

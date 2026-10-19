@@ -3,6 +3,7 @@ export * from './display-name.ts';
 export * from './ingredient-normalizer.ts';
 export * from './quantity-parser.ts';
 export * from './recipe-jsonld.ts';
+export * from './recipe-steps.ts';
 export * from './recipe-tags.ts';
 export * from './schemas/generate-recipe-photo.ts';
 export * from './schemas/match-recipe-steps.ts';

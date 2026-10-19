@@ -12,6 +12,7 @@ import {
   type MatchRecipeStepsRequestInput,
   type MatchRecipeStepsResponse,
   type RecipeImportRequest,
+  stepTexts,
 } from '@shared/index.ts';
 
 import { buildMatchRecipeStepsPrompt, MATCH_RECIPE_STEPS_PROMPT_VERSION } from '../_shared/ai/prompts/match-recipe-steps.v1.ts';
@@ -223,8 +224,9 @@ async function loadRecipe(args: CliArgs, io: CliIo, recipeModel: string | null):
       categorize: (names) => categorize(names, categorizeStore),
       fetchPage: io.fetchPage ?? realFetchPage,
     });
+    // Only the step strings are matched, as the app sends them (`ensureStepMatch`).
     const input = requestInput(
-      response.steps,
+      stepTexts(response.steps),
       response.ingredients.map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit, note: i.note })),
     );
     return { name: response.name, source: args.file ?? response.sourceUrl, input, extractCalls: store.aiCalls };

@@ -13,3 +13,4 @@ Mockups the spec and `tasks.md` point to. `.html` files open in a browser. `.dc.
 | `step-sections/` | [Step Sections](https://claude.ai/artifact/Q3doqmcDNtijg8oCatgxhV) | all: A the Method card, B and C cook mode (pick a method, then the picked one), D the Steps sheet |
 | `recipes-header/` | [Recipes header](https://claude.ai/artifact/JAJoAhdg7wmS53ekFMBLyf) | B, the title switcher (A here), with shelves (B) and with filters on (C). Options A, C and D are only on the canvas |
 | `photo-import-pages/` | [Photo import original pages](https://claude.ai/artifact/4zquQ79qXPSyb5xzBCgCjU) | all: See original pages in the recipe's ⋯ menu (A), the pages full screen (B), the Method card's credit (C) and the import sheet's note (D) |
+| `add-recipe-sheet/` | [Add Recipe Sheet](https://claude.ai/artifact/WwfbT17BzDwDHioaM1siwJ) | B, one smart field: empty with the Paste link chip (B1) and with a link in it (B2). Today's sheet and options A and C are only on the canvas |

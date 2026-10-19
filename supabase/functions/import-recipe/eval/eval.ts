@@ -8,6 +8,7 @@
 // costs real tokens, so it isn't part of CI or `deno test`.
 import {
   normalizeIngredientName,
+  stepTexts,
   AI_TAG_FACETS,
   recipeTagLabel,
   UNITS,
@@ -443,7 +444,8 @@ export async function runEval(
         name: response.name,
         ingredients: response.ingredients,
         tags: response.tags,
-        steps: response.steps,
+        // Scored on the step strings, as the match lines up with them.
+        steps: stepTexts(response.steps),
         stepIngredients: response.stepIngredients,
       };
     } catch (err) {

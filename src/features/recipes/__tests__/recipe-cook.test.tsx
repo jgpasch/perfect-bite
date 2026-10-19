@@ -19,7 +19,7 @@ import { today } from '@/features/meal-plan/week';
 import { dayName } from '@/features/meal-plan/week-view';
 import { setSlot } from '@/features/meal-plan/write';
 import { setKeepScreenOn } from '@/features/settings/device-settings';
-import { stepIngredientsBasis } from '@/shared';
+import { stepIngredientsBasis, type RecipeStepEntry } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import CookScreen from '@/app/recipe/[id]/cook';
@@ -156,7 +156,7 @@ function close() {
   tree = null;
 }
 
-const setSteps = (steps: string[] | null) => db.update(recipes).set({ steps }).where(eq(recipes.id, tacos)).run();
+const setSteps = (steps: RecipeStepEntry[] | null) => db.update(recipes).set({ steps }).where(eq(recipes.id, tacos)).run();
 const setServings = (servings: number | null) => db.update(recipes).set({ servings }).where(eq(recipes.id, tacos)).run();
 const addIngredients = (...lines: string[]) => lines.forEach((line) => addRecipeIngredient(tacos, line));
 
@@ -784,6 +784,28 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     ingredientRows(root)
       .map((r) => r.props.accessibilityLabel as string)
       .filter((l) => / for step \d+$/.test(l));
+
+  test('section headings (not shown yet) leave the steps, their numbers and the saved match as they were', () => {
+    const plain = render(<CookScreen />);
+    const before = { rows: stepRows(plain).map((r) => r.props.accessibilityLabel), texts: hostTexts(plain) };
+    close();
+
+    setSteps([{ section: 'Marinate' }, MATCH_STEPS[0], MATCH_STEPS[1], { section: 'Grilling', choice: true }, MATCH_STEPS[2], { section: 'Baking', choice: true }]);
+    // The basis was saved from the step strings alone: adding headings keeps the match fresh.
+    const recipe = db.select().from(recipes).where(eq(recipes.id, tacos)).get()!;
+    expect(stepMatch(recipe, recipeIngredientsQuery(tacos).all()).state).toBe('fresh');
+    const root = render(<CookScreen />);
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(before.rows);
+    // Each step still names the ingredients the match gave it.
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
+      `Step 1 of 3, ${MATCH_STEPS[0]}, uses chicken thighs, garlic, limes`,
+      `Step 2 of 3, ${MATCH_STEPS[1]}`,
+      `Step 3 of 3, ${MATCH_STEPS[2]}, uses chicken thighs, limes`,
+    ]);
+    expect(hostTexts(root)).toEqual(before.texts);
+    expect(progress(root)).toBe('0 of 3 steps done');
+    for (const title of ['Marinate', 'Grilling', 'Baking']) expect(hostTexts(root)).not.toContain(title);
+  });
 
   test('All ingredients is folded to one row with a count, and unfolds to the checklist for the visit', () => {
     const root = render(<CookScreen />);

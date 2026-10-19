@@ -155,6 +155,36 @@ describe('a recipe that needs a match', () => {
     expect(saved()!.steps).toEqual([[], [{ id: limes, quantity: 1 }], []]);
   });
 
+  test('sends only the step strings of a sectioned recipe, so the answer lines up; a heading edit needs no new call', async () => {
+    const [chicken, limes] = ingredientIds();
+    updateRecipeSteps(recipeId, [{ section: 'Cook' }, STEPS[0], { section: 'Finish', choice: true }, STEPS[1], STEPS[2]]);
+
+    await ensureStepMatch(recipeId);
+
+    expect(matchCalls()).toHaveLength(1);
+    expect((matchCalls()[0][1] as Body).body.steps).toEqual(STEPS);
+    expect(saved()).toEqual({
+      v: 1,
+      basis: stepIngredientsBasis(STEPS, [chicken, limes]),
+      steps: [[{ id: chicken, quantity: null }], [{ id: limes, quantity: null }], []],
+    });
+    expect(matchState()).toBe('fresh');
+
+    updateRecipeSteps(recipeId, [{ section: 'Cook it' }, ...STEPS]);
+    expect(matchState()).toBe('fresh');
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(1);
+  });
+
+  test('a recipe whose entries are all headings is never sent', async () => {
+    db.update(recipes)
+      .set({ steps: [{ section: 'Cook' }] })
+      .where(eq(recipes.id, recipeId))
+      .run();
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(0);
+  });
+
   test('a stale match is matched again', async () => {
     await ensureStepMatch(recipeId);
     addRecipeIngredient(recipeId, 'tortillas');

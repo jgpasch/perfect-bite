@@ -6,6 +6,7 @@
 import {
   AI_TAG_FACETS,
   recipeTagLabel,
+  stepTexts,
   SYSTEM_CATEGORIES,
   type AiRecipeTags,
   type ExtractedRecipe,
@@ -158,10 +159,12 @@ export function formatTags(tags: AiRecipeTags | null): string {
  * is none when the import sent no match. Empty for a recipe with no steps.
  */
 export function formatStepMatch(response: RecipeImportResponse): string {
-  if (response.steps.length === 0) return '';
+  // The match is per step string: headings aren't steps.
+  const steps = stepTexts(response.steps);
+  if (steps.length === 0) return '';
   if (response.stepIngredients === null) return 'step match: none (the app matches the recipe after it saves)';
   const recipe = {
-    steps: response.steps,
+    steps,
     ingredients: response.ingredients.map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit })),
   };
   const match = response.stepIngredients.map((uses) => uses.map((use) => ({ ingredient: use.index, quantity: use.quantity })));

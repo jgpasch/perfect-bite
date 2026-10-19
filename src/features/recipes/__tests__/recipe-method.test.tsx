@@ -13,6 +13,7 @@ import { AisleColors, Palette, Typography } from '@/constants/theme';
 import { db, outbox, recipes } from '@/db';
 import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData } from '@/features/lists/lists';
+import type { RecipeStepEntry } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import RecipeScreen from '@/app/recipe/[id]/index';
@@ -127,7 +128,7 @@ function render(element: React.ReactElement): ReactTestRenderer {
   return tree!;
 }
 
-const setSteps = (steps: string[] | null) => db.update(recipes).set({ steps }).where(eq(recipes.id, tacos)).run();
+const setSteps = (steps: RecipeStepEntry[] | null) => db.update(recipes).set({ steps }).where(eq(recipes.id, tacos)).run();
 const hostTexts = (root: ReactTestRenderer) =>
   root.root
     .findAll((n) => String(n.type) === 'Text')
@@ -420,5 +421,58 @@ describe('updateRecipeSteps', () => {
     setSteps(STEPS);
     updateRecipeSteps(tacos, []);
     expect(getRecipe(tacos)!.steps).toBeNull();
+  });
+
+  test('keeps section headings, and stores headings with no step as null', () => {
+    updateRecipeSteps(tacos, SECTIONED);
+    expect(getRecipe(tacos)!.steps).toEqual(SECTIONED);
+    expect(recipeUpdates().at(-1)!.fields).toMatchObject({ steps: SECTIONED });
+    updateRecipeSteps(tacos, [{ section: 'Grill' }]);
+    expect(getRecipe(tacos)!.steps).toBeNull();
+  });
+});
+
+// Until the Method card and the Steps sheet learn sections (spec 4.5), headings simply aren't shown.
+const SECTIONED: RecipeStepEntry[] = [
+  { section: 'Make the paste' },
+  STEPS[0],
+  { section: 'Grilling', choice: true },
+  STEPS[1],
+  { section: 'Baking', choice: true },
+  STEPS[2],
+];
+
+describe('a recipe with section headings, before they are shown', () => {
+  test('the Method card lists the same steps, numbered the same, as without headings', () => {
+    setSteps(SECTIONED);
+    const root = render(<RecipeScreen />);
+    // The switch counts the steps, not the headings.
+    press(tab(root, 'Method, 3 steps'));
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
+      'Step 1 of 3, Blend the chipotles into a paste.',
+      'Step 2 of 3, Toss the chicken in half the paste.',
+      'Step 3 of 3, Grill the thighs.',
+    ]);
+    expect(root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityLabel === 'Method, 3 steps')).toHaveLength(1);
+    const texts = hostTexts(root);
+    expect(texts).toEqual(expect.arrayContaining(STEPS));
+    for (const title of ['Make the paste', 'Grilling', 'Baking']) expect(texts).not.toContain(title);
+  });
+
+  test('the card renders exactly what it renders without the headings', () => {
+    const plain = hostTexts(render(<RecipeMethodCard steps={STEPS} hue="green" onEdit={() => {}} />));
+    act(() => tree?.unmount());
+    expect(hostTexts(render(<RecipeMethodCard steps={SECTIONED} hue="green" onEdit={() => {}} />))).toEqual(plain);
+  });
+
+  test('headings with no step are the empty state', () => {
+    const root = render(<RecipeMethodCard steps={[{ section: 'Grill' }]} hue="green" onEdit={() => {}} />);
+    expect(hostTexts(root)).toEqual(['Method', 'No steps yet.', 'Add steps']);
+  });
+
+  test('the Steps sheet shows the step lines only', () => {
+    setSteps(SECTIONED);
+    const root = render(<RecipeStepsSheet />);
+    expect(field(root).props.value).toBe(STEPS.join('\n'));
   });
 });

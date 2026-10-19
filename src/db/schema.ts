@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import type { Unit } from '../shared/quantity-parser';
+import type { RecipeStepEntry } from '../shared/recipe-steps';
 import type { RecipeTags } from '../shared/recipe-tags';
 import type { StepIngredients } from '../shared/step-ingredients';
 import type { Mutation } from '../sync/mutation';
@@ -181,8 +182,8 @@ export const recipes = sqliteTable(
     /** A person has edited the tags (hides "Tagged when you imported it"). */
     tagsEdited: integer('tags_edited', { mode: 'boolean' }).notNull().default(false),
     totalMinutes: integer('total_minutes'),
-    /** Method steps in order (spec 5). Null = none. */
-    steps: text('steps', { mode: 'json' }).$type<string[]>(),
+    /** Method steps in order, with section headings between them (spec 4.5, 5). Null = none. */
+    steps: text('steps', { mode: 'json' }).$type<RecipeStepEntry[]>(),
     /** Which ingredients each step uses (spec 4.5). Null = never matched. */
     stepIngredients: text('step_ingredients', { mode: 'json' }).$type<StepIngredients>(),
     servings: integer('servings'),

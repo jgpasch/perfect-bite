@@ -9,6 +9,7 @@ import {
   jsonLdImageCandidates,
   MAX_RECIPE_NAME_LENGTH,
   normalizeIngredientName,
+  stepTexts,
   type ExtractedRecipe,
   type RecipeImportErrorCode,
   type RecipeImportRequest,
@@ -270,7 +271,8 @@ export async function importResponse(
  */
 function stepIngredients(recipe: ExtractedRecipe): RecipeImportResponse['stepIngredients'] {
   const match = recipe.step_ingredients;
-  if (!match || match.length === 0 || match.length !== recipe.steps.length) return null;
+  // One entry per step string: headings aren't steps.
+  if (!match || match.length === 0 || match.length !== stepTexts(recipe.steps).length) return null;
   if (match.some((uses) => uses.some((use) => use.ingredient >= recipe.ingredients.length))) return null;
   return match.map((uses) => uses.map((use) => ({ index: use.ingredient, quantity: use.quantity })));
 }

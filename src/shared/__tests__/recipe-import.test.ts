@@ -189,6 +189,18 @@ describe('ExtractedRecipeSchema', () => {
     expect(steps('Soak the noodles.')).toBe(false);
   });
 
+  it('steps: section headings of 1 to 80 characters, choice only true, no other keys (spec 4.5)', () => {
+    const steps = (s: unknown) => ExtractedRecipeSchema.safeParse({ ...recipe, steps: s }).success;
+    expect(steps([{ section: 'Noodles' }, 'Soak.', { section: 'Wok', choice: true }, 'Fry.'])).toBe(true);
+    expect(steps([{ section: '🍜'.repeat(80) }, 'Soak.'])).toBe(true);
+    expect(steps([{ section: '🍜'.repeat(81) }, 'Soak.'])).toBe(false);
+    expect(steps([{ section: '' }, 'Soak.'])).toBe(false);
+    expect(steps([{ section: 'Wok', choice: false }, 'Fry.'])).toBe(false);
+    expect(steps([{ section: 'Wok', note: 'x' }, 'Fry.'])).toBe(false);
+    expect(steps([{ choice: true }, 'Fry.'])).toBe(false);
+    expect(steps([3, 'Fry.'])).toBe(false);
+  });
+
   it('image_url: https only, at most 2048 characters, or null', () => {
     const image = (u: unknown) => ExtractedRecipeSchema.safeParse({ ...recipe, image_url: u }).success;
     const at = (n: number) => `https://example.com/${'a'.repeat(n - 'https://example.com/'.length)}`;
@@ -359,6 +371,12 @@ describe('RecipeImportResponseSchema', () => {
       imageUrl: null,
     });
     expect(RecipeImportResponseSchema.parse({ ...response, steps: ['Soak.', 3] }).steps).toEqual([]);
+  });
+
+  it('carries section headings between the steps (spec 4.5)', () => {
+    const steps = [{ section: 'Noodles' }, 'Soak the noodles.', { section: 'Wok', choice: true }, 'Fry the garlic.'];
+    expect(RecipeImportResponseSchema.parse({ ...response, steps }).steps).toEqual(steps);
+    expect(RecipeImportResponseSchema.parse({ ...response, steps: [{ section: 'Wok', choice: false }, 'Fry.'] }).steps).toEqual([]);
   });
 
   it('carries the step match; missing or unreadable is null (an older server), and the rest still parses', () => {

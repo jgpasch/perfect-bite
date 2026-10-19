@@ -1,5 +1,6 @@
 // Spec 6.6 step 5. Reads a schema.org Recipe out of a page's JSON-LD blocks, so most imports
 // hand the LLM clean ingredient lines instead of page text. Keep it pure (runs under Deno too).
+import { isStepHeading, MAX_RECIPE_SECTION_LENGTH, MAX_RECIPE_SECTIONS, type RecipeStepEntry } from './recipe-steps.ts';
 import { MAX_TOTAL_MINUTES, MIN_TOTAL_MINUTES } from './recipe-tags.ts';
 
 export type JsonLdRecipe = {
@@ -172,22 +173,49 @@ function readSteps(raw: unknown): string[] {
   return cleanRecipeSteps(texts);
 }
 
+/** A step's or heading's text: no HTML or leading numbering, at most `max` code points. */
+function cleanStepText(text: string, max: number): string {
+  const clean = cleanJsonLdText(text).replace(STEP_NUMBERING, '').trim();
+  // By code point, so an emoji isn't cut in half.
+  return clean.length > max ? Array.from(clean).slice(0, max).join('').trimEnd() : clean;
+}
+
 /**
  * Steps as `recipes.steps` keeps them: no HTML, no leading numbering, no blanks or repeats of the
- * step before, at most 100 of at most 2000 characters (code points). Shared by JSON-LD's steps and
- * the model's.
+ * step before, steps of at most 2000 characters (code points). Headings (spec 4.5) are cleaned the
+ * same way, at most 80 characters, keep `choice` only when it's `true`, and are dropped when empty,
+ * when no step follows them, when another heading follows straight after, or past the 20th. At
+ * most 100 entries in all. Shared by JSON-LD's steps and the model's; step strings in give step
+ * strings out.
  */
-export function cleanRecipeSteps(texts: readonly string[]): string[] {
-  const steps: string[] = [];
-  for (const text of texts) {
-    let step = cleanJsonLdText(text).replace(STEP_NUMBERING, '').trim();
-    // By code point, so an emoji isn't cut in half.
-    if (step.length > MAX_RECIPE_STEP_LENGTH) step = Array.from(step).slice(0, MAX_RECIPE_STEP_LENGTH).join('').trimEnd();
-    if (step.length === 0 || step === steps.at(-1)) continue;
-    steps.push(step);
-    if (steps.length === MAX_RECIPE_STEPS) break;
+export function cleanRecipeSteps(entries: readonly string[]): string[];
+export function cleanRecipeSteps(entries: readonly RecipeStepEntry[]): RecipeStepEntry[];
+export function cleanRecipeSteps(entries: readonly RecipeStepEntry[]): RecipeStepEntry[] {
+  const cleaned: RecipeStepEntry[] = [];
+  for (const entry of entries) {
+    if (isStepHeading(entry)) {
+      const section = cleanStepText(entry.section, MAX_RECIPE_SECTION_LENGTH);
+      if (section !== '') cleaned.push(entry.choice === true ? { section, choice: true } : { section });
+      continue;
+    }
+    const step = cleanStepText(entry, MAX_RECIPE_STEP_LENGTH);
+    if (step.length === 0 || step === cleaned.at(-1)) continue;
+    cleaned.push(step);
   }
-  return steps;
+  const kept: RecipeStepEntry[] = [];
+  let headings = 0;
+  cleaned.forEach((entry, i) => {
+    if (isStepHeading(entry)) {
+      const next = cleaned[i + 1];
+      if (next === undefined || isStepHeading(next) || headings === MAX_RECIPE_SECTIONS) return;
+      headings++;
+    }
+    kept.push(entry);
+  });
+  const capped = kept.slice(0, MAX_RECIPE_STEPS);
+  // The cap may cut a heading off from its steps.
+  if (capped.length > 0 && isStepHeading(capped[capped.length - 1])) capped.pop();
+  return capped;
 }
 
 /**

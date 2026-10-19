@@ -1,4 +1,4 @@
-import { stepIngredientsBasis, type StepIngredients } from '@/shared';
+import { stepIngredientsBasis, stepTexts, type RecipeStepEntry, type StepIngredients } from '@/shared';
 
 /** An ingredient's use in one step: `quantity` is the step's share, null = all of it or not stated. */
 export type StepUse<I> = { ingredient: I; quantity: number | null };
@@ -6,7 +6,7 @@ export type StepUse<I> = { ingredient: I; quantity: number | null };
 export type StepMatch<I> = {
   /** `none`: never matched. `stale`: the steps or ingredients changed since; still shown. */
   state: 'none' | 'fresh' | 'stale';
-  /** One entry per recipe step: its live ingredients, in the recipe's ingredient order. */
+  /** One entry per recipe step (`stepTexts`: headings aren't steps): its live ingredients, in the recipe's ingredient order. */
   steps: StepUse<I>[][];
   /** Live ingredients in no step, in the recipe's ingredient order. */
   unplaced: I[];
@@ -19,7 +19,7 @@ type MatchIngredient = { id: string; position: number; deletedAt?: Date | null }
  * are dropped, so a stale match still lines up with what the recipe has now.
  */
 export function stepMatch<I extends MatchIngredient>(
-  recipe: { steps: readonly string[] | null; stepIngredients: StepIngredients | null },
+  recipe: { steps: readonly RecipeStepEntry[] | null; stepIngredients: StepIngredients | null },
   ingredients: readonly I[],
 ): StepMatch<I> {
   const live = ingredients
@@ -27,7 +27,7 @@ export function stepMatch<I extends MatchIngredient>(
     .filter(({ ingredient }) => ingredient.deletedAt == null)
     .sort((a, b) => a.ingredient.position - b.ingredient.position || a.index - b.index)
     .map(({ ingredient }) => ingredient);
-  const steps = recipe.steps ?? [];
+  const steps = stepTexts(recipe.steps);
   const match = recipe.stepIngredients;
   if (!match) return { state: 'none', steps: steps.map(() => []), unplaced: live };
 

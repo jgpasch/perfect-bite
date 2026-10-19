@@ -8,7 +8,7 @@ import { currentHouseholdId } from '@/features/lists/lists';
 import { recordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
-import { normalizeIngredientName, parseQuantity } from '@/shared';
+import { normalizeIngredientName, parseQuantity, stepTexts, type RecipeStepEntry } from '@/shared';
 import { emptyRecipeTags, RecipeTagsSchema, type RecipeTags, type SavedTag } from '@/shared/recipe-tags';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
@@ -184,9 +184,12 @@ export function updateRecipeSourcePages(id: string, sourcePages: string[] | null
   updateRows(db, recipes, eq(recipes.id, id), { sourcePages: sourcePages && sourcePages.length > 0 ? sourcePages : null });
 }
 
-/** Saves the Steps sheet: the method in order, or null for none. Hand-made and imported recipes alike. */
-export function updateRecipeSteps(id: string, steps: string[] | null): void {
-  updateRows(db, recipes, eq(recipes.id, id), { steps: steps && steps.length > 0 ? steps : null });
+/**
+ * Saves the Steps sheet: the method in order, with its section headings (spec 4.5), or null for none
+ * (headings without a step are none). Hand-made and imported recipes alike.
+ */
+export function updateRecipeSteps(id: string, steps: RecipeStepEntry[] | null): void {
+  updateRows(db, recipes, eq(recipes.id, id), { steps: steps && stepTexts(steps).length > 0 ? steps : null });
 }
 
 /**
