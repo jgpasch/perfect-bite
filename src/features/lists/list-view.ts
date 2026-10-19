@@ -480,8 +480,11 @@ export function fromRecipesHint(contributions: readonly { recipeId: string | nul
   return names.length > 0 ? i18n.t('lists.sections.fromRecipes', { names: names.join(', ') }) : undefined;
 }
 
-/** How long a just-checked row stays where it was, struck through, so a second tap can take it back. */
-export const CHECK_LINGER_MS = 1000;
+/**
+ * How long just-checked rows stay where they were, struck through, so a second tap can take one back.
+ * One clock for all of them, started again by each check and each touch on the list.
+ */
+export const CHECK_LINGER_MS = 1500;
 
 /**
  * The items each view places, given the ids checked a moment ago: those stay in their unchecked

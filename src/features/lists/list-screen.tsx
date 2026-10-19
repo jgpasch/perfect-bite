@@ -210,30 +210,36 @@ export function ListScreen({ id }: { id: string }) {
   const sorts = useFeature('categorize');
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits, sorts), [itemRows, usualUnits, sorts]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
-  // so a second tap can take it back.
+  // so a second tap can take it back. The moment is shared: each check, and any touch on the list,
+  // starts it again, so rows move together once, after the user stops, never under the next tap.
   const [lingering, setLingering] = useState<ReadonlySet<string>>(new Set());
-  const lingerTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => {
-    const timers = lingerTimers.current;
-    return () => timers.forEach(clearTimeout);
-  }, []);
-  const stopLingering = useCallback((itemId: string) => {
-    clearTimeout(lingerTimers.current.get(itemId));
-    lingerTimers.current.delete(itemId);
-    setLingering((prev) => {
-      if (!prev.has(itemId)) return prev;
-      const next = new Set(prev);
-      next.delete(itemId);
-      return next;
-    });
-  }, []);
+  const lingerTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settleLingering = () => {
+    clearTimeout(lingerTimer.current);
+    lingerTimer.current = undefined;
+    setLingering((prev) => (prev.size === 0 ? prev : new Set()));
+  };
+  const holdLingering = () => {
+    clearTimeout(lingerTimer.current);
+    lingerTimer.current = setTimeout(settleLingering, CHECK_LINGER_MS);
+  };
+  useEffect(() => () => clearTimeout(lingerTimer.current), []);
   const toggleChecked = (item: ItemView) => {
     const checking = item.checkedAt === null;
     setItemChecked(item.id, checking, userId);
-    if (!checking) return stopLingering(item.id);
+    if (!checking) {
+      if (!lingering.has(item.id)) return;
+      const next = new Set(lingering);
+      next.delete(item.id);
+      setLingering(next);
+      return next.size === 0 ? settleLingering() : holdLingering();
+    }
     checkHaptic();
     setLingering((prev) => new Set(prev).add(item.id));
-    lingerTimers.current.set(item.id, setTimeout(() => stopLingering(item.id), CHECK_LINGER_MS));
+    holdLingering();
+  };
+  const holdLingeringOnTouch = () => {
+    if (lingering.size > 0) holdLingering();
   };
   const { placed, checked: shownChecked } = useMemo(
     () => withLingering(unchecked, checked, lingering),
@@ -262,6 +268,13 @@ export function ListScreen({ id }: { id: string }) {
   // Spec 4.1: another member's add arriving while the list is on screen (in the foreground) grows in, NEW.
   const foreground = useForeground();
   const watching = shoppingOnList(pathname, id) && foreground;
+  // Leaving the list, or the app, moves lingering rows right away: no stale layout on return. (The
+  // timer may still fire; it finds nothing to move.)
+  const [wasWatching, setWasWatching] = useState(watching);
+  if (wasWatching !== watching) {
+    setWasWatching(watching);
+    if (!watching && lingering.size > 0) setLingering(new Set());
+  }
   const allItems = useMemo(() => [...unchecked, ...checked], [unchecked, checked]);
   const arrivals = useListArrivals(id, allItems, watching, userId);
   useArrivalAnnouncements(arrivals.latest, watching, memberNames, userId);
@@ -1109,7 +1122,7 @@ export function ListScreen({ id }: { id: string }) {
       </Stack.Toolbar>
 
       <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={headerHeight}>
-        <View ref={viewportRef} testID="list-viewport" style={styles.flex}>
+        <View ref={viewportRef} testID="list-viewport" style={styles.flex} onTouchStart={holdLingeringOnTouch}>
           <FlatList
             ref={listRef}
             scrollEnabled={!dragging}
