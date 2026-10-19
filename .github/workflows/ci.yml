@@ -21,6 +21,24 @@ jobs:
       - run: yarn tsc --noEmit
       - run: yarn jest --ci
 
+  # The admin portal: its own Yarn project (own package.json and yarn.lock), so every step runs in admin/.
+  admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn lint
+      - run: yarn tsc --noEmit
+      - run: yarn test
+      - run: yarn build
+
   database:
     runs-on: ubuntu-latest
     steps:

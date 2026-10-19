@@ -79,6 +79,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "admin": "yarn --cwd admin dev",
     "test": "jest",
     "ai:categorize": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/cli.ts",
     "ai:eval": "deno run --allow-env --allow-net --allow-read --allow-sys --env-file=supabase/functions/.env supabase/functions/categorize-ingredients/eval/eval.ts",
@@ -112,7 +113,11 @@
       "/node_modules/",
       "/supabase/",
       "/ios/",
-      "/targets/"
+      "/targets/",
+      "<rootDir>/admin/"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/admin/"
     ],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1"

@@ -1,6 +1,6 @@
 # Running the app from the Supabase dashboard
 
-There's no admin portal. The app is run from the Supabase dashboard: Authentication → Users, the Table Editor, the SQL Editor and the logs (spec 4.12).
+The app is run from the Supabase dashboard (Authentication → Users, the Table Editor, the SQL Editor and the logs) and from the admin portal in `admin/` (spec 4.12; how to run it is in [`admin/README.md`](../admin/README.md)).
 
 ## The one rule
 

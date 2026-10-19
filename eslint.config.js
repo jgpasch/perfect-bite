@@ -5,7 +5,8 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // admin/ is its own Next.js project with its own ESLint config (`yarn --cwd admin lint`).
+    ignores: ['dist/*', 'admin/**'],
   },
   {
     // Tests swap modules with `jest.mock('@/db/client', () => require('@/test/db'))`.

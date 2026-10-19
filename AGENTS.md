@@ -20,6 +20,10 @@ Without them the cron jobs do nothing.
 
 Turning push on for the hosted project (APNs key, development build, hosted Vault secrets, deploys, a test push) is by hand: see [`docs/push-setup.md`](docs/push-setup.md).
 
+## Admin portal
+
+The admin portal (spec 4.12) is a Next.js App Router app in `admin/`. Run it with `yarn admin` (or `yarn --cwd admin dev`). Its env is `admin/.env.local` (copy `admin/.env.example`): `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` only, never a secret or service-role key. It's its own Yarn project (own `package.json` and `yarn.lock`), not a workspace, so run its commands from the root as `yarn --cwd admin <command>` (`install`, `add`, `lint`, `tsc --noEmit`, `test`, `build`). It isn't Expo: the Expo rules below don't apply there; follow `admin/AGENTS.md` and the Next.js docs in `admin/node_modules/next/dist/docs/`. The root's TypeScript, ESLint, Jest and Metro ignore `admin/`. Running it against local and hosted Supabase: [`admin/README.md`](admin/README.md).
+
 ## Expo has changed — do not trust your training data
 
 Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
