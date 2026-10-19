@@ -365,8 +365,10 @@ A banner that drops in at the top of the screen, over whatever is showing (sheet
 
 ### 4.12 Admin and plans
 
-**The dashboard is the admin tool.** There's no custom admin portal. The app is run from the Supabase dashboard: Authentication → Users, the Table Editor, the SQL Editor, and the Edge Function logs. How to do common jobs there is in [`docs/admin.md`](admin.md).
+**The dashboard and the admin portal are the admin tools.** The app is run from the Supabase dashboard (Authentication → Users, the Table Editor, the SQL Editor, the Edge Function logs) and from a small admin portal, a web app in `admin/` run locally against hosted Supabase, for the jobs the dashboard makes awkward: finding a user and changing their plan, editing what each plan includes and its monthly limits, and seeing how much of each AI feature people use. Everything else (deleting a user, reading logs) stays on the dashboard. How to do common jobs there is in [`docs/admin.md`](admin.md).
 
+- **Admins** are the users with a row in `private.admins` (5), added and removed in the Table Editor; a table rather than a role in the JWT, so removing one takes effect on their next call. `public.is_admin()` says whether the caller is one (false with no user). The owner's account (jgpasch@gmail.com) is made an admin by the migration, and the local dev user by `supabase/seed.sql`.
+- **The server checks every portal action.** The portal holds only the project URL and publishable key and signs in like the app does (its login screen is only UX). Each action is a `public.admin_*` function (`security definer`, executable by `authenticated` only) whose first step is `private.require_admin()`, which raises `not authorized` (`42501`) for anyone else. Portal functions write `admin.admin_actions` like the dashboard's do, with `performed_by` set to the admin's user id (the column's default, `session_user`, would be `authenticator` from the API), and still require a note.
 - The dashboard runs as `postgres` and doesn't know the app's rules. So a change that has rules goes through a tested SQL function in the `admin` schema, run as a saved SQL snippet, never by editing or deleting rows by hand. A change with no rules beyond the table's own constraints is made in the Table Editor.
 - `admin` isn't one of the API's exposed schemas (`supabase/config.toml`), and its schema usage and every function's execute are revoked from `public`, `anon`, `authenticated` and `service_role`, so only the dashboard can call them.
 - Each admin function writes one `admin.admin_actions` row (5) in the same transaction. `performed_by` is always `postgres` from the dashboard, so each function takes a `p_note`, and the snippets always fill it in: it's the only record of who asked and why.
@@ -814,8 +816,16 @@ create table admin.admin_actions (
   target_household_id uuid,
   details             jsonb not null default '{}',
   note                text,                                  -- who asked and why
-  performed_by        text not null default session_user,    -- always 'postgres' from the dashboard
-  created_at          timestamptz not null default now()
+  performed_by        text not null default session_user,    -- 'postgres' from the dashboard; the admin's user id from the portal
+  created_at          timestamptz not null default now(),
+  target_plan_id      text                                   -- no foreign key, so a deleted plan keeps its history
+);
+
+-- Admins (4.12): who may use the admin portal. In `private`, RLS on, every privilege revoked from public, anon,
+-- authenticated and service_role; edited in the Table Editor. public.is_admin() reads it for the caller.
+create table private.admins (
+  user_id  uuid primary key references auth.users on delete cascade,
+  added_at timestamptz not null default now()
 );
 
 -- Plans (4.12). A user's plan is their user_plans row, else the default plan.
@@ -890,6 +900,7 @@ Note the `create table` order above is for readability; the real migration must 
 - `copy_recipe(recipe_id, target_household_id)` (not built yet, 4.5): `security definer`; checks the caller is a member of both households.
 - `delete_account()` (4.8): `security definer`, `search_path = ''`, executable by `authenticated` only (revoked from `public`, `anon` and `service_role`); acts only on `auth.uid()`. It runs `private.delete_user_core`, which, like the leaving rules, is callable only by `postgres` and the `security definer` functions that use it, and writes its `admin.admin_actions` row itself, so the caller never touches the `admin` schema.
 - The `admin` schema (`admin_actions`, `delete_user`, 4.12): `postgres` (the dashboard) only. Not exposed by the API; usage on the schema, every privilege on `admin_actions` and execute on its functions are revoked from `public`, `anon`, `authenticated` and `service_role` (each function revokes its own execute: a per-schema default privilege can't take away Postgres's global PUBLIC execute). The leaving rules, `private.remove_member_from_household(household_id, user_id)`, return `left`, `promoted` or `deleted` and are callable only by `postgres` and the `security definer` functions that use them.
+- `private.admins` (4.12): no client access, not even `service_role`. `is_admin()` (`stable security definer`, `search_path = ''`) is executable by `authenticated` only. `private.require_admin()` raises `not authorized` (`42501`) unless the caller is an admin; only `postgres` and the `security definer` `public.admin_*` portal functions that call it first can execute it.
 - `plans`, `plan_features`, `user_plans`, `plan_limits` (4.12): no client access (RLS on, no policies, privileges revoked from `anon` and `authenticated`); edited from the dashboard. `has_feature(user_id, feature, household_id default null)` is `stable security definer` in `public` so Edge Functions can call it with the service role (like `check_categorize_limit`); execute is revoked from `public`, `anon` and `authenticated`. `my_features(household_id default null)` returns the caller's features, sorted, for `authenticated`; it's `security definer` with `search_path = ''`, since run as the caller it couldn't read the plan tables.
 - Writes to household data go through `apply_mutations` (7.3), which enforces the same household check. Clients have `select` only on household tables. Its whitelist: `lists`, `recipes`, `list_items`, `list_item_contributions`, `recipe_ingredients`, `meal_plan_entries`, `categories` (custom; `household_id`, `name`, `created_at`), `household_category_overrides` (`category_id`), `household_staples` (`deleted_at`), and `ingredient_usage` / `ingredient_unit_usage` (`use_count` as a counter; `last_used_at` as a max on unit usage).
 

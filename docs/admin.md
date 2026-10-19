@@ -129,6 +129,10 @@ order by u.email;
 
 **Right after pushing the plans migration to hosted**, run this and confirm the owner's account (jgpasch@gmail.com) shows `plus`, `assigned`. If it doesn't, run "Put me on plus" below.
 
+### Add or remove an admin
+
+Admins are the users who may use the admin portal (`admin/`). In the Table Editor, open the `private` schema → `admins`. To add one, insert a row with their user id (find it under Authentication → Users, or with "Find a user" above); `added_at` fills itself in. To remove one, delete their row. Either takes effect on their next call: the portal checks on every action, so there's nothing to sign out. Deleting a user removes their row too.
+
 ### See what admins have done
 
 ```sql
@@ -137,7 +141,7 @@ from admin.admin_actions
 order by created_at desc;
 ```
 
-`performed_by` is always `postgres` from the dashboard, so the `note` is the only record of who asked and why.
+`performed_by` is always `postgres` from the dashboard, so the `note` is the only record of who asked and why. From the admin portal it's the admin's user id, and the note is still required.
 
 ## Snippets
 

@@ -39,3 +39,8 @@ values ('019a4c10-0000-7000-8000-0000000de701', '019a4c10-0000-7000-8000-0000000
 -- they're no-ops locally.
 insert into public.user_plans (user_id, plan_id)
 values ('019a4c10-0000-7000-8000-0000000de701', 'unlimited');
+
+-- The dev user is an admin (spec 4.12), so the admin portal works against local Supabase. As above,
+-- the migration's owner insert runs before this file makes the user.
+insert into private.admins (user_id)
+values ('019a4c10-0000-7000-8000-0000000de701');
