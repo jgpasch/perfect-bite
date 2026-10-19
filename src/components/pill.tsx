@@ -19,6 +19,8 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   outline?: boolean;
   /** A `primarySoft` fill with bold `onPrimarySoft` text: an action in an empty card (the Method card's "Add steps"). */
   soft?: boolean;
+  /** `surfaceMuted` when off, for a pill on a `surface` card (the Method card's method pills). */
+  muted?: boolean;
   /** A leading SF Symbol in the label's colour (the recipe band's "Suggest tags"). */
   icon?: IconName;
   /** A trailing SF Symbol in the label's colour (the "Show all" chevron). */
@@ -34,6 +36,7 @@ export function Pill({
   primary = false,
   outline = false,
   soft = false,
+  muted = false,
   icon,
   trailingIcon,
   disabled,
@@ -41,7 +44,7 @@ export function Pill({
   ...rest
 }: Props) {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
-  const look = pillLook({ selected, hue, dashed, primary, outline, soft }, colors, aisles);
+  const look = pillLook({ selected, hue, dashed, primary, outline, soft, muted }, colors, aisles);
   return (
     <Pressable
       accessibilityRole="button"

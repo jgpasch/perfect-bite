@@ -149,6 +149,19 @@ describe('pillLook', () => {
     }
   });
 
+  it('a muted pill (the Method card’s method pills) is surfaceMuted with ink when off, primary when on', () => {
+    expect(pillLook({ muted: true, primary: true }, colors, aisles)).toEqual({ fill: '#DCE4DA', text: '#1D2A22', border: null });
+    expect(pillLook({ muted: true, primary: true, selected: true }, colors, aisles)).toEqual({ fill: '#2E6B45', text: '#FFFFFF', border: null });
+    for (const scheme of ['light', 'dark'] as const) {
+      expect(pillLook({ muted: true }, Palette[scheme], AisleColors[scheme])).toEqual({
+        fill: Palette[scheme].surfaceMuted,
+        text: Palette[scheme].ink,
+        border: null,
+      });
+      expect(contrastRatio(Palette[scheme].ink, Palette[scheme].surfaceMuted)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('fills a selected aisle pill with its strong shade and onPrimary text', () => {
     expect(pillLook({ selected: true, hue: 'blue' }, colors, aisles)).toEqual({
       fill: '#2F6396',

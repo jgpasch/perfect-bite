@@ -138,7 +138,8 @@ export type PillLook = { fill: string; text: string; border: string | null };
  * active Filters pill) is `primary` with `onPrimary`. Dashed ("+ New"): no fill, a
  * `controlBorder` outline and `inkSecondary` text. Outline (the aisle picker's "Show all"): no fill,
  * a `primary` outline and `primary` text. Soft (the Method card's "Add steps"): `primarySoft` with
- * `onPrimarySoft` text.
+ * `onPrimarySoft` text. Muted (the Method card's method pills, on a `surface` card): off is
+ * `surfaceMuted` with `ink`.
  */
 export function pillLook(
   {
@@ -148,10 +149,12 @@ export function pillLook(
     primary = false,
     outline = false,
     soft = false,
-  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean; outline?: boolean; soft?: boolean },
+    muted = false,
+  }: { selected?: boolean; hue?: AisleHue; dashed?: boolean; primary?: boolean; outline?: boolean; soft?: boolean; muted?: boolean },
   colors: ThemeColors,
   aisles: Aisles,
 ): PillLook {
+  if (muted && !selected) return { fill: colors.surfaceMuted, text: colors.ink, border: null };
   if (dashed) return { fill: 'transparent', text: colors.inkSecondary, border: colors.controlBorder };
   if (outline) return { fill: 'transparent', text: colors.primary, border: colors.primary };
   if (soft) return { fill: colors.primarySoft, text: colors.onPrimarySoft, border: null };

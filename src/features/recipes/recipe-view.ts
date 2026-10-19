@@ -4,7 +4,16 @@ import { kitchenRound } from '@/domain/kitchen-round';
 import { formatAmount, type Amount } from '@/domain/quantity-display';
 import { i18n, onLanguageChanged } from '@/i18n';
 import { tagLabel } from '@/i18n/vocabulary';
-import { stepTexts, type RecipeStepEntry } from '@/shared/recipe-steps';
+import {
+  choiceGroups,
+  isStepHeading,
+  MAX_RECIPE_SECTION_LENGTH,
+  MAX_RECIPE_SECTIONS,
+  recipeSections,
+  stepPath,
+  stepTexts,
+  type RecipeStepEntry,
+} from '@/shared/recipe-steps';
 import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import type { RecipeGroup } from './recipe-sort';
@@ -244,21 +253,102 @@ export function addedToRecipeToast(count: number, recipeName: string): { message
   return { message: i18n.t('recipes.toasts.addedToRecipe', { count, name: recipeName }), emphasis: recipeName };
 }
 
-/**
- * The Steps sheet's text as the recipe's steps: one per line, each trimmed, empty lines dropped.
- * Nothing left is null (no steps), so clearing the field removes them.
- */
-export function stepsFromText(text: string): RecipeStepEntry[] | null {
-  const steps = text
-    .split(/\r\n|\r|\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return steps.length > 0 ? steps : null;
+/** A Steps sheet line as a section heading's name ("# Grilling" is "Grilling"), "" for an empty one, or null for a step. */
+function headingOfLine(line: string): string | null {
+  if (!line.startsWith('#')) return null;
+  return [...line.replace(/^#+\s*/, '').trim()].slice(0, MAX_RECIPE_SECTION_LENGTH).join('').trim();
 }
 
-/** The recipe's steps as the Steps sheet's text, one per line. Section headings aren't shown yet (spec 4.5). */
+/**
+ * The Steps sheet's text as the recipe's steps (spec 4.5): one per line, each trimmed, empty lines
+ * dropped. A line starting with `#` is a section heading (the `#`s and the spaces after them
+ * dropped, at most 80 characters, past the 20th or empty dropped), a `choice` when its name is in
+ * `choices`. No step left is null (no steps), so clearing the field removes them.
+ */
+export function stepsFromText(text: string, choices: ReadonlySet<string> = new Set()): RecipeStepEntry[] | null {
+  const entries = textEntries(text, choices);
+  return stepTexts(entries).length > 0 ? entries : null;
+}
+
+/** The section headings' names in the Steps sheet's text, in order, as Save would write them (the Choose one card). */
+export function stepHeadingsInText(text: string): string[] {
+  return textEntries(text, new Set()).filter(isStepHeading).map((heading) => heading.section);
+}
+
+function textEntries(text: string, choices: ReadonlySet<string>): RecipeStepEntry[] {
+  const entries: RecipeStepEntry[] = [];
+  let headings = 0;
+  for (const raw of text.split(/\r\n|\r|\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const heading = headingOfLine(line);
+    if (heading === null) entries.push(line);
+    else if (heading && headings++ < MAX_RECIPE_SECTIONS) entries.push(choices.has(heading) ? { section: heading, choice: true } : { section: heading });
+  }
+  return entries;
+}
+
+/** The recipe's steps as the Steps sheet's text, one per line, a section heading as "# Grilling". */
 export function stepsToText(steps: readonly RecipeStepEntry[] | null | undefined): string {
-  return stepTexts(steps).join('\n');
+  return (steps ?? []).map((entry) => (isStepHeading(entry) ? `# ${entry.section}` : entry)).join('\n');
+}
+
+/** What the Method card shows, top to bottom (spec 4.5 "Step sections"). */
+export type MethodBlock =
+  | { kind: 'title'; title: string }
+  /** A choice group: its label ("Cook it one way" when `first`), a pill per option and the pick; the picked option's steps follow. */
+  | { kind: 'group'; group: number; first: boolean; options: string[]; picked: number }
+  /** `index` into `stepTexts`, `number` from 1 along the path shown; `lead` when a title or the pills sit right above it. */
+  | { kind: 'step'; index: number; number: number; lead: boolean };
+
+/**
+ * The Method card's blocks for one pick per choice group (`picks[g]`; the first option without one,
+ * as `stepPath`): each section's title over its steps, and for a group its pills then only the
+ * picked option's steps, numbered along that path.
+ */
+export function methodBlocks(entries: readonly RecipeStepEntry[] | null | undefined, picks: readonly number[] = []): MethodBlock[] {
+  const sections = recipeSections(entries);
+  const groups = choiceGroups(sections);
+  const shown = new Set(stepPath(entries, picks));
+  const blocks: MethodBlock[] = [];
+  let number = 0;
+  let lead = false;
+  sections.forEach((section, i) => {
+    const group = groups.findIndex((options) => options[0] === i);
+    if (group >= 0) {
+      const options = groups[group];
+      const pick = picks[group];
+      blocks.push({
+        kind: 'group',
+        group,
+        first: i === 0,
+        options: options.map((o) => sections[o].title ?? ''),
+        picked: pick != null && Number.isInteger(pick) && pick >= 0 && pick < options.length ? pick : 0,
+      });
+      lead = true;
+    } else if (!section.choice && section.title !== null) {
+      blocks.push({ kind: 'title', title: section.title });
+      lead = true;
+    }
+    for (const index of section.steps) {
+      if (!shown.has(index)) continue;
+      blocks.push({ kind: 'step', index, number: ++number, lead });
+      lead = false;
+    }
+  });
+  return blocks;
+}
+
+/** `picks` with group `group`'s pick set to `option` (groups before it without one keep their first). */
+export function withPick(picks: readonly number[], group: number, option: number): number[] {
+  const next = Array.from({ length: Math.max(picks.length, group + 1) }, (_, g) => picks[g] ?? 0);
+  next[group] = option;
+  return next;
+}
+
+/** The names of the recipe's headings marked `choice`: the Steps sheet's ticks. */
+export function choiceHeadings(steps: readonly RecipeStepEntry[] | null | undefined): Set<string> {
+  return new Set((steps ?? []).filter(isStepHeading).filter((h) => h.choice === true).map((h) => h.section));
 }
 
 /** What VoiceOver reads for a step in the Method card: "Step 2 of 7, Toss the chicken…". `index` is 0-based. */

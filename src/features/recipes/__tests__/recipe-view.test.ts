@@ -24,10 +24,15 @@ import {
   servesLabel,
   SERVINGS_ERROR,
   servingsLabel,
+  choiceHeadings,
+  methodBlocks,
+  stepHeadingsInText,
   stepLabel,
   stepsFromText,
   stepsToText,
+  withPick,
 } from '../recipe-view';
+import type { RecipeStepEntry } from '@/shared/recipe-steps';
 import { emptyRecipeTags } from '@/shared/recipe-tags';
 
 describe('servings', () => {
@@ -145,7 +150,138 @@ describe('steps', () => {
     expect(stepsToText([])).toBe('');
     expect(stepsFromText(stepsToText(['A', 'B']))).toEqual(['A', 'B']);
   });
+});
 
+describe('steps with section headings (spec 4.5 "Step sections")', () => {
+  const CHICKEN: RecipeStepEntry[] = [
+    { section: 'Marinate the chicken' },
+    'Whisk.',
+    'Marinate.',
+    { section: 'Grill', choice: true },
+    'Grill it.',
+    { section: 'Bake', choice: true },
+    'Bake it.',
+  ];
+
+  test('a "#" line is a heading: the #s and the spaces after them dropped, trimmed', () => {
+    expect(stepsFromText('# Grill\nGrill it.\n##Bake\nBake it.\n  ###   Broil it   \nBroil.')).toEqual([
+      { section: 'Grill' },
+      'Grill it.',
+      { section: 'Bake' },
+      'Bake it.',
+      { section: 'Broil it' },
+      'Broil.',
+    ]);
+  });
+
+  test('an empty heading is dropped; a "#" inside a line is part of the step', () => {
+    expect(stepsFromText('#\n  ##   \nUse a #10 can.\n# \nStir.')).toEqual(['Use a #10 can.', 'Stir.']);
+  });
+
+  test('headings in `choices` are written as choices, matched by their text', () => {
+    expect(stepsFromText('# Grill\nGrill it.\n# Bake\nBake it.\n# Serve\nServe.', new Set(['Grill', 'Bake', 'bake', 'Gone']))).toEqual([
+      { section: 'Grill', choice: true },
+      'Grill it.',
+      { section: 'Bake', choice: true },
+      'Bake it.',
+      { section: 'Serve' },
+      'Serve.',
+    ]);
+  });
+
+  test('headings without a step are null, as no steps', () => {
+    expect(stepsFromText('# Grill\n# Bake')).toBeNull();
+    expect(stepsFromText('# Grill\n\n# Bake', new Set(['Grill']))).toBeNull();
+  });
+
+  test('a heading is cut to 80 characters, and headings past the 20th are dropped', () => {
+    const long = 'x'.repeat(100);
+    expect(stepsFromText(`# ${long}\nStep.`)).toEqual([{ section: 'x'.repeat(80) }, 'Step.']);
+    const many = Array.from({ length: 22 }, (_, i) => `# S${i + 1}\nStep ${i + 1}.`).join('\n');
+    const entries = stepsFromText(many)!;
+    expect(entries.filter((e) => typeof e !== 'string')).toHaveLength(20);
+    // S21 and S22 go; their steps stay, in S20.
+    expect(entries.slice(-4)).toEqual([{ section: 'S20' }, 'Step 20.', 'Step 21.', 'Step 22.']);
+    expect(entries.filter((e) => typeof e === 'string')).toHaveLength(22);
+  });
+
+  test('the sheet text writes headings as "# <name>" lines', () => {
+    expect(stepsToText(CHICKEN)).toBe('# Marinate the chicken\nWhisk.\nMarinate.\n# Grill\nGrill it.\n# Bake\nBake it.');
+  });
+
+  test('text → entries → text round-trips, choices and all', () => {
+    const text = stepsToText(CHICKEN);
+    expect(stepsFromText(text, choiceHeadings(CHICKEN))).toEqual(CHICKEN);
+    expect(stepsToText(stepsFromText(text))).toBe(text);
+  });
+
+  test('choiceHeadings names the headings marked choice', () => {
+    expect([...choiceHeadings(CHICKEN)]).toEqual(['Grill', 'Bake']);
+    expect(choiceHeadings(['A', { section: 'B' }]).size).toBe(0);
+    expect(choiceHeadings(null).size).toBe(0);
+  });
+
+  test('stepHeadingsInText lists the headings as Save writes them, steps or not', () => {
+    expect(stepHeadingsInText('# Grill\n#\n## Bake  \nBake it.\n# Grill')).toEqual(['Grill', 'Bake', 'Grill']);
+    expect(stepHeadingsInText('Just a step.')).toEqual([]);
+    expect(stepHeadingsInText('')).toEqual([]);
+  });
+});
+
+describe('methodBlocks and withPick (the Method card)', () => {
+  const ENTRIES: RecipeStepEntry[] = [
+    { section: 'Marinate' },
+    'M1',
+    'M2',
+    { section: 'Grill', choice: true },
+    'G1',
+    'G2',
+    { section: 'Bake', choice: true },
+    'B1',
+    { section: 'Serve' },
+    'S1',
+  ];
+
+  test('titles, the group and the first option’s steps, numbered along the path', () => {
+    expect(methodBlocks(ENTRIES)).toEqual([
+      { kind: 'title', title: 'Marinate' },
+      { kind: 'step', index: 0, number: 1, lead: true },
+      { kind: 'step', index: 1, number: 2, lead: false },
+      { kind: 'group', group: 0, first: false, options: ['Grill', 'Bake'], picked: 0 },
+      { kind: 'step', index: 2, number: 3, lead: true },
+      { kind: 'step', index: 3, number: 4, lead: false },
+      { kind: 'title', title: 'Serve' },
+      { kind: 'step', index: 5, number: 5, lead: true },
+    ]);
+  });
+
+  test('a pick shows that option and renumbers what follows; an out-of-range pick shows the first', () => {
+    expect(methodBlocks(ENTRIES, [1]).filter((b) => b.kind === 'step')).toEqual([
+      { kind: 'step', index: 0, number: 1, lead: true },
+      { kind: 'step', index: 1, number: 2, lead: false },
+      { kind: 'step', index: 4, number: 3, lead: true },
+      { kind: 'step', index: 5, number: 4, lead: true },
+    ]);
+    expect(methodBlocks(ENTRIES, [7])).toEqual(methodBlocks(ENTRIES));
+    expect(methodBlocks(ENTRIES, [-1])).toEqual(methodBlocks(ENTRIES));
+  });
+
+  test('without headings, only steps, no lead', () => {
+    expect(methodBlocks(['A', 'B'])).toEqual([
+      { kind: 'step', index: 0, number: 1, lead: false },
+      { kind: 'step', index: 1, number: 2, lead: false },
+    ]);
+    expect(methodBlocks(null)).toEqual([]);
+  });
+
+  test('withPick sets one group, filling earlier ones with the first', () => {
+    expect(withPick([], 0, 2)).toEqual([2]);
+    expect(withPick([], 2, 1)).toEqual([0, 0, 1]);
+    expect(withPick([1, 3], 0, 0)).toEqual([0, 3]);
+  });
+});
+
+describe('step labels', () => {
   test('VoiceOver reads "Step 2 of 7, …"', () => {
     expect(stepLabel(1, 7, 'Toss the chicken.')).toBe('Step 2 of 7, Toss the chicken.');
     expect(stepLabel(0, 1, 'Eat.')).toBe('Step 1 of 1, Eat.');

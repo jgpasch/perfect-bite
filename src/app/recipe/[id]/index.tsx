@@ -82,6 +82,7 @@ import {
   scaledAmount,
   SERVINGS_MAX,
   SERVINGS_MIN,
+  withPick,
 } from '@/features/recipes/recipe-view';
 import {
   addRecipeIngredient,
@@ -96,7 +97,7 @@ import {
 } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import { displayItemName, stepTexts } from '@/shared';
+import { displayItemName, stepPath, stepTexts } from '@/shared';
 
 /** A recipe (spec 4.5, board 06): ingredients added with the same field and parser as lists. */
 export default function RecipeScreen() {
@@ -147,6 +148,8 @@ export default function RecipeScreen() {
   const dismissPagesToast = useCallback(() => dismissPagesDeleted(pagesDeleted?.key), [pagesDeleted?.key]);
   // Ingredients | Method, only with steps. Opens on Ingredients every visit and isn't saved.
   const [tab, setTab] = useState<RecipeTab>('ingredients');
+  // The Method card's pick in each choice group (spec 4.5 "Step sections"): the first option every visit, not saved.
+  const [methodPicks, setMethodPicks] = useState<readonly number[]>([]);
   const scroll = useRef<ScrollView>(null);
   const scrollY = useRef(0);
   // Opening the recipe matches its steps if they need it (spec 4.5).
@@ -200,8 +203,9 @@ export default function RecipeScreen() {
   const hasPhoto = recipe.imageUrl !== null || recipe.photoPath !== null;
   const base = recipe.servings;
   const servings = base === null ? null : (chosen ?? base);
-  // Headings aren't steps: "Method · N" counts the step strings.
+  // Headings aren't steps: only the step strings count. "Method · N" counts the path the card shows.
   const steps = stepTexts(recipe.steps).length;
+  const methodCount = stepPath(recipe.steps, methodPicks).length;
 
   const editServings = () =>
     Alert.prompt(
@@ -370,7 +374,7 @@ export default function RecipeScreen() {
             {steps > 0 ? (
               <View onLayout={(e) => (switchY.current = e.nativeEvent.layout.y)} style={{ paddingBottom: spacing.md }}>
                 <SegmentedControl
-                  segments={[{ value: 'ingredients', label: t('recipes.screen.ingredients') }, { value: 'method', ...methodTab(steps) }]}
+                  segments={[{ value: 'ingredients', label: t('recipes.screen.ingredients') }, { value: 'method', ...methodTab(methodCount) }]}
                   value={tab}
                   onChange={switchTab}
                 />
@@ -435,6 +439,8 @@ export default function RecipeScreen() {
               <RecipeMethodCard
                 steps={recipe.steps}
                 hue={hue}
+                picks={methodPicks}
+                onPick={(group, option) => setMethodPicks((current) => withPick(current, group, option))}
                 sourceUrl={recipe.sourceUrl}
                 pageCount={pageCount}
                 onViewPages={openPages}

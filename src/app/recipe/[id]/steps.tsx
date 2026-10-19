@@ -1,13 +1,14 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { TextInput } from 'react-native';
+import { Pressable, StyleSheet, TextInput } from 'react-native';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Card } from '@/components/card';
+import { CheckCircle } from '@/components/check-circle';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { ensureStepMatch } from '@/features/recipes/ensure-step-match';
-import { stepsFromText, stepsToText } from '@/features/recipes/recipe-view';
+import { choiceHeadings, stepHeadingsInText, stepsFromText, stepsToText } from '@/features/recipes/recipe-view';
 import { getRecipe, updateRecipeSteps } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
@@ -16,22 +17,33 @@ import { useT } from '@/i18n';
 const MIN_LINES = 12;
 
 /**
- * The Steps sheet (board 16): the recipe's method in one field, a step per line. Save splits on line
- * breaks, trims and drops empty lines; nothing left saves null. Cancel writes nothing.
+ * The Steps sheet (board 16; step sections, board D): the recipe's method in one field, a step per
+ * line, a `#` line a section heading. Save splits on line breaks, trims and drops empty lines; no step
+ * left saves null. With two or more headings, the Choose one when cooking card ticks which are
+ * `choice` sections, by the heading's text. Cancel writes nothing.
  */
 export default function RecipeStepsSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const t = useT();
-  const { colors, spacing, typography, scheme } = useTheme();
+  const { colors, spacing, typography, sizes, opacity, scheme } = useTheme();
 
   // A sheet is short-lived: read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
   const [text, setText] = useState(() => stepsToText(recipe?.steps));
+  // Ticked headings, by their text: renaming one drops its tick.
+  const [choices, setChoices] = useState<ReadonlySet<string>>(() => choiceHeadings(recipe?.steps));
 
   if (!recipe) return <Screen />;
 
+  const headings = stepHeadingsInText(text);
+  const toggle = (heading: string) =>
+    setChoices((current) => {
+      const next = new Set(current);
+      if (!next.delete(heading)) next.add(heading);
+      return next;
+    });
   const save = () => {
-    updateRecipeSteps(recipe.id, stepsFromText(text));
+    updateRecipeSteps(recipe.id, stepsFromText(text, choices));
     void ensureStepMatch(recipe.id);
     router.back();
   };
@@ -86,6 +98,51 @@ export default function RecipeStepsSheet() {
       <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.xxl }}>
         {t('recipes.method.footnote')}
       </ThemedText>
+      {headings.length >= 2 ? (
+        <>
+          <ThemedText variant="sectionLabel" color="inkSecondary" style={[inset, { paddingTop: spacing.xs }]}>
+            {t('recipes.method.chooseOne')}
+          </ThemedText>
+          <Card>
+            {headings.map((heading, i) => {
+              const checked = choices.has(heading);
+              return (
+                <Pressable
+                  key={i}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked }}
+                  accessibilityLabel={heading}
+                  onPress={() => toggle(heading)}
+                  style={({ pressed }) => [
+                    styles.row,
+                    {
+                      minHeight: sizes.rowMin,
+                      paddingHorizontal: spacing.lg,
+                      paddingVertical: spacing.sm,
+                      gap: spacing.md,
+                      borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                      borderTopColor: colors.border,
+                      opacity: pressed ? opacity.pressed : 1,
+                    },
+                  ]}>
+                  <CheckCircle checked={checked} />
+                  <ThemedText variant="body" style={styles.flex}>
+                    {heading}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </Card>
+          <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.xxl }}>
+            {t('recipes.method.chooseOneFootnote')}
+          </ThemedText>
+        </>
+      ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
+});

@@ -354,7 +354,7 @@ describe('the Steps sheet', () => {
     const root = render(<RecipeStepsSheet />);
     expect(hostTexts(root)).toEqual([
       'Steps',
-      'One step per line',
+      'One step per line · # starts a section',
       'Empty lines are dropped. Clear everything to remove the steps.',
     ]);
     expect(field(root).props.value).toBe(STEPS.join('\n'));
@@ -432,7 +432,6 @@ describe('updateRecipeSteps', () => {
   });
 });
 
-// Until the Method card and the Steps sheet learn sections (spec 4.5), headings simply aren't shown.
 const SECTIONED: RecipeStepEntry[] = [
   { section: 'Make the paste' },
   STEPS[0],
@@ -442,37 +441,188 @@ const SECTIONED: RecipeStepEntry[] = [
   STEPS[2],
 ];
 
-describe('a recipe with section headings, before they are shown', () => {
-  test('the Method card lists the same steps, numbered the same, as without headings', () => {
-    setSteps(SECTIONED);
+// familystylefood.com/chicken-thigh-marinade, shortened: a marinate section, then four ways to cook it.
+const MARINATE = ['Whisk the marinade.', 'Pour it over the chicken.', 'Marinate 30 minutes.'];
+const GRILL = ['Preheat the grill.', 'Season the chicken.', 'Grill 5 minutes, then flip.', 'Cover and cook to 165°F.'];
+const BAKE = ['Heat the oven to 425°F.', 'Bake 20 minutes.', 'Rest 5 minutes.'];
+const PAN = ['Heat a skillet.', 'Fry skin-side down.'];
+const BROIL = ['Broil 8 minutes a side.', 'Rest 5 minutes before serving.'];
+const CHICKEN: RecipeStepEntry[] = [
+  { section: 'Marinate the chicken' },
+  ...MARINATE,
+  { section: 'Grill', choice: true },
+  ...GRILL,
+  { section: 'Bake', choice: true },
+  ...BAKE,
+  { section: 'Pan-fry', choice: true },
+  ...PAN,
+  { section: 'Broil', choice: true },
+  ...BROIL,
+];
+
+const pill = (root: ReactTestRenderer, label: string) => root.root.find((n) => n.type === Pill && n.props.label === label);
+const stepLabels = (root: ReactTestRenderer) => stepRows(root).map((r) => r.props.accessibilityLabel);
+const textNode = (root: ReactTestRenderer, text: string) =>
+  root.root.find((n) => String(n.type) === 'Text' && [n.props.children].flat().join('') === text);
+const methodHeaderCount = (root: ReactTestRenderer) =>
+  root.root.findAll((n) => String(n.type) === 'Text' && /^Method, \d+ steps?$/.test(n.props.accessibilityLabel ?? '')).map((n) => n.props.accessibilityLabel);
+
+describe('the Method card with step sections', () => {
+  test('section titles sit over their steps as headers, and the first option is picked', () => {
+    setSteps(CHICKEN);
     const root = render(<RecipeScreen />);
-    // The switch counts the steps, not the headings.
-    press(tab(root, 'Method, 3 steps'));
-    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
-      'Step 1 of 3, Blend the chipotles into a paste.',
-      'Step 2 of 3, Toss the chicken in half the paste.',
-      'Step 3 of 3, Grill the thighs.',
-    ]);
-    expect(root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityLabel === 'Method, 3 steps')).toHaveLength(1);
-    const texts = hostTexts(root);
-    expect(texts).toEqual(expect.arrayContaining(STEPS));
-    for (const title of ['Make the paste', 'Grilling', 'Baking']) expect(texts).not.toContain(title);
+    // The switch counts the path shown: marinate then grill.
+    press(tab(root, 'Method, 7 steps'));
+    expect(stepLabels(root)).toEqual([...MARINATE, ...GRILL].map((s, i) => `Step ${i + 1} of 7, ${s}`));
+    expect(methodHeaderCount(root)).toEqual(['Method, 7 steps']);
+    const title = textNode(root, 'Marinate the chicken');
+    expect(title.props.accessibilityRole).toBe('header');
+    expect(StyleSheet.flatten(title.props.style)).toMatchObject({ fontSize: Typography.sectionLabel.fontSize, color: Palette.light.inkSecondary });
+    expect(hostTexts(root)).toEqual(expect.arrayContaining(['Then cook it one way', '4 ways']));
+    // The other options' steps aren't shown.
+    for (const step of [...BAKE, ...PAN, ...BROIL]) expect(hostTexts(root)).not.toContain(step);
   });
 
-  test('the card renders exactly what it renders without the headings', () => {
-    const plain = hostTexts(render(<RecipeMethodCard steps={STEPS} hue="green" onEdit={() => {}} />));
+  test('the pills are a radio group named by the label, the pick primary and the rest surfaceMuted', () => {
+    const root = render(<RecipeMethodCard steps={CHICKEN} hue="green" onEdit={() => {}} />);
+    const group = root.root.find((n) => String(n.type) === 'View' && n.props.accessibilityRole === 'radiogroup');
+    expect(group.props.accessibilityLabel).toBe('Then cook it one way');
+    expect(group.findAll((n) => n.type === Pill).map((n) => n.props.label)).toEqual(['Grill', 'Bake', 'Pan-fry', 'Broil']);
+    const host = (label: string) =>
+      root.root.find((n) => String(n.type) === 'View' && n.props.accessibilityRole === 'radio' && n.props.accessibilityLabel === label);
+    expect(host('Grill').props.accessibilityState).toMatchObject({ checked: true });
+    expect(host('Bake').props.accessibilityState).toMatchObject({ checked: false });
+    expect(StyleSheet.flatten(host('Grill').props.style).backgroundColor).toBe(Palette.light.primary);
+    expect(StyleSheet.flatten(host('Bake').props.style).backgroundColor).toBe(Palette.light.surfaceMuted);
+  });
+
+  test('tapping a pill swaps in its steps, renumbered, and the header and switch follow', () => {
+    setSteps(CHICKEN);
+    const root = render(<RecipeScreen />);
+    press(tab(root, 'Method, 7 steps'));
+    press(pill(root, 'Bake'));
+    expect(stepLabels(root)).toEqual([...MARINATE, ...BAKE].map((s, i) => `Step ${i + 1} of 6, ${s}`));
+    expect(methodHeaderCount(root)).toEqual(['Method, 6 steps']);
+    expect(tabs(root).map((n) => n.props.accessibilityLabel)).toEqual(['Ingredients', 'Method, 6 steps']);
+    const digits = root.root.findAll((n) => String(n.type) === 'Text' && typeof n.props.children === 'number').map((n) => n.props.children);
+    // The header's count, then the steps' numbers.
+    expect(digits).toEqual([6, 1, 2, 3, 4, 5, 6]);
+    for (const step of GRILL) expect(hostTexts(root)).not.toContain(step);
+    press(pill(root, 'Pan-fry'));
+    expect(stepLabels(root).at(-1)).toBe(`Step 5 of 5, ${PAN[1]}`);
+    expect(tabs(root).map((n) => n.props.accessibilityLabel)).toEqual(['Ingredients', 'Method, 5 steps']);
+  });
+
+  test('the pick is the first option again on the next visit', () => {
+    setSteps(CHICKEN);
+    let root = render(<RecipeScreen />);
+    press(tab(root, 'Method, 7 steps'));
+    press(pill(root, 'Broil'));
     act(() => tree?.unmount());
-    expect(hostTexts(render(<RecipeMethodCard steps={SECTIONED} hue="green" onEdit={() => {}} />))).toEqual(plain);
+    root = render(<RecipeScreen />);
+    expect(tabs(root).map((n) => n.props.accessibilityLabel)).toEqual(['Ingredients', 'Method, 7 steps']);
+  });
+
+  test('a group that comes first reads "Cook it one way"', () => {
+    const root = render(
+      <RecipeMethodCard steps={[{ section: 'Oven', choice: true }, 'Bake it.', { section: 'Grill', choice: true }, 'Grill it.']} hue="green" onEdit={() => {}} />,
+    );
+    expect(hostTexts(root)).toEqual(['Method', '1', 'Edit', 'Cook it one way', '2 ways', 'Oven', 'Grill', '1', 'Bake it.']);
+    press(pill(root, 'Grill'));
+    expect(stepLabels(root)).toEqual(['Step 1 of 1, Grill it.']);
+  });
+
+  test('a lone choice section and untitled steps before the first heading read as ordinary sections', () => {
+    const root = render(
+      <RecipeMethodCard steps={['Prep.', { section: 'Grill', choice: true }, 'Grill it.', { section: 'Serve' }, 'Plate it.']} hue="green" onEdit={() => {}} />,
+    );
+    expect(root.root.findAll((n) => n.type === Pill)).toHaveLength(0);
+    expect(hostTexts(root)).toEqual(['Method', '3', 'Edit', '1', 'Prep.', 'Grill', '2', 'Grill it.', 'Serve', '3', 'Plate it.']);
+  });
+
+  test('a recipe without headings renders exactly as before: no titles, labels or pills', () => {
+    const root = render(<RecipeMethodCard steps={STEPS} hue="green" onEdit={() => {}} />);
+    expect(hostTexts(root)).toEqual(['Method', '3', 'Edit', '1', STEPS[0], '2', STEPS[1], '3', STEPS[2]]);
+    expect(root.root.findAll((n) => n.type === Pill)).toHaveLength(0);
+    expect(root.root.findAll((n) => n.props.accessibilityRole === 'header' && String(n.type) === 'Text' && STEPS.includes(n.props.children))).toHaveLength(0);
   });
 
   test('headings with no step are the empty state', () => {
     const root = render(<RecipeMethodCard steps={[{ section: 'Grill' }]} hue="green" onEdit={() => {}} />);
     expect(hostTexts(root)).toEqual(['Method', 'No steps yet.', 'Add steps']);
   });
+});
 
-  test('the Steps sheet shows the step lines only', () => {
+describe('the Steps sheet with step sections', () => {
+  const checkboxes = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => String(n.type) === 'View' && n.props.accessibilityRole === 'checkbox');
+  const ticks = (root: ReactTestRenderer) => checkboxes(root).map((n) => [n.props.accessibilityLabel, n.props.accessibilityState.checked]);
+  const checkbox = (root: ReactTestRenderer, label: string) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'checkbox' && n.props.accessibilityLabel === label);
+
+  test('headings show as "# " lines, and the card ticks the choice ones', () => {
     setSteps(SECTIONED);
     const root = render(<RecipeStepsSheet />);
-    expect(field(root).props.value).toBe(STEPS.join('\n'));
+    expect(field(root).props.value).toBe(`# Make the paste\n${STEPS[0]}\n# Grilling\n${STEPS[1]}\n# Baking\n${STEPS[2]}`);
+    expect(hostTexts(root)).toEqual(
+      expect.arrayContaining([
+        'One step per line · # starts a section',
+        'Choose one when cooking',
+        "Ticked sections that sit next to each other are ways to do the same part. Cook mode asks which one you're using.",
+      ]),
+    );
+    expect(ticks(root)).toEqual([
+      ['Make the paste', false],
+      ['Grilling', true],
+      ['Baking', true],
+    ]);
+  });
+
+  test('the card shows only from two headings, listing them live', () => {
+    const root = render(<RecipeStepsSheet />);
+    act(() => field(root).props.onChangeText('# Grill\nGrill it.'));
+    expect(checkboxes(root)).toHaveLength(0);
+    expect(hostTexts(root)).not.toContain('Choose one when cooking');
+    act(() => field(root).props.onChangeText('# Grill\nGrill it.\n##   Bake  \nBake it.\n#\nServe.'));
+    // "##   Bake  " is Bake; an empty "#" is no heading.
+    expect(ticks(root)).toEqual([
+      ['Grill', false],
+      ['Bake', false],
+    ]);
+  });
+
+  test('Save writes the headings, ticked ones as choices', () => {
+    const root = render(<RecipeStepsSheet />);
+    act(() => field(root).props.onChangeText('# Marinate\nMix.\n# Grill\nGrill it.\n#\n# Bake\nBake it.'));
+    press(checkbox(root, 'Grill'));
+    press(checkbox(root, 'Bake'));
+    press(checkbox(root, 'Bake'));
+    press(checkbox(root, 'Bake'));
+    press(toolbarButton(root, 'Save'));
+    const saved = [{ section: 'Marinate' }, 'Mix.', { section: 'Grill', choice: true }, 'Grill it.', { section: 'Bake', choice: true }, 'Bake it.'];
+    expect(getRecipe(tacos)!.steps).toEqual(saved);
+    expect(recipeUpdates().at(-1)!.fields).toMatchObject({ steps: saved });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('a tick follows the heading text: renaming it drops the tick, and unticking saves no choice', () => {
+    setSteps(SECTIONED);
+    const root = render(<RecipeStepsSheet />);
+    act(() => field(root).props.onChangeText(`# Make the paste\n${STEPS[0]}\n# Grill\n${STEPS[1]}\n# Baking\n${STEPS[2]}`));
+    expect(ticks(root)).toEqual([
+      ['Make the paste', false],
+      ['Grill', false],
+      ['Baking', true],
+    ]);
+    press(checkbox(root, 'Baking'));
+    press(toolbarButton(root, 'Save'));
+    expect(getRecipe(tacos)!.steps).toEqual([{ section: 'Make the paste' }, STEPS[0], { section: 'Grill' }, STEPS[1], { section: 'Baking' }, STEPS[2]]);
+  });
+
+  test('saving untouched keeps the recipe exactly as it was', () => {
+    setSteps(CHICKEN);
+    const root = render(<RecipeStepsSheet />);
+    press(toolbarButton(root, 'Save'));
+    expect(getRecipe(tacos)!.steps).toEqual(CHICKEN);
   });
 });

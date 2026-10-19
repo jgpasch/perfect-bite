@@ -599,9 +599,17 @@ export const en = {
       addSteps: 'Add steps',
       editSteps: 'Edit steps',
       sheetTitle: 'Steps',
-      onePerLine: 'One step per line',
+      onePerLine: 'One step per line · # starts a section',
       placeholder: 'Blend the paste…',
       footnote: 'Empty lines are dropped. Clear everything to remove the steps.',
+      /** A choice group in the Method card (spec 4.5 "Step sections", board A). */
+      thenOneWay: 'Then cook it one way',
+      oneWay: 'Cook it one way',
+      ways_one: '{{count}} way',
+      ways_other: '{{count}} ways',
+      /** The Steps sheet's card of headings (board D). */
+      chooseOne: 'Choose one when cooking',
+      chooseOneFootnote: "Ticked sections that sit next to each other are ways to do the same part. Cook mode asks which one you're using.",
     },
     /** Cooking mode (board 19). */
     cook: {
