@@ -8,7 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { eq } from 'drizzle-orm';
 
-import { PrimaryButton, SurfaceButton } from '@/components/button';
+import { Button, PrimaryButton, SurfaceButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { AisleColors, Palette, Rounded, Sizes, Spacing, Typography } from '@/constants/theme';
@@ -19,13 +19,24 @@ import { today } from '@/features/meal-plan/week';
 import { dayName } from '@/features/meal-plan/week-view';
 import { setSlot } from '@/features/meal-plan/write';
 import { setKeepScreenOn } from '@/features/settings/device-settings';
+import { es } from '@/i18n/es';
 import { stepIngredientsBasis, type RecipeStepEntry } from '@/shared';
 import { resetDb } from '@/test/db';
 
 import CookScreen from '@/app/recipe/[id]/cook';
 import RecipeScreen from '@/app/recipe/[id]/index';
 
-import { allTicked, toggleAllUses, tickUses, stepAmount, stepUseText, tickKey, usesByIngredient } from '../cook-match';
+import {
+  allTicked,
+  cookPlan,
+  toggleAllUses,
+  tickUses,
+  stepAmount,
+  stepUseText,
+  tickKey,
+  usesByIngredient,
+  withCookPick,
+} from '../cook-match';
 import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
 import { stepMatch } from '../step-match';
 import { cookProgressLabel, upNextIndex } from '../recipe-view';
@@ -785,26 +796,28 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       .map((r) => r.props.accessibilityLabel as string)
       .filter((l) => / for step \d+$/.test(l));
 
-  test('section headings (not shown yet) leave the steps, their numbers and the saved match as they were', () => {
+  test('section headings keep the steps, their numbers and the saved match, with the titles over them', () => {
     const plain = render(<CookScreen />);
-    const before = { rows: stepRows(plain).map((r) => r.props.accessibilityLabel), texts: hostTexts(plain) };
+    const before = stepRows(plain).map((r) => r.props.accessibilityLabel);
     close();
 
-    setSteps([{ section: 'Marinate' }, MATCH_STEPS[0], MATCH_STEPS[1], { section: 'Grilling', choice: true }, MATCH_STEPS[2], { section: 'Baking', choice: true }]);
+    setSteps([{ section: 'Marinate' }, MATCH_STEPS[0], MATCH_STEPS[1], { section: 'Grilling' }, MATCH_STEPS[2]]);
     // The basis was saved from the step strings alone: adding headings keeps the match fresh.
     const recipe = db.select().from(recipes).where(eq(recipes.id, tacos)).get()!;
     expect(stepMatch(recipe, recipeIngredientsQuery(tacos).all()).state).toBe('fresh');
     const root = render(<CookScreen />);
-    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(before.rows);
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(before);
     // Each step still names the ingredients the match gave it.
     expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
       `Step 1 of 3, ${MATCH_STEPS[0]}, uses chicken thighs, garlic, limes`,
       `Step 2 of 3, ${MATCH_STEPS[1]}`,
       `Step 3 of 3, ${MATCH_STEPS[2]}, uses chicken thighs, limes`,
     ]);
-    expect(hostTexts(root)).toEqual(before.texts);
     expect(progress(root)).toBe('0 of 3 steps done');
-    for (const title of ['Marinate', 'Grilling', 'Baking']) expect(hostTexts(root)).not.toContain(title);
+    const texts = hostTexts(root);
+    expect(texts.indexOf('Marinate')).toBeLessThan(texts.indexOf(MATCH_STEPS[0]));
+    expect(texts.indexOf('Grilling')).toBeGreaterThan(texts.indexOf(MATCH_STEPS[1]));
+    expect(texts.indexOf('Grilling')).toBeLessThan(texts.indexOf(MATCH_STEPS[2]));
   });
 
   test('All ingredients is folded to one row with a count, and unfolds to the checklist for the visit', () => {
@@ -1152,5 +1165,246 @@ describe('cook helpers', () => {
     expect(upNextIndex([true, false, true])).toBe(1);
     expect(upNextIndex([true, true])).toBe(-1);
     expect(upNextIndex([])).toBe(-1);
+  });
+});
+
+// familystylefood.com/chicken-thigh-marinade, shortened: a marinate section, then four ways to cook it.
+const MARINATE = ['Whisk the marinade.', 'Pour it over the chicken.', 'Marinate 30 minutes.'];
+const GRILL = ['Preheat the grill.', 'Season the chicken.', 'Grill 5 minutes, then flip.', 'Cover and cook to 165°F.'];
+const BAKE = ['Heat the oven to 425°F.', 'Bake 20 minutes.'];
+const PAN = ['Heat a skillet.', 'Fry skin-side down.', 'Flip and finish.'];
+const BROIL = ['Heat the broiler.', 'Broil 8 minutes a side.', 'Rest 5 minutes.'];
+const CHICKEN: RecipeStepEntry[] = [
+  { section: 'Marinate the chicken' },
+  ...MARINATE,
+  { section: 'Grill', choice: true },
+  ...GRILL,
+  { section: 'Bake', choice: true },
+  ...BAKE,
+  { section: 'Pan-fry', choice: true },
+  ...PAN,
+  { section: 'Broil', choice: true },
+  ...BROIL,
+];
+
+describe('the cook screen with step sections (spec 4.5 "Step sections")', () => {
+  const topLine = (root: ReactTestRenderer) => hostTexts(root).find((t) => / (done|hechos?)( · (pick a method|elige un método))?$/.test(t));
+  const pickerCard = (root: ReactTestRenderer) =>
+    root.root.find(
+      (n) => n.type === Card && n.findAll((c) => String(c.type) === 'Text' && /^(How are you cooking it\?|¿Cómo lo vas a cocinar\?)$/.test(String(c.props.children))).length > 0,
+    );
+  const hasPicker = (root: ReactTestRenderer) => hostTexts(root).includes('How are you cooking it?');
+  const changeMethod = (root: ReactTestRenderer) => root.root.find((n) => n.type === Button && n.props.label === 'Change method');
+  const markThrough = (root: ReactTestRenderer, numbers: number[]) =>
+    numbers.forEach((n) => act(() => byA11y(root, `Mark step ${n} done`).props.onPress()));
+
+  test('a recipe without headings is unchanged: no titles, no picker, steps 1 to n', () => {
+    setSteps(STEPS);
+    const root = render(<CookScreen />);
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(STEPS.map((s, i) => `Step ${i + 1} of 3, ${s}`));
+    expect(hasPicker(root)).toBe(false);
+    expect(root.root.findAll((n) => n.type === Button && n.props.label === 'Change method')).toHaveLength(0);
+    expect(root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header').map((n) => n.props.children)).toEqual(['Tacos']);
+    expect(currentCards(root)).toHaveLength(1);
+    expect(topLine(root)).toBe('0 of 3 steps done');
+  });
+
+  test('the marinate steps come under their title, with the picker after them, upcoming until they are ticked', () => {
+    setSteps(CHICKEN);
+    setServings(4);
+    const root = render(<CookScreen />);
+    const title = root.root.find((n) => String(n.type) === 'Text' && n.props.children === 'Marinate the chicken');
+    expect(title.props.accessibilityRole).toBe('header');
+    expect(StyleSheet.flatten(title.props.style)).toMatchObject({ fontSize: Typography.sectionLabel.fontSize, color: Palette.light.inkSecondary });
+    // Only the shared steps are cards; no option's steps show before a pick.
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(MARINATE.map((s, i) => `Step ${i + 1} of 7, ${s}`));
+    const texts = hostTexts(root);
+    expect(texts.indexOf('How are you cooking it?')).toBeGreaterThan(texts.indexOf(MARINATE[2]));
+    expect(texts).toContain('The recipe gives 4 ways. You can change this later.');
+    // Upcoming: no current border while a step before it is unticked.
+    expect(cardStyle(pickerCard(root)).borderWidth).toBeUndefined();
+    expect(topLine(root)).toBe('For 4 · 0 steps done · pick a method');
+
+    markThrough(root, [1, 2, 3]);
+    expect(cardStyle(pickerCard(root))).toMatchObject({ borderWidth: Sizes.cookCurrentBorder, borderColor: Palette.light.primary });
+    expect(currentCards(root)).toHaveLength(0);
+    expect(markDoneButtons(root)).toHaveLength(0);
+    expect(topLine(root)).toBe('For 4 · 3 steps done · pick a method');
+    // With the picker current, the marinate steps stay open (board B).
+    expect(stepRows(root).map(isChecked)).toEqual([true, true, true]);
+  });
+
+  test('one row per option with its step count, read as a button', () => {
+    setSteps(CHICKEN);
+    const root = render(<CookScreen />);
+    const rows = pickerCard(root).findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && n.props.onPress);
+    expect(rows.map((r) => r.props.accessibilityLabel)).toEqual(['Grill, 4 steps', 'Bake, 2 steps', 'Pan-fry, 3 steps', 'Broil, 3 steps']);
+    expect(rowStyle(rows[0]).minHeight).toBe(56);
+    expect(textsIn(rows[1])).toEqual(['Bake', '2 steps']);
+    expect(pickerCard(root).find((n) => String(n.type) === 'Text' && n.props.children === 'How are you cooking it?').props.accessibilityRole).toBe('header');
+  });
+
+  test('picking Grill shows its steps numbered 4–7 under its title, and the count follows', () => {
+    setSteps(CHICKEN);
+    setServings(4);
+    const root = render(<CookScreen />);
+    markThrough(root, [1, 2, 3]);
+    tap(byA11y(root, 'Grill, 4 steps'));
+    expect(hasPicker(root)).toBe(false);
+    expect(hostTexts(root)).toContain('Grill');
+    expect(changeMethod(root)).toBeTruthy();
+    expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual(GRILL.map((s, i) => `Step ${i + 4} of 7, ${s}`));
+    for (const step of [...BAKE, ...PAN, ...BROIL]) expect(hostTexts(root)).not.toContain(step);
+    expect(topLine(root)).toBe('For 4 · 3 of 7 steps done');
+    expect(markDoneButtons(root).map((b) => b.props.accessibilityLabel)).toEqual(['Mark step 4 done']);
+    markThrough(root, [4]);
+    expect(topLine(root)).toBe('For 4 · 4 of 7 steps done');
+    expect(markDoneButtons(root).map((b) => b.props.accessibilityLabel)).toEqual(['Mark step 5 done']);
+  });
+
+  test('Change method brings the card back, with Grill’s ticks kept', () => {
+    setSteps(CHICKEN);
+    const root = render(<CookScreen />);
+    markThrough(root, [1, 2, 3]);
+    tap(byA11y(root, 'Grill, 4 steps'));
+    markThrough(root, [4, 5]);
+    act(() => changeMethod(root).props.onPress());
+    expect(hasPicker(root)).toBe(true);
+    // The Grill ticks don't count while no method is picked.
+    expect(topLine(root)).toBe('3 steps done · pick a method');
+    // Bake is fresh; going back to Grill finds its ticks.
+    tap(byA11y(root, 'Bake, 2 steps'));
+    expect(topLine(root)).toBe('3 of 5 steps done');
+    act(() => changeMethod(root).props.onPress());
+    tap(byA11y(root, 'Grill, 4 steps'));
+    expect(topLine(root)).toBe('5 of 7 steps done');
+    expect(markDoneButtons(root).map((b) => b.props.accessibilityLabel)).toEqual(['Mark step 6 done']);
+  });
+
+  test('the marinate section folds once ticked and past, and unfolds on a tap', () => {
+    setSteps(CHICKEN);
+    const root = render(<CookScreen />);
+    markThrough(root, [1, 2, 3]);
+    tap(byA11y(root, 'Grill, 4 steps'));
+    const folded = byA11y(root, 'Marinate the chicken, 3 steps done');
+    expect(folded.props.accessibilityRole).toBe('button');
+    expect(folded.props.accessibilityState).toEqual({ expanded: false });
+    expect(textsIn(folded)).toEqual(['Marinate the chicken', '3 done']);
+    for (const step of MARINATE) expect(hostTexts(root)).not.toContain(step);
+    expect(stepRows(root)).toHaveLength(4);
+
+    tap(folded);
+    expect(root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Marinate the chicken, 3 steps done')).toHaveLength(0);
+    expect(stepRows(root).slice(0, 3).map(isChecked)).toEqual([true, true, true]);
+    expect(hostTexts(root)).toContain('Marinate the chicken');
+    // Unticking a marinate step makes it current again.
+    tap(stepRows(root)[1]);
+    expect(markDoneButtons(root).map((b) => b.props.accessibilityLabel)).toEqual(['Mark step 2 done']);
+  });
+
+  test('Mark step done on the last step before a group scrolls the picker into view, at once under Reduce Motion', () => {
+    setSteps(CHICKEN);
+    const run = () => {
+      const root = render(<CookScreen />);
+      const scrollTo = jest.fn();
+      root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
+      const layout = (node: ReactTestInstance, y: number) =>
+        act(() => node.props.onLayout({ nativeEvent: { layout: { x: 0, y, width: 358, height: 100 } } }));
+      layout(stepColumn(stepCards(root)[0]), 100);
+      markThrough(root, [1, 2]);
+      layout(stepCards(root)[2], 150);
+      scrollTo.mockClear();
+      markThrough(root, [3]);
+      layout(pickerCard(root), 260);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      const call = scrollTo.mock.calls[0][0];
+      close();
+      return call;
+    };
+    expect(run()).toEqual({ y: 100 + 260 - Spacing.md, animated: true });
+    mockReduceMotion = true;
+    expect(run()).toEqual({ y: 100 + 260 - Spacing.md, animated: false });
+  });
+});
+
+describe('cookPlan', () => {
+  const kinds = (entries: RecipeStepEntry[], picks: (number | null)[], ticked: boolean[], opened?: Set<number>) =>
+    cookPlan(entries, picks, ticked, opened).blocks.map((b) =>
+      b.kind === 'step' ? `${b.number}:${b.state}` : b.kind === 'picker' ? `picker${b.current ? '*' : ''}` : `${b.kind}:${b.title}`,
+    );
+  const none = (n: number) => Array.from({ length: n }, () => false);
+
+  test('without headings: every step in turn, the first unticked current', () => {
+    expect(kinds(['a', 'b', 'c'], [], [true, false, false])).toEqual(['1:done', '2:current', '3:upcoming']);
+    expect(cookPlan(['a', 'b'], [], [true, true])).toMatchObject({ current: null, done: 2, total: 2, picking: false });
+    expect(cookPlan([], [], []).blocks).toEqual([]);
+    expect(cookPlan(null, [], []).current).toBeNull();
+  });
+
+  test('a choice group stands as its picker until picked, then as the pick', () => {
+    expect(kinds(CHICKEN, [], none(15))).toEqual(['title:Marinate the chicken', '1:current', '2:upcoming', '3:upcoming', 'picker']);
+    const ticked = [true, true, true, ...none(12)];
+    expect(cookPlan(CHICKEN, [], ticked)).toMatchObject({ current: { kind: 'picker', group: 0 }, done: 3, total: 3, picking: true });
+    // Bake (option 1): steps 7 and 8 of stepTexts, numbered 4 and 5.
+    const baked = cookPlan(CHICKEN, [1], ticked);
+    expect(baked.blocks.flatMap((b) => (b.kind === 'step' ? [[b.index, b.number]] : []))).toEqual([
+      [7, 4],
+      [8, 5],
+    ]);
+    expect(baked.blocks.find((b) => b.kind === 'title' && b.title === 'Bake')).toEqual({ kind: 'title', section: 2, title: 'Bake', group: 0 });
+    expect(baked).toMatchObject({ current: { kind: 'step', index: 7 }, done: 3, total: 5, picking: false });
+    expect(cookPlan(CHICKEN, [], ticked).blocks.at(-1)).toEqual({
+      kind: 'picker',
+      group: 0,
+      current: true,
+      options: [
+        { title: 'Grill', count: 4 },
+        { title: 'Bake', count: 2 },
+        { title: 'Pan-fry', count: 3 },
+        { title: 'Broil', count: 3 },
+      ],
+    });
+  });
+
+  test('ticks in an option not picked are kept but not counted', () => {
+    const ticked = [true, true, true, true, true, ...none(10)];
+    expect(cookPlan(CHICKEN, [null], ticked)).toMatchObject({ done: 3, picking: true });
+    expect(cookPlan(CHICKEN, [0], ticked)).toMatchObject({ done: 5, total: 7 });
+    expect(cookPlan(CHICKEN, [2], ticked)).toMatchObject({ done: 3, total: 6 });
+  });
+
+  test('a named section folds once all ticked and behind the current step, unless opened', () => {
+    const ticked = [true, true, true, ...none(12)];
+    expect(kinds(CHICKEN, [0], ticked)).toEqual(['fold:Marinate the chicken', 'title:Grill', '4:current', '5:upcoming', '6:upcoming', '7:upcoming']);
+    expect(kinds(CHICKEN, [0], ticked, new Set([0]))[0]).toBe('title:Marinate the chicken');
+    // Every step ticked: nothing is current, so nothing is behind it and nothing folds.
+    const all = [true, true, true, true, true, true, true, ...none(8)];
+    expect(kinds(CHICKEN, [0], all)).not.toContain('fold:Marinate the chicken');
+    // The untitled first section never folds.
+    expect(kinds(['a', { section: 'B' }, 'b'], [], [true, false])).toEqual(['1:done', 'title:B', '2:current']);
+  });
+
+  test('a later group is upcoming while an earlier step is unticked, and out-of-range picks read as none', () => {
+    const entries: RecipeStepEntry[] = ['prep', { section: 'Oven', choice: true }, 'bake', { section: 'Grill', choice: true }, 'grill', { section: 'Serve' }, 'plate'];
+    expect(kinds(entries, [], [false, false, false, false])).toEqual(['1:current', 'picker', 'title:Serve', '3:upcoming']);
+    expect(kinds(entries, [5], [true, false, false, false])).toEqual(['1:done', 'picker*', 'title:Serve', '3:upcoming']);
+    expect(kinds(entries, [1], [true, false, false, false])).toEqual(['1:done', 'title:Grill', '2:current', 'title:Serve', '3:upcoming']);
+    // A lone choice section is an ordinary one.
+    expect(kinds(['a', { section: 'Only', choice: true }, 'b'], [], [false, false])).toEqual(['1:current', 'title:Only', '2:upcoming']);
+  });
+
+  test('withCookPick sets and clears a group’s pick', () => {
+    expect(withCookPick([], 1, 2)).toEqual([null, 2]);
+    expect(withCookPick([0, 3], 1, null)).toEqual([0, null]);
+    expect(withCookPick([1], 0, 0)).toEqual([0]);
+  });
+
+  test('cookProgressLabel while picking, in English and Spanish', () => {
+    expect(cookProgressLabel(4, 3, 3, true)).toBe('For 4 · 3 steps done · pick a method');
+    expect(cookProgressLabel(null, 1, 1, true)).toBe('1 step done · pick a method');
+    expect(cookProgressLabel(null, 4, 7, false)).toBe('4 of 7 steps done');
+    expect(es.recipes.cook.picking_other.replace('{{count}}', '3')).toBe('3 pasos hechos · elige un método');
+    expect(es.recipes.cook.howCooking).toBe('¿Cómo lo vas a cocinar?');
+    expect(es.recipes.cook.changeMethod).toBe('Cambiar método');
   });
 });

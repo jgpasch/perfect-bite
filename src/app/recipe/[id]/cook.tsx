@@ -5,7 +5,7 @@ import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { itemNameColor } from '@/components/appearance';
-import { PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
@@ -17,7 +17,10 @@ import { startingServings } from '@/features/recipes/add-to-list';
 import {
   allTicked,
   cookAmount,
+  cookPlan,
   tickUses,
+  withCookPick,
+  type CookCurrent,
   toggleAllUses,
   toggleUse,
   stepAmount,
@@ -27,12 +30,12 @@ import {
 } from '@/features/recipes/cook-match';
 import { useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { RecipeCredit } from '@/features/recipes/recipe-credit';
-import { cookProgressLabel, stepLabel, upNextIndex } from '@/features/recipes/recipe-view';
+import { cookProgressLabel, stepLabel } from '@/features/recipes/recipe-view';
 import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import { stepMatch } from '@/features/recipes/step-match';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import { displayItemName, stepTexts } from '@/shared';
+import { displayItemName, stepPath, stepTexts } from '@/shared';
 
 /** The text scale from which the current step's pills go one per line: iOS's largest accessibility sizes (AX3 on). */
 const PILLS_STACK_FONT_SCALE = 2;
@@ -44,6 +47,9 @@ const PILLS_STACK_FONT_SCALE = 2;
  * only, so they're gone when it closes; the screen stays on while it's open. With a step match (spec 4.5), the
  * current step lists its ingredients and the upcoming ones name theirs on one line, the checklist folds into All
  * ingredients, and Also needed holds the ingredients in no step; ticks are then per use of an ingredient.
+ * With step sections (boards B and C, `cookPlan`), the cards sit under their sections' titles; a choice group
+ * stands as "How are you cooking it?" until an option is picked, then as that section with Change method; and a
+ * named section all ticked behind the current step folds to one row. Picks and folds are screen state too.
  */
 export default function CookScreen() {
   const { id, servings: servingsParam } = useLocalSearchParams<{ id: string; servings?: string }>();
@@ -53,9 +59,12 @@ export default function CookScreen() {
   // Nothing here is edited, so read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
   const [ingredients] = useState(() => recipeIngredientsQuery(id).all());
-  // The step strings only: section headings aren't shown yet (spec 4.5).
+  // The step strings, which the ticks, numbers and match follow; the headings shape the page (`cookPlan`).
   const steps = stepTexts(recipe?.steps);
   const [stepsDone, setStepsDone] = useState(() => steps.map(() => false));
+  // The option picked in each choice group (null until one is), and the folded sections unfolded by a tap.
+  const [picks, setPicks] = useState<readonly (number | null)[]>([]);
+  const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set());
   const [ingredientsDone, setIngredientsDone] = useState<ReadonlySet<string>>(() => new Set());
   // With a match: the ticked uses (`tickKey`), and whether All ingredients is unfolded.
   const [usesDone, setUsesDone] = useState<ReadonlySet<string>>(() => new Set());
@@ -65,9 +74,9 @@ export default function CookScreen() {
   // At the largest text sizes the current step's pills go one per line.
   const stacked = useWindowDimensions().fontScale >= PILLS_STACK_FONT_SCALE;
   const scroll = useRef<ScrollView>(null);
-  // Where the step cards start in the scroll content, and the step whose card to scroll to once it lays out.
+  // Where the step cards start in the scroll content, and the card (`cardKey`) to scroll to once it lays out.
   const stepsY = useRef(0);
-  const pendingScroll = useRef<number | null>(null);
+  const pendingScroll = useRef<string | null>(null);
   useKeepAwake(`cook:${id}:${useId()}`, true);
   // Opening cook mode matches the recipe's steps if they need it (spec 4.5).
   useEnsureStepMatch(id);
@@ -76,8 +85,9 @@ export default function CookScreen() {
 
   const base = recipe.servings;
   const servings = base === null ? null : startingServings(base, servingsParam);
-  const upNext = upNextIndex(stepsDone);
-  const done = stepsDone.filter(Boolean).length;
+  const plan = cookPlan(recipe.steps, picks, stepsDone, opened);
+  // Steps are numbered and counted along the path shown (each group's first option until one is picked).
+  const pathLength = stepPath(recipe.steps, picks).length;
 
   const matched = match !== null && match.state !== 'none';
   const uses = matched ? usesByIngredient(match) : new Map<string, string[]>();
@@ -91,15 +101,15 @@ export default function CookScreen() {
     }
     setStepsDone((ticked) => ticked.map((on, i) => (i === index ? !on : on)));
   };
-  // Mark step done ticks the current step, then scrolls to the next current card once it has laid out in its new
-  // place (the step above it shrinks as it's done, so its old position is stale).
+  // Mark step done ticks the current step, then scrolls to the next current card (a step, or the method picker)
+  // once it has laid out in its new place (the step above it shrinks as it's done, so its old position is stale).
   const markDone = (index: number) => {
     toggleStep(index);
-    const next = upNextIndex(stepsDone.map((on, i) => on || i === index));
-    pendingScroll.current = next === -1 ? null : next;
+    const next = cookPlan(recipe.steps, picks, stepsDone.map((on, i) => on || i === index), opened).current;
+    pendingScroll.current = next === null ? null : cardKey(next);
   };
-  const cardLaidOut = (index: number, y: number) => {
-    if (pendingScroll.current !== index) return;
+  const cardLaidOut = (key: string, y: number) => {
+    if (pendingScroll.current !== key) return;
     pendingScroll.current = null;
     scroll.current?.scrollTo({ y: Math.max(0, stepsY.current + y - spacing.md), animated: !reduceMotion });
   };
@@ -114,7 +124,7 @@ export default function CookScreen() {
     <Screen>
       <TopBar
         name={recipe.name}
-        progress={cookProgressLabel(servings, done, steps.length)}
+        progress={cookProgressLabel(servings, plan.done, plan.total, plan.picking)}
         paddingTop={insets.top + spacing.sm}
       />
       <ScrollView
@@ -160,14 +170,45 @@ export default function CookScreen() {
         ) : null}
         {steps.length > 0 ? (
           <View style={{ gap: spacing.md }} onLayout={(event) => (stepsY.current = event.nativeEvent.layout.y)}>
-            {steps.map((step, index) => {
+            {plan.blocks.map((block) => {
+              if (block.kind === 'title') {
+                return (
+                  <SectionTitle
+                    key={`title-${block.section}`}
+                    title={block.title}
+                    onChange={block.group === null ? undefined : () => setPicks((p) => withCookPick(p, block.group!, null))}
+                  />
+                );
+              }
+              if (block.kind === 'fold') {
+                return (
+                  <FoldedSection
+                    key={`fold-${block.section}`}
+                    title={block.title}
+                    count={block.count}
+                    onOpen={() => setOpened((open) => new Set(open).add(block.section))}
+                  />
+                );
+              }
+              if (block.kind === 'picker') {
+                return (
+                  <MethodPicker
+                    key={`picker-${block.group}`}
+                    options={block.options}
+                    current={block.current}
+                    onPick={(option) => setPicks((p) => withCookPick(p, block.group, option))}
+                    onLayout={(event) => cardLaidOut(cardKey({ kind: 'picker', group: block.group }), event.nativeEvent.layout.y)}
+                  />
+                );
+              }
+              const { index, number, state } = block;
+              const step = steps[index];
               const stepUses = matched ? match.steps[index] : [];
-              const label = stepLabel(index, steps.length, step);
-              const state: StepState = stepsDone[index] ? 'done' : index === upNext ? 'current' : 'upcoming';
+              const label = stepLabel(number - 1, pathLength, step);
               return (
                 <StepCard
                   key={index}
-                  number={index + 1}
+                  number={number}
                   text={step}
                   label={
                     stepUses.length > 0
@@ -187,7 +228,7 @@ export default function CookScreen() {
                   }
                   onToggle={() => toggleStep(index)}
                   onDone={() => markDone(index)}
-                  onLayout={(event) => cardLaidOut(index, event.nativeEvent.layout.y)}>
+                  onLayout={(event) => cardLaidOut(cardKey({ kind: 'step', index }), event.nativeEvent.layout.y)}>
                   {state === 'current'
                     ? stepUses.map(({ ingredient: item, quantity }) => {
                         const key = tickKey(index, item.id);
@@ -201,8 +242,8 @@ export default function CookScreen() {
                             stacked={stacked}
                             label={
                               amount.spoken
-                                ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number: index + 1 })
-                                : t('recipes.cook.stepIngredientNoAmount', { name, number: index + 1 })
+                                ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number })
+                                : t('recipes.cook.stepIngredientNoAmount', { name, number })
                             }
                             checked={usesDone.has(key)}
                             onToggle={() => setUsesDone((ticked) => toggleUse(ticked, key))}
@@ -243,6 +284,130 @@ export default function CookScreen() {
         ) : null}
       </ScrollView>
     </Screen>
+  );
+}
+
+/** The key a card is scrolled to by: a step's, or a choice group's picker. */
+function cardKey(card: NonNullable<CookCurrent>): string {
+  return card.kind === 'step' ? `step:${card.index}` : `picker:${card.group}`;
+}
+
+/** A named section's title over its cards (`sectionLabel` `inkSecondary`, a header); a picked option's has Change method. */
+function SectionTitle({ title, onChange }: { title: string; onChange?: () => void }) {
+  const t = useT();
+  const { spacing, sizes } = useTheme();
+  return (
+    <View
+      style={[
+        styles.row,
+        { gap: spacing.sm, minHeight: onChange ? sizes.minTapTarget : undefined, paddingTop: spacing.xs, paddingHorizontal: spacing.lg + spacing.xs },
+      ]}>
+      <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={styles.flex}>
+        {title}
+      </ThemedText>
+      {onChange ? <Button variant="plain" label={t('recipes.cook.changeMethod')} onPress={onChange} /> : null}
+    </View>
+  );
+}
+
+/** A named section all ticked and behind the current step (board C): one row, its title and "3 done", that unfolds on a tap. */
+function FoldedSection({ title, count, onOpen }: { title: string; count: number; onOpen: () => void }) {
+  const t = useT();
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  return (
+    <Card>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: false }}
+        accessibilityLabel={t('recipes.cook.foldLabel', { title, count })}
+        style={({ pressed }) => [
+          styles.row,
+          { gap: spacing.sm + spacing.xxs, minHeight: sizes.rowMin, paddingHorizontal: spacing.lg, opacity: pressed ? opacity.pressed : 1 },
+        ]}>
+        <View
+          style={[
+            styles.center,
+            {
+              width: sizes.cookIngredientCheck,
+              height: sizes.cookIngredientCheck,
+              borderRadius: rounded.full,
+              backgroundColor: colors.primarySoft,
+            },
+          ]}>
+          <Icon name="checkmark" color="primary" weight="bold" size={sizes.iconSmall} />
+        </View>
+        <ThemedText variant="amount" style={styles.flex}>
+          {title}
+        </ThemedText>
+        <ThemedText variant="subhead" color="inkSecondary">
+          {t('recipes.cook.foldDone', { count })}
+        </ThemedText>
+        <Icon name="chevron.down" color="inkTertiary" size={sizes.iconSmall} />
+      </Pressable>
+    </Card>
+  );
+}
+
+/**
+ * A choice group with no pick (board B): "How are you cooking it?" and a row per option (its title, "4 steps",
+ * a chevron; at least 56 pt). The current card's border once every step before it is ticked.
+ */
+function MethodPicker({
+  options,
+  current,
+  onPick,
+  onLayout,
+}: {
+  options: { title: string; count: number }[];
+  current: boolean;
+  onPick: (option: number) => void;
+  onLayout: (event: LayoutChangeEvent) => void;
+}) {
+  const t = useT();
+  const { colors, spacing, sizes, opacity } = useTheme();
+  return (
+    <Card
+      onLayout={onLayout}
+      style={[
+        { paddingTop: spacing.lg, paddingHorizontal: spacing.lg, paddingBottom: spacing.xs },
+        current ? { borderWidth: sizes.cookCurrentBorder, borderColor: colors.primary } : undefined,
+      ]}>
+      <ThemedText variant="cookStepCurrent" accessibilityRole="header">
+        {t('recipes.cook.howCooking')}
+      </ThemedText>
+      <ThemedText variant="subhead" color="inkSecondary" style={{ marginTop: spacing.xxs, marginBottom: spacing.sm }}>
+        {t('recipes.cook.howCookingNote', { count: options.length })}
+      </ThemedText>
+      {options.map((option, o) => {
+        const steps = t('recipes.cook.optionSteps', { count: option.count });
+        return (
+          <Pressable
+            key={o}
+            onPress={() => onPick(o)}
+            accessibilityRole="button"
+            accessibilityLabel={t('recipes.cook.optionLabel', { title: option.title, steps })}
+            style={({ pressed }) => [
+              styles.row,
+              {
+                gap: spacing.md,
+                minHeight: sizes.cardRowMin + spacing.sm - spacing.xxs,
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: colors.border,
+                opacity: pressed ? opacity.pressed : 1,
+              },
+            ]}>
+            <ThemedText variant="headline" style={styles.flex}>
+              {option.title}
+            </ThemedText>
+            <ThemedText variant="callout" color="inkSecondary">
+              {steps}
+            </ThemedText>
+            <Icon name="chevron.right" color="inkTertiary" size={sizes.iconSmall} />
+          </Pressable>
+        );
+      })}
+    </Card>
   );
 }
 
