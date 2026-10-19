@@ -1,6 +1,7 @@
 import { Button as SwiftButton, ContextMenu, Host, RNHostView } from '@expo/ui/swift-ui';
 import type { BottomTabBarProps } from 'expo-router/tabs';
 import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
@@ -21,6 +22,8 @@ type Props = BottomTabBarProps & {
   /** VoiceOver's custom action on +, "More ways to add", and what it does. */
   addMoreLabel: string;
   onAddMore: () => void;
+  /** The one-time + hint's text while it's up (spec 4.1), pointing at +. It takes no touches. */
+  addHint?: string | null;
 };
 
 const MORE_ACTION = 'more';
@@ -40,6 +43,7 @@ export function TabBar({
   addMenu,
   addMoreLabel,
   onAddMore,
+  addHint,
 }: Props) {
   const { colors, spacing, sizes, rounded, shadows, scheme, opacity } = useTheme();
   const insets = useSafeAreaInsets();
@@ -168,7 +172,45 @@ export function TabBar({
           </ContextMenu.Trigger>
         </ContextMenu>
       </Host>
+      {addHint ? <AddHint text={addHint} /> : null}
     </View>
+  );
+}
+
+const CARET = 12;
+
+/** The + hint: a card just above the bar, its caret pointing down at the middle of +. Only fades. */
+function AddHint({ text }: { text: string }) {
+  const { colors, spacing, sizes, rounded, shadows, scheme } = useTheme();
+  const floating = scheme === 'light' ? { ...shadows.floating, shadowColor: colors.ink } : null;
+  return (
+    <Animated.View
+      entering={FadeIn}
+      exiting={FadeOut}
+      pointerEvents="none"
+      accessibilityLiveRegion="polite"
+      testID="tab-add-hint"
+      style={[
+        styles.hint,
+        floating,
+        {
+          right: spacing.lg,
+          maxWidth: sizes.tabBar * 4,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          borderRadius: rounded.card,
+          backgroundColor: colors.surface,
+        },
+      ]}>
+      {/* Under the text, so the text draws over its top corner. */}
+      <View
+        style={[
+          styles.caret,
+          { right: sizes.tabBar / 2 - CARET / 2, bottom: -CARET / 2, width: CARET, height: CARET, backgroundColor: colors.surface },
+        ]}
+      />
+      <ThemedText variant="footnote">{text}</ThemedText>
+    </Animated.View>
   );
 }
 
@@ -178,4 +220,6 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   badge: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   add: { alignItems: 'center', justifyContent: 'center' },
+  hint: { position: 'absolute', bottom: '100%', borderCurve: 'continuous' },
+  caret: { position: 'absolute', transform: [{ rotate: '45deg' }] },
 });

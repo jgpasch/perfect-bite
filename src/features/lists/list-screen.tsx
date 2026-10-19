@@ -129,6 +129,7 @@ import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
 import { useFeature } from '@/features/plans/features';
 import { takePendingListAdd, useAddButton } from '@/features/tabs/add-button';
+import { addModeEnded, type AddHintContext } from '@/features/tabs/add-hint';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { dismissListPushes, markListVisible, onListUnavailable, takeListUnavailable } from '@/features/push/receiving';
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
@@ -409,11 +410,21 @@ export function ListScreen({ id }: { id: string }) {
       if (takePendingListAdd()) setAddOpen(true);
     }, []),
   );
+  // What the + hint needs to know, as of the last commit: the blur below can come from an older render's
+  // handler, e.g. as Select mode swaps the bar out. Any other path is something over the list, e.g. an
+  // item's sheet.
+  const hintContext = useRef<AddHintContext>({ sheetOpen: false, selecting: false });
+  useEffect(() => {
+    hintContext.current = { sheetOpen: pathname !== '/lists', selecting: selection !== null };
+  });
   const addFocusChange = (focused: boolean) => {
     setAdding(focused);
     setAddOpen(false);
+    if (focused) return;
     // The bar unmounts, taking its text and chips with it.
-    if (!focused) setAddText('');
+    setAddText('');
+    // Add mode is over and the tab bar is back: the + hint's moment (spec 4.1).
+    void addModeEnded(() => hintContext.current);
   };
   // Select mode swaps the add bar out, and it comes back empty.
   const startSelecting = (ids: string[]) => {

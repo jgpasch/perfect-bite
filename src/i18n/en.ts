@@ -818,6 +818,8 @@ export const en = {
       item: 'Add item',
       recipe: 'Add recipe',
     },
+    /** The one-time callout over + that points out its long-press (spec 4.1). */
+    addHint: 'Hold + for more ways to add',
   },
   /** The meal plan's week screen (spec 4.16). */
   mealPlan: {

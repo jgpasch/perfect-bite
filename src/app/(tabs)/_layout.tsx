@@ -2,6 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { router, usePathname } from 'expo-router';
 import { Tabs } from 'expo-router/tabs';
 import { useEffect, type ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
@@ -12,10 +13,20 @@ import { onPlanTab, setRecipesSegment, usePlanTabSetting } from '@/features/meal
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importsBadgeCount, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { pressAddButton } from '@/features/tabs/add-button';
-import { ADD_MENU_KEYS, addMenuEntries, showAddMenuSheet } from '@/features/tabs/add-menu';
+import { dismissAddHint, useAddHintVisible } from '@/features/tabs/add-hint';
+import { ADD_MENU_KEYS, addMenuEntries, addMenuOpened, showAddMenuSheet } from '@/features/tabs/add-menu';
 import { useT } from '@/i18n';
 
-const addLongPress = () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+const addLongPress = () => {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  addMenuOpened();
+};
+
+/** Any touch dismisses the + hint (spec 4.1) and still goes through: the capture never claims it. */
+const dismissHintOnTouch = () => {
+  dismissAddHint();
+  return false;
+};
 
 function tabIcon(name: IconName) {
   return function TabIcon({ focused, size }: { focused: boolean; size: number }) {
@@ -48,37 +59,48 @@ export default function TabsLayout() {
     setRecipesSegment('week');
     router.navigate('/recipes');
   }, [leavePlan]);
+  const addHint = useAddHintVisible();
 
   return (
-    <Tabs
-      screenOptions={{ headerShown: false }}
-      screenLayout={({ children }) => <AboveTabBar>{children}</AboveTabBar>}
-      tabBar={(props) => (
-        <TabBar
-          {...props}
-          onAdd={pressAddButton}
-          addLabel={t('tabs.add')}
-          onAddLongPress={addLongPress}
-          addMenu={addMenuEntries(ADD_MENU_KEYS)}
-          addMoreLabel={t('tabs.addMore')}
-          onAddMore={() => showAddMenuSheet(ADD_MENU_KEYS)}
+    <View
+      style={styles.fill}
+      testID="tabs-root"
+      onStartShouldSetResponderCapture={addHint ? dismissHintOnTouch : undefined}>
+      <Tabs
+        screenOptions={{ headerShown: false }}
+        screenLayout={({ children }) => <AboveTabBar>{children}</AboveTabBar>}
+        tabBar={(props) => (
+          <TabBar
+            {...props}
+            onAdd={pressAddButton}
+            addLabel={t('tabs.add')}
+            onAddLongPress={addLongPress}
+            addMenu={addMenuEntries(ADD_MENU_KEYS)}
+            addMoreLabel={t('tabs.addMore')}
+            onAddMore={() => showAddMenuSheet(ADD_MENU_KEYS)}
+            addHint={addHint ? t('tabs.addHint') : null}
+          />
+        )}>
+        <Tabs.Screen name="lists" options={{ title: t('tabs.list'), tabBarIcon: tabIcon('checklist') }} />
+        <Tabs.Screen
+          name="recipes"
+          options={{
+            title: t('tabs.recipes'),
+            tabBarIcon: tabIcon('book'),
+            tabBarBadge: imports > 0 ? imports : undefined,
+          }}
         />
-      )}>
-      <Tabs.Screen name="lists" options={{ title: t('tabs.list'), tabBarIcon: tabIcon('checklist') }} />
-      <Tabs.Screen
-        name="recipes"
-        options={{
-          title: t('tabs.recipes'),
-          tabBarIcon: tabIcon('book'),
-          tabBarBadge: imports > 0 ? imports : undefined,
-        }}
-      />
-      {/* Spec 4.16: the week plan. */}
-      <Tabs.Screen
-        name="plan"
-        options={{ title: t('tabs.plan'), tabBarIcon: tabIcon('calendar'), href: planTab || onPlan ? undefined : null }}
-      />
-      <Tabs.Screen name="settings" options={{ title: t('tabs.settings'), tabBarIcon: tabIcon('gearshape') }} />
-    </Tabs>
+        {/* Spec 4.16: the week plan. */}
+        <Tabs.Screen
+          name="plan"
+          options={{ title: t('tabs.plan'), tabBarIcon: tabIcon('calendar'), href: planTab || onPlan ? undefined : null }}
+        />
+        <Tabs.Screen name="settings" options={{ title: t('tabs.settings'), tabBarIcon: tabIcon('gearshape') }} />
+      </Tabs>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+});

@@ -17,6 +17,8 @@ import { RecipeSortButton } from '@/features/recipes/recipe-sort-button';
 import { setRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import { noRecipeFilters } from '@/features/recipes/recipe-filters';
 
+import { addModeEnded, dismissAddHint, isAddHintVisible, resetAddHint } from '@/features/tabs/add-hint';
+
 import { onPlanTab, resetRecipesSegment, setRecipesSegment } from '../plan-tab';
 
 const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
@@ -117,7 +119,7 @@ jest.mock('expo-router/tabs', () => {
   const { createElement } = require('react');
   const Screen = ({ name, options }: { name: string; options?: { href?: string | null } }) =>
     createElement('TabTrigger', { name, hidden: options?.href === null, options });
-  const Tabs = ({ children }: { children?: unknown }) => createElement('Tabs', null, children);
+  const Tabs = ({ children, tabBar }: { children?: unknown; tabBar?: unknown }) => createElement('Tabs', { tabBar }, children);
   return { Tabs: Object.assign(Tabs, { Screen }) };
 });
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
@@ -352,4 +354,34 @@ test('onPlanTab is the Plan tab and its screens, not a route that only starts th
   expect(onPlanTab('/plan/slot')).toBe(true);
   expect(onPlanTab('/planner')).toBe(false);
   expect(onPlanTab('/recipes')).toBe(false);
+});
+
+// The tabs' layout also puts up the + hint (spec 4.1) over the tab bar.
+describe('the + hint in the tabs layout', () => {
+  /** The hint text the layout hands the tab bar. */
+  const barHint = (root: ReactTestRenderer) =>
+    (root.root.findByType('Tabs' as never).props.tabBar({}) as { props: { addHint?: string | null } }).props.addHint;
+  const tabsRoot = (root: ReactTestRenderer) => byTestID(root, 'tabs-root')[0];
+
+  beforeEach(() => dismissAddHint());
+
+  test('no hint, and no touch capture, at rest', () => {
+    const root = render(<TabsLayout />);
+    expect(barHint(root)).toBeNull();
+    expect(tabsRoot(root).props.onStartShouldSetResponderCapture).toBeUndefined();
+  });
+
+  test('once due, the tab bar shows it; any touch dismisses it without taking the touch', async () => {
+    resetAddHint();
+    const root = render(<TabsLayout />);
+    await act(() => addModeEnded(() => ({ sheetOpen: false, selecting: false })));
+    expect(barHint(root)).toBe('Hold + for more ways to add');
+    let claimed: unknown;
+    act(() => {
+      claimed = tabsRoot(root).props.onStartShouldSetResponderCapture();
+    });
+    expect(claimed).toBe(false);
+    expect(isAddHintVisible()).toBe(false);
+    expect(barHint(root)).toBeNull();
+  });
 });

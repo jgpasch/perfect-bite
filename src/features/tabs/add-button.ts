@@ -1,6 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 
+import { countAddTap } from '@/features/tabs/add-hint';
+
 /**
  * The tab bar's round + (beside the tabs, spec 4.1): it always adds an item to a list. A list's screen claims
  * it with `useAddButton` to open its own add bar; anywhere else it's unclaimed, and + opens the List tab's add
@@ -21,8 +23,9 @@ export function useAddButton(onPress: () => void) {
   );
 }
 
-/** The + was tapped. */
+/** The + was tapped. Taps count towards the + hint (spec 4.1). */
 export function pressAddButton() {
+  countAddTap();
   if (handler) {
     handler();
     return;

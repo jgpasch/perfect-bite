@@ -22,7 +22,8 @@ import { categories, db, deviceSettings, householdMemberNames, households, ingre
 import { categorizePending } from '@/features/categories/categorization';
 import { setFeatures } from '@/features/plans/features';
 import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
-import { runAddMenuItem } from '@/features/tabs/add-menu';
+import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY, dismissAddHint, isAddHintVisible } from '@/features/tabs/add-hint';
+import { addMenuOpened, runAddMenuItem } from '@/features/tabs/add-menu';
 import { addRecipeIngredient, createRecipe, deleteRecipe, updateRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
 import {
@@ -1566,6 +1567,87 @@ describe("the tab bar's +", () => {
     act(() => pressAddButton());
     expect(row('milk').props.selected).toBeUndefined();
     expect(all('ItemAddBar')).toHaveLength(1);
+  });
+});
+
+describe('the + hint (spec 4.1)', () => {
+  beforeEach(() => {
+    // One left up by an earlier test; then forget it was seen.
+    dismissAddHint();
+    db.delete(deviceSettings).run();
+    jest
+      .spyOn(AccessibilityInfo, 'isScreenReaderEnabled')
+      .mockClear()
+      .mockImplementation(() => Promise.resolve(false));
+  });
+
+  /** + opens the bar focused; the add field then loses focus, which ends add mode. */
+  const addThenTapOut = async () => {
+    onBar((bar) => bar.props.onFocusChange(true));
+    await act(async () => all('ItemAddBar')[0].props.onFocusChange(false));
+  };
+  /** `addThenTapOut`, `n` times over. */
+  const addsThenTapOut = async (n: number) => {
+    for (let i = 0; i < n; i++) await addThenTapOut();
+  };
+
+  test('three taps on +, then add mode ending, shows the hint', async () => {
+    render();
+    await addThenTapOut();
+    await addThenTapOut();
+    expect(isAddHintVisible()).toBe(false);
+    await addThenTapOut();
+    expect(isAddHintVisible()).toBe(true);
+    expect(getDeviceSetting(ADD_TAP_COUNT_KEY, 0)).toBe(3);
+  });
+
+  test('a long-press on + before then means it never shows', async () => {
+    render();
+    addMenuOpened();
+    await addsThenTapOut(4);
+    expect(isAddHintVisible()).toBe(false);
+  });
+
+  test('once dismissed, the next add mode ending shows nothing', async () => {
+    render();
+    await addsThenTapOut(3);
+    expect(isAddHintVisible()).toBe(true);
+    dismissAddHint();
+    expect(getDeviceSetting(ADD_HINT_SEEN_KEY, false)).toBe(true);
+    await addThenTapOut();
+    expect(isAddHintVisible()).toBe(false);
+  });
+
+  test('not while a sheet is over the list', async () => {
+    render();
+    await addsThenTapOut(2);
+    mockPath.current = `/list/${listId}/item/x`;
+    await addThenTapOut();
+    expect(isAddHintVisible()).toBe(false);
+    expect(getDeviceSetting(ADD_HINT_SEEN_KEY, false)).toBe(false);
+  });
+
+  test('not when Select mode swaps the bar out', async () => {
+    put('milk');
+    render();
+    await addsThenTapOut(2);
+    // The third tap on +.
+    onBar((bar) => bar.props.onFocusChange(true));
+    const { onFocusChange } = all('ItemAddBar')[0].props;
+    act(() => row('milk').props.onSelect());
+    expect(all('ItemAddBar')).toHaveLength(0);
+    // The field blurs as the bar goes.
+    await act(async () => onFocusChange(false));
+    expect(isAddHintVisible()).toBe(false);
+    expect(getDeviceSetting(ADD_HINT_SEEN_KEY, false)).toBe(false);
+  });
+
+  test('with VoiceOver on it is marked seen and not shown', async () => {
+    jest.mocked(AccessibilityInfo.isScreenReaderEnabled).mockImplementation(() => Promise.resolve(true));
+    render();
+    await addsThenTapOut(3);
+    expect(isAddHintVisible()).toBe(false);
+    expect(getDeviceSetting(ADD_HINT_SEEN_KEY, false)).toBe(true);
   });
 });
 

@@ -728,6 +728,7 @@ export const es = {
       item: 'Agregar artículo',
       recipe: 'Agregar receta',
     },
+    addHint: 'Mantén presionado + para más formas de agregar',
   },
   mealPlan: {
     title: 'Esta semana',

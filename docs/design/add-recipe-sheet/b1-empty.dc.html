@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option B, one smart field, empty</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#7CC395}a:hover{color:#B7E4C5}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #111915; color: #E7EEE8; font-family: Figtree, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; justify-content: center; padding: 10px 0 6px"><div style="width: 36px; height: 5px; border-radius: 3px; background: #56635A"></div></div>
+  <div style="display: flex; align-items: center; padding: 4px 8px 8px">
+    <button style="height: 44px; padding: 0 10px; border: 0; background: none; color: #7CC395; font: 500 17px Figtree, sans-serif">Cancel</button>
+    <div style="flex: 1; text-align: center; font: 800 18px 'Bricolage Grotesque', sans-serif; letter-spacing: -0.02em">New recipe</div>
+    <div style="width: 74px"></div>
+  </div>
+  <div style="padding: 4px 16px 0; display: flex; flex-direction: column; gap: 10px">
+    <button style="align-self: flex-start; height: 36px; padding: 0 14px 0 10px; border-radius: 18px; border: 0; background: #1E3A28; color: #B7E4C5; font: 600 14px Figtree, sans-serif; display: flex; align-items: center; gap: 6px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B7E4C5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2"></rect><path d="M9 4h6v3H9z"></path></svg>
+      Paste link · smittenkitchen.com
+    </button>
+    <label style="height: 52px; border-radius: 26px; background: #1B241F; display: flex; align-items: center; padding: 0 16px; font-size: 17px; color: #7E8B82"><span style="width: 2px; height: 22px; background: #7CC395; margin-right: 2px"></span>Paste a link or type a name</label>
+    <button style="height: 52px; border-radius: 26px; border: 0; background: #28332C; color: #7E8B82; font: 700 17px Figtree, sans-serif">Create</button>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 4px; color: #7E8B82; font-size: 13px"><div style="flex: 1; height: 1px; background: #26302A"></div>or<div style="flex: 1; height: 1px; background: #26302A"></div></div>
+    <div style="border-radius: 22px; background: #1B241F; display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 64px">
+      <div style="width: 36px; height: 36px; border-radius: 10px; background: #1E3A28; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7CC395" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg></div>
+      <div style="flex: 1"><div style="font-size: 17px">From a photo</div><div style="font-size: 13px; color: #A6B3AA">Cookbook page or screenshot</div></div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7E8B82" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+    </div>
+  </div>
+  <div style="flex: 1"></div>
+  <div style="height: 300px; background: #1E2622; border-top: 1px solid #26302A; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #56635A">Keyboard</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

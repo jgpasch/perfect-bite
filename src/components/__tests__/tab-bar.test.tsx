@@ -1,13 +1,21 @@
 // The tab bar (spec 4.1): the tabs in a pill, a hidden tab left out, a badge, and the round + apart on the right.
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import type { BottomTabBarProps } from 'expo-router/tabs';
+import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
+
+import { Sizes, Spacing } from '@/constants/theme';
 
 import { TabBar } from '../tab-bar';
 
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }) }));
+// The + hint's fade.
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native');
+  return { __esModule: true, default: { View }, FadeIn: {}, FadeOut: {} };
+});
 // SwiftUI views as host elements.
 jest.mock('@expo/ui/swift-ui', () => {
   const { createElement } = require('react');
@@ -39,7 +47,7 @@ const routes = [
   { key: 'settings-1', name: 'settings', title: 'Settings' },
 ];
 
-function render(index = 0) {
+function render(index = 0, addHint?: string | null) {
   const navigation = { emit: jest.fn(() => ({ defaultPrevented: false })), navigate: jest.fn() };
   const onAdd = jest.fn();
   const onAddLongPress = jest.fn();
@@ -68,6 +76,7 @@ function render(index = 0) {
         addMenu={addMenu}
         addMoreLabel="More ways to add"
         onAddMore={onAddMore}
+        addHint={addHint}
       />,
     );
   });
@@ -75,6 +84,7 @@ function render(index = 0) {
 }
 
 const tabs = () => tree!.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'tab' && 'onPress' in n.props);
+const hint = () => tree!.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'tab-add-hint');
 const add = () => tree!.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Add' && 'onPress' in n.props);
 
 describe('TabBar', () => {
@@ -132,5 +142,27 @@ describe('TabBar', () => {
     act(() => add().props.onAccessibilityAction({ nativeEvent: { actionName: 'more' } }));
     expect(onAddMore).toHaveBeenCalledTimes(1);
     expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('no + hint unless given one', () => {
+    render();
+    expect(hint()).toHaveLength(0);
+    act(() => tree!.unmount());
+    render(0, null);
+    expect(hint()).toHaveLength(0);
+  });
+
+  it('the + hint: its text on a card that takes no touches, its caret over the middle of +', () => {
+    render(0, 'Hold + for more ways to add');
+    const [card] = hint();
+    expect(card.props.pointerEvents).toBe('none');
+    const texts = card.findAll((n) => n.type === ('Text' as never));
+    expect(texts.map((n) => n.props.children)).toEqual(['Hold + for more ways to add']);
+    const style = StyleSheet.flatten(card.props.style);
+    expect(style).toEqual(expect.objectContaining({ position: 'absolute', bottom: '100%', right: Spacing.lg }));
+    // The caret's middle sits half a + in from the card's right edge, which lines up with +'s.
+    const caret = card.findAll((n) => n.type === ('View' as never) && StyleSheet.flatten(n.props.style)?.transform)[0];
+    const { right, width } = StyleSheet.flatten(caret.props.style) as { right: number; width: number };
+    expect(right + width / 2).toBe(Sizes.tabBar / 2);
   });
 });

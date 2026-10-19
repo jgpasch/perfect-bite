@@ -36,6 +36,7 @@ import {
   setPlanTab,
 } from '../device-settings';
 import { getPlanGridStyle, PLAN_GRID_STYLE_KEY, setPlanGridStyle } from '@/features/meal-plan/grid-style';
+import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY } from '@/features/tabs/add-hint';
 import { FONT_SET_KEY, getFontSetSetting, loadFontSet, setFontSetSetting } from '../font-set';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
 import * as deviceSettings from '../device-settings';
@@ -918,5 +919,16 @@ describe('Developer', () => {
     const root = render(<DeveloperScreen />);
     click(button(root, 'Write test lists (Groceries, Costco)'));
     expect(textOf(root)).toContain('Error: disk full');
+  });
+
+  it('Show the + hint again clears the seen flag, sets the count to 3, and says so', () => {
+    setDeviceSetting(ADD_HINT_SEEN_KEY, true);
+    setDeviceSetting(ADD_TAP_COUNT_KEY, 1);
+    const root = render(<DeveloperScreen />);
+    expect(textOf(root)).not.toContain('The + hint will show after your next add');
+    click(button(root, 'Show the + hint again'));
+    expect(getDeviceSetting(ADD_HINT_SEEN_KEY, 'unset')).toBe('unset');
+    expect(getDeviceSetting(ADD_TAP_COUNT_KEY, 0)).toBe(3);
+    expect(textOf(root)).toContain('The + hint will show after your next add');
   });
 });

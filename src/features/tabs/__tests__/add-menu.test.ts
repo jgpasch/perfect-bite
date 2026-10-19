@@ -7,6 +7,9 @@ import { i18n } from '@/i18n';
 import { pressAddButton, takePendingListAdd } from '../add-button';
 import { ADD_MENU_KEYS, addMenuEntries, runAddMenuItem, showAddMenuSheet } from '../add-menu';
 
+// + taps and the menu write the + hint's device settings (spec 4.1).
+jest.mock('@/db/client', () => require('@/test/db'));
+
 const mockPush = jest.fn();
 const mockNavigate = jest.fn();
 jest.mock('expo-router', () => ({
