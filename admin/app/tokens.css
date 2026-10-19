@@ -1,0 +1,129 @@
+/*
+ * The app's colours, for the portal (spec 4.12, "Look").
+ *
+ * Copied from src/constants/theme.ts (`Palette` and `AisleColors`) and DESIGN.md: keep it in step
+ * with them. A root Jest test (src/constants/__tests__/admin-drift.test.ts) fails when a colour
+ * here doesn't match the app's. Each `Palette` token is a variable of the same name in kebab case
+ * (`inkSecondary` is `--ink-secondary`); each aisle hue is `--aisle-<hue>`, `--aisle-<hue>-soft`
+ * and `--aisle-<hue>-strong`.
+ *
+ * Only the portal's own colours are new: the sidebar green (the app's `primary`, darkened) and the
+ * colours on it. Components use these variables, never hex.
+ */
+
+:root {
+  --background: #EEF3EC;
+  --surface: #FFFFFF;
+  --surface-muted: #DCE4DA;
+  --border: #EEF1EC;
+  --control-border: #B9C4BC;
+  --ink: #1D2A22;
+  --ink-secondary: #55635A;
+  --ink-tertiary: #7C877F;
+  --primary: #2E6B45;
+  --on-primary: #FFFFFF;
+  --primary-soft: #DDEFE2;
+  --on-primary-soft: #1F5233;
+  --danger: #A33D53;
+  --danger-soft: #F7E1E6;
+  --pending: #8A5C0C;
+  --pending-soft: #FFF7E6;
+  --scrim: #C9D3C7;
+  --toast: #1D2A22;
+  --on-toast: #FFFFFF;
+  --header: #1F4D33;
+  --on-header: #FFFFFF;
+  --gold: #E9BC5A;
+  --on-header-secondary: #B7D2BF;
+
+  --aisle-green: #2E6B45;
+  --aisle-green-soft: #DDEFE2;
+  --aisle-green-strong: #2E6B45;
+  --aisle-teal: #2A8C84;
+  --aisle-teal-soft: #DCEFEC;
+  --aisle-teal-strong: #1F6E68;
+  --aisle-blue: #3E7BB8;
+  --aisle-blue-soft: #DFEAF6;
+  --aisle-blue-strong: #2F6396;
+  --aisle-plum: #8A5BB0;
+  --aisle-plum-soft: #ECE3F5;
+  --aisle-plum-strong: #6E4594;
+  --aisle-rose: #C2556B;
+  --aisle-rose-soft: #F7E1E6;
+  --aisle-rose-strong: #A33D53;
+  --aisle-orange: #D0703A;
+  --aisle-orange-soft: #FAE4D6;
+  --aisle-orange-strong: #A04A1C;
+  --aisle-amber: #C98A1E;
+  --aisle-amber-soft: #F6EBD4;
+  --aisle-amber-strong: #8A5C0C;
+  --aisle-grey: #7C877F;
+  --aisle-grey-soft: #EEF3EC;
+  --aisle-grey-strong: #55635A;
+
+  /* The portal's sidebar: `primary` darkened, with white text. */
+  --sidebar-green: #1A4229;
+  --on-sidebar: #FFFFFF;
+  --on-sidebar-secondary: #B7D2BF;
+  --sidebar-active: rgba(255, 255, 255, 0.14);
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #111915;
+    --surface: #1B241F;
+    --surface-muted: #28332C;
+    --border: #26302A;
+    --control-border: #56635A;
+    --ink: #E7EEE8;
+    --ink-secondary: #A6B3AA;
+    --ink-tertiary: #7E8B82;
+    --primary: #7CC395;
+    --on-primary: #0E1F14;
+    --primary-soft: #1E3A28;
+    --on-primary-soft: #B7E4C5;
+    --danger: #F08B9F;
+    --danger-soft: #3B1E26;
+    --pending: #E8B65A;
+    --pending-soft: #33290F;
+    --scrim: #050806;
+    --toast: #E7EEE8;
+    --on-toast: #111915;
+    --header: #163A26;
+    --on-header: #FFFFFF;
+    --gold: #E9BC5A;
+    --on-header-secondary: #A9C8B3;
+
+    --aisle-green: #6FBF8A;
+    --aisle-green-soft: #1E3A28;
+    --aisle-green-strong: #6FBF8A;
+    --aisle-teal: #5FC4B8;
+    --aisle-teal-soft: #163633;
+    --aisle-teal-strong: #5FC4B8;
+    --aisle-blue: #7AAEE0;
+    --aisle-blue-soft: #1B2D3F;
+    --aisle-blue-strong: #7AAEE0;
+    --aisle-plum: #B996E0;
+    --aisle-plum-soft: #2E2240;
+    --aisle-plum-strong: #B996E0;
+    --aisle-rose: #E58A9C;
+    --aisle-rose-soft: #3B1E26;
+    --aisle-rose-strong: #E58A9C;
+    --aisle-orange: #EE9762;
+    --aisle-orange-soft: #3A2416;
+    --aisle-orange-strong: #EE9762;
+    --aisle-amber: #E3AE4E;
+    --aisle-amber-soft: #33290F;
+    --aisle-amber-strong: #E3AE4E;
+    --aisle-grey: #8E9A91;
+    --aisle-grey-soft: #26302A;
+    --aisle-grey-strong: #8E9A91;
+
+    --sidebar-green: #0F2A1A;
+    --on-sidebar: #FFFFFF;
+    --on-sidebar-secondary: #A9C8B3;
+    --sidebar-active: rgba(255, 255, 255, 0.12);
+    --sidebar-hover: rgba(255, 255, 255, 0.06);
+  }
+}
