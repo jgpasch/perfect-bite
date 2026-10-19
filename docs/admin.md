@@ -79,6 +79,10 @@ A user's plan decides which AI features they get (spec 4.12):
 
 A user with no `user_plans` row is on the default plan. Each plan also sets how much of each feature a user may use a month (below).
 
+Use the admin portal: find the user (by email, name or user id), pick the plan or the default, and write a note. It calls `admin_set_user_plan`, which writes one `admin.admin_actions` row (`set_user_plan`, `{ from, to }`, the note, and your user id in `performed_by`), so the change shows in the user's plan history.
+
+The Table Editor still works, but nothing records who changed what or why:
+
 1. Find their id in Authentication → Users.
 2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`none`, `basic`, `plus` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
 3. To put them back on the default plan, delete their row.
