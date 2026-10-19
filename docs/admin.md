@@ -160,6 +160,16 @@ order by created_at desc;
 
 `performed_by` is always `postgres` from the dashboard, so the `note` is the only record of who asked and why. From the admin portal it's the admin's user id, and the note is still required.
 
+### Demo data for the portal (local only)
+
+`supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`) on every plan, with 40 days of usage of every feature (demo-1 at plus's monthly limits, demo-2 over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:
+
+```bash
+psql postgresql://postgres:postgres@127.0.0.1:55322/postgres -f supabase/seed-admin-demo.sql
+```
+
+or paste it into the local SQL editor (http://127.0.0.1:55323). Running it again inserts nothing. The file's header has the three `delete`s that remove it. Never run it against hosted.
+
 ## Snippets
 
 Save these in the SQL Editor. Always fill in the note.
