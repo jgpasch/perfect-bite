@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cook mode, grilling</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #EEF3EC; color: #1D2A22; font-family: Figtree, system-ui, sans-serif; overflow: hidden;">
+  <div style="display: flex; align-items: center; gap: 12px; padding: 56px 20px 14px; border-bottom: 1px solid #DCE4DA;">
+    <button aria-label="Close cook mode" style="width: 44px; height: 44px; border: none; border-radius: 22px; background: #DCE4DA; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div style="flex-grow: 1; display: flex; flex-direction: column;">
+      <div style="font-size: 17px; font-weight: 700;">Chicken Thigh Marinade</div>
+      <div style="font-size: 13px; color: #55635A;">For 4 · 4 of 7 steps done</div>
+    </div>
+  </div>
+  <div style="flex-grow: 1; padding: 16px 16px 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+    <button style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 16px; border: none; background: #FFFFFF; font: inherit; color: #1D2A22; text-align: left; cursor: pointer;">
+      <span style="width: 22px; height: 22px; border-radius: 11px; background: #DDEFE2; display: flex; align-items: center; justify-content: center;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+      </span>
+      <span style="flex-grow: 1; font-size: 15px; font-weight: 600;">Marinate the chicken</span>
+      <span style="font-size: 14px; color: #55635A;">3 done</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+
+    <div style="display: flex; align-items: center; padding: 4px 4px 0;">
+      <div style="flex-grow: 1; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: #55635A;">Grill</div>
+      <button style="border: none; background: none; font: inherit; font-size: 15px; color: #2E6B45; min-height: 44px; padding: 0 4px; cursor: pointer;">Change method</button>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; background: #DDEFE2; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+      </div>
+      <div style="font-size: 15px; line-height: 1.4; color: #55635A;">Preheat the grill to medium-high (400–425°F).</div>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 18px; padding: 18px 16px; display: flex; flex-direction: column; gap: 14px; border: 2px solid #2E6B45;">
+      <div style="display: flex; gap: 12px; align-items: flex-start;">
+        <div style="width: 28px; height: 28px; border-radius: 14px; background: #2E6B45; color: #FFFFFF; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">5</div>
+        <div style="font-size: 20px; line-height: 1.35; font-weight: 600;">Lift the chicken out of the marinade and season both sides with salt and pepper.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-left: 40px;">
+        <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border-radius: 22px; background: #DCE4DA; font-size: 15px;">
+          <input type="checkbox" style="width: 18px; height: 18px; accent-color: #2E6B45;">Salt
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border-radius: 22px; background: #DCE4DA; font-size: 15px;">
+          <input type="checkbox" style="width: 18px; height: 18px; accent-color: #2E6B45;">Black pepper
+        </label>
+      </div>
+      <button style="margin-left: 40px; min-height: 48px; border-radius: 14px; border: none; background: #2E6B45; font: inherit; font-size: 16px; font-weight: 600; color: #FFFFFF; cursor: pointer;">Mark step done</button>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; border: 1.5px solid #B9C4BC; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box;">6</div>
+      <div style="font-size: 16px; line-height: 1.4;">Grill skin-side up 5 minutes, then flip onto indirect heat.</div>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; border: 1.5px solid #B9C4BC; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box;">7</div>
+      <div style="font-size: 16px; line-height: 1.4;">Cover and cook 5–8 minutes more, to 165°F. Rest 5 minutes.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

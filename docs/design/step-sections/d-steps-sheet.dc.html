@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Steps sheet with sections</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; background: #EEF3EC; color: #1D2A22; font-family: Figtree, system-ui, sans-serif; overflow: hidden; padding-top: 20px;">
+  <div style="display: flex; align-items: center; padding: 0 16px;">
+    <button style="border: none; background: none; font: inherit; font-size: 17px; color: #2E6B45; min-height: 44px; padding: 0 4px; cursor: pointer;">Cancel</button>
+    <div style="flex-grow: 1;"></div>
+    <button style="border: none; border-radius: 22px; background: #2E6B45; color: #FFFFFF; font: inherit; font-size: 17px; font-weight: 600; min-height: 44px; padding: 0 18px; cursor: pointer;">Save</button>
+  </div>
+  <div style="padding: 0 20px; font-size: 28px; font-weight: 700;">Steps</div>
+  <div style="padding: 0 20px; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: #55635A;">One step per line · # starts a section</div>
+  <div style="margin: 0 16px; background: #FFFFFF; border-radius: 16px; padding: 14px 16px; font-size: 16px; line-height: 1.6; display: flex; flex-direction: column;">
+    <div style="font-weight: 700;"># Marinate the chicken</div>
+    <div>Whisk the marinade ingredients together in a bowl.</div>
+    <div>Pour it over the chicken and turn the thighs to coat.</div>
+    <div>Marinate 20–30 minutes at room temperature, or 12–24 hours in the fridge.</div>
+    <div style="font-weight: 700;"># Grill</div>
+    <div>Preheat the grill to medium-high (400–425°F).</div>
+    <div>Lift the chicken out of the marinade and season…</div>
+    <div style="color: #55635A;">…</div>
+    <div style="font-weight: 700;"># Bake</div>
+    <div>Heat the oven to 425°F, rack in the centre.</div>
+    <div style="color: #55635A;">…</div>
+  </div>
+  <div style="padding: 4px 20px 0; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: #55635A;">Choose one when cooking</div>
+  <div style="margin: 0 16px; background: #FFFFFF; border-radius: 16px; display: flex; flex-direction: column;">
+    <label style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-bottom: 1px solid #EEF1EC; font-size: 16px;">
+      <input type="checkbox" style="width: 22px; height: 22px; accent-color: #2E6B45;">Marinate the chicken
+    </label>
+    <label style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-bottom: 1px solid #EEF1EC; font-size: 16px;">
+      <input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #2E6B45;">Grill
+    </label>
+    <label style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-bottom: 1px solid #EEF1EC; font-size: 16px;">
+      <input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #2E6B45;">Bake
+    </label>
+    <label style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-bottom: 1px solid #EEF1EC; font-size: 16px;">
+      <input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #2E6B45;">Pan-fry
+    </label>
+    <label style="display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; font-size: 16px;">
+      <input type="checkbox" checked style="width: 22px; height: 22px; accent-color: #2E6B45;">Broil
+    </label>
+  </div>
+  <div style="padding: 0 28px; font-size: 13px; line-height: 1.4; color: #55635A;">Ticked sections that sit next to each other are ways to do the same part. Cook mode asks which one you're using.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cook mode, pick a method</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #EEF3EC; color: #1D2A22; font-family: Figtree, system-ui, sans-serif; overflow: hidden;">
+  <div style="display: flex; align-items: center; gap: 12px; padding: 56px 20px 14px; border-bottom: 1px solid #DCE4DA;">
+    <button aria-label="Close cook mode" style="width: 44px; height: 44px; border: none; border-radius: 22px; background: #DCE4DA; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div style="flex-grow: 1; display: flex; flex-direction: column;">
+      <div style="font-size: 17px; font-weight: 700;">Chicken Thigh Marinade</div>
+      <div style="font-size: 13px; color: #55635A;">For 4 · 3 steps done · pick a method</div>
+    </div>
+  </div>
+  <div style="flex-grow: 1; padding: 16px 16px 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden;">
+    <div style="padding: 4px 4px 0; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: #55635A;">Marinate the chicken</div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; background: #DDEFE2; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+      </div>
+      <div style="font-size: 15px; line-height: 1.4; color: #55635A;">Whisk the marinade ingredients together in a bowl.</div>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; background: #DDEFE2; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+      </div>
+      <div style="font-size: 15px; line-height: 1.4; color: #55635A;">Pour it over the chicken and turn the thighs to coat.</div>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 28px; height: 28px; border-radius: 14px; background: #DDEFE2; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+      </div>
+      <div style="font-size: 15px; line-height: 1.4; color: #55635A;">Marinate 20–30 minutes at room temperature, or 12–24 hours in the fridge.</div>
+    </div>
+
+    <div style="background: #FFFFFF; border-radius: 18px; padding: 18px 16px 10px; display: flex; flex-direction: column; gap: 4px; border: 2px solid #2E6B45;">
+      <div style="font-size: 20px; font-weight: 600; line-height: 1.3;">How are you cooking it?</div>
+      <div style="font-size: 14px; color: #55635A; padding-bottom: 6px;">The recipe gives 4 ways. You can change this later.</div>
+      <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; border: none; border-top: 1px solid #EEF1EC; background: none; font: inherit; color: #1D2A22; padding: 0; text-align: left; cursor: pointer;">
+        <span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Grill</span>
+        <span style="font-size: 15px; color: #55635A;">4 steps</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; border: none; border-top: 1px solid #EEF1EC; background: none; font: inherit; color: #1D2A22; padding: 0; text-align: left; cursor: pointer;">
+        <span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Bake</span>
+        <span style="font-size: 15px; color: #55635A;">2 steps</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; border: none; border-top: 1px solid #EEF1EC; background: none; font: inherit; color: #1D2A22; padding: 0; text-align: left; cursor: pointer;">
+        <span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Pan-fry</span>
+        <span style="font-size: 15px; color: #55635A;">3 steps</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 12px; min-height: 56px; border: none; border-top: 1px solid #EEF1EC; background: none; font: inherit; color: #1D2A22; padding: 0; text-align: left; cursor: pointer;">
+        <span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Broil</span>
+        <span style="font-size: 15px; color: #55635A;">3 steps</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
