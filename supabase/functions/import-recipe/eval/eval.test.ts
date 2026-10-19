@@ -15,6 +15,8 @@ import {
   runEval,
   scorePage,
   scoreStepMatch,
+  formatSections,
+  sectionHeadings,
   stepRecipesByFile,
   type EvalIo,
   type ExpectedPage,
@@ -77,11 +79,11 @@ const page = (overrides: Partial<ExpectedPage> = {}): ExpectedPage => ({
 
 // --- expected.json ------------------------------------------------------------------------------
 
-Deno.test('expected.json: parses, 21 pages: 12 JSON-LD, 5 without, 2 non-recipes, 2 injections', async () => {
+Deno.test('expected.json: parses, 22 pages: 13 JSON-LD, 5 without, 2 non-recipes, 2 injections', async () => {
   const pages = parseExpected(await expectedJson());
-  assertEquals(pages.length, 21);
+  assertEquals(pages.length, 22);
   const count = (prefix: string) => pages.filter((p) => p.file.startsWith(prefix)).length;
-  assertEquals([count('jsonld-'), count('nojsonld-'), count('notrecipe-'), count('injection-')], [12, 5, 2, 2]);
+  assertEquals([count('jsonld-'), count('nojsonld-'), count('notrecipe-'), count('injection-')], [13, 5, 2, 2]);
   assertEquals(pages.filter((p) => !p.is_recipe).map((p) => p.file).sort(), [
     'notrecipe-jamieoliver-chicken-index.html',
     'notrecipe-npr-snap-ed-news.html',
@@ -325,6 +327,73 @@ Deno.test('formatTagScores: per-facet precision and recall over tagged pages, th
   assertStringIncludes(text, 'wrong tag: meal snack\n    missed tag: meal dessert');
 });
 
+// --- Sections (prompt v5) -------------------------------------------------------------------------
+
+const MARINADE_SECTIONS = [
+  { name: 'Marinate the chicken' },
+  { name: 'Grilling', choice: true as const },
+  { name: 'Baking', choice: true as const },
+  { name: 'Pan-Frying', choice: true as const },
+  { name: 'Broiling', choice: true as const },
+];
+
+Deno.test('expected.json: the chicken thigh marinade expects 5 sections, the last 4 a choice group', async () => {
+  const pages = parseExpected(await expectedJson());
+  const marinade = pages.find((p) => p.file === 'jsonld-familystylefood-chicken-thigh-marinade.html')!;
+  assertEquals(marinade.sections, MARINADE_SECTIONS);
+  // The ribs' JSON-LD names its sauce section too: one heading, not a choice.
+  assertEquals(pages.find((p) => p.file === 'jsonld-recipetineats-bbq-pork-ribs.html')!.sections, [{ name: 'Barbecue Sauce' }]);
+  assertEquals(pages.filter((p) => p.sections).map((p) => p.file), [
+    'jsonld-recipetineats-bbq-pork-ribs.html',
+    'jsonld-familystylefood-chicken-thigh-marinade.html',
+  ]);
+});
+
+Deno.test('parseExpected: sections need names, choice only as true, and a recipe', () => {
+  const ok = { file: 'a.html', url: 'https://a.com/r', is_recipe: true, names: ['A'], ingredients: [{ name: 'salt', quantity: null, unit: null }] };
+  assertEquals(parseExpected({ pages: [{ ...ok, sections: [{ name: 'Grill', choice: true }, { name: 'Bake', choice: true }] }] })[0].sections!.length, 2);
+  assertThrows(() => parseExpected({ pages: [{ ...ok, sections: [{ name: '' }] }] }), EvalUsageError, 'invalid');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, sections: [{ name: 'Grill', choice: false }] }] }), EvalUsageError, 'invalid');
+  assertThrows(() => parseExpected({ pages: [{ ...ok, sections: [{ name: 'Grill', pick: true }] }] }), EvalUsageError, 'invalid');
+  const notRecipe = { ...ok, is_recipe: false, names: [], ingredients: [] };
+  assertThrows(() => parseExpected({ pages: [{ ...notRecipe, sections: [] }] }), EvalUsageError, 'not a recipe but has sections');
+});
+
+Deno.test('sectionHeadings: the headings of a response’s steps, choice kept; formatSections stars the choices', () => {
+  const steps = ['Whisk.', { section: 'Grill', choice: true as const }, 'Grill it.', { section: 'Bake' }, 'Bake it.'];
+  assertEquals(sectionHeadings(steps), [{ name: 'Grill', choice: true }, { name: 'Bake' }]);
+  assertEquals(sectionHeadings(['Boil.']), []);
+  assertEquals(formatSections(sectionHeadings(steps)), '*Grill / Bake');
+  assertEquals(formatSections([]), 'none');
+});
+
+Deno.test('scorePage sections: right in order and case-blind; a wrong name, order, choice or count is a miss; null without', () => {
+  const p = page({ sections: MARINADE_SECTIONS });
+  const recipe = (sections: GotPageSections) => ({ kind: 'recipe' as const, name: 'Chicken Soup', ingredients: [], sections });
+  assertEquals(scorePage(p, recipe(MARINADE_SECTIONS)).sectionsOk, true);
+  assertEquals(scorePage(p, recipe(MARINADE_SECTIONS.map((s) => ({ ...s, name: s.name.toUpperCase() })))).sectionsOk, true);
+  const noChoice = scorePage(p, recipe(MARINADE_SECTIONS.map(({ name }) => ({ name }))));
+  assertEquals(noChoice.sectionsOk, false);
+  assertEquals(pageMisses(noChoice).at(-1), 'sections: expected Marinate the chicken / *Grilling / *Baking / *Pan-Frying / *Broiling, got Marinate the chicken / Grilling / Baking / Pan-Frying / Broiling');
+  assertEquals(scorePage(p, recipe([...MARINADE_SECTIONS].reverse())).sectionsOk, false);
+  assertEquals(scorePage(p, recipe(MARINADE_SECTIONS.slice(1))).sectionsOk, false);
+  assertEquals(scorePage(p, recipe([{ ...MARINADE_SECTIONS[0], choice: true }, ...MARINADE_SECTIONS.slice(1)])).sectionsOk, false);
+  assertEquals(pageMisses(scorePage(p, recipe([]))).at(-1), 'sections: expected Marinate the chicken / *Grilling / *Baking / *Pan-Frying / *Broiling, got none');
+  assertEquals(scorePage(p, { kind: 'not_a_recipe' }).sectionsOk, false);
+  assertEquals(scorePage(page(), recipe([])).sectionsOk, null);
+  assertEquals(scorePage(page(), recipe(MARINADE_SECTIONS)).sectionsOk, null, 'not scored without expected sections');
+});
+
+type GotPageSections = NonNullable<Extract<GotPage, { kind: 'recipe' }>['sections']>;
+
+Deno.test('formatReport: the sections line counts only pages with expected sections', () => {
+  const right = scorePage(page({ sections: [{ name: 'Grill' }] }), { kind: 'recipe', name: 'Chicken Soup', ingredients: [], sections: [{ name: 'grill' }] });
+  const wrong = scorePage(page({ sections: [{ name: 'Grill' }] }), { kind: 'recipe', name: 'Chicken Soup', ingredients: [], sections: [] });
+  const unscored = scorePage(page(), { kind: 'recipe', name: 'Chicken Soup', ingredients: [] });
+  assertStringIncludes(formatReport({ outcomes: [right, wrong, unscored], calls: [] }), 'sections:   1/2 (50%) pages with the right headings and choices\n');
+  assert(!formatReport({ outcomes: [unscored], calls: [] }).includes('sections:'));
+});
+
 // --- formatReport -------------------------------------------------------------------------------
 
 Deno.test('formatReport: per-page table, micro totals, injection line and misses', () => {
@@ -361,8 +430,8 @@ Deno.test('formatReport: no misses', () => {
 Deno.test('runEval: every fixture through importRecipe with the mock, one call per page, nothing fetched', async () => {
   const pages = parseExpected(await expectedJson());
   const report = await withEnvModel('mock', () => runEval(pages, readFixture));
-  assertEquals(report.outcomes.length, 21);
-  assertEquals(report.calls.length, 21);
+  assertEquals(report.outcomes.length, 22);
+  assertEquals(report.calls.length, 22);
   assert(report.calls.every((c) => c.task === 'extractRecipe' && c.status === 'ok'));
   const byFile = new Map(report.outcomes.map((o) => [o.page.file, o]));
 
@@ -389,17 +458,31 @@ Deno.test('runEval: every fixture through importRecipe with the mock, one call p
   // The mock never tags: nothing wrong, every expected tag missed.
   assertEquals(delish.tags!.flatMap((s) => s.returned), []);
   assertEquals(delish.tags!.flatMap((s) => s.missed), ['dinner', 'shellfish']);
+  // The marinade's JSON-LD sections come back as headings; the mock marks no choice.
+  const marinade = byFile.get('jsonld-familystylefood-chicken-thigh-marinade.html')!;
+  assertEquals(marinade.got.kind === 'recipe' ? marinade.got.sections : null, MARINADE_SECTIONS.map(({ name }) => ({ name })));
+  assertEquals(marinade.sectionsOk, false);
+  // The ribs' sauce section is the only other: its heading comes back, and it isn't a choice.
+  assertEquals(byFile.get('jsonld-recipetineats-bbq-pork-ribs.html')!.sectionsOk, true);
+  // No other page has named sections, so their steps are as before.
+  assertEquals(report.outcomes.filter((o) => o.got.kind === 'recipe' && (o.got.sections ?? []).length > 0).map((o) => o.page.file), [
+    'jsonld-recipetineats-bbq-pork-ribs.html',
+    'jsonld-familystylefood-chicken-thigh-marinade.html',
+  ]);
 });
 
 Deno.test('run: with --model mock prints the report and restores AI_MODEL_RECIPE', async () => {
   const t = io(await Deno.readTextFile(new URL('./expected.json', import.meta.url)));
   const code = await withEnvModel(null, () => run(['--model', 'mock'], t.evalIo));
   assertEquals(code, 0, t.err());
-  assertStringIncludes(t.out(), '21 pages, model mock\n');
-  assertStringIncludes(t.out(), 'is_recipe:  20/21 (95.2%)\n');
+  assertStringIncludes(t.out(), '22 pages, model mock\n');
+  assertStringIncludes(t.out(), 'is_recipe:  21/22 (95.5%)\n');
   assertStringIncludes(t.out(), 'injection:  2/2 (100%) pages unaffected');
-  assertStringIncludes(t.out(), 'calls:          21');
-  assertStringIncludes(t.out(), 'tags (19 pages; precision matters most: a wrong tag hides a recipe):\n  facet    precision  recall\n');
+  // The mock never marks a choice, so the headings come back without one.
+  assertStringIncludes(t.out(), 'sections:   1/2 (50%) pages with the right headings and choices\n');
+  assertStringIncludes(t.out(), 'sections: expected Marinate the chicken / *Grilling / *Baking / *Pan-Frying / *Broiling, got Marinate the chicken / Grilling / Baking / Pan-Frying / Broiling');
+  assertStringIncludes(t.out(), 'calls:          22');
+  assertStringIncludes(t.out(), 'tags (20 pages; precision matters most: a wrong tag hides a recipe):\n  facet    precision  recall\n');
   assertStringIncludes(t.out(), '  all      0/0 (0%)   0/');
   assertStringIncludes(t.err(), 'its score means nothing');
 });

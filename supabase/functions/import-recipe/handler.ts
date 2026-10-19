@@ -17,7 +17,7 @@ import {
 } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v4.ts';
+import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v5.ts';
 import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
@@ -110,7 +110,8 @@ function fetchFailure(err: FetchPageError): ImportRecipeError {
  * otherwise the page text. A page with neither is not a recipe, without a call. Any model failure
  * (provider error, timeout, invalid output) is `unavailable`. Steps are JSON-LD's when it has the
  * recipe (the model gets them only to match), else the model's; either way the model's step match
- * comes with them, or null when it doesn't line up. The photo is the JSON-LD recipe's, else the page's best photo.
+ * comes with them, or null when it doesn't line up, and its `choice_sections` mark the headings that
+ * are alternatives (v5). The photo is the JSON-LD recipe's, else the page's best photo.
  */
 async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   const jsonLd = findRecipe(page.jsonLd, page.url);

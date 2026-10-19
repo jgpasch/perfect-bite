@@ -1,7 +1,7 @@
 // The extract-recipe AI task (spec §6.6): prompt, output cleaning, mock and task options. Lives
 // here for the import map, like ai.test.ts, until import-recipe has its own folder. The prompt tests
 // here are v2's (kept, as v2 is); v3's and v4's are in import-recipe/prompt-v3.test.ts and
-// prompt-v4.test.ts. The task runs v4.
+// prompt-v4.test.ts, v5's in prompt-v5.test.ts. The task runs v5.
 import { AI_TAG_FACETS, ExtractedRecipeSchema, UNITS } from '@shared/index.ts';
 import { assertEquals, assertRejects } from '@std/assert';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -55,10 +55,11 @@ const raw = (ingredients: Ingredient[], over: Partial<ExtractRecipeOutput> = {})
   total_minutes: null,
   steps: [],
   step_ingredients: [],
+  choice_sections: [],
   ...over,
 });
 
-const NOT_A_RECIPE = { is_recipe: false, name: '', servings: null, ingredients: [], tags: NO_TAGS, total_minutes: null, steps: [], step_ingredients: [] };
+const NOT_A_RECIPE = { is_recipe: false, name: '', servings: null, ingredients: [], tags: NO_TAGS, total_minutes: null, steps: [], step_ingredients: [], choice_sections: [] };
 
 /** The JSON page after the prompt's first line. */
 function promptPage(prompt: string): unknown {
@@ -253,7 +254,9 @@ Deno.test('clean: quantity and servings must be positive, otherwise null', () =>
 });
 
 Deno.test('clean: a not-a-recipe answer passes through, with no photo', () => {
-  assertEquals(cleanExtractedRecipe(NOT_A_RECIPE), { ...NOT_A_RECIPE, step_ingredients: null, image_url: null });
+  // choice_sections is the model's answer only: the cleaned recipe carries the choices on its headings.
+  const { choice_sections: _, ...cleaned } = NOT_A_RECIPE;
+  assertEquals(cleanExtractedRecipe(NOT_A_RECIPE), { ...cleaned, step_ingredients: null, image_url: null });
 });
 
 Deno.test('clean v3: the model’s steps keep their wording, without numbering, blanks or repeats', () => {
@@ -335,11 +338,12 @@ Deno.test('mock: the quantity parser over each line; headings dropped, the note 
       { name: 'Salt', quantity: null, unit: null, note: 'to taste' },
       { name: 'grated parmesan', quantity: 1.5, unit: 'cup', note: '' },
     ],
-    // The mock never tags and gives no time or steps; the handler adds JSON-LD's.
+    // The mock never tags and gives no time or steps; the handler adds JSON-LD's. Nor does it mark a choice (v5).
     tags: NO_TAGS,
     total_minutes: null,
     steps: [],
     step_ingredients: [],
+    choice_sections: [],
   });
 });
 
@@ -374,7 +378,7 @@ Deno.test('recipeMaxOutputTokens: 60 per item plus 300, capped at 10,000 (v4: li
 
 Deno.test('extractRecipe task: temperature 0, 30 s timeout, its own model and fallback env vars', async () => {
   const task = aiTasks.extractRecipe;
-  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v4']);
+  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v5']);
   assertEquals(RECIPE_THINKING, 'low');
   await withEnv({}, () => assertEquals([task.model(), task.fallbackModel()], [null, null]));
   await withEnv({ AI_MODEL_RECIPE: ' google:gemini-3.8-flash ', AI_MODEL_RECIPE_FALLBACK: 'anthropic:claude-haiku-5-5' }, () =>
@@ -435,8 +439,8 @@ Deno.test('mock model end to end: an injection line stays an ingredient, and the
       step_ingredients: null,
       image_url: null,
     });
-    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v4']);
-    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v4']]);
+    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v5']);
+    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v5']]);
     assertEquals([calls[0].instructions, calls[0].prompt], [built.instructions, built.prompt]);
   });
 });
@@ -501,7 +505,7 @@ Deno.test('runAiTask v3: an answer without steps (a v2 answer) fails the schema 
       onCall: async (c) => void calls.push(c),
     }),
   );
-  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v4']]);
+  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v5']]);
 });
 
 Deno.test('runAiTask: output that fails the schema is an invalid_output call', async () => {

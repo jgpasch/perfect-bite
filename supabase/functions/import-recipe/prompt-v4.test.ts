@@ -23,15 +23,15 @@ const tags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
 
 /** A model answer with these ingredients and match; everything else empty. */
 function answer(overrides: Partial<ExtractRecipeOutput>): ExtractRecipeOutput {
-  return { is_recipe: true, name: 'Tacos', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [], ...overrides };
+  return { is_recipe: true, name: 'Tacos', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [], choice_sections: [], ...overrides };
 }
 
 const item = (name: string, quantity: number | null = null) => ({ name, quantity, unit: null, note: '' });
 const step = (n: number, ...uses: [number, number | null][]) => ({ step: n, uses: uses.map(([ingredient, quantity]) => ({ ingredient, quantity })) });
 
-Deno.test('v4: its own version, and the one the extractRecipe task runs', () => {
+Deno.test('v4: its own version (the extractRecipe task runs v5 now)', () => {
   assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v4');
-  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v4');
+  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v5');
 });
 
 async function sha256(s: string): Promise<string> {

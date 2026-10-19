@@ -6,7 +6,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipePhoto } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe-photo.v1.ts';
+import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import {
@@ -363,6 +363,21 @@ test('the model’s answer is cleaned as a link import’s: caps, units, steps, 
   assertEquals(res.totalMinutes, 45);
   assertEquals(res.imageUrl, null);
   assertEquals(res.sourceUrl, null);
+});
+
+test('v2: ## lines in the model’s steps become headings, choice_sections marks the alternatives, the match counts steps only', async () => {
+  const answer = {
+    ...mockExtractRecipePhoto([5000]),
+    steps: ['## Season', 'Season the chicken.', '## Roast', 'Roast it.', '## Grill', 'Grill it.'],
+    step_ingredients: [1, 2, 3].map((step) => ({ step, uses: [{ ingredient: 1, quantity: null }] })),
+    choice_sections: [2, 3],
+  };
+  const res = await importRecipePhoto({ images: [PAGE_1] }, setup({ model: fixedModel(answer) }).deps);
+  assertEquals(res.steps, [{ section: 'Season' }, 'Season the chicken.', { section: 'Roast', choice: true }, 'Roast it.', { section: 'Grill', choice: true }, 'Grill it.']);
+  assertEquals(res.stepIngredients?.length, 3);
+  // One number is never a choice.
+  const single = await importRecipePhoto({ images: [PAGE_1] }, setup({ model: fixedModel({ ...answer, choice_sections: [2] }) }).deps);
+  assertEquals(single.steps.filter((e) => typeof e !== 'string'), [{ section: 'Season' }, { section: 'Roast' }, { section: 'Grill' }]);
 });
 
 test('a provider error or timeout: 503 with Retry-After 30 s', async () => {

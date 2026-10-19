@@ -18,9 +18,9 @@ async function sha256(s: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-Deno.test('v3: its own version; the extractRecipe task now runs v4', () => {
+Deno.test('v3: its own version; the extractRecipe task now runs v5', () => {
   assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v3');
-  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v4');
+  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v5');
 });
 
 Deno.test('v3 renders byte for byte as before v4 and the shared step-match rules', async () => {

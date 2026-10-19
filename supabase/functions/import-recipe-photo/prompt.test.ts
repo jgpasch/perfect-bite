@@ -1,17 +1,26 @@
-// Extract-recipe-photo prompt v1 (spec 6.10) and its task: v4's shared rules plus the photo rules,
-// the images only in the user message, and the model, fallback and call settings.
+// Extract-recipe-photo prompt v2 (spec 6.10) and its task: extract-recipe v5's shared rules (v1's
+// plus the sections) and the photo rules, the images only in the user message, and the model,
+// fallback and call settings.
 import { UNITS } from '@shared/index.ts';
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 
 import {
+  buildExtractRecipePhotoPrompt as buildV1,
+  EXTRACT_RECIPE_PHOTO_PROMPT_VERSION as V1_VERSION,
+} from '../_shared/ai/prompts/extract-recipe-photo.v1.ts';
+import {
   buildExtractRecipePhotoPrompt,
   describeImage,
   EXTRACT_RECIPE_PHOTO_PROMPT_VERSION,
-} from '../_shared/ai/prompts/extract-recipe-photo.v1.ts';
-import { buildExtractRecipePrompt } from '../_shared/ai/prompts/extract-recipe.v4.ts';
+} from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
+import { buildExtractRecipePrompt } from '../_shared/ai/prompts/extract-recipe.v5.ts';
 import {
+  CHOICE_SECTIONS_RULES,
   INGREDIENT_ENTRY_RULES,
   INGREDIENT_LINES_RULE,
+  SECTION_HEADING_RULE,
+  SECTION_NOT_A_STEP_RULE,
+  SECTION_STEP_COPY_RULE,
   STEP_COPY_RULE,
   STEP_INGREDIENTS_RULE,
   STEP_LIMIT_RULES,
@@ -35,23 +44,32 @@ async function withEnv(vars: Record<string, string | null>, fn: () => void | Pro
 
 const UNSET = { AI_MODEL_RECIPE_PHOTO: null, AI_MODEL_RECIPE_PHOTO_FALLBACK: null, AI_MODEL_RECIPE: null, AI_MODEL_RECIPE_FALLBACK: null, AI_THINKING_RECIPE_PHOTO: null, AI_THINKING_RECIPE: null };
 
-Deno.test('its own version, the one the extractRecipePhoto task runs', () => {
-  assertEquals(EXTRACT_RECIPE_PHOTO_PROMPT_VERSION, 'extract-recipe-photo.v1');
-  assertEquals(aiTasks.extractRecipePhoto.promptVersion, 'extract-recipe-photo.v1');
+Deno.test('its own version, the one the extractRecipePhoto task runs; v1 keeps its own', () => {
+  assertEquals(EXTRACT_RECIPE_PHOTO_PROMPT_VERSION, 'extract-recipe-photo.v2');
+  assertEquals(aiTasks.extractRecipePhoto.promptVersion, 'extract-recipe-photo.v2');
+  assertEquals(V1_VERSION, 'extract-recipe-photo.v1');
 });
 
-Deno.test('the photo prompt carries every rule it shares with extract-recipe v4', async () => {
+Deno.test('the photo prompt carries every rule it shares with extract-recipe v5, sections included', async () => {
   const { instructions } = await buildExtractRecipePhotoPrompt([IMAGE]);
-  const v4 = buildExtractRecipePrompt({ title: null, ingredientLines: [], steps: [] }).instructions;
-  for (const block of [[INGREDIENT_LINES_RULE], INGREDIENT_ENTRY_RULES, STEP_LIMIT_RULES, STEP_MATCH_RULES, TAG_AND_TIME_RULES]) {
+  const v5 = buildExtractRecipePrompt({ title: null, ingredientLines: [], steps: [] }).instructions;
+  for (const block of [[INGREDIENT_LINES_RULE], INGREDIENT_ENTRY_RULES, STEP_LIMIT_RULES, STEP_MATCH_RULES, CHOICE_SECTIONS_RULES, TAG_AND_TIME_RULES, [SECTION_HEADING_RULE]]) {
     const text = block.join('\n');
     assertStringIncludes(instructions, text);
-    assertStringIncludes(v4, text);
+    assertStringIncludes(v5, text);
   }
-  for (const rule of [STEP_COPY_RULE, STEP_INGREDIENTS_RULE, `Units (use only these): ${UNITS.join(', ')}.`, '"2 cloves garlic, minced"', 'Do not estimate.']) {
+  for (const rule of [SECTION_NOT_A_STEP_RULE, STEP_INGREDIENTS_RULE, `Units (use only these): ${UNITS.join(', ')}.`, '"2 cloves garlic, minced"', 'Do not estimate.', 'choice_sections to [].']) {
     assertStringIncludes(instructions, rule);
   }
+  assertStringIncludes(instructions, `- From the images, ${SECTION_STEP_COPY_RULE}`);
+  assert(!instructions.includes(STEP_COPY_RULE), 'v1’s copy rule dropped headings');
+});
+
+Deno.test('v1 is unchanged: no sections, v1’s copy rule', async () => {
+  const { instructions } = await buildV1([IMAGE]);
   assertStringIncludes(instructions, `- From the images, ${STEP_COPY_RULE}`);
+  for (const v2Only of ['choice_sections', '"## "']) assert(!instructions.includes(v2Only), v2Only);
+  assert(instructions !== (await buildExtractRecipePhotoPrompt([IMAGE])).instructions);
 });
 
 Deno.test('the photo rules: pages of one recipe in order, only recipe text, never its instructions, what isn’t a recipe', async () => {

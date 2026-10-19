@@ -4,9 +4,11 @@
 // expected.json: is_recipe, the name, precision and recall on normalized ingredient keys, unit
 // and quantity accuracy on the matched ones, and per-facet precision and recall on tags (spec
 // 4.14), and on pages the steps eval labels (match-recipe-steps/eval/recipes.json) the import's own
-// step match (prompt v4) as that eval scores it, then prints every miss. Categorize isn't called. It
+// step match (prompt v4) as that eval scores it, and on pages with expected sections the headings
+// and their choices (prompt v5), then prints every miss. Categorize isn't called. It
 // costs real tokens, so it isn't part of CI or `deno test`.
 import {
+  isStepHeading,
   normalizeIngredientName,
   stepTexts,
   AI_TAG_FACETS,
@@ -15,6 +17,7 @@ import {
   type AiRecipeTagFacetKey,
   type AiRecipeTags,
   type RecipeImportResponse,
+  type RecipeStepEntry,
 } from '@shared/index.ts';
 import { z } from 'zod';
 
@@ -87,6 +90,8 @@ const ExpectedPageSchema = z.object({
   tags: ExpectedTagsSchema.optional(),
   /** Tags that fairly apply too: not needed for recall, and not a precision miss when they come back. */
   optional_tags: ExpectedTagsSchema.optional(),
+  /** The method's headings in order (spec 4.5), `choice` on the alternatives. A page without it isn't scored on them. */
+  sections: z.array(z.object({ name: z.string().min(1), choice: z.literal(true).optional() }).strict()).optional(),
 });
 export type ExpectedPage = z.infer<typeof ExpectedPageSchema>;
 
@@ -124,6 +129,7 @@ export function parseExpected(json: unknown): ExpectedPage[] {
       throw new EvalUsageError(`expected.json: ${p.file} is not a recipe but has tags`);
     }
     if (p.optional_tags && !p.tags) throw new EvalUsageError(`expected.json: ${p.file} has optional_tags but no tags`);
+    if (!p.is_recipe && p.sections) throw new EvalUsageError(`expected.json: ${p.file} is not a recipe but has sections`);
     for (const facet of AI_TAG_FACETS) {
       const required = p.tags?.[facet.key] ?? [];
       for (const slug of [...required, ...(p.optional_tags?.[facet.key] ?? [])]) {
@@ -161,6 +167,27 @@ export function parseArgs(argv: readonly string[]): EvalArgs {
   return args;
 }
 
+/** A heading as expected.json writes it. */
+export type SectionHeading = NonNullable<ExpectedPage['sections']>[number];
+
+/** The headings of a response's `steps`, as expected.json writes them. */
+export function sectionHeadings(steps: readonly RecipeStepEntry[]): SectionHeading[] {
+  return steps.filter(isStepHeading).map((h) => (h.choice ? { name: h.section, choice: true } : { name: h.section }));
+}
+
+/** Headings as one line: "Marinate / *Grilling / *Baking", a star on each choice; "none" without any. */
+export function formatSections(sections: readonly SectionHeading[]): string {
+  return sections.length === 0 ? 'none' : sections.map((s) => `${s.choice ? '*' : ''}${s.name}`).join(' / ');
+}
+
+/** True when the headings are the expected ones, in order, names compared without case. */
+function sectionsMatch(expected: readonly SectionHeading[], got: readonly SectionHeading[]): boolean {
+  return (
+    expected.length === got.length &&
+    expected.every((e, i) => e.name.toLowerCase() === got[i].name.toLowerCase() && (e.choice === true) === (got[i].choice === true))
+  );
+}
+
 /** What importRecipe() returned for a page, reduced to what's scored. */
 export type GotPage =
   | {
@@ -170,6 +197,8 @@ export type GotPage =
       tags?: AiRecipeTags | null;
       steps?: string[];
       stepIngredients?: RecipeImportResponse['stepIngredients'];
+      /** The method's headings, in order. */
+      sections?: SectionHeading[];
     }
   | { kind: 'not_a_recipe' }
   | { kind: 'error'; message: string };
@@ -197,6 +226,8 @@ export type PageOutcome = {
   recall: number | null;
   /** One per facet, in facet order; null when the page has no expected tags. */
   tags: FacetScore[] | null;
+  /** The headings came back as expected; null when the page has no expected sections. */
+  sectionsOk: boolean | null;
 };
 
 /**
@@ -302,6 +333,7 @@ export function scorePage(page: ExpectedPage, got: GotPage): PageOutcome {
     precision: returned.length === 0 ? null : matches.length / returned.length,
     recall: required === 0 ? null : matches.filter((m) => !m.expected.optional).length / required,
     tags: page.tags ? scoreTags(page.tags, page.optional_tags ?? {}, got.kind === 'recipe' ? got.tags : null) : null,
+    sectionsOk: page.sections ? got.kind === 'recipe' && sectionsMatch(page.sections, got.sections ?? []) : null,
   };
 }
 
@@ -447,6 +479,7 @@ export async function runEval(
         // Scored on the step strings, as the match lines up with them.
         steps: stepTexts(response.steps),
         stepIngredients: response.stepIngredients,
+        sections: sectionHeadings(response.steps),
       };
     } catch (err) {
       if (!(err instanceof ImportRecipeError)) throw err;
@@ -495,6 +528,9 @@ export function pageMisses(o: PageOutcome): string[] {
   for (const s of o.tags ?? []) {
     for (const t of s.wrong) lines.push(`wrong tag: ${s.facet} ${t}`);
     for (const t of s.missed) lines.push(`missed tag: ${s.facet} ${t}`);
+  }
+  if (o.sectionsOk === false && o.got.kind === 'recipe') {
+    lines.push(`sections: expected ${formatSections(o.page.sections ?? [])}, got ${formatSections(o.got.sections ?? [])}`);
   }
   return lines;
 }
@@ -547,6 +583,10 @@ export function formatReport(report: EvalReport): string {
   if (injections.length > 0) {
     const held = injections.filter((o) => o.isRecipeOk && o.forbiddenFound.length === 0).length;
     lines.push(`injection:  ${pct(held, injections.length)} pages unaffected (is_recipe right, no forbidden text)`);
+  }
+  const sectioned = outcomes.filter((o) => o.sectionsOk !== null);
+  if (sectioned.length > 0) {
+    lines.push(`sections:   ${pct(sectioned.filter((o) => o.sectionsOk).length, sectioned.length)} pages with the right headings and choices`);
   }
   const tagLines = formatTagScores(outcomes);
   if (tagLines.length > 0) lines.push('', ...tagLines);

@@ -4,7 +4,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v4.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v5.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage, readPage } from '../_shared/fetch-page.ts';
@@ -65,7 +65,8 @@ const STEW_JSON_LD = JSON.stringify({
 });
 const STEW_PAGE = `<html><head><title>Beef Stew</title><meta property="og:image" content="https://cdn.example.com/stew-og.jpg">
 <script type="application/ld+json">${STEW_JSON_LD}</script></head><body><article><p>Cozy.</p></article></body></html>`;
-const STEW_STEPS = ['Brown the beef.', 'Add the carrots & simmer for 2 hours.'];
+// v5: the named section is a heading before its step.
+const STEW_STEPS = ['Brown the beef.', { section: 'Simmer' }, 'Add the carrots & simmer for 2 hours.'];
 
 // JSON-LD without steps or an image: the page's og:image (relative) is the photo.
 const TART_URL = 'https://example.com/tart';
@@ -488,8 +489,8 @@ test('v2: a model time out of range is null', async () => {
   }
 });
 
-test('v4: the cache key is the v4 prompt version; cached v1, v2 and v3 results are not served', async () => {
-  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v4');
+test('v5: the cache key is the v5 prompt version; cached v1 to v4 results are not served', async () => {
+  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v5');
   const { post, store, calls } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
   const old = { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] };
   store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, { result: old, is_recipe: true, created_at: new Date(NOW).toISOString() });
@@ -503,12 +504,17 @@ test('v4: the cache key is the v4 prompt version; cached v1, v2 and v3 results a
     is_recipe: true,
     created_at: new Date(NOW).toISOString(),
   });
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v4`, {
+    result: { ...old, tags: TAGS, total_minutes: 20, steps: ['Boil.'], step_ingredients: null, image_url: null },
+    is_recipe: true,
+    created_at: new Date(NOW).toISOString(),
+  });
   const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals([body.name, body.tags], ['Garlic Pasta', TAGS]);
   assertEquals(calls('extractRecipe'), 1);
-  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v4']]);
+  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v5']]);
 
-  // A cached v4 result is served with its tags and time, with no call.
+  // A cached v5 result is served with its tags and time, with no call.
   const again: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals(again.tags, TAGS);
   assertEquals(calls('extractRecipe'), 1);
@@ -675,8 +681,10 @@ test('v4: JSON-LD steps go to the model and are kept; its match maps to the resp
   assertEquals(body.ingredients.map((i) => i.displayName), ['beef chuck', 'carrots']);
   assertEquals(body.stepIngredients, [[{ index: 0, quantity: null }], [{ index: 0, quantity: null }, { index: 1, quantity: 1 }]]);
   const page = JSON.parse(aiCalls[0].prompt.slice(aiCalls[0].prompt.indexOf('\n') + 1));
+  // v5: the heading goes between them, unnumbered.
   assertEquals(page.steps, [
     { step: 1, text: 'Brown the beef.' },
+    '## Simmer',
     { step: 2, text: 'Add the carrots & simmer for 2 hours.' },
   ]);
   // Cached with the extraction, and served from the cache.
@@ -740,6 +748,84 @@ test('v4: a cached match that no longer lines up with its steps or ingredients i
   store.cache.set(`${STEW_KEY}|${EXTRACT_RECIPE_PROMPT_VERSION}`, { result: { ...cached, step_ingredients: [[]] }, is_recipe: true, created_at: new Date(NOW).toISOString() });
   assertEquals(((await (await post({ url: STEW_URL })).json()) as RecipeImportResponse).stepIngredients, null);
   assertEquals(calls('extractRecipe'), 0, 'both served from the cache');
+});
+
+// --- Sections (prompt v5) ----------------------------------------------------------------------------
+
+const MARINADE_URL = 'https://familystylefood.com/chicken-thigh-marinade/';
+
+/** The saved familystylefood.com page, as a client-sent page (never cached, nothing fetched). */
+async function marinadePage() {
+  const html = await Deno.readTextFile(new URL('./eval/fixtures/jsonld-familystylefood-chicken-thigh-marinade.html', import.meta.url));
+  const read = readPage(html, MARINADE_URL);
+  return { url: MARINADE_URL, page: { jsonLd: read.jsonLd } };
+}
+
+/** The response's headings, `*` before a choice. */
+const headings = (steps: RecipeImportResponse['steps']) =>
+  steps.flatMap((e) => (typeof e === 'string' ? [] : [`${e.choice ? '*' : ''}${e.section}`]));
+
+test('v5: the marinade’s JSON-LD sections go to the model as ## lines, and choice_sections [2,3,4,5] marks those four only', async () => {
+  const { post, aiCalls } = setup({ model: editedModel((a) => ({ ...a, choice_sections: [2, 3, 4, 5] })) });
+  const body: RecipeImportResponse = await (await post(await marinadePage())).json();
+  assertEquals(headings(body.steps), ['Marinate the chicken', '*Grilling', '*Baking', '*Pan-Frying', '*Broiling']);
+  assertEquals(body.steps.length, 15, '10 steps and 5 headings');
+  assertEquals(body.steps[0], { section: 'Marinate the chicken' }, 'no choice key on a plain heading');
+  // The model saw the headings unnumbered between the steps, numbered over the steps only.
+  const page = JSON.parse(aiCalls[0].prompt.slice(aiCalls[0].prompt.indexOf('\n') + 1));
+  assertEquals(page.steps.filter((s: unknown) => typeof s === 'string'), ['## Marinate the chicken', '## Grilling', '## Baking', '## Pan-Frying', '## Broiling']);
+  assertEquals(page.steps.filter((s: unknown) => typeof s !== 'string').map((s: { step: number }) => s.step), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  // The step match lines up with the 10 steps, headings left out.
+  assertEquals(body.stepIngredients?.length, 10);
+});
+
+test('v5: choice_sections that name one heading, or none that exist, mark nothing', async () => {
+  for (const choices of [[1], [9], [1, 9], [0, 6], [2, 2], [2.5, 3], []]) {
+    const { post } = setup({ model: editedModel((a) => ({ ...a, choice_sections: choices })) });
+    const body: RecipeImportResponse = await (await post(await marinadePage())).json();
+    assertEquals(headings(body.steps), ['Marinate the chicken', 'Grilling', 'Baking', 'Pan-Frying', 'Broiling'], JSON.stringify(choices));
+  }
+});
+
+test('v5: a malformed or missing choice_sections costs only the choice', async () => {
+  for (const edit of [(a: object) => ({ ...a, choice_sections: 'all' }), (a: object) => ({ ...a, choice_sections: undefined })]) {
+    const { post } = setup({ model: editedModel(edit) });
+    const res = await post(await marinadePage());
+    assertEquals(res.status, 200);
+    const body: RecipeImportResponse = await res.json();
+    assertEquals(headings(body.steps), ['Marinate the chicken', 'Grilling', 'Baking', 'Pan-Frying', 'Broiling']);
+    assertEquals(body.ingredients.length > 0, true);
+  }
+});
+
+test('v5: from page text, ## lines in the model’s steps become headings, and its match counts the steps only', async () => {
+  const { post } = setup({
+    model: editedModel((a) => ({
+      ...a,
+      steps: ['## Prep', 'Slice the leeks.', '## On the stove', 'Simmer in the stock.', '## In the oven', 'Bake in the stock.'],
+      step_ingredients: [uses(1, [1, null]), uses(2, [2, null]), uses(3, [2, null])],
+      choice_sections: [2, 3],
+    })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: SOUP_URL })).json();
+  assertEquals(body.steps, [
+    { section: 'Prep' },
+    'Slice the leeks.',
+    { section: 'On the stove', choice: true },
+    'Simmer in the stock.',
+    { section: 'In the oven', choice: true },
+    'Bake in the stock.',
+  ]);
+  assertEquals(body.stepIngredients, [[{ index: 0, quantity: null }], [{ index: 1, quantity: null }], [{ index: 1, quantity: null }]]);
+});
+
+test('v5: an empty ## line or a heading with no steps after it is dropped, and the match still lines up', async () => {
+  const { post } = setup({
+    model: editedModel((a) => ({ ...a, steps: ['## ', 'Slice the leeks.', 'Simmer in the stock.', '## Serving'], step_ingredients: [uses(1, [1, null]), uses(2, [2, null])] })),
+  });
+  const body: RecipeImportResponse = await (await post({ url: SOUP_URL })).json();
+  assertEquals(body.steps, ['Slice the leeks.', 'Simmer in the stock.']);
+  assertEquals(body.stepIngredients?.length, 2);
 });
 
 // --- Cache ------------------------------------------------------------------------------------------

@@ -9,8 +9,12 @@ export type JsonLdRecipe = {
   servings: number | null;
   /** `totalTime`, else `prepTime` + `cookTime`, in minutes (spec 4.14); null when none is usable. */
   totalMinutes: number | null;
-  /** `recipeInstructions` as clean, numbered-free steps in order; empty when there are none. */
-  steps: string[];
+  /**
+   * `recipeInstructions` as clean, numbered-free steps in order, each named `HowToSection` a heading
+   * before its steps (spec 4.5, never `choice`: the model says which are alternatives); empty when
+   * there are none.
+   */
+  steps: RecipeStepEntry[];
   /**
    * The first usable `image` (an `@id` reference resolved), else `thumbnailUrl`, cleaned by
    * `cleanImageUrl`; null when none is.
@@ -146,15 +150,25 @@ const STEP_NUMBERING = /^(?:step\s*\d+\s*[.):-]?|\d+\s*[.):-](?!\d))\s*/i;
 /** A single string of steps splits on line breaks, `<br>` and the end of a paragraph or list item. */
 const STEP_BREAK = /\r\n|\r|\n|<br\s*\/?>|<\/(?:p|li|div)>/i;
 
-/** The raw step texts of `recipeInstructions`, in order, before cleaning. */
-function collectStepTexts(raw: unknown, out: string[]): void {
+/** " instructions" or " method" at the end of a section's name: "Grilling instructions" is "Grilling". */
+const SECTION_SUFFIX = /\s+(?:instructions|method)$/i;
+
+/** A HowToSection's name as a heading's text, before `cleanRecipeSteps`; empty when it has none. */
+function sectionName(raw: unknown): string {
+  return typeof raw === 'string' ? cleanJsonLdText(raw).replace(SECTION_SUFFIX, '') : '';
+}
+
+/** The raw entries of `recipeInstructions`, in order, before cleaning. */
+function collectStepTexts(raw: unknown, out: RecipeStepEntry[]): void {
   if (typeof raw === 'string') {
     out.push(raw);
   } else if (Array.isArray(raw)) {
     for (const item of raw) collectStepTexts(item, out);
   } else if (isObject(raw)) {
     if ('itemListElement' in raw) {
-      // A HowToSection: its steps in order, without the section's name.
+      // A HowToSection: a heading when it's named (spec 4.5), then its steps in order.
+      const name = sectionName(raw.name);
+      if (name !== '') out.push({ section: name });
       collectStepTexts(raw.itemListElement, out);
       return;
     }
@@ -164,9 +178,9 @@ function collectStepTexts(raw: unknown, out: string[]): void {
   }
 }
 
-/** Clean steps from `recipeInstructions`, as `cleanRecipeSteps` leaves them. */
-function readSteps(raw: unknown): string[] {
-  const texts: string[] = [];
+/** Clean steps and section headings from `recipeInstructions`, as `cleanRecipeSteps` leaves them. */
+function readSteps(raw: unknown): RecipeStepEntry[] {
+  const texts: RecipeStepEntry[] = [];
   // A single string holds every step; in an array or HowToStep each string is one step.
   if (typeof raw === 'string') texts.push(...raw.split(STEP_BREAK));
   else collectStepTexts(raw, texts);

@@ -100,7 +100,10 @@ export function namesFromPrompt(prompt: string): string[] {
   }
 }
 
-/** The page the extract-recipe prompt carries (`buildExtractRecipePrompt`); `steps` are JSON-LD's (v4). */
+/**
+ * The page the extract-recipe prompt carries (`buildExtractRecipePrompt`); `steps` are JSON-LD's step
+ * strings (v4), without v5's headings. The mock never marks a choice (`choice_sections: []`).
+ */
 export type MockRecipePage = { title: string | null; ingredient_lines?: string[]; steps?: string[]; text?: string };
 
 /** A line in page text that starts with an amount: `2 cups flour`, `½ tsp salt`. */
@@ -124,10 +127,10 @@ export function mockExtractRecipe(page: MockRecipePage): ExtractRecipeOutput {
       return { name: name.trim(), quantity: parsed.quantity, unit: parsed.unit, note: rest.join(',').trim() };
     });
   if (ingredients.length === 0) {
-    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [] };
+    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [], choice_sections: [] };
   }
   const { steps: stepIngredients } = mockMatchSteps({ steps: page.steps ?? [], ingredients: ingredients.map((i) => i.name) });
-  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients, tags, total_minutes: null, steps: [], step_ingredients: stepIngredients };
+  return { is_recipe: true, name: page.title ?? '', servings: null, ingredients, tags, total_minutes: null, steps: [], step_ingredients: stepIngredients, choice_sections: [] };
 }
 
 /** The page is the first JSON object in the user prompt; anything else is an empty page. */
@@ -144,7 +147,10 @@ export function pageFromPrompt(prompt: string): MockRecipePage {
     return {
       title: typeof title === 'string' ? title : null,
       ...(Array.isArray(lines) ? { ingredient_lines: lines.filter((l): l is string => typeof l === 'string') } : {}),
-      ...(Array.isArray(steps) ? { steps: steps.map(stepText).map((t) => (typeof t === 'string' ? t : '')) } : {}),
+      // v5's bare "## <name>" strings are headings, not steps: they aren't numbered or matched.
+      ...(Array.isArray(steps)
+        ? { steps: steps.filter((s) => typeof s !== 'string').map(stepText).map((t) => (typeof t === 'string' ? t : '')) }
+        : {}),
       ...(typeof text === 'string' ? { text } : {}),
     };
   } catch {
@@ -296,7 +302,7 @@ export const MOCK_PHOTO_MIN_BYTES = 1024;
 export function mockExtractRecipePhoto(imageBytes: readonly number[]): ExtractRecipeOutput {
   const tags = { meal: [], cuisine: [], protein: [], diet: [], method: [] };
   if (imageBytes.length === 0 || imageBytes[0] < MOCK_PHOTO_MIN_BYTES) {
-    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [] };
+    return { is_recipe: false, name: '', servings: null, ingredients: [], tags, total_minutes: null, steps: [], step_ingredients: [], choice_sections: [] };
   }
   const ingredients = [
     { name: 'chicken thighs', quantity: 2, unit: 'lb', note: 'boneless' },
@@ -305,7 +311,7 @@ export function mockExtractRecipePhoto(imageBytes: readonly number[]): ExtractRe
   ];
   const steps = ['Season the chicken thighs with salt.', 'Squeeze the limes over and roast for 25 minutes.'];
   const { steps: stepIngredients } = mockMatchSteps({ steps, ingredients: ingredients.map((i) => i.name) });
-  return { is_recipe: true, name: 'Mock photo recipe', servings: 4, ingredients, tags: { ...tags, protein: ['chicken'] }, total_minutes: null, steps, step_ingredients: stepIngredients };
+  return { is_recipe: true, name: 'Mock photo recipe', servings: 4, ingredients, tags: { ...tags, protein: ['chicken'] }, total_minutes: null, steps, step_ingredients: stepIngredients, choice_sections: [] };
 }
 
 /** A file part's size in bytes: raw bytes, or standard base64 (`data` or `{ type: 'data', data }`). */

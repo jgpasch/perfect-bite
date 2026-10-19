@@ -4,10 +4,11 @@ Real pages saved with `curl` on 2026-10-11 (desktop Chrome user agent), unedited
 `injection-*` pages. One page, the cottage cheese bread, is a hand reconstruction (see its row). Recipe sites marked ★ are from the owner's food bookmarks. The eval reads these
 files only; it never fetches the URLs.
 
-## JSON-LD recipes (12)
+## JSON-LD recipes (13)
 
 | File | Source |
 | --- | --- |
+| `jsonld-familystylefood-chicken-thigh-marinade.html` | https://familystylefood.com/chicken-thigh-marinade/ (saved with `curl` on 2026-10-18; five named `HowToSection`s: "Marinate the chicken", then four ways to cook it, which are the choice group spec 4.5's step sections use as their example) |
 | `jsonld-themodernproper-african-peanut-soup.html` | ★ https://themodernproper.com/african-peanut-soup |
 | `jsonld-delish-shrimp-asparagus-spaghetti.html` | ★ http://www.delish.com/cooking/recipe-ideas/recipes/a46840/lemony-shrimp-and-asparagus-spaghetti-recipe/ |
 | `jsonld-tasteofhome-stuffed-peppers.html` | ★ https://www.tasteofhome.com/recipes/turkey-stuffed-bell-peppers/ |

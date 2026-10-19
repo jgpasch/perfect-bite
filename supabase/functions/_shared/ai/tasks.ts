@@ -10,21 +10,24 @@ import {
   MAX_RECIPE_NOTE_LENGTH,
   MAX_TOTAL_MINUTES,
   MIN_TOTAL_MINUTES,
+  isStepHeading,
   normalizeIngredientName,
   parseAmount,
+  stepTexts,
   SYSTEM_CATEGORIES,
   UNIT_KEYS,
   type CategorySlug,
   type ExtractedRecipe,
   type AiRecipeTags,
+  type RecipeStepEntry,
   type Unit,
 } from '@shared/index.ts';
 import { z } from 'zod';
 
 import { mockCategorizeModel, mockPhotoDescriptionModel, mockRecipeModel, mockRecipePhotoModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
-import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v1.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from './prompts/extract-recipe.v4.ts';
+import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v2.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION, SECTION_LINE_PREFIX, truncateText } from './prompts/extract-recipe.v5.ts';
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
 import { MAX_DESCRIPTION_WORDS, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from './prompts/recipe-photo-description.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
@@ -148,13 +151,21 @@ export const ExtractRecipeOutputSchema = z.object({
     method: z.array(z.string()),
   }),
   total_minutes: z.number().nullable(),
-  /** v3: the method from page text; `[]` when the model got JSON-LD ingredient lines. */
+  /**
+   * v3: the method from page text; `[]` when the model got JSON-LD ingredient lines. v5: may hold
+   * `## <name>` section headings between the steps.
+   */
   steps: z.array(z.string()),
   /**
    * v4: which ingredients each step uses: the JSON-LD steps it was given, else its own `steps`.
    * Malformed is `[]`, so a bad match costs only the match (`cleanExtractedRecipe` makes it null).
    */
   step_ingredients: StepUsesOutputSchema.catch([]),
+  /**
+   * v5: the headings (1-based, in order) that are alternatives. Malformed or missing is `[]`, so a
+   * bad answer costs only the choice.
+   */
+  choice_sections: z.array(z.number()).catch([]),
 });
 export type ExtractRecipeOutput = z.infer<typeof ExtractRecipeOutputSchema>;
 
@@ -193,12 +204,14 @@ function supportedUnit(raw: string | null): { unit: Unit | null; unsupported: st
  * notes are cut to 120 characters and the list to 80 entries; a quantity or servings that isn't
  * positive is null. Tags go through `ExtractedRecipeTagsSchema` (a facet with a slug the list
  * doesn't have is `[]`, one over its maximum is cut), and `total_minutes` is rounded, null outside
- * 1 to 2880. Steps go through `cleanRecipeSteps` (no numbering, blanks or repeats; at most 100 of
- * 2000 characters), unless `givenSteps` (JSON-LD's, sent to the model to match) are the steps.
- * `step_ingredients` goes through `cleanImportStepMatch`. `image_url` is null: the model never reads
- * the photo, the handler sets it. The result always passes `ExtractedRecipeSchema`.
+ * 1 to 2880. Steps are `givenSteps` (JSON-LD's, sent to the model to match) when there are some,
+ * else the model's, with each `## <name>` line a section heading (v5); either way `choice_sections`
+ * marks headings `choice` (`markChoices`), then `cleanRecipeSteps` (no numbering, blanks or repeats;
+ * at most 100 of 2000 characters). `step_ingredients` goes through `cleanImportStepMatch`.
+ * `image_url` is null: the model never reads the photo, the handler sets it. The result always
+ * passes `ExtractedRecipeSchema`.
  */
-export function cleanExtractedRecipe(raw: ExtractRecipeOutput, givenSteps: readonly string[] | null = null): ExtractedRecipe {
+export function cleanExtractedRecipe(raw: ExtractRecipeOutput, givenSteps: readonly RecipeStepEntry[] | null = null): ExtractedRecipe {
   const ingredients: ExtractedRecipe['ingredients'] = [];
   /** Per entry the model gave, its index in `ingredients`; null when it was dropped. */
   const kept: (number | null)[] = [];
@@ -218,9 +231,11 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput, givenSteps: reado
       note: truncateText(note, MAX_RECIPE_NOTE_LENGTH).trimEnd(),
     });
   }
-  const steps = givenSteps ? [...givenSteps] : cleanRecipeSteps(raw.steps);
-  // The model numbered the steps it copied out before cleaning: a step cleaning dropped shifts them.
-  const stepsLineUp = givenSteps !== null || steps.length === raw.steps.length;
+  const entries = givenSteps ?? raw.steps.map(sectionLine);
+  const steps = cleanRecipeSteps(markChoices(entries, raw.choice_sections));
+  const stepCount = stepTexts(steps).length;
+  // The model numbered the steps before cleaning: a step cleaning dropped shifts them.
+  const stepsLineUp = stepCount === stepTexts(entries).length;
   return ExtractedRecipeSchema.parse({
     is_recipe: raw.is_recipe,
     name: truncateText(collapse(raw.name), MAX_RECIPE_NAME_LENGTH).trimEnd(),
@@ -229,8 +244,30 @@ export function cleanExtractedRecipe(raw: ExtractRecipeOutput, givenSteps: reado
     tags: ExtractedRecipeTagsSchema.parse(raw.tags),
     total_minutes: totalMinutes(raw.total_minutes),
     steps,
-    step_ingredients: stepsLineUp ? cleanImportStepMatch(raw, steps.length, kept, ingredients) : null,
+    step_ingredients: stepsLineUp ? cleanImportStepMatch(raw, stepCount, kept, ingredients) : null,
     image_url: null,
+  });
+}
+
+/** One line of the model's `steps`: a `## <name>` line is a section heading (v5), anything else a step. */
+function sectionLine(line: string): RecipeStepEntry {
+  const trimmed = line.trimStart();
+  return trimmed.startsWith(SECTION_LINE_PREFIX) ? { section: trimmed.slice(SECTION_LINE_PREFIX.length) } : line;
+}
+
+/**
+ * The entries with `choice: true` on the headings `choiceSections` names, by number from 1 over the
+ * headings in order, and on no other. Numbers that aren't a heading are ignored, and so is the whole
+ * answer when fewer than two headings are left: alternatives come at least two at a time.
+ */
+export function markChoices(entries: readonly RecipeStepEntry[], choiceSections: readonly number[]): RecipeStepEntry[] {
+  const headingCount = entries.filter(isStepHeading).length;
+  const picked = new Set(choiceSections.filter((n) => Number.isInteger(n) && n >= 1 && n <= headingCount));
+  let heading = 0;
+  return entries.map((entry) => {
+    if (!isStepHeading(entry)) return entry;
+    heading++;
+    return picked.size >= 2 && picked.has(heading) ? { section: entry.section, choice: true } : { section: entry.section };
   });
 }
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "Expected results for `yarn ai:eval:recipe` (spec 6.6), one per page in fixtures/ (sources in fixtures/SOURCES.md). `names` are the recipe names that count as right. Each ingredient's `name` and `also` are the names that count as that ingredient, compared after normalizeIngredientName (so plurals and case don't matter). `quantity` and `unit` follow the extract-recipe prompt's rules: a range is its higher number, a unit outside the app's list is null, \"to taste\" and \"for serving\" have no quantity. `alternatives` are other amounts that count as right, e.g. the metric amount a line also gives. An `optional` ingredient isn't needed for recall and isn't a precision miss when it comes back, for lines a model may fairly split or drop (\"Salt and pepper\"). `forbidden` is text that must not appear in the returned name or any ingredient name or note (injection pages). `tags` are the tags that clearly apply (spec 4.14), per facet, needed for recall; `optional_tags` fairly apply too, so they aren't needed for recall and aren't a precision miss. Anything else that comes back is a wrong tag, which matters most: a wrong tag hides a recipe.",
+  "$comment": "Expected results for `yarn ai:eval:recipe` (spec 6.6), one per page in fixtures/ (sources in fixtures/SOURCES.md). `names` are the recipe names that count as right. Each ingredient's `name` and `also` are the names that count as that ingredient, compared after normalizeIngredientName (so plurals and case don't matter). `quantity` and `unit` follow the extract-recipe prompt's rules: a range is its higher number, a unit outside the app's list is null, \"to taste\" and \"for serving\" have no quantity. `alternatives` are other amounts that count as right, e.g. the metric amount a line also gives. An `optional` ingredient isn't needed for recall and isn't a precision miss when it comes back, for lines a model may fairly split or drop (\"Salt and pepper\"). `forbidden` is text that must not appear in the returned name or any ingredient name or note (injection pages). `tags` are the tags that clearly apply (spec 4.14), per facet, needed for recall; `optional_tags` fairly apply too, so they aren't needed for recall and aren't a precision miss. Anything else that comes back is a wrong tag, which matters most: a wrong tag hides a recipe. `sections` are the method's section headings in order (spec 4.5), `choice` on the ones that are alternatives; a page with it is scored on its headings (names compared without case), a page without it isn't.",
   "pages": [
     {
       "file": "jsonld-themodernproper-african-peanut-soup.html",
@@ -136,6 +136,7 @@
       "is_recipe": true,
       "names": ["Oven Pork Ribs with Barbecue Sauce", "Oven Baked Barbecue Pork Ribs", "Oven Pork Ribs"],
       "tags": { "meal": ["dinner"], "cuisine": ["american"], "protein": ["pork"] },
+      "sections": [{ "name": "Barbecue Sauce" }],
       "ingredients": [
         { "name": "paprika", "also": ["paprika powder"], "quantity": 2.5, "unit": "tsp" },
         { "name": "garlic powder", "quantity": 2, "unit": "tsp" },
@@ -303,6 +304,33 @@
         { "name": "pepper", "also": ["black pepper"], "quantity": null, "unit": null, "optional": true },
         { "name": "cherry tomatoes", "quantity": 0.5, "unit": "cup" },
         { "name": "almonds", "quantity": 10, "unit": null }
+      ]
+    },
+    {
+      "file": "jsonld-familystylefood-chicken-thigh-marinade.html",
+      "url": "https://familystylefood.com/chicken-thigh-marinade/",
+      "is_recipe": true,
+      "names": ["Chicken Thigh Marinade (Soy Sauce + Mirin)", "Chicken Thigh Marinade", "Soy Sauce Mirin Chicken Thigh Marinade"],
+      "tags": { "meal": ["dinner"], "protein": ["chicken"] },
+      "optional_tags": { "meal": ["lunch"], "cuisine": ["japanese", "american"], "method": ["grill"] },
+      "sections": [
+        { "name": "Marinate the chicken" },
+        { "name": "Grilling", "choice": true },
+        { "name": "Baking", "choice": true },
+        { "name": "Pan-Frying", "choice": true },
+        { "name": "Broiling", "choice": true }
+      ],
+      "ingredients": [
+        { "name": "soy sauce", "also": ["tamari"], "quantity": 3, "unit": "tbsp" },
+        { "name": "mirin", "also": ["sweet rice wine"], "quantity": 2, "unit": "tbsp" },
+        { "name": "Dijon mustard", "also": ["mustard"], "quantity": 1, "unit": "tbsp" },
+        { "name": "rice wine vinegar", "also": ["rice vinegar"], "quantity": 1, "unit": "tbsp" },
+        { "name": "vegetable oil", "also": ["neutral vegetable oil", "neutral oil", "oil"], "quantity": 1, "unit": "tbsp" },
+        { "name": "garlic", "also": ["crushed garlic", "grated garlic", "crushed or grated garlic"], "quantity": 1, "unit": "tbsp" },
+        { "name": "cayenne pepper", "also": ["cayenne"], "quantity": 0.25, "unit": "tsp" },
+        { "name": "chicken thighs", "also": ["boneless chicken thighs", "boneless skinless chicken thighs"], "quantity": 2, "unit": "lb" },
+        { "name": "kosher salt", "also": ["salt", "kosher salt and fresh ground black pepper", "salt and pepper"], "quantity": null, "unit": null },
+        { "name": "black pepper", "also": ["pepper", "fresh ground black pepper", "ground black pepper"], "quantity": null, "unit": null, "optional": true }
       ]
     },
     {

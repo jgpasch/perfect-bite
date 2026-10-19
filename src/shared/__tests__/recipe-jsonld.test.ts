@@ -1,4 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
+import fs from 'fs';
+import path from 'path';
 
 import * as shared from '@/shared';
 import {
@@ -10,6 +12,7 @@ import {
   jsonLdImageCandidates,
   parseIsoDuration,
 } from '../recipe-jsonld';
+import { isStepHeading, stepTexts } from '../recipe-steps';
 import bbcfood from './fixtures/recipe-jsonld/bbcfood.json';
 import bbcgoodfood from './fixtures/recipe-jsonld/bbcgoodfood.json';
 import bonappetit from './fixtures/recipe-jsonld/bonappetit.json';
@@ -366,12 +369,20 @@ const FIXTURE_STEPS_AND_IMAGE: [string, string[], number, string, string, string
 ];
 
 describe('findRecipe: real pages, steps and image', () => {
+  // The step strings are as they were before headings (spec 4.5); only recipetineats has named sections.
   it.each(FIXTURE_STEPS_AND_IMAGE)('%s', (_site, blocks, stepCount, first, last, imageUrl) => {
     const found = findRecipe(blocks, 'https://example.com/recipe/');
-    expect(found?.steps).toHaveLength(stepCount);
-    expect(found?.steps[0]).toBe(first);
-    expect(found?.steps.at(-1)).toEqual(last);
+    const texts = stepTexts(found?.steps);
+    expect(texts).toHaveLength(stepCount);
+    expect(texts[0]).toBe(first);
+    expect(texts.at(-1)).toEqual(last);
     expect(found?.imageUrl).toBe(imageUrl);
+  });
+
+  it('keeps recipetineats’ section names as headings; the other pages have none', () => {
+    const headings = (blocks: string[]) => (findRecipe(blocks)?.steps ?? []).filter(isStepHeading);
+    expect(headings(recipetineats)).toEqual([{ section: 'Abbreviated Recipe' }, { section: 'Chicken' }, { section: 'Chasseur Sauce' }, { section: 'Cooking' }]);
+    for (const blocks of [bbcfood, bbcgoodfood, bonappetit, delish, kingarthur, tasty]) expect(headings(blocks)).toEqual([]);
   });
 });
 
@@ -417,7 +428,7 @@ describe('findRecipe: steps', () => {
     ).toEqual(['Boil.', 'Fry.', 'Toss.']);
   });
 
-  it('flattens HowToSections in order and drops the section names', () => {
+  it('keeps each named HowToSection as a heading before its steps, in order', () => {
     expect(
       steps([
         {
@@ -435,7 +446,70 @@ describe('findRecipe: steps', () => {
           itemListElement: { '@type': 'HowToStep', text: 'Toss with the sauce.' },
         },
       ]),
-    ).toEqual(['Whisk the sauce.', 'Set aside.', 'Boil the noodles.', 'Toss with the sauce.']);
+    ).toEqual([
+      { section: 'For the sauce' },
+      'Whisk the sauce.',
+      'Set aside.',
+      'Boil the noodles.',
+      { section: 'To finish' },
+      'Toss with the sauce.',
+    ]);
+  });
+
+  it('adds no heading for an unnamed section, or one whose name cleans to nothing', () => {
+    const section = (name: unknown) => ({ '@type': 'HowToSection', name, itemListElement: [{ '@type': 'HowToStep', text: 'Stir.' }] });
+    for (const name of [undefined, null, '', '  ', '<b></b>', 42, { text: 'Sauce' }]) {
+      expect(steps([section(name)])).toEqual(['Stir.']);
+    }
+  });
+
+  it('trims a trailing " instructions" or " method" from a section name, any case', () => {
+    const named = (name: string) => steps([{ '@type': 'HowToSection', name, itemListElement: ['Cook.'] }])?.[0];
+    expect(named('Grilling instructions')).toEqual({ section: 'Grilling' });
+    expect(named('Pan-Frying INSTRUCTIONS')).toEqual({ section: 'Pan-Frying' });
+    expect(named('Slow cooker Method')).toEqual({ section: 'Slow cooker' });
+    expect(named('Oven method ')).toEqual({ section: 'Oven' });
+    // Only at the end, and only after a space: the word alone stays.
+    expect(named('Instructions')).toEqual({ section: 'Instructions' });
+    expect(named('Method for the sauce')).toEqual({ section: 'Method for the sauce' });
+    expect(named('Grilling-instructions')).toEqual({ section: 'Grilling-instructions' });
+  });
+
+  it('cleans a heading like a step: HTML, entities and numbering, at most 80 characters', () => {
+    const named = (name: string) => steps([{ '@type': 'HowToSection', name, itemListElement: ['Cook.'] }])?.[0];
+    expect(named('<b>Make&nbsp;the &amp; sauce</b>')).toEqual({ section: 'Make the & sauce' });
+    expect(named('1. Marinate')).toEqual({ section: 'Marinate' });
+    expect(named('a'.repeat(100))).toEqual({ section: 'a'.repeat(80) });
+    // Trimmed before the cap, so a long name loses its suffix too.
+    expect(named(`${'b'.repeat(79)} instructions`)).toEqual({ section: 'b'.repeat(79) });
+  });
+
+  it('keeps a nested section’s name; one straight after another drops the outer', () => {
+    expect(
+      steps([
+        'Prep everything.',
+        {
+          '@type': 'HowToSection',
+          name: 'Main',
+          itemListElement: [
+            { '@type': 'HowToSection', name: 'Sauce', itemListElement: ['Whisk.'] },
+            { '@type': 'HowToSection', name: 'Noodles', itemListElement: ['Boil.'] },
+          ],
+        },
+      ]),
+    ).toEqual(['Prep everything.', { section: 'Sauce' }, 'Whisk.', { section: 'Noodles' }, 'Boil.']);
+    expect(
+      steps([{ '@type': 'HowToSection', name: 'Main', itemListElement: ['Start.', { '@type': 'HowToSection', name: 'Sauce', itemListElement: ['Whisk.'] }] }]),
+    ).toEqual([{ section: 'Main' }, 'Start.', { section: 'Sauce' }, 'Whisk.']);
+  });
+
+  it('never marks a JSON-LD heading as a choice, and drops a named section with no steps', () => {
+    expect(
+      steps([
+        { '@type': 'HowToSection', name: 'Grill', choice: true, itemListElement: ['Grill.'] },
+        { '@type': 'HowToSection', name: 'Bake', itemListElement: [] },
+      ]),
+    ).toEqual([{ section: 'Grill' }, 'Grill.']);
   });
 
   it('strips HTML tags and entities and collapses whitespace', () => {
@@ -703,6 +777,47 @@ describe('findRecipe: real pages', () => {
     expect(found?.ingredientLines.at(-1)).toBe(last);
     expect(found?.servings).toBe(servings);
     expect(found?.totalMinutes).toBe(totalMinutes);
+  });
+});
+
+describe('findRecipe: the familystylefood.com chicken thigh marinade (spec 4.5 "Step sections")', () => {
+  // The page saved for the recipe eval, read as fetch-page.ts reads JSON-LD blocks.
+  const html = fs.readFileSync(
+    path.join(__dirname, '../../../supabase/functions/import-recipe/eval/fixtures/jsonld-familystylefood-chicken-thigh-marinade.html'),
+    'utf8',
+  );
+  const blocks = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+  const found = findRecipe(blocks, 'https://familystylefood.com/chicken-thigh-marinade/');
+
+  it('reads the recipe', () => {
+    expect(found?.name).toBe('Chicken Thigh Marinade (Soy Sauce + Mirin)');
+    expect(found?.ingredientLines).toHaveLength(9);
+    expect(found?.servings).toBe(6);
+    expect(found?.totalMinutes).toBe(50);
+  });
+
+  it('keeps the five sections as headings around the right steps, none a choice', () => {
+    const steps = found?.steps ?? [];
+    const outline = steps.map((e) => (typeof e === 'string' ? e.slice(0, 24) : e));
+    expect(outline).toEqual([
+      { section: 'Marinate the chicken' },
+      'Combine all the ingredie',
+      'Place the chicken in a b',
+      'If you want to cook the ',
+      { section: 'Grilling' },
+      'Preheat a grill to mediu',
+      'Remove the chicken from ',
+      'Arrange the chicken on t',
+      'Cover the grill an cook ',
+      { section: 'Baking' },
+      'Preheat the oven to 425 ',
+      { section: 'Pan-Frying' },
+      'Heat 1 tablespoon neutra',
+      { section: 'Broiling' },
+      'Position an oven rack so',
+    ]);
+    // Entities decoded in the steps, as before.
+    expect(steps.at(-1)).toMatch(/^Position an oven rack so it's about 6 inches/);
   });
 });
 
