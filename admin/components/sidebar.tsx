@@ -1,12 +1,13 @@
 "use client";
 
 // The portal's deep-green sidebar (spec 4.12, "Look"): the mark, "The Perfect Bite" with its
-// "Back office" pill, and the sections.
-import { Activity, LayoutGrid, Sparkles, Users } from "lucide-react";
+// "Back office" pill, the sections, and at the foot the admin's email with Sign out.
+import { Activity, LayoutGrid, LogOut, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Mark } from "@/components/mark";
+import { signOut } from "@/lib/auth-actions";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
@@ -16,7 +17,7 @@ const SECTIONS = [
   { href: "/activity", label: "Activity", icon: Activity },
 ] as const;
 
-export function Sidebar() {
+export function Sidebar({ email }: { email: string }) {
   const pathname = usePathname();
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-sidebar-green text-on-sidebar">
@@ -48,6 +49,20 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="mt-auto border-t border-sidebar-active px-5 py-4">
+        <p className="truncate text-[13px] text-on-sidebar-secondary" title={email}>
+          {email}
+        </p>
+        <form action={signOut} className="mt-2">
+          <button
+            type="submit"
+            className="-mx-3 flex items-center gap-3 rounded-lg px-3 py-2 text-[15px] font-semibold text-on-sidebar-secondary transition-colors hover:bg-sidebar-hover hover:text-on-sidebar"
+          >
+            <LogOut size={18} aria-hidden="true" />
+            Sign out
+          </button>
+        </form>
+      </div>
     </aside>
   );
 }

@@ -19,6 +19,18 @@ export function readSupabaseEnv(env: {
   return { url: url!, publishableKey: publishableKey! };
 }
 
+// Local Supabase (127.0.0.1 or localhost) also gets the email-and-code sign-in, as the app's dev builds do:
+// the code goes to the local mail viewer. Hosted is Google only.
+export function isLocalSupabaseUrl(url: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(url.trim()).hostname;
+  } catch {
+    return false;
+  }
+  return hostname === "127.0.0.1" || hostname === "localhost";
+}
+
 // Next.js inlines NEXT_PUBLIC_* only where they're written out in full, so they're read here by name.
 export function supabaseEnv(): SupabaseEnv {
   return readSupabaseEnv({

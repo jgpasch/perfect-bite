@@ -5,8 +5,9 @@ import { supabaseEnv } from "./env";
 
 // For server components, server actions and route handlers. Make one per request.
 export async function createClient() {
-  const { url, publishableKey } = supabaseEnv();
+  // Cookies first: while prerendering, that's where rendering stops, before the env is needed.
   const cookieStore = await cookies();
+  const { url, publishableKey } = supabaseEnv();
   return createServerClient(url, publishableKey, {
     cookies: {
       getAll() {
