@@ -7,7 +7,14 @@
       "Bash(supabase:*)",
       "Bash(deno test:*)",
       "Bash(xcrun simctl:*)",
-      "Bash(yarn expo run:ios:*)"
+      "Bash(yarn expo run:ios:*)",
+      "WebFetch(domain:docs.expo.dev)",
+      "WebFetch(domain:nextjs.org)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:ui.shadcn.com)",
+      "WebFetch(domain:metrobundler.dev)",
+      "WebFetch(domain:vitest.dev)",
+      "WebFetch(domain:tailwindcss.com)"
     ],
     "ask": [
       "Bash(supabase db push:*)",
