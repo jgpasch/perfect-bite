@@ -217,7 +217,7 @@ describe('skips', () => {
   });
 
   test('when the plan has no step_ingredients', async () => {
-    setFeatures(DEFAULT_FEATURES);
+    setFeatures(['categorize']);
     await ensureStepMatch(recipeId);
     expect(invoke).not.toHaveBeenCalled();
   });

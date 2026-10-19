@@ -199,7 +199,7 @@ describe('opening a screen', () => {
   });
 
   test('without step_ingredients nothing is sent', async () => {
-    setFeatures(DEFAULT_FEATURES);
+    setFeatures(['categorize']);
     setSteps(STEPS);
     render(<CookScreen />);
     await settle();

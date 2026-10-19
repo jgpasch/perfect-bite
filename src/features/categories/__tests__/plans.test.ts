@@ -169,7 +169,7 @@ describe('without categorize (base)', () => {
   });
 });
 
-describe('with categorize (standard)', () => {
+describe('with categorize (basic)', () => {
   beforeEach(() => onPlan(['categorize']));
 
   test('a new name shows as Sorting... with no default unit, and is sent', async () => {

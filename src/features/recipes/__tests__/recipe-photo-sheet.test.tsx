@@ -175,7 +175,8 @@ beforeEach(() => {
   mockBack.mockClear();
   mockLoad.mockClear();
   mockOpenURL.mockClear();
-  setFeatures(DEFAULT_FEATURES);
+  // A plan without recipe_photo_ai; the Generate with AI tests add it.
+  setFeatures(['categorize']);
   resetSupabase();
   resetPhotoSession();
   mockNetwork.connected = true;
@@ -736,7 +737,7 @@ describe('Generate with AI', () => {
   });
 
   test('not without the feature', async () => {
-    setFeatures(DEFAULT_FEATURES);
+    setFeatures(['categorize']);
     const root = await renderSheet();
     expect(generateRow(root)).toHaveLength(0);
     expect(texts(root)).not.toContain('Generate with AI');

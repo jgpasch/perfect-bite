@@ -4,7 +4,7 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 import { resetDb } from '@/test/db';
 import { respondToRpc, resetSupabase, rpcCallsFor, setSupabaseConfigured } from '@/test/fake-supabase';
 
-import { DEFAULT_FEATURES, getFeatures, hasFeature, onFeaturesChange, parseFeatures } from '../features';
+import { DEFAULT_FEATURES, FEATURES, getFeatures, hasFeature, onFeaturesChange, parseFeatures } from '../features';
 import { clearFeatures, FEATURES_KEY, lostFeature, refreshFeatures, startFeatures } from '../load';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -48,12 +48,19 @@ async function start(userId: string, ...answers: unknown[]) {
 }
 
 describe('before the first load', () => {
-  test('assumes the default plan, standard: categorize only', () => {
-    expect(DEFAULT_FEATURES).toEqual(['categorize']);
-    expect(getFeatures()).toEqual(['categorize']);
-    expect(hasFeature('categorize')).toBe(true);
-    expect(hasFeature('recipe_import')).toBe(false);
-    expect(hasFeature('recipe_import_photo')).toBe(false);
+  test('assumes the default plan, plus: every feature', () => {
+    const plus = [
+      'categorize',
+      'recipe_import',
+      'recipe_import_photo',
+      'recipe_photo_ai',
+      'recipe_tags',
+      'step_ingredients',
+    ];
+    expect(DEFAULT_FEATURES).toEqual(plus);
+    expect(getFeatures()).toEqual(plus);
+    expect([...FEATURES].sort()).toEqual(plus);
+    for (const feature of FEATURES) expect(hasFeature(feature)).toBe(true);
   });
 
   test('starting with no cache and a failing load keeps the default', async () => {
@@ -61,7 +68,7 @@ describe('before the first load', () => {
     stop = startFeatures('u1');
     await flush();
     expect(rpcCallsFor('my_features')).toHaveLength(1);
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
   });
 });
 
@@ -73,7 +80,7 @@ describe('loading', () => {
     expect(hasFeature('recipe_import')).toBe(true);
   });
 
-  test('a base plan (no features) has nothing', async () => {
+  test('the none plan has nothing', async () => {
     await start('u1', []);
     expect(getFeatures()).toEqual([]);
     expect(hasFeature('categorize')).toBe(false);
@@ -117,13 +124,13 @@ describe('loading', () => {
     setSupabaseConfigured(false);
     await start('u1');
     expect(rpcCallsFor('my_features')).toEqual([]);
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
   });
 
   test('tells listeners only when the features change', async () => {
     const listener = jest.fn();
     const off = onFeaturesChange(listener);
-    await start('u1', ['categorize']);
+    await start('u1', [...DEFAULT_FEATURES]);
     expect(listener).not.toHaveBeenCalled();
     respondToRpc('my_features', { data: [] });
     await refreshFeatures();
@@ -156,7 +163,7 @@ describe('offline', () => {
     setDeviceSetting(FEATURES_KEY, { userId: 'u2', features: ['categorize', 'recipe_import'] });
     // The load fails, so only the cache could have changed the default.
     await start('u1', undefined);
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
   });
 });
 
@@ -164,7 +171,7 @@ describe('sign-out', () => {
   test('clears the store and the cache, back to the default', async () => {
     await start('u1', []);
     clearFeatures();
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
     expect(getDeviceSetting(FEATURES_KEY, null)).toBeNull();
   });
 
@@ -174,7 +181,7 @@ describe('sign-out', () => {
     const late = refreshFeatures();
     clearFeatures();
     await late;
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
     expect(getDeviceSetting(FEATURES_KEY, null)).toBeNull();
   });
 

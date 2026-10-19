@@ -70,10 +70,17 @@ Add `instructions, prompt, response_text, output` to see exactly what was sent a
 
 ### Change a user's plan
 
-A user's plan decides which AI features they get (spec 4.12): **base** (none), **standard** (categorizing new ingredients; the default) and **plus** (also recipe import and AI tag suggestions). A user with no `user_plans` row is on the default plan.
+A user's plan decides which AI features they get (spec 4.12):
+
+- **none**: no AI features.
+- **basic**: categorizing new ingredients and matching ingredients to steps for cook mode.
+- **plus** (the default): also recipe import from a link and from photos, AI tag suggestions and AI recipe photos; every feature today.
+- **unlimited**: every feature.
+
+A user with no `user_plans` row is on the default plan.
 
 1. Find their id in Authentication → Users.
-2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`base`, `standard` or `plus`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
+2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`none`, `basic`, `plus` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
 3. To put them back on the default plan, delete their row.
 
 The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.

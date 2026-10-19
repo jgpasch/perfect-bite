@@ -14,7 +14,7 @@ import {
 } from '@/db';
 import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
-import { getFeatures, hasFeature } from '@/features/plans/features';
+import { getFeatures, hasFeature, setFeatures } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, stepIngredientsBasis, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
@@ -237,6 +237,8 @@ beforeEach(() => {
   listId = getDefaultListId(USER)!;
   signIn();
   respond();
+  // A plan without step_ingredients, so an import makes no match-recipe-steps call of its own.
+  setFeatures(['categorize']);
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 

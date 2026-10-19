@@ -34,8 +34,8 @@ values ('019a4c10-0000-7000-8000-00000000a002', '019a4c10-0000-7000-8000-0000000
 insert into public.user_settings (user_id, default_list_id)
 values ('019a4c10-0000-7000-8000-0000000de701', '019a4c10-0000-7000-8000-00000000a002');
 
--- The dev user is on plus (spec 4.12), so manual testing against local Supabase has every feature.
--- The plans migration's own owner-on-plus insert runs before this file makes the user, so it's a
--- no-op locally.
+-- The dev user is on unlimited (spec 4.12), so manual testing against local Supabase has every
+-- feature. The migrations' own owner-on-a-plan inserts run before this file makes the user, so
+-- they're no-ops locally.
 insert into public.user_plans (user_id, plan_id)
-values ('019a4c10-0000-7000-8000-0000000de701', 'plus');
+values ('019a4c10-0000-7000-8000-0000000de701', 'unlimited');

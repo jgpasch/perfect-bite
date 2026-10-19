@@ -25,10 +25,12 @@ insert into public.recipes (id, household_id, name, deleted_at) values
 delete from private.recipe_photo_ai_daily_total;
 
 -- The feature -----------------------------------------------------------------
-select ok(exists (select 1 from public.plan_features where plan_id = 'plus' and feature = 'recipe_photo_ai'),
-  'plus has recipe_photo_ai');
-select ok(not exists (select 1 from public.plan_features where plan_id <> 'plus' and feature = 'recipe_photo_ai'),
-  'standard and base don''t');
+select ok(exists (select 1 from public.plan_features where plan_id = 'plus' and feature = 'recipe_photo_ai')
+  and exists (select 1 from public.plan_features where plan_id = 'unlimited' and feature = 'recipe_photo_ai'),
+  'plus and unlimited have recipe_photo_ai');
+select ok(not exists (select 1 from public.plan_features
+                      where plan_id not in ('plus', 'unlimited') and feature = 'recipe_photo_ai'),
+  'none and basic don''t');
 
 -- Access ----------------------------------------------------------------------
 select ok(
