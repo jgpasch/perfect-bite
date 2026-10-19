@@ -147,13 +147,13 @@ describe('the Recipes tab', () => {
   // Add recipe is the tab bar's +, not a header button.
   const toolbarLabels = (root: ReactTestRenderer) => byType(root, 'ToolbarButton').map(label);
 
-  test('plus with no recipes: the empty state imports through the Add recipe sheet, link field first', () => {
+  test('plus with no recipes: the empty state imports through the Add recipe sheet, which takes a link in its one field', () => {
     const root = render(() => <RecipesScreen />, PLUS);
     expect(toolbarLabels(root)).toEqual([]);
     const buttons = importButtons(root);
     expect(buttons).toHaveLength(1);
     press(buttons[0]);
-    expect(mockPush.mock.calls).toEqual([[{ pathname: '/add-recipe', params: { focus: 'link' } }]]);
+    expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
   });
 
   test('without recipe_import no Import from link shows, and New recipe stays', () => {

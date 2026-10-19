@@ -1,12 +1,13 @@
 import * as Clipboard from 'expo-clipboard';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, PrimaryButton } from '@/components/button';
+import { PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
+import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { useFeature } from '@/features/plans/features';
@@ -20,24 +21,22 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 /**
- * "Add recipe" (spec 4.5), the Recipes tab's one way to add: name a blank recipe, or (with
- * `recipe_import`, spec 4.12) paste a link to import it. A link typed as the name imports instead of
- * naming a recipe after it; without import it's refused. Import hands off to the import sheet
- * (spec 4.10), which replaces this one. `focus=link` starts in the link field. Paste shows only when
- * the clipboard holds a link; asking that shows no paste prompt, only reading it does. With
- * `recipe_import_photo`, **From photo…** picks up to three pages (Take photo or Choose from library)
- * and hands them to the import sheet the same way.
+ * "Add recipe" (spec 4.5, boards B1 and B2), the Recipes tab's one way to add: one field and one
+ * button. A name makes a blank recipe and opens it. With `recipe_import` (spec 4.12) the field also
+ * takes a link: the button reads **Import recipe** and hands it to the import sheet (spec 4.10), which
+ * replaces this one; without import a link is refused. With import, a **Paste link** chip sits above
+ * the field only while the clipboard holds a link; asking that shows no paste prompt, only reading it
+ * (on tap) does. With `recipe_import_photo`, an "or" divider and **From photo…** pick up to three
+ * pages (Take photo or Choose from library) and hand them to the import sheet the same way.
  */
 export default function AddRecipeSheet() {
-  const params = useLocalSearchParams<{ focus?: string }>();
   const t = useT();
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, sizes } = useTheme();
   const insets = useSafeAreaInsets();
   const canImport = useFeature('recipe_import');
   const canImportPhoto = useFeature('recipe_import_photo');
   const [picking, setPicking] = useState(false);
   const [name, setName] = useState('');
-  const [link, setLink] = useState('');
   const [clipboardHasLink, setClipboardHasLink] = useState(false);
   const action = nameAction(name, canImport);
 
@@ -53,26 +52,21 @@ export default function AddRecipeSheet() {
     };
   }, [canImport]);
 
-  const openImport = (url: string) => router.replace({ pathname: '/import-recipe', params: { url } });
-
-  const submitName = () => {
+  const submit = () => {
     if (action.kind === 'create') {
       const id = createRecipe(action.name);
       router.back();
       router.push({ pathname: '/recipe/[id]', params: { id } });
     } else if (action.kind === 'import') {
-      openImport(action.url);
+      router.replace({ pathname: '/import-recipe', params: { url: action.url } });
     }
   };
 
-  const submitLink = () => {
-    const text = link.trim();
-    if (text) openImport(urlFromText(text) ?? text);
-  };
-
-  const paste = async () => {
+  const pasteLink = async () => {
     const pasted = await Clipboard.getStringAsync();
-    if (pasted) setLink(urlFromText(pasted) ?? pasted.trim());
+    if (!pasted) return;
+    setName(urlFromText(pasted) ?? pasted.trim());
+    setClipboardHasLink(false);
   };
 
   const importPhotos = async (from: PhotoSource) => {
@@ -90,7 +84,8 @@ export default function AddRecipeSheet() {
   const fromPhoto = () => chooseSource((from) => void importPhotos(from));
 
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
-  const field = [styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }];
+  const isLink = action.kind === 'import';
+  const hairline = [styles.flex, { height: StyleSheet.hairlineWidth, backgroundColor: colors.border }];
 
   return (
     // Sized by its content (detent `fitToContents`), so no flex.
@@ -110,21 +105,25 @@ export default function AddRecipeSheet() {
       </ThemedText>
 
       <View style={{ gap: spacing.sm }}>
-        <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={inset}>
-          {t('recipes.add.newRecipe')}
-        </ThemedText>
+        {canImport && clipboardHasLink ? (
+          <View style={[styles.start, { paddingHorizontal: spacing.lg }]}>
+            <Pill testID="paste-link" label={t('recipes.add.pasteLink')} icon="doc.on.clipboard" soft onPress={pasteLink} />
+          </View>
+        ) : null}
         <Card>
-          <View style={[styles.row, { paddingHorizontal: spacing.lg }]}>
+          <View style={[styles.row, { paddingHorizontal: spacing.lg, gap: spacing.sm }]}>
+            {isLink ? <Icon testID="link-glyph" name="link" color="inkSecondary" size={sizes.iconSmall} /> : null}
             <TextField
               value={name}
               onChangeText={setName}
-              placeholder={t('recipes.add.name')}
-              accessibilityLabel={t('recipes.add.name')}
-              autoCapitalize="words"
-              autoFocus={!(canImport && params.focus === 'link')}
-              returnKeyType={action.kind === 'import' ? 'go' : 'done'}
-              onSubmitEditing={submitName}
-              style={field}
+              placeholder={t(canImport ? 'recipes.add.nameOrLink' : 'recipes.add.name')}
+              accessibilityLabel={t(canImport ? 'recipes.add.nameOrLinkLabel' : 'recipes.add.name')}
+              autoCapitalize={isLink ? 'none' : 'words'}
+              autoCorrect={!isLink}
+              autoFocus
+              returnKeyType={isLink ? 'go' : 'done'}
+              onSubmitEditing={submit}
+              style={[styles.flex, { borderWidth: 0, backgroundColor: colors.surface, paddingLeft: 0 }]}
             />
           </View>
         </Card>
@@ -132,54 +131,43 @@ export default function AddRecipeSheet() {
           <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite" style={inset}>
             {NAME_IS_LINK_FOOTNOTE}
           </ThemedText>
+        ) : isLink ? (
+          <ThemedText variant="footnote" color="inkSecondary" style={inset}>
+            {t('recipes.add.linkNote')}
+          </ThemedText>
         ) : null}
         <View style={{ paddingHorizontal: spacing.lg }}>
           <PrimaryButton
-            label={t(action.kind === 'import' ? 'recipes.add.importRecipe' : 'recipes.add.create')}
-            icon={action.kind === 'import' ? 'link' : undefined}
-            disabled={action.kind !== 'create' && action.kind !== 'import'}
-            onPress={submitName}
+            label={t(isLink ? 'recipes.add.importRecipe' : 'recipes.add.create')}
+            icon={isLink ? 'link' : undefined}
+            disabled={action.kind !== 'create' && !isLink}
+            onPress={submit}
           />
         </View>
       </View>
 
-      {canImport ? (
-        <View style={{ gap: spacing.sm }}>
-          <ThemedText variant="sectionLabel" color="inkSecondary" accessibilityRole="header" style={inset}>
-            {t('recipes.add.orImport')}
-          </ThemedText>
-          <Card>
-            <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
-              <TextField
-                value={link}
-                onChangeText={setLink}
-                placeholder={t('recipes.add.linkPlaceholder')}
-                accessibilityLabel={t('recipes.add.link')}
-                keyboardType="url"
-                textContentType="URL"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoFocus={params.focus === 'link'}
-                returnKeyType="go"
-                onSubmitEditing={submitLink}
-                style={field}
-              />
-              {clipboardHasLink ? <Button label={t('recipes.add.paste')} variant="plain" onPress={paste} /> : null}
-            </View>
-            {canImportPhoto ? <FromPhotoRow disabled={picking} onPress={fromPhoto} /> : null}
-          </Card>
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <Button label={t('recipes.add.import')} icon="link" disabled={link.trim() === ''} onPress={submitLink} />
+      {canImportPhoto ? (
+        <>
+          <View style={[styles.row, inset, { gap: spacing.md }]}>
+            <View style={hairline} />
+            <ThemedText variant="footnote" color="inkTertiary">
+              {t('recipes.add.or')}
+            </ThemedText>
+            <View style={hairline} />
           </View>
-        </View>
+          <Card>
+            <FromPhotoRow disabled={picking} onPress={fromPhoto} />
+          </Card>
+        </>
       ) : null}
     </View>
   );
 }
 
 /**
- * **From photo…** under the link field (board 1): a `primarySoft` well with a camera, the label over
- * "A cookbook page or a screenshot", and a chevron; one button, VoiceOver "From photo, button".
+ * **From photo…** in its own card under the "or" divider (board B1): a `primarySoft` well with a
+ * camera, the label over "A cookbook page or a screenshot", and a chevron; one button, VoiceOver
+ * "From photo, button".
  */
 function FromPhotoRow({ disabled, onPress }: { disabled: boolean; onPress: () => void }) {
   const t = useT();
@@ -200,8 +188,6 @@ function FromPhotoRow({ disabled, onPress }: { disabled: boolean; onPress: () =>
           gap: spacing.md,
           paddingHorizontal: spacing.lg,
           paddingVertical: spacing.sm,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
           opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}>
@@ -226,5 +212,6 @@ function FromPhotoRow({ disabled, onPress }: { disabled: boolean; onPress: () =>
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
+  start: { alignItems: 'flex-start' },
   well: { alignItems: 'center', justifyContent: 'center' },
 });

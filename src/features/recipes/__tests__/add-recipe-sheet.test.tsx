@@ -8,6 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { households, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { setFeatures, type Feature } from '@/features/plans/features';
+import { i18n } from '@/i18n';
 import { db, resetDb } from '@/test/db';
 
 import AddRecipeSheet from '@/app/add-recipe';
@@ -103,8 +104,11 @@ async function render(features: Feature[]): Promise<ReactTestRenderer> {
 const allRecipes = () => db.select().from(recipes).all();
 const field = (root: ReactTestRenderer, label: string) =>
   root.root.find((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === label);
-const maybeField = (root: ReactTestRenderer, label: string) =>
-  root.root.findAll((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === label)[0];
+const inputs = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === ('TextInput' as never));
+const byTestId = (root: ReactTestRenderer, id: string) =>
+  root.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === id);
+/** The name field's label with recipe import on the plan. */
+const NAME_OR_LINK = 'Recipe name or link';
 /** The composite button with this label, or undefined. */
 const button = (root: ReactTestRenderer, label: string) =>
   root.root.findAll((n) => typeof n.type !== 'string' && n.props.label === label && typeof n.props.onPress === 'function')[0];
@@ -114,17 +118,47 @@ const texts = (root: ReactTestRenderer) =>
   root.root.findAll((n) => n.type === ('Text' as never)).map((n) => [n.props.children].flat().join(''));
 
 describe('the sheet', () => {
-  test('titled "Add recipe", with a "New recipe" group and Cancel', async () => {
+  test('titled "Add recipe", with one focused name field and Cancel; no group label', async () => {
     const root = await render(STANDARD);
-    expect(texts(root)).toEqual(expect.arrayContaining(['Add recipe', 'New recipe']));
+    expect(texts(root)).toContain('Add recipe');
+    expect(texts(root)).not.toContain('New recipe');
     expect(root.root.findAll((n) => n.type === ('ToolbarButton' as never)).map((n) => n.props.children)).toEqual(['Cancel']);
+    expect(inputs(root)).toHaveLength(1);
     expect(field(root, 'Recipe name').props.placeholder).toBe('Recipe name');
     expect(field(root, 'Recipe name').props.autoFocus).toBe(true);
   });
 
+  test('with import: still one field, "Paste a link or type a name", focused, and no link group', async () => {
+    const root = await render(PLUS);
+    expect(inputs(root)).toHaveLength(1);
+    const input = field(root, NAME_OR_LINK);
+    expect(input.props.placeholder).toBe('Paste a link or type a name');
+    expect(input.props.autoFocus).toBe(true);
+    expect(texts(root)).not.toContain('Or import from a link');
+    expect(button(root, 'Import')).toBeUndefined();
+    expect(button(root, 'Paste')).toBeUndefined();
+    // One button: Create.
+    expect(button(root, 'Create').props.disabled).toBe(true);
+  });
+
+  test('in Spanish with import: the placeholder and label translate', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('es');
+    });
+    try {
+      const root = await render(PLUS);
+      const input = field(root, 'Nombre o enlace de la receta');
+      expect(input.props.placeholder).toBe('Pega un enlace o escribe un nombre');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
   test('Cancel closes it and makes nothing', async () => {
     const root = await render(PLUS);
-    type(field(root, 'Recipe name'), 'Tacos');
+    type(field(root, NAME_OR_LINK), 'Tacos');
     press(root.root.find((n) => n.type === ('ToolbarButton' as never) && n.props.children === 'Cancel'));
     expect(mockBack).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();
@@ -160,10 +194,18 @@ describe('New recipe', () => {
 
   test('Return in the name field creates too', async () => {
     const root = await render(PLUS);
-    type(field(root, 'Recipe name'), 'Soup');
-    act(() => field(root, 'Recipe name').props.onSubmitEditing());
+    type(field(root, NAME_OR_LINK), 'Soup');
+    act(() => field(root, NAME_OR_LINK).props.onSubmitEditing());
     expect(allRecipes().map((r) => r.name)).toEqual(['Soup']);
     expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  test('a name shows no link glyph and no import note', async () => {
+    const root = await render(PLUS);
+    type(field(root, NAME_OR_LINK), 'Tacos');
+    expect(byTestId(root, 'link-glyph')).toEqual([]);
+    expect(texts(root)).not.toContain("We'll bring in the ingredients, steps and photo.");
+    expect(field(root, NAME_OR_LINK).props.returnKeyType).toBe('done');
   });
 });
 
@@ -172,8 +214,10 @@ describe('a link in the name field', () => {
 
   test('with import: the button reads Import recipe and hands the link to the import sheet', async () => {
     const root = await render(PLUS);
-    type(field(root, 'Recipe name'), LINK);
+    type(field(root, NAME_OR_LINK), LINK);
     expect(button(root, 'Create')).toBeUndefined();
+    expect(button(root, 'Import recipe').props.icon).toBe('link');
+    expect(button(root, 'Import recipe').props.disabled).toBe(false);
     press(button(root, 'Import recipe'));
     expect(mockReplace.mock.calls).toEqual([[{ pathname: '/import-recipe', params: { url: LINK } }]]);
     expect(allRecipes()).toEqual([]);
@@ -182,10 +226,24 @@ describe('a link in the name field', () => {
 
   test('with import, Return imports it too, adding https:// to a bare link', async () => {
     const root = await render(PLUS);
-    type(field(root, 'Recipe name'), 'nytimes.com/recipes/1');
-    act(() => field(root, 'Recipe name').props.onSubmitEditing());
+    type(field(root, NAME_OR_LINK), 'nytimes.com/recipes/1');
+    act(() => field(root, NAME_OR_LINK).props.onSubmitEditing());
     expect(mockReplace.mock.calls).toEqual([[{ pathname: '/import-recipe', params: { url: 'https://nytimes.com/recipes/1' } }]]);
     expect(allRecipes()).toEqual([]);
+  });
+
+  test('with import: a link shows the link glyph and the note; going back to a name drops both', async () => {
+    const root = await render(PLUS);
+    type(field(root, NAME_OR_LINK), LINK);
+    expect(byTestId(root, 'link-glyph')).toHaveLength(1);
+    expect(byTestId(root, 'link-glyph')[0].props.name).toBe('link');
+    expect(texts(root)).toContain("We'll bring in the ingredients, steps and photo.");
+    expect(field(root, NAME_OR_LINK).props.returnKeyType).toBe('go');
+    expect(field(root, NAME_OR_LINK).props.autoCapitalize).toBe('none');
+    type(field(root, NAME_OR_LINK), 'Apple cake');
+    expect(byTestId(root, 'link-glyph')).toEqual([]);
+    expect(texts(root)).not.toContain("We'll bring in the ingredients, steps and photo.");
+    expect(button(root, 'Create').props.disabled).toBe(false);
   });
 
   test('without import: refused, Create disabled, with the footnote', async () => {
@@ -194,6 +252,8 @@ describe('a link in the name field', () => {
     expect(button(root, 'Create').props.disabled).toBe(true);
     expect(button(root, 'Import recipe')).toBeUndefined();
     expect(texts(root)).toContain(NAME_IS_LINK_FOOTNOTE);
+    expect(byTestId(root, 'link-glyph')).toEqual([]);
+    expect(texts(root)).not.toContain("We'll bring in the ingredients, steps and photo.");
     act(() => field(root, 'Recipe name').props.onSubmitEditing());
     expect(allRecipes()).toEqual([]);
     expect(mockReplace).not.toHaveBeenCalled();
@@ -205,78 +265,64 @@ describe('a link in the name field', () => {
   });
 });
 
-describe('Import from a link', () => {
-  test('hidden without recipe_import', async () => {
+describe('the Paste link chip', () => {
+  test('without recipe_import: no chip, and the clipboard isn\'t even asked', async () => {
+    mockHasUrl.mockResolvedValue(true);
     const root = await render(STANDARD);
-    expect(texts(root)).not.toContain('Or import from a link');
-    expect(maybeField(root, 'Recipe link')).toBeUndefined();
-    expect(button(root, 'Import')).toBeUndefined();
-    expect(button(root, 'Paste')).toBeUndefined();
-    // The clipboard isn't even asked.
+    expect(button(root, 'Paste link')).toBeUndefined();
     expect(mockHasUrl).not.toHaveBeenCalled();
   });
 
-  test('with it: the group, a "https://" field and Import, disabled while empty', async () => {
-    const root = await render(PLUS);
-    expect(texts(root)).toContain('Or import from a link');
-    expect(field(root, 'Recipe link').props.placeholder).toBe('https://');
-    expect(button(root, 'Import').props.disabled).toBe(true);
-    type(field(root, 'Recipe link'), '  ');
-    expect(button(root, 'Import').props.disabled).toBe(true);
-  });
-
-  test('Import passes the URL to the import flow', async () => {
-    const root = await render(PLUS);
-    type(field(root, 'Recipe link'), ' https://example.com/cake ');
-    press(button(root, 'Import'));
-    expect(mockReplace.mock.calls).toEqual([[{ pathname: '/import-recipe', params: { url: 'https://example.com/cake' } }]]);
-    expect(allRecipes()).toEqual([]);
-  });
-
-  test('Return in the link field imports, taking the URL out of shared text', async () => {
-    const root = await render(PLUS);
-    type(field(root, 'Recipe link'), 'Try this! https://example.com/cake.');
-    act(() => field(root, 'Recipe link').props.onSubmitEditing());
-    expect(mockReplace.mock.calls).toEqual([[{ pathname: '/import-recipe', params: { url: 'https://example.com/cake' } }]]);
-  });
-
-  test('no Paste when the clipboard holds no link', async () => {
+  test('no chip when the clipboard holds no link', async () => {
     const root = await render(PLUS);
     expect(mockHasUrl).toHaveBeenCalledTimes(1);
-    expect(button(root, 'Paste')).toBeUndefined();
+    expect(button(root, 'Paste link')).toBeUndefined();
   });
 
-  test('a clipboard check that fails just leaves Paste off', async () => {
+  test('a clipboard check that fails just leaves the chip off', async () => {
     mockHasUrl.mockRejectedValue(new Error('unavailable'));
     const root = await render(PLUS);
-    expect(button(root, 'Paste')).toBeUndefined();
+    expect(button(root, 'Paste link')).toBeUndefined();
   });
 
-  test('Paste shows with a link on the clipboard and fills the field', async () => {
+  test('a soft pill with the clipboard glyph above the field, with a 44 pt hit area', async () => {
+    mockHasUrl.mockResolvedValue(true);
+    const root = await render(PLUS);
+    const chip = button(root, 'Paste link');
+    expect(chip.props).toMatchObject({ soft: true, icon: 'doc.on.clipboard', testID: 'paste-link' });
+    const pressable = root.root.find((n) => n.props.accessibilityLabel === 'Paste link' && n.props.accessibilityRole === 'button' && typeof n.props.style === 'function');
+    const minHeight = Object.assign({}, ...[pressable.props.style({ pressed: false })].flat()).minHeight as number;
+    expect(minHeight + 2 * (pressable.props.hitSlop as number)).toBeGreaterThanOrEqual(44);
+  });
+
+  test('tapping it reads the clipboard, fills the field with the link and hides the chip', async () => {
     mockHasUrl.mockResolvedValue(true);
     mockClipboard.mockResolvedValue('Look: https://example.com/cake');
     const root = await render(PLUS);
     // Read only when tapped.
     expect(mockClipboard).not.toHaveBeenCalled();
     await act(async () => {
-      await button(root, 'Paste').props.onPress();
+      await button(root, 'Paste link').props.onPress();
     });
-    expect(field(root, 'Recipe link').props.value).toBe('https://example.com/cake');
-    expect(button(root, 'Import').props.disabled).toBe(false);
+    expect(mockClipboard).toHaveBeenCalledTimes(1);
+    expect(field(root, NAME_OR_LINK).props.value).toBe('https://example.com/cake');
+    expect(button(root, 'Paste link')).toBeUndefined();
+    expect(texts(root)).toContain("We'll bring in the ingredients, steps and photo.");
+    press(button(root, 'Import recipe'));
+    expect(mockReplace.mock.calls).toEqual([[{ pathname: '/import-recipe', params: { url: 'https://example.com/cake' } }]]);
   });
 
-  test('focus=link starts in the link field', async () => {
-    mockParams.focus = 'link';
+  test('an empty clipboard on tap leaves the field and the chip as they were', async () => {
+    mockHasUrl.mockResolvedValue(true);
+    mockClipboard.mockResolvedValue('');
     const root = await render(PLUS);
-    expect(field(root, 'Recipe link').props.autoFocus).toBe(true);
-    expect(field(root, 'Recipe name').props.autoFocus).toBe(false);
+    await act(async () => {
+      await button(root, 'Paste link').props.onPress();
+    });
+    expect(field(root, NAME_OR_LINK).props.value).toBe('');
+    expect(button(root, 'Paste link')).toBeDefined();
   });
 
-  test('focus=link without import starts in the name field', async () => {
-    mockParams.focus = 'link';
-    const root = await render(STANDARD);
-    expect(field(root, 'Recipe name').props.autoFocus).toBe(true);
-  });
 });
 
 describe('From photo… (spec 4.10)', () => {
@@ -311,17 +357,25 @@ describe('From photo… (spec 4.10)', () => {
     expect(texts(root)).not.toContain('From photo…');
   });
 
-  test('with it: one button in the link card, "From photo", at least 44 pt, with its two lines', async () => {
+  test('with it: one button in its own card, "From photo", at least 44 pt, with its two lines', async () => {
     const root = await render(PHOTO);
     const button = row(root);
     expect(button.props.accessibilityRole).toBe('button');
     expect(button.props.accessibilityLabel).toBe('From photo');
     expect(texts(root)).toEqual(expect.arrayContaining(['From photo…', 'A cookbook page or a screenshot']));
-    const style = [button.props.style({ pressed: false })].flat();
-    expect(Object.assign({}, ...style).minHeight).toBe(44);
-    // Under the link field, above Import.
+    const style = Object.assign({}, ...[button.props.style({ pressed: false })].flat());
+    expect(style.minHeight).toBe(44);
+    // Alone in its card: no hairline above it.
+    expect(style.borderTopWidth).toBeUndefined();
+    // Under Create, after the "or" divider.
     const all = texts(root);
-    expect(all.indexOf('From photo…')).toBeLessThan(all.indexOf('Import'));
+    expect(all.indexOf('Create')).toBeLessThan(all.indexOf('or'));
+    expect(all.indexOf('or')).toBeLessThan(all.indexOf('From photo…'));
+  });
+
+  test('without recipe_import_photo there is no "or" divider', async () => {
+    const root = await render(PLUS);
+    expect(texts(root)).not.toContain('or');
   });
 
   test('opens Take photo / Choose from library / Cancel', async () => {

@@ -251,9 +251,9 @@ export default function RecipesScreen() {
   }, []);
   const closeOpenCard = useCallback(() => openCard.current?.close(), []);
 
-  // Spec 4.5: one Add recipe sheet names a blank recipe or, with import, takes a link.
+  // Spec 4.5: one Add recipe sheet, its one field taking a name or (with import) a link.
   const addRecipe = () => router.push('/add-recipe');
-  const importFromLink = () => router.push({ pathname: '/add-recipe', params: { focus: 'link' } });
+  const importFromLink = addRecipe;
   // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
   const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
   // Spec 4.12: recipe import is a plus feature; without it the empty state has no Import from link.

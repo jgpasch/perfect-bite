@@ -738,16 +738,20 @@ export const en = {
     /** The Add recipe sheet (spec 4.5). */
     add: {
       title: 'Add recipe',
-      newRecipe: 'New recipe',
       name: 'Recipe name',
+      /** The one field's placeholder and VoiceOver label with `recipe_import` (spec 4.5). */
+      nameOrLink: 'Paste a link or type a name',
+      nameOrLinkLabel: 'Recipe name or link',
+      pasteLink: 'Paste link',
+      linkNote: "We'll bring in the ingredients, steps and photo.",
+      or: 'or',
       nameIsLink: "That's a link. Type the recipe's name instead.",
       importRecipe: 'Import recipe',
       create: 'Create',
-      orImport: 'Or import from a link',
+      /** The import sheet's link field (spec 4.10). */
       link: 'Recipe link',
       linkPlaceholder: 'https://',
       paste: 'Paste',
-      import: 'Import',
       /** The From photo… row (spec 4.10), with `recipe_import_photo`. */
       fromPhoto: 'From photo…',
       fromPhotoLabel: 'From photo',
