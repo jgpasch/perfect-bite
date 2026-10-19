@@ -44,7 +44,7 @@ import { openChannels, realtimeChannels, resetSupabase, setChannelStatus, setPre
 import { addItem, listItemsQuery, moveItemToList, setItemChecked } from '../items';
 import type { RowMove } from '../item-row';
 import { getListSeenAt, markListSeen } from '../last-seen';
-import { addedAt, collapsedSectionsKey, LIST_VIEW_MODES, listSeenAtKey, manualOrderKey, viewModeKey } from '../list-view';
+import { addedAt, CHECK_LINGER_MS, collapsedSectionsKey, LIST_VIEW_MODES, listSeenAtKey, manualOrderKey, viewModeKey } from '../list-view';
 import { ListScreen } from '../list-screen';
 import { createList, ensureStarterData, getDefaultListId, getList } from '../lists';
 import { setMoveResult } from '../move-result';
@@ -462,7 +462,7 @@ describe('checking off', () => {
     // Still in the card, drawn checked.
     expect(rowNames()).toEqual(['eggs', 'milk']);
     expect(row('milk').props.item.checkedAt).not.toBeNull();
-    act(() => jest.advanceTimersByTime(1000));
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS));
     expect(rowNames()).toEqual(['eggs']);
     expect(switcherLabel()).toContain('1 to get');
     const header = pressable('Checked, 1 item');
@@ -477,9 +477,52 @@ describe('checking off', () => {
     render();
     act(() => row('milk').props.onToggle());
     act(() => row('milk').props.onToggle());
-    act(() => jest.advanceTimersByTime(1000));
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS));
     expect(row('milk').props.item.checkedAt).toBeNull();
     expect(text()).not.toContain('Checked,');
+  });
+
+  test('checks in a row linger together, and move at once after the last', () => {
+    put('milk');
+    put('eggs');
+    put('bread');
+    render();
+    act(() => row('milk').props.onToggle());
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS - 100));
+    act(() => row('eggs').props.onToggle());
+    // Milk's own moment is over, but the second check started it again for both.
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS - 100));
+    expect(rowNames()).toEqual(['bread', 'eggs', 'milk']);
+    act(() => jest.advanceTimersByTime(100));
+    expect(rowNames()).toEqual(['bread']);
+  });
+
+  test('a touch on the list holds lingering rows in place', () => {
+    put('milk');
+    put('eggs');
+    render();
+    act(() => row('milk').props.onToggle());
+    const viewport = tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === 'list-viewport');
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS - 100));
+    act(() => viewport.props.onTouchStart());
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS - 100));
+    expect(rowNames()).toEqual(['eggs', 'milk']);
+    act(() => jest.advanceTimersByTime(100));
+    expect(rowNames()).toEqual(['eggs']);
+  });
+
+  test('taking one lingering row back leaves the others lingering', () => {
+    put('milk');
+    put('eggs');
+    put('bread');
+    render();
+    act(() => row('milk').props.onToggle());
+    act(() => row('eggs').props.onToggle());
+    act(() => row('milk').props.onToggle());
+    expect(row('milk').props.item.checkedAt).toBeNull();
+    expect(rowNames()).toEqual(['bread', 'eggs', 'milk']);
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS));
+    expect(rowNames()).toEqual(['bread', 'milk']);
   });
 
   test('unchecking from Checked puts the item back', () => {
@@ -1563,7 +1606,7 @@ describe('the Checked section opening by itself', () => {
     put('milk');
     render();
     act(() => row('milk').props.onToggle());
-    act(() => jest.advanceTimersByTime(1000));
+    act(() => jest.advanceTimersByTime(CHECK_LINGER_MS));
     expect(rowNames()).toEqual(['milk']);
     expect(pressable('Checked, 1 item').props.accessibilityState).toEqual({ expanded: true });
     expect(switcherLabel()).toContain('All done');
