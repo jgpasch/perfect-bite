@@ -2,7 +2,7 @@
 -- and the user_plans row's rules.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(48);
+select plan(58);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex (unassigned), Sam (none) and Kim (unlimited) share one household; Lee is unassigned and in
@@ -39,11 +39,43 @@ select results_eq(
             ('unlimited', 'recipe_photo_ai'), ('unlimited', 'recipe_tags'), ('unlimited', 'step_ingredients') $$,
   'none has no features, basic has categorize and step_ingredients, and plus and unlimited have all six');
 select is((select count(*)::int from public.plans where is_default), 1, 'exactly one plan is the default');
-select is_empty(
-  $$ select p.id from public.plans p
-     where exists (select 1 from public.plan_features f where f.plan_id = p.id and f.feature = 'recipe_import')
-       and not exists (select 1 from public.plan_features f where f.plan_id = p.id and f.feature = 'categorize') $$,
-  'every plan with recipe_import also has categorize');
+
+-- Recipe import needs categorize: a deferred constraint trigger on plan_features ---------------
+select results_eq(
+  $$ select tgdeferrable, tginitdeferred from pg_trigger
+     where tgrelid = 'public.plan_features'::regclass and tgname = 'plan_features_import_needs_categorize' $$,
+  $$ values (true, true) $$,
+  'the import rule is a deferrable, initially deferred constraint trigger');
+
+set constraints public.plan_features_import_needs_categorize immediate;
+select throws_ok($$ insert into public.plan_features values ('none', 'recipe_import') $$,
+  '23514', 'recipe import needs categorize', 'adding recipe_import to a plan without categorize is refused');
+select throws_ok($$ insert into public.plan_features values ('none', 'recipe_import_photo') $$,
+  '23514', 'recipe import needs categorize', 'adding recipe_import_photo to a plan without categorize is refused');
+select throws_ok($$ delete from public.plan_features where plan_id = 'plus' and feature = 'categorize' $$,
+  '23514', 'recipe import needs categorize', 'deleting categorize from a plan with import is refused');
+select throws_ok($$ update public.plan_features set plan_id = 'none' where plan_id = 'unlimited' and feature = 'categorize' $$,
+  '23514', 'recipe import needs categorize', 'moving categorize off a plan with import is refused');
+select lives_ok($$ delete from public.plan_features where plan_id = 'basic' and feature = 'categorize' $$,
+  'deleting categorize from a plan without import is fine');
+insert into public.plan_features values ('basic', 'categorize');
+
+-- Deferred (the default), a plan can gain both in one transaction, in either order.
+set constraints public.plan_features_import_needs_categorize deferred;
+insert into public.plan_features values ('none', 'recipe_import');
+insert into public.plan_features values ('none', 'categorize');
+select lives_ok($$ set constraints public.plan_features_import_needs_categorize immediate $$,
+  'adding recipe_import then categorize in one transaction is fine');
+set constraints public.plan_features_import_needs_categorize deferred;
+select lives_ok($$ delete from public.plan_features where plan_id = 'none' and feature = 'categorize' $$,
+  'deferred, a plan can be left with import and no categorize for a while');
+select throws_ok($$ set constraints public.plan_features_import_needs_categorize immediate $$,
+  '23514', 'recipe import needs categorize', 'but not at the check (commit)');
+delete from public.plan_features where plan_id = 'none';
+select lives_ok($$ set constraints public.plan_features_import_needs_categorize immediate $$,
+  'once fixed in the same transaction, the check passes');
+set constraints public.plan_features_import_needs_categorize deferred;
+select is_empty($$ select 1 from public.plan_features where plan_id = 'none' $$, 'none is back to no features');
 
 -- has_feature -------------------------------------------------------------------
 select ok(public.has_feature('11111111-1111-1111-1111-111111111111', 'categorize'),

@@ -99,7 +99,8 @@ Each AI feature has a monthly limit per plan, per user, in `public.plan_limits` 
 | basic | 250 | 100 | | | | |
 | unlimited | null | null | null | null | null | null |
 
-- Table Editor → `plan_limits`: edit `monthly_limit` to change a limit. It takes effect on the next call.
+- Use the admin portal: pick the plan and the feature, set the limit (or none) and write a note. It calls `admin_set_plan_limit`, which writes one `admin.admin_actions` row (`set_plan_limit`, the plan before and after, the note and your user id). It takes effect on the next call.
+- The Table Editor still works, unaudited: `plan_limits`, edit `monthly_limit`.
 - A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
 - An account younger than 30 days gets twice its plan's limits.
 - The per-minute limits (which catch a client stuck in a loop) and one AI photo per recipe apply on every plan, unlimited too, and aren't in the table.
@@ -114,9 +115,21 @@ cross join (values ('categorize'), ('step_ingredients'), ('recipe_import'), ('re
 where u.email = '<email>';
 ```
 
-### Add a plan
+### Add, edit or delete a plan
 
-There's no `create_plan`. In the SQL Editor, insert the `plans` row, then its `plan_features` rows (a plan with `recipe_import` must also have `categorize`) and its `plan_limits` rows. A feature with no `plan_limits` row has no monthly limit, so add one for each feature you want limited.
+Use the admin portal (spec 4.12). Each change needs a note and writes one `admin.admin_actions` row with the plan in `target_plan_id`, the plan before and after in `details`, and your user id:
+
+- **Create** a plan with an id (lowercase letters, digits and `_`, starting with a letter) and a name, empty or as a copy of another plan's features and limits. A copy is never the default.
+- **Rename** it (the id never changes).
+- **Turn features on or off**, with a monthly limit (or none) when turning one on. Turning a feature off removes its limit too.
+- **Make it the default**: every user with no `user_plans` row moves to it at once.
+- **Delete** it, once no user is assigned to it. The default plan can't be deleted; make another plan the default first.
+
+The feature keys themselves are fixed in code; a new feature is a migration.
+
+**A plan with `recipe_import` or `recipe_import_photo` must also have `categorize`** (both imports categorize in the same request). A constraint trigger on `plan_features` enforces it everywhere, the portal, the Table Editor and the SQL Editor alike: a change that leaves a plan with an import and no `categorize` fails with `recipe import needs categorize`. So turn `categorize` on before an import, and off after them. The trigger is checked at the end of the transaction, so in the SQL Editor both can be added in one go in either order.
+
+The Table Editor (`plans`, `plan_features`, `plan_limits`) still works, but isn't audited. A feature with no `plan_limits` row has no monthly limit.
 
 ### Which plan is each user on
 
