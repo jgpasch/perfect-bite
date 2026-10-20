@@ -25,9 +25,10 @@ import { setPlanCellStyle } from '../cell-style';
 import { resetEarlierDays } from '../earlier-fold-store';
 import { groupWeek, weekEntriesQuery } from '../queries';
 import { weekDays } from '../week';
+import { WeekAgenda } from '../week-agenda';
 import { WeekGrid } from '../week-grid';
 import { WeekPlan } from '../week-plan';
-import { addRecipeToSlot, setSlot } from '../write';
+import { addRecipeToSlot, moveEntry, setSlot } from '../write';
 
 const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => mockWindow }));
@@ -872,6 +873,66 @@ describe('the agenda', () => {
     expect(agendaDays(root)[0]).toBe('2026-10-04');
     // A past week: every empty slot reads "—".
     expect(texts(root.root).filter((text) => text.startsWith('+ Add'))).toHaveLength(0);
+  });
+
+  describe('several recipes in a meal (board C)', () => {
+    let salad: string;
+    let bread: string;
+
+    beforeEach(() => {
+      salad = createRecipe('Caesar salad', home);
+      bread = createRecipe('Garlic bread', home);
+      db.update(recipes).set({ totalMinutes: 15 }).where(eq(recipes.id, salad)).run();
+      // Thursday dinner: tacos, then salad, then bread.
+      addRecipeToSlot(home, '2026-10-15', 'dinner', salad);
+      addRecipeToSlot(home, '2026-10-15', 'dinner', bread);
+    });
+
+    const recipeLines = (root: ReactTestRenderer, day: string, meal: string) =>
+      slot(root, day, meal).findAll((n) => n.type === ('View' as never) && /^agenda-recipe-/.test(n.props.testID ?? ''));
+
+    test('a line per recipe under the letter chip, each its name and time, in slot order', () => {
+      const root = render();
+      expect(texts(slot(root, '2026-10-15', 'dinner'))).toEqual(['D', 'Chicken tacos', '35 min', 'Caesar salad', '15 min', 'Garlic bread']);
+      const lines = recipeLines(root, '2026-10-15', 'dinner');
+      expect(lines.map(texts)).toEqual([['Chicken tacos', '35 min'], ['Caesar salad', '15 min'], ['Garlic bread']]);
+      // All alike: the same type and colour for every name.
+      const names = lines.map((line) => line.findAll((n) => n.type === ('Text' as never))[0]);
+      expect(names.map((name) => flat(name.props.style).color)).toEqual([Palette.light.ink, Palette.light.ink, Palette.light.ink]);
+      expect(new Set(names.map((name) => flat(name.props.style).fontSize)).size).toBe(1);
+      expect(label(root, '2026-10-15', 'dinner')).toBe('Thursday dinner, Chicken tacos, Caesar salad, Garlic bread');
+    });
+
+    test('a reorder shows in the agenda', () => {
+      const entries = groupWeek(weekEntriesQuery(home, '2026-10-11').all()).slotEntries('2026-10-15', 'dinner');
+      moveEntry(home, '2026-10-15', 'dinner', entries[2].id, 0);
+      const root = render();
+      expect(recipeLines(root, '2026-10-15', 'dinner').map((line) => texts(line)[0])).toEqual([
+        'Garlic bread',
+        'Chicken tacos',
+        'Caesar salad',
+      ]);
+    });
+
+    test('one recipe and a note keep their single line', () => {
+      const root = render();
+      expect(texts(slot(root, '2026-10-15', 'lunch'))).toEqual(['L', 'Leftovers']);
+      press(root, 'Next week');
+      expect(recipeLines(root, '2026-10-19', 'dinner').map(texts)).toEqual([['Soup']]);
+    });
+
+    test('tapping the meal does what tapping the slot does: onSlot with its first recipe', () => {
+      const onSlot = jest.fn();
+      const plan = groupWeek(weekEntriesQuery(home, '2026-10-11').all());
+      act(() => {
+        tree = create(<WeekAgenda days={weekDays('2026-10-11')} plan={plan} today="2026-10-15" onSlot={onSlot} />);
+      });
+      press(tree!, 'Thursday dinner, Chicken tacos, Caesar salad, Garlic bread');
+      expect(onSlot).toHaveBeenCalledTimes(1);
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-15', 'dinner', expect.objectContaining({ kind: 'recipe', recipeId: tacos }));
+      press(tree!, 'Thursday breakfast, empty');
+      expect(onSlot).toHaveBeenLastCalledWith('2026-10-15', 'breakfast', null);
+    });
   });
 });
 

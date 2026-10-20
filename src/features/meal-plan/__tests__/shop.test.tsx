@@ -31,7 +31,7 @@ import { groupWeek, weekEntriesQuery } from '../queries';
 import { openShopSheet, shopDays, shopEntries, shopTitle, shopToastMessage } from '../shop';
 import type { SlotToast } from '../slot-actions';
 import { WeekPlan } from '../week-plan';
-import { clearSlot, setSlot } from '../write';
+import { addRecipeToSlot, clearSlot, moveEntry, setSlot } from '../write';
 
 const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => mockWindow }));
@@ -320,6 +320,67 @@ describe('the sheet', () => {
     createList('Cabin list', 'cabin');
     renderSheet();
     expect(pillLabels()).toEqual(['Groceries']);
+  });
+});
+
+describe('a slot with several recipes', () => {
+  beforeEach(() => {
+    // Thursday dinner: tacos, then soup.
+    addRecipeToSlot(home, '2026-10-15', 'dinner', soup);
+  });
+
+  test('every recipe is its own entry, with its day and meal, in slot order', () => {
+    expect(entries(THIS_WEEK).map((e) => [e.day, e.meal, e.recipeName])).toEqual([
+      ['2026-10-15', 'dinner', 'Chicken tacos'],
+      ['2026-10-15', 'dinner', 'Carrot soup'],
+      ['2026-10-16', 'dinner', 'Lemon ricotta pasta'],
+      ['2026-10-17', 'dinner', 'Chicken tacos'],
+    ]);
+    const thursday = groupWeek(weekEntriesQuery(home, THIS_WEEK).all()).slotEntries('2026-10-15', 'dinner');
+    moveEntry(home, '2026-10-15', 'dinner', thursday[1].id, 0);
+    expect(entries(THIS_WEEK).map((e) => e.recipeName).slice(0, 2)).toEqual(['Carrot soup', 'Chicken tacos']);
+  });
+
+  test('the sheet lists both, and Add adds both', () => {
+    renderSheet();
+    expect(rows()).toEqual([
+      ['Chicken tacos, Thursday dinner', true],
+      ['Carrot soup, Thursday dinner', true],
+      ['Lemon ricotta pasta, Friday dinner', true],
+      ['Chicken tacos, Saturday dinner', true],
+    ]);
+    press('Add 4 to Groceries');
+    const amounts = listAmounts(groceries);
+    expect(amounts.filter(([name]) => name === 'carrot')).toEqual([['carrot', '3', 'Carrot soup']]);
+    expect(amounts.filter(([name]) => name === 'ground beef')).toHaveLength(2);
+    expect(toasts[0]!.message).toBe('Added 4 recipes · 4 items');
+  });
+
+  test('ticking and "already on Groceries" work per entry', () => {
+    addWholeRecipeToList(groceries, soup, 'user-1');
+    renderSheet();
+    expect(rows()).toEqual([
+      ['Chicken tacos, Thursday dinner', true],
+      ['Carrot soup, Thursday dinner · already on Groceries', false],
+      ['Lemon ricotta pasta, Friday dinner', true],
+      ['Chicken tacos, Saturday dinner', true],
+    ]);
+    toggle('Chicken tacos, Thursday dinner');
+    expect(rows().map(([, on]) => on)).toEqual([false, false, true, true]);
+    // Pasta and Saturday's tacos: ground beef, onion and pasta.
+    press('Add 3 to Groceries');
+    expect(toasts[0]!.message).toBe('Added 2 recipes · 3 items');
+    expect(listAmounts(groceries).filter(([name]) => name === 'carrot')).toEqual([['carrot', '3', 'Carrot soup']]);
+    expect(listAmounts(groceries).filter(([name]) => name === 'ground beef')).toEqual([['ground beef', '1 lb', 'Chicken tacos']]);
+  });
+
+  test('a slot with only a note adds nothing; adding a recipe there replaces the note', () => {
+    // Friday lunch is Leftovers: no entry.
+    expect(entries(THIS_WEEK).filter((e) => e.day === '2026-10-16' && e.meal === 'lunch')).toEqual([]);
+    addRecipeToSlot(home, '2026-10-16', 'lunch', soup);
+    expect(entries(THIS_WEEK).filter((e) => e.day === '2026-10-16' && e.meal === 'lunch').map((e) => e.recipeName)).toEqual([
+      'Carrot soup',
+    ]);
   });
 });
 

@@ -1,6 +1,9 @@
 // The Recipes tab's shelves (spec 4.5, 4.16): This week, Recently added and Favorites, and when they show.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
+import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
+import { restOfWeekEntriesQuery } from '@/features/meal-plan/queries';
+import { addRecipeToSlot } from '@/features/meal-plan/write';
 import { getRecipeSortChoice, setDeviceSetting } from '@/features/settings/device-settings';
 import { initI18n } from '@/i18n';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -9,6 +12,7 @@ import { resetDb } from '@/test/db';
 import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
 import { recipeShelves, SHELF_MAX_ITEMS, SHELVES_MIN_RECIPES, shelfTileLabel, shelvesShown } from '../recipe-shelves';
 import { RECIPE_GROUP_KEY, RECIPE_SORT_KEY } from '../recipe-sort';
+import { createRecipe } from '../recipes';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -147,6 +151,44 @@ describe('recipeShelves', () => {
   test('two entries in one slot keep their position order', () => {
     const entries = [entry('2026-10-16', 'dinner', 'r3', { position: 1 }), entry('2026-10-16', 'dinner', 'r1', { position: 0 })];
     expect(shelves(RECIPES, entries)[0].items.map((i) => i.recipe.name)).toEqual(['Tacos', 'Curry']);
+  });
+
+  test('a slot of three recipes and a recipe in two slots: each once, at its first slot, every entry counted', () => {
+    const entries = [
+      // Friday dinner: curry, tacos, miso soup. Tacos again on Saturday lunch, miso soup again at Saturday dinner.
+      entry('2026-10-16', 'dinner', 'r7', { position: 2 }),
+      entry('2026-10-16', 'dinner', 'r3', { position: 0 }),
+      entry('2026-10-16', 'dinner', 'r1', { position: 1 }),
+      entry('2026-10-17', 'lunch', 'r1'),
+      entry('2026-10-17', 'dinner', 'r7', { position: 0 }),
+      entry('2026-10-17', 'dinner', 'r5', { position: 1 }),
+    ];
+    const [week] = shelves(RECIPES, entries);
+    expect(week.key).toBe('thisWeek');
+    expect(week.count).toBe(6);
+    expect(week.items.map((i) => [i.recipe.name, i.caption, i.spokenCaption])).toEqual([
+      ['Curry', 'Fri dinner', 'Friday dinner'],
+      ['Tacos', 'Fri dinner', 'Friday dinner'],
+      ['Miso soup', 'Fri dinner', 'Friday dinner'],
+      ['Frittata', 'Sat dinner', 'Saturday dinner'],
+    ]);
+  });
+
+  test('written through addRecipeToSlot and read with restOfWeekEntriesQuery, a three-recipe slot shows each recipe once', () => {
+    resetDb();
+    ensureStarterData('user-1');
+    const home = getList(getDefaultListId('user-1')!)!.householdId;
+    const recipes = RECIPES.map(({ name }) => ({ id: createRecipe(name, home), name, tags: null, totalMinutes: null }));
+    const [tacos, , curry, , , , miso] = recipes.map((r) => r.id);
+    for (const id of [curry, tacos, miso]) addRecipeToSlot(home, '2026-10-16', 'dinner', id);
+    addRecipeToSlot(home, '2026-10-15', 'lunch', tacos);
+    const [week] = recipeShelves({ recipes, entries: restOfWeekEntriesQuery(TODAY).all(), today: TODAY, language: 'en' });
+    expect(week.count).toBe(4);
+    expect(week.items.map((i) => [i.recipe.name, i.caption])).toEqual([
+      ['Tacos', 'Thu lunch'],
+      ['Curry', 'Fri dinner'],
+      ['Miso soup', 'Fri dinner'],
+    ]);
   });
 
   test('notes, leftovers, eating out and recipes no longer in the list are left out', () => {

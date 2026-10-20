@@ -25,7 +25,8 @@ import {
 /**
  * The week as an agenda (spec 4.16, board 1 A): a card per day, the day on the left, then a line per meal.
  * Today's card has a `primary` outline. In the current week the days before today fold into one "Earlier this
- * week" row until it's tapped (for the app session). Tapping a meal's line calls `onSlot` with what it shows.
+ * week" row until it's tapped (for the app session). Tapping a meal (any of its recipes) calls `onSlot` with its first
+ * entry, as the grid does.
  */
 export function WeekAgenda({
   days,
@@ -111,15 +112,15 @@ function DayCard({
       </View>
       <View style={[styles.flex, { gap: spacing.xs }]}>
         {MEALS.map((meal) => {
-          const entry = plan.slotEntries(day, meal)[0] ?? null;
+          const entries = plan.slotEntries(day, meal);
           return (
             <MealLine
               key={meal}
               day={day}
               meal={meal}
-              entry={entry}
+              entries={entries}
               past={past}
-              onPress={onSlot && (() => onSlot(day, meal, entry))}
+              onPress={onSlot && (() => onSlot(day, meal, entries[0] ?? null))}
             />
           );
         })}
@@ -128,64 +129,86 @@ function DayCard({
   );
 }
 
-/** The meal's letter chip, then the recipe's name and total time, the note in italic, "+ Add lunch", or "—" before today. */
+/**
+ * The meal's letter chip, then a line per recipe in the slot (its name and total time, all alike, in slot order),
+ * the note in italic, "+ Add lunch", or "—" before today. The meal is one button, whichever line is tapped.
+ */
 function MealLine({
   day,
   meal,
-  entry,
+  entries,
   past,
   onPress,
 }: {
   day: Day;
   meal: Meal;
-  entry: PlanEntry | null;
+  entries: readonly PlanEntry[];
   past: boolean;
   onPress?: () => void;
 }) {
   const t = useT();
   const { scheme, spacing, sizes, rounded, opacity } = useTheme();
   const band = hueHeaderBand(MealHues[meal], scheme);
-  const time = entry?.kind === 'recipe' ? recipeTimeLabel(entry.recipeTotalMinutes) : null;
+  const first = entries[0] ?? null;
+  const lineHeight = sizes.minTapTarget - spacing.sm;
+  // With several recipes the chip sits beside the first line.
+  const several = entries.length > 1;
   return (
     <Pressable
       testID={`slot-${day}-${meal}`}
       accessibilityRole="button"
-      accessibilityLabel={slotAccessibilityLabel(day, meal, entry)}
+      accessibilityLabel={slotAccessibilityLabel(day, meal, entries)}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        { minHeight: sizes.minTapTarget - spacing.sm, gap: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
+        several && styles.top,
+        { minHeight: lineHeight, gap: spacing.sm, opacity: pressed ? opacity.pressed : 1 },
       ]}>
-      <View
-        style={[
-          styles.center,
-          { width: sizes.mealChip, height: sizes.mealChip, borderRadius: rounded.full, backgroundColor: band.ground },
-        ]}>
-        <ThemedText variant="caption" style={{ color: band.text }}>
-          {t(`mealPlan.letters.${meal}`)}
-        </ThemedText>
+      <View style={[styles.center, several && { height: lineHeight }]}>
+        <View
+          style={[
+            styles.center,
+            { width: sizes.mealChip, height: sizes.mealChip, borderRadius: rounded.full, backgroundColor: band.ground },
+          ]}>
+          <ThemedText variant="caption" style={{ color: band.text }}>
+            {t(`mealPlan.letters.${meal}`)}
+          </ThemedText>
+        </View>
       </View>
-      {entry === null ? (
+      {first === null ? (
         <ThemedText variant="callout" color={past ? 'inkSecondary' : 'primary'} style={styles.flex}>
           {past ? t('mealPlan.pastEmpty') : addSlotLabel(meal)}
         </ThemedText>
-      ) : entry.kind === 'recipe' ? (
-        <>
-          <ThemedText variant="callout" color={past ? 'inkSecondary' : 'ink'} numberOfLines={2} style={styles.flex}>
-            {entryText(entry)}
-          </ThemedText>
-          {time ? (
-            <ThemedText variant="footnote" color="inkSecondary">
-              {time}
-            </ThemedText>
-          ) : null}
-        </>
+      ) : first.kind === 'recipe' ? (
+        <View style={styles.flex}>
+          {entries.map((entry) => (
+            <RecipeLine key={entry.id} entry={entry} past={past} minHeight={several ? lineHeight : undefined} />
+          ))}
+        </View>
       ) : (
         <ThemedText variant="callout" color="inkSecondary" numberOfLines={2} style={[styles.flex, styles.note]}>
-          {entryText(entry)}
+          {entryText(first)}
         </ThemedText>
       )}
     </Pressable>
+  );
+}
+
+/** One recipe of a meal in the agenda: its name and total time. */
+function RecipeLine({ entry, past, minHeight }: { entry: PlanEntry; past: boolean; minHeight?: number }) {
+  const { spacing } = useTheme();
+  const time = recipeTimeLabel(entry.recipeTotalMinutes);
+  return (
+    <View testID={`agenda-recipe-${entry.id}`} style={[styles.row, { minHeight, gap: spacing.sm }]}>
+      <ThemedText variant="callout" color={past ? 'inkSecondary' : 'ink'} numberOfLines={2} style={styles.flex}>
+        {entryText(entry)}
+      </ThemedText>
+      {time ? (
+        <ThemedText variant="footnote" color="inkSecondary">
+          {time}
+        </ThemedText>
+      ) : null}
+    </View>
   );
 }
 

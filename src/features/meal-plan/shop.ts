@@ -43,27 +43,28 @@ export type ShopEntry = {
 };
 
 /**
- * The recipe entries on `days`, in day then meal order: each slot's shown entry, when it's a recipe. Notes,
- * Leftovers and Eating out have nothing to buy.
+ * The recipe entries on `days`, in day then meal order, every recipe of a slot its own entry in slot order.
+ * Notes, Leftovers and Eating out have nothing to buy.
  */
 export function shopEntries(plan: WeekPlan, days: readonly Day[]): ShopEntry[] {
   return days.flatMap((day) =>
-    MEALS.flatMap((meal) => {
-      const shown = plan.slotEntries(day, meal)[0];
-      if (shown?.kind !== 'recipe' || !shown.recipeId) return [];
-      const { id, recipeId, recipeName, recipeImageUrl, recipePhotoPath } = shown;
-      return [
-        {
-          id,
-          day,
-          meal,
-          recipeId,
-          recipeName: recipeName ?? '',
-          recipeImageUrl: recipeImageUrl ?? null,
-          recipePhotoPath: recipePhotoPath ?? null,
-        },
-      ];
-    }),
+    MEALS.flatMap((meal) =>
+      plan.slotEntries(day, meal).flatMap((shown) => {
+        if (shown.kind !== 'recipe' || !shown.recipeId) return [];
+        const { id, recipeId, recipeName, recipeImageUrl, recipePhotoPath } = shown;
+        return [
+          {
+            id,
+            day,
+            meal,
+            recipeId,
+            recipeName: recipeName ?? '',
+            recipeImageUrl: recipeImageUrl ?? null,
+            recipePhotoPath: recipePhotoPath ?? null,
+          },
+        ];
+      }),
+    ),
   );
 }
 
