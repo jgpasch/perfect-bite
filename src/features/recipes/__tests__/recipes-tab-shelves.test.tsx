@@ -21,6 +21,7 @@ import { activeFilterCount, noRecipeFilters, toggleRecipeFilter } from '../recip
 import { RECIPE_PHOTO_SIZE_KEY } from '../recipe-photo-size';
 import { addWholeRecipeToList } from '../add-to-list';
 import { addRecipeIngredient } from '../recipes';
+import { RecipeSortButton } from '../recipe-sort-button';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -346,6 +347,42 @@ describe('with 8 or more recipes', () => {
     expect(shelfKeys(root)).toEqual(['thisWeek', 'recent', 'favorites']);
     expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(1 + 9 + 2);
     expect(byTestId(root, 'recipe-grid').length).toBeGreaterThan(0);
+  });
+});
+
+describe('grouped', () => {
+  const toggle = (root: ReactTestRenderer, key: string) =>
+    act(() =>
+      shelf(root, key)
+        .findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityState?.expanded !== undefined)[0]
+        .props.onPress(),
+    );
+
+  test('picking a grouping folds the shelves to their headers; a tap opens one in place with See all', () => {
+    addCollection();
+    const root = render();
+    act(() => root.root.findByType(RecipeSortButton).props.onGroupChange('meal'));
+    expect(shelfKeys(root)).toEqual(['thisWeek', 'recent', 'favorites']);
+    expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(0);
+    expect(root.root.findAll((n) => String(n.props.testID ?? '').endsWith('-see-all'))).toHaveLength(0);
+    toggle(root, 'favorites');
+    expect(tiles(shelf(root, 'favorites'))).toHaveLength(2);
+    expect(seeAllButton(root, 'favorites')).toBeTruthy();
+    expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(2);
+    toggle(root, 'favorites');
+    expect(root.root.findAll((n) => n.props.testID === 'recipe-shelf-favorites-see-all')).toHaveLength(0);
+  });
+
+  test('an opened shelf stays open across groupings, and Group by None shows every shelf open', () => {
+    addCollection();
+    const root = render();
+    act(() => root.root.findByType(RecipeSortButton).props.onGroupChange('meal'));
+    toggle(root, 'thisWeek');
+    act(() => root.root.findByType(RecipeSortButton).props.onGroupChange('protein'));
+    expect(tiles(shelf(root, 'thisWeek'))).toHaveLength(1);
+    expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(1);
+    act(() => root.root.findByType(RecipeSortButton).props.onGroupChange('none'));
+    expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(1 + 9 + 2);
   });
 });
 

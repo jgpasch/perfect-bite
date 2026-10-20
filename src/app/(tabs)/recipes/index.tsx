@@ -56,7 +56,7 @@ import {
   recipeSavedMarks,
   recipeTimeLabel,
 } from '@/features/recipes/recipe-view';
-import { useFoldedMealSections, toggleMealSection } from '@/features/recipes/recipe-fold-store';
+import { toggleMealSection, toggleShelf, useFoldedMealSections, useOpenShelves } from '@/features/recipes/recipe-fold-store';
 import { RecipeShelf, RecipeShelfTile } from '@/features/recipes/recipe-shelf';
 import {
   recipeShelves,
@@ -200,6 +200,8 @@ export default function RecipesScreen() {
   const scroll = useRef<ScrollView>(null);
   const allRecipesY = useRef(0);
   const { reduceMotion } = useMotion();
+  // Spec 4.5: while grouped, each shelf folds to its header so the sections show; a tap opens it in place.
+  const openShelves = useOpenShelves();
   const seeAll = (key: RecipeShelfKey) => {
     if (key === 'thisWeek') {
       if (planTab) router.navigate('/plan');
@@ -508,7 +510,27 @@ export default function RecipesScreen() {
             onClear={() => setRecipeFilters(noRecipeFilters())}
           />
         ) : null}
-        {showShelves && shelves.length > 0 ? (
+        {showShelves && shelves.length > 0 && grouping !== 'none' ? (
+          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs }}>
+            <Card>
+              {shelves.map((shelf, i) => (
+                <View key={shelf.key}>
+                  {i > 0 ? (
+                    <View
+                      style={{ height: StyleSheet.hairlineWidth, marginLeft: spacing.lg, backgroundColor: colors.border }}
+                    />
+                  ) : null}
+                  <RecipeShelf
+                    shelf={shelf}
+                    onSeeAll={() => seeAll(shelf.key)}
+                    renderTile={renderShelfTile}
+                    fold={{ open: openShelves.has(shelf.key), onToggle: () => toggleShelf(shelf.key) }}
+                  />
+                </View>
+              ))}
+            </Card>
+          </View>
+        ) : showShelves && shelves.length > 0 ? (
           <View style={{ gap: spacing.xl - spacing.xxs, paddingTop: spacing.xs }}>
             {shelves.map((shelf) => (
               <RecipeShelf key={shelf.key} shelf={shelf} onSeeAll={() => seeAll(shelf.key)} renderTile={renderShelfTile} />
@@ -621,7 +643,8 @@ function RecipesViewTitle({ week }: { week: boolean }) {
   const name = week ? t('mealPlan.segments.week') : t('recipes.tab.title');
   return (
     <View style={[styles.flex, styles.start]}>
-      <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
+      {/* Keyed on the name: matchContents sizes the Host once, so a wider name would otherwise be clipped. */}
+      <Host key={name} matchContents colorScheme={scheme} seedColor={colors.primary}>
         <Menu
           label={
             <RNHostView matchContents>

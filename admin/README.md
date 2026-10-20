@@ -24,7 +24,10 @@ yarn --cwd admin build
 
 1. In `admin/.env.local`, set `NEXT_PUBLIC_SUPABASE_URL` to `https://<project-ref>.supabase.co` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to the publishable key (dashboard → Project Settings → API Keys). Never the secret or service-role key.
 2. Your account must be in `private.admins` (docs/admin.md, "Add or remove an admin"). Anyone else who signs in sees only "Not authorized".
-3. Once, for **Continue with Google**: the Supabase Google provider needs a Web OAuth client. If it has only the iOS client, create a Web client in the app's Google Cloud project with the authorized redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`, then in Authentication → Providers → Google add its client ID beside the iOS one (comma-separated) and set its secret. In Authentication → URL Configuration → Redirect URLs, add `http://localhost:3000/auth/callback`.
+3. Once, for **Continue with Google**: reuse the app's existing Web OAuth client (`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `.env.production`); don't create another. Native sign-in uses no redirect, so the client likely has none yet.
+   - Google Cloud Console → APIs & Services → Credentials → that Web client: under Authorized redirect URIs, add `https://<project-ref>.supabase.co/auth/v1/callback`. Google can take a few minutes to apply it; a `redirect_uri_mismatch` right after usually means wait and retry.
+   - Supabase → Authentication → Providers → Google: Client IDs must list the Web client **first**, then the iOS one (comma-separated), since the redirect flow uses the first. Client Secret is the Web client's secret (already set if the app's sign-in works).
+   - Supabase → Authentication → URL Configuration → Redirect URLs: add `http://localhost:3000/auth/callback`.
 4. `yarn admin`, and sign in at http://localhost:3000.
 
 Next.js inlines `NEXT_PUBLIC_*` values when the dev server starts or the app is built, so restart `yarn admin` after changing `.env.local`.

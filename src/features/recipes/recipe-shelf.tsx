@@ -4,12 +4,14 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Icon, type IconName } from '@/components/icon';
+import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import type { ColorToken } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 import { RecipePhotoCover } from './recipe-photo';
+import { recipeSectionUnit } from './recipe-sort';
 import type { RecipeShelf as Shelf, RecipeShelfItem, RecipeShelfKey } from './recipe-shelves';
 
 /** Each shelf's glyph and its colour. */
@@ -23,20 +25,59 @@ type ShelfRecipe = { id: string; name: string; imageUrl: string | null; photoPat
 
 /**
  * A shelf on the Recipes tab (spec 4.5): a header row (the glyph, the title, See all N) over a sideways row
- * of 140 pt tiles. The screen wraps each tile (`renderTile`) in its link and long-press menu.
+ * of 140 pt tiles. The screen wraps each tile (`renderTile`) in its link and long-press menu. With `fold`
+ * (while grouped) it's a folding row in the shelves' card: the glyph, title and count, opening to See all and
+ * the tiles.
  */
 export function RecipeShelf<R extends ShelfRecipe>({
   shelf,
   onSeeAll,
   renderTile,
+  fold,
 }: {
   shelf: Shelf<R>;
   onSeeAll: () => void;
   renderTile: (item: RecipeShelfItem<R>) => ReactNode;
+  fold?: { open: boolean; onToggle: () => void };
 }) {
   const t = useT();
   const { spacing } = useTheme();
   const glyph = SHELF_GLYPHS[shelf.key];
+  const seeAll = (
+    <Button
+      testID={`recipe-shelf-${shelf.key}-see-all`}
+      variant="plain"
+      label={t('recipes.shelves.seeAll', { count: shelf.count })}
+      onPress={onSeeAll}
+    />
+  );
+  const tiles = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
+      {shelf.items.map((item) => (
+        <View key={item.recipe.id}>{renderTile(item)}</View>
+      ))}
+    </ScrollView>
+  );
+  if (fold) {
+    return (
+      <View testID={`recipe-shelf-${shelf.key}`}>
+        <FoldingSection
+          title={shelf.title}
+          leading={<Icon name={glyph.name} color={glyph.color} />}
+          count={shelf.count}
+          countUnit={recipeSectionUnit()}
+          hideCount={fold.open}
+          trailing={fold.open ? seeAll : undefined}
+          collapsed={!fold.open}
+          onToggle={fold.onToggle}>
+          <View style={{ paddingTop: spacing.xs, paddingBottom: spacing.lg }}>{tiles}</View>
+        </FoldingSection>
+      </View>
+    );
+  }
   return (
     <View testID={`recipe-shelf-${shelf.key}`} style={{ gap: spacing.sm }}>
       <View style={[styles.header, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
@@ -44,21 +85,9 @@ export function RecipeShelf<R extends ShelfRecipe>({
         <ThemedText variant="sectionTitle" accessibilityRole="header" numberOfLines={1} style={styles.title}>
           {shelf.title}
         </ThemedText>
-        <Button
-          testID={`recipe-shelf-${shelf.key}-see-all`}
-          variant="plain"
-          label={t('recipes.shelves.seeAll', { count: shelf.count })}
-          onPress={onSeeAll}
-        />
+        {seeAll}
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
-        {shelf.items.map((item) => (
-          <View key={item.recipe.id}>{renderTile(item)}</View>
-        ))}
-      </ScrollView>
+      {tiles}
     </View>
   );
 }

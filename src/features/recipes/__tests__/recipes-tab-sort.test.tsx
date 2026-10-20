@@ -169,7 +169,10 @@ const menuSections = (root: ReactTestRenderer) =>
     ]);
 /** The ticked items, the sort's, the grouping's, then the photo size's. */
 const ticked = (root: ReactTestRenderer) => toggles(root).filter((t) => t.props.isOn).map((t) => t.props.label as string);
-const sections = (root: ReactTestRenderer) => root.root.findAllByType(FoldingSection);
+const inShelf = (n: ReactTestInstance | null): boolean =>
+  n !== null && (String(n.props.testID ?? '').startsWith('recipe-shelf-') || inShelf(n.parent));
+/** The grouped sections in the household cards (not the shelves, which fold too while grouped). */
+const sections = (root: ReactTestRenderer) => root.root.findAllByType(FoldingSection).filter((s) => !inShelf(s));
 /** Each By meal section as [title, count, names]. */
 const mealSections = (root: ReactTestRenderer) =>
   sections(root).map((s) => [s.props.title as string, s.props.count as number, rowNames(s)]);
@@ -546,7 +549,7 @@ describe('Group by', () => {
     // Tiles, not swipeable rows.
     expect(root.root.findAll((n) => n.type === ('Swipeable' as never))).toHaveLength(0);
     // The section's card sits on the screen's ground, so each tile is its own card.
-    expect(root.root.findAllByType(Card).filter((c) => c.findAllByType(FoldingSection).length === 1)[0].props.background).toBe(
+    expect(root.root.findAllByType(Card).filter((c) => c.findAllByType(FoldingSection).filter((f) => !inShelf(f)).length === 1)[0].props.background).toBe(
       'background',
     );
   });

@@ -14,7 +14,7 @@ Status: ✅ done · ⏳ partly done · ⬜ not started · ❓ unverified
 | App Store Connect | App record, TestFlight testers | `com.jgp.perfectbite` | ❓ | [alpha-testing §5–6](alpha-testing.md#5-first-build) |
 | Expo / EAS | Builds, submit, updates, env vars, APNs key | Project `eb79b313-81d7-46ca-a28b-2666db613c67` (`app.json` `extra.eas.projectId`) | ✅ | [alpha-testing §4](alpha-testing.md#4-eas-setup), [release](release.md) |
 | Supabase (hosted) | Postgres, Auth, Edge Functions, Vault, cron | Project ref `ardfjdorkkzymrqdihlw` | ✅ | [alpha-testing §2](alpha-testing.md#2-hosted-supabase), [admin](admin.md) |
-| Google Cloud | Google sign-in (OAuth) | Project ❓; client IDs in `.env.example` | ✅ | [alpha-testing "Before this will work"](alpha-testing.md#must-have) |
+| Google Cloud | Google sign-in (OAuth): app and admin portal share the Web client | Project ❓; client IDs in `.env.example` | ✅ (admin portal redirect URI ⬜) | [alpha-testing "Before this will work"](alpha-testing.md#must-have), [admin README](../admin/README.md#against-hosted-supabase) |
 | Google AI (Gemini) | Categorize, recipe import, tags, photos | Key `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ | [llm-calls](llm-calls.md) |
 | Sentry | Crash and error reporting | Org ❓ / project ❓ | ⏳ token in EAS, SDK not installed | Below |
 
@@ -24,6 +24,7 @@ Status: ✅ done · ⏳ partly done · ⬜ not started · ❓ unverified
 | --- | --- | --- |
 | App env, local | `.env.local` (from `.env.example`) | No |
 | App env, release builds | `.env.production` (public values only: Supabase URL, publishable key, Google client IDs) and EAS environment variables | `.env.production` yes |
+| Admin portal env | `admin/.env.local` (from `admin/.env.example`): Supabase URL and publishable key only, the hosted values match `.env.production` | No |
 | Edge Function secrets, local | `supabase/functions/.env` (from `.env.example`) | No |
 | Edge Function secrets, hosted | `supabase/functions/.env.production.local`, applied with `supabase secrets set --env-file` | No |
 | Google OAuth web client secret, local | `supabase/.env` | No |
@@ -55,6 +56,8 @@ Check against reality with `yarn dlx eas-cli env:list --environment production` 
 | Google auth provider | Dashboard → Auth → Providers | Dashboard | ✅ |
 | Vault: `project_url`, `notifications_worker_key`, `photo_cleanup_key` | SQL editor, [push-setup §5](push-setup.md#5-vault-secrets) | `select name from vault.secrets` | ❓ |
 | Auth site URL / redirect URLs (`perfectbite://`) | Dashboard → Auth → URL Configuration | Dashboard | ❓ |
+| Admin portal sign-in: Web client first in the Google provider's Client IDs; `http://localhost:3000/auth/callback` in Redirect URLs; `https://ardfjdorkkzymrqdihlw.supabase.co/auth/v1/callback` in the Web client's authorized redirect URIs (Google Cloud) | Dashboards, [admin README](../admin/README.md#against-hosted-supabase) | Continue with Google at http://localhost:3000 | ⬜ |
+| Admins (`private.admins`) | Table Editor or SQL editor, [admin.md](admin.md#add-or-remove-an-admin) | `select * from private.admins` | ⬜ |
 
 ## Push notifications
 

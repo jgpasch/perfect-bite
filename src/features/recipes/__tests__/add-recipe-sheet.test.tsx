@@ -20,6 +20,7 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
+jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
 
 const mockHasUrl = jest.fn<() => Promise<boolean>>();
 const mockClipboard = jest.fn<() => Promise<string>>();

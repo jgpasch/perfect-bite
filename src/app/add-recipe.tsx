@@ -1,5 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { router, Stack } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +34,7 @@ export default function AddRecipeSheet() {
   const t = useT();
   const { colors, spacing, sizes } = useTheme();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const canImport = useFeature('recipe_import');
   const canImportPhoto = useFeature('recipe_import_photo');
   const [picking, setPicking] = useState(false);
@@ -88,13 +90,14 @@ export default function AddRecipeSheet() {
   const hairline = [styles.flex, { height: StyleSheet.hairlineWidth, backgroundColor: colors.border }];
 
   return (
-    // Sized by its content (detent `fitToContents`), so no flex.
+    // Sized by its content (detent `fitToContents`), so no flex. A plain View isn't inset like a
+    // ScrollView, so it clears the sheet's transparent header (the Cancel toolbar) by hand.
     <View
       collapsable={false}
       style={{
         backgroundColor: colors.background,
         gap: spacing.md,
-        paddingTop: spacing.xs,
+        paddingTop: headerHeight + spacing.xs,
         paddingBottom: Math.max(insets.bottom, spacing.lg),
       }}>
       <Stack.Toolbar placement="left">
