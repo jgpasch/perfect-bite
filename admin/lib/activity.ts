@@ -2,6 +2,7 @@
 // `details` and who did it, and the page's filter and paging URLs, kept out of the page so they can
 // be tested. `details` is whatever the writing function stored (see the migrations), so everything
 // here reads it defensively.
+import { flagLabel, taskLabel } from "./ai-calls";
 import type { AdminAction, MonthlyLimit } from "./types";
 
 /** Rows a page on /activity. */
@@ -18,6 +19,7 @@ export const ACTION_LABELS = {
   delete_plan: "Deleted a plan",
   delete_user: "Deleted user",
   delete_account: "Deleted own account",
+  view_ai_call: "Viewed an AI call",
 } as const satisfies Record<string, string>;
 
 export type KnownAction = keyof typeof ACTION_LABELS;
@@ -73,6 +75,13 @@ export function actionWho(row: Pick<AdminAction, "action" | "performed_by" | "pe
   if (row.performed_by === "postgres") return "Dashboard";
   if (row.action === "delete_account") return "The user";
   return row.performed_by;
+}
+
+/** The page a row's summary links to: the call, for `view_ai_call`; else null. */
+export function actionHref(row: Pick<AdminAction, "action" | "details">): string | null {
+  if (row.action !== "view_ai_call") return null;
+  const id = text(record(row.details)?.ai_call_id);
+  return id === null ? null : `/ai-calls/${encodeURIComponent(id)}`;
 }
 
 // --- Summaries -------------------------------------------------------------------------------
@@ -181,6 +190,13 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
     }
     case "delete_account":
       return householdsSummary(details.households);
+    case "view_ai_call": {
+      const task = text(details.task);
+      const flag = text(details.flag);
+      const parts = [task === null ? "AI call" : taskLabel(task)];
+      if (flag !== null) parts.push(flagLabel(flag));
+      return parts.join(" · ");
+    }
     default:
       return rawSummary(details);
   }

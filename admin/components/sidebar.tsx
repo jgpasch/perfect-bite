@@ -2,7 +2,7 @@
 
 // The portal's deep-green sidebar (spec 4.12, "Look"): the mark, "The Perfect Bite" with its
 // "Back office" pill, the sections, and at the foot the admin's email with Sign out.
-import { Activity, LayoutGrid, LogOut, Sparkles, Users } from "lucide-react";
+import { Activity, LayoutGrid, LogOut, Sparkles, TriangleAlert, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -14,10 +14,12 @@ const SECTIONS = [
   { href: "/users", label: "Users", icon: Users },
   { href: "/plans", label: "Plans", icon: LayoutGrid },
   { href: "/ai-usage", label: "AI usage", icon: Sparkles },
+  { href: "/ai-calls", label: "AI calls", icon: TriangleAlert },
   { href: "/activity", label: "Activity", icon: Activity },
 ] as const;
 
-export function Sidebar({ email }: { email: string }) {
+/** `flaggedCount` is AI calls' badge: flagged calls in the last 7 days, hidden at zero. */
+export function Sidebar({ email, flaggedCount }: { email: string; flaggedCount: number }) {
   const pathname = usePathname();
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-sidebar-green text-on-sidebar">
@@ -33,6 +35,7 @@ export function Sidebar({ email }: { email: string }) {
       <nav aria-label="Sections" className="flex flex-col gap-0.5 px-3">
         {SECTIONS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
+          const badge = href === "/ai-calls" && flaggedCount > 0 ? flaggedCount : null;
           return (
             <Link
               key={href}
@@ -45,6 +48,14 @@ export function Sidebar({ email }: { email: string }) {
             >
               <Icon size={18} aria-hidden="true" />
               {label}
+              {badge !== null && (
+                <span
+                  aria-label={`${badge} flagged in the last 7 days`}
+                  className="ml-auto rounded-full bg-danger-soft px-2 py-0.5 text-[12px] font-bold text-danger"
+                >
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </Link>
           );
         })}

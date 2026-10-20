@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { RelativeDate } from "@/components/user-bits";
 import {
   ACTIVITY_PAGE_SIZE,
+  actionHref,
   actionLabel,
   actionSummary,
   actionTarget,
@@ -76,6 +77,7 @@ async function ActivityResults({ searchParams }: { searchParams: SearchParams })
               <tbody>
                 {actions.map((row) => {
                   const target = actionTarget(row);
+                  const href = actionHref(row);
                   return (
                     <tr key={row.id} className="border-b border-border align-top text-ink last:border-0">
                       <td className="py-2.5 pr-4 pl-5 whitespace-nowrap text-ink-secondary">
@@ -91,7 +93,13 @@ async function ActivityResults({ searchParams }: { searchParams: SearchParams })
                           <span className="font-mono text-[13px] text-ink-secondary">{target.label}</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-ink-secondary">{actionSummary(row)}</td>
+                      <td className="px-4 py-2.5 text-ink-secondary">
+                        {href === null ? (
+                          actionSummary(row)
+                        ) : (
+                          <Link href={href} prefetch={false} className="text-primary hover:underline">{actionSummary(row)}</Link>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-ink-secondary">
                         {row.note ?? <span className="text-ink-tertiary">—</span>}
                       </td>

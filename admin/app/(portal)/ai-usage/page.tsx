@@ -13,6 +13,7 @@ import {
   usedOfLimit,
   usersLine,
 } from "@/lib/ai-usage";
+import { aiCallsHref } from "@/lib/ai-calls";
 import { featureColors, featureLabel } from "@/lib/features";
 import { createClient } from "@/lib/supabase/server";
 import { loadPlanNames, type PlanNames } from "@/lib/supabase/plans";
@@ -126,7 +127,12 @@ function Calls({ usage }: { usage: AdminAiUsage }) {
           <StatsTable
             caption="By task"
             nameHeader="Task"
-            rows={calls.map((task) => ({ key: task.task, name: task.task, stats: task }))}
+            rows={calls.map((task) => ({
+              key: task.task,
+              name: task.task,
+              stats: task,
+              failuresHref: aiCallsHref({ kind: "failed", task: task.task }),
+            }))}
           />
           <StatsTable
             caption="By model"
@@ -145,7 +151,14 @@ function Calls({ usage }: { usage: AdminAiUsage }) {
   );
 }
 
-type StatsRow = { key: string; name: string; detail?: string; stats: AiCallStats };
+type StatsRow = {
+  key: string;
+  name: string;
+  detail?: string;
+  stats: AiCallStats;
+  /** Where the failure rate links: the task's failed calls. */
+  failuresHref?: string;
+};
 
 function StatsTable({
   caption,
@@ -178,7 +191,7 @@ function StatsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ key, name, detail, stats }) => (
+          {rows.map(({ key, name, detail, stats, failuresHref }) => (
             <tr key={key} className="border-b border-border text-ink last:border-0">
               <th scope="row" className={cn(cell, "font-mono font-normal")}>
                 {name}
@@ -186,9 +199,19 @@ function StatsTable({
               </th>
               <td className={cn(cell, "text-right")}>{count(stats.total)}</td>
               <td className={cn(cell, "text-right")}>
-                <span title={failureBreakdown(stats)} className="cursor-help underline decoration-dotted underline-offset-2">
-                  {failureRateText(stats)}
-                </span>
+                {failuresHref ? (
+                  <Link
+                    href={failuresHref}
+                    title={failureBreakdown(stats)}
+                    className="text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                  >
+                    {failureRateText(stats)}
+                  </Link>
+                ) : (
+                  <span title={failureBreakdown(stats)} className="cursor-help underline decoration-dotted underline-offset-2">
+                    {failureRateText(stats)}
+                  </span>
+                )}
               </td>
               <td className={cn(cell, "text-right")}>{count(stats.fallbacks)}</td>
               <td className={cn(cell, "text-right")}>{count(stats.input_tokens)}</td>

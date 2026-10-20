@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACTION_KEYS,
+  actionHref,
   actionLabel,
   actionOptions,
   actionSummary,
@@ -40,6 +41,7 @@ describe("actionLabel", () => {
       "Deleted a plan",
       "Deleted user",
       "Deleted own account",
+      "Viewed an AI call",
     ]);
   });
 
@@ -184,6 +186,37 @@ describe("actionTarget", () => {
 
   it("nothing at all", () => {
     expect(actionTarget(empty)).toEqual({ kind: "none", label: "—" });
+  });
+});
+
+describe("view_ai_call", () => {
+  const id = "0b9d6f4e-2c1a-4e8b-9f3d-5a7c1e2b3d4f";
+
+  it("is labelled and filterable", () => {
+    expect(actionLabel("view_ai_call")).toBe("Viewed an AI call");
+    expect(actionOptions("").map((o) => o.value)).toContain("view_ai_call");
+    expect(activityHref("view_ai_call", 1)).toBe("/activity?action=view_ai_call");
+  });
+
+  it("sums up the call's task and flag", () => {
+    expect(summary("view_ai_call", { ai_call_id: id, task: "recipePhotoDescription", flag: "not_food" })).toBe(
+      "AI photo: description · Not food",
+    );
+    expect(summary("view_ai_call", { ai_call_id: id, task: "extractRecipe", flag: null })).toBe("Recipe import");
+    expect(summary("view_ai_call", { ai_call_id: id, task: "someNewTask" })).toBe("someNewTask");
+    expect(summary("view_ai_call", {})).toBe("AI call");
+  });
+
+  it("links to the call", () => {
+    expect(actionHref({ action: "view_ai_call", details: { ai_call_id: id } })).toBe(`/ai-calls/${id}`);
+  });
+
+  it("links nowhere without a call id, or for other actions", () => {
+    expect(actionHref({ action: "view_ai_call", details: {} })).toBeNull();
+    expect(actionHref({ action: "view_ai_call", details: { ai_call_id: "" } })).toBeNull();
+    expect(actionHref({ action: "view_ai_call", details: { ai_call_id: 42 } })).toBeNull();
+    expect(actionHref({ action: "view_ai_call", details: null as unknown as Record<string, unknown> })).toBeNull();
+    expect(actionHref({ action: "set_user_plan", details: { ai_call_id: id } })).toBeNull();
   });
 });
 

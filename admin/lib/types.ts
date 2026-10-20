@@ -77,6 +77,8 @@ export type AdminUserDetail = Omit<AdminUserRow, "total_count"> & {
   usage: AdminFeatureUsage[];
   /** Newest first. */
   plan_history: AdminPlanHistoryEntry[];
+  /** Their flagged AI calls in the last 30 days, a count per flag (`{}` when none). */
+  ai_flags: Record<string, number>;
 };
 
 /** `admin_set_user_plan(p_user_id, p_plan_id, p_note)` returns its audit row's details. */
@@ -192,4 +194,75 @@ export type AdminActionList = {
   actions: AdminAction[];
   /** The matches before paging. */
   total_count: number;
+};
+
+// --- AI calls: admin_list_ai_calls, admin_ai_call, admin_ai_call_flag_count -----------------
+// From 20261123120000_admin_ai_calls.sql.
+
+/** `private.ai_call_flag`: why a call is flagged, or null. */
+export type AiCallFlag = "not_food" | "refused" | "content_filter";
+
+/** Which calls `admin_list_ai_calls` lists. */
+export type AiCallKind = "flagged" | "failed" | "photos";
+
+/** One call in `admin_list_ai_calls`. Status and flag are strings so an unknown one still shows. */
+export type AdminAiCallRow = {
+  id: string;
+  created_at: string;
+  /** As stored: an `AiTaskName` or `recipePhotoImage`. */
+  task: string;
+  /** `provider:model`. */
+  model: string;
+  prompt_version: string;
+  status: string;
+  flag: string | null;
+  error: string | null;
+  http_status: number | null;
+  finish_reason: string | null;
+  duration_ms: number;
+  fallback_of: string | null;
+  /** A fallback of this call ended `ok`. */
+  recovered: boolean;
+  /** Null for calls with no signed-in caller (the `yarn ai:*` scripts) and once the user is deleted. */
+  user_id: string | null;
+  /** While the user exists. */
+  user_email: string | null;
+  household_id: string | null;
+  recipe_id: string | null;
+  /** Image rows only: the `recipe-photos` object. */
+  photo_path: string | null;
+};
+
+/** `admin_list_ai_calls(p_kind, p_task, p_status, p_flag, p_user_id, p_limit, p_offset)`. */
+export type AdminAiCallList = {
+  /** Newest first. */
+  calls: AdminAiCallRow[];
+  /** The matches before paging. */
+  total_count: number;
+};
+
+/** `admin_ai_call`'s `fallback` and `primary`. */
+export type AdminAiCallLink = {
+  id: string;
+  task: string;
+  model: string;
+  status: string;
+  error: string | null;
+};
+
+/** `admin_ai_call(p_id)`: every column, plus the flag, the email, the photo and the linked attempts. Raises `not found` (P0002). */
+export type AdminAiCall = Omit<AdminAiCallRow, "recovered"> & {
+  instructions: string;
+  prompt: string;
+  output: unknown;
+  response_text: string | null;
+  error_body: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  reasoning_tokens: number | null;
+  /** The attempt that followed it: its fallback, or a description's image call. */
+  fallback: AdminAiCallLink | null;
+  /** The attempt it followed. */
+  primary: AdminAiCallLink | null;
 };

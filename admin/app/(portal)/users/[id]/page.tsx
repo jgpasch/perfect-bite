@@ -5,6 +5,7 @@ import { Suspense } from "react";
 
 import { ChangePlan } from "@/components/change-plan";
 import { Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
+import { aiCallsHref, aiFlagsLine } from "@/lib/ai-calls";
 import { featureColors } from "@/lib/features";
 import { mediumDate } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -84,6 +85,7 @@ function Card({ title, children, className }: { title: string; children: React.R
 }
 
 function Header({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) {
+  const flagged = aiFlagsLine(user.ai_flags) !== "None";
   return (
     <header className="flex items-center gap-4">
       <Avatar displayName={user.display_name} email={user.email} size="lg" />
@@ -102,6 +104,15 @@ function Header({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) {
           Joined <RelativeDate iso={user.created_at} /> · Last sign-in <RelativeDate iso={user.last_sign_in_at} />
         </p>
         <p className="mt-0.5 font-mono text-[12px] text-ink-tertiary select-all">{user.user_id}</p>
+        <p className="mt-1 text-[15px] text-ink-secondary">
+          AI flags:{" "}
+          <Link
+            href={aiCallsHref({ kind: "flagged", user: user.user_id })}
+            className={cn("font-semibold hover:underline", flagged ? "text-danger" : "text-primary")}
+          >
+            {aiFlagsLine(user.ai_flags)}
+          </Link>
+        </p>
       </div>
     </header>
   );

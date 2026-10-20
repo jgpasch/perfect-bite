@@ -26,9 +26,12 @@ async function AdminGate({ children }: { children: React.ReactNode }) {
   if (error) throw new Error(`Couldn't check admin access: ${error.message}`);
   if (isAdmin !== true) return <NotAuthorized email={email} />;
 
+  // The badge is a nicety: if the count fails, the portal still opens without it.
+  const { data: flaggedCount } = await supabase.rpc("admin_ai_call_flag_count", { p_days: 7 });
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar email={email} />
+      <Sidebar email={email} flaggedCount={typeof flaggedCount === "number" ? flaggedCount : 0} />
       <main className="min-w-0 flex-1 px-10 py-8">{children}</main>
     </div>
   );
