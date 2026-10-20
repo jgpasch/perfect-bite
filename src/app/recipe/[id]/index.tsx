@@ -56,9 +56,8 @@ import { AddIngredientRow } from '@/features/recipes/add-ingredient-row';
 import { ensureStepMatchSoon, useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { quickAddTitle } from '@/features/recipes/quick-add';
-import { RecipeIndexCard } from '@/features/recipes/recipe-index-card';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
-import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
+import { normalizeRecipeLink, openRecipeLink, recipeLinkParts } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
 import { RecipeLinkRow } from '@/features/recipes/recipe-link-row';
 import {
@@ -70,7 +69,7 @@ import {
   usePhotoGeneration,
   usePhotoUpload,
 } from '@/features/recipes/photo-upload';
-import { RecipePhotoHeader } from '@/features/recipes/recipe-photo';
+import { RecipePhotoHeader, RecipeTitlePhoto } from '@/features/recipes/recipe-photo';
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
 import { dismissPagesDeleted, usePagesDeleted } from '@/features/recipes/recipe-pages';
@@ -106,10 +105,11 @@ import { displayItemName, stepPath, stepTexts } from '@/shared';
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const t = useT();
-  const { colors, spacing, sizes, aisles } = useTheme();
+  const { spacing, sizes, aisles } = useTheme();
   const headerHeight = useHeaderHeight();
-  // Settings > Design trials > Recipe view: the index card (board F) or the standard view, followed at once.
-  const indexCard = useRecipeViewStyle() === 'indexCard';
+  // Settings > Design trials > Recipe view: the title on the photo with a byline (board E) or the standard view,
+  // followed at once.
+  const titleOnPhoto = useRecipeViewStyle() === 'titleOnPhoto';
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
   const recipe = recipeRows[0];
   // ingredients and overrides: re-read when an ingredient gets its aisle, so its dot follows.
@@ -227,6 +227,16 @@ export default function RecipeScreen() {
       'number-pad',
     );
 
+  const editLink = () =>
+    Alert.prompt(
+      t('recipes.link.label'),
+      undefined,
+      (text) => updateRecipe(recipe.id, { name: recipe.name, notes: recipe.notes ?? '', sourceUrl: normalizeRecipeLink(text ?? '') }),
+      'plain-text',
+      recipe.sourceUrl ?? '',
+      'url',
+    );
+
   const edit = (ingredient: RecipeIngredient) => {
     const amount = formatAmount(ingredient);
     Alert.prompt(
@@ -303,14 +313,12 @@ export default function RecipeScreen() {
   return (
     <Screen>
       {/* With a photo the native header is transparent over it (board 13); without, it takes the band's
-          tint, so back and actions sit on it (board 06). The index card's is the plain background (board F). */}
+          tint, so back and actions sit on it (board 06). Title on photo always has its photo or tile colour (board E). */}
       <Stack.Screen
         options={
-          indexCard
-            ? { headerTransparent: false, headerStyle: { backgroundColor: colors.background }, headerShadowVisible: false }
-            : photoSource
-              ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
-              : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
+          photoSource || titleOnPhoto
+            ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
+            : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
         }
       />
       <Stack.Toolbar placement="right">
@@ -322,6 +330,12 @@ export default function RecipeScreen() {
           {base !== null ? (
             <Stack.Toolbar.MenuAction icon="person.2" onPress={editServings}>
               {t('recipes.servings.edit')}
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+          {/* Title on photo's byline has no link field, so the link is added or edited from here. */}
+          {titleOnPhoto ? (
+            <Stack.Toolbar.MenuAction icon="link" onPress={editLink}>
+              {recipe.sourceUrl ? t('recipes.link.edit') : t('recipes.link.add')}
             </Stack.Toolbar.MenuAction>
           ) : null}
           {pageCount > 0 ? (
@@ -344,7 +358,7 @@ export default function RecipeScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
-        keyboardVerticalOffset={photoSource && !indexCard ? 0 : headerHeight}>
+        keyboardVerticalOffset={photoSource || titleOnPhoto ? 0 : headerHeight}>
         {/* The actions float over the scroll view's bottom (spec 4.5), and its content ends above them. */}
         {/* A tap out that no row or control claims tucks a kept add bar away; while the field is focused,
             the scroll view's own tap out hides the keyboard instead. */}
@@ -365,56 +379,43 @@ export default function RecipeScreen() {
             contentInsetAdjustmentBehavior="never"
             // The last row and the Method card's last line scroll clear of the dock, hidden while adding.
             contentContainerStyle={{ paddingBottom: (showAddBar ? 0 : dockHeight) + spacing.lg }}>
-            {indexCard ? (
-              <RecipeIndexCard
-                recipe={recipe}
-                hue={hue}
-                ingredients={ingredients}
-                photoSource={photoSource}
-                hasPhoto={hasPhoto}
-                generating={!hasPhoto && generation?.status === 'generating'}
-                onPhotoError={uploading ? () => {} : photo.onError}
-                onOpenPhoto={openPhoto}
-                base={base}
-                servings={servings}
-                onServingsChange={setChosen}
-                onEditServings={editServings}
-                onPlan={openPlan}
-                onEditIngredient={edit}
-                onAddIngredientToList={addToListMenu}
-                onDeleteIngredient={removeIngredient}
-                onAddIngredient={openAdd}
-                onIngredientsLayout={ingredientsLayout}
-                hasSteps={steps > 0}
-                methodPicks={methodPicks}
-                methodCount={methodCount}
-                onPick={(group, option) => setMethodPicks((current) => withPick(current, group, option))}
-                pageCount={pageCount}
-                onViewPages={openPages}
-                onEditSteps={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
-              />
+            {titleOnPhoto ? (
+              <>
+                <RecipeTitlePhoto
+                  name={recipe.name}
+                  source={photoSource}
+                  tint={aisles[hue]}
+                  uploading={uploading}
+                  generating={!hasPhoto && generation?.status === 'generating'}
+                  onError={uploading ? () => {} : photo.onError}
+                  onAddPhoto={openPhoto}
+                />
+                <RecipeByline recipe={recipe} hue={hue} hasIngredients={ingredients.length > 0} onPlan={openPlan} />
+              </>
             ) : (
               <>
-            {photoSource ? (
-              <RecipePhotoHeader
-                source={photoSource}
-                tint={aisles[hue].soft}
-                // The source credit is for the site's photo, never the household's own.
-                sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
-                uploading={uploading}
-                onError={uploading ? () => {} : photo.onError}
-              />
-            ) : null}
-            <RecipeBand
-              recipe={recipe}
-              hue={hue}
-              showAddPhoto={!hasPhoto && !uploading && generation?.status !== 'generating'}
-              generating={!hasPhoto && generation?.status === 'generating'}
-              hasIngredients={ingredients.length > 0}
-              onEditServings={editServings}
-              onPlan={openPlan}
-              onAddPhoto={openPhoto}
-            />
+                {photoSource ? (
+                  <RecipePhotoHeader
+                    source={photoSource}
+                    tint={aisles[hue].soft}
+                    // The source credit is for the site's photo, never the household's own.
+                    sourceUrl={uploading || photo.own ? null : recipe.sourceUrl}
+                    uploading={uploading}
+                    onError={uploading ? () => {} : photo.onError}
+                  />
+                ) : null}
+                <RecipeBand
+                  recipe={recipe}
+                  hue={hue}
+                  showAddPhoto={!hasPhoto && !uploading && generation?.status !== 'generating'}
+                  generating={!hasPhoto && generation?.status === 'generating'}
+                  hasIngredients={ingredients.length > 0}
+                  onEditServings={editServings}
+                  onPlan={openPlan}
+                  onAddPhoto={openPhoto}
+                />
+              </>
+            )}
             {/* The actions are in the dock (spec 4.5), so the band runs straight into the switch or the card. */}
             <View style={{ height: spacing.lg }} />
             {/* With steps, one card at a time under the switch; without, Ingredients over the Method's Add steps. */}
@@ -450,6 +451,9 @@ export default function RecipeScreen() {
                           accessibilityLabel={t('recipes.servings.title')}
                         />
                       </View>
+                    ) : titleOnPhoto && base === null ? (
+                      // The byline has no room for it, so title on photo offers Add servings here.
+                      <Pill dashed icon="person.2" label={t('recipes.servings.add')} onPress={editServings} />
                     ) : undefined
                   }
                 />
@@ -490,8 +494,6 @@ export default function RecipeScreen() {
                 onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
               />
             ) : null}
-              </>
-            )}
           </ScrollView>
           {/* The toasts float above the dock. */}
           <RecipeActionDock
@@ -732,6 +734,114 @@ function RecipeBand({
   );
 }
 
+/**
+ * Title on photo's byline (spec 4.5, board E), under the name on the photo, in the recipe's soft tint: the plan
+ * badges, then one line of the link's host (a `link` glyph and the host in the hue's `strong` `amount`, opening
+ * Safari) and the tags (RecipeTagRow), then under a `border` hairline the notes on one line after a `note.text`
+ * glyph, tapped to edit as the band's are, or "+ Add notes". No link field: the ⋯ menu adds or edits the link.
+ */
+function RecipeByline({
+  recipe,
+  hue,
+  hasIngredients,
+  onPlan,
+}: {
+  recipe: Recipe;
+  hue: AisleHue;
+  hasIngredients: boolean;
+  onPlan: () => void;
+}) {
+  const t = useT();
+  const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
+  const canSuggest = useFeature('recipe_tags') && hasIngredients;
+  const [notes, setNotes] = useState(recipe.notes ?? '');
+  const [editingNotes, setEditingNotes] = useState(false);
+  const tint = aisles[hue];
+  const link = recipeLinkParts(recipe.sourceUrl);
+
+  return (
+    <View
+      testID="recipe-byline"
+      style={{ backgroundColor: tint.soft, paddingHorizontal: spacing.lg + spacing.xs, paddingVertical: spacing.xs }}>
+      <PlanBadges recipeId={recipe.id} onOpen={onPlan} />
+      <View style={[styles.row, { gap: spacing.md }]}>
+        {recipe.sourceUrl && link ? (
+          <Pressable
+            onPress={() => void openRecipeLink(recipe.sourceUrl ?? '')}
+            accessibilityRole="link"
+            accessibilityLabel={t('recipes.link.row', { link: link.host })}
+            accessibilityHint={t('recipes.link.openHint')}
+            style={({ pressed }) => [
+              styles.row,
+              styles.linkHost,
+              { gap: spacing.xs, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+            ]}>
+            <Icon name="link" tint={tint.strong} size={sizes.iconSmall} weight="bold" />
+            <ThemedText variant="amount" numberOfLines={1} style={[styles.shrink, { color: tint.strong }]}>
+              {link.host}
+            </ThemedText>
+          </Pressable>
+        ) : null}
+        <View style={styles.flex}>
+          <RecipeTagRow
+            recipe={recipe}
+            onEdit={() => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id } })}
+            onSuggest={
+              canSuggest
+                ? () => router.push({ pathname: '/recipe/[id]/tags', params: { id: recipe.id, suggest: '1' } })
+                : undefined
+            }
+          />
+        </View>
+      </View>
+      <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+        {editingNotes ? (
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            onEndEditing={() => {
+              updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl: recipe.sourceUrl ?? '' });
+              setEditingNotes(false);
+            }}
+            autoFocus
+            placeholder={t('recipes.screen.addNotes')}
+            placeholderTextColor={colors.inkSecondary}
+            selectionColor={tint.strong}
+            accessibilityLabel={t('recipes.screen.notes')}
+            multiline
+            style={[typography.subhead, { color: colors.ink, minHeight: sizes.minTapTarget, paddingVertical: spacing.sm }]}
+          />
+        ) : (
+          <Pressable
+            onPress={() => setEditingNotes(true)}
+            accessibilityRole="button"
+            accessibilityLabel={notes.trim() ? t('recipes.screen.notesLabel', { notes: notes.trim() }) : t('recipes.screen.addNotes')}
+            style={({ pressed }) => [
+              styles.row,
+              { gap: spacing.sm, minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
+            ]}>
+            {notes.trim() ? (
+              <>
+                <Icon name="note.text" color="inkSecondary" size={sizes.iconSmall} />
+                <ThemedText variant="subhead" numberOfLines={1} ellipsizeMode="tail" style={styles.shrink}>
+                  {notes.trim()}
+                </ThemedText>
+              </>
+            ) : (
+              <>
+                <Icon name="plus" color="inkSecondary" size={sizes.iconSmall} weight="semibold" />
+                <ThemedText variant="footnote" color="inkSecondary">
+                  {t('recipes.screen.addNotes')}
+                </ThemedText>
+              </>
+            )}
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
 /** The band's Add photo tile (spec 4.5): a 2 pt dashed `controlBorder` outline, radius `md`. VoiceOver: "Add photo, button". */
 function AddPhotoTile({ onPress }: { onPress: () => void }) {
   const t = useT();
@@ -798,5 +908,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center' },
   start: { alignSelf: 'flex-start' },
+  shrink: { flexShrink: 1 },
+  // The host keeps up to half the byline's line; the tags take the rest and truncate.
+  linkHost: { flexShrink: 0, maxWidth: '50%' },
   generating: { aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderCurve: 'continuous' },
 });

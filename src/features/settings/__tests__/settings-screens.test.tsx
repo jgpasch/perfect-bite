@@ -445,12 +445,12 @@ describe('Settings', () => {
       const states = (root: ReactTestRenderer) =>
         segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
 
-      it('follows Plan grid, Standard selected until Index card is picked', () => {
+      it('follows Plan grid, Standard selected until Title on photo is picked', () => {
         const root = render(<SettingsScreen />);
-        expect(textOf(root)).toContain('Plan grid Compact Photo Expand Recipe view Standard Index card');
+        expect(textOf(root)).toContain('Plan grid Compact Photo Expand Recipe view Standard Title on photo');
         expect(states(root)).toEqual([
           ['Standard', true],
-          ['Index card', false],
+          ['Title on photo', false],
         ]);
         expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBeNull();
       });
@@ -458,11 +458,11 @@ describe('Settings', () => {
       it('saves recipe.viewStyle and selects the picked style', () => {
         const root = render(<SettingsScreen />);
         click(segments(root)[1]);
-        expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('indexCard');
-        expect(getRecipeViewStyle()).toBe('indexCard');
+        expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('titleOnPhoto');
+        expect(getRecipeViewStyle()).toBe('titleOnPhoto');
         expect(states(root)).toEqual([
           ['Standard', false],
-          ['Index card', true],
+          ['Title on photo', true],
         ]);
         expect(getPlanGridStyle()).toBe('compact');
         click(segments(root)[0]);
@@ -471,9 +471,9 @@ describe('Settings', () => {
       });
 
       it('shows a style saved before, and follows a change made elsewhere', () => {
-        setRecipeViewStyle('indexCard');
+        setRecipeViewStyle('titleOnPhoto');
         const root = render(<SettingsScreen />);
-        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Index card');
+        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Title on photo');
         act(() => setRecipeViewStyle('standard'));
         expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Standard');
       });
@@ -489,7 +489,7 @@ describe('Settings', () => {
         try {
           const root = render(<SettingsScreen />);
           expect(labelled(root, 'Estilo de la vista de receta')).toHaveLength(1);
-          expect(textOf(root)).toContain('Vista de receta Estándar Ficha');
+          expect(textOf(root)).toContain('Vista de receta Estándar Título en la foto');
         } finally {
           initI18n('en');
         }

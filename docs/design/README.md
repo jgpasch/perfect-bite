@@ -5,7 +5,8 @@ Mockups the spec and `tasks.md` point to. `.html` files open in a browser. `.dc.
 | Folder | Canvas | Chosen |
 |---|---|---|
 | `cook-mode/` | [Cook Mode Mockups](https://claude.ai/artifact/PpQqKt8h6CNXecv3eU1XBb) | B, steps with their ingredients |
-| `plan-grid/` | [Plan Grid Cards](https://claude.ai/artifact/F13fT2y9nhi4MViFav19Zu) | `today-compact` (reference), A, and B + D (both as a trial setting) |
+| `plan-grid/` | [Plan Grid Cards](https://claude.ai/artifact/F13fT2y9nhi4MViFav19Zu) | `today-compact` (reference), and B + D, Expand, which is now the only grid (A, Photo, was a trial and is retired) |
+| `plan-slot-recipes/` | [Plan: several recipes per meal](https://claude.ai/artifact/QkLNzvx5DdDLGwMpGbZmWp) | all: grid cells A (Stacked) and B (Split photo, the default) as a setting, C the agenda, D the meal sheet, E the add sheet. The sample week's Saturday dinner is a seven-recipe party |
 | `fonts/` | [Font Pairings](https://claude.ai/artifact/L1V1fg1oN9dzuzVMb5ziot) | all five, as a trial setting |
 | `item-requests/` | [Who added it & photo requests](https://claude.ai/artifact/YDjSWr3wp7Wtf3PZad79j2) | all: A–B who added it (`tasks.md`), C–G asking for a photo (`tasks.md`) |
 | `recipe-actions/` | [Recipe bottom bar](https://claude.ai/artifact/3xPqvetLja9BnuApNweWWT) | A, the action dock, and the adding state (B here, which applies to it) |
@@ -15,4 +16,4 @@ Mockups the spec and `tasks.md` point to. `.html` files open in a browser. `.dc.
 | `photo-import-pages/` | [Photo import original pages](https://claude.ai/artifact/4zquQ79qXPSyb5xzBCgCjU) | all: See original pages in the recipe's ⋯ menu (A), the pages full screen (B), the Method card's credit (C) and the import sheet's note (D) |
 | `add-recipe-sheet/` | [Add Recipe Sheet](https://claude.ai/artifact/WwfbT17BzDwDHioaM1siwJ) | B, one smart field: empty with the Paste link chip (B1) and with a link in it (B2). Today's sheet and options A and C are only on the canvas |
 | `list-empty-state/` | [List empty state](https://claude.ai/artifact/EHUELSPA6iHE8hsWgdwQg8) | C, a glyph, headline, **Add an item** and **Add from a recipe**, with no view menu (`c-recipe-path.png` and its board). `now.dc.html` is the old screen. Options A and B are only on the canvas |
-| `recipe-view/` | — (a PNG export, no canvas link) | F, the index card (`f-index-card.png`), as a trial setting beside today's recipe screen. The dock keeps **Plan**, which the mockup leaves out |
+| `recipe-view/` | — (a PNG export, no canvas link) | E, title on photo with a byline (`e-title-on-photo.png`), as a trial setting beside today's recipe screen |

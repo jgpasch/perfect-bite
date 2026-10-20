@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a side sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #C9D3C7; color: #1D2A22; font-family: Figtree, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="height: 56px; flex-shrink: 0;"></div>
+  <div style="flex-grow: 1; background: #EEF3EC; border-radius: 24px 24px 0 0; padding: 8px 16px 0; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+    <div style="align-self: center; width: 36px; height: 5px; border-radius: 3px; background: #B9C4BC;"></div>
+    <div style="display: flex; align-items: flex-start; gap: 12px;">
+      <button aria-label="Back" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 22px; border: none; background: #DCE4DA; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 12px; font-weight: 700; color: #6E4594;">Tuesday 13 · Dinner</span>
+        <h2 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-size: 30px; font-weight: 800; line-height: 34px; letter-spacing: -0.6px;">Add to dinner</h2>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #DDEFE2; color: #1F5233; font-size: 13px; font-weight: 600;">
+      <span style="display: flex;">
+        <span style="width: 20px; height: 20px; box-sizing: border-box; border-radius: 6px; border: 2px solid #DDEFE2; background: #C9A43E;"></span>
+        <span style="width: 20px; height: 20px; box-sizing: border-box; border-radius: 6px; border: 2px solid #DDEFE2; background: #7FA05A; margin-left: -7px;"></span>
+      </span>
+      <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">With Lemon ricotta pasta, Caesar salad</span>
+    </div>
+    <label style="height: 44px; border-radius: 12px; background: #FFFFFF; padding: 0 12px; display: flex; align-items: center; gap: 8px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <input type="search" placeholder="Search recipes" aria-label="Search recipes" style="flex-grow: 1; border: none; outline: none; background: transparent; font: inherit; font-size: 17px; color: #1D2A22;">
+    </label>
+    <div style="display: flex; gap: 8px;">
+      <button aria-pressed="true" style="height: 36px; padding: 0 14px; border-radius: 18px; border: none; background: #2E6B45; color: #FFFFFF; font: inherit; font-size: 15px; font-weight: 600;">Dinner</button>
+      <button aria-pressed="false" style="height: 36px; padding: 0 14px; border-radius: 18px; border: none; background: #FFFFFF; color: #1D2A22; font: inherit; font-size: 15px; font-weight: 600;">All recipes</button>
+    </div>
+    <div style="background: #FFFFFF; border-radius: 16px; display: flex; flex-direction: column;">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+        <button disabled="{{r.disabled}}" style="border: none; background: transparent; font: inherit; color: #1D2A22; text-align: left; display: flex; align-items: center; gap: 12px; padding: 8px 12px; min-height: 56px; border-top: 1px solid {{r.rule}}; opacity: {{r.opacity}};">
+          <span style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 9px; background: {{r.bg}}; display: flex; align-items: center; justify-content: center;"><span style="width: 18px; height: 18px; border-radius: 9px; background: {{r.food}};"></span></span>
+          <span style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+            <span style="font-size: 17px; font-weight: 600; line-height: 22px;">{{r.name}}</span>
+            <span style="font-size: 13px; color: #55635A;">{{r.sub}}</span>
+          </span>
+          <sc-if value="{{r.disabled}}" hint-placeholder-val="{{false}}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E6B45" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+          </sc-if>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+const rows = [
+  { name: 'Beef stew', sub: '2 hr 30 min', bg: '#A9745A', food: '#62351F' },
+  { name: 'Caesar salad', sub: 'Already in dinner', bg: '#CFE0B4', food: '#7FA05A', disabled: true },
+  { name: 'Chicken tacos', sub: '35 min', bg: '#E3A071', food: '#B4532A' },
+  { name: 'Garlic green beans', sub: '15 min', bg: '#C7DDB0', food: '#5E8A3A' },
+  { name: 'Lemon ricotta pasta', sub: 'Already in dinner', bg: '#EFDDA0', food: '#C9A43E', disabled: true },
+  { name: 'Roast chicken', sub: '1 hr 20 min', bg: '#D9A46C', food: '#9A5A28' },
+  { name: 'Salmon and rice', sub: '25 min', bg: '#F0B9A0', food: '#D06E4C' },
+].map((r, i) => ({ ...r, disabled: !!r.disabled, rule: i === 0 ? 'transparent' : '#EEF1EC', opacity: r.disabled ? 0.6 : 1 }));
+return { rows };
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plan grid, split photo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2E6B45}a:hover{color:#1F5233}
+</style>
+</helmet>
+<div style="width: 390px; height: 1200px; box-sizing: border-box; background: #EEF3EC; color: #1D2A22; font-family: Figtree, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="padding: 20px 16px 12px; display: flex; flex-direction: column; gap: 12px;">
+    <h1 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-size: 40px; font-weight: 800; letter-spacing: -1px;">Plan</h1>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button aria-label="Previous week" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #FFFFFF; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+      <div style="flex-grow: 1; text-align: center; font-size: 17px; font-weight: 700;">Oct 11 – 17</div>
+      <button aria-label="Next week" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #FFFFFF; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D2A22" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></button>
+      <button aria-label="Shop this week" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #2E6B45; display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 11h10.2L20 8H6.2"></path><circle cx="9" cy="19.5" r="1.4"></circle><circle cx="17" cy="19.5" r="1.4"></circle></svg></button>
+    </div>
+  </div>
+  <div style="padding: 0 16px; display: flex; flex-direction: column; gap: 6px;">
+    <div style="display: flex; gap: 6px;">
+      <div style="width: 44px; flex-shrink: 0;"></div>
+      <div style="flex: 1 1 0; text-align: center; padding: 5px 0; border-radius: 999px; background: #F6EBD4; color: #8A5C0C; font-size: 12px; font-weight: 700;">Breakfast</div>
+      <div style="flex: 1 1 0; text-align: center; padding: 5px 0; border-radius: 999px; background: #DCEFEC; color: #1F6E68; font-size: 12px; font-weight: 700;">Lunch</div>
+      <div style="flex: 1 1 0; text-align: center; padding: 5px 0; border-radius: 999px; background: #ECE3F5; color: #6E4594; font-size: 12px; font-weight: 700;">Dinner</div>
+    </div>
+    <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+      <div style="display: flex; gap: 6px; align-items: stretch;">
+        <button aria-label="{{d.label}}" aria-expanded="{{d.open}}" style="width: 44px; min-height: 44px; flex-shrink: 0; border: none; padding: 0; background: transparent; font: inherit; display: flex; align-items: center; justify-content: center;">
+          <span style="width: 40px; padding: 4px 0; border-radius: 12px; display: flex; flex-direction: column; align-items: center; background: {{d.pillBg}}; color: {{d.pillInk}};">
+            <span style="font-size: 12px; font-weight: 700;">{{d.short}}</span>
+            <span style="font-size: 15px; font-weight: 600;">{{d.date}}</span>
+          </span>
+        </button>
+        <sc-if value="{{d.open}}" hint-placeholder-val="{{false}}">
+          <div style="flex: 1 1 0; min-width: 0; background: #FFFFFF; border-radius: 16px; padding: 6px 10px; display: flex; flex-direction: column;">
+            <sc-for list="{{d.rows}}" as="r" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid {{r.rule}};">
+                <span style="font-size: 12px; font-weight: 700; color: {{r.mealInk}};">{{r.meal}}</span>
+                <sc-for list="{{r.recipes}}" as="x" hint-placeholder-count="1">
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="width: 64px; height: 48px; flex-shrink: 0; border-radius: 8px; overflow: hidden; background: {{x.bg}};">
+                      <svg style="width: 100%; height: 100%; display: block;" viewBox="0 0 64 48" aria-hidden="true"><circle cx="32" cy="24" r="21" fill="#FFFFFF" fill-opacity="0.28"></circle><circle cx="32" cy="24" r="14" fill="{{x.food}}"></circle><circle cx="28" cy="20" r="4" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
+                    </div>
+                    <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+                      <span style="font-size: 15px; font-weight: 700; line-height: 19px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{x.name}}</span>
+                      <span style="font-size: 12px; font-weight: 600; color: #55635A;">{{x.time}}</span>
+                    </div>
+                  </div>
+                </sc-for>
+                <sc-if value="{{r.isNote}}" hint-placeholder-val="{{false}}">
+                  <span style="font-size: 15px; font-style: italic; color: #55635A;">{{r.note}}</span>
+                </sc-if>
+                <sc-if value="{{r.isEmpty}}" hint-placeholder-val="{{false}}">
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="width: 64px; height: 48px; flex-shrink: 0; box-sizing: border-box; border-radius: 8px; border: 1.5px dashed #B9C4BC; display: flex; align-items: center; justify-content: center;">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                    </div>
+                    <span style="font-size: 15px; font-weight: 600; color: #55635A;">Nothing planned</span>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{d.closed}}" hint-placeholder-val="{{true}}">
+          <sc-for list="{{d.cells}}" as="c" hint-placeholder-count="3">
+            <div style="flex: 1 1 0; min-width: 0; min-height: 104px; box-sizing: border-box; border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 8px; background: {{c.cellBg}}; border: 1.5px dashed {{c.dash}}; justify-content: {{c.justify}}; align-items: {{c.align}}; opacity: {{c.opacity}};">
+              <sc-if value="{{c.isRecipe}}" hint-placeholder-val="{{true}}">
+                <div style="height: 62px; border-radius: 8px; overflow: hidden; display: flex; gap: 2px;">
+                  <sc-for list="{{c.recipes}}" as="x" hint-placeholder-count="1">
+                    <div style="flex: 1 1 0; min-width: 0; background: {{x.bg}}; display: flex; align-items: center; justify-content: center;">
+                      <span style="width: {{x.plate}}; height: {{x.plate}}; border-radius: 50%; background: {{x.food}}; box-shadow: 0 0 0 5px rgba(255,255,255,0.28);"></span>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{c.hasMore}}" hint-placeholder-val="{{false}}">
+                    <div style="flex: 1 1 0; min-width: 0; background: #DCE4DA; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">{{c.moreSlice}}</div>
+                  </sc-if>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 3px;">
+                  <sc-for list="{{c.recipes}}" as="x" hint-placeholder-count="1">
+                    <div style="font-size: 12px; font-weight: 700; line-height: 15px; display: -webkit-box; -webkit-line-clamp: {{x.clamp}}; -webkit-box-orient: vertical; overflow: hidden;">{{x.name}}</div>
+                  </sc-for>
+                  <sc-if value="{{c.hasMore}}" hint-placeholder-val="{{false}}">
+                    <div style="font-size: 12px; font-weight: 600; line-height: 15px; color: #55635A;">{{c.more}}</div>
+                  </sc-if>
+                </div>
+              </sc-if>
+              <sc-if value="{{c.isNote}}" hint-placeholder-val="{{false}}">
+                <div style="font-size: 13px; font-style: italic; color: #55635A; text-align: center;">{{c.note}}</div>
+              </sc-if>
+              <sc-if value="{{c.showPlus}}" hint-placeholder-val="{{false}}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7C877F" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              </sc-if>
+            </div>
+          </sc-for>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1200}}'>
+class Component extends DCLogic {
+renderVals() {
+const R = {
+  pancakes: { n: 'Blueberry pancakes', bg: '#E7C48A', f: '#B9783A', t: '25 min' },
+  bacon: { n: 'Maple bacon', bg: '#E2A58F', f: '#9A3F2A', t: '20 min' },
+  chili: { n: 'Leftover chili', bg: '#B8664F', f: '#7E2F22', t: '10 min' },
+  chicken: { n: 'Roast chicken', bg: '#D9A46C', f: '#9A5A28', t: '1 hr 20 min' },
+  potatoes: { n: 'Crispy potatoes', bg: '#EFDDA0', f: '#C9A43E', t: '45 min' },
+  oats: { n: 'Overnight oats', bg: '#E6D8BC', f: '#B59B6A', t: '5 min' },
+  wraps: { n: 'Turkey wraps', bg: '#B9CC93', f: '#6F8E45', t: '10 min' },
+  tacos: { n: 'Chicken tacos', bg: '#E3A071', f: '#B4532A', t: '35 min' },
+  rice: { n: 'Mexican rice', bg: '#F1CDA8', f: '#D07A3A', t: '30 min' },
+  guac: { n: 'Guacamole', bg: '#C7DDB0', f: '#6F8E45', t: '10 min' },
+  lentil: { n: 'Red lentil soup', bg: '#E0A15E', f: '#B0632A', t: '40 min' },
+  ricotta: { n: 'Lemon ricotta pasta', bg: '#EFDDA0', f: '#C9A43E', t: '25 min' },
+  caesar: { n: 'Caesar salad', bg: '#CFE0B4', f: '#7FA05A', t: '15 min' },
+  granola: { n: 'Yogurt and granola', bg: '#EDE3D1', f: '#B98B55', t: '5 min' },
+  gnocchi: { n: 'Sheet-pan gnocchi', bg: '#D8B07E', f: '#9C6B34', t: '30 min' },
+  stew: { n: 'Beef stew', bg: '#A9745A', f: '#62351F', t: '2 hr 30 min' },
+  bread: { n: 'Crusty bread', bg: '#EDE3D1', f: '#B98B55', t: '3 hr' },
+  shak: { n: 'Shakshuka', bg: '#E09078', f: '#A8361F', t: '35 min' },
+  salmon: { n: 'Salmon and rice', bg: '#F0B9A0', f: '#D06E4C', t: '25 min' },
+  greens: { n: 'Garlic green beans', bg: '#C7DDB0', f: '#5E8A3A', t: '15 min' },
+};
+const MEALS = [['Breakfast', '#8A5C0C'], ['Lunch', '#1F6E68'], ['Dinner', '#6E4594']];
+const LONG = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+const W = [
+  ['Sun', '11', [['pancakes', 'bacon'], ['chili'], ['chicken', 'potatoes']]],
+  ['Mon', '12', [['oats'], ['wraps'], ['tacos', 'rice', 'guac']]],
+  ['Tue', '13', [null, ['lentil'], ['ricotta', 'caesar']]],
+  ['Wed', '14', [['granola'], 'note:Eat out', ['gnocchi']]],
+  ['Thu', '15', [null, null, 'note:Pizza night']],
+  ['Fri', '16', [null, ['lentil'], ['stew', 'bread']]],
+  ['Sat', '17', [['shak'], null, ['chicken', 'potatoes', 'caesar', 'bread', 'guac', 'rice', 'greens']]],
+];
+const days = W.map(([short, date, cells], i) => {
+  const today = short === 'Tue';
+  const past = i < 2;
+  const open = today;
+  return {
+    short, date, open, closed: !open,
+    label: LONG[short] + ' ' + date + (open ? ', expanded' : ', collapsed'),
+    pillBg: today ? '#2E6B45' : 'transparent',
+    pillInk: today ? '#FFFFFF' : '#1D2A22',
+    rows: cells.map((k, m) => {
+      const base = { meal: MEALS[m][0], mealInk: MEALS[m][1], rule: m === 0 ? 'transparent' : '#EEF1EC', recipes: [], isNote: false, isEmpty: false };
+      if (!k) return { ...base, isEmpty: true };
+      if (typeof k === 'string') return { ...base, isNote: true, note: k.slice(5) };
+      return { ...base, recipes: k.map((s) => ({ name: R[s].n, bg: R[s].bg, food: R[s].f, time: R[s].t })) };
+    }),
+    cells: cells.map((k) => {
+      const base = { recipes: [], isRecipe: false, isNote: false, showPlus: false, opacity: past ? 0.5 : 1 };
+      if (!k) return { ...base, showPlus: !past, cellBg: 'transparent', dash: past ? 'transparent' : '#B9C4BC', justify: 'center', align: 'center', opacity: 1 };
+      if (typeof k === 'string') return { ...base, isNote: true, note: k.slice(5), cellBg: '#DCE4DA', dash: 'transparent', justify: 'center', align: 'center' };
+      const single = k.length === 1;
+      return { ...base, isRecipe: true, cellBg: '#FFFFFF', dash: 'transparent', justify: 'flex-start', align: 'stretch',
+        hasMore: k.length > 3, moreSlice: '+' + (k.length - 3), more: '+' + (k.length - 3) + ' more',
+        recipes: k.slice(0, 3).map((s) => ({ name: R[s].n, bg: R[s].bg, food: R[s].f, plate: single ? '26px' : k.length === 2 ? '18px' : '12px', clamp: single ? 2 : 1 })) };
+    }),
+  };
+});
+return { days };
+}
+}
+</script>
+</body>
+</html>

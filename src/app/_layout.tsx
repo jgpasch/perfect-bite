@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { DatabaseProvider } from '@/db';
 import { AppDataGate } from '@/features/app-data';
@@ -179,4 +180,13 @@ function RootLayout() {
   );
 }
 
-export default wrapRoot(RootLayout);
+// Tracks the keyboard frame by frame, for views that move with it, like a list's add bar.
+function WithKeyboard() {
+  return (
+    <KeyboardProvider>
+      <RootLayout />
+    </KeyboardProvider>
+  );
+}
+
+export default wrapRoot(WithKeyboard);

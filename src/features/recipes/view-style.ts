@@ -5,8 +5,11 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 
 export const RECIPE_VIEW_STYLE_KEY = 'recipe.viewStyle';
 
-/** `standard`: the photo header, band, switch and cards. `indexCard`: board F (`docs/design/recipe-view/f-index-card.png`). */
-export const RECIPE_VIEW_STYLES = ['standard', 'indexCard'] as const;
+/**
+ * `standard`: the photo header, band, switch and cards. `titleOnPhoto`: board E
+ * (`docs/design/recipe-view/e-title-on-photo.png`), the name on the photo over a byline, then the same switch and cards.
+ */
+export const RECIPE_VIEW_STYLES = ['standard', 'titleOnPhoto'] as const;
 export type RecipeViewStyle = (typeof RECIPE_VIEW_STYLES)[number];
 
 /** A saved value as a style: `standard` for anything else, never-set included. */

@@ -8,7 +8,6 @@ import {
   ActionSheetIOS,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Pressable,
   Share,
   StyleSheet,
@@ -16,7 +15,21 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import {
+  KeyboardAvoidingView,
+  KeyboardController,
+  KeyboardEvents,
+  useKeyboardHandler,
+  useReanimatedKeyboardAnimation,
+} from 'react-native-keyboard-controller';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { aisleHeaderBand, categoryColors, listHeaderColors, prominentButtonTint } from '@/components/appearance';
@@ -422,7 +435,7 @@ export function ListScreen({ id }: { id: string }) {
     setAdding(focused);
     setAddOpen(false);
     if (focused) return;
-    // The bar unmounts, taking its text and chips with it.
+    // The bar unmounts, taking its text and chips with it, before the keyboard has started down.
     setAddText('');
     // Add mode is over and the tab bar is back: the + hint's moment (spec 4.1).
     void addModeEnded(() => hintContext.current);
@@ -1227,18 +1240,20 @@ export function ListScreen({ id }: { id: string }) {
         {selection ? (
           <SelectionBar count={selection.size} onAddToRecipe={addToRecipe} />
         ) : showAddBar ? (
-          <ItemAddBar
-            householdId={list.householdId}
-            onAdd={add}
-            onAddRecipe={addRecipe}
-            onTextChange={setAddText}
-            onFocusChange={addFocusChange}
-            placeholder={LIST_ADD_PLACEHOLDER}
-            accessibilityLabel={LIST_ADD_LABEL}
-            inputRef={addInputRef}
-            initialText={addText}
-            autoFocus
-          />
+          <ArrivesWithKeyboard>
+            <ItemAddBar
+              householdId={list.householdId}
+              onAdd={add}
+              onAddRecipe={addRecipe}
+              onTextChange={setAddText}
+              onFocusChange={addFocusChange}
+              placeholder={LIST_ADD_PLACEHOLDER}
+              accessibilityLabel={LIST_ADD_LABEL}
+              inputRef={addInputRef}
+              initialText={addText}
+              autoFocus
+            />
+          </ArrivesWithKeyboard>
         ) : null}
       </KeyboardAvoidingView>
     </Screen>
@@ -1367,9 +1382,31 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
   useEffect(() => {
     progress.value = withTiming(target, { duration: Motion.duration });
   }, [progress, target]);
+  // While the keyboard moves, the header follows it frame by frame, so it shuts on the keyboard's curve
+  // rather than its own. The timing above covers a hardware keyboard, which never moves. With the header
+  // open, it only follows as far as the timing has got, so a keyboard raised for something else (an item's
+  // sheet over the list) leaves it open.
+  const keyboard = useReanimatedKeyboardAnimation().progress;
+  const keyboardMoving = useSharedValue(false);
+  useKeyboardHandler(
+    {
+      onStart: () => {
+        'worklet';
+        keyboardMoving.value = true;
+      },
+      onEnd: (e) => {
+        'worklet';
+        keyboardMoving.value = false;
+        // The keyboard's done what the timing is still doing: finish there, rather than step back to it.
+        if (e.height > 0 === (target === 1)) progress.set(target);
+      },
+    },
+    [target],
+  );
   const lift = spacing.lg;
   const style = useAnimatedStyle(() => {
-    const p = progress.value;
+    const timed = progress.value;
+    const p = !keyboardMoving.value ? timed : target === 1 ? keyboard.value : Math.min(keyboard.value, timed);
     const shut = reduceMotion ? target : p;
     return {
       opacity: 1 - p,
@@ -1393,6 +1430,34 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
       </View>
     </Animated.View>
   );
+}
+
+/**
+ * The add bar's way in: hidden while the keyboard comes up under it, then faded in once the keyboard has
+ * arrived, so the bar never travels. A hardware keyboard never comes up, so then it fades in straight away.
+ */
+function ArrivesWithKeyboard({ children }: { children: ReactNode }) {
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    const show = () => {
+      opacity.value = withTiming(1, { duration: Motion.duration });
+    };
+    if (KeyboardController.isVisible()) {
+      show();
+      return;
+    }
+    // The field focuses as it mounts; a software keyboard says it's coming well within this.
+    const noKeyboard = setTimeout(show, Motion.duration);
+    const coming = KeyboardEvents.addListener('keyboardWillShow', () => clearTimeout(noKeyboard));
+    const arrived = KeyboardEvents.addListener('keyboardDidShow', show);
+    return () => {
+      clearTimeout(noKeyboard);
+      coming.remove();
+      arrived.remove();
+    };
+  }, [opacity]);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={style}>{children}</Animated.View>;
 }
 
 function toggleIn(set: Set<string>, value: string): Set<string> {

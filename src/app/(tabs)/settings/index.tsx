@@ -366,7 +366,7 @@ const PLAN_GRID_STYLE_LABELS = {
 
 const RECIPE_VIEW_STYLE_LABELS = {
   standard: 'settings.recipeViewStandard',
-  indexCard: 'settings.recipeViewIndexCard',
+  titleOnPhoto: 'settings.recipeViewTitleOnPhoto',
 } as const satisfies Record<RecipeViewStyle, string>;
 
 function DeletingOverlay({ visible }: { visible: boolean }) {

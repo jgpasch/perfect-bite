@@ -375,7 +375,7 @@ describe('the + hint in the tabs layout', () => {
     resetAddHint();
     const root = render(<TabsLayout />);
     await act(() => addModeEnded(() => ({ sheetOpen: false, selecting: false })));
-    expect(barHint(root)).toBe('Hold + for more ways to add');
+    expect(barHint(root)).toBe('Press and hold');
     let claimed: unknown;
     act(() => {
       claimed = tabsRoot(root).props.onStartShouldSetResponderCapture();

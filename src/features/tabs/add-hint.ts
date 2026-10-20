@@ -4,7 +4,7 @@ import { AccessibilityInfo } from 'react-native';
 import { clearDeviceSetting, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 
 /**
- * The + hint (spec 4.1): a one-time callout above the tab bar's +, "Hold + for more ways to add". It comes up
+ * The + hint (spec 4.1): a one-time "Press and hold" pill beside the tab bar's +, rings rippling out from it. It comes up
  * after the third tap on +, the next time add mode ends on a list, and never once the long-press menu was
  * opened. Device state, not synced.
  */

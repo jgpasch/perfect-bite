@@ -509,15 +509,6 @@ export const en = {
       notes: 'Notes',
       notesLabel: 'Notes: {{notes}}',
     },
-    /** The index card recipe view (spec 4.5, board F). */
-    indexCard: {
-      /** The notes, in full, in quotes. */
-      notes: '“{{notes}}”',
-      /** The method line once the method shows under it. */
-      hideMethod: 'Hide method',
-      /** VoiceOver's name for the photo square when the recipe has a photo. */
-      changePhoto: 'Change photo',
-    },
     servings: {
       title: 'Servings',
       prompt: 'How many people it serves, 1 to 100. Leave it empty to remove.',
@@ -571,6 +562,8 @@ export const en = {
       copy: 'Copy link',
       edit: 'Edit link',
       remove: 'Remove link',
+      /** The ⋯ menu's link prompt in the title-on-photo view, which has no link field (spec 4.5). */
+      add: 'Add link',
     },
     /** The source credit under the steps and on the photo. */
     credit: {
@@ -863,7 +856,7 @@ export const en = {
       recipe: 'Add recipe',
     },
     /** The one-time callout over + that points out its long-press (spec 4.1). */
-    addHint: 'Hold + for more ways to add',
+    addHint: 'Press and hold',
   },
   /** The meal plan's week screen (spec 4.16). */
   mealPlan: {
@@ -999,7 +992,7 @@ export const en = {
     recipeView: 'Recipe view',
     recipeViewLabel: 'Recipe view style',
     recipeViewStandard: 'Standard',
-    recipeViewIndexCard: 'Index card',
+    recipeViewTitleOnPhoto: 'Title on photo',
     /** Settings > Design trials > Fonts: a set's sample line in its body face, "Figtree · Chicken tacos with lime crema". */
     fontsScreen: {
       sample: '{{body}} · Chicken tacos with lime crema',

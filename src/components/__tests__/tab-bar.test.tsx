@@ -11,10 +11,25 @@ import { TabBar } from '../tab-bar';
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }) }));
-// The + hint's fade.
+// The + hint's fade and ripple.
+let mockReduceMotion = false;
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
-  return { __esModule: true, default: { View }, FadeIn: {}, FadeOut: {} };
+  const value = (v: unknown) => v;
+  return {
+    __esModule: true,
+    default: { View },
+    FadeIn: {},
+    FadeOut: {},
+    Easing: { out: value, quad: value },
+    cancelAnimation: () => {},
+    useAnimatedStyle: (style: () => object) => style(),
+    useReducedMotion: () => mockReduceMotion,
+    useSharedValue: (v: unknown) => ({ value: v }),
+    withDelay: (_: number, v: unknown) => v,
+    withRepeat: value,
+    withTiming: value,
+  };
 });
 // SwiftUI views as host elements.
 jest.mock('@expo/ui/swift-ui', () => {
@@ -38,6 +53,7 @@ let tree: ReactTestRenderer | null = null;
 afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
+  mockReduceMotion = false;
 });
 
 const routes = [
@@ -152,17 +168,30 @@ describe('TabBar', () => {
     expect(hint()).toHaveLength(0);
   });
 
-  it('the + hint: its text on a card that takes no touches, its caret over the middle of +', () => {
-    render(0, 'Hold + for more ways to add');
-    const [card] = hint();
-    expect(card.props.pointerEvents).toBe('none');
-    const texts = card.findAll((n) => n.type === ('Text' as never));
-    expect(texts.map((n) => n.props.children)).toEqual(['Hold + for more ways to add']);
-    const style = StyleSheet.flatten(card.props.style);
-    expect(style).toEqual(expect.objectContaining({ position: 'absolute', bottom: '100%', right: Spacing.lg }));
-    // The caret's middle sits half a + in from the card's right edge, which lines up with +'s.
-    const caret = card.findAll((n) => n.type === ('View' as never) && StyleSheet.flatten(n.props.style)?.transform)[0];
-    const { right, width } = StyleSheet.flatten(caret.props.style) as { right: number; width: number };
-    expect(right + width / 2).toBe(Sizes.tabBar / 2);
+  it('the + hint: a pill left of +, level with it, a ghost of the menu above, and nothing takes touches', () => {
+    render(0, 'Press and hold');
+    const [pill] = hint();
+    expect(pill.findAll((n) => n.type === ('Text' as never)).map((n) => n.props.children)).toContain('Press and hold');
+    // Past its own component, the row that lines it up with +.
+    const row = StyleSheet.flatten(pill.parent!.parent!.props.style);
+    expect(row).toEqual(
+      expect.objectContaining({ right: Spacing.lg + Sizes.tabBar + Spacing.md, bottom: 34, height: Sizes.tabBar }),
+    );
+    const layer = tree!.root.find((n) => typeof n.type === 'string' && n.props.pointerEvents === 'none');
+    const labels = layer.findAll((n) => n.type === ('Text' as never)).map((n) => n.props.children);
+    expect(labels).toEqual(['Add item', 'Add recipe', 'Press and hold']);
+  });
+
+  it('the + hint: two rings ripple out from +, or one holds still under Reduce Motion', () => {
+    const rings = () =>
+      tree!.root.findAll(
+        (n) => typeof n.type === 'string' && StyleSheet.flatten(n.props.style)?.borderWidth === Sizes.focusRing,
+      );
+    render(0, 'Press and hold');
+    expect(rings()).toHaveLength(2);
+    act(() => tree!.unmount());
+    mockReduceMotion = true;
+    render(0, 'Press and hold');
+    expect(rings()).toHaveLength(1);
   });
 });

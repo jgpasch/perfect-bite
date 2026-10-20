@@ -1,9 +1,10 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { IconTile } from '@/components/icon-tile';
+import { ThemedText } from '@/components/themed-text';
 import { recipeHue } from '@/domain/aisle-color';
 import { RecipeCredit } from '@/features/recipes/recipe-credit';
 import { useRecipePhoto, type RecipeImageSource } from '@/features/recipes/recipe-photo-source';
@@ -154,7 +155,95 @@ export function RecipePhotoHeader({
   );
 }
 
+/**
+ * The title-on-photo view's header (spec 4.5, board E): full width, at least 4:3, running up under the
+ * transparent header. The photo fills it over the recipe's tile colour (`tint.soft`), which shows alone with no
+ * photo, while it loads and if it fails; then a `photo` glyph in `tint.strong` sits in the middle, and the
+ * colour is a button opening the Choose a photo sheet (`onAddPhoto`), or a spinner while Generate with AI runs.
+ * The name (`screenTitle`, a header) is on a `photoScrim` band across the bottom. `uploading`: a spinner over
+ * the device's copy. No source credit: the byline under it carries the link.
+ */
+export function RecipeTitlePhoto({
+  name,
+  source,
+  tint,
+  uploading = false,
+  generating = false,
+  onError,
+  onAddPhoto,
+}: {
+  name: string;
+  source: RecipeImageSource | null;
+  tint: { soft: string; strong: string };
+  uploading?: boolean;
+  generating?: boolean;
+  onError: (event?: { error?: string }) => void;
+  onAddPhoto: () => void;
+}) {
+  const t = useT();
+  const { colors, rounded, spacing, sizes, opacity, photoScrim } = useTheme();
+  const { width } = useWindowDimensions();
+
+  let middle: React.ReactNode = null;
+  if (uploading) {
+    middle = (
+      <View
+        testID="photo-uploading"
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel={t('recipes.photo.uploading')}
+        style={{ backgroundColor: colors.toast, borderRadius: rounded.md, padding: spacing.sm }}>
+        <ActivityIndicator color={colors.onToast} />
+      </View>
+    );
+  } else if (generating) {
+    middle = (
+      <View testID="photo-generating" accessible accessibilityRole="progressbar" accessibilityLabel={t('recipes.photo.generating')}>
+        <ActivityIndicator color={tint.strong} />
+      </View>
+    );
+  } else if (source === null) {
+    middle = <Icon name="photo" tint={tint.strong} size={sizes.iconWell} />;
+  }
+
+  return (
+    <View testID="recipe-title-photo" style={{ minHeight: (width * 3) / 4, backgroundColor: tint.soft }}>
+      {source !== null ? (
+        <View accessible={false} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={StyleSheet.absoluteFill}>
+          <Image
+            testID="recipe-photo"
+            source={source}
+            contentFit="cover"
+            cachePolicy="disk"
+            accessible={false}
+            onError={onError}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+      ) : null}
+      {source === null && !generating && !uploading ? (
+        <Pressable
+          testID="add-photo"
+          onPress={onAddPhoto}
+          accessibilityRole="button"
+          accessibilityLabel={t('recipes.photo.add')}
+          style={({ pressed }) => [styles.flex, styles.center, { opacity: pressed ? opacity.pressed : 1 }]}>
+          {middle}
+        </Pressable>
+      ) : (
+        <View style={[styles.flex, styles.center]}>{middle}</View>
+      )}
+      <View style={{ backgroundColor: photoScrim.fill, paddingHorizontal: spacing.lg + spacing.xs, paddingVertical: spacing.md }}>
+        <ThemedText variant="screenTitle" accessibilityRole="header" style={{ color: photoScrim.text }}>
+          {name}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   header: { width: '100%', aspectRatio: 16 / 9, overflow: 'hidden' },
   cover: { width: '100%', aspectRatio: 4 / 3, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   center: { alignItems: 'center', justifyContent: 'center' },

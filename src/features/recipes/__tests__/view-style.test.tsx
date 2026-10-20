@@ -28,20 +28,22 @@ afterEach(() => {
 
 describe('readRecipeViewStyle', () => {
   test('keeps the two styles', () => {
-    expect(RECIPE_VIEW_STYLES).toEqual(['standard', 'indexCard']);
+    expect(RECIPE_VIEW_STYLES).toEqual(['standard', 'titleOnPhoto']);
     expect(readRecipeViewStyle('standard')).toBe('standard');
-    expect(readRecipeViewStyle('indexCard')).toBe('indexCard');
+    expect(readRecipeViewStyle('titleOnPhoto')).toBe('titleOnPhoto');
   });
 
   test('falls back to standard for anything else, never-set included', () => {
     expect(readRecipeViewStyle(null)).toBe('standard');
     expect(readRecipeViewStyle(undefined)).toBe('standard');
     expect(readRecipeViewStyle('')).toBe('standard');
-    expect(readRecipeViewStyle('index-card')).toBe('standard');
-    expect(readRecipeViewStyle('IndexCard')).toBe('standard');
+    expect(readRecipeViewStyle('title-on-photo')).toBe('standard');
+    expect(readRecipeViewStyle('TitleOnPhoto')).toBe('standard');
     expect(readRecipeViewStyle('compact')).toBe('standard');
+    // The retired index card trial's saved value.
+    expect(readRecipeViewStyle('indexCard')).toBe('standard');
     expect(readRecipeViewStyle(1)).toBe('standard');
-    expect(readRecipeViewStyle({ style: 'indexCard' })).toBe('standard');
+    expect(readRecipeViewStyle({ style: 'titleOnPhoto' })).toBe('standard');
   });
 });
 
@@ -50,9 +52,9 @@ describe('get and set', () => {
     expect(RECIPE_VIEW_STYLE_KEY).toBe('recipe.viewStyle');
     expect(getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBeNull();
     expect(getRecipeViewStyle()).toBe('standard');
-    setRecipeViewStyle('indexCard');
-    expect(getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('indexCard');
-    expect(getRecipeViewStyle()).toBe('indexCard');
+    setRecipeViewStyle('titleOnPhoto');
+    expect(getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('titleOnPhoto');
+    expect(getRecipeViewStyle()).toBe('titleOnPhoto');
     setRecipeViewStyle('standard');
     expect(getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('standard');
     expect(getRecipeViewStyle()).toBe('standard');
@@ -74,15 +76,15 @@ describe('useRecipeViewStyle', () => {
   beforeEach(() => void (seen.length = 0));
 
   test('reads the saved style and follows a change at once', () => {
-    setRecipeViewStyle('indexCard');
+    setRecipeViewStyle('titleOnPhoto');
     act(() => {
       tree = create(<Probe />);
     });
-    expect(seen.at(-1)).toBe('indexCard');
+    expect(seen.at(-1)).toBe('titleOnPhoto');
     act(() => setRecipeViewStyle('standard'));
     expect(seen.at(-1)).toBe('standard');
-    act(() => setRecipeViewStyle('indexCard'));
-    expect(seen.at(-1)).toBe('indexCard');
+    act(() => setRecipeViewStyle('titleOnPhoto'));
+    expect(seen.at(-1)).toBe('titleOnPhoto');
   });
 
   test('stops listening once unmounted', () => {
@@ -93,8 +95,8 @@ describe('useRecipeViewStyle', () => {
     act(() => tree?.unmount());
     tree = null;
     const renders = seen.length;
-    setRecipeViewStyle('indexCard');
+    setRecipeViewStyle('titleOnPhoto');
     expect(seen).toHaveLength(renders);
-    expect(getRecipeViewStyle()).toBe('indexCard');
+    expect(getRecipeViewStyle()).toBe('titleOnPhoto');
   });
 });

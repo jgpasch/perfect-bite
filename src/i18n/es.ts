@@ -442,11 +442,6 @@ export const es = {
       notes: 'Notas',
       notesLabel: 'Notas: {{notes}}',
     },
-    indexCard: {
-      notes: '«{{notes}}»',
-      hideMethod: 'Ocultar preparación',
-      changePhoto: 'Cambiar foto',
-    },
     servings: {
       title: 'Porciones',
       prompt: 'Para cuántas personas rinde, de 1 a 100. Déjalo vacío para quitarlo.',
@@ -496,6 +491,7 @@ export const es = {
       copy: 'Copiar enlace',
       edit: 'Editar enlace',
       remove: 'Quitar enlace',
+      add: 'Agregar enlace',
     },
     credit: {
       text: 'De {{host}}',
@@ -761,7 +757,7 @@ export const es = {
       item: 'Agregar artículo',
       recipe: 'Agregar receta',
     },
-    addHint: 'Mantén presionado + para más formas de agregar',
+    addHint: 'Mantén presionado',
   },
   mealPlan: {
     title: 'Esta semana',
@@ -866,7 +862,7 @@ export const es = {
     recipeView: 'Vista de receta',
     recipeViewLabel: 'Estilo de la vista de receta',
     recipeViewStandard: 'Estándar',
-    recipeViewIndexCard: 'Ficha',
+    recipeViewTitleOnPhoto: 'Título en la foto',
     /** Settings > Design trials > Fonts. */
     fontsScreen: {
       sample: '{{body}} · Tacos de pollo con crema de lima',

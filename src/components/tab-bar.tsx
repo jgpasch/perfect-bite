@@ -1,11 +1,24 @@
 import { Button as SwiftButton, ContextMenu, Host, RNHostView } from '@expo/ui/swift-ui';
 import type { BottomTabBarProps } from 'expo-router/tabs';
-import { Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { useEffect } from 'react';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
+import { Motion } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /** An item in the + button's long-press menu. */
@@ -22,7 +35,7 @@ type Props = BottomTabBarProps & {
   /** VoiceOver's custom action on +, "More ways to add", and what it does. */
   addMoreLabel: string;
   onAddMore: () => void;
-  /** The one-time + hint's text while it's up (spec 4.1), pointing at +. It takes no touches. */
+  /** The one-time + hint's pill text while it's up (spec 4.1), beside +. It takes no touches. */
   addHint?: string | null;
 };
 
@@ -49,6 +62,7 @@ export function TabBar({
   const insets = useSafeAreaInsets();
   const inset = spacing.xs + spacing.xxs;
   const floating = scheme === 'light' ? { ...shadows.soft, shadowColor: colors.ink } : null;
+  const bottom = Math.max(insets.bottom, spacing.lg);
 
   return (
     <View
@@ -58,7 +72,7 @@ export function TabBar({
           gap: spacing.md,
           paddingHorizontal: spacing.lg,
           paddingTop: spacing.sm,
-          paddingBottom: Math.max(insets.bottom, spacing.lg),
+          paddingBottom: bottom,
           backgroundColor: colors.background,
         },
       ]}>
@@ -135,6 +149,8 @@ export function TabBar({
           );
         })}
       </View>
+      {/* Over the tabs, under + so + stays bright. */}
+      {addHint ? <AddHint text={addHint} menu={addMenu} bottom={bottom} /> : null}
       {/* A native context menu on long press, as the recipe link row's. */}
       <Host style={{ width: sizes.tabBar, height: sizes.tabBar }} colorScheme={scheme} seedColor={colors.primary}>
         <ContextMenu>
@@ -172,45 +188,119 @@ export function TabBar({
           </ContextMenu.Trigger>
         </ContextMenu>
       </Host>
-      {addHint ? <AddHint text={addHint} /> : null}
     </View>
   );
 }
 
-const CARET = 12;
+/** How far each ripple ring grows past +, as a scale of it. */
+const RIPPLE_SCALE = 1.5;
+/** Where the ring rests under Reduce Motion: a little out from +, as in the mock. */
+const RING_REST_SCALE = 1.25;
 
-/** The + hint: a card just above the bar, its caret pointing down at the middle of +. Only fades. */
-function AddHint({ text }: { text: string }) {
-  const { colors, spacing, sizes, rounded, shadows, scheme } = useTheme();
-  const floating = scheme === 'light' ? { ...shadows.floating, shadowColor: colors.ink } : null;
+/**
+ * The + hint (spec 4.1): the screen and the tabs dim under a `scrim`, a ghost of the long-press menu shows
+ * above +, a "Press and hold" pill sits to its left, and rings ripple out from +. + stays bright on top.
+ * None of it takes touches. It fades in and out; under Reduce Motion the ring holds still.
+ */
+function AddHint({ text, menu, bottom }: { text: string; menu: readonly TabBarAddMenuItem[]; bottom: number }) {
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const { height } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
+  const plus = { right: spacing.lg, bottom, width: sizes.tabBar, height: sizes.tabBar };
   return (
-    <Animated.View
-      entering={FadeIn}
-      exiting={FadeOut}
-      pointerEvents="none"
-      accessibilityLiveRegion="polite"
-      testID="tab-add-hint"
-      style={[
-        styles.hint,
-        floating,
-        {
-          right: spacing.lg,
-          maxWidth: sizes.tabBar * 4,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-          borderRadius: rounded.card,
-          backgroundColor: colors.surface,
-        },
-      ]}>
-      {/* Under the text, so the text draws over its top corner. */}
+    <Animated.View entering={FadeIn} exiting={FadeOut} pointerEvents="none" style={[styles.hintLayer, { height }]}>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim, opacity: opacity.scrim }]} />
+      {/* A ghost of the long-press menu, just above +. */}
       <View
         style={[
-          styles.caret,
-          { right: sizes.tabBar / 2 - CARET / 2, bottom: -CARET / 2, width: CARET, height: CARET, backgroundColor: colors.surface },
-        ]}
-      />
-      <ThemedText variant="footnote">{text}</ThemedText>
+          styles.ghostMenu,
+          {
+            right: spacing.lg,
+            bottom: bottom + sizes.tabBar + spacing.md,
+            width: sizes.tabBar * 3.5,
+            paddingVertical: spacing.xs,
+            borderRadius: rounded.card,
+            backgroundColor: colors.surface,
+            opacity: opacity.disabled,
+          },
+        ]}>
+        {menu.map((item) => (
+          <View
+            key={item.key}
+            style={[styles.ghostRow, { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.md }]}>
+            <ThemedText variant="body" color="inkSecondary" numberOfLines={1} style={styles.ghostLabel}>
+              {item.label}
+            </ThemedText>
+            <Icon name={item.icon} color="inkSecondary" size={sizes.iconLarge} />
+          </View>
+        ))}
+      </View>
+      <View style={[styles.ring, plus]}>
+        {reduceMotion ? (
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                borderRadius: rounded.full,
+                borderWidth: sizes.focusRing,
+                borderColor: colors.primary,
+                transform: [{ scale: RING_REST_SCALE }],
+              },
+            ]}
+          />
+        ) : (
+          <>
+            <RippleRing delay={0} />
+            <RippleRing delay={Motion.addHintRippleMs / 2} />
+          </>
+        )}
+      </View>
+      {/* The pill, to the left of + and level with it. */}
+      <View style={[styles.pillRow, { right: spacing.lg + sizes.tabBar + spacing.md, bottom, height: sizes.tabBar }]}>
+        <View
+          accessibilityLiveRegion="polite"
+          testID="tab-add-hint"
+          style={[
+            styles.pill,
+            {
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs + spacing.xxs,
+              borderRadius: rounded.full,
+              backgroundColor: colors.ink,
+            },
+          ]}>
+          <ThemedText variant="amount" color="background" numberOfLines={1}>
+            {text}
+          </ThemedText>
+        </View>
+      </View>
     </Animated.View>
+  );
+}
+
+/** One `primary` ring growing out from + and fading, over and over. */
+function RippleRing({ delay }: { delay: number }) {
+  const { colors, sizes, rounded } = useTheme();
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.value = withDelay(
+      delay,
+      withRepeat(withTiming(1, { duration: Motion.addHintRippleMs, easing: Easing.out(Easing.quad) }), -1),
+    );
+    return () => cancelAnimation(progress);
+  }, [delay, progress]);
+  const ripple = useAnimatedStyle(() => ({
+    opacity: 1 - progress.value,
+    transform: [{ scale: 1 + (RIPPLE_SCALE - 1) * progress.value }],
+  }));
+  return (
+    <Animated.View
+      style={[
+        StyleSheet.absoluteFill,
+        { borderRadius: rounded.full, borderWidth: sizes.focusRing, borderColor: colors.primary },
+        ripple,
+      ]}
+    />
   );
 }
 
@@ -220,6 +310,11 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   badge: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   add: { alignItems: 'center', justifyContent: 'center' },
-  hint: { position: 'absolute', bottom: '100%', borderCurve: 'continuous' },
-  caret: { position: 'absolute', transform: [{ rotate: '45deg' }] },
+  hintLayer: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  ghostMenu: { position: 'absolute', borderCurve: 'continuous' },
+  ghostRow: { flexDirection: 'row', alignItems: 'center' },
+  ghostLabel: { flex: 1 },
+  ring: { position: 'absolute' },
+  pillRow: { position: 'absolute', justifyContent: 'center' },
+  pill: { borderCurve: 'continuous' },
 });

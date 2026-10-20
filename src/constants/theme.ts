@@ -320,8 +320,6 @@ export const Sizes = {
   itemPhotoMore: 32,
   /** a recipe's photo (or tinted icon tile) at the start of its row in the Recipes tab */
   recipeTile: 48,
-  /** the photo square (or tile colour) beside a recipe's name in the index card view (board F) */
-  recipeIndexPhoto: 64,
   /** a tile's width on a Recipes tab shelf (This week, Recently added, Favorites) */
   shelfTile: 140,
   /** a page's thumbnail (its width; 3:4) in the import sheet for a photo import */
@@ -390,6 +388,8 @@ export const Motion = {
   presenceFadeMs: 200,
   /** One pulse of its dots (each dot dims and brightens again over this long, a third apart). */
   presencePulseMs: 900,
+  /** One ring rippling out from + while the + hint is up (spec 4.1); a second follows half this behind. */
+  addHintRippleMs: 1600,
   /** Undo toasts (spec 4.2, 4.4). */
   undoTimeoutMs: 5000,
   /** In-app notification banners (spec 4.11). */

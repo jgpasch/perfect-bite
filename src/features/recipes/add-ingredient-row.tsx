@@ -6,7 +6,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 /**
- * The Ingredients card's last row (spec 4.5), and the index card view's: a `plus` and "Add ingredient" in `primary`
+ * The Ingredients card's last row (spec 4.5): a `plus` and "Add ingredient" in `primary`
  * `headline`, 20 pt in, at least 52 pt (`addRow`) tall, with no hairline under it. It opens the add bar over the keyboard.
  */
 export function AddIngredientRow({ onPress }: { onPress: () => void }) {
