@@ -29,6 +29,11 @@ export function imageQuality(env: Env = defaultEnv): string {
   return (IMAGE_QUALITIES as readonly string[]).includes(value) ? value : DEFAULT_IMAGE_QUALITY;
 }
 
+/** The image model as `ai_calls` names models: `openai:gpt-image-1-mini`, or `mock` for the mock. */
+export function imageModelId(model: string): string {
+  return model === MOCK_MODEL_ID ? model : `openai:${model}`;
+}
+
 /** False when `AI_IMAGE_MODEL=off`. */
 export function isImageEnabled(env: Env = defaultEnv): boolean {
   return imageModel(env) !== AI_OFF;
@@ -45,14 +50,42 @@ export type GeneratedImage = {
   usage: ImageUsage | null;
 };
 
+/** OpenAI's HTTP answer to a failed call, when there was one, for its `ai_calls` row. */
+export type ImageErrorAnswer = { httpStatus: number | null; body: string | null };
+
 /** The image model refused the prompt (`moderation_blocked` or another content-policy error): `not_food`. */
 export class ImageRefusedError extends Error {
   override name = 'ImageRefusedError';
+  readonly httpStatus: number | null;
+  readonly body: string | null;
+  constructor(message: string, answer: ImageErrorAnswer = { httpStatus: null, body: null }) {
+    super(message);
+    this.httpStatus = answer.httpStatus;
+    this.body = answer.body;
+  }
 }
+
+/**
+ * Why an image call failed, as its `ai_calls` status: an HTTP error or a network error
+ * `api_error`, the timeout `timeout`, no image or bad base64 `invalid_output`, anything else (no
+ * key, `off`) `error`.
+ */
+export type ImageFailure = 'api_error' | 'timeout' | 'invalid_output' | 'error';
 
 /** Any other failure: an HTTP error, no image in the answer, a network error or the timeout. */
 export class ImageFailedError extends Error {
   override name = 'ImageFailedError';
+  readonly httpStatus: number | null;
+  readonly body: string | null;
+  constructor(
+    message: string,
+    readonly failure: ImageFailure = 'error',
+    answer: ImageErrorAnswer = { httpStatus: null, body: null },
+  ) {
+    super(message);
+    this.httpStatus = answer.httpStatus;
+    this.body = answer.body;
+  }
 }
 
 export type ImageOptions = {
@@ -87,14 +120,14 @@ export async function generateImage(prompt: string, options: ImageOptions = {}):
   const model = imageModel(env);
   const quality = imageQuality(env);
   const started = Date.now();
-  if (model === AI_OFF) throw new ImageFailedError('AI_IMAGE_MODEL is off');
+  if (model === AI_OFF) throw new ImageFailedError('AI_IMAGE_MODEL is off', 'error');
   if (model === MOCK_MODEL_ID) return { bytes: MOCK_RECIPE_PHOTO_JPEG.slice(), model, quality, ms: Date.now() - started, usage: null };
 
   const apiKey = env('OPENAI_API_KEY')?.trim();
-  if (!apiKey) throw new ImageFailedError('OPENAI_API_KEY is not set');
+  if (!apiKey) throw new ImageFailedError('OPENAI_API_KEY is not set', 'error');
 
   let res: Response;
-  let body: { data?: { b64_json?: unknown }[]; usage?: { input_tokens?: unknown; output_tokens?: unknown }; error?: { code?: unknown; type?: unknown; message?: unknown } } | null;
+  let text: string;
   try {
     res = await (options.fetch ?? fetch)(OPENAI_IMAGES_URL, {
       method: 'POST',
@@ -102,22 +135,31 @@ export async function generateImage(prompt: string, options: ImageOptions = {}):
       body: JSON.stringify({ model, prompt, quality, size: IMAGE_SIZE, n: 1, output_format: 'jpeg', output_compression: IMAGE_COMPRESSION }),
       signal: AbortSignal.timeout(options.timeoutMs ?? IMAGE_TIMEOUT_MS),
     });
-    body = await res.json().catch(() => null);
+    text = await res.text();
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
-    throw new ImageFailedError(timedOut ? 'No image within the timeout' : `Request failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (timedOut) throw new ImageFailedError('No image within the timeout', 'timeout');
+    throw new ImageFailedError(`Request failed: ${err instanceof Error ? err.message : String(err)}`, 'api_error');
+  }
+  let body: { data?: { b64_json?: unknown }[]; usage?: { input_tokens?: unknown; output_tokens?: unknown }; error?: { code?: unknown; type?: unknown; message?: unknown } } | null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
   }
   if (!res.ok) {
-    if (isContentPolicyError(body?.error)) throw new ImageRefusedError(`Refused: ${String(body?.error?.message ?? body?.error?.code).slice(0, 200)}`);
-    throw new ImageFailedError(`OpenAI answered ${res.status}: ${String(body?.error?.message ?? '').slice(0, 200)}`);
+    // Only failed answers keep their body: a successful one holds the image.
+    const answer = { httpStatus: res.status, body: text === '' ? null : text };
+    if (isContentPolicyError(body?.error)) throw new ImageRefusedError(`Refused: ${String(body?.error?.message ?? body?.error?.code).slice(0, 200)}`, answer);
+    throw new ImageFailedError(`OpenAI answered ${res.status}: ${String(body?.error?.message ?? '').slice(0, 200)}`, 'api_error', answer);
   }
   const b64 = body?.data?.[0]?.b64_json;
-  if (typeof b64 !== 'string' || b64 === '') throw new ImageFailedError('No image in the answer');
+  if (typeof b64 !== 'string' || b64 === '') throw new ImageFailedError('No image in the answer', 'invalid_output');
   let bytes: Uint8Array;
   try {
     bytes = decodeBase64(b64);
   } catch {
-    throw new ImageFailedError('The image is not valid base64');
+    throw new ImageFailedError('The image is not valid base64', 'invalid_output');
   }
   const tokens = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
   const usage = body?.usage ? { inputTokens: tokens(body.usage.input_tokens), outputTokens: tokens(body.usage.output_tokens) } : null;

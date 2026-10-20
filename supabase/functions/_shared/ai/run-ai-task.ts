@@ -27,16 +27,22 @@ export type AiTaskResult<T> = {
 /** Who made a call: the signed-in user and, when the request has one, the household. */
 export type AiCaller = { userId: string; householdId: string | null };
 
+/** The AI photo's image call (spec §6.11): not an `aiTasks` task, but logged in `ai_calls` beside them. */
+export const RECIPE_PHOTO_IMAGE_TASK = 'recipePhotoImage';
+
 /** One model attempt, as stored in `public.ai_calls`, with who made it (spec §6.4, §6.5). */
 export type AiCallRecord = {
   id: string;
   /** Null for calls with no signed-in caller (the `yarn ai:*` scripts, evals). */
   user_id: string | null;
   household_id: string | null;
-  task: AiTaskName;
+  /** The recipe an AI photo's rows are for (description and image); null for every other task. */
+  recipe_id: string | null;
+  task: AiTaskName | typeof RECIPE_PHOTO_IMAGE_TASK;
   model: string;
   prompt_version: string;
-  status: 'ok' | 'api_error' | 'invalid_output' | 'timeout' | 'error';
+  /** `refused`: the image model's content-policy refusal (image rows only). */
+  status: 'ok' | 'api_error' | 'invalid_output' | 'timeout' | 'refused' | 'error';
   instructions: string;
   prompt: string;
   output: unknown;
@@ -114,6 +120,8 @@ export type RunAiTaskOptions = {
   onCall?: (call: AiCallRecord) => Promise<void>;
   /** Copied onto every attempt's record; without it `user_id` and `household_id` are null. */
   caller?: AiCaller;
+  /** Copied onto every attempt's record as `recipe_id` (the AI photo's description); null without it. */
+  recipeId?: string;
 };
 
 function callStatus(err: unknown): AiCallRecord['status'] {
@@ -186,6 +194,7 @@ export async function runAiTask<N extends AiTaskName>(
       id,
       user_id: options.caller?.userId ?? null,
       household_id: options.caller?.householdId ?? null,
+      recipe_id: options.recipeId ?? null,
       task: name,
       model: model.modelId,
       prompt_version: task.promptVersion,

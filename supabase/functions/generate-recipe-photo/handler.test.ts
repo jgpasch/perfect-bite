@@ -6,10 +6,11 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { MOCK_PHOTO_DESCRIPTION } from '../_shared/ai/mock-model.ts';
 import { RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-description.v1.ts';
+import { RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { generateRecipePhoto, type GenerateDeps, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
-import { ImageFailedError, ImageRefusedError, type GeneratedImage } from './image.ts';
+import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, type GeneratedImage } from './image.ts';
 import { handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/generate-recipe-photo';
@@ -171,7 +172,7 @@ Deno.test('success: reads the recipe, describes it, makes the image, uploads it 
     const path = `${HOUSEHOLD_ID}/${RECIPE_ID}/${PHOTO_ID}.jpg`;
     assertEquals(res.status, 200);
     assertEquals(json, { path });
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', `upload:${path}`, 'complete']);
+    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', `upload:${path}`, 'complete']);
     assertEquals(store.uploads, [{ path, bytes: JPEG }]);
     assertEquals(store.completed, [{ recipeId: RECIPE_ID, description: MOCK_PHOTO_DESCRIPTION, path }]);
     assertEquals(image.prompts.length, 1);
@@ -181,11 +182,14 @@ Deno.test('success: reads the recipe, describes it, makes the image, uploads it 
   });
 });
 
-Deno.test("the description's ai_calls row carries the caller and the recipe's household", async () => {
+Deno.test("both ai_calls rows carry the caller and the recipe's household", async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const { res, store } = await call();
     assertEquals(res.status, 200);
-    assertEquals(store.aiCalls.map((c) => [c.task, c.user_id, c.household_id]), [['recipePhotoDescription', USER_ID, HOUSEHOLD_ID]]);
+    assertEquals(store.aiCalls.map((c) => [c.task, c.user_id, c.household_id]), [
+      ['recipePhotoDescription', USER_ID, HOUSEHOLD_ID],
+      ['recipePhotoImage', USER_ID, HOUSEHOLD_ID],
+    ]);
   });
 });
 
@@ -197,10 +201,189 @@ Deno.test('a failed description is logged with the caller and household too', as
   });
 });
 
-Deno.test('with no caller the row has a null user and household', async () => {
+Deno.test('with no caller the rows have a null user and household', async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const { store } = await call({ userId: null });
-    assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [[null, null]]);
+    assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [
+      [null, null],
+      [null, null],
+    ]);
+  });
+});
+
+// --- the image call's ai_calls row ----------------------------------------------------------------------
+
+const IMAGE_PATH = `${HOUSEHOLD_ID}/${RECIPE_ID}/${PHOTO_ID}.jpg`;
+
+/** The real image call over a fake OpenAI answering `status` and `body` (a string is sent as is). */
+function openAi(status: number, body: unknown, timeoutMs?: number) {
+  const prompts: string[] = [];
+  const fetch = (async () =>
+    new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
+  const generate = (prompt: string) => {
+    prompts.push(prompt);
+    return realGenerateImage(prompt, { env: (key) => (key === 'OPENAI_API_KEY' ? 'sk-test' : undefined), fetch, timeoutMs });
+  };
+  return { prompts, generate };
+}
+
+/** A fake OpenAI that never answers, so the real image call times out. */
+function hangingOpenAi() {
+  const prompts: string[] = [];
+  const fetch = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason)))) as typeof globalThis.fetch;
+  const generate = (prompt: string) => {
+    prompts.push(prompt);
+    return realGenerateImage(prompt, { env: (key) => (key === 'OPENAI_API_KEY' ? 'sk-test' : undefined), fetch, timeoutMs: 20 });
+  };
+  return { prompts, generate };
+}
+
+Deno.test('a generated photo logs the description row and an ok image row linked to it, both with the recipe', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { res, store, image } = await call();
+    assertEquals(res.status, 200);
+    const [description, imageRow] = store.aiCalls;
+    assertEquals(store.aiCalls.length, 2);
+    assertEquals([description.task, description.status, description.recipe_id], ['recipePhotoDescription', 'ok', RECIPE_ID]);
+    assertEquals(imageRow, {
+      id: imageRow.id,
+      user_id: USER_ID,
+      household_id: HOUSEHOLD_ID,
+      recipe_id: RECIPE_ID,
+      task: 'recipePhotoImage',
+      model: 'openai:gpt-image-1-mini',
+      prompt_version: RECIPE_PHOTO_IMAGE_PROMPT_VERSION,
+      status: 'ok',
+      instructions: '',
+      prompt: image.prompts[0],
+      output: { quality: 'medium', path: IMAGE_PATH },
+      response_text: null,
+      finish_reason: null,
+      input_tokens: 60,
+      output_tokens: 1584,
+      cached_input_tokens: null,
+      reasoning_tokens: null,
+      duration_ms: imageRow.duration_ms,
+      error: null,
+      http_status: null,
+      error_body: null,
+      fallback_of: description.id,
+    });
+    assert(imageRow.id !== description.id);
+    assert(imageRow.duration_ms >= 0);
+  });
+});
+
+Deno.test("an upper-case recipe id is lowercased in both rows' recipe_id", async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { store } = await call({}, { recipeId: RECIPE_ID.toUpperCase() });
+    assertEquals(store.aiCalls.map((c) => c.recipe_id), [RECIPE_ID, RECIPE_ID]);
+  });
+});
+
+Deno.test('the mock image model logs an ok row too, named mock, with no tokens', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    const env = (key: string) => (key === 'AI_IMAGE_MODEL' ? 'mock' : undefined);
+    const answer = await generateRecipePhoto({ recipeId: RECIPE_ID }, { store, userId: USER_ID, newId: () => PHOTO_ID, env });
+    assertEquals(answer, { path: IMAGE_PATH });
+    const row = store.aiCalls[1];
+    assertEquals([row.task, row.model, row.status, row.input_tokens, row.output_tokens], ['recipePhotoImage', 'mock', 'ok', null, null]);
+    assertEquals(row.output, { quality: 'medium', path: IMAGE_PATH });
+  });
+});
+
+Deno.test('a moderation refusal logs a refused image row with the HTTP status and body', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const body = { error: { code: 'moderation_blocked', message: 'Your request was rejected by the safety system.' } };
+    const { res, json, store } = await call({ image: openAi(400, body) });
+    assertEquals([res.status, json.error], [422, 'not_food']);
+    const [description, row] = store.aiCalls;
+    assertEquals([row.task, row.status, row.http_status, row.error_body], ['recipePhotoImage', 'refused', 400, JSON.stringify(body)]);
+    assertEquals(row.error, 'ImageRefusedError: Refused: Your request was rejected by the safety system.');
+    assertEquals([row.output, row.input_tokens, row.output_tokens], [null, null, null]);
+    assertEquals([row.fallback_of, row.recipe_id, row.user_id], [description.id, RECIPE_ID, USER_ID]);
+  });
+});
+
+Deno.test('a 500 logs an api_error image row with the HTTP status and body', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const body = { error: { message: 'The server had an error while processing your request.' } };
+    const { res, json, store } = await call({ image: openAi(500, body) });
+    assertEquals([res.status, json.error], [502, 'generation_failed']);
+    const row = store.aiCalls[1];
+    assertEquals([row.status, row.http_status, row.error_body], ['api_error', 500, JSON.stringify(body)]);
+    assertEquals(row.error, 'ImageFailedError: OpenAI answered 500: The server had an error while processing your request.');
+    assertEquals(row.fallback_of, store.aiCalls[0].id);
+  });
+});
+
+Deno.test('a long error body is cut to 4000 characters', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { store } = await call({ image: openAi(500, 'x'.repeat(5000)) });
+    assertEquals(store.aiCalls[1].error_body, 'x'.repeat(4000));
+  });
+});
+
+Deno.test('a timeout logs a timeout image row with no HTTP status or body', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { res, store } = await call({ image: hangingOpenAi() });
+    assertEquals(res.status, 502);
+    const row = store.aiCalls[1];
+    assertEquals([row.status, row.http_status, row.error_body, row.error], ['timeout', null, null, 'ImageFailedError: No image within the timeout']);
+  });
+});
+
+Deno.test('no image in the answer logs invalid_output; a failure with no status (no key) logs error', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { store } = await call({ image: openAi(200, { data: [] }) });
+    assertEquals([store.aiCalls[1].status, store.aiCalls[1].http_status, store.aiCalls[1].error_body], ['invalid_output', null, null]);
+    const noKey = await call({ image: fakeImage(new ImageFailedError('OPENAI_API_KEY is not set')) });
+    assertEquals([noKey.store.aiCalls[1].status, noKey.store.aiCalls[1].error], ['error', 'ImageFailedError: OPENAI_API_KEY is not set']);
+  });
+});
+
+Deno.test('the image bytes are never in a row', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const bytes = Uint8Array.from([0xff, 0xd8, 0x51, 0x52, 0x53, 0x54, 0x55, 0xff, 0xd9]);
+    const b64 = btoa(String.fromCharCode(...bytes));
+    const { res, store } = await call({ image: openAi(200, { data: [{ b64_json: b64 }], usage: { input_tokens: 70, output_tokens: 1584 } }) });
+    assertEquals(res.status, 200);
+    assertEquals(store.uploads[0].bytes, bytes);
+    const rows = JSON.stringify(store.aiCalls);
+    assertFalse(rows.includes(b64), 'no base64');
+    assertFalse(rows.includes('b64_json'), 'no response body');
+    assertEquals([store.aiCalls[1].input_tokens, store.aiCalls[1].output_tokens], [70, 1584]);
+    for (const row of store.aiCalls) for (const value of Object.values(row)) assertFalse(value instanceof Uint8Array);
+  });
+});
+
+Deno.test("a failure to log the image row doesn't fail the request", async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    class BrokenLog extends FakeStore {
+      override async logAiCall(call: AiCallRecord) {
+        await super.logAiCall(call);
+        throw new Error('insert failed');
+      }
+    }
+    const store = new BrokenLog();
+    const { res, json } = await call({ store });
+    assertEquals([res.status, json], [200, { path: IMAGE_PATH }]);
+    assertEquals(store.completed.length, 1);
+    const refused = new BrokenLog();
+    const failed = await call({ store: refused, image: fakeImage(new ImageRefusedError('Refused: moderation_blocked')) });
+    assertEquals([failed.res.status, failed.json.error], [422, 'not_food']);
+    assertEquals(refused.steps.at(-1), 'release');
+  });
+});
+
+Deno.test('isFood false or a failed description logs no image row', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    for (const model of [answering({ isFood: false, description: 'ignored' }), failing(apiError())]) {
+      const { store } = await call({ model });
+      assertEquals(store.aiCalls.map((c) => [c.task, c.recipe_id]), [['recipePhotoDescription', RECIPE_ID]], model.modelId);
+    }
   });
 });
 
@@ -355,7 +538,7 @@ Deno.test('a moderation refusal from the image model: 422 not_food, released, no
     const { res, json, store } = await call({ image: fakeImage(new ImageRefusedError('Refused: moderation_blocked')) });
     assertEquals(res.status, 422);
     assertEquals(json.error, 'not_food');
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'release']);
+    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'release']);
     assertEquals(store.uploads, []);
   });
 });

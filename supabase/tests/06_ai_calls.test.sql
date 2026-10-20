@@ -1,7 +1,7 @@
 -- ai_calls: service role only, records who made each call, retention job is scheduled.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(31);
 
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
@@ -76,6 +76,34 @@ reset role;
 select throws_ok($$ insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms)
                    values (gen_random_uuid(), 't', 'm', 'v', 'bogus', 'i', 'p', 1) $$,
   '23514', null, 'status is constrained');
+
+-- The AI photo's image call (spec 6.11): `refused` is a status, and both AI photo rows record the recipe.
+select col_type_is('public', 'ai_calls', 'recipe_id', 'uuid', 'ai_calls has a recipe_id');
+select col_is_null('public', 'ai_calls', 'recipe_id', 'recipe_id is nullable (every other task)');
+insert into public.recipes (id, household_id, name) values
+  ('c1111111-0000-0000-0000-0000000000c1', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tacos');
+insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, recipe_id) values
+  ('a3333333-0000-0000-0000-0000000000d1', 'recipePhotoDescription', 'mock', 'recipe-photo-description.v1', 'ok', 'sys', 'tacos', 5,
+   'c1111111-0000-0000-0000-0000000000c1');
+select lives_ok($$
+  insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, error, http_status, error_body, recipe_id, fallback_of) values
+    ('a3333333-0000-0000-0000-0000000000e1', 'recipePhotoImage', 'openai:gpt-image-1-mini', 'recipe-photo-image.v1', 'refused', '', 'A photo', 900,
+     'ImageRefusedError: Refused: moderation_blocked', 400, '{"error":{"code":"moderation_blocked"}}',
+     'c1111111-0000-0000-0000-0000000000c1', 'a3333333-0000-0000-0000-0000000000d1'),
+    ('a3333333-0000-0000-0000-0000000000e2', 'recipePhotoImage', 'openai:gpt-image-1-mini', 'recipe-photo-image.v1', 'ok', '', 'A photo', 12000,
+     null, null, null, 'c1111111-0000-0000-0000-0000000000c1', 'a3333333-0000-0000-0000-0000000000d1')
+$$, 'refused is an accepted status');
+select is(
+  private.ai_call_stats('recipePhotoImage', null, now() - interval '1 day'),
+  '{"total": 2, "statuses": {"ok": 1, "api_error": 0, "invalid_output": 0, "timeout": 0, "refused": 1, "error": 0},
+    "fallbacks": 0, "input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0, "reasoning_tokens": 0}'::jsonb,
+  'ai_call_stats counts refused, and an image row''s link to its description isn''t a fallback');
+select throws_ok($$ insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, recipe_id)
+                   values (gen_random_uuid(), 't', 'm', 'v', 'ok', 'i', 'p', 1, '99999999-9999-9999-9999-999999999999') $$,
+  '23503', null, 'recipe_id must be a real recipe');
+delete from public.recipes where id = 'c1111111-0000-0000-0000-0000000000c1';
+select is((select array_agg(coalesce(recipe_id::text, 'null') order by id) from public.ai_calls where id::text like 'a3333333-%'),
+  array['null', 'null', 'null'], 'deleting the recipe nulls recipe_id and keeps the rows');
 
 select * from finish();
 rollback;

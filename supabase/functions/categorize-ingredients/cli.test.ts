@@ -525,6 +525,7 @@ const call = (over: Partial<AiCallRecord>): AiCallRecord => ({
   fallback_of: null,
   user_id: null,
   household_id: null,
+  recipe_id: null,
   ...over,
 });
 

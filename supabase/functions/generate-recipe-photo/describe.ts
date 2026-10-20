@@ -46,9 +46,12 @@ export type DescribeOptions = {
   onCall?: (call: AiCallRecord) => Promise<void>;
   /** The signed-in caller, recorded on each `ai_calls` row; none in the CLI and eval. */
   caller?: AiCaller;
+  /** The recipe, recorded on each `ai_calls` row; none in the CLI and eval. */
+  recipeId?: string;
 };
 
-export type DescribeResult = PhotoDescription & { model: string };
+/** `callId`: the `ai_calls` id of the attempt that answered, which the image row links to. */
+export type DescribeResult = PhotoDescription & { model: string; callId: string };
 
 /** One recipe-photo-description call. Throws `DescribeFailedError` for every expected failure. */
 export async function describeRecipePhoto(recipe: PhotoRecipe, options: DescribeOptions = {}): Promise<DescribeResult> {
@@ -62,5 +65,5 @@ export async function describeRecipePhoto(recipe: PhotoRecipe, options: Describe
   }
   const description = cleanPhotoDescription(ran.output);
   if (description === null) throw new DescribeFailedError('Description failed: food with an empty description');
-  return { ...description, model: ran.model };
+  return { ...description, model: ran.model, callId: ran.callId };
 }

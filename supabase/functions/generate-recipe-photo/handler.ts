@@ -3,12 +3,12 @@
 import type { GenerateRecipePhotoRequest, GenerateRecipePhotoResponse } from '@shared/index.ts';
 import type { LanguageModel } from 'ai';
 
-import { buildRecipePhotoImagePrompt } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
-import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { buildRecipePhotoImagePrompt, RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
+import { RECIPE_PHOTO_IMAGE_TASK, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
-import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, isImageEnabled, type GeneratedImage } from './image.ts';
+import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, type GeneratedImage } from './image.ts';
 
 /** `reserve_recipe_photo_ai`'s answer. `monthly_limit`: the caller has reserved their plan's AI photos this month. */
 export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'monthly_limit' };
@@ -68,6 +68,15 @@ export class GeneratePhotoError extends Error {
   }
 }
 
+/** Writes the image call's `ai_calls` row. A failure to log is logged, never thrown, as `runAiTask` does. */
+async function logImageCall(store: RecipePhotoStore, call: AiCallRecord): Promise<void> {
+  try {
+    await store.logAiCall(call);
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', event: 'ai_call_log_failed', id: call.id, error: String(err).slice(0, 200) }));
+  }
+}
+
 /** One line per generation that got past the reservation: the outcome, the models, the description and the time. */
 function logOutcome(fields: Record<string, unknown>) {
   console.log(JSON.stringify({ level: 'info', event: 'recipe_photo_ai', ...fields }));
@@ -105,6 +114,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
       throw new GeneratePhotoError({ code: 'limit_reached' }, "This month's AI photos are used up");
   }
   const { householdId } = reserved;
+  const caller = deps.userId ? { userId: deps.userId, householdId } : undefined;
+  const recipeKey = recipeId.toLowerCase();
 
   const started = Date.now();
   let descriptionModel: string | null = null;
@@ -124,7 +135,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
     try {
       described = await describeRecipePhoto(photoRecipe(stored), {
         model: deps.model,
-        caller: deps.userId ? { userId: deps.userId, householdId } : undefined,
+        caller,
+        recipeId: recipeKey,
         onCall: (call) => store.logAiCall(call),
       });
     } catch (err) {
@@ -135,17 +147,61 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
     if (!described.isFood) return await fail({ code: 'not_food', by: 'description' }, "This recipe can't have an AI photo", 'not_food');
     description = described.description;
 
+    const path = `${householdId}/${recipeId}/${(deps.newId ?? (() => crypto.randomUUID()))()}.jpg`.toLowerCase();
+    const imagePrompt = buildRecipePhotoImagePrompt(description);
+    const imageStarted = Date.now();
+    // One `recipePhotoImage` row per image call, success or failure, linked to the description row.
+    const logImage = (fields: Pick<AiCallRecord, 'model' | 'status' | 'output' | 'input_tokens' | 'output_tokens' | 'error' | 'http_status' | 'error_body'>) =>
+      logImageCall(store, {
+        id: crypto.randomUUID(),
+        user_id: caller?.userId ?? null,
+        household_id: caller?.householdId ?? null,
+        recipe_id: recipeKey,
+        task: RECIPE_PHOTO_IMAGE_TASK,
+        prompt_version: RECIPE_PHOTO_IMAGE_PROMPT_VERSION,
+        instructions: '',
+        prompt: imagePrompt,
+        response_text: null,
+        finish_reason: null,
+        cached_input_tokens: null,
+        reasoning_tokens: null,
+        duration_ms: Date.now() - imageStarted,
+        fallback_of: described.callId,
+        ...fields,
+      });
+
     let generated: GeneratedImage;
     try {
       const generate = deps.generateImage ?? ((prompt: string) => realGenerateImage(prompt, { env: deps.env }));
-      generated = await generate(buildRecipePhotoImagePrompt(description));
+      generated = await generate(imagePrompt);
     } catch (err) {
+      const known = err instanceof ImageRefusedError || err instanceof ImageFailedError ? err : null;
+      await logImage({
+        model: imageModelId(image),
+        status: err instanceof ImageRefusedError ? 'refused' : err instanceof ImageFailedError ? err.failure : 'error',
+        output: null,
+        input_tokens: null,
+        output_tokens: null,
+        error: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 2000),
+        http_status: known?.httpStatus ?? null,
+        error_body: known?.body?.slice(0, 4000) ?? null,
+      });
       if (err instanceof ImageRefusedError) return await fail({ code: 'not_food', by: 'image' }, "This recipe can't have an AI photo", 'image_refused');
       if (err instanceof ImageFailedError) return await fail({ code: 'generation_failed', step: 'image' }, err.message, 'image_failed');
       throw err;
     }
+    // Never the image bytes: the row keeps where the photo goes.
+    await logImage({
+      model: imageModelId(generated.model),
+      status: 'ok',
+      output: { quality: generated.quality, path },
+      input_tokens: generated.usage?.inputTokens ?? null,
+      output_tokens: generated.usage?.outputTokens ?? null,
+      error: null,
+      http_status: null,
+      error_body: null,
+    });
 
-    const path = `${householdId}/${recipeId}/${(deps.newId ?? (() => crypto.randomUUID()))()}.jpg`.toLowerCase();
     await store.upload(path, generated.bytes);
     // complete queues the object for cleanup either way, so a recipe deleted meanwhile leaves nothing behind.
     if (!(await store.complete(recipeId, description, path))) {

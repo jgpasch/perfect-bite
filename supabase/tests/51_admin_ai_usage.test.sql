@@ -160,7 +160,7 @@ select is((select array_agg(c ->> 'task') from r, jsonb_array_elements(d -> 'cal
   array['categorize', 'import_recipe'], 'calls has one entry per task in the last 30 days, by name');
 select is(
   (select c - 'models' - 'task' from r, jsonb_array_elements(d -> 'calls') c where c ->> 'task' = 'categorize'),
-  '{"total": 4, "statuses": {"ok": 2, "api_error": 0, "invalid_output": 1, "timeout": 1, "error": 0},
+  '{"total": 4, "statuses": {"ok": 2, "api_error": 0, "invalid_output": 1, "timeout": 1, "refused": 0, "error": 0},
     "fallbacks": 1, "input_tokens": 380, "output_tokens": 70, "cached_input_tokens": 50, "reasoning_tokens": 5}'::jsonb,
   'a task counts statuses and fallbacks and sums tokens, skipping rows over 30 days old');
 select is(

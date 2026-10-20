@@ -58,7 +58,7 @@ export function barTitle(feature: string, bar: Pick<ChartBar, "day" | "used" | "
   return `${bar.isToday ? "Today" : dayLabel(bar.day)}: ${usageTotal(feature, bar.used)}`;
 }
 
-const STATUS_ORDER: AiCallStatus[] = ["ok", "api_error", "invalid_output", "timeout", "error"];
+const STATUS_ORDER: AiCallStatus[] = ["ok", "api_error", "invalid_output", "timeout", "refused", "error"];
 
 /** The calls that didn't answer `ok`, as a share of all of them; null with no calls. */
 export function failureRate(stats: Pick<AiCallStats, "total" | "statuses">): number | null {
@@ -95,7 +95,7 @@ export function callsByModel(calls: readonly AiTaskCalls[]): ModelCalls[] {
         model: stats.model,
         tasks: [],
         total: 0,
-        statuses: { ok: 0, api_error: 0, invalid_output: 0, timeout: 0, error: 0 },
+        statuses: { ok: 0, api_error: 0, invalid_output: 0, timeout: 0, refused: 0, error: 0 },
         fallbacks: 0,
         input_tokens: 0,
         output_tokens: 0,

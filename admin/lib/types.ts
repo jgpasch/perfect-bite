@@ -104,7 +104,7 @@ export type AdminFeatureUsageSummary = {
   top_users: AdminTopUser[];
 };
 
-export type AiCallStatus = "ok" | "api_error" | "invalid_output" | "timeout" | "error";
+export type AiCallStatus = "ok" | "api_error" | "invalid_output" | "timeout" | "refused" | "error";
 
 export type AiCallStats = {
   total: number;

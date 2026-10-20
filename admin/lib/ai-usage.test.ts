@@ -31,7 +31,7 @@ function stats(
     cached_input_tokens: 0,
     reasoning_tokens: 0,
     ...partial,
-    statuses: { ok: 0, api_error: 0, invalid_output: 0, timeout: 0, error: 0, ...partial.statuses },
+    statuses: { ok: 0, api_error: 0, invalid_output: 0, timeout: 0, refused: 0, error: 0, ...partial.statuses },
   };
 }
 
@@ -115,8 +115,12 @@ describe("failureBreakdown", () => {
 
   it("includes a status this portal doesn't know", () => {
     const s = stats();
-    (s.statuses as Record<string, number>).refused = 1200;
-    expect(failureBreakdown(s)).toBe("refused 1,200");
+    (s.statuses as Record<string, number>).blocked = 1200;
+    expect(failureBreakdown(s)).toBe("blocked 1,200");
+  });
+
+  it("lists refused image calls between timeout and error", () => {
+    expect(failureBreakdown(stats({ statuses: { ok: 3, error: 1, refused: 2, timeout: 1 } }))).toBe("timeout 1 · refused 2 · error 1");
   });
 });
 
@@ -186,7 +190,7 @@ describe("callsByModel", () => {
       model: "gpt-5-mini",
       tasks: ["categorize", "recipe_import"],
       total: 6,
-      statuses: { ok: 4, api_error: 1, invalid_output: 0, timeout: 1, error: 0 },
+      statuses: { ok: 4, api_error: 1, invalid_output: 0, timeout: 1, refused: 0, error: 0 },
       fallbacks: 0,
       input_tokens: 150,
       output_tokens: 7,

@@ -9,6 +9,7 @@ import {
   ImageFailedError,
   ImageRefusedError,
   imageModel,
+  imageModelId,
   imageQuality,
   isContentPolicyError,
   isImageEnabled,
@@ -116,6 +117,71 @@ Deno.test('the mock JPEG is a small baseline JPEG', () => {
   assertEquals((bytes[sof + 5] << 8) | bytes[sof + 6], 48, 'height');
   assertEquals((bytes[sof + 7] << 8) | bytes[sof + 8], 64, 'width');
   assert(bytes.length < 300);
+});
+
+/** The error `generateImage` rejects with. */
+async function rejection(options: Parameters<typeof generateImage>[1]): Promise<ImageFailedError | ImageRefusedError> {
+  try {
+    await generateImage('x', options);
+  } catch (err) {
+    if (err instanceof ImageFailedError || err instanceof ImageRefusedError) return err;
+    throw err;
+  }
+  throw new Error('expected a rejection');
+}
+
+Deno.test('a refusal carries the HTTP status and the body as sent', async () => {
+  const body = { error: { code: 'moderation_blocked', message: 'Your request was rejected by the safety system.' } };
+  const err = await rejection({ env: KEYED, fetch: fakeFetch(400, body).fetch });
+  assert(err instanceof ImageRefusedError);
+  assertEquals([err.httpStatus, err.body], [400, JSON.stringify(body)]);
+});
+
+Deno.test('each failure carries its ai_calls status, and the HTTP status and body when OpenAI answered', async () => {
+  const serverError = { error: { message: 'server error' } };
+  const http = await rejection({ env: KEYED, fetch: fakeFetch(500, serverError).fetch });
+  assert(http instanceof ImageFailedError);
+  assertEquals([http.failure, http.httpStatus, http.body], ['api_error', 500, JSON.stringify(serverError)]);
+
+  const plain = (async () => new Response('Bad gateway', { status: 502 })) as typeof globalThis.fetch;
+  const notJson = await rejection({ env: KEYED, fetch: plain });
+  assert(notJson instanceof ImageFailedError);
+  assertEquals([notJson.failure, notJson.httpStatus, notJson.body], ['api_error', 502, 'Bad gateway']);
+
+  const empty = (async () => new Response('', { status: 503 })) as typeof globalThis.fetch;
+  const noBody = await rejection({ env: KEYED, fetch: empty });
+  assertEquals([noBody.httpStatus, noBody.body], [503, null]);
+
+  // A 200 never keeps its body: it would hold the image.
+  for (const okBody of [{ data: [] }, { data: [{ b64_json: '***not base64***' }] }]) {
+    const invalid = await rejection({ env: KEYED, fetch: fakeFetch(200, okBody).fetch });
+    assert(invalid instanceof ImageFailedError);
+    assertEquals([invalid.failure, invalid.httpStatus, invalid.body], ['invalid_output', null, null], JSON.stringify(okBody));
+  }
+
+  const broken = (async () => {
+    throw new TypeError('connection reset');
+  }) as typeof globalThis.fetch;
+  const network = await rejection({ env: KEYED, fetch: broken });
+  assert(network instanceof ImageFailedError);
+  assertEquals([network.failure, network.httpStatus, network.body], ['api_error', null, null]);
+
+  const hanging = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason)))) as typeof globalThis.fetch;
+  const timeout = await rejection({ env: KEYED, fetch: hanging, timeoutMs: 20 });
+  assert(timeout instanceof ImageFailedError);
+  assertEquals([timeout.failure, timeout.httpStatus, timeout.body], ['timeout', null, null]);
+
+  for (const env of [envOf({ AI_IMAGE_MODEL: 'off', OPENAI_API_KEY: 'k' }), envOf({})]) {
+    const other = await rejection({ env });
+    assert(other instanceof ImageFailedError);
+    assertEquals([other.failure, other.httpStatus, other.body], ['error', null, null]);
+  }
+});
+
+Deno.test('imageModelId names the model as the other ai_calls rows do', () => {
+  assertEquals(imageModelId('gpt-image-1-mini'), 'openai:gpt-image-1-mini');
+  assertEquals(imageModelId('mock'), 'mock');
 });
 
 Deno.test('isContentPolicyError and estimateImageCost', () => {
