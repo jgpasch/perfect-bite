@@ -36,6 +36,7 @@ import {
   setPlanTab,
 } from '../device-settings';
 import { getRecipeViewStyle, RECIPE_VIEW_STYLE_KEY, setRecipeViewStyle } from '@/features/recipes/view-style';
+import { getPlanCellStyle, PLAN_CELL_STYLE_KEY, setPlanCellStyle } from '@/features/meal-plan/cell-style';
 import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY } from '@/features/tabs/add-hint';
 import { FONT_SET_KEY, getFontSetSetting, loadFontSet, setFontSetSetting } from '../font-set';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
@@ -327,6 +328,74 @@ describe('Settings', () => {
     expect(toggle().props.value).toBe(false);
   });
 
+  describe('Meal plan > Grid cells', () => {
+    const control = (root: ReactTestRenderer) => {
+      const found = labelled(root, 'Grid cell style');
+      expect(found).toHaveLength(1);
+      expect(found[0].props.accessibilityRole).toBe('tablist');
+      return found[0];
+    };
+    const segments = (root: ReactTestRenderer) =>
+      control(root).findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tab');
+    const states = (root: ReactTestRenderer) =>
+      segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
+
+    it('follows Plan tab as the last row of Meal plan, Split photo selected until Stacked is picked', () => {
+      const root = render(<SettingsScreen />);
+      expect(textOf(root)).toContain(
+        'Meal plan Plan tab Your week plan gets its own tab. Off, it lives in Recipes under This week. Grid cells Split photo Stacked General',
+      );
+      expect(states(root)).toEqual([
+        ['Split photo', true],
+        ['Stacked', false],
+      ]);
+      expect(getDeviceSetting(PLAN_CELL_STYLE_KEY, null)).toBeNull();
+    });
+
+    it('saves plan.cellStyle and selects the picked style', () => {
+      const root = render(<SettingsScreen />);
+      click(segments(root)[1]);
+      expect(getDeviceSetting(PLAN_CELL_STYLE_KEY, null)).toBe('stacked');
+      expect(getPlanCellStyle()).toBe('stacked');
+      expect(states(root)).toEqual([
+        ['Split photo', false],
+        ['Stacked', true],
+      ]);
+      click(segments(root)[0]);
+      expect(getDeviceSetting(PLAN_CELL_STYLE_KEY, null)).toBe('split');
+      expect(getPlanCellStyle()).toBe('split');
+      expect(states(root)[0]).toEqual(['Split photo', true]);
+    });
+
+    it('shows a style saved before, and follows a change made elsewhere', () => {
+      setPlanCellStyle('stacked');
+      const root = render(<SettingsScreen />);
+      expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Stacked');
+      act(() => setPlanCellStyle('split'));
+      expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Split photo');
+    });
+
+    it('an unknown saved value shows Split photo', () => {
+      setDeviceSetting(PLAN_CELL_STYLE_KEY, 'mosaic');
+      const root = render(<SettingsScreen />);
+      expect(states(root)).toEqual([
+        ['Split photo', true],
+        ['Stacked', false],
+      ]);
+    });
+
+    it('in Spanish', () => {
+      initI18n('es');
+      try {
+        const root = render(<SettingsScreen />);
+        expect(labelled(root, 'Estilo de las celdas de la cuadrícula')).toHaveLength(1);
+        expect(textOf(root)).toContain('Celdas de la cuadrícula Foto dividida Apiladas');
+      } finally {
+        initI18n('en');
+      }
+    });
+  });
+
   it('Always show checked items is a switch, off by default, that turns the device setting on and off', () => {
     const root = render(<SettingsScreen />);
     expect(textOf(root)).toContain("Always show checked items Otherwise they show once everything's checked");
@@ -373,7 +442,12 @@ describe('Settings', () => {
       expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque Recipe view Standard Title on photo');
       expect(textOf(root)).not.toContain('Plan grid');
       expect(labelled(root, 'Plan grid style')).toHaveLength(0);
-      expect(root.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tablist')).toHaveLength(1);
+      // Meal plan's Grid cells and Design trials' Recipe view are the screen's only segmented controls.
+      expect(
+        root.root
+          .findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tablist')
+          .map((n) => n.props.accessibilityLabel),
+      ).toEqual(['Grid cell style', 'Recipe view style']);
     });
 
     describe('Recipe view', () => {

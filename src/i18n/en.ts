@@ -972,6 +972,11 @@ export const en = {
     mealPlan: 'Meal plan',
     planTab: 'Plan tab',
     planTabDetail: 'Your week plan gets its own tab. Off, it lives in Recipes under This week.',
+    /** How the plan grid draws a slot with two or more recipes (spec 4.16). */
+    gridCells: 'Grid cells',
+    gridCellsLabel: 'Grid cell style',
+    gridCellsSplit: 'Split photo',
+    gridCellsStacked: 'Stacked',
     syncStatus: 'Sync status',
     households: 'Households',
     householdsFootnote: 'Members, invites, Always have and name matching are in each household.',

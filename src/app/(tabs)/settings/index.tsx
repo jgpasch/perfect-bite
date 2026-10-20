@@ -39,6 +39,7 @@ import {
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
+import { PLAN_CELL_STYLES, setPlanCellStyle, usePlanCellStyle, type PlanCellStyle } from '@/features/meal-plan/cell-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { RECIPE_VIEW_STYLES, setRecipeViewStyle, useRecipeViewStyle, type RecipeViewStyle } from '@/features/recipes/view-style';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
@@ -76,6 +77,7 @@ export default function SettingsScreen() {
   useFocusEffect(useCallback(() => setAisleColors(getAisleColorStyle()), []));
   const keepScreenOn = useKeepScreenOnSetting();
   const planTab = usePlanTabSetting();
+  const planCellStyle = usePlanCellStyle();
   const fontSet = useFontSet();
   const recipeViewStyle = useRecipeViewStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
@@ -222,8 +224,19 @@ export default function SettingsScreen() {
                 accessibilityHint={t('settings.planTabDetail')}
               />
             }
-            last
           />
+          {/* How the grid draws a slot with two or more recipes (spec 4.16). */}
+          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
+              {t('settings.gridCells')}
+            </ThemedText>
+            <SegmentedControl<PlanCellStyle>
+              accessibilityLabel={t('settings.gridCellsLabel')}
+              segments={PLAN_CELL_STYLES.map((style) => ({ value: style, label: t(PLAN_CELL_STYLE_LABELS[style]) }))}
+              value={planCellStyle}
+              onChange={setPlanCellStyle}
+            />
+          </View>
         </SettingsSection>
 
         <SettingsSection title={t('settings.general')}>
@@ -342,6 +355,11 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
     },
   ]);
 }
+
+const PLAN_CELL_STYLE_LABELS = {
+  split: 'settings.gridCellsSplit',
+  stacked: 'settings.gridCellsStacked',
+} as const satisfies Record<PlanCellStyle, string>;
 
 const RECIPE_VIEW_STYLE_LABELS = {
   standard: 'settings.recipeViewStandard',
