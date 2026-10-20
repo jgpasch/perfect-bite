@@ -2,7 +2,7 @@
 -- server, a recipe only from the entry's own household, the kind rules, and only members see them.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(36);
+select plan(37);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex owns household A (with Tacos), which Jamie is also in. Sam owns household S (with Chili).
@@ -69,6 +69,10 @@ select is(
   public.apply_mutations($$ [{ "table": "meal_plan_entries", "id": "e0000000-0000-0000-0000-0000000000a1",
     "hlc": "1760000000015-0000-jami", "fields": { "position": 3 } }] $$),
   '[{"status": "applied"}]'::jsonb, 'an older edit to another field still applies (field-level LWW)');
+select results_eq(
+  $$ select position, field_clock ->> 'position' from public.meal_plan_entries where id = 'e0000000-0000-0000-0000-0000000000a1' $$,
+  $$ values (3::double precision, '1760000000015-0000-jami') $$,
+  'a reorder writes position and its own clock, like any other field');
 select is(
   public.apply_mutations($$ [{ "table": "meal_plan_entries", "id": "e0000000-0000-0000-0000-0000000000a1",
     "hlc": "1760000000015-0001-jami", "fields": { "deleted_at": null } }] $$),

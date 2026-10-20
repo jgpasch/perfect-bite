@@ -1,6 +1,5 @@
 // Reading the meal plan (spec 4.16). Entries of a deleted recipe aren't shown, so their slot reads
-// as empty. A slot holds one entry for now, but these return lists, so a later "main and side" is a
-// UI change only.
+// as empty. A slot holds any number of recipes, all alike and ordered by position, or one note.
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { db, mealPlanEntries, recipes } from '@/db';
@@ -37,7 +36,7 @@ const entryColumns = {
 /**
  * The household's live entries in the week starting `start` (live query), joined to their live
  * recipes. In each slot by position, then the one created last first (spec 4.16: two devices filling
- * a slot offline both keep their rows, and the slot shows the newer).
+ * a slot offline both keep their rows).
  */
 export function weekEntriesQuery(householdId: string, start: Day) {
   const sunday = weekStart(start);
@@ -64,20 +63,31 @@ export function weekEntriesQuery(householdId: string, start: Day) {
 export type PlanEntry = Awaited<ReturnType<typeof weekEntriesQuery>>[number];
 
 export type WeekPlan = {
-  /** The slot's entries, the shown one first; empty for an empty slot. */
+  /** What the slot shows: its recipes by position, else its one note; empty for an empty slot. */
   slotEntries: (day: Day, meal: Meal) => PlanEntry[];
 };
 
-/** Groups a week's entries (in `weekEntriesQuery`'s order) by slot. */
+/** Whether note `a` was created after note `b` (ties broken by id, as `weekEntriesQuery` does). */
+const newer = (a: PlanEntry, b: PlanEntry) =>
+  a.createdAt.getTime() !== b.createdAt.getTime() ? a.createdAt > b.createdAt : a.id > b.id;
+
+/**
+ * Groups a week's entries (in `weekEntriesQuery`'s order) by slot. A slot with live recipes shows only
+ * them (a note there, from another device offline, is ignored); otherwise its note created last.
+ */
 export function groupWeek(entries: readonly PlanEntry[]): WeekPlan {
-  const slots = new Map<string, PlanEntry[]>();
+  const slots = new Map<string, { recipes: PlanEntry[]; note: PlanEntry | null }>();
   for (const entry of entries) {
     const key = `${entry.planDate}|${entry.meal}`;
-    const list = slots.get(key);
-    if (list) list.push(entry);
-    else slots.set(key, [entry]);
+    let slot = slots.get(key);
+    if (!slot) slots.set(key, (slot = { recipes: [], note: null }));
+    if (entry.kind === 'recipe') slot.recipes.push(entry);
+    else if (!slot.note || newer(entry, slot.note)) slot.note = entry;
   }
-  return { slotEntries: (day, meal) => slots.get(`${day}|${meal}`) ?? [] };
+  const shown = new Map(
+    [...slots].map(([key, { recipes, note }]) => [key, recipes.length > 0 ? recipes : note ? [note] : []]),
+  );
+  return { slotEntries: (day, meal) => shown.get(`${day}|${meal}`) ?? [] };
 }
 
 /**

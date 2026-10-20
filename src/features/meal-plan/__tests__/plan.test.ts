@@ -8,7 +8,16 @@ import { resetDb } from '@/test/db';
 import { clearOutbox, outboxMutations } from '@/test/outbox';
 
 import { groupWeek, restOfWeekEntriesQuery, upcomingRecipeEntriesQuery, weekEntriesQuery, type PlanEntry } from '../queries';
-import { applyPlanChanges, cleanNote, clearSlot, setSlot } from '../write';
+import {
+  addRecipeToSlot,
+  applyPlanChanges,
+  cleanNote,
+  clearSlot,
+  moveEntry,
+  removeEntry,
+  restoreEntries,
+  setSlot,
+} from '../write';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 
@@ -108,10 +117,44 @@ describe('weekEntriesQuery and groupWeek', () => {
   });
 
   test('within a slot, position orders before creation time', () => {
-    pulledEntry('main', { position: 0, createdAt: new Date('2026-10-12T08:00:00Z') });
-    pulledEntry('side', { position: 1, createdAt: new Date('2026-10-12T09:00:00Z') });
+    pulledEntry('first', { kind: 'recipe', recipeId: tacos, position: 0, createdAt: new Date('2026-10-12T08:00:00Z') });
+    pulledEntry('second', { kind: 'recipe', recipeId: soup, position: 1, createdAt: new Date('2026-10-12T09:00:00Z') });
 
-    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.id)).toEqual(['main', 'side']);
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.id)).toEqual(['first', 'second']);
+  });
+
+  test('a slot with live recipes shows only them, by position; a stray note there is ignored', () => {
+    pulledEntry('note', { kind: 'note', note: 'Pizza night', createdAt: new Date('2026-10-12T10:00:00Z') });
+    pulledEntry('soup', { kind: 'recipe', recipeId: soup, position: 2, createdAt: new Date('2026-10-12T08:00:00Z') });
+    pulledEntry('tacos', { kind: 'recipe', recipeId: tacos, position: 1, createdAt: new Date('2026-10-12T09:00:00Z') });
+
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => [e.id, e.recipeName])).toEqual([
+      ['tacos', 'Tacos'],
+      ['soup', 'Soup'],
+    ]);
+  });
+
+  test('a slot whose only recipe was deleted shows its stray note', () => {
+    pulledEntry('note', { kind: 'note', note: 'Pizza night' });
+    pulledEntry('tacos', { kind: 'recipe', recipeId: tacos });
+    deleteRecipe(tacos);
+
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.note)).toEqual(['Pizza night']);
+  });
+
+  test('a slot with two notes shows only the one created last, whatever their positions', () => {
+    pulledEntry('older', { kind: 'note', note: 'Pizza', position: 0, createdAt: new Date('2026-10-12T08:00:00Z') });
+    pulledEntry('newer', { kind: 'eating-out', position: 5, createdAt: new Date('2026-10-12T09:00:00Z') });
+    pulledEntry('oldest', { kind: 'leftovers', position: -1, createdAt: new Date('2026-10-11T08:00:00Z') });
+
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.id)).toEqual(['newer']);
+  });
+
+  test('two notes created at the same moment: the larger id shows, as the query orders them', () => {
+    pulledEntry('note-a', { kind: 'note', note: 'A' });
+    pulledEntry('note-b', { kind: 'note', note: 'B' });
+
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.id)).toEqual(['note-b']);
   });
 
   test("a deleted recipe's entries drop out, so the slot reads as empty; notes stay", () => {
@@ -300,6 +343,232 @@ describe('setSlot', () => {
   });
 });
 
+describe('addRecipeToSlot', () => {
+  const names = () => shown(week(), '2026-10-15', 'dinner').map((e) => [e.recipeName, e.position]);
+
+  test('puts each recipe last, in the order added, starting at 0', () => {
+    const pie = createRecipe('Pie', home);
+    clearOutbox();
+
+    const first = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', soup);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', pie);
+
+    expect(first).toMatchObject({ kind: 'recipe', recipeId: tacos, note: null, position: 0, deletedAt: null });
+    expect(names()).toEqual([
+      ['Tacos', 0],
+      ['Soup', 1],
+      ['Pie', 2],
+    ]);
+    // Three inserts, nothing else.
+    expect(outboxMutations().map((m) => m.fields.recipe_id)).toEqual([tacos, soup, pie]);
+  });
+
+  test("goes one past the slot's highest live position, not its count", () => {
+    pulledEntry('high', { kind: 'recipe', recipeId: tacos, position: 7.5 });
+    pulledEntry('gone', { kind: 'recipe', recipeId: soup, position: 20, deletedAt: new Date() });
+
+    expect(addRecipeToSlot(home, '2026-10-15', 'dinner', soup)!.position).toBe(8.5);
+  });
+
+  test('a recipe already in the slot is skipped: null, and nothing written', () => {
+    addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', soup);
+    clearOutbox();
+
+    expect(addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)).toBeNull();
+    expect(outboxMutations()).toEqual([]);
+    expect(names()).toEqual([
+      ['Tacos', 0],
+      ['Soup', 1],
+    ]);
+  });
+
+  test('a recipe taken out of the slot can be added again', () => {
+    const row = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    removeEntry(row.id);
+
+    expect(addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)).toMatchObject({ recipeId: tacos, position: 0 });
+  });
+
+  test('over a note, soft-deletes the note and starts the recipes at 0', () => {
+    const note = setSlot(home, '2026-10-15', 'dinner', { kind: 'note', note: 'Pizza night' });
+    clearOutbox();
+
+    const row = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+
+    expect(row.position).toBe(0);
+    expect(outboxMutations().map((m) => [m.id, Object.keys(m.fields)])).toEqual([
+      [note.id, ['deleted_at']],
+      [row.id, expect.arrayContaining(['kind', 'recipe_id', 'position'])],
+    ]);
+    expect(names()).toEqual([['Tacos', 0]]);
+    expect(entryRows().filter((e) => e.deletedAt === null).map((e) => e.id)).toEqual([row.id]);
+  });
+
+  test('leaves other slots and households alone', () => {
+    setSlot(home, '2026-10-15', 'lunch', { kind: 'leftovers' });
+    setSlot(CABIN, '2026-10-15', 'dinner', { kind: 'leftovers' });
+    clearOutbox();
+
+    addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+
+    expect(outboxMutations()).toHaveLength(1);
+    expect(entryRows().filter((e) => e.deletedAt === null)).toHaveLength(3);
+  });
+
+  test('refuses a recipe from another household, a deleted one or a missing one, and writes nothing', () => {
+    const chili = createRecipe('Chili', CABIN);
+    setSlot(home, '2026-10-15', 'dinner', { kind: 'leftovers' });
+    deleteRecipe(soup);
+    clearOutbox();
+    const before = entryRows();
+
+    expect(() => addRecipeToSlot(home, '2026-10-15', 'dinner', chili)).toThrow(`Recipe ${chili} isn't in household ${home}`);
+    expect(() => addRecipeToSlot(home, '2026-10-15', 'dinner', soup)).toThrow("isn't in household");
+    expect(() => addRecipeToSlot(home, '2026-10-15', 'dinner', 'missing')).toThrow("isn't in household");
+    expect(entryRows()).toEqual(before);
+    expect(outboxMutations()).toEqual([]);
+  });
+
+  test('a note set over the recipes replaces them all', () => {
+    const a = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    const b = addRecipeToSlot(home, '2026-10-15', 'dinner', soup)!;
+    clearOutbox();
+
+    const note = setSlot(home, '2026-10-15', 'dinner', { kind: 'note', note: 'Eating at Gran’s' });
+
+    expect(outboxMutations().map((m) => [m.id, Object.keys(m.fields).length === 1 ? 'clear' : 'insert'])).toEqual([
+      [a.id, 'clear'],
+      [b.id, 'clear'],
+      [note.id, 'insert'],
+    ]);
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.note)).toEqual(['Eating at Gran’s']);
+  });
+});
+
+describe('removeEntry and restoreEntries', () => {
+  test("remove takes out just that entry and returns it; restore puts it back where it was", () => {
+    addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+    const middle = addRecipeToSlot(home, '2026-10-15', 'dinner', soup)!;
+    const pie = createRecipe('Pie', home);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', pie);
+    clearOutbox();
+
+    const removed = removeEntry(middle.id)!;
+
+    expect(removed).toMatchObject({ id: middle.id, recipeId: soup, deletedAt: expect.any(Date) });
+    expect(outboxMutations().map((m) => [m.id, Object.keys(m.fields)])).toEqual([[middle.id, ['deleted_at']]]);
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.recipeName)).toEqual(['Tacos', 'Pie']);
+
+    clearOutbox();
+    restoreEntries([removed]);
+
+    expect(outboxMutations()).toEqual([
+      { table: 'meal_plan_entries', id: middle.id, hlc: expect.any(String), fields: { deleted_at: null } },
+    ]);
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => e.recipeName)).toEqual(['Tacos', 'Soup', 'Pie']);
+  });
+
+  test("restore leaves what's been added since", () => {
+    const removed = removeEntry(addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!.id)!;
+    addRecipeToSlot(home, '2026-10-15', 'dinner', soup);
+
+    restoreEntries([removed]);
+
+    // Soup went in an empty slot, so both are at 0, and the one created last comes first.
+    expect(shown(week(), '2026-10-15', 'dinner').map((e) => [e.recipeName, e.position])).toEqual([
+      ['Soup', 0],
+      ['Tacos', 0],
+    ]);
+  });
+
+  test('removing an entry that is already out, or missing, returns null and writes nothing', () => {
+    const row = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    removeEntry(row.id);
+    clearOutbox();
+
+    expect(removeEntry(row.id)).toBeNull();
+    expect(removeEntry('missing')).toBeNull();
+    expect(outboxMutations()).toEqual([]);
+  });
+
+  test('restoring nothing writes nothing', () => {
+    restoreEntries([]);
+    expect(outboxMutations()).toEqual([]);
+  });
+});
+
+describe('moveEntry', () => {
+  let ids: Record<'a' | 'b' | 'c' | 'd', string>;
+  const order = () => shown(week(), '2026-10-15', 'dinner').map((e) => e.recipeName);
+  const move = (id: string, to: number) => moveEntry(home, '2026-10-15', 'dinner', id, to);
+
+  beforeEach(() => {
+    const [a, b, c, d] = ['A', 'B', 'C', 'D'].map((name) => {
+      const recipeId = createRecipe(name, home);
+      return addRecipeToSlot(home, '2026-10-15', 'dinner', recipeId)!.id;
+    });
+    ids = { a, b, c, d };
+    clearOutbox();
+  });
+
+  test('to the top: one less than the first', () => {
+    expect(move(ids.c, 0)!.position).toBe(-1);
+    expect(order()).toEqual(['C', 'A', 'B', 'D']);
+    expect(outboxMutations().map((m) => [m.id, m.fields])).toEqual([[ids.c, { position: -1 }]]);
+  });
+
+  test('to the middle: halfway between its new neighbours, moving down or up', () => {
+    expect(move(ids.a, 2)!.position).toBe(2.5);
+    expect(order()).toEqual(['B', 'C', 'A', 'D']);
+    expect(move(ids.d, 1)!.position).toBe(1.5);
+    expect(order()).toEqual(['B', 'D', 'C', 'A']);
+    expect(outboxMutations().map((m) => [m.id, m.fields])).toEqual([
+      [ids.a, { position: 2.5 }],
+      [ids.d, { position: 1.5 }],
+    ]);
+  });
+
+  test('to the end: one more than the last', () => {
+    expect(move(ids.b, 3)!.position).toBe(4);
+    expect(order()).toEqual(['A', 'C', 'D', 'B']);
+    expect(outboxMutations().map((m) => [m.id, m.fields])).toEqual([[ids.b, { position: 4 }]]);
+  });
+
+  test('an index past either end lands at that end', () => {
+    move(ids.b, 99);
+    expect(order()).toEqual(['A', 'C', 'D', 'B']);
+    move(ids.d, -5);
+    expect(order()).toEqual(['D', 'A', 'C', 'B']);
+  });
+
+  test("to where it already is: returned as it is, nothing written", () => {
+    expect(move(ids.b, 1)).toMatchObject({ id: ids.b, position: 1 });
+    expect(outboxMutations()).toEqual([]);
+  });
+
+  test("an entry that isn't one of the slot's shown recipes: null, nothing written", () => {
+    const lunch = addRecipeToSlot(home, '2026-10-15', 'lunch', tacos)!;
+    removeEntry(ids.a);
+    clearOutbox();
+
+    expect(move(lunch.id, 0)).toBeNull();
+    expect(move(ids.a, 0)).toBeNull();
+    expect(move('missing', 0)).toBeNull();
+    expect(outboxMutations()).toEqual([]);
+  });
+
+  test("a deleted recipe's hidden entry doesn't count as a neighbour", () => {
+    deleteRecipe(entryRows().find((e) => e.id === ids.a)!.recipeId!);
+    clearOutbox();
+
+    // Shown: B (1), C (2), D (3). To the top goes below B, not below the hidden A.
+    expect(move(ids.d, 0)!.position).toBe(0);
+    expect(order()).toEqual(['D', 'B', 'C']);
+  });
+});
+
 describe('cleanNote', () => {
   test('trims and keeps the text as typed, up to 60 characters', () => {
     expect(cleanNote('  Tacos de canasta ')).toBe('Tacos de canasta');
@@ -356,6 +625,52 @@ describe('applyPlanChanges', () => {
       'insert',
       'clear',
     ]);
+  });
+
+  test('adds beside recipes, over notes and skipping duplicates, with clears, in one go', () => {
+    const pie = createRecipe('Pie', home);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+    setSlot(home, '2026-10-16', 'dinner', { kind: 'note', note: 'Pizza' });
+    setSlot(home, '2026-10-17', 'lunch', { kind: 'leftovers' });
+    clearOutbox();
+
+    applyPlanChanges([
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } },
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: tacos } }, // already there
+      { householdId: home, day: '2026-10-16', meal: 'dinner', add: { recipeId: pie } },
+      { householdId: home, day: '2026-10-17', meal: 'lunch', entry: null },
+      { householdId: home, day: '2026-10-17', meal: 'dinner', add: { recipeId: pie } },
+    ]);
+
+    const entries = week();
+    expect(shown(entries, '2026-10-15', 'dinner').map((e) => [e.recipeName, e.position])).toEqual([
+      ['Tacos', 0],
+      ['Soup', 1],
+    ]);
+    expect(shown(entries, '2026-10-16', 'dinner').map((e) => e.recipeName)).toEqual(['Pie']);
+    expect(shown(entries, '2026-10-17', 'lunch')).toEqual([]);
+    expect(shown(entries, '2026-10-17', 'dinner').map((e) => e.recipeName)).toEqual(['Pie']);
+    expect(outboxMutations().map((m) => (Object.keys(m.fields).length > 1 ? 'insert' : 'clear'))).toEqual([
+      'insert', // Soup
+      'clear', // the note
+      'insert', // Pie on Friday
+      'clear', // Saturday lunch
+      'insert', // Pie on Saturday
+    ]);
+  });
+
+  test('a bad add writes none of the changes', () => {
+    const chili = createRecipe('Chili', CABIN);
+    clearOutbox();
+
+    expect(() =>
+      applyPlanChanges([
+        { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: tacos } },
+        { householdId: home, day: '2026-10-16', meal: 'dinner', add: { recipeId: chili } },
+      ]),
+    ).toThrow("isn't in household");
+    expect(entryRows()).toEqual([]);
+    expect(outboxMutations()).toEqual([]);
   });
 
   test('one bad change writes none of them', () => {
