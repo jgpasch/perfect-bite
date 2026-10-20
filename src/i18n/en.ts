@@ -939,13 +939,19 @@ export const en = {
     /** The plan modal (spec 4.16), under the recipe's name. */
     tapSlot: 'Tap a slot to plan it',
     plannedFor: 'Planned for {{slot}}',
+    /** Placed after the recipes already in the slot: "Added to Thu dinner". */
+    addedTo: 'Added to {{slot}}',
     /** "Replaced Lemon ricotta pasta on Sat dinner". */
     replacedOn: 'Replaced {{name}} on {{slot}}',
+    /** A tap on a slot that already holds the recipe, which does nothing. */
+    alreadyPlannedFor: 'Already planned for {{slot}}',
     donePlanned: 'Done · {{count}} planned',
     /** VoiceOver's hint on the plan modal's cells. */
     hintPlan: 'Double-tap to plan',
+    hintAdd: 'Double-tap to add',
     hintReplace: 'Double-tap to replace',
     hintRemove: 'Double-tap to remove',
+    hintAlreadyPlanned: 'Already planned',
     /** A plan badge on the recipe screen for VoiceOver: "Planned for Thu dinner". */
     badgeLabel: 'Planned for {{slot}}',
     badgeMore: '+{{count}}',

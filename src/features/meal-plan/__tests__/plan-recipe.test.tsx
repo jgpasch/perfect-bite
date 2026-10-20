@@ -10,15 +10,18 @@ import { AisleColors, MealHues, Palette } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
+import { i18n } from '@/i18n';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
 import { clearOutbox, outboxPatches } from '@/test/outbox';
 
 import PlanRecipeSheet from '@/app/plan-recipe';
 
+import { setPlanCellStyle } from '../cell-style';
 import { PlanBadges } from '../plan-badges';
 import {
   doneLabel,
+  holdsRecipe,
   isPlaced,
   placedToast,
   planBadges,
@@ -27,10 +30,11 @@ import {
   shortSlotName,
   slotHint,
   tapSlot,
+  withPlacements,
 } from '../plan-modal';
-import { groupWeek, weekEntriesQuery } from '../queries';
+import { groupWeek, type PlanEntry, weekEntriesQuery } from '../queries';
 import type { Meal } from '../week';
-import { setSlot } from '../write';
+import { addRecipeToSlot, setSlot } from '../write';
 
 const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => mockWindow }));
@@ -103,6 +107,13 @@ function shownNow(day: string, meal: Meal) {
   return groupWeek(entries).slotEntries(day, meal)[0] ?? null;
 }
 
+/** The slot's recipes' names, in order, as the week reads them from the database. */
+function namesNow(day: string, meal: Meal) {
+  return groupWeek(weekEntriesQuery(home, day).all())
+    .slotEntries(day, meal)
+    .map((e) => e.recipeName ?? e.kind);
+}
+
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date(2026, 9, 15, 12, 0) });
   resetDb();
@@ -113,6 +124,7 @@ beforeEach(() => {
   tag(tacos, ['lunch', 'dinner']);
   mockBack.mockClear();
   mockParams.recipeId = tacos;
+  setPlanCellStyle('split');
 });
 
 afterEach(() => {
@@ -135,7 +147,7 @@ const cell = (day: string, meal: Meal) =>
 const tap = (day: string, meal: Meal) => act(() => cell(day, meal).props.onPress());
 const cellText = (day: string, meal: Meal) => textOf(cell(day, meal));
 const isPlacedCell = (day: string, meal: Meal) => cell(day, meal).props.accessibilityState?.selected === true;
-const toastMessage = () => lines().find((l) => /^(Planned|Replaced)/.test(l)) ?? null;
+const toastMessage = () => lines().find((l) => /^(Planned|Replaced|Added|Already planned for)/.test(l)) ?? null;
 const cta = () => tree!.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && /^Done/.test(n.props.accessibilityLabel ?? ''));
 
 function open() {
@@ -147,53 +159,125 @@ function open() {
 describe('the modal state', () => {
   const pastaShown = { kind: 'recipe' as const, recipeId: 'p', recipeName: 'Lemon ricotta pasta', note: null };
 
+  const saladShown = { kind: 'recipe' as const, recipeId: 's', recipeName: 'Caesar salad', note: null };
+  const tacosShown = { kind: 'recipe' as const, recipeId: 't', recipeName: 'Chicken tacos', note: null };
+  const leftovers = { kind: 'leftovers' as const, recipeId: null, recipeName: null, note: null };
+  const note = { kind: 'note' as const, recipeId: null, recipeName: null, note: 'Pizza night' };
+
   test('a tap places the recipe, keeping what the slot showed; a second tap takes it out', () => {
     let placements: Placements = [];
-    placements = tapSlot(placements, THURSDAY, 'dinner', null);
-    placements = tapSlot(placements, SATURDAY, 'dinner', pastaShown);
+    placements = tapSlot(placements, THURSDAY, 'dinner', [], 't');
+    placements = tapSlot(placements, SATURDAY, 'dinner', [pastaShown, saladShown], 't');
     expect(placements).toEqual([
-      { day: THURSDAY, meal: 'dinner', previous: null },
-      { day: SATURDAY, meal: 'dinner', previous: pastaShown },
+      { day: THURSDAY, meal: 'dinner', previous: [] },
+      { day: SATURDAY, meal: 'dinner', previous: [pastaShown, saladShown] },
     ]);
     expect(isPlaced(placements, THURSDAY, 'dinner')).toBe(true);
     expect(isPlaced(placements, THURSDAY, 'lunch')).toBe(false);
-    placements = tapSlot(placements, THURSDAY, 'dinner', null);
-    expect(placements).toEqual([{ day: SATURDAY, meal: 'dinner', previous: pastaShown }]);
+    placements = tapSlot(placements, THURSDAY, 'dinner', [], 't');
+    expect(placements).toEqual([{ day: SATURDAY, meal: 'dinner', previous: [pastaShown, saladShown] }]);
   });
 
-  test('the toasts: Planned for, Replaced … on, and Planned again over the same recipe', () => {
-    expect(placedToast({ day: THURSDAY, meal: 'dinner', previous: null }, 't', THURSDAY)).toEqual({ message: 'Planned for Thu dinner' });
-    expect(placedToast({ day: SATURDAY, meal: 'dinner', previous: pastaShown }, 't', THURSDAY)).toEqual({
-      message: 'Replaced Lemon ricotta pasta on Sat dinner',
-      emphasis: 'Lemon ricotta pasta',
+  test('a slot already holding the recipe takes no tap, wherever the recipe sits', () => {
+    const placements: Placements = [{ day: THURSDAY, meal: 'dinner', previous: [] }];
+    expect(tapSlot(placements, SATURDAY, 'dinner', [tacosShown], 't')).toBe(placements);
+    expect(tapSlot(placements, SATURDAY, 'dinner', [pastaShown, tacosShown], 't')).toBe(placements);
+    expect(tapSlot([], SATURDAY, 'dinner', [pastaShown, tacosShown], 't')).toEqual([]);
+    // Another recipe's id is not this one.
+    expect(tapSlot([], SATURDAY, 'dinner', [pastaShown], 't')).toHaveLength(1);
+    expect(holdsRecipe([pastaShown, tacosShown], 't')).toBe(true);
+    expect(holdsRecipe([pastaShown], 't')).toBe(false);
+    expect(holdsRecipe([], 't')).toBe(false);
+    expect(holdsRecipe([note], 't')).toBe(false);
+  });
+
+  test('the toasts: Planned for, Added to, Replaced … on, and Already planned for', () => {
+    expect(placedToast({ day: THURSDAY, meal: 'dinner', previous: [] }, 't', THURSDAY)).toEqual({ message: 'Planned for Thu dinner' });
+    expect(placedToast({ day: SATURDAY, meal: 'dinner', previous: [pastaShown] }, 't', THURSDAY)).toEqual({ message: 'Added to Sat dinner' });
+    expect(placedToast({ day: SATURDAY, meal: 'dinner', previous: [pastaShown, saladShown] }, 't', THURSDAY)).toEqual({
+      message: 'Added to Sat dinner',
     });
-    const leftovers = { kind: 'leftovers' as const, recipeId: null, recipeName: null, note: null };
-    expect(placedToast({ day: NEXT_MONDAY, meal: 'lunch', previous: leftovers }, 't', THURSDAY).message).toBe(
-      'Replaced Leftovers on Oct 19 lunch',
-    );
-    const note = { kind: 'note' as const, recipeId: null, recipeName: null, note: 'Pizza night' };
-    expect(placedToast({ day: THURSDAY, meal: 'lunch', previous: note }, 't', THURSDAY).message).toBe('Replaced Pizza night on Thu lunch');
-    expect(placedToast({ day: THURSDAY, meal: 'lunch', previous: { ...pastaShown, recipeId: 't' } }, 't', THURSDAY)).toEqual({
-      message: 'Planned for Thu lunch',
+    expect(placedToast({ day: NEXT_MONDAY, meal: 'lunch', previous: [leftovers] }, 't', THURSDAY)).toEqual({
+      message: 'Replaced Leftovers on Oct 19 lunch',
+      emphasis: 'Leftovers',
+    });
+    const eatingOut = { kind: 'eating-out' as const, recipeId: null, recipeName: null, note: null };
+    expect(placedToast({ day: SATURDAY, meal: 'dinner', previous: [eatingOut] }, 't', THURSDAY).message).toBe('Replaced Eating out on Sat dinner');
+    expect(placedToast({ day: THURSDAY, meal: 'lunch', previous: [note] }, 't', THURSDAY).message).toBe('Replaced Pizza night on Thu lunch');
+    expect(placedToast({ day: THURSDAY, meal: 'lunch', previous: [tacosShown] }, 't', THURSDAY)).toEqual({
+      message: 'Already planned for Thu lunch',
+    });
+    expect(placedToast({ day: '2026-10-21', meal: 'dinner', previous: [pastaShown, tacosShown] }, 't', THURSDAY)).toEqual({
+      message: 'Already planned for Oct 21 dinner',
     });
   });
 
-  test('Done’s changes, its label and VoiceOver’s hints', () => {
+  test('Done’s changes are adds, its label and VoiceOver’s hints', () => {
     const placements: Placements = [
-      { day: THURSDAY, meal: 'dinner', previous: null },
-      { day: NEXT_MONDAY, meal: 'lunch', previous: pastaShown },
+      { day: THURSDAY, meal: 'dinner', previous: [] },
+      { day: NEXT_MONDAY, meal: 'lunch', previous: [pastaShown] },
+      { day: SATURDAY, meal: 'dinner', previous: [note] },
     ];
     expect(planChanges(placements, 'h', 't')).toEqual([
-      { householdId: 'h', day: THURSDAY, meal: 'dinner', entry: { kind: 'recipe', recipeId: 't' } },
-      { householdId: 'h', day: NEXT_MONDAY, meal: 'lunch', entry: { kind: 'recipe', recipeId: 't' } },
+      { householdId: 'h', day: THURSDAY, meal: 'dinner', add: { recipeId: 't' } },
+      { householdId: 'h', day: NEXT_MONDAY, meal: 'lunch', add: { recipeId: 't' } },
+      { householdId: 'h', day: SATURDAY, meal: 'dinner', add: { recipeId: 't' } },
     ]);
     expect(planChanges([], 'h', 't')).toEqual([]);
     expect(doneLabel(0)).toBe('Done');
     expect(doneLabel(1)).toBe('Done · 1 planned');
     expect(doneLabel(2)).toBe('Done · 2 planned');
-    expect(slotHint(false, null)).toBe('Double-tap to plan');
-    expect(slotHint(false, pastaShown)).toBe('Double-tap to replace');
-    expect(slotHint(true, pastaShown)).toBe('Double-tap to remove');
+    expect(slotHint(false, [], 't')).toBe('Double-tap to plan');
+    expect(slotHint(false, [pastaShown], 't')).toBe('Double-tap to add');
+    expect(slotHint(false, [pastaShown, saladShown], 't')).toBe('Double-tap to add');
+    expect(slotHint(false, [note], 't')).toBe('Double-tap to replace');
+    expect(slotHint(false, [leftovers], 't')).toBe('Double-tap to replace');
+    expect(slotHint(true, [pastaShown], 't')).toBe('Double-tap to remove');
+    expect(slotHint(true, [], 't')).toBe('Double-tap to remove');
+    expect(slotHint(false, [pastaShown, tacosShown], 't')).toBe('Already planned');
+  });
+
+  test('withPlacements: after the slot’s recipes, alone over a note or in an empty slot, once if already there', () => {
+    const entry = (id: string, kind: PlanEntry['kind'], position: number, recipeId: string | null = null) =>
+      ({ id, kind, position, recipeId, recipeName: id, note: null, planDate: SATURDAY, meal: 'dinner' }) as PlanEntry;
+    const slots: Record<string, PlanEntry[]> = {
+      [`${SATURDAY}-dinner`]: [entry('pasta', 'recipe', 0, 'p'), entry('salad', 'recipe', 4, 's')],
+      [`${SATURDAY}-lunch`]: [entry('out', 'eating-out', 0)],
+      [`${THURSDAY}-lunch`]: [entry('tacos', 'recipe', 0, 't')],
+    };
+    const plan = { slotEntries: (day: string, meal: Meal) => slots[`${day}-${meal}`] ?? [] };
+    const recipe = { id: 't', name: 'Chicken tacos', totalMinutes: 20, imageUrl: null, photoPath: null };
+    const placements: Placements = [SATURDAY, THURSDAY].flatMap((day) =>
+      (['dinner', 'lunch'] as const).map((meal) => ({ day, meal, previous: [] })),
+    );
+    const shown = withPlacements(plan, placements, recipe, 'h');
+    const summary = (day: string, meal: Meal) => shown.slotEntries(day, meal).map((e) => [e.id, e.recipeId, e.position]);
+    expect(summary(SATURDAY, 'dinner')).toEqual([
+      ['pasta', 'p', 0],
+      ['salad', 's', 4],
+      [`placed-${SATURDAY}-dinner`, 't', 5],
+    ]);
+    expect(summary(SATURDAY, 'lunch')).toEqual([[`placed-${SATURDAY}-lunch`, 't', 0]]);
+    expect(summary(THURSDAY, 'dinner')).toEqual([[`placed-${THURSDAY}-dinner`, 't', 0]]);
+    expect(summary(THURSDAY, 'lunch')).toEqual([['tacos', 't', 0]]);
+    // An unplaced slot is the plan's.
+    expect(summary(SATURDAY, 'breakfast')).toEqual([]);
+    expect(withPlacements(plan, [], recipe, 'h').slotEntries(SATURDAY, 'dinner')).toBe(slots[`${SATURDAY}-dinner`]);
+    expect(shown.slotEntries(SATURDAY, 'dinner')[2]).toMatchObject({ householdId: 'h', kind: 'recipe', recipeName: 'Chicken tacos', recipeTotalMinutes: 20 });
+  });
+
+  test('the new toasts and hints in Spanish', () => {
+    void i18n.changeLanguage('es');
+    try {
+      expect(placedToast({ day: THURSDAY, meal: 'dinner', previous: [pastaShown] }, 't', THURSDAY).message).toBe('Agregada a cena del jue');
+      expect(placedToast({ day: THURSDAY, meal: 'dinner', previous: [tacosShown] }, 't', THURSDAY).message).toBe(
+        'Ya está planeada para cena del jue',
+      );
+      expect(slotHint(false, [pastaShown], 't')).toBe('Toca dos veces para agregar');
+      expect(slotHint(false, [tacosShown], 't')).toBe('Ya está planeada');
+    } finally {
+      void i18n.changeLanguage('en');
+    }
   });
 
   test('short slot names: the weekday through Saturday, the date from next Sunday, across a year', () => {
@@ -236,19 +320,84 @@ describe('the plan modal', () => {
     expect(shownNow(THURSDAY, 'dinner')).toBeNull();
   });
 
-  test('replacing names what was there; taking the placement out restores it', () => {
+  test('beside a recipe the tap adds it after; taking the placement out restores the slot', () => {
     setSlot(home, SATURDAY, 'dinner', { kind: 'recipe', recipeId: pasta });
     open();
     expect(cellText(SATURDAY, 'dinner')).toBe('Lemon ricotta pasta');
-    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to replace');
+    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to add');
     tap(SATURDAY, 'dinner');
-    expect(cellText(SATURDAY, 'dinner')).toBe('Chicken tacos');
-    expect(toastMessage()).toBe('Replaced Lemon ricotta pasta on Sat dinner');
+    expect(cellText(SATURDAY, 'dinner')).toBe('Lemon ricotta pastaChicken tacos');
+    expect(cell(SATURDAY, 'dinner').props.accessibilityLabel).toBe('Saturday dinner, Lemon ricotta pasta, Chicken tacos');
+    expect(toastMessage()).toBe('Added to Sat dinner');
+    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to remove');
     tap(SATURDAY, 'dinner');
     expect(isPlacedCell(SATURDAY, 'dinner')).toBe(false);
     expect(cellText(SATURDAY, 'dinner')).toBe('Lemon ricotta pasta');
     expect(toastMessage()).toBeNull();
     expect(cta().props.accessibilityLabel).toBe('Done');
+  });
+
+  test('a slot with two recipes gets a third; Done adds it and keeps both; tapping again takes it out', () => {
+    const salad = createRecipe('Caesar salad', home);
+    addRecipeToSlot(home, SATURDAY, 'dinner', pasta);
+    addRecipeToSlot(home, SATURDAY, 'dinner', salad);
+    open();
+    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to add');
+    tap(SATURDAY, 'dinner');
+    expect(isPlacedCell(SATURDAY, 'dinner')).toBe(true);
+    expect(cell(SATURDAY, 'dinner').props.accessibilityLabel).toBe('Saturday dinner, Lemon ricotta pasta, Caesar salad, Chicken tacos');
+    expect(toastMessage()).toBe('Added to Sat dinner');
+    // Out again, then back in.
+    tap(SATURDAY, 'dinner');
+    expect(cell(SATURDAY, 'dinner').props.accessibilityLabel).toBe('Saturday dinner, Lemon ricotta pasta, Caesar salad');
+    expect(cta().props.accessibilityLabel).toBe('Done');
+    tap(SATURDAY, 'dinner');
+    expect(namesNow(SATURDAY, 'dinner')).toEqual(['Lemon ricotta pasta', 'Caesar salad']);
+    clearOutbox();
+    act(() => cta().props.onPress());
+    expect(namesNow(SATURDAY, 'dinner')).toEqual(['Lemon ricotta pasta', 'Caesar salad', 'Chicken tacos']);
+    // One insert, nothing soft-deleted.
+    expect(outboxPatches().map((m) => [m.fields.recipe_id, m.fields.position, m.fields.deleted_at])).toEqual([[tacos, 2, null]]);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('a slot already holding the recipe takes no tap and says so', () => {
+    addRecipeToSlot(home, SATURDAY, 'dinner', pasta);
+    addRecipeToSlot(home, SATURDAY, 'dinner', tacos);
+    open();
+    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Already planned');
+    tap(SATURDAY, 'dinner');
+    expect(isPlacedCell(SATURDAY, 'dinner')).toBe(false);
+    expect(cell(SATURDAY, 'dinner').props.accessibilityLabel).toBe('Saturday dinner, Lemon ricotta pasta, Chicken tacos');
+    expect(toastMessage()).toBe('Already planned for Sat dinner');
+    // No Undo on it, and nothing to write.
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Undo')).toHaveLength(0);
+    expect(cta().props.accessibilityLabel).toBe('Done');
+    // A second tap is still ignored, not taken as a placement to undo.
+    tap(SATURDAY, 'dinner');
+    expect(isPlacedCell(SATURDAY, 'dinner')).toBe(false);
+    clearOutbox();
+    act(() => cta().props.onPress());
+    expect(outboxPatches()).toEqual([]);
+  });
+
+  test('a note is replaced, and Done soft-deletes it', () => {
+    setSlot(home, SATURDAY, 'dinner', { kind: 'eating-out' });
+    open();
+    expect(cell(SATURDAY, 'dinner').props.accessibilityHint).toBe('Double-tap to replace');
+    tap(SATURDAY, 'dinner');
+    expect(cellText(SATURDAY, 'dinner')).toBe('Chicken tacos');
+    expect(toastMessage()).toBe('Replaced Eating out on Sat dinner');
+    act(() => cta().props.onPress());
+    expect(namesNow(SATURDAY, 'dinner')).toEqual(['Chicken tacos']);
+  });
+
+  test('an empty slot is planned', () => {
+    open();
+    tap(SATURDAY, 'lunch');
+    expect(toastMessage()).toBe('Planned for Sat lunch');
+    act(() => cta().props.onPress());
+    expect(namesNow(SATURDAY, 'lunch')).toEqual(['Chicken tacos']);
   });
 
   test('Undo takes the last placement out and restores the slot', () => {
@@ -295,15 +444,14 @@ describe('the plan modal', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
     for (const [day, meal] of [
       [THURSDAY, 'dinner'],
-      [SATURDAY, 'dinner'],
       [NEXT_MONDAY, 'lunch'],
     ] as const) {
       expect(shownNow(day, meal)).toMatchObject({ kind: 'recipe', recipeId: tacos, recipeName: 'Chicken tacos' });
     }
-    // Pasta's row soft-deleted, then the three inserts.
+    expect(namesNow(SATURDAY, 'dinner')).toEqual(['Lemon ricotta pasta', 'Chicken tacos']);
+    // The three inserts, pasta kept.
     expect(outboxPatches().map((m) => [m.fields.plan_date, m.fields.meal, m.fields.recipe_id ?? null, m.fields.deleted_at === null])).toEqual([
       [THURSDAY, 'dinner', tacos, true],
-      [undefined, undefined, null, false],
       [SATURDAY, 'dinner', tacos, true],
       [NEXT_MONDAY, 'lunch', tacos, true],
     ]);
@@ -345,15 +493,32 @@ describe('the plan modal', () => {
       tree!.root.find((n) => typeof n.type === 'string' && n.props.testID === `slot-${day}-${meal}`);
     const photosIn = (node: ReactTestInstance) => node.findAll((n) => n.type === ('ExpoImage' as never));
 
-    test('placing over another recipe shows the placed recipe’s photo in the strip', () => {
+    test('placing beside another recipe draws both photos, split, in the placed look', () => {
       db.update(recipes).set({ imageUrl: 'https://example.com/pasta.jpg' }).where(eq(recipes.id, pasta)).run();
       db.update(recipes).set({ imageUrl: 'https://example.com/tacos.jpg' }).where(eq(recipes.id, tacos)).run();
       setSlot(home, SATURDAY, 'dinner', { kind: 'recipe', recipeId: pasta });
       open();
       expect(photosIn(hostOf(SATURDAY, 'dinner')).map((i) => i.props.source)).toEqual(['https://example.com/pasta.jpg']);
       tap(SATURDAY, 'dinner');
-      expect(photosIn(hostOf(SATURDAY, 'dinner')).map((i) => i.props.source)).toEqual(['https://example.com/tacos.jpg']);
-      expect(StyleSheet.flatten(hostOf(SATURDAY, 'dinner').props.style).borderColor).toBe(Palette.light.primary);
+      expect(photosIn(hostOf(SATURDAY, 'dinner')).map((i) => i.props.source)).toEqual([
+        'https://example.com/pasta.jpg',
+        'https://example.com/tacos.jpg',
+      ]);
+      expect(hostOf(SATURDAY, 'dinner').findAll((n) => typeof n.type === 'string' && n.props.testID === 'plan-split-piece')).toHaveLength(2);
+      expect(StyleSheet.flatten(hostOf(SATURDAY, 'dinner').props.style)).toMatchObject({
+        borderColor: Palette.light.primary,
+        backgroundColor: Palette.light.primarySoft,
+      });
+    });
+
+    test('with Grid cells set to Stacked, the placed cell stacks the recipes', () => {
+      setPlanCellStyle('stacked');
+      setSlot(home, SATURDAY, 'dinner', { kind: 'recipe', recipeId: pasta });
+      open();
+      tap(SATURDAY, 'dinner');
+      const host = hostOf(SATURDAY, 'dinner');
+      expect(host.findAll((n) => typeof n.type === 'string' && n.props.testID === 'plan-stack-item')).toHaveLength(2);
+      expect(StyleSheet.flatten(host.props.style).backgroundColor).toBe(Palette.light.primarySoft);
     });
 
     test('only the cells: no day opens, the labels are not buttons, and taps still place', () => {

@@ -12,6 +12,7 @@ import { recipes } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import {
   doneLabel,
+  holdsRecipe,
   isPlaced,
   placedToast,
   planChanges,
@@ -34,8 +35,9 @@ import { useT } from '@/i18n';
 /**
  * The plan modal (spec 4.16, the "Plan → tap a slot" prototype), from the recipe screen's Plan, its plan
  * badges and the Recipes card's Plan…: the grid of the recipe's household on the current week, with the
- * recipe on the green header. Each tap places the recipe in a slot or takes a placement out again; they're
- * kept here until Done writes them all in one transaction. Cancel or swiping the sheet away writes nothing.
+ * recipe on the green header. Each tap adds the recipe to a slot, after its recipes (over a note), or takes a
+ * placement out again; a slot already holding the recipe takes no tap. They're kept here until Done writes
+ * them all in one transaction. Cancel or swiping the sheet away writes nothing.
  */
 export default function PlanRecipeSheet() {
   const { recipeId } = useLocalSearchParams<{ recipeId: string }>();
@@ -68,18 +70,15 @@ export default function PlanRecipeSheet() {
 
   const onSlot = (day: Day, meal: Meal) => {
     const wasPlaced = isPlaced(placements, day, meal);
-    // What the slot shows without this visit's placement, put back if it's taken out.
-    const shown = plan.slotEntries(day, meal)[0] ?? null;
-    const tap = () => setPlacements((current) => tapSlot(current, day, meal, shown));
+    // What the slot holds without this visit's placement, shown again if it's taken out.
+    const shown = plan.slotEntries(day, meal);
+    const { message, emphasis } = placedToast({ day, meal, previous: shown }, recipe.id, today);
+    const key = `placed-${day}-${meal}-${Date.now()}`;
+    if (!wasPlaced && holdsRecipe(shown, recipe.id)) return setToast({ key, message, actions: [] });
+    const tap = () => setPlacements((current) => tapSlot(current, day, meal, shown, recipe.id));
     tap();
     if (wasPlaced) return setToast(null);
-    const { message, emphasis } = placedToast({ day, meal, previous: shown }, recipe.id, today);
-    setToast({
-      key: `placed-${day}-${meal}-${Date.now()}`,
-      message,
-      emphasis,
-      actions: [{ label: t('common.undo'), onPress: () => (tap(), setToast(null)) }],
-    });
+    setToast({ key, message, emphasis, actions: [{ label: t('common.undo'), onPress: () => (tap(), setToast(null)) }] });
   };
 
   const done = () => {
@@ -116,7 +115,7 @@ export default function PlanRecipeSheet() {
             onSlot={onSlot}
             placed={(day, meal) => isPlaced(placements, day, meal)}
             highlightMeals={meals}
-            slotHint={(day, meal, entry) => slotHint(isPlaced(placements, day, meal), entry)}
+            slotHint={(day, meal) => slotHint(isPlaced(placements, day, meal), plan.slotEntries(day, meal), recipe.id)}
           />
         </View>
       </ScrollView>
