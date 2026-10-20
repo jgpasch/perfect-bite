@@ -858,6 +858,10 @@ export const es = {
     planGridCompact: 'Compacta',
     planGridPhoto: 'Foto',
     planGridExpand: 'Ampliada',
+    recipeView: 'Vista de receta',
+    recipeViewLabel: 'Estilo de la vista de receta',
+    recipeViewStandard: 'Estándar',
+    recipeViewIndexCard: 'Ficha',
     /** Settings > Design trials > Fonts. */
     fontsScreen: {
       sample: '{{body}} · Tacos de pollo con crema de lima',

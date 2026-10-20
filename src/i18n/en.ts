@@ -987,6 +987,10 @@ export const en = {
     planGridCompact: 'Compact',
     planGridPhoto: 'Photo',
     planGridExpand: 'Expand',
+    recipeView: 'Recipe view',
+    recipeViewLabel: 'Recipe view style',
+    recipeViewStandard: 'Standard',
+    recipeViewIndexCard: 'Index card',
     /** Settings > Design trials > Fonts: a set's sample line in its body face, "Figtree · Chicken tacos with lime crema". */
     fontsScreen: {
       sample: '{{body}} · Chicken tacos with lime crema',

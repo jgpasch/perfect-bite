@@ -41,6 +41,7 @@ import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { PLAN_GRID_STYLES, setPlanGridStyle, usePlanGridStyle, type PlanGridStyle } from '@/features/meal-plan/grid-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
+import { RECIPE_VIEW_STYLES, setRecipeViewStyle, useRecipeViewStyle, type RecipeViewStyle } from '@/features/recipes/view-style';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import {
   getAisleColorStyle,
@@ -78,6 +79,7 @@ export default function SettingsScreen() {
   const planTab = usePlanTabSetting();
   const fontSet = useFontSet();
   const planGridStyle = usePlanGridStyle();
+  const recipeViewStyle = useRecipeViewStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -262,6 +264,18 @@ export default function SettingsScreen() {
               onChange={setPlanGridStyle}
             />
           </View>
+          {/* The recipe screen's layout (spec 4.5). */}
+          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
+              {t('settings.recipeView')}
+            </ThemedText>
+            <SegmentedControl<RecipeViewStyle>
+              accessibilityLabel={t('settings.recipeViewLabel')}
+              segments={RECIPE_VIEW_STYLES.map((style) => ({ value: style, label: t(RECIPE_VIEW_STYLE_LABELS[style]) }))}
+              value={recipeViewStyle}
+              onChange={setRecipeViewStyle}
+            />
+          </View>
         </SettingsSection>
 
         {__DEV__ ? (
@@ -349,6 +363,11 @@ const PLAN_GRID_STYLE_LABELS = {
   photo: 'settings.planGridPhoto',
   expand: 'settings.planGridExpand',
 } as const satisfies Record<PlanGridStyle, string>;
+
+const RECIPE_VIEW_STYLE_LABELS = {
+  standard: 'settings.recipeViewStandard',
+  indexCard: 'settings.recipeViewIndexCard',
+} as const satisfies Record<RecipeViewStyle, string>;
 
 function DeletingOverlay({ visible }: { visible: boolean }) {
   const { colors, spacing } = useTheme();

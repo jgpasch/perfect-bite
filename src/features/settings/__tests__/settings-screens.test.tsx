@@ -36,6 +36,7 @@ import {
   setPlanTab,
 } from '../device-settings';
 import { getPlanGridStyle, PLAN_GRID_STYLE_KEY, setPlanGridStyle } from '@/features/meal-plan/grid-style';
+import { getRecipeViewStyle, RECIPE_VIEW_STYLE_KEY, setRecipeViewStyle } from '@/features/recipes/view-style';
 import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY } from '@/features/tabs/add-hint';
 import { FONT_SET_KEY, getFontSetSetting, loadFontSet, setFontSetSetting } from '../font-set';
 import { getLanguageChoice, LANGUAGE_KEY, startupLanguage } from '../language';
@@ -426,6 +427,69 @@ describe('Settings', () => {
           const root = render(<SettingsScreen />);
           expect(labelled(root, 'Estilo de la cuadrícula del plan')).toHaveLength(1);
           expect(textOf(root)).toContain('Cuadrícula del plan Compacta Foto Ampliada');
+        } finally {
+          initI18n('en');
+        }
+      });
+    });
+
+    describe('Recipe view', () => {
+      const control = (root: ReactTestRenderer) => {
+        const found = labelled(root, 'Recipe view style');
+        expect(found).toHaveLength(1);
+        expect(found[0].props.accessibilityRole).toBe('tablist');
+        return found[0];
+      };
+      const segments = (root: ReactTestRenderer) =>
+        control(root).findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tab');
+      const states = (root: ReactTestRenderer) =>
+        segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
+
+      it('follows Plan grid, Standard selected until Index card is picked', () => {
+        const root = render(<SettingsScreen />);
+        expect(textOf(root)).toContain('Plan grid Compact Photo Expand Recipe view Standard Index card');
+        expect(states(root)).toEqual([
+          ['Standard', true],
+          ['Index card', false],
+        ]);
+        expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBeNull();
+      });
+
+      it('saves recipe.viewStyle and selects the picked style', () => {
+        const root = render(<SettingsScreen />);
+        click(segments(root)[1]);
+        expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('indexCard');
+        expect(getRecipeViewStyle()).toBe('indexCard');
+        expect(states(root)).toEqual([
+          ['Standard', false],
+          ['Index card', true],
+        ]);
+        expect(getPlanGridStyle()).toBe('compact');
+        click(segments(root)[0]);
+        expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('standard');
+        expect(getRecipeViewStyle()).toBe('standard');
+      });
+
+      it('shows a style saved before, and follows a change made elsewhere', () => {
+        setRecipeViewStyle('indexCard');
+        const root = render(<SettingsScreen />);
+        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Index card');
+        act(() => setRecipeViewStyle('standard'));
+        expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Standard');
+      });
+
+      it('an unknown saved value shows Standard', () => {
+        deviceSettings.setDeviceSetting(RECIPE_VIEW_STYLE_KEY, 'magazine');
+        const root = render(<SettingsScreen />);
+        expect(states(root)[0]).toEqual(['Standard', true]);
+      });
+
+      it('in Spanish', () => {
+        initI18n('es');
+        try {
+          const root = render(<SettingsScreen />);
+          expect(labelled(root, 'Estilo de la vista de receta')).toHaveLength(1);
+          expect(textOf(root)).toContain('Vista de receta Estándar Ficha');
         } finally {
           initI18n('en');
         }
