@@ -154,6 +154,11 @@ function RootLayout() {
                   name="plan-slot"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
                 />
+                {/* Spec 4.16, board D: a slot's recipes; the day and meal are the title in the sheet. */}
+                <Stack.Screen
+                  name="plan-meal"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }}
+                />
                 {/* Spec 4.16: planning a recipe; its name is on the sheet's green header. Swiping it away writes nothing. */}
                 <Stack.Screen
                   name="plan-recipe"

@@ -911,13 +911,29 @@ export const en = {
     notePrompt: 'Note',
     noteMessage: 'Up to {{max}} characters',
     noteTooLong: 'That’s {{count}} characters. Notes are up to {{max}}.',
-    /** A filled slot's menu. */
-    openRecipe: 'Open recipe',
+    /** A note's menu. */
     replace: 'Replace…',
     editNote: 'Edit note…',
     clear: 'Clear',
     /** After Clear: "Cleared Thursday dinner". */
     cleared: 'Cleared {{slot}}',
+    /** The meal sheet (spec 4.16, board D): a slot's recipes. "Remove Caesar salad", for VoiceOver. */
+    removeRecipe: 'Remove {{name}}',
+    removedRecipe: 'Removed {{name}}',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    addRecipe: 'Add a recipe',
+    mealFootnote: 'Tap a recipe to open it. Drag to change the order they show in.',
+    replaceAll: 'Replace all…',
+    /** The meal sheet's last button: "Clear dinner". */
+    clearMeal: { breakfast: 'Clear breakfast', lunch: 'Clear lunch', dinner: 'Clear dinner' },
+    /** The add sheet (board E): "Add to dinner" under "Tuesday 13 · Dinner". */
+    addTo: { breakfast: 'Add to breakfast', lunch: 'Add to lunch', dinner: 'Add to dinner' },
+    addDayLine: '{{day}} · {{meal}}',
+    /** The slot's recipes: "With Lemon ricotta pasta, Caesar salad". */
+    withRecipes: 'With {{names}}',
+    /** A recipe in the add sheet that's already in the slot. */
+    alreadyIn: { breakfast: 'Already in breakfast', lunch: 'Already in lunch', dinner: 'Already in dinner' },
     /** A slot in short: "Thu dinner" this week, "Oct 21 dinner" after it (the plan modal's toast, the plan badges). */
     slotShort: '{{day}} {{meal}}',
     /** The plan modal (spec 4.16), under the recipe's name. */

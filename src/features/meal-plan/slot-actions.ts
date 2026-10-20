@@ -1,9 +1,11 @@
 // Filling and clearing slots from the week (spec 4.16, board 2 F): an empty slot opens the slot sheet,
-// a filled one a native menu (Open recipe, Replace…, Edit note…, Clear with Undo).
+// a slot with recipes the meal sheet (board D), and a note a native menu (Replace…, Edit note…, Clear
+// with Undo).
 import { router } from 'expo-router';
 import { ActionSheetIOS, Alert } from 'react-native';
 
 import type { ToastAction } from '@/components/toast';
+import type { MealPlanEntry } from '@/db';
 import { searchRecipes } from '@/features/recipes/recipe-search';
 import { currentLanguage, i18n, type Language } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
@@ -11,7 +13,7 @@ import type { RecipeTags } from '@/shared/recipe-tags';
 import type { PlanEntry } from './queries';
 import type { Day, Meal } from './week';
 import { slotAccessibilityLabel, slotName } from './week-view';
-import { clearSlot, NOTE_MAX_LENGTH, restoreSlot, setSlot } from './write';
+import { clearSlot, NOTE_MAX_LENGTH, restoreEntries, restoreSlot, setSlot } from './write';
 
 /** A toast for the screen showing the week, or null to take it down. */
 export type SlotToast = { key: string; message: string; emphasis?: string; actions: ToastAction[] };
@@ -33,15 +35,14 @@ export function slotSheetRecipes<R extends { id: string; name: string; household
     .sort((a, b) => a.name.localeCompare(b.name, language, { sensitivity: 'base' }));
 }
 
-export type SlotMenuAction = 'open' | 'replace' | 'editNote' | 'clear';
+export type SlotMenuAction = 'replace' | 'editNote' | 'clear';
 
-/** A filled slot's menu: Open recipe (recipes), Replace…, Edit note… (free-text notes) and Clear. */
+/** A note's menu (Leftovers, Eating out or free text): Replace…, Edit note… (free text) and Clear. */
 export function slotMenuActions(kind: PlanEntry['kind']): SlotMenuAction[] {
-  return [...(kind === 'recipe' ? (['open'] as const) : []), 'replace', ...(kind === 'note' ? (['editNote'] as const) : []), 'clear'];
+  return ['replace', ...(kind === 'note' ? (['editNote'] as const) : []), 'clear'];
 }
 
 const MENU_LABELS = {
-  open: 'mealPlan.openRecipe',
   replace: 'mealPlan.replace',
   editNote: 'mealPlan.editNote',
   clear: 'mealPlan.clear',
@@ -80,11 +81,37 @@ export function openSlotSheet(householdId: string, day: Day, meal: Meal): void {
   router.push({ pathname: '/plan-slot', params: { householdId, day, meal } });
 }
 
-/** Clear: empties the slot and shows "Cleared Thursday dinner" with Undo, which puts the entry back. */
-export function clearSlotWithUndo(householdId: string, day: Day, meal: Meal, onToast: (toast: SlotToast | null) => void): void {
-  const removed = clearSlot(householdId, day, meal);
-  if (removed.length === 0) return;
-  onToast({
+/** The add sheet (board E): the slot sheet adding a recipe beside the slot's, back to the meal sheet. */
+export function openAddSheet(householdId: string, day: Day, meal: Meal): void {
+  router.push({ pathname: '/plan-slot', params: { householdId, day, meal, mode: 'add' } });
+}
+
+// The meal sheet is a route, so the week that opened it hands over where its Cleared toast goes.
+let weekToastTarget: ((toast: SlotToast | null) => void) | null = null;
+
+/** Opens the meal sheet (board D) for a slot with recipes; its Cleared toast shows through `onToast`. */
+export function openMealSheet(householdId: string, day: Day, meal: Meal, onToast: (toast: SlotToast | null) => void): void {
+  weekToastTarget = onToast;
+  router.push({ pathname: '/plan-meal', params: { householdId, day, meal } });
+}
+
+/** Shows (or, with null, takes down) a toast on the week that opened the meal sheet; nowhere if none did. */
+export function weekToast(toast: SlotToast | null): void {
+  weekToastTarget?.(toast);
+}
+
+/**
+ * "Cleared Thursday dinner" with Undo, which puts the `removed` entries back, taking out whatever has
+ * filled the slot since.
+ */
+export function clearedToast(
+  householdId: string,
+  day: Day,
+  meal: Meal,
+  removed: readonly Pick<MealPlanEntry, 'id'>[],
+  onToast: (toast: SlotToast | null) => void,
+): SlotToast {
+  return {
     key: `cleared-${day}-${meal}-${Date.now()}`,
     message: i18n.t('mealPlan.cleared', { slot: slotName(day, meal) }),
     actions: [
@@ -96,10 +123,38 @@ export function clearSlotWithUndo(householdId: string, day: Day, meal: Meal, onT
         },
       },
     ],
-  });
+  };
 }
 
-/** Tapping a slot: the slot sheet when it's empty (past days too), else the filled slot's native menu. */
+/** The meal sheet's "Removed Caesar salad" with Undo, which puts the recipe back in its place. */
+export function removedToast(name: string, removed: Pick<MealPlanEntry, 'id'>, onToast: (toast: SlotToast | null) => void): SlotToast {
+  return {
+    key: `removed-${removed.id}-${Date.now()}`,
+    message: i18n.t('mealPlan.removedRecipe', { name }),
+    emphasis: name,
+    actions: [
+      {
+        label: i18n.t('common.undo'),
+        onPress: () => {
+          restoreEntries([removed]);
+          onToast(null);
+        },
+      },
+    ],
+  };
+}
+
+/** Clear: empties the slot and shows "Cleared Thursday dinner" with Undo, which puts every entry back. */
+export function clearSlotWithUndo(householdId: string, day: Day, meal: Meal, onToast: (toast: SlotToast | null) => void): void {
+  const removed = clearSlot(householdId, day, meal);
+  if (removed.length === 0) return;
+  onToast(clearedToast(householdId, day, meal, removed, onToast));
+}
+
+/**
+ * Tapping a slot: the slot sheet when it's empty (past days too), the meal sheet when it holds recipes
+ * (`entry` is its first), else the note's native menu.
+ */
 export function openSlot(
   householdId: string,
   day: Day,
@@ -108,6 +163,7 @@ export function openSlot(
   onToast: (toast: SlotToast | null) => void,
 ): void {
   if (!entry) return openSlotSheet(householdId, day, meal);
+  if (entry.kind === 'recipe') return openMealSheet(householdId, day, meal, onToast);
   const actions = slotMenuActions(entry.kind);
   const options = [...actions.map((a) => i18n.t(MENU_LABELS[a])), i18n.t('common.cancel')];
   ActionSheetIOS.showActionSheetWithOptions(
@@ -119,8 +175,6 @@ export function openSlot(
     },
     (index) => {
       switch (actions[index]) {
-        case 'open':
-          return router.push({ pathname: '/recipe/[id]', params: { id: entry.recipeId! } });
         case 'replace':
           return openSlotSheet(householdId, day, meal);
         case 'editNote':
