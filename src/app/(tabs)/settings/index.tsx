@@ -39,7 +39,6 @@ import {
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
-import { PLAN_GRID_STYLES, setPlanGridStyle, usePlanGridStyle, type PlanGridStyle } from '@/features/meal-plan/grid-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
 import { RECIPE_VIEW_STYLES, setRecipeViewStyle, useRecipeViewStyle, type RecipeViewStyle } from '@/features/recipes/view-style';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
@@ -78,7 +77,6 @@ export default function SettingsScreen() {
   const keepScreenOn = useKeepScreenOnSetting();
   const planTab = usePlanTabSetting();
   const fontSet = useFontSet();
-  const planGridStyle = usePlanGridStyle();
   const recipeViewStyle = useRecipeViewStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
@@ -252,18 +250,6 @@ export default function SettingsScreen() {
             icon={{ name: 'textformat', hue: 'plum' }}
             onPress={() => router.push('/font-sets')}
           />
-          {/* The week grid's cells (spec 4.16), on the Plan tab and in the plan modal. */}
-          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
-            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
-              {t('settings.planGrid')}
-            </ThemedText>
-            <SegmentedControl<PlanGridStyle>
-              accessibilityLabel={t('settings.planGridLabel')}
-              segments={PLAN_GRID_STYLES.map((style) => ({ value: style, label: t(PLAN_GRID_STYLE_LABELS[style]) }))}
-              value={planGridStyle}
-              onChange={setPlanGridStyle}
-            />
-          </View>
           {/* The recipe screen's layout (spec 4.5). */}
           <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
             <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
@@ -357,18 +343,12 @@ async function confirmDeleteAccount(userId: string, onStart: () => void, onEnd: 
   ]);
 }
 
-/** Full screen while the account is deleted; it can't be dismissed. */
-const PLAN_GRID_STYLE_LABELS = {
-  compact: 'settings.planGridCompact',
-  photo: 'settings.planGridPhoto',
-  expand: 'settings.planGridExpand',
-} as const satisfies Record<PlanGridStyle, string>;
-
 const RECIPE_VIEW_STYLE_LABELS = {
   standard: 'settings.recipeViewStandard',
   titleOnPhoto: 'settings.recipeViewTitleOnPhoto',
 } as const satisfies Record<RecipeViewStyle, string>;
 
+/** Full screen while the account is deleted; it can't be dismissed. */
 function DeletingOverlay({ visible }: { visible: boolean }) {
   const { colors, spacing } = useTheme();
   const t = useT();

@@ -65,7 +65,12 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
 }));
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
-  return { __esModule: true, default: { View } };
+  return {
+    __esModule: true,
+    default: { View },
+    LinearTransition: { duration: () => undefined },
+    useReducedMotion: () => false,
+  };
 });
 jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),

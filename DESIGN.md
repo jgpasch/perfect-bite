@@ -82,7 +82,7 @@ Sizes are at the default Dynamic Type setting.
 | `toast` / `onToast` | `#1D2A22` / `#FFFFFF` | Undo toast pill and its text. |
 | `header` / `onHeader` / `onHeaderSecondary` | `#1F4D33` / `#FFFFFF` / `#B7D2BF` | The list screen's forest-green header (behind the status bar): title, and the "7 to get · As added" line. Dark: `#163A26`. |
 
-Two sets sit outside the schemes, the same in light and dark because they sit on a photo: `photoScrim` (`rgba(20, 28, 23, 0.66)` with `#FFFFFF` text; the band under a name on a plan photo, and the round … and close buttons on an item's photo) and `photoViewer` (`background` `#000000`, behind a photo shown full screen; on the Original pages screen, `text` `#FFFFFF`, `textSecondary` 72% white, `button` 16% white for the round ✕ and ⋯, and the page dots `dot` white and `dotInactive` 35% white).
+Two sets sit outside the schemes, the same in light and dark because they sit on a photo: `photoScrim` (`rgba(20, 28, 23, 0.66)` with `#FFFFFF` text; the band under the name on a recipe's header photo, and the round … and close buttons on an item's photo) and `photoViewer` (`background` `#000000`, behind a photo shown full screen; on the Original pages screen, `text` `#FFFFFF`, `textSecondary` 72% white, `button` 16% white for the round ✕ and ⋯, and the page dots `dot` white and `dotInactive` 35% white).
 
 Dark mode keeps the same hues on a dark green-grey ground (`#111915`, cards `#1B241F`) with lighter accents (`primary` `#7CC395` with dark `onPrimary`). The values are in `theme.ts`; the test checks that both schemes have the same tokens and pass contrast.
 

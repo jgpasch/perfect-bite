@@ -358,15 +358,13 @@ export const Sizes = {
   cookIngredientCheck: 22,
   /** the `primary` border around the cook screen's current step card */
   cookCurrentBorder: 2,
-  /** The week grid (spec 4.16): the day column, a cell's height and its recipe tile (minimums, for Dynamic Type) */
+  /** The week grid (spec 4.16): the day column (a minimum, for Dynamic Type) */
   planDayColumn: 52,
+  /** a meal's row on an open day (a minimum, for Dynamic Type) */
   planCell: 64,
-  planTile: 24,
-  /** a recipe or note cell in the grid's photo style, the photo filling it (a minimum, for Dynamic Type) */
-  planPhotoCell: 84,
-  /** a cell in the grid's expand style, its photo a 4:3 strip across the top (a minimum, for Dynamic Type) */
+  /** a grid cell, a recipe's photo a 4:3 strip across the top (a minimum, for Dynamic Type) */
   planExpandCell: 104,
-  /** the photo on an open day's row in the expand style (4:3, so 57 pt tall); its rows are at least `planCell` */
+  /** the photo on an open day's row (4:3, so 57 pt tall); its rows are at least `planCell` */
   planOpenPhoto: 76,
   /** a grid column's width once the grid scrolls sideways at large text sizes */
   planScrollColumn: 160,
@@ -396,7 +394,7 @@ export const Motion = {
   notificationTimeoutMs: 6000,
 } as const;
 
-/** A photo's shape in the plan grid's expand style: the cells' strips and the open day's rows (spec 4.16). */
+/** A photo's shape in the plan grid: the cells' strips and the open day's rows (spec 4.16). */
 export const PLAN_PHOTO_ASPECT = 4 / 3;
 
 /** Opacity tokens: tints (12%), shadows (25%), pressed and disabled states. */
@@ -410,8 +408,9 @@ export const Opacity = {
 } as const;
 
 /**
- * The band under a recipe's name on its photo (the plan grid's photo style, spec 4.16). It's the same in
- * both schemes, as it sits on a photo rather than on the screen, and so is its white text.
+ * The band under a recipe's name on its photo (the recipe screen, spec 4.5), and the round buttons on an
+ * item's photo. It's the same in both schemes, as it sits on a photo rather than on the screen, and so is its
+ * white text.
  */
 export const PhotoScrim = {
   fill: 'rgba(20, 28, 23, 0.66)',

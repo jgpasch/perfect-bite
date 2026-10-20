@@ -42,7 +42,7 @@ export function WeekPlan({
   const today = todayOf();
   const thisWeek = weekStart(today);
   const [start, setStart] = useState(thisWeek);
-  // The grid's expand style: the day that's open, today to begin with, kept across weeks and views while
+  // The grid: the day that's open, today to begin with, kept across weeks and views while
   // the screen is mounted (a week without it shows every day closed).
   const [openDay, setOpenDay] = useState<Day | null>(today);
   const toggleDay = (day: Day) => setOpenDay((open) => (open === day ? null : day));

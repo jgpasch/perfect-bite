@@ -68,7 +68,7 @@ export function sheetDayLabel(day: Day): string {
   return i18n.t('mealPlan.sheetDay', { day: dayName(day, 'long'), date: dayOfMonth(day) });
 }
 
-/** A day's label in the grid's expand style, for VoiceOver: "Friday 16, expanded" or "Friday 16, collapsed". */
+/** A day's label in the week screen's grid, for VoiceOver: "Friday 16, expanded" or "Friday 16, collapsed". */
 export function dayToggleLabel(day: Day, open: boolean): string {
   return i18n.t(open ? 'mealPlan.dayExpanded' : 'mealPlan.dayCollapsed', { day: sheetDayLabel(day) });
 }

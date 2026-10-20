@@ -893,10 +893,10 @@ export const en = {
     slotName: '{{day}} {{meal}}',
     /** The slot sheet's day line: "Thursday 15". */
     sheetDay: '{{day}} {{date}}',
-    /** A day's label in the grid's expand style, for VoiceOver: "Friday 16, expanded". */
+    /** A day's label in the week screen's grid, for VoiceOver: "Friday 16, expanded". */
     dayExpanded: '{{day}}, expanded',
     dayCollapsed: '{{day}}, collapsed',
-    /** An open day's empty row, and the line under a note's (the grid's expand style). */
+    /** An open day's empty row, and the line under a note's (the week grid). */
     nothingPlanned: 'Nothing planned',
     noteRow: 'Note',
     searchRecipes: 'Search recipes',
@@ -984,11 +984,6 @@ export const en = {
     developerRow: 'Siri queue and log',
     designTrials: 'Design trials',
     fonts: 'Fonts',
-    planGrid: 'Plan grid',
-    planGridLabel: 'Plan grid style',
-    planGridCompact: 'Compact',
-    planGridPhoto: 'Photo',
-    planGridExpand: 'Expand',
     recipeView: 'Recipe view',
     recipeViewLabel: 'Recipe view style',
     recipeViewStandard: 'Standard',
