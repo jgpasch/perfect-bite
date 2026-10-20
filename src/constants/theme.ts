@@ -366,6 +366,8 @@ export const Sizes = {
   planExpandCell: 104,
   /** the photo on an open day's row (4:3, so 57 pt tall); its rows are at least `planCell` */
   planOpenPhoto: 76,
+  /** a recipe's photo strip in a Stacked grid cell (spec 4.16 Grid cells), full width */
+  planStackPhoto: 40,
   /** a grid column's width once the grid scrolls sideways at large text sizes */
   planScrollColumn: 160,
   /** a meal's letter chip in the agenda */

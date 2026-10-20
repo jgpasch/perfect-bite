@@ -68,6 +68,23 @@ describe('labels', () => {
     expect(slotAccessibilityLabel('2026-10-15', 'lunch', null)).toBe('almuerzo del jueves, vacío');
   });
 
+  test("a slot's entries: every recipe named in order; none reads as empty", () => {
+    const rice = { kind: 'recipe' as const, recipeName: 'Mexican rice', note: null };
+    const guac = { kind: 'recipe' as const, recipeName: 'Guacamole', note: null };
+    expect(slotAccessibilityLabel('2026-10-15', 'dinner', [recipe, rice, guac])).toBe(
+      'Thursday dinner, Chicken tacos, Mexican rice, Guacamole',
+    );
+    expect(slotAccessibilityLabel('2026-10-15', 'dinner', [guac, recipe])).toBe('Thursday dinner, Guacamole, Chicken tacos');
+    expect(slotAccessibilityLabel('2026-10-15', 'dinner', [recipe])).toBe('Thursday dinner, Chicken tacos');
+    expect(slotAccessibilityLabel('2026-10-15', 'lunch', [])).toBe('Thursday lunch, empty');
+    expect(slotAccessibilityLabel('2026-10-15', 'lunch', [{ kind: 'leftovers', recipeName: null, note: null }])).toBe(
+      'Thursday lunch, Leftovers',
+    );
+    i18n.changeLanguage('es');
+    expect(slotAccessibilityLabel('2026-10-15', 'dinner', [recipe, rice])).toBe('cena del jueves, Chicken tacos, Mexican rice');
+    expect(slotAccessibilityLabel('2026-10-15', 'lunch', [])).toBe('almuerzo del jueves, vacío');
+  });
+
   test('meal names and "+ Add lunch"', () => {
     expect(mealLabel('breakfast')).toBe('Breakfast');
     expect(addSlotLabel('lunch')).toBe('+ Add lunch');

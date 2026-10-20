@@ -786,6 +786,7 @@ export const es = {
     dayCollapsed: '{{day}}, contraído',
     nothingPlanned: 'Nada planeado',
     noteRow: 'Nota',
+    moreRecipes: '+{{count}} más',
     searchRecipes: 'Buscar recetas',
     note: 'Nota…',
     showAll: 'Ver todas las recetas',

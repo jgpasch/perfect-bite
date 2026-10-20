@@ -49,12 +49,18 @@ export function entryText(entry: Pick<PlanEntry, 'kind' | 'recipeName' | 'note'>
   }
 }
 
-/** A slot for VoiceOver: "Thursday dinner, Chicken tacos", "Thursday lunch, empty". */
-export function slotAccessibilityLabel(day: Day, meal: Meal, entry: Pick<PlanEntry, 'kind' | 'recipeName' | 'note'> | null): string {
+type LabelEntry = Pick<PlanEntry, 'kind' | 'recipeName' | 'note'>;
+
+/**
+ * A slot for VoiceOver: "Thursday dinner, Chicken tacos", "Thursday lunch, empty". Given the slot's
+ * entries, it names every one in order: "Thursday dinner, Chicken tacos, Mexican rice, Guacamole".
+ */
+export function slotAccessibilityLabel(day: Day, meal: Meal, entries: LabelEntry | readonly LabelEntry[] | null): string {
+  const list: readonly LabelEntry[] = entries === null ? [] : 'kind' in entries ? [entries] : entries;
   return i18n.t('mealPlan.slotLabel', {
     day: dayName(day, 'long'),
     meal: mealWord(meal),
-    entry: entry ? entryText(entry) : i18n.t('mealPlan.empty'),
+    entry: list.length > 0 ? list.map(entryText).join(', ') : i18n.t('mealPlan.empty'),
   });
 }
 

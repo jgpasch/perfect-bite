@@ -6,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, households, recipes } from '@/db';
-import { AisleColors, Palette, Rounded, Typography } from '@/constants/theme';
+import { AisleColors, Palette, Rounded, Spacing, Typography } from '@/constants/theme';
 import { recipeHue } from '@/domain/aisle-color';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { createRecipe } from '@/features/recipes/recipes';
@@ -16,16 +16,18 @@ import {
   PLAN_VIEW_KEY,
   setDeviceSetting,
 } from '@/features/settings/device-settings';
+import { i18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
 import PlanScreen from '@/app/(tabs)/plan/index';
 
+import { setPlanCellStyle } from '../cell-style';
 import { resetEarlierDays } from '../earlier-fold-store';
 import { groupWeek, weekEntriesQuery } from '../queries';
 import { weekDays } from '../week';
 import { WeekGrid } from '../week-grid';
 import { WeekPlan } from '../week-plan';
-import { setSlot } from '../write';
+import { addRecipeToSlot, setSlot } from '../write';
 
 const mockWindow = { width: 390, height: 844, scale: 3, fontScale: 1 };
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => mockWindow }));
@@ -432,7 +434,10 @@ describe("the grid's cells and open day", () => {
     const root = render();
     const dinner = slot(root, '2026-10-15', 'dinner');
     expect(texts(dinner)).toEqual(['Dinner', 'Chicken tacos', '35 min']);
-    expect(flat(dinner.props.style)).toMatchObject({ minHeight: 64, flexDirection: 'row', borderTopWidth: expect.any(Number) });
+    // The meal's name over a row per recipe.
+    expect(flat(dinner.props.style)).toMatchObject({ minHeight: 64, borderTopWidth: expect.any(Number) });
+    expect(flat(dinner.props.style).flexDirection).toBeUndefined();
+    expect(byTestID(root, 'open-row-recipe').map((n) => flat(n.props.style).flexDirection)).toEqual(['row']);
     const [meal, name, time] = dinner.findAll((n) => n.type === ('Text' as never));
     expect(flat(meal.props.style)).toMatchObject({ color: AisleColors.light.plum.strong, fontSize: Typography.caption.fontSize });
     expect(flat(name.props.style)).toMatchObject({ fontSize: Typography.headline.fontSize, color: Palette.light.ink });
@@ -551,6 +556,210 @@ describe("the grid's cells and open day", () => {
       expect(tree!.root.findAll((n) => /^day-label-/.test(n.props.testID ?? ''))).toHaveLength(0);
       expect(flat(slot(tree!, '2026-10-15', 'dinner').props.style).minHeight).toBe(104);
     });
+  });
+});
+
+describe('several recipes in a slot', () => {
+  const NAMES = ['Mexican rice', 'Guacamole', 'Salsa', 'Black beans', 'Slaw', 'Churros'];
+  let sides: string[];
+  const photos = (node: ReactTestInstance) => node.findAll((n) => n.type === ('ExpoImage' as never));
+  const tileColour = (recipeId: string) => AisleColors.light[recipeHue(recipeId)].soft;
+  const nameTexts = (node: ReactTestInstance) =>
+    node.findAll((n) => n.type === ('Text' as never) && n.props.numberOfLines !== undefined);
+  const SEVEN = ['Chicken tacos', ...NAMES];
+
+  beforeEach(() => {
+    sides = NAMES.map((name) => createRecipe(name, home));
+    db.update(recipes).set({ imageUrl: 'https://example.com/rice.jpg' }).where(eq(recipes.id, sides[0])).run();
+    // Friday dinner: two recipes. Saturday lunch: seven.
+    addRecipeToSlot(home, '2026-10-16', 'dinner', tacos);
+    addRecipeToSlot(home, '2026-10-16', 'dinner', sides[0]);
+    for (const id of [tacos, ...sides]) addRecipeToSlot(home, '2026-10-17', 'lunch', id);
+  });
+
+  afterEach(() => {
+    act(() => void i18n.changeLanguage('en'));
+  });
+
+  describe('Split photo (the default)', () => {
+    test('two recipes: the 4:3 strip split into two pieces, then the names one line each', () => {
+      const root = render();
+      const cell = slot(root, '2026-10-16', 'dinner');
+      expect(cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-photo')).toHaveLength(0);
+      const strip = cell.find((n) => n.type === ('View' as never) && n.props.testID === 'plan-split');
+      expect(flat(strip.props.style)).toMatchObject({
+        width: '100%',
+        aspectRatio: 4 / 3,
+        borderRadius: Rounded.sm,
+        overflow: 'hidden',
+        flexDirection: 'row',
+        gap: Spacing.xxs,
+      });
+      const pieces = strip.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-split-piece');
+      expect(pieces.map((p) => flat(p.props.style).backgroundColor)).toEqual([tileColour(tacos), tileColour(sides[0])]);
+      expect(pieces.map((p) => flat(p.props.style).flex)).toEqual([1, 1]);
+      // Each piece covers its photo; tacos has none, so only its tile colour shows.
+      expect(photos(pieces[0])).toHaveLength(0);
+      expect(photos(pieces[1]).map((i) => i.props)).toEqual([
+        expect.objectContaining({ source: 'https://example.com/rice.jpg', contentFit: 'cover' }),
+      ]);
+      expect(cell.findAll((n) => n.props.testID === 'plan-split-more')).toHaveLength(0);
+      const names = nameTexts(cell);
+      expect(names.map((n) => n.props.children)).toEqual(['Chicken tacos', 'Mexican rice']);
+      names.forEach((n) => {
+        expect(n.props.numberOfLines).toBe(1);
+        expect(flat(n.props.style)).toMatchObject({ fontSize: Typography.caption.fontSize, color: Palette.light.ink });
+      });
+      expect(cell.props.accessibilityLabel).toBe('Friday dinner, Chicken tacos, Mexican rice');
+    });
+
+    test('seven recipes: three pieces and names, a surfaceMuted "+4" piece and a "+4 more" line', () => {
+      const root = render();
+      const cell = slot(root, '2026-10-17', 'lunch');
+      const pieces = cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-split-piece');
+      expect(pieces.map((p) => flat(p.props.style).backgroundColor)).toEqual([tacos, sides[0], sides[1]].map(tileColour));
+      const more = cell.find((n) => n.type === ('View' as never) && n.props.testID === 'plan-split-more');
+      expect(flat(more.props.style)).toMatchObject({ backgroundColor: Palette.light.surfaceMuted, flex: 1 });
+      const moreText = more.find((n) => n.type === ('Text' as never));
+      expect(moreText.props.children).toBe('+4');
+      expect(flat(moreText.props.style)).toMatchObject({ fontSize: Typography.caption.fontSize, color: Palette.light.ink });
+      const names = nameTexts(cell);
+      expect(names.map((n) => n.props.children)).toEqual(['Chicken tacos', 'Mexican rice', 'Guacamole', '+4 more']);
+      expect(flat(names[3].props.style).color).toBe(Palette.light.inkSecondary);
+      // VoiceOver names all seven, whatever the cell shows.
+      expect(cell.props.accessibilityLabel).toBe(`Saturday lunch, ${SEVEN.join(', ')}`);
+    });
+
+    test('four recipes show "+1"; in Spanish the line reads "+1 más"', () => {
+      for (const id of [tacos, sides[0], sides[1], sides[2]]) addRecipeToSlot(home, '2026-10-18', 'dinner', id);
+      act(() => void i18n.changeLanguage('es'));
+      const root = render();
+      press(root, 'Semana siguiente');
+      const cell = slot(root, '2026-10-18', 'dinner');
+      expect(texts(cell)).toEqual(['+1', 'Chicken tacos', 'Mexican rice', 'Guacamole', '+1 más']);
+    });
+
+    test('a past day greys every name', () => {
+      addRecipeToSlot(home, '2026-10-13', 'dinner', tacos);
+      addRecipeToSlot(home, '2026-10-13', 'dinner', sides[1]);
+      const root = render();
+      const names = nameTexts(slot(root, '2026-10-13', 'dinner'));
+      expect(names.map((n) => flat(n.props.style).color)).toEqual([Palette.light.inkSecondary, Palette.light.inkSecondary]);
+    });
+  });
+
+  describe('Stacked', () => {
+    beforeEach(() => setPlanCellStyle('stacked'));
+
+    test('two recipes: a full-width 40 pt strip over each name, a border hairline and spacing.xs between them', () => {
+      const root = render();
+      const cell = slot(root, '2026-10-16', 'dinner');
+      expect(byTestID(root, 'plan-split')).toHaveLength(0);
+      const items = cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-stack-item');
+      expect(items).toHaveLength(2);
+      expect(flat(items[0].props.style)).toMatchObject({ borderTopWidth: 0, paddingTop: 0 });
+      expect(flat(items[1].props.style)).toMatchObject({
+        borderTopWidth: expect.any(Number),
+        borderTopColor: Palette.light.border,
+        paddingTop: Spacing.xs,
+      });
+      expect(flat(items[1].props.style).borderTopWidth).toBeGreaterThan(0);
+      const strips = items.map((item) => item.find((n) => n.type === ('View' as never) && n.props.testID === 'plan-stack-photo'));
+      strips.forEach((strip) =>
+        expect(flat(strip.props.style)).toMatchObject({ width: '100%', height: 40, borderRadius: Rounded.sm, overflow: 'hidden' }),
+      );
+      expect(strips.map((s) => flat(s.props.style).backgroundColor)).toEqual([tileColour(tacos), tileColour(sides[0])]);
+      expect(photos(strips[1]).map((i) => i.props.source)).toEqual(['https://example.com/rice.jpg']);
+      const names = nameTexts(cell);
+      expect(names.map((n) => n.props.children)).toEqual(['Chicken tacos', 'Mexican rice']);
+      names.forEach((n) => {
+        expect(n.props.numberOfLines).toBe(2);
+        expect(flat(n.props.style).fontSize).toBe(Typography.caption.fontSize);
+      });
+      expect(cell.props.accessibilityLabel).toBe('Friday dinner, Chicken tacos, Mexican rice');
+    });
+
+    test('seven recipes: all seven, in order, with no "+4"', () => {
+      const root = render();
+      const cell = slot(root, '2026-10-17', 'lunch');
+      expect(cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-stack-item')).toHaveLength(7);
+      expect(texts(cell)).toEqual(SEVEN);
+      expect(byTestID(root, 'plan-split-more')).toHaveLength(0);
+      expect(cell.props.accessibilityLabel).toBe(`Saturday lunch, ${SEVEN.join(', ')}`);
+    });
+
+    test('a one-recipe cell is drawn as before', () => {
+      const root = render();
+      const cell = slot(root, '2026-10-12', 'dinner');
+      expect(cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-photo')).toHaveLength(1);
+      expect(cell.findAll((n) => n.type === ('View' as never) && n.props.testID === 'plan-stack-item')).toHaveLength(0);
+      expect(texts(cell)).toEqual(['Soup']);
+    });
+
+    test('in the plan modal (no day opens) too', () => {
+      act(() => {
+        tree = create(
+          <WeekGrid days={weekDays('2026-10-11')} plan={groupWeek(weekEntriesQuery(home, '2026-10-11').all())} today="2026-10-15" />,
+        );
+      });
+      expect(texts(slot(tree!, '2026-10-17', 'lunch'))).toEqual(SEVEN);
+    });
+  });
+
+  test('switching the setting redraws the open grid', () => {
+    const root = render();
+    expect(byTestID(root, 'plan-split')).toHaveLength(2);
+    act(() => setPlanCellStyle('stacked'));
+    expect(byTestID(root, 'plan-split')).toHaveLength(0);
+    expect(byTestID(root, 'plan-stack-item')).toHaveLength(9);
+    act(() => setPlanCellStyle('split'));
+    expect(byTestID(root, 'plan-split')).toHaveLength(2);
+    expect(byTestID(root, 'plan-stack-item')).toHaveLength(0);
+  });
+
+  test.each(['split', 'stacked'] as const)('the open day lists all seven, a row each with photo, name and time (%s)', (style) => {
+    setPlanCellStyle(style);
+    db.update(recipes).set({ totalMinutes: 90 }).where(eq(recipes.id, sides[1])).run();
+    const root = render();
+    act(() =>
+      root.root
+        .find((n) => n.props.testID === 'day-label-2026-10-17' && typeof n.props.onPress === 'function' && typeof n.type !== 'string')
+        .props.onPress(),
+    );
+    const block = slot(root, '2026-10-17', 'lunch');
+    // The meal's name once, then every recipe in order.
+    expect(texts(block)).toEqual(['Lunch', 'Chicken tacos', '35 min', 'Mexican rice', 'Guacamole', '1 hr 30 min', ...NAMES.slice(2)]);
+    const rows = block.findAll((n) => n.type === ('View' as never) && n.props.testID === 'open-row-recipe');
+    expect(rows).toHaveLength(7);
+    rows.forEach((row) =>
+      expect(flat(row.find((n) => n.type === ('View' as never) && n.props.testID === 'plan-photo').props.style)).toMatchObject({
+        width: 76,
+        aspectRatio: 4 / 3,
+        borderRadius: Rounded.sm,
+      }),
+    );
+    expect(byTestID(root, 'plan-split')).toHaveLength(style === 'split' ? 1 : 0); // Friday's closed cell
+    expect(block.props.accessibilityLabel).toBe(`Saturday lunch, ${SEVEN.join(', ')}`);
+  });
+
+  test("tapping a several-recipe cell or open block calls onSlot with the slot's first entry", () => {
+    const onSlot = jest.fn();
+    act(() => {
+      tree = create(
+        <WeekGrid
+          days={weekDays('2026-10-11')}
+          plan={groupWeek(weekEntriesQuery(home, '2026-10-11').all())}
+          today="2026-10-15"
+          onSlot={onSlot}
+          openDay="2026-10-17"
+          onToggleDay={() => {}}
+        />,
+      );
+    });
+    press(tree!, 'Friday dinner, Chicken tacos, Mexican rice');
+    expect(onSlot).toHaveBeenLastCalledWith('2026-10-16', 'dinner', expect.objectContaining({ recipeId: tacos }));
+    press(tree!, `Saturday lunch, ${SEVEN.join(', ')}`);
+    expect(onSlot).toHaveBeenLastCalledWith('2026-10-17', 'lunch', expect.objectContaining({ recipeId: tacos }));
   });
 });
 

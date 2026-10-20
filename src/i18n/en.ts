@@ -899,6 +899,8 @@ export const en = {
     /** An open day's empty row, and the line under a note's (the week grid). */
     nothingPlanned: 'Nothing planned',
     noteRow: 'Note',
+    /** A Split photo grid cell's last line past three recipes: "+4 more". */
+    moreRecipes: '+{{count}} more',
     searchRecipes: 'Search recipes',
     note: 'Note…',
     showAll: 'Show all recipes',
