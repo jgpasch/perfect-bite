@@ -14,6 +14,7 @@ import { createRecipePhotoImportStore } from './store.ts';
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
     const userId = ctx.userClaims!.id;
+    const caller = { userId, householdId: null };
     const store = createRecipePhotoImportStore(ctx.supabaseAdmin, { userId });
     // `recipe_import_photo` implies `categorize` (spec 4.12), and importRecipePhoto checks it
     // first, so the inline categorize doesn't check its own feature again.
@@ -25,7 +26,8 @@ export default {
       importRecipePhoto: (request) =>
         importRecipePhoto(request, {
           store,
-          categorize: (names) => categorize(names, categorizeStore),
+          categorize: (names) => categorize(names, categorizeStore, undefined, caller),
+          caller,
         }),
     });
   }),

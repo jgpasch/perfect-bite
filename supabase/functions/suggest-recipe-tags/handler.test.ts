@@ -81,9 +81,11 @@ function failing(error: Error): { instance: LanguageModel; modelId: string } {
   };
 }
 
+const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
+
 function setup(overrides: Partial<SuggestDeps> = {}) {
   const store = new FakeStore();
-  const deps: SuggestDeps = { store, ...overrides };
+  const deps: SuggestDeps = { store, caller: CALLER, ...overrides };
   const post = (body: unknown) =>
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       suggestRecipeTags: (request) => suggestRecipeTags(request, deps),
@@ -189,7 +191,7 @@ Deno.test('a facet over its maximum is cut, and repeats are dropped', async () =
   });
 });
 
-Deno.test('ai_calls gets the prompt and output with no user id', async () => {
+Deno.test('ai_calls gets the prompt, the output and the caller, with no household', async () => {
   await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
     const { store, post } = setup();
     await post(TIKKA);
@@ -198,7 +200,15 @@ Deno.test('ai_calls gets the prompt and output with no user id', async () => {
     assertEquals(call.prompt_version, SUGGEST_RECIPE_TAGS_PROMPT_VERSION);
     assertStringIncludes(call.prompt, '2 lb chicken thighs, skinless');
     assertEquals(call.output, { meal: [], cuisine: ['indian'], protein: ['chicken'], diet: [], method: [] });
-    assert(!('user_id' in call));
+    assertEquals([call.user_id, call.household_id], [CALLER.userId, null]);
+  });
+});
+
+Deno.test('a failed call is logged with the caller too', async () => {
+  await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
+    const { store, post } = setup({ model: answering({ nope: true }) });
+    assertEquals((await post(TIKKA)).status, 503);
+    assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
   });
 });
 

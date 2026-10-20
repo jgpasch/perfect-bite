@@ -4,7 +4,7 @@ import type { RecipeImportResponse, RecipePhotoImportRequest } from '@shared/ind
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
 import { buildExtractRecipePhotoPrompt } from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { isProviderFailure, type LimitResult } from '../categorize-ingredients/handler.ts';
@@ -29,6 +29,8 @@ export type PhotoImportDeps = {
   categorize: ImportDeps['categorize'];
   /** Tests inject a MockLanguageModelV4 for extract-recipe-photo; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
+  /** The signed-in caller, recorded on each `ai_calls` row. */
+  caller?: AiCaller;
 };
 
 /** Why a photo import failed; request.ts turns it into the HTTP status. */
@@ -78,6 +80,7 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
   try {
     ({ output } = await runAiTask('extractRecipePhoto', await buildExtractRecipePhotoPrompt(request.images), {
       model: deps.model,
+      caller: deps.caller,
       onCall: (call) => deps.store.logAiCall(call),
     }));
   } catch (err) {

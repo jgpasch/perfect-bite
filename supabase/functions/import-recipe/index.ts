@@ -16,6 +16,7 @@ import { createRecipeImportStore } from './store.ts';
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
     const userId = ctx.userClaims!.id;
+    const caller = { userId, householdId: null };
     const store = createRecipeImportStore(ctx.supabaseAdmin, { userId });
     // `recipe_import` implies `categorize` (spec 4.12), and importRecipe checks it first, so the
     // inline categorize doesn't check its own feature again.
@@ -27,8 +28,9 @@ export default {
       importRecipe: (request) =>
         importRecipe(request, {
           store,
-          categorize: (names) => categorize(names, categorizeStore),
+          categorize: (names) => categorize(names, categorizeStore, undefined, caller),
           fetchPage: (url) => fetchPage(url),
+          caller,
         }),
     });
   }),

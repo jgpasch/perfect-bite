@@ -161,6 +161,37 @@ const done = (slug: string, unit: string | null = 'count', over: Partial<Categor
   ...over,
 });
 
+// --- Who made the call --------------------------------------------------------------------------
+
+const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
+
+test('ai_calls rows carry the caller: the user, and no household', async () => {
+  const store = new FakeStore();
+  const { model } = fakeModel(allPantry);
+
+  await categorize(['dukkah', 'shiso'], store, model, CALLER);
+
+  assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['ok', CALLER.userId, null]]);
+});
+
+test('ai_calls rows carry the caller on invalid output too', async () => {
+  const store = new FakeStore();
+  const { model } = fakeModel(() => [{ name: 'dukkah', category: 'not-a-slug', is_grocery_item: true, unit: 'jar' }]);
+
+  await categorize(['dukkah'], store, model, CALLER);
+
+  assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
+});
+
+test('without a caller (the CLI, evals) ai_calls rows have a null user and household', async () => {
+  const store = new FakeStore();
+  const { model } = fakeModel(allPantry);
+
+  await categorize(['dukkah'], store, model);
+
+  assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [[null, null]]);
+});
+
 // --- Known names --------------------------------------------------------------------------------
 
 test('all-known input makes no LLM call and is answered from the database', async () => {

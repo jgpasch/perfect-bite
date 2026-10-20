@@ -12,7 +12,8 @@ import { createRecipePhotoStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createRecipePhotoStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
-    return handleRequest(req, { generateRecipePhoto: (request) => generateRecipePhoto(request, { store }) });
+    const userId = ctx.userClaims!.id;
+    const store = createRecipePhotoStore(ctx.supabaseAdmin, { userId });
+    return handleRequest(req, { generateRecipePhoto: (request) => generateRecipePhoto(request, { store, userId }) });
   }),
 };

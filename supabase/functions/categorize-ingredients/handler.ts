@@ -4,7 +4,7 @@ import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES, type Uni
 import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } from 'ai';
 
 import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v3.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled, type CategorizeOutput } from '../_shared/ai/tasks.ts';
 import type { Feature } from '../_shared/entitlements.ts';
 
@@ -172,12 +172,14 @@ function toResult(row: IngredientRow): CategorizeResult {
 /**
  * Answers every input name from the database, sending only the uncategorized ones (with attempts
  * left) to the LLM in one call per 100 names. `model` is injected by tests; otherwise the task's
- * env model is used. Throws NotEntitledError, before any other work, without `categorize`.
+ * env model is used. `caller` is recorded on each `ai_calls` row. Throws NotEntitledError, before
+ * any other work, without `categorize`.
  */
 export async function categorize(
   names: readonly string[],
   store: CategorizeStore,
   model?: { instance: LanguageModel; modelId: string },
+  caller?: AiCaller,
 ): Promise<CategorizeResponse> {
   await store.requireFeature('categorize');
   if (names.length > MAX_NAMES) throw new CategorizeInputError(`At most ${MAX_NAMES} names per request`);
@@ -216,7 +218,7 @@ export async function categorize(
     for (const n of toSend) deferred.add(n);
   } else {
     for (const batch of chunk(toSend, MAX_NAMES_PER_CALL)) {
-      const outcome = await categorizeBatch(batch, store, model);
+      const outcome = await categorizeBatch(batch, store, model, caller);
       if (outcome === 'deferred') for (const n of batch) deferred.add(n);
       else for (const t of outcome.twins) twinKeys.add(t);
     }
@@ -242,13 +244,14 @@ async function categorizeBatch(
   batch: readonly string[],
   store: CategorizeStore,
   model: { instance: LanguageModel; modelId: string } | undefined,
+  caller: AiCaller | undefined,
 ): Promise<{ twins: string[] } | 'deferred'> {
   let result;
   try {
     result = await runAiTask(
       'categorize',
       { ...buildCategorizePrompt(batch), itemCount: batch.length },
-      { model, onCall: (call) => store.logAiCall(call) },
+      { model, caller, onCall: (call) => store.logAiCall(call) },
     );
   } catch (err) {
     if (isProviderFailure(err)) return 'deferred';

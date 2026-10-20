@@ -36,6 +36,8 @@ export interface RecipePhotoStore {
 
 export type GenerateDeps = {
   store: RecipePhotoStore;
+  /** The signed-in caller, recorded on each `ai_calls` row with the recipe's household. */
+  userId?: string;
   /** Tests inject a MockLanguageModelV4 for the description; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
   /** The image call. Defaults to OpenAI's Images API (`generateImage`). */
@@ -120,7 +122,11 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
 
     let described;
     try {
-      described = await describeRecipePhoto(photoRecipe(stored), { model: deps.model, onCall: (call) => store.logAiCall(call) });
+      described = await describeRecipePhoto(photoRecipe(stored), {
+        model: deps.model,
+        caller: deps.userId ? { userId: deps.userId, householdId } : undefined,
+        onCall: (call) => store.logAiCall(call),
+      });
     } catch (err) {
       if (!(err instanceof DescribeFailedError)) throw err;
       return await fail({ code: 'generation_failed', step: 'description' }, err.message, 'description_failed');

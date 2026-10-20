@@ -239,7 +239,12 @@ function editedModel(edit: (answer: ReturnType<typeof mockExtractRecipe>) => unk
   };
 }
 
-/** The real fetchPage over the fake DNS and pages; records every URL fetched. */
+const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
+
+/**
+ * The real fetchPage over the fake DNS and pages; records every URL fetched. Wired as index.ts
+ * does: the caller goes to the extraction and to the inline categorize.
+ */
 function setup(overrides: Partial<ImportDeps> = {}) {
   const aiCalls: AiCallRecord[] = [];
   const store = new FakeRecipeStore(aiCalls);
@@ -257,8 +262,9 @@ function setup(overrides: Partial<ImportDeps> = {}) {
   }) as typeof fetch;
   const deps: ImportDeps = {
     store,
-    categorize: (names) => categorize(names, catStore),
+    categorize: (names) => categorize(names, catStore, undefined, CALLER),
     fetchPage: (url) => fetchPage(url, { resolve: async (host) => DNS[host] ?? [], fetch: fakeFetch }),
+    caller: CALLER,
     now: () => store.now,
     ...overrides,
   };
@@ -325,6 +331,18 @@ test('JSON-LD path: 1 extract call on the JSON-LD lines, 1 categorize call, then
   assertStringIncludes(prompt, '"title":"Garlic Pasta"', 'the JSON-LD name is the title sent');
   assert(!prompt.includes('weeknight'), 'page text is not sent when JSON-LD has the recipe');
   assertEquals(store.limitChecks, 1);
+});
+
+test('ai_calls rows carry the caller: the extraction and the inline categorize, with no household', async () => {
+  const { post, aiCalls } = setup();
+  assertEquals((await post({ url: PASTA_URL })).status, 200);
+  assertEquals(
+    aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
+    [
+      ['extractRecipe', CALLER.userId, null],
+      ['categorize', CALLER.userId, null],
+    ],
+  );
 });
 
 test('JSON-LD path makes 0 categorize calls when every name is already known', async () => {

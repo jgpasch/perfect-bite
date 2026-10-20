@@ -6,7 +6,7 @@ import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 import { z } from 'zod';
 
 import { buildMatchRecipeStepsPrompt, MATCH_RECIPE_STEPS_PROMPT_VERSION, type StepMatchRecipe } from '../_shared/ai/prompts/match-recipe-steps.v1.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanStepMatch, isAiEnabled, type StepMatch } from '../_shared/ai/tasks.ts';
 import { isProviderFailure } from '../categorize-ingredients/handler.ts';
 
@@ -33,6 +33,8 @@ export type MatchDeps = {
   model?: { instance: LanguageModel; modelId: string };
   /** Called once per model attempt (`ai_calls` in the function, a list in the CLI and eval). */
   onCall?: (call: AiCallRecord) => Promise<void>;
+  /** The signed-in caller, recorded on each `ai_calls` row; none in the CLI and eval. */
+  caller?: AiCaller;
 };
 
 export type MatchResult = { steps: StepMatch; promptVersion: string };
@@ -57,7 +59,7 @@ export async function matchRecipeSteps(recipe: StepMatchRecipe, deps: MatchDeps 
   }
   let output;
   try {
-    ({ output } = await runAiTask('matchRecipeSteps', buildMatchRecipeStepsPrompt(recipe), { model: deps.model, onCall: deps.onCall }));
+    ({ output } = await runAiTask('matchRecipeSteps', buildMatchRecipeStepsPrompt(recipe), { model: deps.model, onCall: deps.onCall, caller: deps.caller }));
   } catch (err) {
     const invalid = NoObjectGeneratedError.isInstance(err);
     if (!invalid && !isProviderFailure(err)) throw err;

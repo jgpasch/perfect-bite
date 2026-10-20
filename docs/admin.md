@@ -57,7 +57,7 @@ Edge Functions → pick the function (`categorize-ingredients`, `import-recipe`,
 
 ### Read the AI calls
 
-`public.ai_calls` has one row per model attempt, kept for 30 days, with no user id (spec 6.5). In the Table Editor, or:
+`public.ai_calls` has one row per model attempt, kept for 30 days, with the `user_id` who made it and, for AI photos, the `household_id` (both null for the `yarn ai:*` scripts and evals; spec 5, 6.5). In the Table Editor, or:
 
 ```sql
 select created_at, task, model, status, duration_ms, input_tokens, output_tokens, error

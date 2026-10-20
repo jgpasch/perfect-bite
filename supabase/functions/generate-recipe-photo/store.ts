@@ -7,8 +7,8 @@ export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
 
 /**
  * RecipePhotoStore over the service-role client. The plan check and the reservation are for
- * `userId` (the reservation also checks they're in the recipe's household). `ai_calls` has no
- * user id.
+ * `userId` (the reservation also checks they're in the recipe's household). Each `ai_calls` row
+ * carries the caller from the handler.
  */
 export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: string }): RecipePhotoStore {
   return {

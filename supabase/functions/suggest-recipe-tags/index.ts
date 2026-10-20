@@ -10,7 +10,8 @@ import { createSuggestTagsStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createSuggestTagsStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
-    return handleRequest(req, { suggestRecipeTags: (request) => suggestRecipeTags(request, { store }) });
+    const userId = ctx.userClaims!.id;
+    const store = createSuggestTagsStore(ctx.supabaseAdmin, { userId });
+    return handleRequest(req, { suggestRecipeTags: (request) => suggestRecipeTags(request, { store, caller: { userId, householdId: null } }) });
   }),
 };

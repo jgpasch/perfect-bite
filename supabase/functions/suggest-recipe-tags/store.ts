@@ -6,7 +6,7 @@ import type { SuggestTagsStore } from './handler.ts';
 
 /**
  * SuggestTagsStore over the service-role client. The plan check and the rate limit are per
- * `userId`. `ai_calls` has no user id.
+ * `userId`. Each `ai_calls` row carries the caller from the handler.
  */
 export function createSuggestTagsStore(admin: SupabaseClient, limits: { userId: string }): SuggestTagsStore {
   return {

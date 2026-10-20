@@ -10,7 +10,8 @@ import { createStepMatchStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
-    const store = createStepMatchStore(ctx.supabaseAdmin, { userId: ctx.userClaims!.id });
-    return handleRequest(req, { matchSteps: (request) => matchSteps(request, { store }) });
+    const userId = ctx.userClaims!.id;
+    const store = createStepMatchStore(ctx.supabaseAdmin, { userId });
+    return handleRequest(req, { matchSteps: (request) => matchSteps(request, { store, caller: { userId, householdId: null } }) });
   }),
 };

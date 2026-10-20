@@ -12,6 +12,6 @@ export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
     const userId = ctx.userClaims!.id;
     const store = createCategorizeStore(ctx.supabaseAdmin, { userId });
-    return handleRequest(req, { userId, categorize: (names) => categorize(names, store) });
+    return handleRequest(req, { userId, categorize: (names) => categorize(names, store, undefined, { userId, householdId: null }) });
   }),
 };

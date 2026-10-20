@@ -4,7 +4,7 @@ import { recipeTagLabel } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
 import { buildRecipePhotoDescriptionPrompt, type PhotoRecipe } from '../_shared/ai/prompts/recipe-photo-description.v1.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanPhotoDescription, type PhotoDescription } from '../_shared/ai/tasks.ts';
 import { isProviderFailure } from '../categorize-ingredients/handler.ts';
 
@@ -44,6 +44,8 @@ export type DescribeOptions = {
   /** Tests inject a MockLanguageModelV4; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
   onCall?: (call: AiCallRecord) => Promise<void>;
+  /** The signed-in caller, recorded on each `ai_calls` row; none in the CLI and eval. */
+  caller?: AiCaller;
 };
 
 export type DescribeResult = PhotoDescription & { model: string };

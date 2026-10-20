@@ -138,11 +138,19 @@ function fixedModel(answer: unknown, seen: unknown[] = []): { instance: Language
   };
 }
 
+const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
+
+/** Wired as index.ts does: the caller goes to the extraction and to the inline categorize. */
 function setup(overrides: Partial<PhotoImportDeps> = {}) {
   const aiCalls: AiCallRecord[] = [];
   const store = new FakePhotoStore(aiCalls);
   const catStore = new FakeCategorizeStore(aiCalls);
-  const deps: PhotoImportDeps = { store, categorize: (names) => categorize(names, catStore), ...overrides };
+  const deps: PhotoImportDeps = {
+    store,
+    categorize: (names) => categorize(names, catStore, undefined, CALLER),
+    caller: CALLER,
+    ...overrides,
+  };
   const calls = (task: string) => aiCalls.filter((c) => c.task === task).length;
   const post = (body: unknown) =>
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
@@ -322,6 +330,24 @@ test('the model gets each image as an image part after its "Page n of m:" line, 
   assertEquals(parts[3].text, 'Page 2 of 2:');
   assertEquals([parts[2].mediaType, parts[4].mediaType], ['image/jpeg', 'image/png']);
   assertStringIncludes(parts[0].text!, 'Untrusted photos of one recipe, 2 pages in order');
+});
+
+test('ai_calls rows carry the caller: the extraction and the inline categorize, with no household', async () => {
+  const { post, aiCalls } = setup();
+  assertEquals((await post({ images: [PAGE_1] })).status, 200);
+  assertEquals(
+    aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
+    [
+      ['extractRecipePhoto', CALLER.userId, null],
+      ['categorize', CALLER.userId, null],
+    ],
+  );
+});
+
+test('a failed extraction is logged with the caller too', async () => {
+  const { post, aiCalls } = setup({ model: fixedModel({ nope: true }) });
+  assertEquals((await post({ images: [PAGE_1] })).status, 503);
+  assertEquals(aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
 });
 
 test('ai_calls holds each image’s type, size and SHA-256, never its bytes', async () => {

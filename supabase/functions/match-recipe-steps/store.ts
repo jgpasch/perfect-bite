@@ -6,7 +6,7 @@ import type { StepMatchStore } from './handler.ts';
 
 /**
  * StepMatchStore over the service-role client. The plan check and the rate limit are per
- * `userId`. `ai_calls` has no user id.
+ * `userId`. Each `ai_calls` row carries the caller from the handler.
  */
 export function createStepMatchStore(admin: SupabaseClient, limits: { userId: string }): StepMatchStore {
   return {

@@ -86,9 +86,11 @@ function failing(error: Error): { instance: LanguageModel; modelId: string } {
   };
 }
 
+const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
+
 function setup(overrides: Partial<MatchStepsDeps> = {}) {
   const store = new FakeStore();
-  const deps: MatchStepsDeps = { store, ...overrides };
+  const deps: MatchStepsDeps = { store, caller: CALLER, ...overrides };
   const post = (body: unknown) =>
     handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
       matchSteps: (request) => matchSteps(request, deps),
@@ -181,7 +183,7 @@ Deno.test('unknown or repeated ingredient numbers are dropped, and a share over 
   });
 });
 
-Deno.test('ai_calls gets the prompt and output with no user id or ingredient ids', async () => {
+Deno.test('ai_calls gets the prompt, the output and the caller, with no household or ingredient ids', async () => {
   await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
     const { store, post } = setup();
     await post(TACOS);
@@ -190,7 +192,15 @@ Deno.test('ai_calls gets the prompt and output with no user id or ingredient ids
     assertEquals(call.prompt_version, MATCH_RECIPE_STEPS_PROMPT_VERSION);
     assertStringIncludes(call.prompt, '2 lb chicken thighs');
     assert(!call.prompt.includes('ing-thighs'), 'the ids never reach the model');
-    assert(!('user_id' in call));
+    assertEquals([call.user_id, call.household_id], [CALLER.userId, null]);
+  });
+});
+
+Deno.test('a failed call is logged with the caller too', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup({ model: answering({ nope: true }) });
+    assertEquals((await post(TACOS)).status, 503);
+    assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
   });
 });
 

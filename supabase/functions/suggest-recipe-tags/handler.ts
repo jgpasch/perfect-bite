@@ -4,7 +4,7 @@ import type { SuggestRecipeTagsRequest, SuggestRecipeTagsResponse } from '@share
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
 import { buildSuggestRecipeTagsPrompt, SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from '../_shared/ai/prompts/suggest-recipe-tags.v1.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanSuggestedTags, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { isProviderFailure, type LimitResult } from '../categorize-ingredients/handler.ts';
@@ -26,6 +26,8 @@ export type SuggestDeps = {
   store: SuggestTagsStore;
   /** Tests inject a MockLanguageModelV4; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
+  /** The signed-in caller, recorded on each `ai_calls` row. */
+  caller?: AiCaller;
 };
 
 /** Why a suggestion failed; request.ts turns it into the HTTP status. */
@@ -73,6 +75,7 @@ export async function suggestRecipeTags(request: SuggestRecipeTagsRequest, deps:
   try {
     ({ output } = await runAiTask('suggestRecipeTags', buildSuggestRecipeTagsPrompt(request), {
       model: deps.model,
+      caller: deps.caller,
       onCall: (call) => deps.store.logAiCall(call),
     }));
   } catch (err) {

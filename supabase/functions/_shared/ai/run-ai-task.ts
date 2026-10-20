@@ -24,9 +24,15 @@ export type AiTaskResult<T> = {
   callId: string;
 };
 
-/** One model attempt, as stored in `public.ai_calls`. No user id (spec §6.5). */
+/** Who made a call: the signed-in user and, when the request has one, the household. */
+export type AiCaller = { userId: string; householdId: string | null };
+
+/** One model attempt, as stored in `public.ai_calls`, with who made it (spec §6.4, §6.5). */
 export type AiCallRecord = {
   id: string;
+  /** Null for calls with no signed-in caller (the `yarn ai:*` scripts, evals). */
+  user_id: string | null;
+  household_id: string | null;
   task: AiTaskName;
   model: string;
   prompt_version: string;
@@ -102,6 +108,8 @@ export type RunAiTaskOptions = {
   fallbackModel?: InjectedModel;
   /** Called once per attempt, success or failure. Its errors are logged, never thrown. */
   onCall?: (call: AiCallRecord) => Promise<void>;
+  /** Copied onto every attempt's record; without it `user_id` and `household_id` are null. */
+  caller?: AiCaller;
 };
 
 function callStatus(err: unknown): AiCallRecord['status'] {
@@ -172,6 +180,8 @@ export async function runAiTask<N extends AiTaskName>(
     const started = Date.now();
     const base = {
       id,
+      user_id: options.caller?.userId ?? null,
+      household_id: options.caller?.householdId ?? null,
       task: name,
       model: model.modelId,
       prompt_version: task.promptVersion,

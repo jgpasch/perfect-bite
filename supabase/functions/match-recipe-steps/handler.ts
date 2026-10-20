@@ -26,6 +26,8 @@ export type MatchStepsDeps = {
   store: StepMatchStore;
   /** Tests inject a MockLanguageModelV4; otherwise the task's env model. */
   model?: MatchDeps['model'];
+  /** The signed-in caller, recorded on each `ai_calls` row. */
+  caller?: MatchDeps['caller'];
 };
 
 /** Why a match failed; request.ts turns it into the HTTP status. */
@@ -75,7 +77,7 @@ export async function matchSteps(request: MatchRecipeStepsRequest, deps: MatchSt
   try {
     result = await matchRecipeSteps(
       { steps: sent.map((i) => request.steps[i]), ingredients: request.ingredients },
-      { model: deps.model, onCall: (call) => deps.store.logAiCall(call) },
+      { model: deps.model, caller: deps.caller, onCall: (call) => deps.store.logAiCall(call) },
     );
   } catch (err) {
     if (!(err instanceof StepMatchError)) throw err;

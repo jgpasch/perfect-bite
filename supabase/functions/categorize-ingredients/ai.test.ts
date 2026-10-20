@@ -305,6 +305,66 @@ Deno.test('runAiTask: AI_MODEL_CATEGORIZE_FALLBACK is tried after an API failure
   });
 });
 
+const CALLER_ID = '11111111-1111-4111-8111-111111111111';
+const CALLER_HOUSEHOLD_ID = '22222222-2222-4222-8222-222222222222';
+
+Deno.test('runAiTask: the caller is copied onto every attempt, the failed primary and the fallback', async () => {
+  await withEnv({ AI_MODEL_CATEGORIZE_FALLBACK: 'mock' }, async () => {
+    const calls: AiCallRecord[] = [];
+    await runAiTask(
+      'categorize',
+      { instructions: 'rules', prompt: PROMPT(['beef']), itemCount: 1 },
+      {
+        model: { instance: recordingModel([], overloaded()), modelId: 'mock:model' },
+        caller: { userId: CALLER_ID, householdId: CALLER_HOUSEHOLD_ID },
+        onCall: async (c) => void calls.push(c),
+      },
+    );
+    assertEquals(
+      calls.map((c) => [c.status, c.user_id, c.household_id]),
+      [
+        ['api_error', CALLER_ID, CALLER_HOUSEHOLD_ID],
+        ['ok', CALLER_ID, CALLER_HOUSEHOLD_ID],
+      ],
+    );
+  });
+});
+
+Deno.test('runAiTask: a caller with no household records the user and a null household', async () => {
+  const calls: AiCallRecord[] = [];
+  await runAiTask(
+    'categorize',
+    { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+    { model: { instance: recordingModel([]), modelId: 'mock:model' }, caller: { userId: CALLER_ID, householdId: null }, onCall: async (c) => void calls.push(c) },
+  );
+  assertEquals(calls.map((c) => [c.user_id, c.household_id]), [[CALLER_ID, null]]);
+});
+
+Deno.test('runAiTask: with no caller, user_id and household_id are null, on success and on failure', async () => {
+  await withEnv({}, async () => {
+    const calls: AiCallRecord[] = [];
+    await runAiTask(
+      'categorize',
+      { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+      { model: { instance: recordingModel([]), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+    );
+    await assertRejects(() =>
+      runAiTask(
+        'categorize',
+        { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+        { model: { instance: recordingModel([], overloaded()), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+      ),
+    );
+    assertEquals(
+      calls.map((c) => [c.status, c.user_id, c.household_id]),
+      [
+        ['ok', null, null],
+        ['api_error', null, null],
+      ],
+    );
+  });
+});
+
 Deno.test('runAiTask: no model configured and none injected is a clear error', async () => {
   await withEnv({}, async () => {
     await assertRejects(

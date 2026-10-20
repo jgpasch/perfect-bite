@@ -18,7 +18,7 @@ import {
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
 import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v5.ts';
-import { runAiTask, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { FetchPageError, type FetchedPage } from '../_shared/fetch-page.ts';
@@ -63,6 +63,8 @@ export type ImportDeps = {
   fetchPage: (url: string) => Promise<FetchedPage>;
   /** Tests inject a MockLanguageModelV4 for extract-recipe; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
+  /** The signed-in caller, recorded on each `ai_calls` row. */
+  caller?: AiCaller;
   now?: () => number;
 };
 
@@ -136,6 +138,7 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
   try {
     ({ output } = await runAiTask('extractRecipe', buildExtractRecipePrompt(input), {
       model: deps.model,
+      caller: deps.caller,
       onCall: (call) => deps.store.logAiCall(call),
     }));
   } catch (err) {

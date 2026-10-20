@@ -6,7 +6,7 @@ import type { RecipePhotoImportStore } from './handler.ts';
 
 /**
  * RecipePhotoImportStore over the service-role client. The plan check and the rate limit are per
- * `userId`. `ai_calls` has no user id.
+ * `userId`. Each `ai_calls` row carries the caller from the handler.
  */
 export function createRecipePhotoImportStore(admin: SupabaseClient, limits: { userId: string }): RecipePhotoImportStore {
   return {

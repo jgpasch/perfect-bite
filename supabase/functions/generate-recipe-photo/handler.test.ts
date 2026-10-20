@@ -136,7 +136,16 @@ const apiError = () => new APICallError({ message: 'overloaded', url: 'https://x
 
 const post = (body: unknown) => new Request(ENDPOINT, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
 
-type Setup = { store?: FakeStore; image?: ReturnType<typeof fakeImage>; model?: GenerateDeps['model']; env?: Record<string, string> };
+const USER_ID = '11111111-1111-4111-8111-111111111111';
+
+type Setup = {
+  store?: FakeStore;
+  image?: ReturnType<typeof fakeImage>;
+  model?: GenerateDeps['model'];
+  env?: Record<string, string>;
+  /** The signed-in caller; USER_ID unless set (null for none). */
+  userId?: string | null;
+};
 
 /** POSTs `{ recipeId }` through handleRequest with the fakes; the env defaults to the mock description and an image key. */
 async function call(setup: Setup = {}, body: unknown = { recipeId: RECIPE_ID }) {
@@ -144,10 +153,11 @@ async function call(setup: Setup = {}, body: unknown = { recipeId: RECIPE_ID }) 
   const image = setup.image ?? fakeImage();
   const env = { OPENAI_API_KEY: 'sk-test', AI_MODEL_PHOTO_DESCRIPTION: 'mock', ...setup.env };
   const read = (key: string) => (env as Record<string, string | undefined>)[key];
+  const userId = setup.userId === undefined ? USER_ID : (setup.userId ?? undefined);
   const res = await handleRequest(post(body), {
     env: read,
     generateRecipePhoto: (request) =>
-      generateRecipePhoto(request, { store, model: setup.model, generateImage: image.generate, newId: () => PHOTO_ID, env: read }),
+      generateRecipePhoto(request, { store, userId, model: setup.model, generateImage: image.generate, newId: () => PHOTO_ID, env: read }),
     now: () => Date.parse('2026-10-18T12:00:00Z'),
   });
   return { res, json: await res.json(), store, image };
@@ -168,6 +178,29 @@ Deno.test('success: reads the recipe, describes it, makes the image, uploads it 
     assertStringIncludes(image.prompts[0], MOCK_PHOTO_DESCRIPTION);
     assertEquals(store.aiCalls[0].task, 'recipePhotoDescription');
     assertEquals(store.aiCalls[0].prompt_version, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION);
+  });
+});
+
+Deno.test("the description's ai_calls row carries the caller and the recipe's household", async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { res, store } = await call();
+    assertEquals(res.status, 200);
+    assertEquals(store.aiCalls.map((c) => [c.task, c.user_id, c.household_id]), [['recipePhotoDescription', USER_ID, HOUSEHOLD_ID]]);
+  });
+});
+
+Deno.test('a failed description is logged with the caller and household too', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { res, store } = await call({ model: answering({ nope: true }) });
+    assertEquals(res.status, 502);
+    assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', USER_ID, HOUSEHOLD_ID]]);
+  });
+});
+
+Deno.test('with no caller the row has a null user and household', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { store } = await call({ userId: null });
+    assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [[null, null]]);
   });
 });
 
