@@ -52,9 +52,11 @@ import {
   undoRecipeAdd,
   type RecipeListAdd,
 } from '@/features/recipes/add-to-list';
+import { AddIngredientRow } from '@/features/recipes/add-ingredient-row';
 import { ensureStepMatchSoon, useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { quickAddTitle } from '@/features/recipes/quick-add';
+import { RecipeIndexCard } from '@/features/recipes/recipe-index-card';
 import { RecipeIngredientRow } from '@/features/recipes/recipe-ingredient-row';
 import { normalizeRecipeLink } from '@/features/recipes/recipe-link';
 import { RecipeMethodCard } from '@/features/recipes/recipe-method-card';
@@ -95,6 +97,7 @@ import {
   updateRecipeIngredient,
   updateRecipeServings,
 } from '@/features/recipes/recipes';
+import { useRecipeViewStyle } from '@/features/recipes/view-style';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { displayItemName, stepPath, stepTexts } from '@/shared';
@@ -103,8 +106,10 @@ import { displayItemName, stepPath, stepTexts } from '@/shared';
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const t = useT();
-  const { spacing, sizes, aisles } = useTheme();
+  const { colors, spacing, sizes, aisles } = useTheme();
   const headerHeight = useHeaderHeight();
+  // Settings > Design trials > Recipe view: the index card (board F) or the standard view, followed at once.
+  const indexCard = useRecipeViewStyle() === 'indexCard';
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
   const recipe = recipeRows[0];
   // ingredients and overrides: re-read when an ingredient gets its aisle, so its dot follows.
@@ -267,6 +272,13 @@ export default function RecipeScreen() {
     );
   };
 
+  // Swipe left (or VoiceOver's Delete) on an ingredient, with Undo in a toast.
+  const removeIngredient = (ingredient: RecipeIngredient) => {
+    deleteRecipeIngredient(ingredient.id);
+    ensureStepMatchSoon(id);
+    setDeleted(ingredient);
+  };
+
   // Spec 4.16: the plan modal, for Plan and the plan badges.
   const openPlan = () => router.push({ pathname: '/plan-recipe', params: { recipeId: id } });
   // Spec 4.5: the Choose a photo sheet, for the Add photo tile and Change photo….
@@ -291,12 +303,14 @@ export default function RecipeScreen() {
   return (
     <Screen>
       {/* With a photo the native header is transparent over it (board 13); without, it takes the band's
-          tint, so back and actions sit on it (board 06). */}
+          tint, so back and actions sit on it (board 06). The index card's is the plain background (board F). */}
       <Stack.Screen
         options={
-          photoSource
-            ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
-            : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
+          indexCard
+            ? { headerTransparent: false, headerStyle: { backgroundColor: colors.background }, headerShadowVisible: false }
+            : photoSource
+              ? { headerTransparent: true, headerStyle: { backgroundColor: 'transparent' }, headerShadowVisible: false }
+              : { headerTransparent: false, headerStyle: { backgroundColor: aisles[hue].soft } }
         }
       />
       <Stack.Toolbar placement="right">
@@ -327,7 +341,10 @@ export default function RecipeScreen() {
       </Stack.Toolbar>
 
       {/* Under a transparent header the screen starts at the top, so there's no header to offset. */}
-      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={photoSource ? 0 : headerHeight}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior="padding"
+        keyboardVerticalOffset={photoSource && !indexCard ? 0 : headerHeight}>
         {/* The actions float over the scroll view's bottom (spec 4.5), and its content ends above them. */}
         {/* A tap out that no row or control claims tucks a kept add bar away; while the field is focused,
             the scroll view's own tap out hides the keyboard instead. */}
@@ -348,6 +365,36 @@ export default function RecipeScreen() {
             contentInsetAdjustmentBehavior="never"
             // The last row and the Method card's last line scroll clear of the dock, hidden while adding.
             contentContainerStyle={{ paddingBottom: (showAddBar ? 0 : dockHeight) + spacing.lg }}>
+            {indexCard ? (
+              <RecipeIndexCard
+                recipe={recipe}
+                hue={hue}
+                ingredients={ingredients}
+                photoSource={photoSource}
+                hasPhoto={hasPhoto}
+                generating={!hasPhoto && generation?.status === 'generating'}
+                onPhotoError={uploading ? () => {} : photo.onError}
+                onOpenPhoto={openPhoto}
+                base={base}
+                servings={servings}
+                onServingsChange={setChosen}
+                onEditServings={editServings}
+                onPlan={openPlan}
+                onEditIngredient={edit}
+                onAddIngredientToList={addToListMenu}
+                onDeleteIngredient={removeIngredient}
+                onAddIngredient={openAdd}
+                onIngredientsLayout={ingredientsLayout}
+                hasSteps={steps > 0}
+                methodPicks={methodPicks}
+                methodCount={methodCount}
+                onPick={(group, option) => setMethodPicks((current) => withPick(current, group, option))}
+                pageCount={pageCount}
+                onViewPages={openPages}
+                onEditSteps={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
+              />
+            ) : (
+              <>
             {photoSource ? (
               <RecipePhotoHeader
                 source={photoSource}
@@ -422,11 +469,7 @@ export default function RecipeScreen() {
                       amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
                       onEdit={() => edit(item)}
                       onAddToList={() => addToListMenu(item)}
-                      onDelete={() => {
-                        deleteRecipeIngredient(item.id);
-                        ensureStepMatchSoon(id);
-                        setDeleted(item);
-                      }}
+                      onDelete={() => removeIngredient(item)}
                     />
                   ))
                 )}
@@ -447,6 +490,8 @@ export default function RecipeScreen() {
                 onEdit={() => router.push({ pathname: '/recipe/[id]/steps', params: { id } })}
               />
             ) : null}
+              </>
+            )}
           </ScrollView>
           {/* The toasts float above the dock. */}
           <RecipeActionDock
@@ -743,36 +788,6 @@ function GeneratingPhoto() {
         {t('recipes.photo.generating')}
       </ThemedText>
     </View>
-  );
-}
-
-/**
- * The Ingredients card's last row (spec 4.5): a `plus` and "Add ingredient" in `primary` `headline`, 20 pt in,
- * at least 52 pt (`addRow`) tall, with no hairline under it. It opens the add bar over the keyboard.
- */
-function AddIngredientRow({ onPress }: { onPress: () => void }) {
-  const t = useT();
-  const { colors, spacing, sizes, opacity } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={t('recipes.screen.addLabel')}
-      testID="add-ingredient-row"
-      style={({ pressed }) => [
-        styles.row,
-        {
-          gap: spacing.sm,
-          minHeight: sizes.addRow,
-          paddingHorizontal: spacing.lg + spacing.xs,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      <Icon name="plus" tint={colors.primary} weight="semibold" />
-      <ThemedText variant="headline" color="primary">
-        {t('recipes.screen.addIngredient')}
-      </ThemedText>
-    </Pressable>
   );
 }
 

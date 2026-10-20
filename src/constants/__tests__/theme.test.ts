@@ -254,7 +254,7 @@ describe('Typography', () => {
 
 type FontPlugin = {
   ios: { fonts: string[] };
-  android: { fonts: { fontFamily: string; fontDefinitions: { path: string; weight: number }[] }[] };
+  android: { fonts: { fontFamily: string; fontDefinitions: { path: string; weight: number; style?: 'italic' }[] }[] };
 };
 const fontPlugin = (require('../../../app.json').expo.plugins as unknown[]).find(
   (p): p is [string, FontPlugin] => Array.isArray(p) && p[0] === 'expo-font',
@@ -271,18 +271,34 @@ const IOS_FAMILY_DIRS: Record<string, string> = {
   'Nunito Sans': 'nunito-sans',
 };
 
-/** The weights app.json embeds for a family, lowest first. */
-function embeddedWeights(platform: 'ios' | 'android', family: string): number[] {
+/** The weights app.json embeds for a family, lowest first: upright faces, or with `italic`, italic ones. */
+function embeddedWeights(platform: 'ios' | 'android', family: string, italic = false): number[] {
   if (platform === 'android') {
     const entry = fontPlugin.android.fonts.find((f) => f.fontFamily === family);
-    return (entry?.fontDefinitions ?? []).map((d) => d.weight).sort((a, b) => a - b);
+    return (entry?.fontDefinitions ?? [])
+      .filter((d) => (d.style === 'italic') === italic)
+      .map((d) => d.weight)
+      .sort((a, b) => a - b);
   }
   const dir = `/@expo-google-fonts/${IOS_FAMILY_DIRS[family]}/`;
   return fontPlugin.ios.fonts
-    .filter((path) => path.includes(dir))
-    .map((path) => Number(/\/(\d{3})[A-Za-z]+\//.exec(path)![1]))
+    .filter((path) => path.includes(dir) && path.includes('_Italic') === italic)
+    .map((path) => Number(/\/(\d{3})[A-Za-z_]+\//.exec(path)![1]))
     .sort((a, b) => a - b);
 }
+
+describe('italic faces', () => {
+  // The index card recipe view's notes are `lead` (400) italic (spec 4.5, board F).
+  it('embeds Figtree 400 italic on iOS and Android, and no other italic', () => {
+    for (const platform of ['ios', 'android'] as const) {
+      expect(embeddedWeights(platform, 'Figtree', true)).toEqual([400]);
+      for (const family of Object.keys(IOS_FAMILY_DIRS).filter((f) => f !== 'Figtree')) {
+        expect([platform, family, embeddedWeights(platform, family, true)]).toEqual([platform, family, []]);
+      }
+    }
+    expect(Typography.lead).toMatchObject({ fontFamily: 'Figtree', fontWeight: '400' });
+  });
+});
 
 describe('typographyFor (the font trial)', () => {
   const DISPLAY = ['hero', 'largeTitle', 'screenTitle', 'sheetTitle', 'title', 'initial', 'sectionTitle'];

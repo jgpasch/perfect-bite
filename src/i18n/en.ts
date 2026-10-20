@@ -509,6 +509,15 @@ export const en = {
       notes: 'Notes',
       notesLabel: 'Notes: {{notes}}',
     },
+    /** The index card recipe view (spec 4.5, board F). */
+    indexCard: {
+      /** The notes, in full, in quotes. */
+      notes: '“{{notes}}”',
+      /** The method line once the method shows under it. */
+      hideMethod: 'Hide method',
+      /** VoiceOver's name for the photo square when the recipe has a photo. */
+      changePhoto: 'Change photo',
+    },
     servings: {
       title: 'Servings',
       prompt: 'How many people it serves, 1 to 100. Leave it empty to remove.',

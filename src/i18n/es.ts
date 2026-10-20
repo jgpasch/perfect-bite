@@ -442,6 +442,11 @@ export const es = {
       notes: 'Notas',
       notesLabel: 'Notas: {{notes}}',
     },
+    indexCard: {
+      notes: '«{{notes}}»',
+      hideMethod: 'Ocultar preparación',
+      changePhoto: 'Cambiar foto',
+    },
     servings: {
       title: 'Porciones',
       prompt: 'Para cuántas personas rinde, de 1 a 100. Déjalo vacío para quitarlo.',

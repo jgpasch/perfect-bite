@@ -21,13 +21,27 @@ type Props = {
   onDelete: () => void;
   /** Long-press, and VoiceOver's "Add to a list" action: the menu of lists to add it to (spec 4.5). */
   onAddToList: () => void;
+  /** `card` (default): the Ingredients card's row. `indexCard`: the index card view's row (board F). */
+  layout?: 'card' | 'indexCard';
+  /** The index card's amount column width (the widest amount, measured); none until it's measured. */
+  amountWidth?: number;
 };
 
 /**
  * A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, long-press to add it to a list,
- * swipe left to delete.
+ * swipe left to delete. In the index card view (`layout="indexCard"`) it has no dot or hairline and sits on the
+ * screen's `background`: the amount first, right-aligned in its column (`amountWidth`), then the name and its note.
  */
-export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete, onAddToList }: Props) {
+export function RecipeIngredientRow({
+  ingredient,
+  dotColor,
+  amount: shown,
+  onEdit,
+  onDelete,
+  onAddToList,
+  layout: rowLayout = 'card',
+  amountWidth,
+}: Props) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
@@ -63,32 +77,59 @@ export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdi
           }}
           style={({ pressed }) => [
             styles.row,
-            {
-              minHeight: sizes.cardRowMin,
-              paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.sm,
-              gap: spacing.md,
-              // Every row has the hairline, the first one too, under the card's header (board 06).
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: colors.border,
-              backgroundColor: colors.surface,
-              opacity: pressed ? opacity.pressed : 1,
-            },
+            rowLayout === 'indexCard'
+              ? {
+                  minHeight: sizes.minTapTarget,
+                  paddingHorizontal: spacing.lg + spacing.xs,
+                  paddingVertical: spacing.xs,
+                  gap: spacing.md,
+                  backgroundColor: colors.background,
+                  opacity: pressed ? opacity.pressed : 1,
+                }
+              : {
+                  minHeight: sizes.cardRowMin,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.sm,
+                  gap: spacing.md,
+                  // Every row has the hairline, the first one too, under the card's header (board 06).
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: colors.border,
+                  backgroundColor: colors.surface,
+                  opacity: pressed ? opacity.pressed : 1,
+                },
           ]}>
-          <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
-          <View style={styles.text}>
-            <ThemedText variant="body">{name}</ThemedText>
-            {ingredient.note ? (
-              <ThemedText variant="footnote" color="inkSecondary">
-                {ingredient.note}
+          {rowLayout === 'indexCard' ? (
+            <>
+              <ThemedText
+                testID="ingredient-amount"
+                variant="body"
+                color="inkSecondary"
+                style={[styles.amount, amountWidth === undefined ? null : { width: amountWidth }]}>
+                {amount}
               </ThemedText>
-            ) : null}
-          </View>
-          {amount ? (
-            <ThemedText variant="amount" color="inkSecondary">
-              {amount}
-            </ThemedText>
-          ) : null}
+              <ThemedText variant="body" style={styles.text}>
+                {name}
+                {ingredient.note ? <ThemedText variant="body" color="inkSecondary">{` ${ingredient.note}`}</ThemedText> : null}
+              </ThemedText>
+            </>
+          ) : (
+            <>
+              <View style={{ width: sizes.dot, height: sizes.dot, borderRadius: rounded.full, backgroundColor: dotColor }} />
+              <View style={styles.text}>
+                <ThemedText variant="body">{name}</ThemedText>
+                {ingredient.note ? (
+                  <ThemedText variant="footnote" color="inkSecondary">
+                    {ingredient.note}
+                  </ThemedText>
+                ) : null}
+              </View>
+              {amount ? (
+                <ThemedText variant="amount" color="inkSecondary">
+                  {amount}
+                </ThemedText>
+              ) : null}
+            </>
+          )}
         </Pressable>
       </ReanimatedSwipeable>
     </Animated.View>
@@ -98,5 +139,6 @@ export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdi
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
+  amount: { textAlign: 'right' },
   action: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' },
 });
