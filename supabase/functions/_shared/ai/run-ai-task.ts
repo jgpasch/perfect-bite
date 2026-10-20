@@ -48,6 +48,10 @@ export type AiCallRecord = {
   reasoning_tokens: number | null;
   duration_ms: number;
   error: string | null;
+  /** A failed attempt's HTTP status, when the provider answered; null otherwise. */
+  http_status: number | null;
+  /** That answer's body, cut to 4000 characters. */
+  error_body: string | null;
   fallback_of: string | null;
 };
 
@@ -223,7 +227,9 @@ export async function runAiTask<N extends AiTaskName>(
       });
       // An empty answer (a safety block, say) has no output, and reading it throws
       // NoOutputGeneratedError, which callers don't handle. Make it invalid output, which they do,
-      // so it is recorded with its finish reason.
+      // so it is recorded with its finish reason. The SDK already reports every safety block we can
+      // get as `content-filter` (Gemini's blocked prompt, its SAFETY/PROHIBITED_CONTENT finishes,
+      // an Anthropic refusal), with or without partial text, so it needs no mapping here.
       if (!hasOutput(result)) {
         throw new NoObjectGeneratedError({
           message: `No output generated (finish reason: ${result.finishReason})`,
@@ -245,6 +251,8 @@ export async function runAiTask<N extends AiTaskName>(
         ...usageColumns(invalid?.usage),
         duration_ms: Date.now() - started,
         error: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 2000),
+        http_status: apiError?.statusCode ?? null,
+        error_body: apiError?.responseBody?.slice(0, 4000) ?? null,
       };
       await record(failed);
       emitTrace({
@@ -277,6 +285,8 @@ export async function runAiTask<N extends AiTaskName>(
       ...usageColumns(result.usage),
       duration_ms: Date.now() - started,
       error: null,
+      http_status: null,
+      error_body: null,
     };
     await record(ok);
     emitTrace({

@@ -1,7 +1,7 @@
 -- ai_calls: service role only, records who made each call, retention job is scheduled.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(20);
+select plan(25);
 
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
@@ -27,6 +27,18 @@ select col_type_is('public', 'ai_calls', 'household_id', 'uuid', 'ai_calls has a
 select col_is_null('public', 'ai_calls', 'household_id', 'household_id is nullable');
 select has_index('public', 'ai_calls', 'ai_calls_user_id_created_at_idx', array['user_id', 'created_at'], 'index on (user_id, created_at)');
 select hasnt_column('public', 'ai_calls', 'capture_ids', 'ai_calls has no capture_ids');
+-- A failed attempt's HTTP answer (spec 6.4); null on ok rows and failures with none.
+select col_type_is('public', 'ai_calls', 'http_status', 'integer', 'ai_calls has an http_status');
+select col_type_is('public', 'ai_calls', 'error_body', 'text', 'ai_calls has an error_body');
+select is((select http_status is null and error_body is null from public.ai_calls where id = 'a1111111-0000-0000-0000-0000000000a1'),
+  true, 'a row written without them has nulls');
+insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, error, http_status, error_body)
+  values ('a2222222-0000-0000-0000-0000000000a9', 'categorize', 'anthropic:a', 'v1', 'api_error', 'i', 'p', 1,
+          'AI_APICallError: Overloaded', 529, '{"type":"error","error":{"type":"overloaded_error"}}');
+select is((select http_status from public.ai_calls where id = 'a2222222-0000-0000-0000-0000000000a9'), 529,
+  'a failed call stores its HTTP status');
+select is((select error_body::jsonb -> 'error' ->> 'type' from public.ai_calls where id = 'a2222222-0000-0000-0000-0000000000a9'),
+  'overloaded_error', 'and the response body');
 select is((select user_id is null and household_id is null from public.ai_calls where id = 'a1111111-0000-0000-0000-0000000000a1'),
   true, 'a call with no caller has nulls');
 select throws_ok($$ insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, user_id)

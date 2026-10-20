@@ -365,6 +365,144 @@ Deno.test('runAiTask: with no caller, user_id and household_id are null, on succ
   });
 });
 
+// --- What a failed attempt keeps (spec §6.4) ----------------------------------------------------
+
+/** A model whose every call throws `fail()`, or answers with `answer` (a doGenerate result). */
+function answeringModel(answer: Partial<Awaited<ReturnType<MockLanguageModelV4['doGenerate']>>> | (() => Error)) {
+  return new MockLanguageModelV4({
+    doGenerate: async () => {
+      if (typeof answer === 'function') throw answer();
+      return {
+        content: [],
+        finishReason: { unified: 'stop', raw: undefined },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 0, text: 0, reasoning: undefined },
+        },
+        warnings: [],
+        ...answer,
+      };
+    },
+  });
+}
+
+/** Runs categorize once on `model`, returning the attempts it logged (the call may throw). */
+async function attempts(model: MockLanguageModelV4): Promise<AiCallRecord[]> {
+  const calls: AiCallRecord[] = [];
+  await withEnv({}, () =>
+    runAiTask(
+      'categorize',
+      { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+      { model: { instance: model, modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+    ).catch(() => {}),
+  );
+  return calls;
+}
+
+const apiError = (statusCode: number, responseBody: string | undefined, isRetryable = false) =>
+  new APICallError({ message: `status ${statusCode}`, url: 'https://example.invalid', requestBodyValues: {}, statusCode, responseBody, isRetryable });
+
+const OVERLOADED_BODY = JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } });
+
+Deno.test('runAiTask: an APICallError records its HTTP status and response body, and keeps the error text', async () => {
+  const calls = await attempts(answeringModel(() => apiError(529, OVERLOADED_BODY)));
+  assertEquals(calls.length, 1);
+  assertEquals([calls[0].status, calls[0].http_status, calls[0].error_body], ['api_error', 529, OVERLOADED_BODY]);
+  assertEquals(calls[0].error, 'AI_APICallError: status 529');
+});
+
+Deno.test('runAiTask: a long response body is cut to 4000 characters, the error to 2000', async () => {
+  const body = 'x'.repeat(5000);
+  const err = apiError(500, body);
+  err.message = 'm'.repeat(3000);
+  const [call] = await attempts(answeringModel(() => err));
+  assertEquals(call.error_body, 'x'.repeat(4000));
+  assertEquals(call.error?.length, 2000);
+});
+
+Deno.test('runAiTask: an APICallError with no body records the status and a null body', async () => {
+  const [call] = await attempts(answeringModel(() => apiError(503, undefined)));
+  assertEquals([call.status, call.http_status, call.error_body], ['api_error', 503, null]);
+});
+
+Deno.test('runAiTask: a RetryError records the last error’s status and body', async () => {
+  let n = 0;
+  const bodies = [JSON.stringify({ error: 'first' }), JSON.stringify({ error: 'second' })];
+  const [call] = await attempts(answeringModel(() => apiError([503, 529][n], bodies[n++], true)));
+  assertEquals(n, 2);
+  assertEquals([call.status, call.http_status, call.error_body], ['api_error', 529, bodies[1]]);
+  assertEquals(call.error?.startsWith('AI_RetryError: '), true);
+});
+
+Deno.test('runAiTask: invalid output records a null status and body', async () => {
+  const [call] = await attempts(answeringModel({ content: [{ type: 'text', text: 'not json' }] }));
+  assertEquals([call.status, call.http_status, call.error_body], ['invalid_output', null, null]);
+  assertEquals(call.response_text, 'not json');
+});
+
+Deno.test('runAiTask: a timeout records a null status and body', async () => {
+  const [call] = await attempts(answeringModel(() => new DOMException('Signal timed out.', 'TimeoutError')));
+  assertEquals([call.status, call.http_status, call.error_body], ['timeout', null, null]);
+});
+
+Deno.test('runAiTask: an ok attempt records a null status and body', async () => {
+  const [call] = await attempts(recordingModel([]));
+  assertEquals([call.status, call.http_status, call.error_body, call.error], ['ok', null, null, null]);
+});
+
+// Safety blocks, as @ai-sdk/google and @ai-sdk/anthropic (the providers the functions import) hand
+// them to the SDK: no content, finish reason `content-filter`, the provider's own reason as `raw`.
+// Checked by running the real providers against these response bodies. Each is recorded as
+// `invalid_output` with finish_reason `content-filter`, which the flag keys on.
+const SAFETY_BLOCKS: Record<string, Parameters<typeof answeringModel>[0]> = {
+  // promptFeedback: { blockReason: 'SAFETY' }, no candidates.
+  'Gemini blocked prompt': {
+    finishReason: { unified: 'content-filter', raw: 'SAFETY' },
+    providerMetadata: { google: { promptFeedback: { blockReason: 'SAFETY', safetyRatings: [] } } },
+  },
+  // promptFeedback: { blockReason: 'PROHIBITED_CONTENT' }.
+  'Gemini prohibited prompt': {
+    finishReason: { unified: 'content-filter', raw: 'PROHIBITED_CONTENT' },
+    providerMetadata: { google: { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } },
+  },
+  // candidates: [{ finishReason: 'SAFETY', safetyRatings: [...] }].
+  'Gemini SAFETY finish': {
+    finishReason: { unified: 'content-filter', raw: 'SAFETY' },
+    providerMetadata: { google: { safetyRatings: [{ category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', probability: 'HIGH', blocked: true }] } },
+  },
+  // A SAFETY finish part way through the answer: partial JSON that doesn't parse.
+  'Gemini SAFETY finish after partial text': {
+    content: [{ type: 'text', text: '{"results":[' }],
+    finishReason: { unified: 'content-filter', raw: 'SAFETY' },
+  },
+  // stop_reason: 'refusal', no content.
+  'Anthropic refusal': { finishReason: { unified: 'content-filter', raw: 'refusal' } },
+};
+
+for (const [shape, answer] of Object.entries(SAFETY_BLOCKS)) {
+  Deno.test(`runAiTask: a safety block (${shape}) records finish_reason content-filter`, async () => {
+    const calls = await attempts(answeringModel(answer));
+    assertEquals(
+      calls.map((c) => [c.status, c.finish_reason, c.output, c.http_status]),
+      [['invalid_output', 'content-filter', null, null]],
+    );
+  });
+}
+
+Deno.test('runAiTask: a safety block is not an API failure, so the fallback is not tried', async () => {
+  const calls: AiCallRecord[] = [];
+  await withEnv({ AI_MODEL_CATEGORIZE_FALLBACK: 'mock' }, () =>
+    assertRejects(() =>
+      runAiTask(
+        'categorize',
+        { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+        { model: { instance: answeringModel(SAFETY_BLOCKS['Anthropic refusal']), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+      ),
+    ),
+  );
+  assertEquals(calls.map((c) => [c.model, c.finish_reason]), [['mock:model', 'content-filter']]);
+});
+
 Deno.test('runAiTask: no model configured and none injected is a clear error', async () => {
   await withEnv({}, async () => {
     await assertRejects(

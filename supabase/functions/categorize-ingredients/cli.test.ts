@@ -520,6 +520,8 @@ const call = (over: Partial<AiCallRecord>): AiCallRecord => ({
   reasoning_tokens: null,
   duration_ms: 100,
   error: null,
+  http_status: null,
+  error_body: null,
   fallback_of: null,
   user_id: null,
   household_id: null,
