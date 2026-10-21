@@ -1,8 +1,9 @@
--- Portal function for AI usage (spec 4.12): admin_ai_usage, private.daily_usage, and the
--- household's private.monthly_usage.
+-- Portal function for AI usage (spec 4.12): admin_ai_usage (the two plan features with their top
+-- households, then categorize, step matching and tags with their top users), private.daily_usage,
+-- and the household's private.monthly_usage.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(31);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Founding is the default here, as on hosted (supabase/seed.sql makes unlimited the default locally).
@@ -52,9 +53,12 @@ from generate_series(1, 12) n;
 -- An import 41 days ago is outside the daily series.
 insert into private.recipe_import_usage (user_id, day, minute_start, imports) values
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 41, now(), 50);
+-- b also imported 1 photo today: recipe_import counts link and photo imports together.
+insert into private.recipe_photo_import_usage (user_id, day, minute_start, imports) values
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now(), 1);
 
--- categorize counts names: a sent 30 names in 2 requests today, b 5 in 1. (Categorize is no longer
--- a plan feature, so admin_ai_usage leaves it out.)
+-- categorize counts names: a sent 30 names in 2 requests today, b 5 in 1. Not a plan feature, so
+-- it has top users and no limit.
 insert into private.categorize_usage (user_id, day, minute_start, requests_this_minute, new_names) values
   ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date, now(), 2, 30),
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now(), 1, 5);
@@ -93,6 +97,18 @@ insert into private.household_ai_usage (household_id, feature, day, used) values
 insert into private.household_ai_usage (household_id, feature, day, used) values
   ('d2000000-0000-0000-0000-000000000002', 'recipe_import', date_trunc('month', now() at time zone 'utc')::date, 2)
 on conflict (household_id, feature, day) do update set used = private.household_ai_usage.used + 2;
+-- 11 more households with one import each this month, to see top_households stop at 10, and one
+-- whose only use was last month.
+insert into public.households (id, name, created_at)
+select ('e0000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, 'Bulk ' || n, now() - interval '100 days'
+from generate_series(1, 12) n;
+insert into public.household_plans (household_id, plan_id)
+select ('e0000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, 'founding' from generate_series(1, 12) n;
+insert into private.household_ai_usage (household_id, feature, day, used)
+select ('e0000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid, 'recipe_import', (now() at time zone 'utc')::date, 1
+from generate_series(1, 11) n;
+insert into private.household_ai_usage (household_id, feature, day, used) values
+  ('e0000000-0000-0000-0000-000000000012', 'recipe_import', date_trunc('month', now() at time zone 'utc')::date - 1, 99);
 select is(private.monthly_usage('d1000000-0000-0000-0000-000000000001', 'recipe_import'), 7,
   'monthly_usage counts only this month');
 select is(private.monthly_usage('d2000000-0000-0000-0000-000000000002', 'recipe_import'), 5,
@@ -122,14 +138,14 @@ create temp view f as
 
 select is(
   (select array_agg(e ->> 'feature' order by o) from r, jsonb_array_elements(d -> 'features') with ordinality as x (e, o)),
-  array['recipe_import', 'recipe_photo_ai'],
-  'features are the two in order');
+  array['recipe_import', 'recipe_photo_ai', 'categorize', 'step_match', 'recipe_tags'],
+  'features are the two plan features, then categorize, step matching and tags');
 select is((select d ->> 'month_start' from r), date_trunc('month', now() at time zone 'utc')::date::text,
   'month_start is the first of this UTC month');
 
 -- recipe_import
-select is((select (e ->> 'used')::int from f where feature = 'recipe_import'), 7 + 5 + 12,
-  'used is this month across everyone');
+select is((select (e ->> 'used')::int from f where feature = 'recipe_import'), 7 + 5 + 12 + 1,
+  'used is this month across everyone, link and photo imports together');
 select is((select (e ->> 'users')::int from f where feature = 'recipe_import'), 14,
   'users counts who used it, not a row of 0');
 select is((select jsonb_array_length(e -> 'daily') from f where feature = 'recipe_import'), 40,
@@ -138,7 +154,7 @@ select is(
   (select array[(e -> 'daily' -> 0 ->> 'day')::date, (e -> 'daily' -> 39 ->> 'day')::date] from f where feature = 'recipe_import'),
   array[(now() at time zone 'utc')::date - 39, (now() at time zone 'utc')::date],
   'the series runs oldest first, ending today');
-select is((select (e -> 'daily' -> 39 ->> 'used')::int from f where feature = 'recipe_import'), 7 + 3 + 12 + (
+select is((select (e -> 'daily' -> 39 ->> 'used')::int from f where feature = 'recipe_import'), 7 + 3 + 12 + 1 + (
     case when date_trunc('month', now() at time zone 'utc')::date = (now() at time zone 'utc')::date then 2 else 0 end),
   'today sums everyone''s rows');
 select is(
@@ -152,28 +168,64 @@ select ok(
                                      date_trunc('month', now() at time zone 'utc')::date,
                                      date_trunc('month', now() at time zone 'utc')::date - 1)),
   'days with no rows are 0 (and the import 41 days ago is left out)');
-select is((select jsonb_array_length(e -> 'top_users') from f where feature = 'recipe_import'), 10,
-  'top_users stops at 10');
+select is((select e ? 'top_users' from f where feature = 'recipe_import'), false,
+  'a plan feature has no top users');
+select is((select jsonb_array_length(e -> 'top_households') from f where feature = 'recipe_import'), 10,
+  'top_households stops at 10');
 select is(
-  (select e -> 'top_users' -> 0 from f where feature = 'recipe_import'),
-  '{"user_id": "11111111-1111-1111-1111-111111111111", "email": "a@usage.test", "plan_id": "founding", "used": 7, "limit": 50}'::jsonb,
-  'the heaviest user first, with email, default plan, this month''s use and their household''s limit');
+  (select e -> 'top_households' -> 0 from f where feature = 'recipe_import'),
+  '{"household_id": "d1000000-0000-0000-0000-000000000001", "name": "A''s", "plan_id": "founding", "used": 7, "limit": 50}'::jsonb,
+  'the heaviest household first, with its name, plan, this month''s use (from household_ai_usage) and its limit');
 select is(
-  (select e -> 'top_users' -> 1 from f where feature = 'recipe_import'),
-  '{"user_id": "22222222-2222-2222-2222-222222222222", "email": "b@usage.test", "plan_id": "free", "used": 5, "limit": 0}'::jsonb,
-  'an assigned plan shows, with limit 0 when none of their households'' plans has the feature');
+  (select e -> 'top_households' -> 1 from f where feature = 'recipe_import'),
+  '{"household_id": "d2000000-0000-0000-0000-000000000002", "name": "B''s", "plan_id": "free", "used": 5, "limit": 0}'::jsonb,
+  'a household whose plan lacks the feature has limit 0');
 select is(
-  (select e -> 'top_users' -> 2 ->> 'user_id' from f where feature = 'recipe_import'),
-  'cccccccc-0000-0000-0000-000000000001', 'ties are ordered by user id');
+  (select array_agg(h ->> 'household_id') from f, jsonb_array_elements(e -> 'top_households') h where feature = 'recipe_import'),
+  array['d1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002']
+    || array(select 'e0000000-0000-0000-0000-' || lpad(n::text, 12, '0') from generate_series(1, 8) n),
+  'ties are ordered by household id, and last month''s use doesn''t count');
 
--- an unused feature is all zeros
+-- an unused plan feature is all zeros
 select is(
-  (select jsonb_build_object('used', e -> 'used', 'users', e -> 'users', 'top_users', e -> 'top_users',
+  (select jsonb_build_object('used', e -> 'used', 'users', e -> 'users', 'top_households', e -> 'top_households',
           'nonzero', (select count(*) from jsonb_array_elements(e -> 'daily') x where (x ->> 'used')::int <> 0),
           'days', jsonb_array_length(e -> 'daily'))
    from f where feature = 'recipe_photo_ai'),
-  '{"used": 0, "users": 0, "top_users": [], "nonzero": 0, "days": 40}'::jsonb,
-  'an unused feature has zeros, 40 empty days and no top users');
+  '{"used": 0, "users": 0, "top_households": [], "nonzero": 0, "days": 40}'::jsonb,
+  'an unused feature has zeros, 40 empty days and no top households');
+
+-- categorize: names, with top users and no limit
+select is(
+  (select jsonb_build_object('used', e -> 'used', 'users', e -> 'users', 'top_users', e -> 'top_users',
+          'top_households', e ? 'top_households')
+   from f where feature = 'categorize'),
+  '{"used": 35, "users": 2, "top_households": false,
+    "top_users": [{"user_id": "11111111-1111-1111-1111-111111111111", "email": "a@usage.test", "used": 30},
+                  {"user_id": "22222222-2222-2222-2222-222222222222", "email": "b@usage.test", "used": 5}]}'::jsonb,
+  'categorize counts names, with top users (email, no plan or limit) and no top households');
+select is((select (e -> 'daily' -> 39 ->> 'used')::int from f where feature = 'categorize'), 35,
+  'categorize''s daily series counts names');
+select is(
+  (select jsonb_agg(jsonb_build_object('feature', feature, 'used', e -> 'used', 'top_users', e -> 'top_users')) from f
+   where feature in ('step_match', 'recipe_tags')),
+  '[{"feature": "step_match", "used": 0, "top_users": []}, {"feature": "recipe_tags", "used": 0, "top_users": []}]'::jsonb,
+  'unused step matching and tags have zeros and no top users');
+
+-- daily_usage reads each feature's table
+reset role;
+insert into private.step_match_usage (user_id, day, minute_start, matches) values
+  ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date, now(), 4);
+insert into private.recipe_tags_usage (user_id, day, minute_start, suggestions) values
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now(), 6);
+select is(
+  (select array[(select sum(used)::int from private.daily_usage('step_match', v)),
+                (select sum(used)::int from private.daily_usage('recipe_tags', v)),
+                (select count(*)::int from private.daily_usage('recipe_import', v) where user_id = '22222222-2222-2222-2222-222222222222'),
+                (select count(*)::int from private.daily_usage('step_ingredients', v))]
+   from (select date_trunc('month', now() at time zone 'utc')::date as v) d),
+  array[4, 6, case when date_trunc('month', now() at time zone 'utc')::date = (now() at time zone 'utc')::date then 2 else 3 end, 0],
+  'daily_usage: step_match and recipe_tags read their tables, recipe_import both import tables, old keys nothing');
 
 -- calls
 select is((select array_agg(c ->> 'task') from r, jsonb_array_elements(d -> 'calls') c),

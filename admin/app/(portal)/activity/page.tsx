@@ -87,6 +87,10 @@ async function ActivityResults({ searchParams }: { searchParams: SearchParams })
                       <td className="px-4 py-2.5">
                         {target.kind === "user" ? (
                           <Link href={target.href} className="text-primary hover:underline">{target.label}</Link>
+                        ) : target.kind === "household" ? (
+                          <Link href={target.href} className="font-mono text-[13px] text-primary hover:underline">
+                            {target.label}
+                          </Link>
                         ) : target.kind === "none" ? (
                           <span className="text-ink-tertiary">{target.label}</span>
                         ) : (

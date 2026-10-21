@@ -1,8 +1,8 @@
-// Small pieces of the Users pages: the avatar initial, the plan badge, the AI photos blocked badge
-// and a relative date.
+// Small pieces of the Users and Households pages: the avatar initial, the plan badge, the AI photos
+// blocked badge and a relative date.
 import { AI_PHOTOS_BLOCKED } from "@/lib/ai-photo-block";
 import { fullDate, relativeTime } from "@/lib/format";
-import { avatarInitial, planBadge } from "@/lib/users";
+import { avatarInitial } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
 export function Avatar({
@@ -27,15 +27,16 @@ export function Avatar({
   );
 }
 
-export function PlanBadge({ name, assigned }: { name: string; assigned: boolean }) {
+/** A household's plan by name; "No plan", muted, for a household with no row. */
+export function PlanBadge({ name }: { name: string | null }) {
   return (
     <span
       className={cn(
         "inline-block rounded-full px-2.5 py-0.5 text-[13px] font-semibold whitespace-nowrap",
-        assigned ? "bg-primary-soft text-on-primary-soft" : "bg-surface-muted text-ink-secondary",
+        name !== null ? "bg-primary-soft text-on-primary-soft" : "bg-surface-muted text-ink-secondary",
       )}
     >
-      {planBadge(name, assigned)}
+      {name ?? "No plan"}
     </span>
   );
 }

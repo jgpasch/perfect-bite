@@ -4,20 +4,19 @@ import { Suspense } from "react";
 
 import { BlockedFilter } from "@/components/blocked-filter";
 import { PageHeader } from "@/components/page-header";
-import { AiPhotosBlockedBadge, Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
+import { AiPhotosBlockedBadge, Avatar, RelativeDate } from "@/components/user-bits";
 import { UserSearch } from "@/components/user-search";
 import { createClient } from "@/lib/supabase/server";
-import { loadPlanNames } from "@/lib/supabase/plans";
 import { forbidIfNotAuthorized } from "@/lib/supabase/session";
 import type { AdminUserRow } from "@/lib/types";
-import { pageRange, parseBlocked, parsePage, parseQuery, planName, USERS_PAGE_SIZE, usersHref } from "@/lib/users";
+import { pageRange, parseBlocked, parsePage, parseQuery, USERS_PAGE_SIZE, usersHref } from "@/lib/users";
 
 export const metadata: Metadata = { title: "Users · Back office" };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 // Users (spec 4.12): search by email, name or id (`?q=`), only blocked users (`?blocked=1`), 50 a
-// page (`?page=`), newest first.
+// page (`?page=`), newest first. Users have no plan of their own: plans are on Households.
 export default function UsersPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <>
@@ -36,15 +35,12 @@ async function UsersResults({ searchParams }: { searchParams: SearchParams }) {
   const blocked = parseBlocked(params.blocked);
 
   const supabase = await createClient();
-  const [{ data, error }, plans] = await Promise.all([
-    supabase.rpc("admin_list_users", {
-      p_search: query === "" ? null : query,
-      p_limit: USERS_PAGE_SIZE,
-      p_offset: (page - 1) * USERS_PAGE_SIZE,
-      p_blocked: blocked ? true : null,
-    }),
-    loadPlanNames(supabase),
-  ]);
+  const { data, error } = await supabase.rpc("admin_list_users", {
+    p_search: query === "" ? null : query,
+    p_limit: USERS_PAGE_SIZE,
+    p_offset: (page - 1) * USERS_PAGE_SIZE,
+    p_blocked: blocked ? true : null,
+  });
   forbidIfNotAuthorized(error);
   if (error) throw new Error(`Couldn't load users: ${error.message}`);
 
@@ -68,7 +64,9 @@ async function UsersResults({ searchParams }: { searchParams: SearchParams }) {
                 <tr>
                   <th scope="col" className="py-3 pr-4 pl-5">Name</th>
                   <th scope="col" className="px-4 py-3">Email</th>
-                  <th scope="col" className="px-4 py-3">Plan</th>
+                  <th scope="col" className="px-4 py-3">
+                    <span className="sr-only">Badges</span>
+                  </th>
                   <th scope="col" className="px-4 py-3">Joined</th>
                   <th scope="col" className="py-3 pr-5 pl-4">Last sign-in</th>
                 </tr>
@@ -92,12 +90,7 @@ async function UsersResults({ searchParams }: { searchParams: SearchParams }) {
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-ink-secondary">{user.email ?? "—"}</td>
-                    <td className="px-4 py-2.5">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <PlanBadge name={planName(user.plan_id, plans.names)} assigned={user.plan_assigned} />
-                        {user.ai_photos_blocked && <AiPhotosBlockedBadge />}
-                      </span>
-                    </td>
+                    <td className="px-4 py-2.5">{user.ai_photos_blocked && <AiPhotosBlockedBadge />}</td>
                     <td className="px-4 py-2.5 text-ink-secondary">
                       <RelativeDate iso={user.created_at} />
                     </td>

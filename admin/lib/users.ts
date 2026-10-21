@@ -1,6 +1,7 @@
-// The wording of the Users pages (spec 4.12): the plan badge, a feature's usage this month, who
-// changed a plan, and the list's search and paging, kept out of the components so they can be tested.
-import { FEATURES, isFeature, type Feature } from "./features";
+// The wording of the Users and Households pages (spec 4.12): a plan's name, a feature's usage this
+// month, who changed a plan, and the lists' search and paging, kept out of the components so they
+// can be tested.
+import { isUsageFeature, USAGE_FEATURES, type UsageFeature } from "./features";
 import { shortUtcDate } from "./format";
 import type { AdminFeatureUsage, AdminPlanHistoryEntry } from "./types";
 
@@ -68,17 +69,6 @@ export function planName(planId: string | null, names: ReadonlyMap<string, strin
   return names.get(planId) ?? planId;
 }
 
-/** The badge: "Founding", or "Founding · default" for a user who has no plan of their own. */
-export function planBadge(name: string, assigned: boolean): string {
-  return assigned ? name : `${name} · default`;
-}
-
-/** A plan in Plan history's from/to: null is the default plan, named when it's known. */
-export function historyPlan(planId: string | null, names: ReadonlyMap<string, string>, defaultName: string | null): string {
-  if (planId === null) return defaultName === null ? "Default" : `Default (${defaultName})`;
-  return planName(planId, names);
-}
-
 /** Who changed it: the admin's email, "Dashboard" for `postgres`, else the raw id. */
 export function whoWording(entry: Pick<AdminPlanHistoryEntry, "performed_by" | "performed_by_email">): string {
   if (entry.performed_by_email) return entry.performed_by_email;
@@ -86,18 +76,17 @@ export function whoWording(entry: Pick<AdminPlanHistoryEntry, "performed_by" | "
   return entry.performed_by;
 }
 
-const NOUNS: Record<Feature, [one: string, other: string]> = {
-  categorize: ["name", "names"],
+const NOUNS: Record<UsageFeature, [one: string, other: string]> = {
   recipe_import: ["import", "imports"],
-  recipe_import_photo: ["photo import", "photo imports"],
-  recipe_tags: ["suggestion", "suggestions"],
-  step_ingredients: ["match", "matches"],
   recipe_photo_ai: ["photo", "photos"],
+  categorize: ["name", "names"],
+  step_match: ["match", "matches"],
+  recipe_tags: ["suggestion", "suggestions"],
 };
 
 /** What a feature's usage counts, by how many: "1 import", "40 imports" ("calls" for an unknown feature). */
 export function usageNoun(feature: string, count: number): string {
-  const [one, other] = isFeature(feature) ? NOUNS[feature] : (["call", "calls"] as const);
+  const [one, other] = isUsageFeature(feature) ? NOUNS[feature] : (["call", "calls"] as const);
   return count === 1 ? one : other;
 }
 
@@ -114,11 +103,11 @@ export type UsageRow = {
 };
 
 /**
- * One row of the This month card. `doubled` is the first month: the limit `admin_user_detail`
- * sends is already twice the plan's, and the row says so.
+ * One row of a household's This month card. `doubled` is the first month: the limit
+ * `admin_household_detail` sends is already twice the plan's, and the row says so.
  */
 export function usageRow(usage: AdminFeatureUsage, doubled: boolean): UsageRow {
-  const label = isFeature(usage.feature) ? FEATURES[usage.feature].label : usage.feature;
+  const label = isUsageFeature(usage.feature) ? USAGE_FEATURES[usage.feature].label : usage.feature;
   const base = { feature: usage.feature, label };
   if (!usage.in_plan) return { ...base, text: "Not in plan", inPlan: false, fraction: null, atLimit: false };
 

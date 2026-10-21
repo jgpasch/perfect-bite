@@ -15,6 +15,7 @@ import {
 } from "@/lib/ai-usage";
 import { aiCallsHref } from "@/lib/ai-calls";
 import { featureColors, featureLabel } from "@/lib/features";
+import { householdHref } from "@/lib/households";
 import { createClient } from "@/lib/supabase/server";
 import { loadPlanNames, type PlanNames } from "@/lib/supabase/plans";
 import { forbidIfNotAuthorized } from "@/lib/supabase/session";
@@ -25,7 +26,9 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = { title: "AI usage · Back office" };
 
 // AI usage (spec 4.12), from admin_ai_usage: per feature this month's total and users, the last 40
-// days day by day and the top users; then the last 30 days of model calls per task and per model.
+// days day by day, and the top households (the two plan features, against their limits) or top
+// users (categorize, step matching and tags); then the last 30 days of model calls per task and per
+// model.
 export default function AiUsagePage() {
   return (
     <>
@@ -72,40 +75,82 @@ function FeatureCard({ feature, plans }: { feature: AdminFeatureUsageSummary; pl
         <p className="text-[13px] text-ink-secondary">This month · {usersLine(feature.users)}</p>
       </div>
       <UsageChart feature={feature.feature} daily={feature.daily ?? []} />
-      <div>
-        <h3 className="mb-1 text-[15px] text-ink">Top users</h3>
-        {feature.top_users.length === 0 ? (
-          <p className="text-[14px] text-ink-secondary">No one has used it this month.</p>
-        ) : (
-          <table className="w-full text-left text-[14px]">
-            <thead className="border-b border-border text-[12px] font-semibold text-ink-secondary">
-              <tr>
-                <th scope="col" className="py-1.5 pr-3">Email</th>
-                <th scope="col" className="px-3 py-1.5">Plan</th>
-                <th scope="col" className="py-1.5 pl-3 text-right">Used / limit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {feature.top_users.map((user) => (
-                <tr key={user.user_id} className="border-b border-border last:border-0">
-                  <td className="max-w-0 truncate py-1.5 pr-3">
-                    <Link href={`/users/${user.user_id}`} className="font-semibold text-ink hover:underline">
-                      {user.email ?? user.user_id}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-ink-secondary">
-                    {planName(user.plan_id, plans.names)}
-                  </td>
-                  <td className="py-1.5 pl-3 text-right whitespace-nowrap text-ink">
-                    {usedOfLimit(user.used, user.limit)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {feature.top_households !== undefined ? (
+        <TopHouseholds feature={feature} plans={plans} />
+      ) : (
+        <TopUsers feature={feature} />
+      )}
     </section>
+  );
+}
+
+// A plan feature's heaviest households this month, against their limits (shared by their members).
+function TopHouseholds({ feature, plans }: { feature: AdminFeatureUsageSummary; plans: PlanNames }) {
+  const households = feature.top_households ?? [];
+  return (
+    <div>
+      <h3 className="mb-1 text-[15px] text-ink">Top households</h3>
+      {households.length === 0 ? (
+        <p className="text-[14px] text-ink-secondary">No household has used it this month.</p>
+      ) : (
+        <table className="w-full text-left text-[14px]">
+          <thead className="border-b border-border text-[12px] font-semibold text-ink-secondary">
+            <tr>
+              <th scope="col" className="py-1.5 pr-3">Household</th>
+              <th scope="col" className="px-3 py-1.5">Plan</th>
+              <th scope="col" className="py-1.5 pl-3 text-right">Used / limit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {households.map((household) => (
+              <tr key={household.household_id} className="border-b border-border last:border-0">
+                <td className="max-w-0 truncate py-1.5 pr-3">
+                  <Link href={householdHref(household.household_id)} className="font-semibold text-ink hover:underline">
+                    {household.name}
+                  </Link>
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-ink-secondary">{planName(household.plan_id, plans.names)}</td>
+                <td className="py-1.5 pl-3 text-right whitespace-nowrap text-ink">{usedOfLimit(household.used, household.limit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// The heaviest users of something every plan has (no monthly limit, only safety limits).
+function TopUsers({ feature }: { feature: AdminFeatureUsageSummary }) {
+  const users = feature.top_users ?? [];
+  return (
+    <div>
+      <h3 className="mb-1 text-[15px] text-ink">Top users</h3>
+      {users.length === 0 ? (
+        <p className="text-[14px] text-ink-secondary">No one has used it this month.</p>
+      ) : (
+        <table className="w-full text-left text-[14px]">
+          <thead className="border-b border-border text-[12px] font-semibold text-ink-secondary">
+            <tr>
+              <th scope="col" className="py-1.5 pr-3">Email</th>
+              <th scope="col" className="py-1.5 pl-3 text-right">Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => (
+              <tr key={user.user_id} className="border-b border-border last:border-0">
+                <td className="max-w-0 truncate py-1.5 pr-3">
+                  <Link href={`/users/${user.user_id}`} className="font-semibold text-ink hover:underline">
+                    {user.email ?? user.user_id}
+                  </Link>
+                </td>
+                <td className="py-1.5 pl-3 text-right whitespace-nowrap text-ink">{usageTotal(feature.feature, user.used)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

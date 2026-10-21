@@ -1,12 +1,12 @@
 // Wording and the chart's scaling for the AI usage page (spec 4.12, admin_ai_usage).
-import { FEATURES, isFeature } from "./features";
+import { isUsageFeature, USAGE_FEATURES } from "./features";
 import type { AiCallStats, AiCallStatus, AiTaskCalls, MonthlyLimit } from "./types";
 
 const number = new Intl.NumberFormat("en-US");
 
 /** "1,234 names", "1 call": a feature's total in its unit ("calls" for an unknown feature). */
 export function usageTotal(feature: string, used: number): string {
-  const unit = isFeature(feature) ? FEATURES[feature].unit : "calls";
+  const unit = isUsageFeature(feature) ? USAGE_FEATURES[feature].unit : "calls";
   const noun = used === 1 ? unit.slice(0, -1) : unit;
   return `${number.format(used)} ${noun}`;
 }
@@ -17,7 +17,7 @@ export function usersLine(users: number): string {
   return `${number.format(users)} ${users === 1 ? "user" : "users"}`;
 }
 
-/** A Top users row's "23 / 40" or "23 / No limit". */
+/** A Top households row's "23 / 40" or "23 / No limit". */
 export function usedOfLimit(used: number, limit: MonthlyLimit): string {
   return `${number.format(used)} / ${limit === null ? "No limit" : number.format(limit)}`;
 }

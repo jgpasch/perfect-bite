@@ -20,7 +20,9 @@ export default function PlansPage() {
         <Plans />
       </Suspense>
       <p className="mt-4 max-w-3xl text-[13px] text-ink-secondary">
-        Limits are per calendar month in UTC, resetting on the 1st. Accounts in their first 30 days get twice the limits.
+        Limits are per household and calendar month in UTC, resetting on the 1st, shared by its members. Households in their
+        first 30 days get twice the limits. Categorize, step matching and tag suggestions are on every plan, under the
+        safety limits.
       </p>
       <div className="mt-8">
         <Suspense fallback={<p className="text-[15px] text-ink-secondary">Loading safety limits…</p>}>

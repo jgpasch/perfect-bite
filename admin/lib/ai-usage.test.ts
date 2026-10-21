@@ -131,6 +131,8 @@ describe("wording", () => {
     expect(usageTotal("recipe_import", 0)).toBe("0 calls");
     expect(usageTotal("recipe_import", 1)).toBe("1 call");
     expect(usageTotal("something_new", 3)).toBe("3 calls");
+    expect(usageTotal("step_match", 2)).toBe("2 calls");
+    expect(usageTotal("recipe_tags", 1)).toBe("1 call");
   });
 
   it("counts users", () => {

@@ -12,7 +12,8 @@ export const ACTIVITY_PAGE_SIZE = 50;
 
 /** The actions the portal knows, in the filter's order, with their labels. */
 export const ACTION_LABELS = {
-  set_user_plan: "Changed plan",
+  set_household_plan: "Changed a household's plan",
+  set_user_plan: "Changed a user's plan",
   set_plan_limit: "Changed a limit",
   set_plan_feature: "Changed a feature",
   create_plan: "Created a plan",
@@ -57,19 +58,24 @@ export function activityHref(action: string, page: number): string {
 }
 
 export type ActionTarget =
-  | { kind: "user"; label: string; href: string }
-  | { kind: "plan" | "household" | "user_id"; label: string }
+  | { kind: "user" | "household"; label: string; href: string }
+  | { kind: "plan" | "user_id"; label: string }
   | { kind: "none"; label: string };
 
-/** The user's email linking to their page, else the plan id, else the household id (else the gone user's id). */
+/**
+ * The user's email linking to their page, else the household's id linking to its page (a
+ * `set_household_plan` row names its plan too), else the plan id (else the gone user's id).
+ */
 export function actionTarget(
   row: Pick<AdminAction, "target_user_id" | "target_user_email" | "target_plan_id" | "target_household_id">,
 ): ActionTarget {
   if (row.target_user_id && row.target_user_email) {
     return { kind: "user", label: row.target_user_email, href: `/users/${row.target_user_id}` };
   }
+  if (row.target_household_id) {
+    return { kind: "household", label: row.target_household_id, href: `/households/${row.target_household_id}` };
+  }
   if (row.target_plan_id) return { kind: "plan", label: row.target_plan_id };
-  if (row.target_household_id) return { kind: "household", label: row.target_household_id };
   if (row.target_user_id) return { kind: "user_id", label: row.target_user_id };
   return { kind: "none", label: "—" };
 }
@@ -195,6 +201,8 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
   const after = record(details.after) as Snapshot | null;
 
   switch (row.action) {
+    case "set_household_plan":
+      return `${text(details.from) ?? "no plan"} → ${text(details.to) ?? "?"}`;
     case "set_user_plan":
       return `${planRef(details.from)} → ${planRef(details.to)}`;
     case "set_plan_limit":
@@ -211,7 +219,11 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
     case "set_default_plan":
       return `${text(details.previous_default) ?? "none"} → ${text(after?.id) ?? "?"}`;
     case "delete_plan":
-      return `${quoted(before?.name)} · ${plural(typeof details.users === "number" ? details.users : 0, "user", "users")}`;
+      // Rows from before plans were per household count users.
+      if (typeof details.households !== "number" && typeof details.users === "number") {
+        return `${quoted(before?.name)} · ${plural(details.users, "user", "users")}`;
+      }
+      return `${quoted(before?.name)} · ${plural(typeof details.households === "number" ? details.households : 0, "household", "households")}`;
     case "set_safety_limit":
       return safetyLimitSummary(details.before, details.after);
     case "delete_user": {

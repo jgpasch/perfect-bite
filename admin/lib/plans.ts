@@ -3,9 +3,9 @@
 // so they can be tested.
 import type { AdminPlan, AdminPlanList, MonthlyLimit } from "./types";
 
-/** "1 user", "12 users". */
-export function usersCount(users: number): string {
-  return `${users.toLocaleString("en-US")} ${users === 1 ? "user" : "users"}`;
+/** "1 household", "12 households". */
+export function householdsCount(households: number): string {
+  return `${households.toLocaleString("en-US")} ${households === 1 ? "household" : "households"}`;
 }
 
 /** The plan's entry for a feature, or null when the plan doesn't have it. */
@@ -22,8 +22,13 @@ export function cellWording(plan: Pick<AdminPlan, "features">, feature: string):
 }
 
 /** What a change to a plan's cell does, under the popover. */
-export function affectsLine(users: number): string {
-  return `Affects ${usersCount(users)}. AI requests use it right away; the app shows or hides the feature the next time it's opened.`;
+export function affectsLine(households: number): string {
+  return `Affects ${householdsCount(households)}. AI requests use it right away; the app shows or hides the feature the next time it's opened.`;
+}
+
+/** The Make default dialog's line: only new households start on it. */
+export function makeDefaultLine(planName: string): string {
+  return `New households will start on ${planName}. Existing households keep their plan.`;
 }
 
 /**
@@ -60,9 +65,11 @@ export function cellSave(before: CellState, after: CellState): CellSave | null {
 }
 
 /** Why a plan can't be deleted, or null when it can. */
-export function deleteBlockedReason(plan: Pick<AdminPlan, "is_default" | "users">): string | null {
+export function deleteBlockedReason(plan: Pick<AdminPlan, "is_default" | "households">): string | null {
   if (plan.is_default) return "The default plan can't be deleted. Make another plan the default first.";
-  if (plan.users > 0) return `${usersCount(plan.users)} ${plan.users === 1 ? "is" : "are"} on this plan. Move them first.`;
+  if (plan.households > 0) {
+    return `${householdsCount(plan.households)} ${plan.households === 1 ? "is" : "are"} on this plan. Move them first.`;
+  }
   return null;
 }
 
@@ -83,7 +90,7 @@ export function copyName(name: string): string {
   return `${name} copy`;
 }
 
-/** The server's message as a sentence: "recipe import needs categorize" → "Recipe import needs categorize." */
+/** The server's message as a sentence: "plan in use" → "Plan in use." */
 export function serverMessage(message: string): string {
   const trimmed = message.trim();
   if (trimmed === "") return "Something went wrong.";

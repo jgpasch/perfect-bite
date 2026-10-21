@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { AdminFeatureUsage } from "./types";
 import {
   avatarInitial,
-  historyPlan,
   isUuid,
   pageRange,
   parseBlocked,
   parsePage,
   parseQuery,
-  planBadge,
   planName,
   usageNoun,
   usageRow,
@@ -86,7 +84,7 @@ describe("usageRow", () => {
     expect(usageRow(usage({ feature: "recipe_photo_ai", used: 0, limit: 1 }), false).text).toBe(
       "0 / 1 photo · resets Nov 1",
     );
-    expect(usageRow(usage({ feature: "step_ingredients", used: 1, limit: null }), false).text).toBe(
+    expect(usageRow(usage({ feature: "step_match", used: 1, limit: null }), false).text).toBe(
       "1 match · no limit",
     );
   });
@@ -112,11 +110,15 @@ describe("usageNoun", () => {
   it("has a singular and a plural for every feature", () => {
     expect([1, 2].map((n) => usageNoun("categorize", n))).toEqual(["name", "names"]);
     expect([1, 2].map((n) => usageNoun("recipe_import", n))).toEqual(["import", "imports"]);
-    expect([1, 2].map((n) => usageNoun("recipe_import_photo", n))).toEqual(["photo import", "photo imports"]);
     expect([1, 2].map((n) => usageNoun("recipe_tags", n))).toEqual(["suggestion", "suggestions"]);
-    expect([1, 2].map((n) => usageNoun("step_ingredients", n))).toEqual(["match", "matches"]);
+    expect([1, 2].map((n) => usageNoun("step_match", n))).toEqual(["match", "matches"]);
     expect([1, 2].map((n) => usageNoun("recipe_photo_ai", n))).toEqual(["photo", "photos"]);
     expect(usageNoun("categorize", 0)).toBe("names");
+  });
+
+  it("counts calls for an old or unknown key", () => {
+    expect([1, 2].map((n) => usageNoun("step_ingredients", n))).toEqual(["call", "calls"]);
+    expect(usageNoun("recipe_import_photo", 2)).toBe("calls");
   });
 });
 
@@ -153,17 +155,6 @@ describe("plan names", () => {
     expect(planName("founding", names)).toBe("Founding");
     expect(planName("gone", names)).toBe("gone");
     expect(planName(null, names)).toBe("No plan");
-  });
-
-  it("marks the default on the badge only when unassigned", () => {
-    expect(planBadge("Founding", true)).toBe("Founding");
-    expect(planBadge("Founding", false)).toBe("Founding · default");
-  });
-
-  it("names the default in plan history", () => {
-    expect(historyPlan(null, names, "Founding")).toBe("Default (Founding)");
-    expect(historyPlan(null, names, null)).toBe("Default");
-    expect(historyPlan("free", names, "Founding")).toBe("Free");
   });
 });
 

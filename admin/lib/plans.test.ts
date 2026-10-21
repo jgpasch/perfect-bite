@@ -8,10 +8,11 @@ import {
   copyName,
   defaultLimit,
   deleteBlockedReason,
+  householdsCount,
   isPlanIdValid,
+  makeDefaultLine,
   parseLimit,
   serverMessage,
-  usersCount,
 } from "./plans";
 import type { AdminPlan } from "./types";
 
@@ -19,77 +20,87 @@ const free: AdminPlan = {
   id: "free",
   name: "Free",
   is_default: false,
-  users: 1,
-  features: [
-    { feature: "categorize", monthly_limit: 250 },
-    { feature: "step_ingredients", monthly_limit: 0 },
-  ],
+  households: 1,
+  features: [{ feature: "recipe_photo_ai", monthly_limit: 0 }],
 };
 const founding: AdminPlan = {
   id: "founding",
   name: "Founding",
   is_default: true,
-  users: 7,
+  households: 7,
+  features: [{ feature: "recipe_import", monthly_limit: 1500 }],
+};
+const unlimited: AdminPlan = {
+  id: "unlimited",
+  name: "Unlimited",
+  is_default: true,
+  households: 2,
   features: [
-    { feature: "categorize", monthly_limit: 1500 },
     { feature: "recipe_import", monthly_limit: 40 },
-    { feature: "recipe_tags", monthly_limit: null },
+    { feature: "recipe_photo_ai", monthly_limit: null },
   ],
 };
 
 describe("cellWording", () => {
   it("is a dash for a feature not in the plan", () => {
-    expect(cellWording({ ...free, features: [] }, "categorize")).toBe("—");
+    expect(cellWording({ ...free, features: [] }, "recipe_photo_ai")).toBe("—");
     expect(cellWording(free, "recipe_import")).toBe("—");
   });
 
   it("is the limit, with thousands separators", () => {
-    expect(cellWording(free, "categorize")).toBe("250");
-    expect(cellWording(founding, "categorize")).toBe("1,500");
+    expect(cellWording(unlimited, "recipe_import")).toBe("40");
+    expect(cellWording(founding, "recipe_import")).toBe("1,500");
   });
 
   it("is 0 for a zero limit, not a dash", () => {
-    expect(cellWording(free, "step_ingredients")).toBe("0");
+    expect(cellWording(free, "recipe_photo_ai")).toBe("0");
   });
 
   it("is No limit for a null limit", () => {
-    expect(cellWording(founding, "recipe_tags")).toBe("No limit");
+    expect(cellWording(unlimited, "recipe_photo_ai")).toBe("No limit");
   });
 });
 
 describe("affectsLine", () => {
-  it("counts the plan's users", () => {
+  it("counts the plan's households", () => {
     expect(affectsLine(7)).toBe(
-      "Affects 7 users. AI requests use it right away; the app shows or hides the feature the next time it's opened.",
+      "Affects 7 households. AI requests use it right away; the app shows or hides the feature the next time it's opened.",
     );
   });
 
-  it("says 1 user, and 0 users", () => {
+  it("says 1 household, and 0 households", () => {
     expect(affectsLine(1)).toBe(
-      "Affects 1 user. AI requests use it right away; the app shows or hides the feature the next time it's opened.",
+      "Affects 1 household. AI requests use it right away; the app shows or hides the feature the next time it's opened.",
     );
-    expect(affectsLine(0)).toMatch(/^Affects 0 users\. /);
+    expect(affectsLine(0)).toMatch(/^Affects 0 households\. /);
   });
 
   it("separates thousands", () => {
-    expect(affectsLine(12345)).toMatch(/^Affects 12,345 users\. /);
+    expect(affectsLine(12345)).toMatch(/^Affects 12,345 households\. /);
   });
 });
 
-describe("usersCount", () => {
+describe("householdsCount", () => {
   it("is singular for one", () => {
-    expect(usersCount(1)).toBe("1 user");
-    expect(usersCount(2)).toBe("2 users");
+    expect(householdsCount(1)).toBe("1 household");
+    expect(householdsCount(2)).toBe("2 households");
+    expect(householdsCount(0)).toBe("0 households");
+  });
+});
+
+describe("makeDefaultLine", () => {
+  it("says only new households start on it", () => {
+    expect(makeDefaultLine("Founding")).toBe("New households will start on Founding. Existing households keep their plan.");
   });
 });
 
 describe("defaultLimit", () => {
   it("is the default plan's limit for the feature", () => {
-    expect(defaultLimit([free, founding], "recipe_import")).toBe(40);
+    expect(defaultLimit([free, { ...unlimited, is_default: false }, founding], "recipe_import")).toBe(1500);
   });
 
   it("is null when the default has the feature with no limit", () => {
-    expect(defaultLimit([free, founding], "recipe_tags")).toBeNull();
+    expect(defaultLimit([free, unlimited], "recipe_photo_ai")).toBeNull();
   });
 
   it("is null when the default doesn't have the feature", () => {
@@ -97,7 +108,7 @@ describe("defaultLimit", () => {
   });
 
   it("is null with no default plan", () => {
-    expect(defaultLimit([free], "categorize")).toBeNull();
+    expect(defaultLimit([free], "recipe_photo_ai")).toBeNull();
   });
 });
 
@@ -156,19 +167,19 @@ describe("cellSave", () => {
 });
 
 describe("deleteBlockedReason", () => {
-  it("refuses the default plan, even with no users", () => {
-    expect(deleteBlockedReason({ is_default: true, users: 0 })).toBe(
+  it("refuses the default plan, even with no households", () => {
+    expect(deleteBlockedReason({ is_default: true, households: 0 })).toBe(
       "The default plan can't be deleted. Make another plan the default first.",
     );
   });
 
-  it("refuses a plan with users", () => {
-    expect(deleteBlockedReason({ is_default: false, users: 1 })).toBe("1 user is on this plan. Move them first.");
-    expect(deleteBlockedReason({ is_default: false, users: 3 })).toBe("3 users are on this plan. Move them first.");
+  it("refuses a plan with households", () => {
+    expect(deleteBlockedReason({ is_default: false, households: 1 })).toBe("1 household is on this plan. Move them first.");
+    expect(deleteBlockedReason({ is_default: false, households: 3 })).toBe("3 households are on this plan. Move them first.");
   });
 
   it("allows an unused plan that isn't the default", () => {
-    expect(deleteBlockedReason({ is_default: false, users: 0 })).toBeNull();
+    expect(deleteBlockedReason({ is_default: false, households: 0 })).toBeNull();
   });
 });
 
@@ -198,7 +209,7 @@ describe("plan ids", () => {
 
 describe("serverMessage", () => {
   it("makes the server's message a sentence", () => {
-    expect(serverMessage("recipe import needs categorize")).toBe("Recipe import needs categorize.");
+    expect(serverMessage("plan required")).toBe("Plan required.");
     expect(serverMessage("plan in use")).toBe("Plan in use.");
   });
 

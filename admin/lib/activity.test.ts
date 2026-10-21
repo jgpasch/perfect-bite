@@ -17,7 +17,7 @@ function plan(overrides: Partial<AdminPlan> = {}): AdminPlan {
     id: "founding",
     name: "Founding",
     is_default: false,
-    users: 3,
+    households: 3,
     features: [
       { feature: "categorize", monthly_limit: 250 },
       { feature: "recipe_import", monthly_limit: 40 },
@@ -32,7 +32,8 @@ const summary = (action: string, details: unknown) =>
 describe("actionLabel", () => {
   it("labels every portal action", () => {
     expect(ACTION_KEYS.map(actionLabel)).toEqual([
-      "Changed plan",
+      "Changed a household's plan",
+      "Changed a user's plan",
       "Changed a limit",
       "Changed a feature",
       "Created a plan",
@@ -75,7 +76,14 @@ describe("activityHref", () => {
 });
 
 describe("actionSummary", () => {
-  it("set_user_plan: plan ids, null as the default", () => {
+  it("set_household_plan: plan ids, a null from as no plan", () => {
+    expect(summary("set_household_plan", { from: "founding", to: "unlimited" })).toBe("founding → unlimited");
+    expect(summary("set_household_plan", { from: null, to: "free" })).toBe("no plan → free");
+    expect(summary("set_household_plan", { from: "free", to: "free" })).toBe("free → free");
+    expect(summary("set_household_plan", {})).toBe("no plan → ?");
+  });
+
+  it("set_user_plan (older rows): plan ids, null as the default", () => {
     expect(summary("set_user_plan", { from: "founding", to: "unlimited" })).toBe("founding → unlimited");
     expect(summary("set_user_plan", { from: null, to: "free" })).toBe("default → free");
     expect(summary("set_user_plan", { from: "free", to: null })).toBe("free → default");
@@ -126,9 +134,17 @@ describe("actionSummary", () => {
     expect(summary("set_default_plan", { before: plan(), after: plan(), users: 9, previous_default: null })).toBe("none → founding");
   });
 
-  it("delete_plan: the name and its users", () => {
-    expect(summary("delete_plan", { before: plan({ name: "Old", users: 0 }), after: null, users: 0 })).toBe("“Old” · 0 users");
+  it("delete_plan: the name and its households", () => {
+    expect(summary("delete_plan", { before: plan({ name: "Old", households: 0 }), after: null, households: 0 })).toBe(
+      "“Old” · 0 households",
+    );
+    expect(summary("delete_plan", { before: plan(), after: null, households: 1 })).toBe("“Founding” · 1 household");
+  });
+
+  it("delete_plan from before plans were per household: its users", () => {
     expect(summary("delete_plan", { before: plan(), after: null, users: 1 })).toBe("“Founding” · 1 user");
+    expect(summary("delete_plan", { before: plan(), after: null, users: 4 })).toBe("“Founding” · 4 users");
+    expect(summary("delete_plan", { before: plan(), after: null })).toBe("“Founding” · 0 households");
   });
 
   it("set_safety_limit: the key's label and the numbers that changed, none for null", () => {
@@ -189,7 +205,7 @@ describe("actionSummary", () => {
     expect(summary("set_user_plan", null)).toBe("default → default");
     expect(summary("set_plan_limit", { before: "x", after: [1] })).toBe("No change");
     expect(summary("rename_plan", {})).toBe("“?” → “?”");
-    expect(summary("delete_plan", { before: null })).toBe("“?” · 0 users");
+    expect(summary("delete_plan", { before: null })).toBe("“?” · 0 households");
   });
 });
 
@@ -204,12 +220,17 @@ describe("actionTarget", () => {
     });
   });
 
-  it("then the plan id, then the household id", () => {
+  it("then the household, linking to its page, even with a plan (set_household_plan)", () => {
     expect(actionTarget({ ...empty, target_plan_id: "founding", target_household_id: "h1" })).toEqual({
-      kind: "plan",
-      label: "founding",
+      kind: "household",
+      label: "h1",
+      href: "/households/h1",
     });
-    expect(actionTarget({ ...empty, target_household_id: "h1" })).toEqual({ kind: "household", label: "h1" });
+    expect(actionTarget({ ...empty, target_household_id: "h1" })).toEqual({ kind: "household", label: "h1", href: "/households/h1" });
+  });
+
+  it("then the plan id", () => {
+    expect(actionTarget({ ...empty, target_plan_id: "founding" })).toEqual({ kind: "plan", label: "founding" });
   });
 
   it("a deleted user with no plan: their id, unlinked", () => {

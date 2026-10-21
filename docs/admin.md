@@ -6,7 +6,7 @@ The app is run from the Supabase dashboard (Authentication → Users, the Table 
 
 **Never delete users or household rows by hand** (in Authentication → Users, the Table Editor, or with a plain `delete`). The dashboard runs as `postgres` and doesn't know the app's rules: deleting a user there skips owner promotion and leaves their personal household behind with nobody in it, and deleting a `household_members` row can leave a household with no owner. Use the snippets below, which go through tested functions in the `admin` schema and write an audit row to `admin.admin_actions`.
 
-Changes with no rules beyond the table's own constraints (a user's plan, a plan's monthly limits, the safety limits) can be made in the Table Editor.
+Changes with no rules beyond the table's own constraints (a household's plan, a plan's monthly limits, the safety limits) can be made in the Table Editor.
 
 ## Common jobs
 
@@ -68,25 +68,21 @@ limit 50;
 
 Add `instructions, prompt, response_text, output` to see exactly what was sent and returned.
 
-### Change a user's plan
+### Change a household's plan
 
-A household's plan decides which of the two plan features its members get (spec 4.12): `recipe_import` (from a link and from photos) and `recipe_photo_ai`. Categorizing, tag suggestions and step matching are for everyone on every plan.
+Plans are per household, not per user (spec 4.12): a household's plan decides which of the two plan features its members get, `recipe_import` (from a link and from photos) and `recipe_photo_ai`, and its members share its monthly allowance. Categorizing, tag suggestions and step matching are for everyone on every plan. A user has no plan of their own.
 
 - **free**: neither.
 - **founding** (the default): both, 50 imports and 20 AI photos a month.
 - **unlimited**: both, with no monthly limits. It's the plan for family.
 
-Every household has a `household_plans` row, written when it's made with the plan that's the default at that moment; changing the default moves no one. A household with no row has no features. Until the portal goes per household, change a household's plan in the Table Editor: `household_plans`, edit `plan_id` on its row (`assigned_at` updates itself). The portal's plan form below still writes `user_plans`, which no longer decides anything (old app builds read `my_features`, which answers from the user's households).
+Every household has an explicit `household_plans` row, written when it's made with the plan that's the default at that moment; changing the default moves no one. A household with no row has no features.
 
-Use the admin portal: find the user (by email, name or user id), pick the plan or the default, and write a note. It calls `admin_set_user_plan`, which writes one `admin.admin_actions` row (`set_user_plan`, `{ from, to }`, the note, and your user id in `performed_by`), so the change shows in the user's plan history.
+Use the admin portal: **Households**, find the household (by its name, a member's email or name, or its id; or open a user and follow one of their households), then **Change plan** on its page: pick a plan and write a note. There's no "default" choice: a household's plan can be changed but never cleared. It calls `admin_set_household_plan`, which writes one `admin.admin_actions` row (`set_household_plan`, the household, the plan, `{ from, to }`, the note, and your user id in `performed_by`), so the change shows in the household's plan history and in Activity. Every member gets the new plan on their next AI request; the app shows or hides features the next time it's opened. The household's page also shows its members, its first month (twice the limits for 30 days after it was made) and this month's use of both features against its limits.
 
-The Table Editor still works, but nothing records who changed what or why:
+The Table Editor still works, but nothing records who changed what or why: `household_plans`, edit `plan_id` on the household's row (`free`, `founding` or `unlimited`); `assigned_at` updates itself. **Don't delete a row**: a household with none has no features. The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.
 
-1. Find their id in Authentication → Users.
-2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`free`, `founding` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
-3. To put them back on the default plan, delete their row.
-
-The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.
+(`user_plans` and `admin_set_user_plan` still exist until per-user plans are dropped, but decide nothing and the portal doesn't use them.)
 
 ### Change a plan's monthly limits
 
@@ -102,7 +98,7 @@ Each plan feature has a monthly limit per plan in `public.plan_limits` (spec 4.1
 - A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
 - A household younger than 30 days (`households.created_at`) gets twice its plan's limits.
 - The safety limits (below) and one AI photo per recipe apply on every plan, unlimited too, and aren't in this table.
-- Past a limit, the app says "You've used this month's … They reset on Nov 1." The allowance is the household's, shared by its members (link and photo imports together), and usage is counted even with no limit. A user's households this month:
+- Past a limit, the app says "You've used this month's … They reset on Nov 1." The allowance is the household's, shared by its members (link and photo imports together), and usage is counted even with no limit. The household's page in the portal shows it; **AI usage** lists the 10 heaviest households this month for each plan feature (and the heaviest users of categorize, step matching and tags, which have no monthly limit). In the SQL Editor, `private.monthly_limit(feature, household)` (already doubled in the first month) and `private.monthly_usage(household, feature)`; a user's households this month:
 
 ```sql
 select h.name, f.feature, private.monthly_usage(h.id, f.feature) as used,
@@ -146,18 +142,16 @@ Use the admin portal (spec 4.12). Each change needs a note and writes one `admin
 - **Create** a plan with an id (lowercase letters, digits and `_`, starting with a letter) and a name, empty or as a copy of another plan's features and limits. A copy is never the default.
 - **Rename** it (the id never changes).
 - **Turn features on or off**, with a monthly limit (or none) when turning one on. Turning a feature off removes its limit too.
-- **Make it the default**: every user with no `user_plans` row moves to it at once.
-- **Delete** it, once no user is assigned to it. The default plan can't be deleted; make another plan the default first.
+- **Make it the default**: only households made from then on start on it. The portal confirms "New households will start on <plan>. Existing households keep their plan."
+- **Delete** it, once no household is on it. The default plan can't be deleted; make another plan the default first.
 
-The feature keys themselves are fixed in code; a new feature is a migration.
-
-**A plan with `recipe_import` or `recipe_import_photo` must also have `categorize`** (both imports categorize in the same request). A constraint trigger on `plan_features` enforces it everywhere, the portal, the Table Editor and the SQL Editor alike: a change that leaves a plan with an import and no `categorize` fails with `recipe import needs categorize`. So turn `categorize` on before an import, and off after them. The trigger is checked at the end of the transaction, so in the SQL Editor both can be added in one go in either order.
+Each plan's column shows how many households are on it (its `household_plans` rows). The grid has the two plan features only, and the feature keys themselves are fixed in code; a new feature is a migration. There's no rule tying features together: a plan can have either, both or neither.
 
 The Table Editor (`plans`, `plan_features`, `plan_limits`) still works, but isn't audited. A feature with no `plan_limits` row has no monthly limit.
 
 ### Launching paid plans
 
-Plans are moving from users to households (spec 4.12; `tasks.md` tracks it): once that lands, every household has an explicit plan in `household_plans`, written when it's made, and the default plan only decides what **new** households start on. Until paid plans launch, the default is **founding** (it replaces plus), so every household made before then is a founding household: it stays on founding, free, for good.
+Every household has an explicit plan in `household_plans`, written when it's made, and the default plan only decides what **new** households start on (spec 4.12). Until paid plans launch, the default is **founding** (it replaces plus), so every household made before then is a founding household: it stays on founding, free, for good.
 
 When paid plans launch:
 
@@ -165,7 +159,7 @@ When paid plans launch:
 2. Make it the default. Only households made from then on start on it; no existing household moves, so founders keep founding.
 3. **Never add a feature to founding again.** A new feature goes into a new plan, so founders get exactly what founding had at launch. Changing founding's monthly limits is still fine and applies to every founder.
 
-To move a founding household to a paid plan (they asked to), change that household's plan in the portal with a note. A household's plan can be changed but never cleared: a household with no row has no features.
+To move a founding household to a paid plan (they asked to), change that household's plan in the portal (Households → the household → Change plan) with a note. A household's plan can be changed but never cleared: a household with no row has no features.
 
 ### Which plan is each household on
 
@@ -179,7 +173,7 @@ left join public.household_plans hp on hp.household_id = h.id
 order by h.created_at;
 ```
 
-A null `plan_id` is a household with no row, so no features; there shouldn't be any.
+A null `plan_id` is a household with no row, so no features; there shouldn't be any. The portal's Households page shows the same, searchable.
 
 **Right after pushing the household plans migration to hosted**, run this and confirm every household the owner (jgpasch@gmail.com) is in shows `unlimited`, and no household shows a null plan. If one doesn't, run "Put a household on a plan" below.
 

@@ -70,11 +70,9 @@ describe('cssVar', () => {
 describe('admin/lib/features.ts', () => {
   const keys = adminFeatureKeys(read('admin/lib/features.ts'));
 
-  // The app's features are the two plan features (spec 4.12). The portal's map still names the old
-  // keys too (its AI usage labels them) until the portal goes per household, which makes it exact.
-  it('names every one of the app’s features, once each', () => {
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(FEATURES.filter((f) => !keys.includes(f))).toEqual([]);
+  // The two plan features (spec 4.12); AI usage's other keys live in a separate map.
+  it('names exactly the app’s features, in its order', () => {
+    expect(keys).toEqual([...FEATURES]);
   });
 
   it('is read the way the test thinks', () => {

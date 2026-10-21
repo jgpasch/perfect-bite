@@ -1,6 +1,6 @@
 "use client";
 
-// The Plans grid (spec 4.12): the six features as rows and each plan as a column. A cell opens a
+// The Plans grid (spec 4.12): the two plan features as rows and each plan as a column. A cell opens a
 // popover to turn the feature on or off for that plan and set its monthly limit; a column's menu
 // duplicates, renames, makes default or deletes the plan. Every edit asks for a note, and the
 // server's message stays in the popover or dialog on failure.
@@ -30,10 +30,11 @@ import {
   copyName,
   defaultLimit,
   deleteBlockedReason,
+  householdsCount,
   isPlanIdValid,
+  makeDefaultLine,
   parseLimit,
   planFeature,
-  usersCount,
 } from "@/lib/plans";
 import type { AdminPlan, AdminPlanList } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -95,7 +96,7 @@ function PlanHeader({ plan }: { plan: AdminPlan }) {
           )}
         </div>
         <div className="font-mono text-[12px] text-ink-tertiary">{plan.id}</div>
-        <div className="text-[13px] text-ink-secondary">{usersCount(plan.users)}</div>
+        <div className="text-[13px] text-ink-secondary">{householdsCount(plan.households)}</div>
       </div>
       <PlanMenu plan={plan} />
     </div>
@@ -242,7 +243,7 @@ function PlanCell({ plan, feature, plans }: { plan: AdminPlan; feature: Feature;
             </div>
           )}
           <NoteField note={note} onChange={setNote} disabled={pending} />
-          <p className="text-[13px] text-ink-secondary">{affectsLine(plan.users)}</p>
+          <p className="text-[13px] text-ink-secondary">{affectsLine(plan.households)}</p>
           <ErrorLine error={error} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
@@ -372,9 +373,9 @@ function PlanActionDialog({ plan, action, onClose }: { plan: AdminPlan; action: 
         <DialogHeader>
           <DialogTitle className="text-[20px] text-ink">{DIALOG_TITLES[action]}</DialogTitle>
           <DialogDescription className="text-ink-secondary">
-            {action === "duplicate" && `A new plan with ${plan.name}'s features and limits. It starts with no users.`}
+            {action === "duplicate" && `A new plan with ${plan.name}'s features and limits. It starts with no households.`}
             {action === "rename" && `The id stays ${plan.id}.`}
-            {action === "default" && `Everyone without a plan of their own moves to ${plan.name} right away.`}
+            {action === "default" && makeDefaultLine(plan.name)}
             {action === "delete" && `${plan.name} and its limits are deleted. No one is on it.`}
           </DialogDescription>
         </DialogHeader>

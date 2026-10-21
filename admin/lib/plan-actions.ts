@@ -8,23 +8,24 @@ import { forbidIfNotAuthorized } from "@/lib/supabase/session";
 
 export type ActionResult = { ok: true } | { ok: false; message: string };
 
-// Change plan (spec 4.12): admin_set_user_plan, a plan id or null for the default. On success the
-// page re-renders with the new plan and its history row; the server's message comes back otherwise.
-export async function setUserPlan(userId: string, planId: string | null, note: string): Promise<ActionResult> {
+// Change plan on a household's page (spec 4.12): admin_set_household_plan, always a plan id (a
+// household's plan can't be cleared). On success the page re-renders with the new plan and its
+// history row; the server's message comes back otherwise.
+export async function setHouseholdPlan(householdId: string, planId: string, note: string): Promise<ActionResult> {
   const supabase = await createClient();
-  const { error } = await supabase.rpc("admin_set_user_plan", {
-    p_user_id: userId,
+  const { error } = await supabase.rpc("admin_set_household_plan", {
+    p_household_id: householdId,
     p_plan_id: planId,
     p_note: note.trim(),
   });
   forbidIfNotAuthorized(error);
-  if (error) return { ok: false, message: error.message };
+  if (error) return { ok: false, message: serverMessage(error.message) };
   refresh();
   return { ok: true };
 }
 
 // The Plans page's edits (spec 4.12). Each sends its note, re-renders the grid on success and
-// otherwise returns the server's message as a sentence ("Recipe import needs categorize.").
+// otherwise returns the server's message as a sentence ("Plan in use.").
 async function planEdit(fn: string, args: Record<string, unknown>): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc(fn, args);

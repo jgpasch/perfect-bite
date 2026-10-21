@@ -2,7 +2,7 @@
 
 // The portal's deep-green sidebar (spec 4.12, "Look"): the mark, "The Perfect Bite" with its
 // "Back office" pill, the sections, and at the foot the admin's email with Sign out.
-import { Activity, LayoutGrid, LogOut, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { Activity, House, LayoutGrid, LogOut, Sparkles, TriangleAlert, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { href: "/users", label: "Users", icon: Users },
+  { href: "/households", label: "Households", icon: House },
   { href: "/plans", label: "Plans", icon: LayoutGrid },
   { href: "/ai-usage", label: "AI usage", icon: Sparkles },
   { href: "/ai-calls", label: "AI calls", icon: TriangleAlert },

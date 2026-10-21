@@ -1,25 +1,21 @@
 // What the `public.admin_*` functions return (spec 4.12), written by hand from their migrations in
-// supabase/migrations/ (2026111[5-8]*_admin_*.sql). Timestamps are ISO 8601 strings, dates
-// `YYYY-MM-DD`, and a feature is its key as stored (see `Feature` in ./features for the known ones).
-// Keep in step with the SQL.
+// supabase/migrations/ (2026111[5-8]*_admin_*.sql, 20261202120000_admin_households.sql). Timestamps
+// are ISO 8601 strings, dates `YYYY-MM-DD`, and a feature is its key as stored (see `Feature` and
+// `UsageFeature` in ./features for the known ones). Keep in step with the SQL.
 
 /** A limit from `private.monthly_limit`: a number, or null for no limit. */
 export type MonthlyLimit = number | null;
 
-// --- Users: admin_list_users, admin_user_detail, admin_set_user_plan -------------------------
+// --- Users: admin_list_users, admin_user_detail ----------------------------------------------
+// A user has no plan of their own: plans belong to households.
 
-/** One row of `admin_list_users(p_search, p_limit, p_offset)`, which returns a table. */
+/** One row of `admin_list_users(p_search, p_limit, p_offset, p_blocked)`, which returns a table. */
 export type AdminUserRow = {
   user_id: string;
   email: string | null;
   display_name: string | null;
   created_at: string;
   last_sign_in_at: string | null;
-  /** Their plan: their `user_plans` row's, else the default's (null when no plan is the default). */
-  plan_id: string | null;
-  /** False when they're on the default. */
-  plan_assigned: boolean;
-  assigned_at: string | null;
   /** Their AI photos are blocked (`private.ai_photo_blocks` has a row). */
   ai_photos_blocked: boolean;
   /** The matches before paging (a bigint, which PostgREST sends as a number). */
@@ -31,54 +27,15 @@ export type AdminUserHousehold = {
   name: string;
   role: "owner" | "member";
   member_count: number;
-};
-
-export type AdminFeatureUsage = {
-  feature: string;
-  in_plan: boolean;
-  /** This calendar month (UTC), in the limit's unit. */
-  used: number;
-  limit: MonthlyLimit;
-  /** The first instant of next month, UTC. */
-  resets_at: string;
-};
-
-/** `details` of a `set_user_plan` audit row: plan ids, null for the default. */
-export type SetUserPlanDetails = {
-  from: string | null;
-  to: string | null;
-};
-
-export type AdminPlanHistoryEntry = {
-  id: string;
-  created_at: string;
-  details: SetUserPlanDetails;
-  note: string | null;
-  /** The admin's user id, `postgres` from the dashboard, or another role name. */
-  performed_by: string;
-  /** The admin's email while `performed_by` is a user id that still exists; else null. */
-  performed_by_email: string | null;
+  /** The household's plan; both null when it has no `household_plans` row. */
+  plan_id: string | null;
+  plan_name: string | null;
 };
 
 /** `admin_user_detail(p_user_id)`. Raises `user not found` (P0002) for an unknown id. */
-export type AdminUserDetail = Omit<AdminUserRow, "total_count"> & {
-  plan: {
-    id: string | null;
-    name: string | null;
-    assigned: boolean;
-    assigned_at: string | null;
-  };
-  first_month: {
-    /** Whether limits are doubled now (an account younger than 30 days). */
-    doubled: boolean;
-    ends_at: string | null;
-  };
+export type AdminUserDetail = Omit<AdminUserRow, "total_count" | "ai_photos_blocked"> & {
   /** In their household order. */
   households: AdminUserHousehold[];
-  /** One per feature, in the fixed order. */
-  usage: AdminFeatureUsage[];
-  /** Newest first. */
-  plan_history: AdminPlanHistoryEntry[];
   /** Their flagged AI calls in the last 30 days, a count per flag (`{}` when none). */
   ai_flags: Record<string, number>;
   /** Their AI photo block, or null when they aren't blocked. */
@@ -102,17 +59,101 @@ export type AiPhotoBlock = {
  */
 export type AdminUnblockAiPhotosResult = Pick<AiPhotoBlock, "refusals" | "blocked_at">;
 
-/** `admin_set_user_plan(p_user_id, p_plan_id, p_note)` returns its audit row's details. */
-export type AdminSetUserPlanResult = SetUserPlanDetails;
+// --- Households: admin_list_households, admin_household_detail, admin_set_household_plan ------
+
+/** One row of `admin_list_households(p_search, p_limit, p_offset)`, which returns a table. */
+export type AdminHouseholdRow = {
+  household_id: string;
+  name: string;
+  created_at: string;
+  member_count: number;
+  /** Its plan; both null when it has no `household_plans` row (which shouldn't happen). */
+  plan_id: string | null;
+  plan_name: string | null;
+  /** The matches before paging. */
+  total_count: number;
+};
+
+export type AdminHouseholdMember = {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  role: "owner" | "member";
+  joined_at: string;
+};
+
+export type AdminFeatureUsage = {
+  feature: string;
+  /** The household's plan has it. */
+  in_plan: boolean;
+  /** This calendar month (UTC), in the limit's unit. */
+  used: number;
+  /** Already doubled in the household's first month; 0 when not in the plan. */
+  limit: MonthlyLimit;
+  /** The first instant of next month, UTC. */
+  resets_at: string;
+};
+
+/** `details` of a `set_household_plan` audit row: plan ids (`from` null for a household that had no row). */
+export type SetHouseholdPlanDetails = {
+  from: string | null;
+  to: string;
+};
+
+export type AdminPlanHistoryEntry = {
+  id: string;
+  created_at: string;
+  details: SetHouseholdPlanDetails;
+  note: string | null;
+  /** The admin's user id, `postgres` from the dashboard, or another role name. */
+  performed_by: string;
+  /** The admin's email while `performed_by` is a user id that still exists; else null. */
+  performed_by_email: string | null;
+};
+
+/** `admin_household_detail(p_household_id)`. Raises `household not found` (P0002). */
+export type AdminHouseholdDetail = {
+  household_id: string;
+  name: string;
+  created_at: string;
+  first_month: {
+    /** Whether limits are doubled now (a household younger than 30 days). */
+    doubled: boolean;
+    ends_at: string | null;
+  };
+  /** Earliest joined first. */
+  members: AdminHouseholdMember[];
+  /** Null when it has no `household_plans` row. */
+  plan: { id: string; name: string; assigned_at: string } | null;
+  /** One per plan feature, in the fixed order. */
+  usage: AdminFeatureUsage[];
+  /** Its `set_household_plan` rows, newest first. */
+  plan_history: AdminPlanHistoryEntry[];
+};
+
+/**
+ * `admin_set_household_plan(p_household_id, p_plan_id, p_note)` returns its audit row's details.
+ * Raises `household not found` or `plan not found` (P0002), `plan required` or `note required` (22023).
+ */
+export type AdminSetHouseholdPlanResult = SetHouseholdPlanDetails;
 
 // --- AI usage: admin_ai_usage ----------------------------------------------------------------
 
-export type AdminTopUser = {
-  user_id: string;
-  email: string | null;
+/** A plan feature's heavy household this month. */
+export type AdminTopHousehold = {
+  household_id: string;
+  name: string;
+  /** Null when it has no `household_plans` row. */
   plan_id: string | null;
   used: number;
   limit: MonthlyLimit;
+};
+
+/** A heavy user of a feature every plan has (no monthly limit). */
+export type AdminTopUser = {
+  user_id: string;
+  email: string | null;
+  used: number;
 };
 
 export type AdminFeatureUsageSummary = {
@@ -123,8 +164,10 @@ export type AdminFeatureUsageSummary = {
   users: number;
   /** The last 40 UTC days, oldest first, zeros included. */
   daily: { day: string; used: number }[];
-  /** The 10 heaviest this month, heaviest first. */
-  top_users: AdminTopUser[];
+  /** The plan features only: the 10 heaviest households this month, heaviest first. */
+  top_households?: AdminTopHousehold[];
+  /** Categorize, step matching and tags only: the 10 heaviest users this month, heaviest first. */
+  top_users?: AdminTopUser[];
 };
 
 export type AiCallStatus = "ok" | "api_error" | "invalid_output" | "timeout" | "refused" | "error";
@@ -152,7 +195,7 @@ export type AiTaskCalls = AiCallStats & {
 export type AdminAiUsage = {
   /** The first day of this month, UTC. */
   month_start: string;
-  /** One per feature, in the fixed order. */
+  /** One per AI usage key (`private.ai_usage_keys()`), in order. */
   features: AdminFeatureUsageSummary[];
   /** The start of `calls`' window: the last 30 days. */
   calls_since: string;
@@ -167,8 +210,8 @@ export type AdminPlan = {
   id: string;
   name: string;
   is_default: boolean;
-  /** Users assigned it, plus, for the default, everyone unassigned. */
-  users: number;
+  /** Households on it (its `household_plans` rows). */
+  households: number;
   /** The features it has, in the fixed order. */
   features: { feature: string; monthly_limit: MonthlyLimit }[];
 };
@@ -184,8 +227,8 @@ export type AdminPlanList = AdminPlan[];
 export type AdminPlanChange = {
   before: AdminPlan | null;
   after: AdminPlan | null;
-  /** How many users the plan applies to. */
-  users: number;
+  /** How many households are on the plan. */
+  households: number;
   /** `admin_set_default_plan` only: the old default's id, or null. */
   previous_default?: string | null;
 };
@@ -220,7 +263,7 @@ export type AdminSetSafetyLimitResult = {
 
 export type AdminAction = {
   id: string;
-  /** `set_user_plan`, a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
+  /** `set_household_plan`, `set_user_plan` (older rows), a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
   action: string;
   target_user_id: string | null;
   /** While that user still exists. */
