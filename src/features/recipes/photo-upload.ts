@@ -219,7 +219,7 @@ async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'failed' };
     const { data, error } = await supabase.functions.invoke('generate-recipe-photo', { body: { recipeId } });
-    if (error) return { ok: false, ...(await generationError(error)) };
+    if (error) return { ok: false, ...(await generationError(error, getRecipe(recipeId)?.householdId)) };
     const parsed = GenerateRecipePhotoResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('generate-recipe-photo: unexpected response', parsed.error);
@@ -232,8 +232,8 @@ async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path
   }
 }
 
-/** Maps a `functions.invoke` error by its code, else its status. */
-async function generationError(error: unknown): Promise<GenerationFailure> {
+/** Maps a `functions.invoke` error by its code, else its status. `householdId`: the recipe's. */
+async function generationError(error: unknown, householdId: string | undefined): Promise<GenerationFailure> {
   const response = (error as { context?: unknown } | null)?.context as
     | { status?: number; json?: () => Promise<unknown> }
     | undefined;
@@ -252,11 +252,11 @@ async function generationError(error: unknown): Promise<GenerationFailure> {
   if (code === 'daily_limit') return { error: 'daily_limit' };
   // Blocked: hide the row until the features reload, as for a lost plan feature (spec 6.11).
   if (code === 'ai_photos_blocked') {
-    void lostFeature('recipe_photo_ai');
+    void lostFeature('recipe_photo_ai', householdId);
     return { error: 'ai_photos_blocked' };
   }
-  // The plan has no AI photos: hide the row now and reload the plan (spec 4.12).
-  if (code === 'not_entitled' || (!code && status === 403)) void lostFeature('recipe_photo_ai');
+  // The household's plan has no AI photos: hide the row now and reload the plan (spec 4.12).
+  if (code === 'not_entitled' || (!code && status === 403)) void lostFeature('recipe_photo_ai', householdId);
   console.warn('generate-recipe-photo returned an error', error);
   return { error: 'failed' };
 }

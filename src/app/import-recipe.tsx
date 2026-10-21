@@ -28,7 +28,8 @@ import {
   photoImportFailedNotification,
   savedNotification,
 } from '@/features/recipes/import-notifications';
-import { importErrorMessage, urlFromText } from '@/features/recipes/import-sheet';
+import { useFeature } from '@/features/plans/features';
+import { householdImportNote, importErrorMessage, urlFromText } from '@/features/recipes/import-sheet';
 import { photosFromParam } from '@/features/recipes/photo-import';
 import {
   defaultListIdIn,
@@ -104,6 +105,9 @@ export default function ImportRecipeSheet() {
   const addToList = choice.addToList && listId !== null;
   const listName = lists.find((l) => l.id === listId)?.name ?? null;
   const householdName = choices.households.find((h) => h.id === householdId)?.name ?? t('recipes.import.yourRecipes');
+  // The Save to household's plan (spec 4.12): without recipe import, Save is disabled with a note.
+  const canImport = useFeature('recipe_import', householdId ?? '');
+  const notEntitledNote = householdImportNote(canImport, householdName);
 
   // Changing household resets the list to that household's default.
   const chooseHousehold = (id: string) => setChoice((c) => ({ ...c, householdId: id, listId: defaultListIdIn(choices, id) }));
@@ -121,7 +125,7 @@ export default function ImportRecipeSheet() {
   };
 
   const submit = async () => {
-    if (!householdId || started.current) return;
+    if (!householdId || !canImport || started.current) return;
     // What fails at once stays inline, with the sheet open.
     const url = photos ? null : urlFromText(text);
     if (!photos && !url) {
@@ -295,13 +299,20 @@ export default function ImportRecipeSheet() {
           paddingTop: spacing.md,
           paddingBottom: Math.max(insets.bottom, spacing.lg),
           backgroundColor: colors.background,
+          gap: spacing.sm,
         }}>
         <PrimaryButton
           label={saveButtonTitle(addToList, listName)}
           icon={photos ? 'camera' : 'link'}
-          disabled={!photos && text.trim() === ''}
+          disabled={!canImport || (!photos && text.trim() === '')}
+          accessibilityHint={notEntitledNote ?? undefined}
           onPress={submit}
         />
+        {notEntitledNote ? (
+          <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
+            {notEntitledNote}
+          </ThemedText>
+        ) : null}
       </View>
     </Screen>
   );
@@ -355,6 +366,7 @@ function PagesKeptNote() {
 }
 
 const styles = StyleSheet.create({
+  center: { textAlign: 'center' },
   flex: { flex: 1 },
   note: { flexDirection: 'row', alignItems: 'flex-start' },
   page: { aspectRatio: 3 / 4, overflow: 'hidden', borderCurve: 'continuous' },

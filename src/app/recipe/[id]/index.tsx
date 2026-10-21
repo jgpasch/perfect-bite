@@ -43,7 +43,6 @@ import { ItemAddBar } from '@/features/lists/add-bar';
 import { openList, resolveCurrentListId } from '@/features/lists/current-list';
 import { listsWithCountsQuery } from '@/features/lists/lists';
 import { PlanBadges } from '@/features/meal-plan/plan-badges';
-import { useFeature } from '@/features/plans/features';
 import {
   addedIngredientToast,
   addIngredientToList,
@@ -641,7 +640,8 @@ function RecipeBand({
 }) {
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
-  const canSuggest = useFeature('recipe_tags') && hasIngredients;
+  // Suggest tags is on every plan (spec 4.12); it needs ingredients.
+  const canSuggest = hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
   // The notes show as text (or "+ Add notes") until tapped, then as the field, focused.
   const [editingNotes, setEditingNotes] = useState(false);
@@ -753,7 +753,7 @@ function RecipeByline({
 }) {
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
-  const canSuggest = useFeature('recipe_tags') && hasIngredients;
+  const canSuggest = hasIngredients;
   const [notes, setNotes] = useState(recipe.notes ?? '');
   const [editingNotes, setEditingNotes] = useState(false);
   const tint = aisles[hue];

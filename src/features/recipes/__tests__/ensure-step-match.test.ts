@@ -4,7 +4,7 @@ import type { NetworkState } from 'expo-network';
 
 import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
-import { DEFAULT_FEATURES, hasFeature, setFeatures } from '@/features/plans/features';
+import { getHouseholdFeatures, setHouseholdFeatures } from '@/features/plans/features';
 import { normalizeIngredientName, stepIngredientsBasis } from '@/shared';
 import type { MatchRecipeStepsRequestInput } from '@/shared/schemas/match-recipe-steps';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
@@ -25,6 +25,7 @@ import {
   createRecipe,
   deleteRecipe,
   deleteRecipeIngredient,
+  getRecipe,
   recipeIngredientsQuery,
   updateRecipeSteps,
 } from '../recipes';
@@ -98,7 +99,6 @@ beforeEach(() => {
   resetStepMatching();
   seedCatalog();
   ensureStarterData(USER);
-  setFeatures([...DEFAULT_FEATURES, 'step_ingredients']);
   mockNetwork.state = { isConnected: true, isInternetReachable: true };
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });
   respond();
@@ -113,7 +113,7 @@ beforeEach(() => {
 afterEach(() => {
   warn.mockRestore();
   setSupabaseConfigured(true);
-  setFeatures(DEFAULT_FEATURES);
+  setHouseholdFeatures(null);
   jest.useRealTimers();
   jest.restoreAllMocks();
 });
@@ -196,6 +196,13 @@ describe('a recipe that needs a match', () => {
     expect(matchCalls()).toHaveLength(0);
   });
 
+  test('on a plan with no features at all (free): matched all the same (spec 4.12)', async () => {
+    setHouseholdFeatures({ [getRecipe(recipeId)!.householdId]: [] });
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(1);
+    expect(saved()).not.toBeNull();
+  });
+
   test('a stale match is matched again', async () => {
     await ensureStepMatch(recipeId);
     addRecipeIngredient(recipeId, 'tortillas');
@@ -223,12 +230,6 @@ describe('skips', () => {
     await ensureStepMatch(recipeId);
     supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession(USER) }, error: null });
     setSupabaseConfigured(false);
-    await ensureStepMatch(recipeId);
-    expect(invoke).not.toHaveBeenCalled();
-  });
-
-  test('when the plan has no step_ingredients', async () => {
-    setFeatures(['categorize']);
     await ensureStepMatch(recipeId);
     expect(invoke).not.toHaveBeenCalled();
   });
@@ -404,7 +405,7 @@ describe('the pauses', () => {
     jest.spyOn(Date, 'now').mockImplementation(() => now);
     respondWithError(403, body);
     await ensureStepMatch(recipeId);
-    expect(hasFeature('step_ingredients')).toBe(true); // No signed-in plan here, so the feature list is left alone.
+    expect(getHouseholdFeatures()).toBeNull(); // Not a plan feature: the plan store is left alone.
 
     respond();
     now += 10 * STEP_MATCH_PAUSE_MS;
@@ -426,7 +427,7 @@ describe('the pauses', () => {
 
     respondWithError(429, { error: 'limit_reached', message: 'x', resets_at: '2026-11-01T00:00:00.000Z' });
     await ensureStepMatch(recipeId);
-    expect(hasFeature('step_ingredients')).toBe(true);
+    expect(getHouseholdFeatures()).toBeNull();
 
     // Not a pause: an hour later, or any time this session, nothing more is sent.
     respond();
@@ -454,7 +455,7 @@ describe('the pauses', () => {
     respondWithError(429, { error: 'daily_limit', message: 'x', resets_at: '2026-10-22T00:00:00.000Z' });
     await ensureStepMatch(recipeId);
     expect(matchCalls()).toHaveLength(1);
-    expect(hasFeature('step_ingredients')).toBe(true);
+    expect(getHouseholdFeatures()).toBeNull();
 
     // A second call makes no request, even past the hour a rate limit pauses for.
     respond();

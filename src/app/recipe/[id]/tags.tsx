@@ -8,7 +8,6 @@ import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { useFeature } from '@/features/plans/features';
 import {
   applySuggestedTags,
   facetAtMax,
@@ -40,14 +39,13 @@ type Suggestion =
 /**
  * The Tags sheet (spec 4.14): "Tagged when you imported it" while the import's tags are unedited, then one group of toggle pills per facet, capped at its maximum, then the
  * total time. Save writes the tags, the time and `tagsEdited` in one update; Cancel writes nothing.
- * With `recipe_tags`, Suggest tags fills the picks from the AI (never the time); nothing is saved
- * until Save. `suggest=1` (the recipe band's pill) starts it as the sheet opens.
+ * Suggest tags (on every plan, spec 4.12) fills the picks from the AI (never the time); nothing is
+ * saved until Save. `suggest=1` (the recipe band's pill) starts it as the sheet opens.
  */
 export default function RecipeTagsSheet() {
   const { id, suggest } = useLocalSearchParams<{ id: string; suggest?: string }>();
   const t = useT();
   const { colors, spacing, scheme } = useTheme();
-  const canSuggest = useFeature('recipe_tags');
 
   // A sheet is short-lived: read once rather than live. The stored tags, unknown slugs included, so Save keeps them.
   const [recipe] = useState(() => getRecipe(id));
@@ -78,7 +76,7 @@ export default function RecipeTagsSheet() {
   // Opened from the recipe band's Suggest tags: start once, as the sheet opens.
   const autoStarted = useRef(false);
   useEffect(() => {
-    if (autoStarted.current || suggest !== '1' || !recipe || !canSuggest || !hasIngredients) return;
+    if (autoStarted.current || suggest !== '1' || !recipe || !hasIngredients) return;
     autoStarted.current = true;
     void startSuggest();
   });
@@ -136,32 +134,30 @@ export default function RecipeTagsSheet() {
         </ThemedText>
       ) : null}
 
-      {canSuggest ? (
-        <View style={{ gap: spacing.sm }}>
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <Button
-              icon="sparkles"
-              loading={loading}
-              disabled={loading || !hasIngredients}
-              label={t(
-                loading
-                  ? 'recipes.tags.suggesting'
-                  : suggestion.status === 'done'
-                    ? 'recipes.tags.suggestAgain'
-                    : 'recipes.tags.suggest',
-              )}
-              accessibilityLabel={t(loading ? 'recipes.tags.suggestingLabel' : 'recipes.tags.suggest')}
-              accessibilityHint={t('recipes.tags.suggestHint')}
-              onPress={() => void startSuggest()}
-            />
-          </View>
-          {suggestLine ? (
-            <ThemedText variant="footnote" color={suggestLine.color} style={inset}>
-              {suggestLine.text}
-            </ThemedText>
-          ) : null}
+      <View style={{ gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: spacing.lg }}>
+          <Button
+            icon="sparkles"
+            loading={loading}
+            disabled={loading || !hasIngredients}
+            label={t(
+              loading
+                ? 'recipes.tags.suggesting'
+                : suggestion.status === 'done'
+                  ? 'recipes.tags.suggestAgain'
+                  : 'recipes.tags.suggest',
+            )}
+            accessibilityLabel={t(loading ? 'recipes.tags.suggestingLabel' : 'recipes.tags.suggest')}
+            accessibilityHint={t('recipes.tags.suggestHint')}
+            onPress={() => void startSuggest()}
+          />
         </View>
-      ) : null}
+        {suggestLine ? (
+          <ThemedText variant="footnote" color={suggestLine.color} style={inset}>
+            {suggestLine.text}
+          </ThemedText>
+        ) : null}
+      </View>
 
       {RECIPE_TAG_FACETS.map((facet) => {
         const full = facetAtMax(tags, facet.key);

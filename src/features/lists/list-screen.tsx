@@ -146,7 +146,6 @@ import { listShareText } from '@/features/lists/share';
 import { onRecipeAddResult, startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
 import type { RecipeSuggestion } from '@/features/lists/suggestions';
 import { categorizePending } from '@/features/categories/categorization';
-import { useFeature } from '@/features/plans/features';
 import { takePendingListAdd, useAddButton } from '@/features/tabs/add-button';
 import { addModeEnded, type AddHintContext } from '@/features/tabs/add-hint';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
@@ -227,9 +226,7 @@ export function ListScreen({ id }: { id: string }) {
     [recipeLinkRows],
   );
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
-  // Without `categorize`, nothing is waiting for an aisle: new names show in Other (spec 4.12).
-  const sorts = useFeature('categorize');
-  const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits, sorts), [itemRows, usualUnits, sorts]);
+  const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
   // so a second tap can take it back. The moment is shared: each check, and any touch on the list,
   // starts it again, so rows move together once, after the user stops, never under the next tap.

@@ -703,8 +703,6 @@ export const en = {
         noIngredients: "Add some ingredients first, so there's something to go on.",
         notEntitled: "Tag suggestions aren't included in your plan.",
         rateLimited: "That's a lot of suggestions. Try again in a minute.",
-        /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
-        limitReached: "You've used this month's tag suggestions. They reset on {{date}}.",
         unavailable: "Couldn't suggest tags right now. Try again later.",
       },
     },
@@ -772,7 +770,7 @@ export const en = {
       link: 'Recipe link',
       linkPlaceholder: 'https://',
       paste: 'Paste',
-      /** The From photo… row (spec 4.10), with `recipe_import_photo`. */
+      /** The From photo… row (spec 4.10), with `recipe_import`. */
       fromPhoto: 'From photo…',
       fromPhotoLabel: 'From photo',
       fromPhotoDetail: 'A cookbook page or a screenshot',
@@ -800,6 +798,8 @@ export const en = {
       saveAndAddList: 'Save & add to list',
       yourRecipes: 'your recipes',
       yourList: 'your list',
+      /** Under the disabled button when the Save to household's plan has no recipe import (spec 4.12). */
+      householdNotEntitled: "Recipe import isn't included in {{household}}'s plan.",
       /** Spec 4.10's inline failures; the sheet stays open. */
       errors: {
         notARecipe: "That page doesn't look like a recipe",
@@ -807,9 +807,8 @@ export const en = {
         photoNotARecipe: "That photo doesn't look like a recipe",
         photoNotEntitled: "Photo import isn't in your plan",
         rateLimited: 'Try again in a minute',
-        /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
+        /** The household's monthly limit, links and photos alike (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
         limitReached: "You've used this month's recipe imports. They reset on {{date}}.",
-        photoLimitReached: "You've used this month's photo imports. They reset on {{date}}.",
         offline: "You're offline",
         blocked: 'This site blocked the import. Open it in Safari and tap Share → The Perfect Bite.',
         fetchFailed: "Couldn't reach that site",

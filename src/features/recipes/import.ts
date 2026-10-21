@@ -8,7 +8,6 @@ import { v5 } from 'uuid';
 import { db, households, lists, recipeIngredients, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
 import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
-import type { Feature } from '@/features/plans/features';
 import { limitResetsAt } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
@@ -67,9 +66,9 @@ export type ImportRecipeSuccess<ListId extends string | null = string | null> = 
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
  * `rate_limited`: the per-minute limit or the service is unavailable ("Try again in a minute").
  * `daily_limit`: the user's imports today are used up (the daily safety limit, spec 4.12).
- * `limit_reached`: the plan's monthly imports are used up (spec 4.12); `resetsAt` is when they come back.
+ * `limit_reached`: the household's monthly imports are used up (spec 4.12); `resetsAt` is when they come back.
  * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
- * `not_entitled`: the user's plan doesn't have `recipe_import` (`recipe_import_photo` for photos, spec 4.12).
+ * `not_entitled`: the household's plan doesn't have `recipe_import` (links and photos alike, spec 4.12).
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
@@ -161,7 +160,7 @@ export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Pr
       ),
       ...(householdId && { householdId }),
     };
-    const fetched = await requestFunction('import-recipe-photo', body, 'recipe_import_photo');
+    const fetched = await requestFunction('import-recipe-photo', body);
     if ('ok' in fetched) return fetched;
     // Never a link or the site's photo, so never a reused recipe or a source credit.
     recipe = { ...fetched, sourceUrl: null, imageUrl: null };
@@ -217,17 +216,16 @@ function targetHouseholdId(target: ImportTarget): string | undefined {
 
 /** One call to `import-recipe`: the recipe, or the error it answered with. */
 function requestImport(body: RecipeImportRequest): Promise<RecipeImportResponse | ImportRecipeError> {
-  return requestFunction('import-recipe', body, 'recipe_import');
+  return requestFunction('import-recipe', body);
 }
 
 /** One call to an import function: the recipe, or the error it answered with. */
 async function requestFunction(
   name: 'import-recipe' | 'import-recipe-photo',
   body: RecipeImportRequest | RecipePhotoImportRequest,
-  feature: Feature,
 ): Promise<RecipeImportResponse | ImportRecipeError> {
   const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) return await errorResult(error, name, feature);
+  if (error) return await errorResult(error, name, body.householdId);
   const parsed = RecipeImportResponseSchema.safeParse(data);
   if (!parsed.success) {
     console.warn(`${name}: unexpected response`, parsed.error);
@@ -241,7 +239,7 @@ function isFetchFailed(result: RecipeImportResponse | ImportRecipeError): boolea
 }
 
 /** Maps a `functions.invoke` error to a result: a network failure is offline, an HTTP error by its code. */
-async function errorResult(error: unknown, fn: string, feature: Feature): Promise<ImportRecipeError> {
+async function errorResult(error: unknown, fn: string, householdId: string | undefined): Promise<ImportRecipeError> {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === 'FunctionsFetchError') return { ok: false, error: 'offline' };
   const response = (error as { context?: unknown } | null)?.context as
@@ -259,8 +257,8 @@ async function errorResult(error: unknown, fn: string, feature: Feature): Promis
   if (code === 'limit_reached') return { ok: false, error: 'limit_reached', resetsAt: limitResetsAt(resetsAt) };
   if (code === 'daily_limit') return { ok: false, error: 'daily_limit' };
   if (code === 'not_entitled' || (!code && status === 403)) {
-    // The plan has no recipe import (or photo import): hide its entry points now and reload the plan (spec 4.12).
-    void lostFeature(feature);
+    // The household's plan has no recipe import (link or photo): drop it for that household now and reload (spec 4.12).
+    void lostFeature('recipe_import', householdId);
     return { ok: false, error: 'not_entitled' };
   }
   if (code === 'not_a_recipe' || (!code && status === 422)) return { ok: false, error: 'not_a_recipe' };

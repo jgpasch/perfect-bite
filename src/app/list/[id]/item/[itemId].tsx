@@ -37,7 +37,6 @@ import { avatarInitial } from '@/features/households/households';
 import { useMemberNames, type MemberNames } from '@/features/households/member-names';
 import { alwaysHaveFootnote, isStaple, setStaple } from '@/features/households/staples';
 import { openList } from '@/features/lists/current-list';
-import { useFeature } from '@/features/plans/features';
 import {
   contributionsQuery,
   deleteContribution,
@@ -98,7 +97,6 @@ export default function ItemEditSheet() {
   const [aislesOpen, setAislesOpen] = useState(false);
   // Always have (spec 4.2, 4.5): the household's staple, saved as soon as it's switched.
   const [staple, setStapleState] = useState(() => (initial ? isStaple(initial.householdId, initial.ingredientName) : false));
-  const sorts = useFeature('categorize');
   const t = useT();
 
   if (!edit || !initial) return <Screen />;
@@ -111,10 +109,9 @@ export default function ItemEditSheet() {
   // What the number field shows: no number when the item has no amount, in the unit the menu ticks.
   const shown: Amount | null = steppable && { quantity: amount ? steppable.quantity : null, unit: steppable.unit };
 
-  // A pending ingredient's default is "Sorting..." until categorization returns (spec 4.3.1), or
-  // Other when the plan has no `categorize` (4.12).
+  // A pending ingredient's default is "Sorting..." until categorization returns (spec 4.3.1).
   const defaultId = current
-    ? effectiveCategoryId(null, current.defaultCategoryId, current.status, sorts)
+    ? effectiveCategoryId(null, current.defaultCategoryId, current.status)
     : OTHER_CATEGORY_ID;
   // undefined: untouched (show the override or default); null: reset to default.
   const selectedId =

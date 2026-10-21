@@ -1,13 +1,14 @@
-// Recipe import needs plus (spec 4.12): without `recipe_import`, the Recipes tab's empty-state "Import
-// from link" is hidden; the header's round + opens the Add recipe sheet either way. The list menu no
+// Recipe import is a plan feature (spec 4.12): with no household whose plan has `recipe_import`, the
+// Recipes tab's empty-state "Import from link" is hidden; the header's round + opens the Add recipe sheet either way. The list menu no
 // longer offers import at all; the Recipes tab is the way in.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
-import { setFeatures, type Feature } from '@/features/plans/features';
+import { households } from '@/db';
+import { setHouseholdFeatures, type Feature } from '@/features/plans/features';
 import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
-import { resetDb } from '@/test/db';
+import { db, resetDb } from '@/test/db';
 
 import { ListScreen } from '@/features/lists/list-screen';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
@@ -91,8 +92,8 @@ jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
 const USER = 'user-1';
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
 
-const PLUS: Feature[] = ['categorize', 'recipe_import', 'recipe_import_photo'];
-const STANDARD: Feature[] = ['categorize'];
+const PLUS: Feature[] = ['recipe_import', 'recipe_photo_ai'];
+const STANDARD: Feature[] = ['recipe_photo_ai'];
 
 let tree: ReactTestRenderer | null = null;
 
@@ -107,8 +108,13 @@ beforeEach(() => {
 afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
-  setFeatures(STANDARD);
+  setHouseholdFeatures(null);
 });
+
+/** The user's one household, from the starter data. */
+const household = () => db.select().from(households).get()!.id;
+/** Puts the user's household on a plan with `features`. */
+const setFeatures = (features: Feature[]) => setHouseholdFeatures({ [household()]: features });
 
 function render(screen: () => React.ReactElement, features: Feature[]): ReactTestRenderer {
   setFeatures(features);
@@ -201,5 +207,23 @@ describe('the Recipes tab', () => {
     const root = render(() => <RecipesScreen />, STANDARD);
     act(() => setFeatures(PLUS));
     expect(importButtons(root)).toHaveLength(1);
+  });
+
+  test("shows when any of the user's households has recipe_import", () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    setHouseholdFeatures({ [household()]: [], cabin: ['recipe_import'] });
+    act(() => {
+      tree = create(<RecipesScreen />);
+    });
+    expect(importButtons(tree!)).toHaveLength(1);
+  });
+
+  test("a household the answer doesn't have yet counts as the default plan (founding)", () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    setHouseholdFeatures({ [household()]: [] });
+    act(() => {
+      tree = create(<RecipesScreen />);
+    });
+    expect(importButtons(tree!)).toHaveLength(1);
   });
 });

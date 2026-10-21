@@ -15,7 +15,7 @@ import {
 } from '@/db';
 import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/lists/items';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
-import { getFeatures, hasFeature, setFeatures } from '@/features/plans/features';
+import { getHouseholdFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, stepIngredientsBasis, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
@@ -47,6 +47,8 @@ import { addRecipeIngredient, createRecipe, updateRecipe } from '../recipes';
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/features/categories/catch-up', () => ({ startCatchUpTriggers: () => () => {} }));
+// Step matching runs on every plan (spec 4.12); its own call is ensure-step-match.test.ts's.
+jest.mock('@/features/recipes/ensure-step-match', () => ({ ensureStepMatch: () => Promise.resolve() }));
 // A photo's bytes as base64: its file name, so a test can see which page went where.
 const mockBase64 = jest.fn(async (uri: string) => Buffer.from(uri).toString('base64'));
 // The page files deleted from the cache, and what each upload's bytes came from.
@@ -241,8 +243,6 @@ beforeEach(() => {
   listId = getDefaultListId(USER)!;
   signIn();
   respond();
-  // A plan without step_ingredients, so an import makes no match-recipe-steps call of its own.
-  setFeatures(['categorize']);
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -1084,11 +1084,16 @@ describe('plans (spec 4.12)', () => {
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   let stopFeatures: (() => void) | null = null;
 
+  const home = () => db.select({ id: lists.householdId }).from(lists).where(eq(lists.id, listId)).get()!.id;
+  const CABIN = '22222222-2222-4222-8222-222222222222';
+
   beforeEach(async () => {
-    respondToRpc('my_features', { data: ['categorize', 'recipe_import', 'recipe_import_photo'] });
+    respondToRpc('my_household_features', {
+      data: { households: { [home()]: ['recipe_import', 'recipe_photo_ai'], [CABIN]: ['recipe_import'] } },
+    });
     stopFeatures = startFeatures(USER);
     await flush();
-    expect(hasFeature('recipe_import')).toBe(true);
+    expect(hasFeature('recipe_import', home())).toBe(true);
   });
 
   afterEach(() => {
@@ -1099,36 +1104,46 @@ describe('plans (spec 4.12)', () => {
 
   test('not_entitled reloads the plan', async () => {
     respondWithError(403, { error: 'not_entitled', message: 'No' });
-    respondToRpc('my_features', { data: ['categorize'] });
+    respondToRpc('my_household_features', { data: { households: { [home()]: [], [CABIN]: ['recipe_import'] } } });
     expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_entitled' });
     await flush();
-    expect(rpcCallsFor('my_features')).toHaveLength(2);
-    expect(getFeatures()).toEqual(['categorize']);
+    expect(rpcCallsFor('my_household_features')).toHaveLength(2);
+    expect(getHouseholdFeatures()).toEqual({ [home()]: [], [CABIN]: ['recipe_import'] });
   });
 
-  test('not_entitled drops recipe_import even when the reload fails, and keeps the rest', async () => {
+  test("not_entitled drops recipe_import for the list's household only, even when the reload fails", async () => {
     respondWithError(403, { error: 'not_entitled', message: 'No' });
-    respondToRpc('my_features', { data: null, error: { message: 'boom' } });
+    respondToRpc('my_household_features', { data: null, error: { message: 'boom' } });
     expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_entitled' });
     await flush();
-    expect(rpcCallsFor('my_features')).toHaveLength(2);
-    expect(getFeatures()).toEqual(['categorize', 'recipe_import_photo']);
+    expect(rpcCallsFor('my_household_features')).toHaveLength(2);
+    expect(getHouseholdFeatures()).toEqual({ [home()]: ['recipe_photo_ai'], [CABIN]: ['recipe_import'] });
+  });
+
+  test('a recipe-only import drops it for the household it saves to', async () => {
+    db.insert(households).values({ id: CABIN, name: 'Cabin' }).run();
+    respondWithError(403, { error: 'not_entitled', message: 'No' });
+    respondToRpc('my_household_features', { data: null, error: { message: 'boom' } });
+    expect(await importRecipe({ url: URL_, householdId: CABIN })).toEqual({ ok: false, error: 'not_entitled' });
+    await flush();
+    expect(hasFeature('recipe_import', CABIN)).toBe(false);
+    expect(hasFeature('recipe_import', home())).toBe(true);
   });
 
   test('other errors leave the plan alone', async () => {
     respondWithError(422, { error: 'not_a_recipe', message: 'No' });
     expect(await importRecipe({ url: URL_, listId })).toEqual({ ok: false, error: 'not_a_recipe' });
     await flush();
-    expect(hasFeature('recipe_import')).toBe(true);
-    expect(rpcCallsFor('my_features')).toHaveLength(1);
+    expect(hasFeature('recipe_import', home())).toBe(true);
+    expect(rpcCallsFor('my_household_features')).toHaveLength(1);
   });
 
-  test("a photo import's not_entitled drops recipe_import_photo, not recipe_import", async () => {
+  test("a photo import's not_entitled drops recipe_import too (one feature for links and photos)", async () => {
     respondWithError(403, { error: 'not_entitled', message: 'No' });
-    respondToRpc('my_features', { data: null, error: { message: 'boom' } });
+    respondToRpc('my_household_features', { data: null, error: { message: 'boom' } });
     expect(await importRecipeFromPhotos({ listId, photoUris: ['file:///p1.jpg'] })).toEqual({ ok: false, error: 'not_entitled' });
     await flush();
-    expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
+    expect(getHouseholdFeatures()).toEqual({ [home()]: ['recipe_photo_ai'], [CABIN]: ['recipe_import'] });
   });
 });
 

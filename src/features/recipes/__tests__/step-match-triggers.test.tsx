@@ -9,7 +9,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { Toast } from '@/components/toast';
 import { db, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
-import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures } from '@/features/plans/features';
 import type { MatchRecipeStepsRequestInput } from '@/shared/schemas/match-recipe-steps';
 import { resetDb } from '@/test/db';
 import { makeSession, resetSupabase, supabase } from '@/test/fake-supabase';
@@ -20,7 +20,7 @@ import RecipeStepsSheet from '@/app/recipe/[id]/steps';
 
 import { ensureStepMatch, resetStepMatching, STEP_MATCH_EDIT_DELAY_MS } from '../ensure-step-match';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
-import { addRecipeIngredient, createRecipe, recipeIngredientsQuery } from '../recipes';
+import { addRecipeIngredient, createRecipe, getRecipe, recipeIngredientsQuery } from '../recipes';
 import { stepMatch } from '../step-match';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -126,7 +126,6 @@ beforeEach(() => {
   resetSupabase();
   resetStepMatching();
   ensureStarterData('user-1');
-  setFeatures([...DEFAULT_FEATURES, 'step_ingredients']);
   supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession('user-1') }, error: null });
   // Every step uses every ingredient.
   invoke.mockImplementation(async (_name: unknown, args: unknown) => {
@@ -146,7 +145,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
-  setFeatures(DEFAULT_FEATURES);
+  setHouseholdFeatures(null);
   jest.useRealTimers();
 });
 
@@ -198,12 +197,12 @@ describe('opening a screen', () => {
     expect(matchCalls()).toHaveLength(1);
   });
 
-  test('without step_ingredients nothing is sent', async () => {
-    setFeatures(['categorize']);
+  test('on a plan with no features (free) it is sent all the same', async () => {
+    setHouseholdFeatures({ [getRecipe(tacos)!.householdId]: [] });
     setSteps(STEPS);
     render(<CookScreen />);
     await settle();
-    expect(matchCalls()).toHaveLength(0);
+    expect(matchCalls()).toHaveLength(1);
   });
 });
 

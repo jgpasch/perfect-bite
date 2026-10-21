@@ -19,7 +19,7 @@ import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY, manualOrderKey, viewModeKey } fro
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setLastOpenedList } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage, BACKFILL_KEY, UNITS_BACKFILL_KEY } from '@/features/lists/usage';
 import { clearNotifications, currentNotification, notify } from '@/features/notifications/notifications';
-import { DEFAULT_FEATURES, getFeatures, setFeatures } from '@/features/plans/features';
+import { getHouseholdFeatures, setHouseholdFeatures } from '@/features/plans/features';
 import { FEATURES_KEY } from '@/features/plans/load';
 import { setSlot } from '@/features/meal-plan/write';
 import { recordFailedImport } from '@/features/recipes/failed-imports';
@@ -114,7 +114,7 @@ beforeEach(async () => {
   setDeviceSetting(viewModeKey(homeList), 'aisle');
   setDeviceSetting(manualOrderKey(homeList), [{ id: 'item-1', at: 1 }]);
   setLastOpenedList(homeList);
-  setDeviceSetting(FEATURES_KEY, { userId: USER, features: ['categorize', 'recipe_import'] });
+  setDeviceSetting(FEATURES_KEY, { userId: USER, households: { [home]: ['recipe_import'] } });
   setDeviceSetting('sync.pull', { userId: USER, cursors: { [`household:${home}:lists`]: '2026-10-01' } });
   setDeviceSetting('sync.push', { attempts: 2, nextAttemptAt: null, lastError: 'offline', lastSuccessAt: null });
   setDeviceSetting('shareImportAttempts:abc', 2);
@@ -133,7 +133,7 @@ beforeEach(async () => {
   writeAppGroupFile(LOG_FILE, 'launched\n');
 
   // In memory: plan features, invites, a notification and the share queue status.
-  setFeatures(['categorize', 'recipe_import']);
+  setHouseholdFeatures({ [home]: ['recipe_import'] });
   respondToRpc('my_invites', {
     data: [{ id: 'i1', household_id: 'h2', household_name: 'Smith household', invited_by: 'John', member_count: 2 }],
   });
@@ -241,13 +241,13 @@ describe('wipeLocalData', () => {
   });
 
   test('clears the plans store, invites, notifications and share queue status', () => {
-    expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
+    expect(getHouseholdFeatures()).toEqual({ [home]: ['recipe_import'] });
     expect(getMyInvites()).toHaveLength(1);
     expect(currentNotification()?.id).toBe('n1');
 
     wipeLocalData();
 
-    expect(getFeatures()).toEqual(DEFAULT_FEATURES);
+    expect(getHouseholdFeatures()).toBeNull();
     expect(getMyInvites()).toEqual([]);
     expect(currentNotification()).toBeNull();
     expect(getShareQueueStatus()).toEqual({ queued: [], importing: null, waitReason: null });
@@ -291,7 +291,7 @@ describe('wipeLocalData', () => {
       expect(fs.existsSync(appGroup(LISTS_FILE))).toBe(true);
       expect(fs.readdirSync(appGroup(PENDING_DIR))).toHaveLength(2);
       expect(getMyInvites()).toHaveLength(1);
-      expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
+      expect(getHouseholdFeatures()).toEqual({ [home]: ['recipe_import'] });
     } finally {
       sqlite.exec('drop table blocker');
     }

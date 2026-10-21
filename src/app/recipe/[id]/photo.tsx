@@ -32,7 +32,8 @@ const PLACEHOLDERS = 4;
  * **From the page**, only when the recipe's link opens: the page's photos (`recipe-photos`, up to
  * 12) in a two-column grid of 4:3 tiles, the current photo outlined in `primary`; picking one sets
  * it (and drops an own photo) and closes the sheet, and the recipe screen shows "Photo updated" with
- * Undo. **Generate with AI**, only in the Add photo sheet (no photo yet) and with `recipe_photo_ai`:
+ * Undo. **Generate with AI**, only in the Add photo sheet (no photo yet) and with `recipe_photo_ai`
+ * in the recipe's household:
  * closes the sheet and makes the recipe's one AI photo (`generateRecipePhoto`), which the recipe
  * screen shows as it runs. **Photo library** and **Take photo** pick a photo, close the sheet and
  * upload it as the household's own (`photo-upload.ts`). Offline, Generate with AI, Photo library and
@@ -44,9 +45,10 @@ export default function RecipePhotoSheet() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const t = useT();
   const { spacing } = useTheme();
-  const canGenerate = useFeature('recipe_photo_ai');
   // A sheet is short-lived: read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
+  // The recipe's household's plan (spec 4.12).
+  const canGenerate = useFeature('recipe_photo_ai', recipe?.householdId ?? '');
   const link = recipeLinkUrl(recipe?.sourceUrl)?.href ?? null;
   const [result, setResult] = useState<PagePhotosResult | null>(null);
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());

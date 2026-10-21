@@ -49,12 +49,20 @@ onLanguageChanged(() => {
 });
 
 /**
- * The plan's monthly imports are used up (spec 4.12): "You've used this month's recipe imports.
- * They reset on Nov 1." (photo imports for photos). Never "Try again in a minute".
+ * The household's monthly imports are used up (spec 4.12): "You've used this month's recipe
+ * imports. They reset on Nov 1.", for links and photos alike (they share the allowance). Never
+ * "Try again in a minute".
  */
-export function importLimitMessage(resetsAt: string, from: 'link' | 'photo' = 'link'): string {
-  const key = from === 'photo' ? 'recipes.import.errors.photoLimitReached' : 'recipes.import.errors.limitReached';
-  return i18n.t(key, { date: resetDate(resetsAt) });
+export function importLimitMessage(resetsAt: string): string {
+  return i18n.t('recipes.import.errors.limitReached', { date: resetDate(resetsAt) });
+}
+
+/**
+ * Under the import sheet's disabled button when the Save to household's plan has no recipe import
+ * (spec 4.12): "Recipe import isn't included in Home's plan." Null when it has it.
+ */
+export function householdImportNote(canImport: boolean, householdName: string): string | null {
+  return canImport ? null : i18n.t('recipes.import.householdNotEntitled', { household: householdName });
 }
 
 /** Spec 4.10's inline failure copy, for a link or photos; the sheet stays open. */
@@ -69,7 +77,7 @@ export function importErrorMessage(error: ImportRecipeError, from: 'link' | 'pho
     case 'daily_limit':
       return i18n.t('errors.dailyLimit');
     case 'limit_reached':
-      return importLimitMessage(error.resetsAt, from);
+      return importLimitMessage(error.resetsAt);
     case 'offline':
       return i18n.t('recipes.import.errors.offline');
     case 'blocked':

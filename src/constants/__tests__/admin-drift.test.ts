@@ -10,6 +10,7 @@ import { AisleColors, Palette, type ColorScheme } from '@/constants/theme';
 import { FEATURES } from '@/features/plans/features';
 
 jest.mock('@/global.css', () => ({}));
+jest.mock('@/db/client', () => require('@/test/db'));
 
 const root = join(__dirname, '..', '..', '..');
 const read = (path: string) => readFileSync(join(root, path), 'utf8');
@@ -69,9 +70,11 @@ describe('cssVar', () => {
 describe('admin/lib/features.ts', () => {
   const keys = adminFeatureKeys(read('admin/lib/features.ts'));
 
-  it('names exactly the app’s features, once each', () => {
-    expect(keys).toHaveLength(FEATURES.length);
-    expect([...keys].sort()).toEqual([...FEATURES].sort());
+  // The app's features are the two plan features (spec 4.12). The portal's map still names the old
+  // keys too (its AI usage labels them) until the portal goes per household, which makes it exact.
+  it('names every one of the app’s features, once each', () => {
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(FEATURES.filter((f) => !keys.includes(f))).toEqual([]);
   });
 
   it('is read the way the test thinks', () => {

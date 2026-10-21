@@ -31,7 +31,7 @@ import { MEAL_PLAN_QUERY_TABLES, restOfWeekEntriesQuery } from '@/features/meal-
 import { today as todayOf } from '@/features/meal-plan/week';
 import { WeekPlan } from '@/features/meal-plan/week-plan';
 import { mix } from '@/domain/contrast';
-import { useFeature } from '@/features/plans/features';
+import { useAnyHouseholdFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
@@ -258,8 +258,8 @@ export default function RecipesScreen() {
   const importFromLink = addRecipe;
   // The sheet counts with the search, so it gets the text; it isn't kept anywhere.
   const openFilters = () => router.push({ pathname: '/recipes/filter', params: { q: query } });
-  // Spec 4.12: recipe import is a plus feature; without it the empty state has no Import from link.
-  const canImport = useFeature('recipe_import');
+  // Spec 4.12: with no household whose plan has recipe import, the empty state has no Import from link.
+  const canImport = useAnyHouseholdFeature('recipe_import');
   const empty = (
     <EmptyState
       message={t('recipes.tab.empty')}

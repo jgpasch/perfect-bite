@@ -11,7 +11,7 @@ import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { useFeature } from '@/features/plans/features';
+import { useAnyHouseholdFeature } from '@/features/plans/features';
 import { NAME_IS_LINK_FOOTNOTE, nameAction } from '@/features/recipes/add-recipe';
 import { urlFromText } from '@/features/recipes/import-sheet';
 import { collectImportPhotos, photosParam } from '@/features/recipes/photo-import';
@@ -27,7 +27,7 @@ import { useT } from '@/i18n';
  * takes a link: the button reads **Import recipe** and hands it to the import sheet (spec 4.10), which
  * replaces this one; without import a link is refused. With import, a **Paste link** chip sits above
  * the field only while the clipboard holds a link; asking that shows no paste prompt, only reading it
- * (on tap) does. With `recipe_import_photo`, an "or" divider and **From photo…** pick up to three
+ * (on tap) does. With import too, an "or" divider and **From photo…** pick up to three
  * pages (Take photo or Choose from library) and hand them to the import sheet the same way.
  */
 export default function AddRecipeSheet() {
@@ -35,8 +35,8 @@ export default function AddRecipeSheet() {
   const { colors, spacing, sizes } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const canImport = useFeature('recipe_import');
-  const canImportPhoto = useFeature('recipe_import_photo');
+  // Any of the user's households (spec 4.12); the import sheet checks the one it saves to.
+  const canImport = useAnyHouseholdFeature('recipe_import');
   const [picking, setPicking] = useState(false);
   const [name, setName] = useState('');
   const [clipboardHasLink, setClipboardHasLink] = useState(false);
@@ -149,7 +149,7 @@ export default function AddRecipeSheet() {
         </View>
       </View>
 
-      {canImportPhoto ? (
+      {canImport ? (
         <>
           <View style={[styles.row, inset, { gap: spacing.md }]}>
             <View style={hairline} />

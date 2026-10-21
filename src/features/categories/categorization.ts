@@ -1,12 +1,10 @@
 // Sends pending ingredient names to the `categorize-ingredients` Edge Function (spec 6.1, 6.3) and
 // writes the answers to the local catalog. No timers or cron: each add sends its own names, and a
-// catch-up run (launch, foreground, reconnect) retries whatever is still pending or failed. Without
-// the plan's `categorize` (spec 4.12) nothing is sent: new names stay pending, shown in Other.
+// catch-up run (launch, foreground, reconnect) retries whatever is still pending or failed. Every
+// plan categorizes (spec 4.12).
 import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 
 import { db, ingredients } from '@/db';
-import { hasFeature, onFeaturesChange } from '@/features/plans/features';
-import { lostFeature } from '@/features/plans/load';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { OTHER_CATEGORY_ID } from '@/shared';
 import type { Exec } from '@/sync/clock';
@@ -63,44 +61,12 @@ export function catchUpNames(): string[] {
     .map((r) => r.name);
 }
 
-/**
- * Runs the catch-up whenever the user's plan gains `categorize` (spec 4.12), so names left pending
- * while it was off are sent. Returns an unsubscribe.
- */
-export function startCategorizeOnGain(): () => void {
-  let had = hasFeature('categorize');
-  return onFeaturesChange(() => {
-    const has = hasFeature('categorize');
-    if (has && !had) void categorizePending();
-    had = has;
-  });
-}
-
-/** Whether a `functions.invoke` error is the function's `not_entitled` answer (403). */
-export async function isNotEntitled(error: unknown): Promise<boolean> {
-  const response = (error as { context?: unknown } | null)?.context as
-    | { status?: number; json?: () => Promise<unknown> }
-    | undefined;
-  try {
-    const body = (await response?.json?.()) as { error?: unknown } | null | undefined;
-    if (body && typeof body.error === 'string') return body.error === 'not_entitled';
-  } catch {
-    // Not a JSON body; fall back to the status.
-  }
-  return response?.status === 403;
-}
-
 async function send(names: readonly string[]): Promise<void> {
-  if (names.length === 0 || !isSupabaseConfigured || !hasFeature('categorize')) return;
+  if (names.length === 0 || !isSupabaseConfigured) return;
   try {
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return;
     const { data, error } = await supabase.functions.invoke('categorize-ingredients', { body: { names } });
-    if (error && (await isNotEntitled(error))) {
-      // Counts as no `categorize`: the names stay pending, shown in Other, until the plan has it.
-      await lostFeature('categorize');
-      return;
-    }
     if (error) throw error;
     const body = data as { results?: unknown; twins?: unknown } | null;
     const results = body?.results;

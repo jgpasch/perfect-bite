@@ -8,8 +8,6 @@ import { eq } from 'drizzle-orm';
 import { useEffect } from 'react';
 
 import { db, recipes } from '@/db';
-import { hasFeature } from '@/features/plans/features';
-import { lostFeature } from '@/features/plans/load';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { stepIngredientsBasis, stepTexts } from '@/shared';
 import {
@@ -44,8 +42,8 @@ export function resetStepMatching(): void {
 }
 
 /**
- * Matches `recipeId` if it needs it: skipped when matching is paused or stopped, the plan has no
- * `step_ingredients`, the recipe has no steps or no ingredients, its match is fresh, it's offline,
+ * Matches `recipeId` if it needs it (on every plan, spec 4.12): skipped when matching is paused or
+ * stopped, the recipe has no steps or no ingredients, its match is fresh, it's offline,
  * or a call for it is already in flight (that call's promise is returned). Never throws.
  */
 export function ensureStepMatch(recipeId: string): Promise<void> {
@@ -118,7 +116,7 @@ function currentBasis(recipeId: string): string | null {
 }
 
 async function match(recipeId: string): Promise<void> {
-  if (stopped || Date.now() < pausedUntil || !hasFeature('step_ingredients')) return;
+  if (stopped || Date.now() < pausedUntil) return;
   const request = pending(recipeId);
   if (!request || !isSupabaseConfigured || (await knownOffline())) return;
   try {
@@ -142,10 +140,9 @@ async function match(recipeId: string): Promise<void> {
 }
 
 /**
- * `not_entitled` stops matching for the session, and so do `limit_reached` (the plan's monthly
- * matches are used up, spec 4.12) and `daily_limit` (the user's matches today, the daily safety
- * limit, 4.12), silently, as this is background work; `rate_limited` and `unavailable` pause it
- * for an hour.
+ * `daily_limit` (the user's matches today, the daily safety limit, spec 4.12) stops matching for
+ * the session, silently, as this is background work, and so do `not_entitled` and `limit_reached`
+ * (an older server's plan answers); `rate_limited` and `unavailable` pause it for an hour.
  */
 async function onError(error: unknown): Promise<void> {
   if ((error as { name?: unknown } | null)?.name === 'FunctionsFetchError') return;
@@ -160,12 +157,7 @@ async function onError(error: unknown): Promise<void> {
     // Not a JSON body; fall back to the status.
   }
   const status = response?.status;
-  if (code === 'not_entitled' || (!code && status === 403)) {
-    stopped = true;
-    void lostFeature('step_ingredients');
-    return;
-  }
-  if (code === 'limit_reached' || code === 'daily_limit') {
+  if (code === 'not_entitled' || code === 'limit_reached' || code === 'daily_limit' || (!code && status === 403)) {
     stopped = true;
     return;
   }

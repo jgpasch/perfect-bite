@@ -20,7 +20,7 @@ import { resolveCurrentListId, setCurrentList } from '@/features/lists/current-l
 import { groupItems, listItemsQuery } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, listsWithCountsQuery, setListArchived } from '@/features/lists/lists';
 import { startAdjust, takeRecipeAddResult } from '@/features/lists/recipe-add-result';
-import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures, type Feature } from '@/features/plans/features';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { insertRow } from '@/sync/mutate';
 import { resetDb } from '@/test/db';
@@ -168,8 +168,11 @@ beforeEach(() => {
   mockCopy.mockClear();
   mockSuggest.mockReset();
   mockSuggest.mockImplementation(() => new Promise(() => {}));
-  setFeatures(DEFAULT_FEATURES);
+  setHouseholdFeatures(null);
 });
+
+/** Puts the recipe's household on a plan with `features`. */
+const setFeatures = (features: Feature[]) => setHouseholdFeatures({ [getRecipe(tacos)!.householdId]: features });
 
 afterEach(() => {
   act(() => tree?.unmount());
@@ -952,8 +955,8 @@ describe('RecipeScreen tags', () => {
     const suggestPills = (root: ReactTestRenderer) =>
       root.root.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Suggest tags' && typeof n.props.onPress === 'function');
 
-    test('an untagged recipe with ingredients and the feature: Add tags · Suggest tags', () => {
-      setFeatures(['categorize', 'recipe_tags']);
+    test('an untagged recipe with ingredients, on any plan: Add tags · Suggest tags', () => {
+      setFeatures([]);
       addRecipeIngredient(tacos, '1 lb ground beef');
       const root = render(<RecipeScreen />);
       const [suggest] = suggestPills(root);
@@ -966,14 +969,12 @@ describe('RecipeScreen tags', () => {
     });
 
     test('an import that found nothing counts as untagged', () => {
-      setFeatures(['recipe_tags']);
       setTags({ tags: emptyRecipeTags() });
       addRecipeIngredient(tacos, 'cilantro');
       expect(suggestPills(render(<RecipeScreen />))).toHaveLength(1);
     });
 
-    test('not for a tagged recipe, one with only a time, one without ingredients, or without the feature', () => {
-      setFeatures(['recipe_tags']);
+    test('not for a tagged recipe, one with only a time, or one without ingredients', () => {
       addRecipeIngredient(tacos, 'cilantro');
       setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
       expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
@@ -983,24 +984,18 @@ describe('RecipeScreen tags', () => {
       expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
       act(() => tree?.unmount());
 
-      setTags({ tags: null });
-      setFeatures(['categorize']);
-      expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
-      act(() => tree?.unmount());
-
-      setFeatures(['recipe_tags']);
       const bare = createRecipe('Toast');
       mockParams.id = bare;
       expect(suggestPills(render(<RecipeScreen />))).toHaveLength(0);
     });
 
-    test('the pill goes when the plan loses the feature', () => {
-      setFeatures(['recipe_tags']);
+    test('the pill stays whatever the plan has', () => {
+      setFeatures(['recipe_import', 'recipe_photo_ai']);
       addRecipeIngredient(tacos, 'cilantro');
       const root = render(<RecipeScreen />);
       expect(suggestPills(root)).toHaveLength(1);
-      act(() => setFeatures(['categorize']));
-      expect(suggestPills(root)).toHaveLength(0);
+      act(() => setFeatures([]));
+      expect(suggestPills(root)).toHaveLength(1);
     });
   });
 });
@@ -1206,7 +1201,6 @@ describe('RecipeTagsSheet', () => {
   describe('Suggest tags', () => {
     let announce: jest.SpiedFunction<typeof AccessibilityInfo.announceForAccessibility>;
     beforeEach(() => {
-      setFeatures(['categorize', 'recipe_tags']);
       addRecipeIngredient(tacos, '1 lb ground beef');
       announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
       announce.mockClear(); // React Native's preset already mocks it, so earlier tests' calls linger
@@ -1222,11 +1216,11 @@ describe('RecipeTagsSheet', () => {
     const answer = (r: SuggestTagsResult) => mockSuggest.mockImplementation(() => Promise.resolve(r));
     const tap = (root: ReactTestRenderer) => act(async () => suggestButton(root)[0].props.onPress());
 
-    test('without the feature there is no button', () => {
-      setFeatures(['categorize']);
+    test('on a plan with no features (free) the button shows all the same', () => {
+      setFeatures([]);
       const root = render(<RecipeTagsSheet />);
-      expect(suggestButton(root)).toHaveLength(0);
-      expect(texts(root)).not.toContain('Suggest tags');
+      expect(suggestButton(root)).toHaveLength(1);
+      expect(texts(root)).toContain('Suggest tags');
     });
 
     test('with it, a secondary Suggest tags button above the first facet, with its VoiceOver hint', () => {
@@ -1398,13 +1392,14 @@ describe('RecipeTagsSheet', () => {
       expect(mockSuggest).toHaveBeenCalledTimes(1);
     });
 
-    test('without suggest=1, or without the feature, opening calls nothing', () => {
-      render(<RecipeTagsSheet />);
-      act(() => tree?.unmount());
-      setFeatures(['categorize']);
-      mockParams.suggest = '1';
+    test('without suggest=1 opening calls nothing; with it, it starts on any plan', () => {
       render(<RecipeTagsSheet />);
       expect(mockSuggest).not.toHaveBeenCalled();
+      act(() => tree?.unmount());
+      setFeatures([]);
+      mockParams.suggest = '1';
+      render(<RecipeTagsSheet />);
+      expect(mockSuggest).toHaveBeenCalledTimes(1);
     });
   });
 });

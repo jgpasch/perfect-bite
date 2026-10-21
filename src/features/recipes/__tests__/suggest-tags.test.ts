@@ -4,7 +4,7 @@ import type { NetworkState } from 'expo-network';
 
 import { db, households, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
-import { getFeatures, hasFeature } from '@/features/plans/features';
+import { getHouseholdFeatures } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { initI18n } from '@/i18n';
 import type { AiRecipeTags } from '@/shared/recipe-tags';
@@ -19,7 +19,7 @@ import {
   supabase,
 } from '@/test/fake-supabase';
 
-import { addRecipeIngredient, createRecipe, deleteRecipe, deleteRecipeIngredient, updateRecipe } from '../recipes';
+import { addRecipeIngredient, createRecipe, deleteRecipe, deleteRecipeIngredient, getRecipe, updateRecipe } from '../recipes';
 import {
   buildSuggestTagsRequest,
   SUGGEST_TAGS_MESSAGES,
@@ -265,9 +265,9 @@ describe('errors', () => {
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'rate-limited' });
   });
 
-  test('the monthly limit (limit_reached) is limit-reached with its resets_at, not rate-limited', async () => {
+  test("tags have no monthly limit: an older server's limit_reached is just failed, not rate-limited", async () => {
     respondWithError(429, { error: 'limit_reached', message: 'Used up', resets_at: '2026-11-01T00:00:00.000Z' });
-    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' });
+    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'failed' });
   });
 
   test("the user's daily safety limit (daily_limit) is daily-limit, not rate-limited", async () => {
@@ -276,16 +276,6 @@ describe('errors', () => {
     expect(result).toEqual({ ok: false, error: 'daily-limit' });
     if (result.ok) throw new Error('expected a failure');
     expect(suggestTagsFailureMessage(result)).toBe("You've reached today's limit. Try again tomorrow.");
-  });
-
-  test('limit_reached without resets_at falls back to the start of next month (UTC)', async () => {
-    jest.useFakeTimers({ now: Date.parse('2026-10-18T12:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
-    try {
-      respondWithError(429, { error: 'limit_reached', message: 'Used up' });
-      expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' });
-    } finally {
-      jest.useRealTimers();
-    }
   });
 
   test('a 500 not_configured is failed', async () => {
@@ -326,19 +316,13 @@ describe('messages', () => {
     expect(suggestTagsMessage('rate-limited')).toBe("That's a lot of suggestions. Try again in a minute.");
   });
 
-  test('a failure: the monthly limit says when it resets', () => {
-    expect(suggestTagsFailureMessage({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' })).toBe(
-      "You've used this month's tag suggestions. They reset on Nov 1.",
-    );
+  test("a failure's message is its error's", () => {
     expect(suggestTagsFailureMessage({ ok: false, error: 'rate-limited' })).toBe("That's a lot of suggestions. Try again in a minute.");
   });
 
-  test('the monthly limit in Spanish', () => {
+  test('the daily limit in Spanish', () => {
     initI18n('es');
     try {
-      expect(suggestTagsFailureMessage({ ok: false, error: 'limit-reached', resetsAt: '2026-12-01T00:00:00.000Z' })).toBe(
-        'Ya usaste las sugerencias de etiquetas de este mes. Se renuevan el 1 dic.',
-      );
       expect(suggestTagsFailureMessage({ ok: false, error: 'daily-limit' })).toBe('Llegaste al límite de hoy. Inténtalo mañana.');
     } finally {
       initI18n('en');
@@ -350,11 +334,14 @@ describe('plans (spec 4.12)', () => {
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   let stopFeatures: (() => void) | null = null;
 
+  const household = () => getRecipe(recipeId)!.householdId;
+
   beforeEach(async () => {
-    respondToRpc('my_features', { data: ['categorize', 'recipe_import', 'recipe_tags'] });
+    // A user on free: no plan features at all.
+    respondToRpc('my_household_features', { data: { households: { [household()]: [] } } });
     stopFeatures = startFeatures(USER);
     await flush();
-    expect(hasFeature('recipe_tags')).toBe(true);
+    expect(getHouseholdFeatures()).toEqual({ [household()]: [] });
   });
 
   afterEach(() => {
@@ -363,29 +350,17 @@ describe('plans (spec 4.12)', () => {
     clearFeatures();
   });
 
-  test('not_entitled drops recipe_tags and reloads the plan', async () => {
-    respondWithError(403, { error: 'not_entitled', message: 'No' });
-    respondToRpc('my_features', { data: ['categorize'] });
-    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'not-entitled' });
-    await flush();
-    expect(rpcCallsFor('my_features')).toHaveLength(2);
-    expect(getFeatures()).toEqual(['categorize']);
+  test('a user with no feature at all still gets suggestions', async () => {
+    respond();
+    expect(await suggestRecipeTags(recipeId)).toEqual({ ok: true, tags: TAGS });
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  test('not_entitled drops recipe_tags even when the reload fails, and keeps the rest', async () => {
+  test("an older server's not_entitled is not-entitled, and leaves the plan store alone", async () => {
     respondWithError(403, { error: 'not_entitled', message: 'No' });
-    respondToRpc('my_features', { data: null, error: { message: 'boom' } });
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'not-entitled' });
     await flush();
-    expect(rpcCallsFor('my_features')).toHaveLength(2);
-    expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
-  });
-
-  test('other errors keep recipe_tags', async () => {
-    respondWithError(429, { error: 'rate_limited', message: 'Slow down' });
-    await suggestRecipeTags(recipeId);
-    await flush();
-    expect(hasFeature('recipe_tags')).toBe(true);
-    expect(rpcCallsFor('my_features')).toHaveLength(1);
+    expect(rpcCallsFor('my_household_features')).toHaveLength(1);
+    expect(getHouseholdFeatures()).toEqual({ [household()]: [] });
   });
 });

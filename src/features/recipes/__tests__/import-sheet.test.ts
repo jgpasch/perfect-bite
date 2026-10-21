@@ -2,7 +2,14 @@ import { describe, expect, test } from '@jest/globals';
 
 import { initI18n } from '@/i18n';
 
-import { importedOnRecipesToast, importedToast, importErrorMessage, savedRecipeToast, urlFromText } from '../import-sheet';
+import {
+  householdImportNote,
+  importedOnRecipesToast,
+  importedToast,
+  importErrorMessage,
+  savedRecipeToast,
+  urlFromText,
+} from '../import-sheet';
 
 describe('urlFromText', () => {
   test('a plain link comes back as it is', () => {
@@ -79,7 +86,8 @@ describe('importErrorMessage', () => {
   test("the monthly limit says when it resets, never 'Try again in a minute'", () => {
     const error = { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' } as const;
     expect(importErrorMessage(error)).toBe("You've used this month's recipe imports. They reset on Nov 1.");
-    expect(importErrorMessage(error, 'photo')).toBe("You've used this month's photo imports. They reset on Nov 1.");
+    // Photo imports share the allowance, so they say the same.
+    expect(importErrorMessage(error, 'photo')).toBe("You've used this month's recipe imports. They reset on Nov 1.");
     expect(importErrorMessage({ ...error, resetsAt: '2027-01-01T00:00:00.000Z' })).toBe(
       "You've used this month's recipe imports. They reset on Jan 1.",
     );
@@ -102,7 +110,23 @@ describe('importErrorMessage', () => {
     try {
       const error = { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' } as const;
       expect(importErrorMessage(error)).toBe('Ya usaste las importaciones de recetas de este mes. Se renuevan el 1 nov.');
-      expect(importErrorMessage(error, 'photo')).toBe('Ya usaste las importaciones de fotos de este mes. Se renuevan el 1 nov.');
+      expect(importErrorMessage(error, 'photo')).toBe('Ya usaste las importaciones de recetas de este mes. Se renuevan el 1 nov.');
+    } finally {
+      initI18n('en');
+    }
+  });
+});
+
+describe('householdImportNote', () => {
+  test("names the household whose plan has no recipe import; nothing when it has it", () => {
+    expect(householdImportNote(false, 'Lake house')).toBe("Recipe import isn't included in Lake house's plan.");
+    expect(householdImportNote(true, 'Lake house')).toBeNull();
+  });
+
+  test('in Spanish', () => {
+    initI18n('es');
+    try {
+      expect(householdImportNote(false, 'Casa')).toBe('La importación de recetas no está incluida en el plan de Casa.');
     } finally {
       initI18n('en');
     }

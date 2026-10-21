@@ -619,7 +619,6 @@ export const es = {
         noIngredients: 'Primero agrega algunos ingredientes, para tener algo en qué basarse.',
         notEntitled: 'Las sugerencias de etiquetas no están incluidas en tu plan.',
         rateLimited: 'Son muchas sugerencias. Inténtalo de nuevo en un minuto.',
-        limitReached: 'Ya usaste las sugerencias de etiquetas de este mes. Se renuevan el {{date}}.',
         unavailable: 'No se pudieron sugerir etiquetas ahorita. Inténtalo más tarde.',
       },
     },
@@ -705,6 +704,7 @@ export const es = {
       saveAndAddList: 'Guardar y agregar a la lista',
       yourRecipes: 'tus recetas',
       yourList: 'tu lista',
+      householdNotEntitled: 'La importación de recetas no está incluida en el plan de {{household}}.',
       errors: {
         notARecipe: 'Esa página no parece una receta',
         notEntitled: 'Importar recetas no está incluido en tu plan.',
@@ -712,7 +712,6 @@ export const es = {
         photoNotEntitled: 'Importar de fotos no está en tu plan',
         rateLimited: 'Inténtalo de nuevo en un minuto',
         limitReached: 'Ya usaste las importaciones de recetas de este mes. Se renuevan el {{date}}.',
-        photoLimitReached: 'Ya usaste las importaciones de fotos de este mes. Se renuevan el {{date}}.',
         offline: 'No tienes conexión',
         blocked: 'Este sitio bloqueó la importación. Ábrelo en Safari y toca Compartir → The Perfect Bite.',
         fetchFailed: 'No se pudo abrir ese sitio',

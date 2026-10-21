@@ -4,8 +4,6 @@
 import { getNetworkStateAsync } from 'expo-network';
 
 import { isOnline } from '@/features/categories/catch-up';
-import { limitResetsAt, resetDate } from '@/features/plans/limits';
-import { lostFeature } from '@/features/plans/load';
 import { i18n, onLanguageChanged } from '@/i18n';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { AiRecipeTags } from '@/shared/recipe-tags';
@@ -19,7 +17,7 @@ import { getRecipe, recipeIngredientsQuery } from './recipes';
 
 /**
  * `offline`: no connection, session or config. `no-ingredients`: the recipe has none, so nothing
- * was sent. `not-entitled`: the plan has no `recipe_tags` (4.12). `rate-limited`: the per-minute
+ * was sent. `not-entitled`: an older server's plan answer (every plan suggests tags now, 4.12). `rate-limited`: the per-minute
  * limit. `daily-limit`: the user's suggestions today (the daily safety limit, 4.12).
  * `unavailable`: the kill switch or the model failed. `failed`: anything else.
  */
@@ -32,12 +30,12 @@ export type SuggestTagsError =
   | 'unavailable'
   | 'failed';
 
-/** A failed suggestion; `limit-reached` is the plan's monthly limit (4.12), back at `resetsAt`. */
-export type SuggestTagsFailure = { ok: false; error: SuggestTagsError } | { ok: false; error: 'limit-reached'; resetsAt: string };
+/** A failed suggestion. Tag suggestions have no monthly limit (4.12). */
+export type SuggestTagsFailure = { ok: false; error: SuggestTagsError };
 
 export type SuggestTagsResult = { ok: true; tags: AiRecipeTags } | SuggestTagsFailure;
 
-/** What to tell the person for each error but `limit-reached`, whose message has a date (`suggestTagsFailureMessage`). */
+/** What to tell the person for each error. */
 export let SUGGEST_TAGS_MESSAGES: Record<SuggestTagsError, string>;
 
 /** The Tags sheet's line under Suggest tags once a suggestion comes back, and when nothing fit. */
@@ -63,9 +61,8 @@ export function suggestTagsMessage(error: SuggestTagsError): string {
   return SUGGEST_TAGS_MESSAGES[error];
 }
 
-/** A failure's message: "You've used this month's tag suggestions. They reset on Nov 1." for the monthly limit. */
+/** A failure's message. */
 export function suggestTagsFailureMessage(failure: SuggestTagsFailure): string {
-  if (failure.error === 'limit-reached') return i18n.t('recipes.tags.errors.limitReached', { date: resetDate(failure.resetsAt) });
   return suggestTagsMessage(failure.error);
 }
 
@@ -127,20 +124,15 @@ async function failure(error: unknown): Promise<SuggestTagsFailure> {
     | { status?: number; json?: () => Promise<unknown> }
     | undefined;
   let code: string | undefined;
-  let resetsAt: string | undefined;
   try {
     const parsed = SuggestRecipeTagsErrorSchema.safeParse(await response?.json?.());
-    if (parsed.success) ({ error: code, resets_at: resetsAt } = parsed.data);
+    if (parsed.success) code = parsed.data.error;
   } catch {
     // Not a JSON body; fall back to the status.
   }
   const status = response?.status;
-  if (code === 'not_entitled' || (!code && status === 403)) {
-    // The plan has no tag suggestions: hide the entry points now and reload the plan (spec 4.12).
-    void lostFeature('recipe_tags');
-    return fail('not-entitled');
-  }
-  if (code === 'limit_reached') return { ok: false, error: 'limit-reached', resetsAt: limitResetsAt(resetsAt) };
+  // An older server's plan answer; every plan has tag suggestions now (spec 4.12).
+  if (code === 'not_entitled' || (!code && status === 403)) return fail('not-entitled');
   if (code === 'daily_limit') return fail('daily-limit');
   if (code === 'rate_limited' || (!code && status === 429)) return fail('rate-limited');
   if (code === 'unavailable' || (!code && status === 503)) return fail('unavailable');

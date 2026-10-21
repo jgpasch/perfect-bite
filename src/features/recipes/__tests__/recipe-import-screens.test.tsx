@@ -17,7 +17,8 @@ import {
   setListArchived,
 } from '@/features/lists/lists';
 import { takeRecipeAddResult } from '@/features/lists/recipe-add-result';
-import { setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures } from '@/features/plans/features';
+import { i18n } from '@/i18n';
 import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
 import { getDeviceSetting, setDeviceSetting, setPlanTab } from '@/features/settings/device-settings';
 import { resetDb } from '@/test/db';
@@ -187,7 +188,7 @@ beforeEach(() => {
   mockClipboard.mockReset();
   mockConnected = true;
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
-  setFeatures(['categorize', 'recipe_import']);
+  setHouseholdFeatures(null);
   takeRecipeAddResult(groceries);
   takeSavedRecipeResult();
 });
@@ -380,6 +381,64 @@ describe('ImportRecipeSheet', () => {
     expect(byLabel(root, 'Save recipe').props.disabled).toBe(true);
     type(root, 'https://example.com/tikka');
     expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+  });
+
+  describe("the Save to household's plan (spec 4.12)", () => {
+    const NOTE = "Recipe import isn't included in Lake house's plan.";
+
+    test("disabled with a note for a household without recipe_import; enabled after switching to one with it", async () => {
+      addLake();
+      setHouseholdFeatures({ [personal()]: ['recipe_import'], lake: [] });
+      mockImport.mockResolvedValue(success({ listId: null, added: 0 }));
+      const root = render(<ImportRecipeSheet />);
+      press(byLabel(root, 'Lake house'));
+      type(root, 'https://example.com/tikka');
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(true);
+      expect(byLabel(root, 'Save recipe').props.accessibilityHint).toBe(NOTE);
+      expect(texts(root)).toContain(NOTE);
+      // Return in the field doesn't import either.
+      await act(async () => field(root).props.onSubmitEditing());
+      expect(mockImport).not.toHaveBeenCalled();
+
+      press(byLabel(root, 'Personal'));
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+      expect(texts(root)).not.toContain(NOTE);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      expect(mockImport).toHaveBeenCalledWith({ url: 'https://example.com/tikka', householdId: personal() });
+    });
+
+    test('the same for photos', () => {
+      addLake();
+      mockParams.photos = photosParam(['file:///cache/page-1.jpg']);
+      setHouseholdFeatures({ [personal()]: ['recipe_import'], lake: ['recipe_photo_ai'] });
+      const root = render(<ImportRecipeSheet />);
+      press(byLabel(root, 'Lake house'));
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(true);
+      expect(texts(root)).toContain(NOTE);
+      press(byLabel(root, 'Personal'));
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+    });
+
+    test("a household the answer doesn't have yet assumes the default plan: enabled, no note", () => {
+      addLake();
+      setHouseholdFeatures({ [personal()]: [] });
+      const root = render(<ImportRecipeSheet />);
+      press(byLabel(root, 'Lake house'));
+      type(root, 'https://example.com/tikka');
+      expect(byLabel(root, 'Save recipe').props.disabled).toBe(false);
+      expect(texts(root)).not.toContain(NOTE);
+    });
+
+    test('in Spanish', async () => {
+      setHouseholdFeatures({ [personal()]: [] });
+      await i18n.changeLanguage('es');
+      try {
+        const root = render(<ImportRecipeSheet />);
+        expect(texts(root)).toContain('La importación de recetas no está incluida en el plan de Personal.');
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
   });
 
   test('text that is not a link shows the error without importing; typing clears it', async () => {

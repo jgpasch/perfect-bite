@@ -21,7 +21,7 @@ import {
 } from '@/db';
 import { memberHue, recipeHue } from '@/domain/aisle-color';
 import { isStaple, setStaple } from '@/features/households/staples';
-import { setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures } from '@/features/plans/features';
 import { initI18n } from '@/i18n';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { addWholeRecipeToList } from '@/features/recipes/add-to-list';
@@ -128,7 +128,7 @@ beforeEach(() => {
   db.insert(ingredients)
     .values({ normalizedName: 'milk', displayName: 'milk', defaultCategoryId: cat('dairy-eggs'), status: 'categorized' })
     .run();
-  setFeatures(['categorize']);
+  setHouseholdFeatures(null);
   listId = getDefaultListId(USER)!;
   mockPush.mockClear();
   mockNavigate.mockClear();
@@ -670,13 +670,11 @@ describe('the aisle', () => {
     expect(pill('Sorting...').props.accessibilityState).toMatchObject({ selected: true });
   });
 
-  test('without categorize a new ingredient is in Other', () => {
-    setFeatures([]);
+  test('on a plan with no features (free) a new ingredient still waits in Sorting…', () => {
+    setHouseholdFeatures({ [db.select().from(households).get()!.id]: [] });
     const { itemId } = addItem(listId, 'kombucha', USER)!;
     open(itemId);
-    expect(pressables('Sorting...')).toHaveLength(0);
-    press('Show all');
-    expect(pill('Other').props.accessibilityState).toMatchObject({ selected: true });
+    expect(pill('Sorting...').props.accessibilityState).toMatchObject({ selected: true });
   });
 
   test('+ New makes an aisle and picks it', () => {

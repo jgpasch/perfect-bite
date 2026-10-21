@@ -9,7 +9,6 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import ItemEditSheet from '@/app/list/[id]/item/[itemId]';
 import { Sizes } from '@/constants/theme';
 import { db, listItems } from '@/db';
-import { setFeatures } from '@/features/plans/features';
 import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import { resetSupabase, storageUploads, supabase } from '@/test/fake-supabase';
@@ -133,7 +132,6 @@ beforeEach(() => {
   resetDb();
   resetSupabase();
   ensureStarterData(USER);
-  setFeatures(['categorize']);
   listId = getDefaultListId(USER)!;
   mockNetwork.online = true;
   mockPicker.library.mockClear();

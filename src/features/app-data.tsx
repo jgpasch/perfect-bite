@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAccountState } from '@/features/auth/account';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
-import { categorizePending, startCategorizeOnGain } from '@/features/categories/categorization';
+import { categorizePending } from '@/features/categories/categorization';
 import { foldAccentKeys } from '@/features/categories/fold-accents';
-import { clearFeatures, startFeatures } from '@/features/plans/load';
+import { clearFeatures, membershipsRead, startFeatures } from '@/features/plans/load';
 import { refreshMyInvites, startMyInvites, useMyInvites } from '@/features/households/my-invites';
 import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
@@ -14,7 +14,7 @@ import { startTimeZoneSync } from '@/features/push/settings';
 import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
-import { pullNow, startPull } from '@/sync/pull';
+import { onMemberships, pullNow, startPull } from '@/sync/pull';
 import { pushNow, startPush } from '@/sync/push';
 import { startRealtime } from '@/sync/realtime';
 // TEMP one-shot: drop the stuck share envelope. Remove after it runs.
@@ -56,13 +56,13 @@ export function AppDataGate({ children }: { children: ReactNode }) {
     backfillUnitUsage();
   }, []);
   // Plan features (spec 4.12): loaded on sign-in, foreground and reconnect, cached for offline
-  // launches, cleared on sign-out. Before the catch-up below, so it goes by the cached plan.
-  // Gaining `categorize` runs the catch-up for leftover names.
+  // launches, cleared on sign-out.
   useEffect(() => (userId ? startFeatures(userId) : undefined), [userId]);
+  // And again when a full pull finds the user's households changed (a join, leave or delete).
+  useEffect(() => (userId ? onMemberships(userId, (households) => void membershipsRead(households)) : undefined), [userId]);
   useEffect(() => {
     if (account.status === 'signedOut') clearFeatures();
   }, [account.status]);
-  useEffect(() => startCategorizeOnGain(), []);
   // Categorization catch-up (spec 6.3): after the pending rows above exist, again on sign-in, and on
   // every foreground and reconnect.
   useEffect(() => {

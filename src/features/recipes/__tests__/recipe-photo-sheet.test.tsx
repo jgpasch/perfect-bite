@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { Palette, Rounded, Sizes } from '@/constants/theme';
 import { db, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
-import { DEFAULT_FEATURES, setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures, type Feature } from '@/features/plans/features';
 import { initI18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 import { outboxMutations } from '@/test/outbox';
@@ -113,10 +113,10 @@ jest.mock('expo-linking', () => ({ openURL: (url: string) => mockOpenURL(url) })
 jest.mock('expo-clipboard', () => ({ setStringAsync: () => Promise.resolve(true) }));
 jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
 // A not_entitled answer drops the feature and reloads the plan; the reload isn't under test here.
-const mockLostFeature = jest.fn((_feature: string) => Promise.resolve());
+const mockLostFeature = jest.fn((_feature: string, _householdId?: string | null) => Promise.resolve());
 jest.mock('@/features/plans/load', () => ({
   ...jest.requireActual<object>('@/features/plans/load'),
-  lostFeature: (feature: string) => mockLostFeature(feature),
+  lostFeature: (feature: string, householdId?: string | null) => mockLostFeature(feature, householdId),
 }));
 // Photo library and Take photo: the picker, the downscale and the file read are faked; the upload
 // goes to the fake Storage.
@@ -166,6 +166,11 @@ const C = 'https://snacks.example.com/img/c.jpg';
 let tree: ReactTestRenderer | null = null;
 let bread: string;
 
+/** The household of the recipe under test, the user's one. */
+const home = () => getRecipe(bread)!.householdId;
+/** Puts the recipe's household on a plan with `features`. */
+const setFeatures = (features: Feature[]) => setHouseholdFeatures({ [home()]: features });
+
 beforeEach(() => {
   resetDb();
   ensureStarterData(USER);
@@ -177,7 +182,7 @@ beforeEach(() => {
   mockLoad.mockClear();
   mockOpenURL.mockClear();
   // A plan without recipe_photo_ai; the Generate with AI tests add it.
-  setFeatures(['categorize']);
+  setFeatures([]);
   resetSupabase();
   resetPhotoSession();
   mockNetwork.connected = true;
@@ -714,7 +719,7 @@ describe('Generate with AI', () => {
   }
 
   beforeEach(() => {
-    setFeatures([...DEFAULT_FEATURES, 'recipe_photo_ai']);
+    setFeatures(['recipe_photo_ai']);
     signedIn();
     mockLostFeature.mockClear();
   });
@@ -738,10 +743,20 @@ describe('Generate with AI', () => {
   });
 
   test('not without the feature', async () => {
-    setFeatures(['categorize']);
+    setFeatures([]);
     const root = await renderSheet();
     expect(generateRow(root)).toHaveLength(0);
     expect(texts(root)).not.toContain('Generate with AI');
+  });
+
+  test("goes by the recipe's household: another household's plan doesn't count", async () => {
+    setHouseholdFeatures({ [home()]: [], other: ['recipe_photo_ai'] });
+    let root = await renderSheet();
+    expect(generateRow(root)).toHaveLength(0);
+    act(() => tree?.unmount());
+    setHouseholdFeatures({ [home()]: ['recipe_photo_ai'], other: [] });
+    root = await renderSheet();
+    expect(texts(root)).toContain('Generate with AI');
   });
 
   test('not in Change photo… (the recipe has a photo, its own or the site\'s)', async () => {
@@ -853,7 +868,7 @@ describe('Generate with AI', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     // The real lostFeature drops the feature from the store; the plan reload isn't under test here.
     mockLostFeature.mockImplementationOnce(() => {
-      setFeatures(DEFAULT_FEATURES.filter((f) => f !== 'recipe_photo_ai'));
+      setFeatures([]);
       return Promise.resolve();
     });
     failWith(403, { error: 'ai_photos_blocked', message: 'AI photos are turned off for your account' });
@@ -864,7 +879,7 @@ describe('Generate with AI', () => {
     expect(toast.props.message).toBe('AI photos are turned off for your account.');
     expect(toast.props.actions).toEqual([]);
     expect(getRecipe(bread)).toMatchObject({ photoPath: null });
-    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai']]);
+    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai', home()]]);
     expect(invoke).toHaveBeenCalledTimes(1);
 
     // The Generate with AI row is gone until the features reload.
@@ -881,7 +896,7 @@ describe('Generate with AI', () => {
     const [toast] = toasts(root);
     expect(toast.props.message).toBe("Couldn't make a photo. Try again later.");
     expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
-    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai']]);
+    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai', home()]]);
   });
 
   test('photoGenerationMessage: each failure, the monthly limit in English and Spanish', () => {
@@ -924,7 +939,7 @@ describe('Generate with AI', () => {
     expect(getRecipe(bread)!.photoPath).toBeNull();
 
     // Only a plan without the feature drops it (spec 4.12).
-    expect(mockLostFeature.mock.calls).toEqual(name.includes('403') ? [['recipe_photo_ai']] : []);
+    expect(mockLostFeature.mock.calls).toEqual(name.includes('403') ? [['recipe_photo_ai', home()]] : []);
 
     invoke.mockResolvedValueOnce({ data: { path: AI() }, error: null });
     await act(async () => toast.props.actions[0].onPress());

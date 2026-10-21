@@ -7,7 +7,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { households, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
-import { setFeatures, type Feature } from '@/features/plans/features';
+import { setHouseholdFeatures, type Feature } from '@/features/plans/features';
 import { i18n } from '@/i18n';
 import { db, resetDb } from '@/test/db';
 
@@ -21,6 +21,9 @@ jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
+jest.mock('@/db/live-query', () => ({
+  useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
+}));
 
 const mockHasUrl = jest.fn<() => Promise<boolean>>();
 const mockClipboard = jest.fn<() => Promise<string>>();
@@ -68,9 +71,9 @@ jest.mock('@/features/recipes/downscale-photo', () => ({
   downscalePhoto: async (uri: string, o: { longEdge: number }) => ({ uri: `${uri}@${o.longEdge}.jpg`, width: 0, height: 0 }),
 }));
 
-const PLUS: Feature[] = ['categorize', 'recipe_import'];
-const PHOTO: Feature[] = ['categorize', 'recipe_import', 'recipe_import_photo'];
-const STANDARD: Feature[] = ['categorize'];
+const PLUS: Feature[] = ['recipe_import'];
+const PHOTO = PLUS;
+const STANDARD: Feature[] = [];
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
 
 let tree: ReactTestRenderer | null = null;
@@ -87,11 +90,19 @@ beforeEach(() => {
 afterEach(() => {
   act(() => tree?.unmount());
   tree = null;
-  setFeatures(STANDARD);
+  setHouseholdFeatures(null);
 });
 
-async function render(features: Feature[]): Promise<ReactTestRenderer> {
-  setFeatures(features);
+/** The user's one household, from the starter data. */
+const household = () => db.select().from(households).get()!.id;
+
+/** Renders with the user's household on a plan with `features`. */
+function render(features: Feature[]): Promise<ReactTestRenderer> {
+  setHouseholdFeatures({ [household()]: features });
+  return mount();
+}
+
+async function mount(): Promise<ReactTestRenderer> {
   await act(async () => {
     tree = create(
       <SafeAreaProvider initialMetrics={METRICS}>
@@ -352,10 +363,25 @@ describe('From photo… (spec 4.10)', () => {
     alert.mockRestore();
   });
 
-  test('hidden without recipe_import_photo', async () => {
-    const root = await render(PLUS);
+  test('hidden without recipe_import (photo import has no feature of its own)', async () => {
+    const root = await render(STANDARD);
     expect(row(root)).toBeUndefined();
     expect(texts(root)).not.toContain('From photo…');
+  });
+
+  test('shown when any of the user\'s households has recipe_import', async () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    setHouseholdFeatures({ [household()]: [], cabin: ['recipe_import'] });
+    const root = await mount();
+    expect(row(root)).toBeDefined();
+    expect(field(root, NAME_OR_LINK)).toBeDefined();
+  });
+
+  test('hidden when none of them has it', async () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    setHouseholdFeatures({ [household()]: [], cabin: [] });
+    const root = await mount();
+    expect(row(root)).toBeUndefined();
   });
 
   test('with it: one button in its own card, "From photo", at least 44 pt, with its two lines', async () => {
@@ -374,8 +400,8 @@ describe('From photo… (spec 4.10)', () => {
     expect(all.indexOf('or')).toBeLessThan(all.indexOf('From photo…'));
   });
 
-  test('without recipe_import_photo there is no "or" divider', async () => {
-    const root = await render(PLUS);
+  test('without recipe_import there is no "or" divider', async () => {
+    const root = await render(STANDARD);
     expect(texts(root)).not.toContain('or');
   });
 

@@ -20,7 +20,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
-import { setFeatures } from '@/features/plans/features';
+import { setHouseholdFeatures } from '@/features/plans/features';
 import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
 import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY, dismissAddHint, isAddHintVisible } from '@/features/tabs/add-hint';
 import { addMenuOpened, runAddMenuItem } from '@/features/tabs/add-menu';
@@ -218,7 +218,7 @@ beforeEach(() => {
   resetDb();
   ensureStarterData(USER);
   seedCatalog();
-  setFeatures(['categorize']);
+  setHouseholdFeatures(null);
   listId = getDefaultListId(USER)!;
   shownId = listId;
   mockPath.current = '/lists';
@@ -509,12 +509,14 @@ describe('the list', () => {
     expect(viewMenu().props.value).toBe('category');
   });
 
-  test('without categorize, new names go to Other instead of Sorting…', () => {
-    setFeatures([]);
+  test('on a plan with no features (free), new names still wait in Sorting…', () => {
+    const household = db.select().from(households).get()!.id;
+    setHouseholdFeatures({ [household]: [] });
     put('kombucha');
     render();
     setView('category');
-    expect(sections().map((s) => s.props.title)).toEqual(['Other']);
+    expect(sections().map((s) => s.props.title)).toEqual([]);
+    expect(row('kombucha').props.sorting).toBe(true);
   });
 
   test('Aisle colours "header" colours the aisle header instead of the rows', () => {
