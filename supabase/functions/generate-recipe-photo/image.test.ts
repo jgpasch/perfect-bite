@@ -1,6 +1,6 @@
 // The image call (spec 6.11) over a fake OpenAI: the request it sends, refusals, failures, the
 // timeout, the mock and the kill switch. Nothing touches the network.
-import { assert, assertEquals, assertRejects } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertMatch, assertNotEquals, assertRejects } from '@std/assert';
 
 import { MOCK_RECIPE_PHOTO_JPEG } from '../_shared/fixtures/mock-recipe-photo.ts';
 import {
@@ -14,6 +14,7 @@ import {
   isContentPolicyError,
   isImageEnabled,
   OPENAI_IMAGES_URL,
+  safetyIdentifierFor,
 } from './image.ts';
 
 const envOf = (vars: Record<string, string>) => (key: string) => vars[key];
@@ -52,6 +53,30 @@ Deno.test('sends one JPEG request to the Images API with the defaults, and decod
   assertEquals([...image.bytes], [0xff, 0xd8, 0x10, 0xff, 0xd9]);
   assertEquals([image.model, image.quality], ['gpt-image-1-mini', 'medium']);
   assertEquals(image.usage, { inputTokens: 70, outputTokens: 1584 });
+});
+
+Deno.test('a safety identifier goes in the body as safety_identifier', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  await generateImage('x', { env: KEYED, fetch, safetyIdentifier: 'abc123' });
+  assertEquals(JSON.parse(String(sent[0].init.body)).safety_identifier, 'abc123');
+});
+
+Deno.test('no safety identifier, or an empty one, leaves the key out of the body', async () => {
+  for (const safetyIdentifier of [undefined, '']) {
+    const { sent, fetch } = fakeFetch(200, OK_BODY);
+    await generateImage('x', { env: KEYED, fetch, safetyIdentifier });
+    assertFalse('safety_identifier' in JSON.parse(String(sent[0].init.body)), String(safetyIdentifier));
+  }
+});
+
+Deno.test('safetyIdentifierFor is the lowercase hex SHA-256 of the id, the same every time', async () => {
+  // sha256('abc'), the FIPS 180-2 test vector.
+  assertEquals(await safetyIdentifierFor('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  const id = '11111111-1111-4111-8111-111111111111';
+  const hash = await safetyIdentifierFor(id);
+  assertMatch(hash, /^[0-9a-f]{64}$/);
+  assertEquals(await safetyIdentifierFor(id), hash);
+  assertNotEquals(await safetyIdentifierFor('22222222-2222-4222-8222-222222222222'), hash);
 });
 
 Deno.test('AI_IMAGE_MODEL and AI_IMAGE_QUALITY change the request; an unknown quality is medium', async () => {

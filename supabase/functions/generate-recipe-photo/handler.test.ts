@@ -1,6 +1,6 @@
 // generate-recipe-photo (spec 6.11) end to end through handleRequest, with a fake store, the mock
 // or a MockLanguageModelV4 for the description, and a fake image call. Nothing touches the network.
-import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertMatch, assertNotEquals, assertStringIncludes } from '@std/assert';
 import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
@@ -10,7 +10,7 @@ import { RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { generateRecipePhoto, type GenerateDeps, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
-import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, type GeneratedImage } from './image.ts';
+import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 import { handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/generate-recipe-photo';
@@ -93,15 +93,17 @@ class FakeStore implements RecipePhotoStore {
 
 const JPEG = Uint8Array.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
 
-/** A fake image call that records each prompt and answers `JPEG`, or throws `error`. */
+/** A fake image call that records each prompt and its options and answers `JPEG`, or throws `error`. */
 function fakeImage(error?: Error) {
   const prompts: string[] = [];
-  const generate = async (prompt: string): Promise<GeneratedImage> => {
+  const options: Pick<ImageOptions, 'safetyIdentifier'>[] = [];
+  const generate = async (prompt: string, given: Pick<ImageOptions, 'safetyIdentifier'>): Promise<GeneratedImage> => {
     prompts.push(prompt);
+    options.push(given);
     if (error) throw error;
     return { bytes: JPEG, model: 'gpt-image-1-mini', quality: 'medium', ms: 5, usage: { inputTokens: 60, outputTokens: 1584 } };
   };
-  return { prompts, generate };
+  return { prompts, options, generate };
 }
 
 /** A description model answering every call with `answer`. */
@@ -141,7 +143,7 @@ const USER_ID = '11111111-1111-4111-8111-111111111111';
 
 type Setup = {
   store?: FakeStore;
-  image?: ReturnType<typeof fakeImage>;
+  image?: { prompts: string[]; generate: NonNullable<GenerateDeps['generateImage']> };
   model?: GenerateDeps['model'];
   env?: Record<string, string>;
   /** The signed-in caller; USER_ID unless set (null for none). */
@@ -211,20 +213,60 @@ Deno.test('with no caller the rows have a null user and household', async () => 
   });
 });
 
+// --- the safety identifier ------------------------------------------------------------------------------
+
+const OK_IMAGE = { data: [{ b64_json: btoa(String.fromCharCode(...JPEG)) }] };
+
+Deno.test("the image call carries the SHA-256 of the caller's id as safety_identifier, never the id", async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const image = openAi(200, OK_IMAGE);
+    const { res } = await call({ image });
+    assertEquals(res.status, 200);
+    const identifier = image.sent[0].safety_identifier;
+    assertEquals(identifier, await safetyIdentifierFor(USER_ID));
+    assertMatch(String(identifier), /^[0-9a-f]{64}$/);
+    assertNotEquals(identifier, USER_ID);
+    assertFalse(JSON.stringify(image.sent[0]).includes(USER_ID));
+  });
+});
+
+Deno.test('the safety identifier is the same for the same caller across calls', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const image = fakeImage();
+    await call({ image });
+    await call({ image });
+    assertEquals(image.options.length, 2);
+    assertEquals(image.options[0], image.options[1]);
+    assertEquals(image.options[0].safetyIdentifier, await safetyIdentifierFor(USER_ID));
+  });
+});
+
+Deno.test('with no caller the image call has no safety identifier', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const image = openAi(200, OK_IMAGE);
+    const { res } = await call({ image, userId: null });
+    assertEquals(res.status, 200);
+    assertFalse('safety_identifier' in image.sent[0]);
+  });
+});
+
 // --- the image call's ai_calls row ----------------------------------------------------------------------
 
 const IMAGE_PATH = `${HOUSEHOLD_ID}/${RECIPE_ID}/${PHOTO_ID}.jpg`;
 
-/** The real image call over a fake OpenAI answering `status` and `body` (a string is sent as is). */
+/** The real image call over a fake OpenAI answering `status` and `body` (a string is sent as is), recording the request bodies. */
 function openAi(status: number, body: unknown, timeoutMs?: number) {
   const prompts: string[] = [];
-  const fetch = (async () =>
-    new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
-  const generate = (prompt: string) => {
+  const sent: Record<string, unknown>[] = [];
+  const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  const generate = (prompt: string, options: Pick<ImageOptions, 'safetyIdentifier'>) => {
     prompts.push(prompt);
-    return realGenerateImage(prompt, { env: (key) => (key === 'OPENAI_API_KEY' ? 'sk-test' : undefined), fetch, timeoutMs });
+    return realGenerateImage(prompt, { env: (key) => (key === 'OPENAI_API_KEY' ? 'sk-test' : undefined), fetch, timeoutMs, ...options });
   };
-  return { prompts, generate };
+  return { prompts, sent, generate };
 }
 
 /** A fake OpenAI that never answers, so the real image call times out. */

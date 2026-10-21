@@ -92,7 +92,15 @@ export type ImageOptions = {
   env?: Env;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Sent as `safety_identifier` so OpenAI can attribute a policy violation to the end user; left out when unset. */
+  safetyIdentifier?: string;
 };
+
+/** The `safety_identifier` for a user: the lowercase hex SHA-256 of their id, so the raw id never goes to OpenAI. */
+export async function safetyIdentifierFor(userId: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(userId));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 /** True for OpenAI's content-policy refusals, whatever code or wording it uses for them. */
 export function isContentPolicyError(error: { code?: unknown; type?: unknown; message?: unknown } | null | undefined): boolean {
@@ -112,7 +120,7 @@ function decodeBase64(b64: string): Uint8Array {
 
 /**
  * One image for `prompt`: `IMAGE_SIZE`, JPEG at `IMAGE_COMPRESSION`, moderation left at OpenAI's
- * default. Throws `ImageRefusedError` for a content-policy refusal and `ImageFailedError` for
+ * default, `safety_identifier` when `options.safetyIdentifier` is set. Throws `ImageRefusedError` for a content-policy refusal and `ImageFailedError` for
  * anything else, including no answer within `IMAGE_TIMEOUT_MS`.
  */
 export async function generateImage(prompt: string, options: ImageOptions = {}): Promise<GeneratedImage> {
@@ -132,7 +140,16 @@ export async function generateImage(prompt: string, options: ImageOptions = {}):
     res = await (options.fetch ?? fetch)(OPENAI_IMAGES_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model, prompt, quality, size: IMAGE_SIZE, n: 1, output_format: 'jpeg', output_compression: IMAGE_COMPRESSION }),
+      body: JSON.stringify({
+        model,
+        prompt,
+        quality,
+        size: IMAGE_SIZE,
+        n: 1,
+        output_format: 'jpeg',
+        output_compression: IMAGE_COMPRESSION,
+        ...(options.safetyIdentifier ? { safety_identifier: options.safetyIdentifier } : {}),
+      }),
       signal: AbortSignal.timeout(options.timeoutMs ?? IMAGE_TIMEOUT_MS),
     });
     text = await res.text();

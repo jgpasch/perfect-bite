@@ -8,7 +8,7 @@ import { RECIPE_PHOTO_IMAGE_TASK, type AiCallRecord } from '../_shared/ai/run-ai
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
-import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, type GeneratedImage } from './image.ts';
+import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 
 /** `reserve_recipe_photo_ai`'s answer. `monthly_limit`: the caller has reserved their plan's AI photos this month. */
 export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'monthly_limit' };
@@ -40,8 +40,8 @@ export type GenerateDeps = {
   userId?: string;
   /** Tests inject a MockLanguageModelV4 for the description; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
-  /** The image call. Defaults to OpenAI's Images API (`generateImage`). */
-  generateImage?: (prompt: string) => Promise<GeneratedImage>;
+  /** The image call, given the caller's hashed `safetyIdentifier` (none without a caller). Defaults to OpenAI's Images API (`generateImage`). */
+  generateImage?: (prompt: string, options: Pick<ImageOptions, 'safetyIdentifier'>) => Promise<GeneratedImage>;
   /** The new object's file name. Defaults to `crypto.randomUUID`. */
   newId?: () => string;
   /** Reads an env var, for the image kill switch. Defaults to `Deno.env.get`. */
@@ -174,8 +174,9 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
 
     let generated: GeneratedImage;
     try {
-      const generate = deps.generateImage ?? ((prompt: string) => realGenerateImage(prompt, { env: deps.env }));
-      generated = await generate(imagePrompt);
+      const generate = deps.generateImage ?? ((prompt, options) => realGenerateImage(prompt, { env: deps.env, ...options }));
+      // The hash of the caller's id, never the id itself; no caller, no identifier.
+      generated = await generate(imagePrompt, deps.userId ? { safetyIdentifier: await safetyIdentifierFor(deps.userId) } : {});
     } catch (err) {
       const known = err instanceof ImageRefusedError || err instanceof ImageFailedError ? err : null;
       await logImage({
