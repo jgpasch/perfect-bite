@@ -242,13 +242,13 @@ set local role authenticated;
 select is(public.admin_set_plan_limit('founding', 'recipe_import', 7, 'tighter') -> 'after' -> 'features' -> 0,
   '{"feature": "recipe_import", "monthly_limit": 7}'::jsonb, 'admin_set_plan_limit changes the limit');
 reset role;
-select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), 7,
+select is(private.monthly_limit('recipe_import', 'd1000000-0000-0000-0000-000000000001'), 7,
   'the new limit shows at once in private.monthly_limit for a household on the plan');
 set local role authenticated;
 select lives_ok($$ select public.admin_set_plan_limit('founding', 'recipe_import', null, 'lift it') $$,
   'a null limit is fine');
 reset role;
-select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), null,
+select is(private.monthly_limit('recipe_import', 'd1000000-0000-0000-0000-000000000001'), null,
   'a null limit means no monthly limit at once');
 delete from public.plan_limits where plan_id = 'lite' and feature = 'recipe_photo_ai';
 set local role authenticated;
@@ -279,7 +279,7 @@ select results_eq($$ select id from public.plans where is_default $$, $$ values 
 -- gold's 50.
 select ok((select plan_id from public.household_plans where household_id = 'd1000000-0000-0000-0000-000000000001') = 'founding'
   and public.has_feature('11111111-1111-1111-1111-111111111111', 'recipe_import')
-  and private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import') is null,
+  and private.monthly_limit('recipe_import', 'd1000000-0000-0000-0000-000000000001') is null,
   'changing the default moves no household: its plan, features and limits stay');
 set local role authenticated;
 select is(public.admin_set_default_plan('gold', 'again') -> 'previous_default', '"gold"'::jsonb,

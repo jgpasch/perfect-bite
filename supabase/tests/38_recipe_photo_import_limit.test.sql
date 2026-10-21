@@ -1,12 +1,13 @@
 -- import-recipe-photo rate limits (spec 6.10): per user 5 a minute and the household plan's
--- monthly recipe_import limit (founding: 50, doubled in a household's first month; usage is
--- counted on the photo table, separately from link imports; 48_plan_limits covers each plan), no
+-- monthly recipe_import limit (founding: 50, doubled in a household's first month; counted on the
+-- photo table and on the household, whose allowance link imports share; 48_plan_limits covers
+-- each plan and household), no
 -- global cap, a refused call uses no budget, separate from the link-import and page-photo limits,
 -- the retention job, and only service_role can call it. now() is fixed within the transaction, so
 -- every call lands in the same minute; the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(28);
 
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -78,6 +79,8 @@ select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'
   'the 51st import in a month is refused, even in a fresh minute');
 select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused import is not counted');
+select is(private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import'), 50,
+  'each photo import counted on Alex''s household''s recipe_import, the refused one not');
 select is(public.check_recipe_photo_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
   'a user whose household is on free (no recipe_import) is refused');
 
@@ -99,9 +102,10 @@ select is((select command from cron.job where jobname = 'recipe-photo-import-usa
   $$delete from private.recipe_photo_import_usage where day < (now() at time zone 'utc')::date - 40$$,
   'the retention job keeps recipe_photo_import_usage 40 days, and prunes nothing else');
 
--- The other limits are separate -------------------------------------------------------
+-- The other limits -----------------------------------------------------------------------
+-- Link imports share the household's allowance (48_plan_limits): 51 of the doubled 100 used.
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
-  'a user out of photo imports can still import a link');
+  'a link import passes under the shared, doubled allowance');
 select is(public.check_recipe_photos_limit('11111111-1111-1111-1111-111111111111'), 'ok',
   'and still list a page''s photos');
 
@@ -122,10 +126,10 @@ select is((select count(*)::int from private.recipe_photo_import_usage), 5, 'and
 select throws_ok($$ select public.check_recipe_photo_limit(null) $$, '22023', null, 'a null user is rejected');
 
 select ok(
-  not has_function_privilege('authenticated', 'public.check_recipe_photo_limit(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.check_recipe_photo_limit(uuid)', 'execute')
-  and not has_function_privilege('public', 'public.check_recipe_photo_limit(uuid)', 'execute')
-  and has_function_privilege('service_role', 'public.check_recipe_photo_limit(uuid)', 'execute'),
+  not has_function_privilege('authenticated', 'public.check_recipe_photo_limit(uuid, uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.check_recipe_photo_limit(uuid, uuid)', 'execute')
+  and not has_function_privilege('public', 'public.check_recipe_photo_limit(uuid, uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.check_recipe_photo_limit(uuid, uuid)', 'execute'),
   'only service_role can call the limit function');
 
 set local role authenticated;

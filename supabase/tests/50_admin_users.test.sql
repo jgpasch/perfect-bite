@@ -45,6 +45,11 @@ insert into public.household_plans (household_id, plan_id) values
   ('d1000000-0000-0000-0000-000000000001', 'founding'),
   ('d2000000-0000-0000-0000-000000000002', 'free'),
   ('d3000000-0000-0000-0000-000000000003', 'founding');
+-- Until the portal goes per household, the detail's usage is young's oldest household's (First):
+-- 5 today, and a big day last month that mustn't count.
+insert into private.household_ai_usage (household_id, feature, day, used) values
+  ('d1000000-0000-0000-0000-000000000001', 'recipe_import', (now() at time zone 'utc')::date, 5),
+  ('d1000000-0000-0000-0000-000000000001', 'recipe_import', date_trunc('month', now() at time zone 'utc')::date - 1, 1000);
 
 -- Privileges -------------------------------------------------------------------
 select ok(
@@ -72,9 +77,9 @@ select is(private.first_month_ends_at('d1000000-0000-0000-0000-000000000001'), n
   'first_month_ends_at is the household''s created_at plus 30 days');
 select is(private.first_month_ends_at('99999999-9999-9999-9999-999999999999'), null,
   'first_month_ends_at is null for an unknown household');
-select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), 100,
+select is(private.monthly_limit('recipe_import', 'd1000000-0000-0000-0000-000000000001'), 100,
   'monthly_limit still doubles in a household''s first month');
-select is(private.monthly_limit('33333333-3333-3333-3333-333333333333'::uuid, 'recipe_import'), 50,
+select is(private.monthly_limit('recipe_import', 'd3000000-0000-0000-0000-000000000003'), 50,
   'monthly_limit doesn''t double after it');
 
 -- A signed-in non-admin ----------------------------------------------------------

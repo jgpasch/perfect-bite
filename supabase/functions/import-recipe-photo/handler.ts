@@ -19,8 +19,12 @@ export interface RecipePhotoImportStore {
    * the rate limit or the model.
    */
   requireFeature(feature: Feature, householdId?: string): Promise<void>;
-  /** Counts one photo import against the per-user limits (`public.check_recipe_photo_limit`): per minute, daily and monthly. */
-  checkLimit(): Promise<LimitResult>;
+  /**
+   * Counts one photo import against the per-user safety limits (per minute, daily) and the monthly
+   * `recipe_import` allowance of `householdId`, shared with link imports
+   * (`public.check_recipe_photo_limit`; none, from an old build: the user's oldest household).
+   */
+  checkLimit(householdId?: string): Promise<LimitResult>;
   /** Writes one `ai_calls` row. Its prompt describes each image; it never holds the bytes. */
   logAiCall(call: AiCallRecord): Promise<void>;
 }
@@ -78,11 +82,12 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
     throw new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_off' }, 'Photo import is turned off');
   }
 
-  const limit = await deps.store.checkLimit();
+  const limit = await deps.store.checkLimit(request.householdId);
   if (limit === 'user_limit') throw new ImportRecipePhotoError({ code: 'rate_limited' }, 'Too many photo imports; try again later');
-  // The day's link and photo imports together (`recipe_import`'s safety row).
+  // The day's link and photo imports together (`recipe_import`'s safety row), and the month's
+  // (the household's `recipe_import`).
   if (limit === 'daily_limit') throw new ImportRecipePhotoError({ code: 'daily_limit' }, "Today's recipe imports are used up");
-  if (limit === 'monthly_limit') throw new ImportRecipePhotoError({ code: 'limit_reached' }, "This month's photo imports are used up");
+  if (limit === 'monthly_limit') throw new ImportRecipePhotoError({ code: 'limit_reached' }, "This month's recipe imports are used up");
 
   let output;
   try {

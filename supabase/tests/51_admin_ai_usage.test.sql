@@ -1,5 +1,5 @@
--- Portal function for AI usage (spec 4.12): admin_ai_usage, and private.daily_usage behind
--- private.monthly_usage.
+-- Portal function for AI usage (spec 4.12): admin_ai_usage, private.daily_usage, and the
+-- household's private.monthly_usage.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(26);
@@ -54,7 +54,7 @@ insert into private.recipe_import_usage (user_id, day, minute_start, imports) va
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 41, now(), 50);
 
 -- categorize counts names: a sent 30 names in 2 requests today, b 5 in 1. (Categorize is no longer
--- a plan feature, so admin_ai_usage leaves it out, but monthly_usage still counts it.)
+-- a plan feature, so admin_ai_usage leaves it out.)
 insert into private.categorize_usage (user_id, day, minute_start, requests_this_minute, new_names) values
   ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date, now(), 2, 30),
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now(), 1, 5);
@@ -83,14 +83,23 @@ select ok(
   and not has_function_privilege('service_role', 'private.ai_call_stats(text, text, timestamptz)', 'execute'),
   'no client role can execute the helpers');
 
--- monthly_usage, now through daily_usage (as postgres) ---------------------------------
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import'), 7,
+-- monthly_usage, per household from household_ai_usage (as postgres) -----------------------
+-- A's household: 7 imports today and 1000 just before the month. B's: 3 today and 2 on the
+-- month's first day (the same row when today is the 1st).
+insert into private.household_ai_usage (household_id, feature, day, used) values
+  ('d1000000-0000-0000-0000-000000000001', 'recipe_import', (now() at time zone 'utc')::date, 7),
+  ('d1000000-0000-0000-0000-000000000001', 'recipe_import', date_trunc('month', now() at time zone 'utc')::date - 1, 1000),
+  ('d2000000-0000-0000-0000-000000000002', 'recipe_import', (now() at time zone 'utc')::date, 3);
+insert into private.household_ai_usage (household_id, feature, day, used) values
+  ('d2000000-0000-0000-0000-000000000002', 'recipe_import', date_trunc('month', now() at time zone 'utc')::date, 2)
+on conflict (household_id, feature, day) do update set used = private.household_ai_usage.used + 2;
+select is(private.monthly_usage('d1000000-0000-0000-0000-000000000001', 'recipe_import'), 7,
   'monthly_usage counts only this month');
-select is(private.monthly_usage('22222222-2222-2222-2222-222222222222', 'recipe_import'), 5,
+select is(private.monthly_usage('d2000000-0000-0000-0000-000000000002', 'recipe_import'), 5,
   'monthly_usage sums the month''s days');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'categorize'), 30,
-  'monthly_usage counts names for categorize');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_tags'), 0,
+select is(private.monthly_usage('d1000000-0000-0000-0000-000000000001', 'recipe_photo_ai'), 0,
+  'monthly_usage counts only the feature asked for');
+select is(private.monthly_usage('99999999-9999-9999-9999-999999999999', 'recipe_import'), 0,
   'monthly_usage is 0 with no rows');
 
 -- A signed-in non-admin, and anon ------------------------------------------------------

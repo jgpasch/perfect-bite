@@ -31,14 +31,17 @@ select is(
    where exists (select 1 from private.daily_usage(f, (now() at time zone 'utc')::date - 39) d where d.user_id::text like 'de300000-%')),
   2::bigint, 'both features have usage');
 select is(
-  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000001', l.feature) = l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
+  (select bool_and((select sum(d.used) from private.daily_usage(l.feature, date_trunc('month', now() at time zone 'utc')::date) d
+                    where d.user_id = 'de300000-0000-4000-8000-000000000001') = l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
   true, 'demo-1 exactly at founding limits');
 select is(
-  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000002', l.feature) > l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
+  (select bool_and((select sum(d.used) from private.daily_usage(l.feature, date_trunc('month', now() at time zone 'utc')::date) d
+                    where d.user_id = 'de300000-0000-4000-8000-000000000002') > l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
   true, 'demo-2 over founding limits');
 select is((select count(distinct plan_id) from public.user_plans where user_id::text like 'de300000-%'), (select count(*) from public.plans), 'every plan used');
 select diag((select usage from public.tmp_c1)::text || ' usage rows');
-select diag((select string_agg(f || '=' || private.monthly_usage('de300000-0000-4000-8000-000000000003', f), ' ') from unnest(private.feature_keys()) f));
+select diag((select string_agg(f || '=' || (select coalesce(sum(d.used), 0) from private.daily_usage(f, date_trunc('month', now() at time zone 'utc')::date) d
+                                            where d.user_id = 'de300000-0000-4000-8000-000000000003'), ' ') from unnest(private.feature_keys()) f));
 select set_config('request.jwt.claims', '{"sub": "019a4c10-0000-7000-8000-0000000de701"}', true);
 select ok((public.admin_ai_usage() -> 'features') is not null, 'admin_ai_usage runs');
 select ok((select total_count from public.admin_list_users('demo-') limit 1) = 10, 'admin_list_users finds them');

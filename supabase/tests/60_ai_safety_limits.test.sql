@@ -214,14 +214,17 @@ update public.ai_safety_limits set per_minute = 10 where key = 'recipe_import_li
 update public.ai_safety_limits set per_day = 3 where key = 'recipe_import';
 insert into private.recipe_import_usage (user_id, day, minute_start, imports) values
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now() - interval '1 hour', 60);
+insert into private.household_ai_usage (household_id, feature, day, used) values
+  ('c2000000-0000-4000-8000-000000000002', 'recipe_import', (now() at time zone 'utc')::date, 60);
 select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222'), 'daily_limit',
   'imports: daily_limit comes before monthly_limit');
 update public.ai_safety_limits set per_day = null where key = 'recipe_import';
 select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222'), 'monthly_limit',
   'imports: with the day lifted, the month refuses');
-select is((select imports from private.recipe_import_usage
-           where user_id = '22222222-2222-2222-2222-222222222222'), 60,
-  'imports: neither refusal counts');
+select is((select array[(select imports from private.recipe_import_usage
+                         where user_id = '22222222-2222-2222-2222-222222222222'),
+                        private.monthly_usage('c2000000-0000-4000-8000-000000000002', 'recipe_import')]),
+  array[60, 60], 'imports: neither refusal counts');
 
 -- AI photos -----------------------------------------------------------------------------
 update public.ai_safety_limits set per_minute = null, per_day = 1 where key = 'recipe_photo_ai';

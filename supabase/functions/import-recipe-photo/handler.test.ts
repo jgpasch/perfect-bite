@@ -61,8 +61,12 @@ class FakePhotoStore implements RecipePhotoImportStore {
     this.featureHouseholds.push(householdId);
     if (!this.features.has(feature) || (householdId !== undefined && this.notMemberOf.has(householdId))) throw new NotEntitledError(feature);
   }
-  async checkLimit() {
+  /** The household each limit check counted against (undefined: none sent). */
+  limitHouseholds: (string | undefined)[] = [];
+
+  async checkLimit(householdId?: string) {
     this.limitChecks++;
+    this.limitHouseholds.push(householdId);
     return this.limit;
   }
   async logAiCall(call: AiCallRecord) {
@@ -316,7 +320,7 @@ test('the monthly limit: 429 limit_reached with next month as resets_at, and no 
   assertEquals(res.status, 429);
   assertEquals(await res.json(), {
     error: 'limit_reached',
-    message: "This month's photo imports are used up",
+    message: "This month's recipe imports are used up",
     resets_at: '2026-11-01T00:00:00.000Z',
   });
   assertEquals(store.limitChecks, 1);
@@ -380,10 +384,11 @@ test('a failed extraction is logged with the caller too', async () => {
 
 const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
-test('the household goes to the plan check and onto every ai_calls row: the extraction and the inline categorize', async () => {
+test('the household goes to the plan check, the limit check and onto every ai_calls row: the extraction and the inline categorize', async () => {
   const { post, aiCalls, store } = setup();
   assertEquals((await post({ images: [PAGE_1], householdId: HOUSEHOLD_ID })).status, 200);
   assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  assertEquals(store.limitHouseholds, [HOUSEHOLD_ID]);
   assertEquals(
     aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
     [
@@ -399,10 +404,18 @@ test('a failed extraction carries the household too', async () => {
   assertEquals(aiCalls.map((c) => [c.status, c.household_id]), [['invalid_output', HOUSEHOLD_ID]]);
 });
 
-test('no household (old builds): the plan check gets none', async () => {
+test('no household (old builds): the plan check and the limit check get none', async () => {
   const { post, store } = setup();
   assertEquals((await post({ images: [PAGE_1] })).status, 200);
   assertEquals(store.featureHouseholds, [undefined]);
+  assertEquals(store.limitHouseholds, [undefined]);
+});
+
+test("the household's monthly allowance used up: 429 limit_reached, checked against that household", async () => {
+  const { post, store, aiCalls } = setup();
+  store.limit = 'monthly_limit';
+  await expectError(await post({ images: [PAGE_1], householdId: HOUSEHOLD_ID }), 429, 'limit_reached');
+  assertEquals([store.limitHouseholds, aiCalls.length], [[HOUSEHOLD_ID], 0]);
 });
 
 test("a household the caller isn't in: 403 not_entitled before the limit or the model", async () => {

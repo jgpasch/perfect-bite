@@ -102,14 +102,15 @@ Each plan feature has a monthly limit per plan in `public.plan_limits` (spec 4.1
 - A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
 - A household younger than 30 days (`households.created_at`) gets twice its plan's limits.
 - The safety limits (below) and one AI photo per recipe apply on every plan, unlimited too, and aren't in this table.
-- Past a limit, the app says "You've used this month's … They reset on Nov 1." Usage is counted even with no limit:
+- Past a limit, the app says "You've used this month's … They reset on Nov 1." The allowance is the household's, shared by its members (link and photo imports together), and usage is counted even with no limit. A user's households this month:
 
 ```sql
-select u.email, f.feature, private.monthly_usage(u.id, f.feature) as used,
-  private.monthly_limit(u.id, f.feature) as monthly_limit
+select h.name, f.feature, private.monthly_usage(h.id, f.feature) as used,
+  private.monthly_limit(f.feature, h.id) as monthly_limit
 from auth.users u
-cross join (values ('categorize'), ('step_ingredients'), ('recipe_import'), ('recipe_import_photo'),
-                   ('recipe_tags'), ('recipe_photo_ai')) f(feature)
+join public.household_members m on m.user_id = u.id
+join public.households h on h.id = m.household_id
+cross join unnest(private.feature_keys()) f(feature)
 where u.email = '<email>';
 ```
 

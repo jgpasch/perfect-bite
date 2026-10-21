@@ -10,8 +10,11 @@ import type { CachedImport, RecipeImportStore } from './handler.ts';
  */
 export function createRecipeImportStore(admin: SupabaseClient, limits: { userId: string }): RecipeImportStore {
   return {
-    async checkLimit() {
-      const { data, error } = await admin.rpc('check_recipe_import_limit', { p_user_id: limits.userId });
+    async checkLimit(householdId) {
+      const { data, error } = await admin.rpc('check_recipe_import_limit', {
+        p_user_id: limits.userId,
+        p_household_id: householdId ?? null,
+      });
       if (error) throw error;
       return data as LimitResult;
     },

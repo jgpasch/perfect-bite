@@ -133,8 +133,11 @@ class FakeRecipeStore implements RecipeImportStore {
   saves: { urlKey: string; promptVersion: string; result: ExtractedRecipe }[] = [];
   now = NOW;
 
-  async checkLimit() {
+  /** The household each limit check counted against (undefined: none sent). */
+  limitHouseholds: (string | undefined)[] = [];
+  async checkLimit(householdId?: string) {
     this.limitChecks++;
+    this.limitHouseholds.push(householdId);
     return this.limit;
   }
   async getCached(urlKey: string, promptVersion: string) {
@@ -350,10 +353,11 @@ test('ai_calls rows carry the caller: the extraction and the inline categorize, 
 
 const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
-test('the household goes to the plan check and onto every ai_calls row: the extraction and the inline categorize', async () => {
+test('the household goes to the plan check, the limit check and onto every ai_calls row: the extraction and the inline categorize', async () => {
   const { post, aiCalls, store } = setup();
   assertEquals((await post({ url: PASTA_URL, householdId: HOUSEHOLD_ID })).status, 200);
   assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  assertEquals(store.limitHouseholds, [HOUSEHOLD_ID]);
   assertEquals(
     aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
     [
@@ -371,11 +375,19 @@ test('a client-supplied page carries the household too', async () => {
   assert(aiCalls.length > 0);
 });
 
-test('no household (old builds): the plan check gets none and the rows have none', async () => {
+test('no household (old builds): the plan check and the limit check get none and the rows have none', async () => {
   const { post, store, aiCalls } = setup();
   assertEquals((await post({ url: PASTA_URL })).status, 200);
   assertEquals(store.featureHouseholds, [undefined]);
+  assertEquals(store.limitHouseholds, [undefined]);
   assertEquals(aiCalls.map((c) => c.household_id), [null, null]);
+});
+
+test("the household's monthly allowance used up: 429 limit_reached, checked against that household, before any fetch", async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  store.limit = 'monthly_limit';
+  await expectError(await post({ url: PASTA_URL, householdId: HOUSEHOLD_ID }), 429, 'limit_reached');
+  assertEquals([store.limitHouseholds, fetched, aiCalls], [[HOUSEHOLD_ID], [], []]);
 });
 
 test("a household the caller isn't in: 403 not_entitled before any limit, fetch, cache or model work", async () => {

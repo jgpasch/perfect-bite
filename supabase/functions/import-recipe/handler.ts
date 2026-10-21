@@ -38,10 +38,12 @@ export type CachedImport = { result: unknown; is_recipe: boolean; created_at: st
 /** The tables import-recipe uses, as it sees them. index.ts implements it with the service role. */
 export interface RecipeImportStore {
   /**
-   * Counts one import against the per-user limits (`public.check_recipe_import_limit`).
-   * Called once per request, before the cache is read.
+   * Counts one import against the per-user safety limits and the monthly allowance of
+   * `householdId`, the household the recipe is saved to (`public.check_recipe_import_limit`; none,
+   * from an old build: the user's oldest household). Called once per request, before the cache is
+   * read.
    */
-  checkLimit(): Promise<LimitResult>;
+  checkLimit(householdId?: string): Promise<LimitResult>;
   /** The `recipe_imports` row for this URL and prompt version, whatever its age; null if none. */
   getCached(urlKey: string, promptVersion: string): Promise<CachedImport | null>;
   /** Inserts or replaces the row, with `created_at` now. */
@@ -188,7 +190,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
     throw new ImportRecipeError({ code: 'unavailable', reason: 'ai_off' }, 'Recipe import is turned off');
   }
 
-  const limit = await deps.store.checkLimit();
+  const limit = await deps.store.checkLimit(request.householdId);
   if (limit === 'user_limit') throw new ImportRecipeError({ code: 'rate_limited' }, 'Too many imports; try again later');
   if (limit === 'daily_limit') throw new ImportRecipeError({ code: 'daily_limit' }, "Today's recipe imports are used up");
   if (limit === 'monthly_limit') throw new ImportRecipeError({ code: 'limit_reached' }, "This month's recipe imports are used up");

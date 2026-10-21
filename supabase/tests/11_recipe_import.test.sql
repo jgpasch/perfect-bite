@@ -5,7 +5,7 @@
 -- simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(36);
+select plan(37);
 
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -97,6 +97,8 @@ select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111
   'the 51st import in a month is refused, even in a fresh minute');
 select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused import is not counted');
+select is(private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import'), 50,
+  'with no household named, each import counted on Alex''s only household, the refused one not');
 select is(public.check_recipe_import_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
   'a user in no household (so no plan) is refused');
 
@@ -117,10 +119,10 @@ select is((select command from cron.job where jobname = 'recipe-import-usage-ret
 select throws_ok($$ select public.check_recipe_import_limit(null) $$, '22023', null, 'a null user is rejected');
 
 select ok(
-  not has_function_privilege('authenticated', 'public.check_recipe_import_limit(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.check_recipe_import_limit(uuid)', 'execute')
-  and not has_function_privilege('public', 'public.check_recipe_import_limit(uuid)', 'execute')
-  and has_function_privilege('service_role', 'public.check_recipe_import_limit(uuid)', 'execute'),
+  not has_function_privilege('authenticated', 'public.check_recipe_import_limit(uuid, uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.check_recipe_import_limit(uuid, uuid)', 'execute')
+  and not has_function_privilege('public', 'public.check_recipe_import_limit(uuid, uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.check_recipe_import_limit(uuid, uuid)', 'execute'),
   'only service_role can call the limit function');
 select ok(
   not has_table_privilege('authenticated', 'public.recipe_imports', 'select')

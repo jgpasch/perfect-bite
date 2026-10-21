@@ -14,8 +14,11 @@ export function createRecipePhotoImportStore(admin: SupabaseClient, limits: { us
       return requireFeature(admin, limits.userId, feature, householdId);
     },
 
-    async checkLimit() {
-      const { data, error } = await admin.rpc('check_recipe_photo_limit', { p_user_id: limits.userId });
+    async checkLimit(householdId) {
+      const { data, error } = await admin.rpc('check_recipe_photo_limit', {
+        p_user_id: limits.userId,
+        p_household_id: householdId ?? null,
+      });
       if (error) throw error;
       return data as LimitResult;
     },

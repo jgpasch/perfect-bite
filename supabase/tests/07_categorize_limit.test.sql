@@ -54,8 +54,8 @@ select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 
   'a batch of 10000 names passes');
 select is((select new_names from private.categorize_usage where user_id = '33333333-3333-3333-3333-333333333333'),
   10251, 'usage still counts every name');
-select is(private.monthly_limit('33333333-3333-3333-3333-333333333333'::uuid, 'categorize'), null,
-  'categorize has no monthly limit');
+select ok(not ('categorize' = any (private.feature_keys())),
+  'categorize has no monthly limit (it isn''t a plan feature)');
 
 -- Refused requests change nothing ----------------------------------------------------
 -- Only the minute limit refuses now: fill Sam's minute.
