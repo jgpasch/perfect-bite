@@ -17,6 +17,9 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 export const ADDING_TAIL_MS = 10_000;
 /** At most one presence update per this long. */
 export const PRESENCE_THROTTLE_MS = 1_000;
+/** The first wait before reopening a channel the server closed; it doubles on each try, up to REOPEN_MAX_MS. */
+export const REOPEN_FIRST_MS = 1_000;
+export const REOPEN_MAX_MS = 30_000;
 
 /** What each device tracks on a list's channel. Nothing about what's typed. */
 export type ListPresence = { user_id: string; adding: boolean };
@@ -95,7 +98,10 @@ export type ListPresenceSession = {
 
 /**
  * Joins list `listId`'s presence channel as `userId`, tracking `adding`, and reports the other
- * members adding (`othersAdding`) whenever presence syncs.
+ * members adding (`othersAdding`) whenever presence syncs. While the channel isn't joined it reports
+ * no one, since what it last heard may be stale. Realtime rejoins after an error or a timeout by
+ * itself, but not after the server closes the channel (e.g. at token expiry), so that reopens here,
+ * waiting REOPEN_FIRST_MS and doubling each try.
  */
 export function joinListPresence(
   listId: string,
@@ -108,6 +114,8 @@ export function joinListPresence(
   let left = false;
   let channel: RealtimeChannel | null = null;
   let joined = false;
+  let reopenWait = REOPEN_FIRST_MS;
+  let reopenTimer: ReturnType<typeof setTimeout> | null = null;
   const throttle = createThrottle<boolean>((value) => {
     if (channel && joined && !left) void channel.track({ user_id: userId, adding: value } satisfies ListPresence);
   });
@@ -138,10 +146,22 @@ export function joinListPresence(
       if (status === 'SUBSCRIBED') {
         // Also after a rejoin, when the server has forgotten this device's presence.
         joined = true;
+        reopenWait = REOPEN_FIRST_MS;
         throttle.push(current);
-      } else {
-        joined = false;
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.warn(`[presence] ${topic}: ${status}`, err);
+        return;
+      }
+      joined = false;
+      // Cut off, this device can't hear anyone stop adding, so the pill goes until presence syncs again.
+      onOthers([]);
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.warn(`[presence] ${topic}: ${status}`, err);
+      if (status === 'CLOSED' && channel === ch) {
+        // A closed channel is already off the client's list, so open() makes a new one.
+        channel = null;
+        reopenTimer = setTimeout(() => {
+          reopenTimer = null;
+          open();
+        }, reopenWait);
+        reopenWait = Math.min(reopenWait * 2, REOPEN_MAX_MS);
       }
     });
   };
@@ -161,6 +181,8 @@ export function joinListPresence(
       left = true;
       joined = false;
       throttle.cancel();
+      if (reopenTimer) clearTimeout(reopenTimer);
+      reopenTimer = null;
       if (!channel) return;
       const done = Promise.resolve(supabase.removeChannel(channel))
         .catch(() => {})

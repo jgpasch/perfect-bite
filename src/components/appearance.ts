@@ -198,10 +198,11 @@ export function segmentColors(selected: boolean): { fill: ColorToken | null; tex
   return selected ? { fill: 'surface', text: 'ink' } : { fill: null, text: 'inkSecondary' };
 }
 
-export type BadgeTone = 'positive' | 'owner' | 'pending' | 'danger';
+export type BadgeTone = 'positive' | 'new' | 'owner' | 'pending' | 'danger';
 
 /**
- * Badges: positive ("On Groceries", "Synced") on `primarySoft`; Owner in `pending` on the amber
+ * Badges: positive ("On Groceries", "Synced") on `primarySoft`; NEW in `onPrimarySoft` on `newBadge`
+ * (a step past `primarySoft`, which is also the green aisle's row tint); Owner in `pending` on the amber
  * soft tint; pending ("Syncing…", "Offline") on `pendingSoft`; danger ("Sync error") on `dangerSoft`.
  */
 export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles): { fill: string; text: string } {
@@ -212,6 +213,8 @@ export function badgeColors(tone: BadgeTone, colors: ThemeColors, aisles: Aisles
       return { fill: colors.pendingSoft, text: colors.pending };
     case 'danger':
       return { fill: colors.dangerSoft, text: colors.danger };
+    case 'new':
+      return { fill: colors.newBadge, text: colors.onPrimarySoft };
     default:
       return { fill: colors.primarySoft, text: colors.onPrimarySoft };
   }

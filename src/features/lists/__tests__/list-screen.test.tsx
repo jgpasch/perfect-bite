@@ -72,6 +72,9 @@ jest.mock('react-native-reanimated', () => {
     FadeInDown: builder,
     FadeOut: builder,
     LinearTransition: builder,
+    Extrapolation: { CLAMP: 'clamp' },
+    // Clamped, two points only: all the screen uses.
+    interpolate: (x: number, [a, b]: number[], [c, d]: number[]) => c + (d - c) * Math.min(1, Math.max(0, (x - a) / (b - a))),
     useReducedMotion: () => false,
     useAnimatedRef: () => require('react').useRef(null),
     useAnimatedStyle: (fn: () => object) => fn(),
@@ -1106,6 +1109,57 @@ describe('Select mode', () => {
     // The add bar stays hidden, as at rest, until the tab bar's + opens it.
     expect(all('ItemAddBar')).toHaveLength(0);
     expect(row('milk').props.selected).toBeUndefined();
+  });
+
+  test('Select All picks every unchecked item, folded or not, and then reads Deselect All', () => {
+    put('milk');
+    put('eggs');
+    const jam = put('jam')!;
+    setItemChecked(jam.itemId, true, USER);
+    render();
+    press(menuAction('Select items'));
+    expect(pressable('Delete 0 items').props.disabled).toBe(true);
+    act(() => pressable('Select All').props.onPress());
+    expect(text()).toContain('2 selected');
+    expect(row('milk').props.selected).toBe(true);
+    expect(row('eggs').props.selected).toBe(true);
+    act(() => pressable('Deselect All').props.onPress());
+    expect(text()).toContain('Tap items to select them');
+    expect(row('milk').props.selected).toBe(false);
+  });
+
+  test('Delete asks first; Cancel keeps the selection', () => {
+    put('milk');
+    put('eggs');
+    const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((options, callback) => {
+      expect(options.title).toBeUndefined();
+      expect(options.options).toEqual(['Delete 2 items', 'Cancel']);
+      expect(options.destructiveButtonIndex).toBe(0);
+      callback(1);
+    });
+    render();
+    act(() => row('milk').props.onSelect());
+    act(() => row('eggs').props.onToggle());
+    act(() => pressable('Delete 2 items').props.onPress());
+    expect(sheet).toHaveBeenCalled();
+    expect(rowNames().sort()).toEqual(['eggs', 'milk']);
+    expect(text()).toContain('2 selected');
+  });
+
+  test('confirming Delete removes the selection, leaves Select mode, and Undo brings them back', () => {
+    put('milk');
+    put('eggs');
+    put('bread');
+    jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation((_options, callback) => callback(0));
+    render();
+    act(() => row('milk').props.onSelect());
+    act(() => row('eggs').props.onToggle());
+    act(() => pressable('Delete 2 items').props.onPress());
+    expect(rowNames()).toEqual(['bread']);
+    expect(row('bread').props.selected).toBeUndefined();
+    expect(text()).toContain('Deleted 2 items');
+    tapToast('Undo');
+    expect(rowNames().sort()).toEqual(['bread', 'eggs', 'milk']);
   });
 
   test('coming back from Add to recipe leaves Select mode, shows By recipe and the toast', () => {
@@ -2302,13 +2356,15 @@ describe('since you looked (spec 4.1)', () => {
     }
   });
 
-  test("two members, and another member's Combine into my item", async () => {
+  test("two members, and another member's Combine into my item: what they added, not NEW", async () => {
     put('bread');
     addAs('eggs', ALEX, 60);
     addAs('bread', SAM, 50);
     render();
     await settle();
-    expect(newRows().sort()).toEqual(['bread', 'eggs']);
+    expect(newRows()).toEqual(['eggs']);
+    expect(row('bread').props.added).toBe('1');
+    expect(row('eggs').props.added).toBeUndefined();
     expect(all('View').filter((n) => typeof n.props.testID === 'string' && n.props.testID.startsWith('news-avatar-'))).toHaveLength(0);
   });
 
@@ -2484,14 +2540,31 @@ describe('a row that arrives while you look (spec 4.1)', () => {
     expect(leftovers()).toHaveLength(0);
   });
 
-  test("another member's Combine into an item makes it NEW, without growing", () => {
+  test("another member's Combine into an item shows what they added, without growing", () => {
     put('milk');
     render();
     const more = addAs('2 milk', SAM);
     expect(more.kind).toBe('combine');
     refresh();
-    expect(row('milk').props.isNew).toBe(true);
+    expect(row('milk').props.isNew).toBe(false);
+    expect(row('milk').props.added).toBe('2');
     expect(row('milk').props.grow).toBe(false);
+    // Another while you look: their adds this visit, summed.
+    addAs('milk', ALEX);
+    refresh();
+    expect(row('milk').props.added).toBe('3');
+  });
+
+  test('a Combine into a row that arrived NEW this visit keeps it NEW', () => {
+    render();
+    addAs('eggs', ALEX);
+    refresh();
+    expect(cued()).toEqual(['eggs']);
+    addAs('6 eggs', SAM);
+    refresh();
+    expect(cued()).toEqual(['eggs']);
+    expect(row('eggs').props.added).toBeUndefined();
+    expect(row('eggs').props.grow).toBe(true);
   });
 
   test('my own add that merges keeps its merge tint; an arrival gets none', () => {

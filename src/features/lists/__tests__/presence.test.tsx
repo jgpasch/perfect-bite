@@ -16,6 +16,8 @@ import {
   othersAdding,
   presenceTopic,
   PRESENCE_THROTTLE_MS,
+  REOPEN_FIRST_MS,
+  REOPEN_MAX_MS,
   useAddingTail,
   useListPresence,
 } from '../presence';
@@ -215,6 +217,67 @@ describe('joinListPresence', () => {
     ]);
   });
 
+  test('cut off, it reports no one adding until presence syncs again', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const seen: string[][] = [];
+    joinListPresence(LIST, ME, false, (ids) => seen.push(ids));
+    const ch = only();
+    setChannelStatus('SUBSCRIBED', ch);
+    setPresence(ch, { alex: [{ user_id: ALEX, adding: true }] });
+    setChannelStatus('CHANNEL_ERROR', ch);
+    expect(seen).toEqual([[ALEX], []]);
+    warn.mockRestore();
+    setChannelStatus('SUBSCRIBED', ch);
+    setPresence(ch, { alex: [{ user_id: ALEX, adding: false }] });
+    expect(seen).toEqual([[ALEX], [], []]);
+  });
+
+  /** The server closing a channel, which (as in Realtime) takes it off the client's list. */
+  const serverCloses = (ch: FakeChannel) => {
+    ch.removed = true;
+    ch.onStatus?.('CLOSED');
+  };
+
+  test('closed by the server, it reopens after a second, doubling the wait each time', () => {
+    joinListPresence(LIST, ME, true, () => {});
+    serverCloses(only());
+    jest.advanceTimersByTime(REOPEN_FIRST_MS - 1);
+    expect(realtimeChannels).toHaveLength(1);
+    jest.advanceTimersByTime(1);
+    expect(realtimeChannels).toHaveLength(2);
+    serverCloses(only());
+    jest.advanceTimersByTime(REOPEN_FIRST_MS * 2 - 1);
+    expect(realtimeChannels).toHaveLength(2);
+    jest.advanceTimersByTime(1);
+    expect(realtimeChannels).toHaveLength(3);
+    // Tracks on the new channel once joined.
+    const ch = only();
+    setChannelStatus('SUBSCRIBED', ch);
+    expect(ch.tracked).toEqual([{ user_id: ME, adding: true }]);
+  });
+
+  test('the wait never passes the cap, and starts over once joined', () => {
+    joinListPresence(LIST, ME, false, () => {});
+    for (let i = 0; i < 10; i++) {
+      serverCloses(only());
+      jest.advanceTimersByTime(REOPEN_MAX_MS);
+    }
+    expect(openChannels()).toHaveLength(1);
+    setChannelStatus('SUBSCRIBED', only());
+    const before = realtimeChannels.length;
+    serverCloses(only());
+    jest.advanceTimersByTime(REOPEN_FIRST_MS);
+    expect(realtimeChannels).toHaveLength(before + 1);
+  });
+
+  test('leaving while waiting to reopen never reopens', () => {
+    const session = joinListPresence(LIST, ME, false, () => {});
+    serverCloses(only());
+    session.leave();
+    jest.advanceTimersByTime(REOPEN_MAX_MS);
+    expect(realtimeChannels).toHaveLength(1);
+  });
+
   test('reports the other members adding on each sync, not me', () => {
     const seen: string[][] = [];
     joinListPresence(LIST, ME, false, (ids) => seen.push(ids));
@@ -361,6 +424,19 @@ describe('useListPresence', () => {
     render({ watching: false });
     expect(ch.removed).toBe(true);
     expect(openChannels()).toEqual([]);
+    expect(presenceRef.current).toEqual([]);
+  });
+
+  test('the pill clears when the channel drops while someone is adding', () => {
+    render({});
+    const ch = openChannels()[0];
+    act(() => setChannelStatus('SUBSCRIBED', ch));
+    act(() => setPresence(ch, { alex: [{ user_id: ALEX, adding: true }] }));
+    expect(presenceRef.current).toEqual([ALEX]);
+    act(() => {
+      ch.removed = true;
+      ch.onStatus?.('CLOSED');
+    });
     expect(presenceRef.current).toEqual([]);
   });
 

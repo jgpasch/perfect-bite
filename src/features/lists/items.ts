@@ -156,7 +156,7 @@ export function itemTotal(
 }
 
 /** False for a recipe link with no quantity, which records the recipe, not an amount. */
-function countsInTotal(c: Amount & { source: string }): boolean {
+export function countsInTotal(c: Amount & { source: string }): boolean {
   return !(c.source === 'recipe' && c.quantity === null);
 }
 
@@ -531,7 +531,18 @@ export function clearChecked(listId: string): ClearedItems {
 }
 
 /**
- * The clear toast's "Undo": puts back the items `clearChecked` deleted at `deletedAt`, checked as
+ * Select mode's Delete (spec 4.5): deletes the chosen items still on the list, all at one time, like
+ * `clearChecked`, so `restoreItems` brings them back whole.
+ */
+export function deleteItems(ids: readonly string[]): ClearedItems {
+  const deletedAt = new Date();
+  if (ids.length === 0) return { ids: [], deletedAt };
+  const where = and(inArray(listItems.id, [...ids]), liveItem);
+  return { ids: updateRows(db, listItems, where, { deletedAt }).map((r) => r.id), deletedAt };
+}
+
+/**
+ * The clear toast's "Undo": puts back the items `clearChecked` (or `deleteItems`) deleted at `deletedAt`, checked as
  * they were, with their amounts. An item whose deletion has changed since (deleted again on another
  * device, or gone from this one) stays deleted, and one already back is left alone. Returns how
  * many came back.

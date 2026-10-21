@@ -8,6 +8,7 @@ import {
   RetryError,
   type LanguageModel,
   type LanguageModelUsage,
+  type ProviderMetadata,
 } from 'ai';
 import type { z } from 'zod';
 
@@ -48,6 +49,10 @@ export type AiCallRecord = {
   output: unknown;
   response_text: string | null;
   finish_reason: string | null;
+  /** The provider's own finish reason (Gemini's `RECITATION`, Anthropic's `refusal`); null on image rows. */
+  raw_finish_reason: string | null;
+  /** A failed attempt's block details: per provider, safetyRatings, promptFeedback, finishMessage. Null otherwise. */
+  provider_metadata: Record<string, Record<string, unknown>> | null;
   input_tokens: number | null;
   output_tokens: number | null;
   cached_input_tokens: number | null;
@@ -140,6 +145,20 @@ function usageColumns(usage: LanguageModelUsage | undefined) {
   };
 }
 
+const BLOCK_DETAIL_KEYS = ['safetyRatings', 'promptFeedback', 'finishMessage'];
+
+/** The parts of a step's provider metadata that say why it was blocked, or null if there are none. */
+function blockDetails(metadata: ProviderMetadata | undefined): AiCallRecord['provider_metadata'] {
+  const details: Record<string, Record<string, unknown>> = {};
+  for (const [provider, fields] of Object.entries(metadata ?? {})) {
+    const kept = Object.fromEntries(
+      BLOCK_DETAIL_KEYS.filter((key) => fields[key] != null && !(Array.isArray(fields[key]) && fields[key].length === 0)).map((key) => [key, fields[key]]),
+    );
+    if (Object.keys(kept).length > 0) details[provider] = kept;
+  }
+  return Object.keys(details).length > 0 ? details : null;
+}
+
 /** The HTTP-level error inside `err`, if any, for its request and response bodies. */
 function apiCallError(err: unknown): APICallError | null {
   if (APICallError.isInstance(err)) return err;
@@ -207,6 +226,8 @@ export async function runAiTask<N extends AiTaskName>(
       max_output_tokens: task.maxOutputTokens(input.itemCount),
       timeout_ms: task.timeoutMs,
     };
+    // The SDK's own NoObjectGeneratedError (unparseable output) carries neither, so keep the step's.
+    const step: { rawFinishReason?: string; providerMetadata?: ProviderMetadata } = {};
     let result;
     try {
       result = await generateText({
@@ -232,6 +253,10 @@ export async function runAiTask<N extends AiTaskName>(
         abortSignal: AbortSignal.timeout(settings.timeout_ms),
         // At most one retry within an attempt. Schema-invalid output is not retried.
         maxRetries: 1,
+        onStepEnd: (end) => {
+          step.rawFinishReason = end.rawFinishReason;
+          step.providerMetadata = end.providerMetadata;
+        },
         include: { requestBody: traceListener !== null, responseBody: traceListener !== null },
       });
       // An empty answer (a safety block, say) has no output, and reading it throws
@@ -257,6 +282,8 @@ export async function runAiTask<N extends AiTaskName>(
         output: null,
         response_text: invalid?.text ?? null,
         finish_reason: invalid?.finishReason ?? null,
+        raw_finish_reason: step.rawFinishReason ?? null,
+        provider_metadata: blockDetails(step.providerMetadata),
         ...usageColumns(invalid?.usage),
         duration_ms: Date.now() - started,
         error: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 2000),
@@ -291,6 +318,8 @@ export async function runAiTask<N extends AiTaskName>(
       output: result.output,
       response_text: result.text,
       finish_reason: result.finishReason,
+      raw_finish_reason: result.rawFinishReason ?? null,
+      provider_metadata: null,
       ...usageColumns(result.usage),
       duration_ms: Date.now() - started,
       error: null,

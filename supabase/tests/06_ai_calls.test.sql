@@ -1,7 +1,7 @@
 -- ai_calls: service role only, records who made each call, retention job is scheduled.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(33);
 
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
@@ -39,6 +39,9 @@ select is((select http_status from public.ai_calls where id = 'a2222222-0000-000
   'a failed call stores its HTTP status');
 select is((select error_body::jsonb -> 'error' ->> 'type' from public.ai_calls where id = 'a2222222-0000-0000-0000-0000000000a9'),
   'overloaded_error', 'and the response body');
+-- Why a provider blocked a call (spec 6.4).
+select col_type_is('public', 'ai_calls', 'raw_finish_reason', 'text', 'ai_calls has a raw_finish_reason');
+select col_type_is('public', 'ai_calls', 'provider_metadata', 'jsonb', 'ai_calls has a provider_metadata');
 select is((select user_id is null and household_id is null from public.ai_calls where id = 'a1111111-0000-0000-0000-0000000000a1'),
   true, 'a call with no caller has nulls');
 select throws_ok($$ insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, user_id)

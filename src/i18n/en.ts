@@ -83,6 +83,10 @@ export const en = {
       selected_one: '{{count}} selected',
       selected_other: '{{count}} selected',
       addToRecipe: 'Add to recipe',
+      selectAll: 'Select All',
+      deselectAll: 'Deselect All',
+      delete_one: 'Delete {{count}} item',
+      delete_other: 'Delete {{count}} items',
     },
     row: {
       checkOff: 'Check off {{name}}',
@@ -98,6 +102,12 @@ export const en = {
       badge: 'NEW',
       /** VoiceOver, after a new row's name while its badge shows. */
       rowLabel: 'new',
+      /** The change badge on an item others added to: "+1 box". */
+      added: '+{{amount}}',
+      /** VoiceOver, after a changed row's amount while its badge shows: "1 box added". */
+      addedLabel: '{{amount}} added',
+      /** VoiceOver, when what was added isn't one amount (the amount is tinted). */
+      addedSomeLabel: 'more added',
     },
     /** Rows another member adds while the list is on screen (spec 4.1). */
     arrivals: {
@@ -123,6 +133,8 @@ export const en = {
       deleted: 'Deleted {{name}}',
       cleared_one: 'Cleared {{count}} item',
       cleared_other: 'Cleared {{count}} items',
+      deletedItems_one: 'Deleted {{count}} item',
+      deletedItems_other: 'Deleted {{count}} items',
       checkedAll_one: 'Checked {{count}} item',
       checkedAll_other: 'Checked {{count}} items',
       uncheckedAll_one: 'Unchecked {{count}} item',

@@ -163,6 +163,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
         prompt: imagePrompt,
         response_text: null,
         finish_reason: null,
+        raw_finish_reason: null,
+        provider_metadata: null,
         cached_input_tokens: null,
         reasoning_tokens: null,
         duration_ms: Date.now() - imageStarted,

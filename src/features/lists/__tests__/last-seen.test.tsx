@@ -11,7 +11,15 @@ import { purgeHousehold } from '@/sync/purge';
 
 import { shoppingOnList } from '../keep-awake';
 import { addItem, deleteContribution, deleteItem, setItemChecked } from '../items';
-import { getListSeenAt, groupListNews, listNewsSince, markListSeen, SEEN_CLOCK_SKEW_MS, useListSeenMarker } from '../last-seen';
+import {
+  getListSeenAt,
+  groupListNews,
+  listNewsSince,
+  markListSeen,
+  SEEN_CLOCK_SKEW_MS,
+  useListSeenMarker,
+  type ListVisit,
+} from '../last-seen';
 import { createList, currentHouseholdId, deleteList, ensureStarterData, setListArchived } from '../lists';
 import { listSeenAtKey } from '../list-view';
 
@@ -23,6 +31,9 @@ const ALEX = 'u-alex';
 const SAM = 'u-sam';
 const mockAuth: { account: { userId: string } | null } = { account: { userId: ME } };
 jest.mock('@/features/auth/account', () => ({ getAccount: () => mockAuth.account }));
+
+const mockPullNow = jest.fn((_options?: unknown) => Promise.resolve({}));
+jest.mock('@/sync/pull', () => ({ pullNow: (options?: unknown) => mockPullNow(options) }));
 
 const mockApp: { listener: ((s: AppStateStatus) => void) | null } = { listener: null };
 const setAppState = (state: AppStateStatus) =>
@@ -242,8 +253,8 @@ describe('listNewsSince', () => {
       {
         userId: ALEX,
         items: [
-          { itemId: expect.any(String), displayName: 'limes', addedAt: minutes(20) },
-          { itemId: expect.any(String), displayName: 'eggs', addedAt: minutes(10) },
+          { itemId: expect.any(String), displayName: 'limes', addedAt: minutes(20), contributionIds: [expect.any(String)], fresh: true },
+          { itemId: expect.any(String), displayName: 'eggs', addedAt: minutes(10), contributionIds: [expect.any(String)], fresh: true },
         ],
       },
     ]);
@@ -254,14 +265,44 @@ describe('listNewsSince', () => {
     expect(await news()).toEqual([]);
   });
 
-  test('a Combine into an existing item counts, once however many contributions it has', async () => {
+  test('a Combine into an existing item counts, once however many contributions it has, and is not fresh', async () => {
     const eggs = addAs('eggs', ME, minutes(-60));
-    addAs('6 eggs', ALEX, minutes(5));
-    addAs('6 eggs', ALEX, minutes(15));
+    const first = addAs('6 eggs', ALEX, minutes(5));
+    const second = addAs('6 eggs', ALEX, minutes(15));
     const result = await news();
     expect(result).toEqual([
-      { userId: ALEX, items: [{ itemId: eggs.itemId, displayName: 'eggs', addedAt: minutes(15) }] },
+      {
+        userId: ALEX,
+        items: [
+          {
+            itemId: eggs.itemId,
+            displayName: 'eggs',
+            addedAt: minutes(15),
+            contributionIds: [second.contributionId, first.contributionId],
+            fresh: false,
+          },
+        ],
+      },
     ]);
+  });
+
+  test('an item I added since, that another member then added to, is not fresh', async () => {
+    addAs('eggs', ME, minutes(5));
+    addAs('6 eggs', ALEX, minutes(6));
+    expect((await news())[0].items[0].fresh).toBe(false);
+  });
+
+  test('a checked item another member re-adds is fresh: its old amounts are gone', async () => {
+    const eggs = addAs('eggs', ME, minutes(-60));
+    setItemChecked(eggs.itemId, true, ME);
+    addAs('6 eggs', ALEX, minutes(5));
+    expect((await news())[0].items[0]).toMatchObject({ itemId: eggs.itemId, fresh: true });
+  });
+
+  test('an item two members both added since is fresh for each', async () => {
+    addAs('eggs', ALEX, minutes(5));
+    addAs('eggs', SAM, minutes(6));
+    expect((await news()).flatMap((m) => m.items.map((i) => i.fresh))).toEqual([true, true]);
   });
 
   test('2 minutes of clock skew: counted from since - 2 min, not before', async () => {
@@ -301,7 +342,12 @@ describe('listNewsSince', () => {
     expect(await news()).toEqual([]);
     // Alex's own Combine onto it later does.
     addAs('limes', ALEX, minutes(8));
-    expect(await news()).toEqual([{ userId: ALEX, items: [{ itemId: limes.itemId, displayName: 'limes', addedAt: minutes(8) }] }]);
+    expect(await news()).toEqual([
+      {
+        userId: ALEX,
+        items: [{ itemId: limes.itemId, displayName: 'limes', addedAt: minutes(8), contributionIds: [expect.any(String)], fresh: false }],
+      },
+    ]);
   });
 
   test("Siri on another member's account counts", async () => {
@@ -350,19 +396,81 @@ describe('listNewsSince', () => {
 describe('groupListNews', () => {
   test('equal counts: the member who added most recently comes first', () => {
     const rows = [
-      { itemId: 'a', displayName: 'eggs', userId: ALEX, addedAt: minutes(1) },
-      { itemId: 'b', displayName: 'limes', userId: SAM, addedAt: minutes(2) },
-      { itemId: 'c', displayName: 'corn', userId: null, addedAt: minutes(3) },
+      { itemId: 'a', contributionId: 'a1', displayName: 'eggs', userId: ALEX, addedAt: minutes(1) },
+      { itemId: 'b', contributionId: 'b1', displayName: 'limes', userId: SAM, addedAt: minutes(2) },
+      { itemId: 'c', contributionId: 'c1', displayName: 'corn', userId: null, addedAt: minutes(3) },
     ];
     expect(groupListNews(rows).map((m) => m.userId)).toEqual([SAM, ALEX]);
   });
 
-  test('an item keeps its latest add, whatever order the rows come in', () => {
+  test('an item keeps its latest add, whatever order the rows come in, and every contribution', () => {
     const rows = [
-      { itemId: 'a', displayName: 'eggs', userId: ALEX, addedAt: minutes(1) },
-      { itemId: 'a', displayName: 'eggs', userId: ALEX, addedAt: minutes(9) },
-      { itemId: 'a', displayName: 'eggs', userId: ALEX, addedAt: minutes(4) },
+      { itemId: 'a', contributionId: 'a1', displayName: 'eggs', userId: ALEX, addedAt: minutes(1) },
+      { itemId: 'a', contributionId: 'a2', displayName: 'eggs', userId: ALEX, addedAt: minutes(9) },
+      { itemId: 'a', contributionId: 'a3', displayName: 'eggs', userId: ALEX, addedAt: minutes(4) },
     ];
-    expect(groupListNews(rows)).toEqual([{ userId: ALEX, items: [{ itemId: 'a', displayName: 'eggs', addedAt: minutes(9) }] }]);
+    expect(groupListNews(rows)).toEqual([
+      {
+        userId: ALEX,
+        items: [{ itemId: 'a', displayName: 'eggs', addedAt: minutes(9), contributionIds: ['a1', 'a2', 'a3'], fresh: true }],
+      },
+    ]);
+  });
+
+  test('an item already there is not fresh', () => {
+    const rows = [{ itemId: 'a', contributionId: 'a1', displayName: 'eggs', userId: ALEX, addedAt: minutes(1) }];
+    expect(groupListNews(rows, new Set(['a']))[0].items[0].fresh).toBe(false);
+  });
+});
+
+describe('the visit', () => {
+  let tree: ReactTestRenderer | null = null;
+  let visit: ListVisit | null = null;
+
+  function Probe({ id }: { id: string }) {
+    visit = useListSeenMarker(id, true);
+    return null;
+  }
+
+  /** Another member's add as pull writes it, with the server's `created_at`. */
+  function pulledAdd(text: string, by: string, at: Date) {
+    const result = addItem(L, text, by, 'manual')!;
+    db.update(listItemContributions).set({ createdAt: at }).where(eq(listItemContributions.id, result.contributionId)).run();
+  }
+
+  const newNames = () => visit?.news.flatMap((m) => m.items.map((i) => i.displayName)) ?? null;
+
+  beforeEach(() => {
+    visit = null;
+    mockPullNow.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+  });
+
+  test("catches the list's household up first, so adds the pull brings in after the list shows are new", async () => {
+    markListSeen(L, T0);
+    let finishPull: () => void = () => {};
+    mockPullNow.mockImplementationOnce(() => new Promise((resolve) => (finishPull = () => resolve({}))));
+
+    await act(async () => {
+      tree = create(<Probe id={L} />);
+    });
+    expect(mockPullNow).toHaveBeenCalledWith({ scope: { households: [currentHouseholdId()] } });
+    expect(visit).toBeNull();
+
+    pulledAdd('limes', ALEX, minutes(10));
+    await act(async () => finishPull());
+    expect(newNames()).toEqual(['limes']);
+  });
+
+  test('a list shown for the first time pulls nothing and has no news', async () => {
+    await act(async () => {
+      tree = create(<Probe id={L} />);
+    });
+    expect(mockPullNow).not.toHaveBeenCalled();
+    expect(visit).toBeNull();
   });
 });

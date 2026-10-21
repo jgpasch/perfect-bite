@@ -477,6 +477,25 @@ const SAFETY_BLOCKS: Record<string, Parameters<typeof answeringModel>[0]> = {
   },
   // stop_reason: 'refusal', no content.
   'Anthropic refusal': { finishReason: { unified: 'content-filter', raw: 'refusal' } },
+  // candidates: [{ finishReason: 'RECITATION' }]: the answer copied too much of its source.
+  'Gemini RECITATION finish': {
+    finishReason: { unified: 'content-filter', raw: 'RECITATION' },
+    providerMetadata: { google: { promptFeedback: null, safetyRatings: null, finishMessage: null, usageMetadata: { totalTokenCount: 10 } } },
+  },
+};
+
+// What each shape records as the provider's reason, and the block details kept from its metadata.
+const SAFETY_BLOCK_DETAILS: Record<string, [string, AiCallRecord['provider_metadata']]> = {
+  'Gemini blocked prompt': ['SAFETY', { google: { promptFeedback: { blockReason: 'SAFETY', safetyRatings: [] } } }],
+  'Gemini prohibited prompt': ['PROHIBITED_CONTENT', { google: { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } }],
+  'Gemini SAFETY finish': [
+    'SAFETY',
+    { google: { safetyRatings: [{ category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', probability: 'HIGH', blocked: true }] } },
+  ],
+  'Gemini SAFETY finish after partial text': ['SAFETY', null],
+  'Anthropic refusal': ['refusal', null],
+  // Nulls and usage aren't block details, so nothing is kept.
+  'Gemini RECITATION finish': ['RECITATION', null],
 };
 
 for (const [shape, answer] of Object.entries(SAFETY_BLOCKS)) {
@@ -486,8 +505,20 @@ for (const [shape, answer] of Object.entries(SAFETY_BLOCKS)) {
       calls.map((c) => [c.status, c.finish_reason, c.output, c.http_status]),
       [['invalid_output', 'content-filter', null, null]],
     );
+    assertEquals(calls.map((c) => [c.raw_finish_reason, c.provider_metadata]), [SAFETY_BLOCK_DETAILS[shape]]);
   });
 }
+
+Deno.test('runAiTask: an ok row keeps the raw finish reason but no provider metadata', async () => {
+  const calls = await attempts(
+    answeringModel({
+      content: [{ type: 'text', text: JSON.stringify(mockCategorize(['milk'])) }],
+      finishReason: { unified: 'stop', raw: 'STOP' },
+      providerMetadata: { google: { safetyRatings: [{ category: 'HARM_CATEGORY_HARASSMENT', probability: 'NEGLIGIBLE' }] } },
+    }),
+  );
+  assertEquals(calls.map((c) => [c.status, c.raw_finish_reason, c.provider_metadata]), [['ok', 'STOP', null]]);
+});
 
 Deno.test('runAiTask: a safety block is not an API failure, so the fallback is not tried', async () => {
   const calls: AiCallRecord[] = [];

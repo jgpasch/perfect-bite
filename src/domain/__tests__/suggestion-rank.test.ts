@@ -296,6 +296,11 @@ describe('rankRecipes (spec 4.2)', () => {
     expect(recipeNames(rankRecipes(rows, [use('tamales', 40)], HOME, 'ta', 5))).toEqual(['Tagine', 'Tacos', 'Tamales']);
   });
 
+  test('a whole-name prefix match before a word match, however recently used', () => {
+    const rows = [recipe('Fish tacos', 0), recipe('Tacos', 30)];
+    expect(recipeNames(rankRecipes(rows, [use('fish tacos', 0)], HOME, 'ta', 5))).toEqual(['Tacos', 'Fish tacos']);
+  });
+
   test('ties: prefix before word, then shorter name, then alphabetical', () => {
     const rows = [recipe('Fish tacos', 1), recipe('Tacos al pastor', 1), recipe('Tacos', 1), recipe('Tabbouleh', 1)];
     expect(recipeNames(rankRecipes(rows, [], HOME, 'ta', 5))).toEqual(['Tacos', 'Tabbouleh', 'Tacos al pastor', 'Fish tacos']);

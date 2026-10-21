@@ -81,6 +81,10 @@ export const es = {
       selected_one: '{{count}} seleccionado',
       selected_other: '{{count}} seleccionados',
       addToRecipe: 'Agregar a receta',
+      selectAll: 'Seleccionar todo',
+      deselectAll: 'Anular selección',
+      delete_one: 'Eliminar {{count}} artículo',
+      delete_other: 'Eliminar {{count}} artículos',
     },
     row: {
       checkOff: 'Marcar {{name}}',
@@ -93,6 +97,9 @@ export const es = {
     news: {
       badge: 'NUEVO',
       rowLabel: 'nuevo',
+      added: '+{{amount}}',
+      addedLabel: '{{amount}} más',
+      addedSomeLabel: 'se agregó más',
     },
     arrivals: {
       addedOne: '{{name}} agregó {{item}}',
@@ -113,6 +120,8 @@ export const es = {
       deleted: 'Se eliminó {{name}}',
       cleared_one: 'Se borró {{count}} artículo',
       cleared_other: 'Se borraron {{count}} artículos',
+      deletedItems_one: 'Se eliminó {{count}} artículo',
+      deletedItems_other: 'Se eliminaron {{count}} artículos',
       checkedAll_one: 'Se marcó {{count}} artículo',
       checkedAll_other: 'Se marcaron {{count}} artículos',
       uncheckedAll_one: 'Se desmarcó {{count}} artículo',

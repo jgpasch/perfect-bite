@@ -178,8 +178,8 @@ const squash = (text: string) => text.trim().replace(/\s+/g, ' ');
 
 /**
  * The household's recipes for autocomplete (spec 4.2): the same prefix/word rule as history, on the recipe's
- * name. Most recently used first (the later of its last change and its last add to a list), then a whole-name
- * prefix match before a word match, then the shorter name, then alphabetical. Recipes in other households and
+ * name. A whole-name prefix match before a word match, then most recently used (the later of its last change and
+ * its last add to a list), then the shorter name, then alphabetical. Recipes in other households and
  * recipes with no ingredients (nothing to add) are left out; a query under 2 characters matches nothing. The
  * result is kept apart from item suggestions, so recipes never take their slots.
  */
@@ -202,8 +202,8 @@ export function rankRecipes<T extends RecipeRow>(
     })
     .sort(
       (a, b) =>
-        b.lastUse - a.lastUse ||
         (a.kind === b.kind ? 0 : a.kind === 'prefix' ? -1 : 1) ||
+        b.lastUse - a.lastUse ||
         a.recipe.name.length - b.recipe.name.length ||
         byName(a.recipe, b.recipe),
     )

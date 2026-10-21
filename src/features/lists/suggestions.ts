@@ -40,8 +40,8 @@ export function applySuggestion(text: string, suggestion: Pick<Suggestion, 'key'
 /** A recipe chip in a list's add bar (spec 4.2): tapping it adds the whole recipe at 1×. */
 export type RecipeSuggestion = { id: string; name: string; ingredientCount: number };
 
-/** Recipe rows shown above the item suggestions while typing. */
-const RECIPE_SUGGESTION_LIMIT = 2;
+/** Recipe chips shown after the item suggestions while typing: a guard on the row's length, not a product cap. */
+const RECIPE_SUGGESTION_LIMIT = 20;
 
 function householdRecipes(householdId: string): RecipeSummary[] {
   return recipesQuery()
@@ -68,8 +68,8 @@ export type SuggestionChip =
   | { kind: 'item'; key: string; label: string; text: string; removable: boolean };
 
 /**
- * The chip row above the add bar (spec 4.2): matching recipes, then autocomplete (household history and the
- * catalog, in `getSuggestions`' order), each adding the typed amount with its name. Empty while the field is empty (whitespace counts) and when
+ * The chip row above the add bar (spec 4.2): autocomplete (household history and the catalog, in `getSuggestions`'
+ * order), each adding the typed amount with its name, then matching recipes. Empty while the field is empty (whitespace counts) and when
  * nothing matches, so the row collapses.
  */
 export function suggestionChips(
@@ -78,7 +78,6 @@ export function suggestionChips(
 ): SuggestionChip[] {
   if (!text.trim()) return [];
   return [
-    ...sources.recipes.map((r): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r })),
     ...sources.suggestions.map(
       (s): SuggestionChip => ({
         kind: 'item',
@@ -88,5 +87,6 @@ export function suggestionChips(
         removable: s.source === 'history',
       }),
     ),
+    ...sources.recipes.map((r): SuggestionChip => ({ kind: 'recipe', key: `recipe-${r.id}`, recipe: r })),
   ];
 }

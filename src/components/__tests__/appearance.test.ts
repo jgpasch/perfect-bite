@@ -316,8 +316,13 @@ describe('badgeColors', () => {
     expect(badgeColors('danger', Palette.dark, AisleColors.dark)).toEqual({ fill: Palette.dark.dangerSoft, text: Palette.dark.danger });
   });
 
+  it.each(SCHEMES)('keeps the NEW badge apart from every aisle row tint in %s mode', (scheme) => {
+    const { fill } = badgeColors('new', Palette[scheme], AisleColors[scheme]);
+    for (const hue of Object.values(AisleColors[scheme])) expect(fill).not.toBe(hue.soft);
+  });
+
   it.each(SCHEMES)('keeps every tone at 4.5:1 or better in %s mode', (scheme) => {
-    for (const tone of ['positive', 'owner', 'pending', 'danger'] as const) {
+    for (const tone of ['positive', 'new', 'owner', 'pending', 'danger'] as const) {
       const { fill, text } = badgeColors(tone, Palette[scheme], AisleColors[scheme]);
       expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(4.5);
     }

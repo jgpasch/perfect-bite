@@ -98,6 +98,7 @@ async function CallDetail({ params }: { params: Params }) {
           <Fact label="Flag">{call.flag === null ? null : flagLabel(call.flag)}</Fact>
           <Fact label="HTTP status">{call.http_status}</Fact>
           <Fact label="Finish reason" mono>{call.finish_reason}</Fact>
+          <Fact label="Provider's reason" mono>{call.raw_finish_reason}</Fact>
           <Fact label="Duration">{durationText(call.duration_ms)}</Fact>
           <Fact label="Tokens">{tokensText(call)}</Fact>
         </dl>
@@ -133,6 +134,12 @@ async function CallDetail({ params }: { params: Params }) {
         <Pre>{prettyBody(call.response_text)}</Pre>
         <h3 className="mt-4 mb-1 text-[15px] text-ink">Error body</h3>
         <Pre>{prettyBody(call.error_body)}</Pre>
+        {call.provider_metadata && (
+          <>
+            <h3 className="mt-4 mb-1 text-[15px] text-ink">Block details</h3>
+            <Pre>{JSON.stringify(call.provider_metadata, null, 2)}</Pre>
+          </>
+        )}
       </Card>
 
       {(call.primary || call.fallback) && (

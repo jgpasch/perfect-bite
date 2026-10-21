@@ -178,7 +178,7 @@ describe('ItemAddBar', () => {
     expect(chipLabels()).toContain('Add Oat milk');
   });
 
-  test('with onAddRecipe, matching recipes come first and tapping one adds the recipe', () => {
+  test('with onAddRecipe, matching recipes come after the items and tapping one adds the recipe', () => {
     const recipeId = createRecipe('Tacos', householdId);
     addRecipeIngredient(recipeId, 'tortillas');
     addRecipeIngredient(recipeId, 'limes');
@@ -187,8 +187,8 @@ describe('ItemAddBar', () => {
     const props = renderBar({ onAddRecipe });
     type('ta');
     const labels = chipLabels();
-    expect(labels[0]).toBe('Add recipe Tacos, 2 items');
-    expect(labels).toContain('Add Tahini');
+    expect(labels[0]).toBe('Add Tahini');
+    expect(labels.at(-1)).toBe('Add recipe Tacos, 2 items');
     act(() => byLabel('Add recipe Tacos, 2 items').props.onClick());
     expect(onAddRecipe).toHaveBeenCalledWith({ id: recipeId, name: 'Tacos', ingredientCount: 2 });
     expect(props.onAdd).not.toHaveBeenCalled();
@@ -229,7 +229,7 @@ describe('ItemAddBar', () => {
       expect(chipLabels()).toEqual([]);
     });
 
-    test('typing shows recipe, history and catalog chips; clearing the text removes the row', () => {
+    test('typing shows history, catalog and recipe chips; clearing the text removes the row', () => {
       seedCatalog();
       buyTwice('milk');
       addRecipeIngredient(createRecipe('Milk punch', householdId), 'milk');
@@ -238,8 +238,8 @@ describe('ItemAddBar', () => {
       type('mil');
       expect(rows()).toHaveLength(1);
       expect(byLabel('Suggestions')).toBeDefined();
-      expect(chipLabels()[0]).toBe('Add recipe Milk punch, 1 item');
-      expect(chipLabels()).toContain('Add Milk');
+      expect(chipLabels()[0]).toBe('Add Milk');
+      expect(chipLabels().at(-1)).toBe('Add recipe Milk punch, 1 item');
       type('bana');
       expect(chipLabels()).toContain('Add Bananas');
       type('');

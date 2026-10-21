@@ -503,8 +503,9 @@ export function withLingering<I extends { id: string; checkedAt: Date | null }>(
 }
 
 /**
- * What VoiceOver reads for an item row: name, "new", "has a photo" (spec 4.4), amount, note and hint, then its aisle (As added shows it
- * as a dot) or, for an item still waiting for an aisle, the Sorting section's label.
+ * What VoiceOver reads for an item row: name, "new", "has a photo" (spec 4.4), amount, what others added to it ("1 box
+ * added", spec 4.1), note and hint, then its aisle (As added shows it as a dot) or, for an item still waiting for an
+ * aisle, the Sorting section's label.
  */
 export function itemRowLabel(
   parts: {
@@ -512,6 +513,7 @@ export function itemRowLabel(
     news?: string;
     photo?: string;
     amountText?: string;
+    added?: string;
     note?: string | null;
     hint?: string;
     aisle?: string;
@@ -523,6 +525,7 @@ export function itemRowLabel(
     parts.news,
     parts.photo,
     parts.amountText,
+    parts.added,
     parts.note,
     parts.hint,
     sorting ? sectionAccessibilityLabel(SORTING_CATEGORY) : parts.aisle,
@@ -581,6 +584,11 @@ export function deletedToast(storedName: string): { message: string; emphasis: s
 /** The toast after Clear checked items (spec 4.6): "Cleared 3 items", with Undo. */
 export function clearedToast(count: number): { message: string } {
   return { message: i18n.t('lists.toasts.cleared', { count }) };
+}
+
+/** The toast after Select mode's Delete (spec 4.5): "Deleted 3 items", with Undo. */
+export function deletedItemsToast(count: number): { message: string } {
+  return { message: i18n.t('lists.toasts.deletedItems', { count }) };
 }
 
 /** The toast after a section's Check all (spec 4.6): "Checked 3 items", with Undo. */

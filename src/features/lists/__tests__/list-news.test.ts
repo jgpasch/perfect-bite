@@ -1,10 +1,13 @@
-// NEW rows (spec 4.1): which rows are new on open, when a row is in sight, and each badge's 10 s clock.
+// NEW rows (spec 4.1): which rows have news on open, what their badge shows, when a row is in sight, and each badge's 10 s clock.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
+import type { Unit } from '@/shared';
+
+import type { ItemContribution } from '../items';
 import type { MemberNews } from '../last-seen';
-import { inSight, newItemIds, useNewBadgeClocks } from '../list-news';
+import { inSight, mergeRowNews, newsByItem, rowBadge, useNewBadgeClocks } from '../list-news';
 
 jest.mock('@/global.css', () => ({}));
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -13,24 +16,87 @@ jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'me' 
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 16, 12, 0) - min * 60_000);
 
-describe('newItemIds', () => {
-  test('each item once, though two members added to it', () => {
-    const news: MemberNews[] = [
-      {
-        userId: 'alex',
-        items: [
-          { itemId: 'eggs', displayName: 'eggs', addedAt: at(1) },
-          { itemId: 'limes', displayName: 'limes', addedAt: at(30) },
-        ],
-      },
-      { userId: 'sam', items: [{ itemId: 'limes', displayName: 'limes', addedAt: at(10) }] },
+describe('newsByItem', () => {
+  const news = (itemId: string, contributionIds: string[], fresh: boolean, min = 1) => ({
+    itemId,
+    displayName: itemId,
+    addedAt: at(min),
+    contributionIds,
+    fresh,
+  });
+
+  test('each item once, though two members added to it, with all their adds', () => {
+    const members: MemberNews[] = [
+      { userId: 'alex', items: [news('eggs', ['e1'], true), news('limes', ['l1'], false, 30)] },
+      { userId: 'sam', items: [news('limes', ['l2'], false, 10)] },
     ];
-    expect([...newItemIds(news)].sort()).toEqual(['eggs', 'limes']);
+    const byItem = newsByItem(members);
+    expect([...byItem.keys()].sort()).toEqual(['eggs', 'limes']);
+    expect(byItem.get('limes')).toEqual({ fresh: false, added: new Set(['l1', 'l2']) });
+    expect(byItem.get('eggs')).toEqual({ fresh: true, added: new Set(['e1']) });
   });
 
   test('nothing new is no rows', () => {
-    expect(newItemIds([]).size).toBe(0);
-    expect(newItemIds([{ userId: 'alex', items: [] }]).size).toBe(0);
+    expect(newsByItem([]).size).toBe(0);
+    expect(newsByItem([{ userId: 'alex', items: [] }]).size).toBe(0);
+  });
+});
+
+describe('mergeRowNews', () => {
+  test('fresh if either is; every add', () => {
+    expect(mergeRowNews({ fresh: true, added: new Set(['a']) }, { fresh: false, added: new Set(['b']) })).toEqual({
+      fresh: true,
+      added: new Set(['a', 'b']),
+    });
+    expect(mergeRowNews(undefined, { fresh: false, added: new Set(['b']) })).toEqual({ fresh: false, added: new Set(['b']) });
+    expect(mergeRowNews(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('rowBadge', () => {
+  const c = (id: string, quantity: number | null, unit: Unit | null, over: Partial<ItemContribution> = {}): ItemContribution => ({
+    id,
+    quantity,
+    unit,
+    source: 'manual',
+    recipeId: null,
+    recipeName: null,
+    createdAt: at(1),
+    addedBy: 'alex',
+    ...over,
+  });
+  const added = (...ids: string[]) => ({ fresh: false, added: new Set(ids) });
+
+  test('a fresh item is NEW', () => {
+    expect(rowBadge({ fresh: true, added: new Set(['a']) }, [c('a', 1, 'box')], null)).toEqual({ kind: 'new' });
+  });
+
+  test("what others added to an item that was there, as one amount", () => {
+    const pads = [c('old', 1, 'box'), c('new', 1, 'box')];
+    expect(rowBadge(added('new'), pads, null)).toEqual({ kind: 'added', amount: '1 box' });
+    // 8 oz onto 2 lb reads as it was added.
+    expect(rowBadge(added('oz'), [c('lb', 2, 'lb'), c('oz', 8, 'oz')], null)).toEqual({ kind: 'added', amount: '8 oz' });
+    // Two adds since: summed.
+    expect(rowBadge(added('a', 'b'), [c('x', 1, 'lb'), c('a', 1, 'lb'), c('b', 1, 'lb')], null)).toEqual({ kind: 'added', amount: '2 lb' });
+  });
+
+  test('an add with no amount is one of the usual unit, or a plain one', () => {
+    const milk = [c('old', 1, 'gal'), c('new', null, null)];
+    expect(rowBadge(added('new'), milk, 'gal')).toEqual({ kind: 'added', amount: '1 gal' });
+    expect(rowBadge(added('new'), milk, null)).toEqual({ kind: 'added', amount: '1' });
+  });
+
+  test("adds that aren't one amount: tint the amount instead", () => {
+    expect(rowBadge(added('a', 'b'), [c('x', 3, 'cup'), c('a', 1, 'cup'), c('b', 1, 'tsp')], null)).toEqual({
+      kind: 'added',
+      amount: '',
+    });
+  });
+
+  test('a recipe link with no quantity, or none of the adds on this row, shows nothing', () => {
+    const link = c('link', null, null, { source: 'recipe', recipeId: 'tacos', recipeName: 'Tacos' });
+    expect(rowBadge(added('link'), [c('old', 1, 'box'), link], null)).toBeNull();
+    expect(rowBadge(added('elsewhere'), [c('old', 1, 'box')], null)).toBeNull();
   });
 });
 

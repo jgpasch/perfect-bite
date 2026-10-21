@@ -321,15 +321,15 @@ describe('recipes in the add bar (spec 4.2)', () => {
     expect(getRecipeSuggestions(householdId, 'tacos')).toEqual([]);
   });
 
-  test('up to 2 recipe rows by default, most recently used first', () => {
+  test('every match by default, most recently used first; a limit caps them', () => {
     jest.useFakeTimers({ now: new Date(NOW.getTime() - 3 * MINUTE) });
     recipeWith('Tacos', ['8 tortillas']);
     jest.setSystemTime(new Date(NOW.getTime() - 2 * MINUTE));
     recipeWith('Tagine', ['1 lamb shoulder']);
     jest.setSystemTime(new Date(NOW.getTime() - MINUTE));
     recipeWith('Tamales', ['masa']);
-    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toEqual(['Tamales', 'Tagine']);
-    expect(getRecipeSuggestions(householdId, 'ta', 5).map((r) => r.name)).toEqual(['Tamales', 'Tagine', 'Tacos']);
+    expect(getRecipeSuggestions(householdId, 'ta').map((r) => r.name)).toEqual(['Tamales', 'Tagine', 'Tacos']);
+    expect(getRecipeSuggestions(householdId, 'ta', 2).map((r) => r.name)).toEqual(['Tamales', 'Tagine']);
   });
 
   test("recipes don't push item suggestions out", () => {
@@ -367,11 +367,11 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
     ],
   };
 
-  test('while typing: matching recipes, then history, then catalog, keeping the typed amount', () => {
+  test('while typing: history, then catalog, keeping the typed amount, then matching recipes', () => {
     expect(suggestionChips('2 lbs chi', sources)).toEqual([
-      { kind: 'recipe', key: 'recipe-r1', recipe: sources.recipes[0] },
       { kind: 'item', key: 'chicken thigh', label: 'Chicken thighs', text: '2 lbs Chicken thighs', removable: true },
       { kind: 'item', key: 'chickpea', label: 'Chickpeas', text: '2 lbs Chickpeas', removable: false },
+      { kind: 'recipe', key: 'recipe-r1', recipe: sources.recipes[0] },
     ]);
   });
 
@@ -401,9 +401,9 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
     const chips = (text: string) =>
       suggestionChips(text, { recipes: getRecipeSuggestions(householdId, text), suggestions: getSuggestions(householdId, text) });
     expect(chips('chi').map((c) => (c.kind === 'recipe' ? c.recipe.name : c.label))).toEqual([
-      'Chili night',
       'Chicken thighs',
       'Chicken breasts',
+      'Chili night',
     ]);
     expect(chips('')).toEqual([]);
   });
@@ -439,13 +439,11 @@ describe('suggestionChips (spec 4.2, add mode chip row)', () => {
         suggestionChips(text, { recipes: getRecipeSuggestions(householdId, text), suggestions: getSuggestions(householdId, text) });
       expect(chips('')).toEqual([]);
       expect(chips('  ')).toEqual([]);
-      // One history match, so the catalog fills the rest.
+      // One history match, so the catalog fills the rest; the recipe comes last.
       const typed = chips('mil');
-      expect(typed.map((c) => (c.kind === 'recipe' ? `recipe ${c.recipe.name}` : c.label)).slice(0, 2)).toEqual([
-        'recipe Milk punch',
-        'Milk',
-      ]);
-      expect(typed.slice(2).map((c) => c.kind === 'item' && c.removable)).toEqual([false, false, false, false]);
+      expect(typed[0]).toMatchObject({ kind: 'item', label: 'Milk', removable: true });
+      expect(typed.slice(1, -1).map((c) => c.kind === 'item' && c.removable)).toEqual([false, false, false, false]);
+      expect(typed.at(-1)).toMatchObject({ kind: 'recipe', recipe: { name: 'Milk punch' } });
     });
   });
 });

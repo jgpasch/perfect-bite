@@ -44,6 +44,8 @@ export const Palette = {
     onPrimary: '#FFFFFF',
     primarySoft: '#DDEFE2',
     onPrimarySoft: '#1F5233',
+    /** The NEW badge: a step past `primarySoft`, so it shows on a green aisle's row tint. */
+    newBadge: '#C3E3CC',
     danger: '#A33D53',
     dangerSoft: '#F7E1E6',
     /** "Sorting…": items waiting for an aisle. */
@@ -74,6 +76,7 @@ export const Palette = {
     onPrimary: '#0E1F14',
     primarySoft: '#1E3A28',
     onPrimarySoft: '#B7E4C5',
+    newBadge: '#2E5A3D',
     danger: '#F08B9F',
     dangerSoft: '#3B1E26',
     pending: '#E8B65A',

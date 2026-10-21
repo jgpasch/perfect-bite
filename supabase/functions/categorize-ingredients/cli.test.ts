@@ -514,6 +514,8 @@ const call = (over: Partial<AiCallRecord>): AiCallRecord => ({
   output: null,
   response_text: null,
   finish_reason: null,
+  raw_finish_reason: null,
+  provider_metadata: null,
   input_tokens: 10,
   output_tokens: 5,
   cached_input_tokens: null,

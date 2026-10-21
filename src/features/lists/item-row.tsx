@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
 
-import { itemNameColor, type CategoryColors } from '@/components/appearance';
+import { badgeColors, itemNameColor, type CategoryColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
@@ -49,6 +49,12 @@ type Props = {
    * (at once under Reduce Motion).
    */
   isNew?: boolean;
+  /**
+   * Another member added to an item already on the list (spec 4.1): what they added, `1 box`, shown as a
+   * "+1 box" badge before the amount; `''` when it isn't one amount, so the amount is tinted instead.
+   * Fades like the NEW badge.
+   */
+  added?: string;
   /**
    * Another member's add arrived while the list was on screen, new to the list to get (spec 4.1): the row
    * grows into place as it mounts, or just appears under Reduce Motion.
@@ -97,6 +103,7 @@ export function ItemRow({
   amountText = item.amountText,
   hint,
   isNew = false,
+  added,
   grow = false,
   newRef,
   onNewLayout,
@@ -109,7 +116,7 @@ export function ItemRow({
   reorderable = false,
   moves = [],
 }: Props) {
-  const { colors, spacing, sizes, opacity } = useTheme();
+  const { colors, aisles, spacing, sizes, opacity, rounded } = useTheme();
   const t = useT();
   const { entering, exiting, layout, reduceMotion } = useMotion();
   const swipeable = useRef<SwipeableMethods>(null);
@@ -126,6 +133,7 @@ export function ItemRow({
         news: isNew ? t('lists.news.rowLabel') : undefined,
         photo: item.photoPath ? t('lists.row.hasPhoto') : undefined,
         amountText,
+        added: added === undefined ? undefined : added ? t('lists.news.addedLabel', { amount: added }) : t('lists.news.addedSomeLabel'),
         note: item.note,
         hint,
         aisle: aisle?.name,
@@ -137,6 +145,8 @@ export function ItemRow({
     .filter(Boolean)
     .join(', ');
   const match = alreadyOnList ? alreadyOnListParts(name, alreadyOnList.query) : null;
+  const newLook = badgeColors('new', colors, aisles);
+  const tinted = added === '';
 
   const rowStyle = [
     styles.row,
@@ -180,7 +190,7 @@ export function ItemRow({
           ) : null}
           {isNew ? (
             <Animated.View testID="new-badge" exiting={reduceMotion ? undefined : exiting}>
-              <Badge label={t('lists.news.badge')} />
+              <Badge label={t('lists.news.badge')} tone="new" />
             </Animated.View>
           ) : null}
         </View>
@@ -195,9 +205,32 @@ export function ItemRow({
           {ALREADY_ON_LIST_LABEL}
         </ThemedText>
       ) : amountText ? (
-        <ThemedText variant="amount" color="inkSecondary" style={look ? { color: look.text } : undefined}>
-          {amountText}
-        </ThemedText>
+        <View style={[styles.amount, { columnGap: spacing.sm }]}>
+          {added ? (
+            <Animated.View testID="added-badge" exiting={reduceMotion ? undefined : exiting}>
+              <Badge label={t('lists.news.added', { amount: added })} tone="new" />
+            </Animated.View>
+          ) : null}
+          <View>
+            {tinted ? (
+              // What was added isn't one amount (spec 4.1): the amount itself sits on the badge's tint.
+              <Animated.View
+                testID="added-tint"
+                exiting={reduceMotion ? undefined : exiting}
+                style={[
+                  styles.tint,
+                  { backgroundColor: newLook.fill, borderRadius: rounded.badge, left: -spacing.xs, right: -spacing.xs },
+                ]}
+              />
+            ) : null}
+            <ThemedText
+              variant="amount"
+              color="inkSecondary"
+              style={tinted ? { color: newLook.text } : look ? { color: look.text } : undefined}>
+              {amountText}
+            </ThemedText>
+          </View>
+        </View>
       ) : null}
       {sorting && !checked ? (
         <ThemedText variant="sectionLabel" color="pending">
@@ -309,6 +342,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   text: { flex: 1 },
   nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  amount: { flexDirection: 'row', alignItems: 'center' },
+  tint: { position: 'absolute', top: 0, bottom: 0, borderCurve: 'continuous' },
   checked: { textDecorationLine: 'line-through' },
   action: { flex: 1, justifyContent: 'center' },
   leading: { alignItems: 'flex-start' },

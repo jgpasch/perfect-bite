@@ -260,6 +260,8 @@ Deno.test('a generated photo logs the description row and an ok image row linked
       output: { quality: 'medium', path: IMAGE_PATH },
       response_text: null,
       finish_reason: null,
+      raw_finish_reason: null,
+      provider_metadata: null,
       input_tokens: 60,
       output_tokens: 1584,
       cached_input_tokens: null,

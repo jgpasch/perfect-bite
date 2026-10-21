@@ -257,6 +257,10 @@ export type AdminAiCall = Omit<AdminAiCallRow, "recovered"> & {
   output: unknown;
   response_text: string | null;
   error_body: string | null;
+  /** The provider's own finish reason, e.g. Gemini's `RECITATION`; null on image rows and older rows. */
+  raw_finish_reason: string | null;
+  /** A failed call's block details per provider (safetyRatings, promptFeedback, finishMessage); null otherwise. */
+  provider_metadata: Record<string, Record<string, unknown>> | null;
   input_tokens: number | null;
   output_tokens: number | null;
   cached_input_tokens: number | null;

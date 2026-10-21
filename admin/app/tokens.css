@@ -24,6 +24,7 @@
   --on-primary: #FFFFFF;
   --primary-soft: #DDEFE2;
   --on-primary-soft: #1F5233;
+  --new-badge: #C3E3CC;
   --danger: #A33D53;
   --danger-soft: #F7E1E6;
   --pending: #8A5C0C;
@@ -83,6 +84,7 @@
     --on-primary: #0E1F14;
     --primary-soft: #1E3A28;
     --on-primary-soft: #B7E4C5;
+    --new-badge: #2E5A3D;
     --danger: #F08B9F;
     --danger-soft: #3B1E26;
     --pending: #E8B65A;

@@ -1,6 +1,6 @@
 // Last seen per list (spec 4.1): when this device last had a list on screen, and what the rest of
-// the household added to it since, for the rows marked NEW.
-import { and, desc, eq, gt, isNotNull, isNull, ne } from 'drizzle-orm';
+// the household added to it since, for the rows marked NEW (or "+1 box").
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, notInArray } from 'drizzle-orm';
 import { useEffect, useState } from 'react';
 
 import { db, listItemContributions, listItems, lists } from '@/db';
@@ -8,6 +8,7 @@ import { getAccount } from '@/features/auth/account';
 import { useForeground } from '@/features/lists/keep-awake';
 import { listSeenAtKey } from '@/features/lists/list-view';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { pullNow } from '@/sync/pull';
 
 /** Server and device clocks can disagree by this much; news counts from this long before the marker. */
 export const SEEN_CLOCK_SKEW_MS = 2 * 60 * 1000;
@@ -31,14 +32,24 @@ export function markListSeen(listId: string, at: Date = new Date()): void {
 export type ListVisit = { listId: string; since: Date; at: Date; news: MemberNews[] };
 
 /**
+ * Brings the list's household up to date before the visit reads its news, so what others added while
+ * the app was closed or in the background is on the device by then. Shares a pull already running
+ * (the foreground's); offline or signed out it returns at once. Never throws.
+ */
+async function catchUp(listId: string): Promise<void> {
+  const list = db.select({ householdId: lists.householdId }).from(lists).where(eq(lists.id, listId)).get();
+  if (list?.householdId) await pullNow({ scope: { households: [list.householdId] } });
+}
+
+/**
  * Keeps the list's marker: set to now whenever the list stops being on screen after being shown in
  * the foreground (`onScreen` going false, the app going to the background, or the screen closing:
  * another list, or this one deleted or archived). A list shown for the first time on this device has
  * no marker, so it's set at once and shows no news.
  *
- * Returns the current visit: `listNewsSince` the marker, read once as the list came on screen and
- * kept while it stays there (null before it's read, off screen, or with no marker), for the rows
- * marked NEW on open.
+ * Returns the current visit: `listNewsSince` the marker, read once as the list came on screen, after
+ * catching its household up, and kept while it stays there (null before it's read, off screen, or
+ * with no marker), for the rows marked NEW on open.
  */
 export function useListSeenMarker(listId: string, onScreen: boolean): ListVisit | null {
   const foreground = useForeground();
@@ -50,7 +61,9 @@ export function useListSeenMarker(listId: string, onScreen: boolean): ListVisit 
     let live = true;
     if (since === null) markListSeen(listId);
     else {
-      listNewsSince(listId, since).then(
+      catchUp(listId)
+        .then(() => listNewsSince(listId, since))
+        .then(
         (news) => {
           if (live) setVisit({ listId, since, at: new Date(), news });
         },
@@ -66,27 +79,42 @@ export function useListSeenMarker(listId: string, onScreen: boolean): ListVisit 
   return shown && visit?.listId === listId ? visit : null;
 }
 
-export type NewsItem = { itemId: string; displayName: string; addedAt: Date };
+export type NewsItem = {
+  itemId: string;
+  displayName: string;
+  addedAt: Date;
+  /** That member's adds to it. */
+  contributionIds: string[];
+  /** Every live amount on it is news: it wasn't on the list to get when last seen (NEW, not "+1 box"). */
+  fresh: boolean;
+};
 /** One other member's news: their items, newest add first. */
 export type MemberNews = { userId: string; items: NewsItem[] };
 
-type NewsRow = { itemId: string; displayName: string; userId: string | null; addedAt: Date };
+type NewsRow = { itemId: string; contributionId: string; displayName: string; userId: string | null; addedAt: Date };
 
 /**
  * Groups contribution rows per member: an item counts once per member however many of their
  * contributions it has, dated by their latest. Members with the most items come first, then the most
- * recent. An item two members both added to is in both.
+ * recent. An item two members both added to is in both. Items in `alreadyThere` have other live
+ * amounts, so they aren't `fresh`.
  */
-export function groupListNews(rows: readonly NewsRow[]): MemberNews[] {
+export function groupListNews(rows: readonly NewsRow[], alreadyThere: ReadonlySet<string> = new Set()): MemberNews[] {
   const byMember = new Map<string, Map<string, NewsItem>>();
   for (const row of rows) {
     if (row.userId === null) continue;
     const items = byMember.get(row.userId) ?? new Map<string, NewsItem>();
     byMember.set(row.userId, items);
     const seen = items.get(row.itemId);
-    if (!seen || seen.addedAt < row.addedAt) {
-      items.set(row.itemId, { itemId: row.itemId, displayName: row.displayName, addedAt: row.addedAt });
-    }
+    const contributionIds = [...(seen?.contributionIds ?? []), row.contributionId];
+    const latest = !seen || seen.addedAt < row.addedAt ? row : seen;
+    items.set(row.itemId, {
+      itemId: row.itemId,
+      displayName: latest.displayName,
+      addedAt: latest.addedAt,
+      contributionIds,
+      fresh: !alreadyThere.has(row.itemId),
+    });
   }
   const news = [...byMember].map(([userId, items]) => ({
     userId,
@@ -100,7 +128,8 @@ export function groupListNews(rows: readonly NewsRow[]): MemberNews[] {
  * What other members added to list `listId` since `since` (spec 4.1), per member: its live unchecked
  * items with a live contribution (a new item or a Combine into one) that member added after
  * `since - 2 min`, by the server `created_at` pull stores. Adds by `me` (from any device, Siri on
- * this account too) or with a null `added_by` never count. Re-runs on every `then`, so it works with
+ * this account too) or with a null `added_by` never count. An item with any other live amount was on
+ * the list already, so it isn't `fresh`. Re-runs on every `then`, so it works with
  * `useLiveQueryOn(…, LIST_NEWS_QUERY_TABLES)`.
  */
 export function listNewsSince(
@@ -112,6 +141,7 @@ export function listNewsSince(
   const query = db
     .select({
       itemId: listItems.id,
+      contributionId: listItemContributions.id,
       displayName: listItems.displayName,
       userId: listItemContributions.addedBy,
       addedAt: listItemContributions.createdAt,
@@ -131,8 +161,26 @@ export function listNewsSince(
     )
     .orderBy(desc(listItemContributions.createdAt));
   return {
-    then: (onFulfilled, onRejected) => query.then(groupListNews).then(onFulfilled, onRejected),
+    then: (onFulfilled, onRejected) =>
+      query.then((rows) => groupListNews(rows, itemsAlreadyThere(rows))).then(onFulfilled, onRejected),
   };
+}
+
+/** The news rows' items that have a live amount besides the news. */
+function itemsAlreadyThere(rows: readonly NewsRow[]): ReadonlySet<string> {
+  if (rows.length === 0) return new Set();
+  const others = db
+    .select({ itemId: listItemContributions.listItemId })
+    .from(listItemContributions)
+    .where(
+      and(
+        inArray(listItemContributions.listItemId, [...new Set(rows.map((r) => r.itemId))]),
+        isNull(listItemContributions.deletedAt),
+        notInArray(listItemContributions.id, rows.map((r) => r.contributionId)),
+      ),
+    )
+    .all();
+  return new Set(others.map((r) => r.itemId));
 }
 
 /** Tables `listNewsSince` reads, for `useLiveQueryOn`. */

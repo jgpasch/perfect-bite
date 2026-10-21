@@ -24,6 +24,7 @@ import {
   checkOffLabel,
   clearCheckedLabel,
   clearedToast,
+  deletedItemsToast,
   uncheckedAllToast,
   checkedChoiceAfterAllDoneChange,
   checkedSectionOpen,
@@ -683,6 +684,13 @@ describe('deletedToast', () => {
     expect(deletedToast('chicken thighs')).toEqual({ message: 'Deleted Chicken thighs', emphasis: 'Chicken thighs' });
     expect(deletedToast('Oat milk')).toEqual({ message: 'Deleted Oat milk', emphasis: 'Oat milk' });
     expect(deletedToast('iPhone charger')).toEqual({ message: 'Deleted iPhone charger', emphasis: 'iPhone charger' });
+  });
+});
+
+describe('deletedItemsToast', () => {
+  it('counts the deleted items, singular for one', () => {
+    expect(deletedItemsToast(3)).toEqual({ message: 'Deleted 3 items' });
+    expect(deletedItemsToast(1)).toEqual({ message: 'Deleted 1 item' });
   });
 });
 

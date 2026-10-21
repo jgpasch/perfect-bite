@@ -62,6 +62,7 @@ const arrival = (itemId: string, userId: string, over: Partial<Arrival> = {}): A
   userId,
   displayName: itemId,
   contributionId: `${itemId}-c`,
+  contributionIds: [`${itemId}-c`],
   grow: true,
   ...over,
 });
@@ -74,14 +75,14 @@ describe('detectArrivals', () => {
   test("another member's new item grows in", () => {
     const now = [item('milk', [amount('m1', ME, 10)]), item('limes ', [amount('l1', ALEX)])];
     expect(detectArrivals(before, now, ME, FROM)).toEqual([
-      { itemId: 'limes ', userId: ALEX, displayName: 'limes', contributionId: 'l1', grow: true },
+      { itemId: 'limes ', userId: ALEX, displayName: 'limes', contributionId: 'l1', contributionIds: ['l1'], grow: true },
     ]);
   });
 
   test("another member's Combine into an item already there doesn't grow", () => {
     const now = [item('milk', [amount('m1', ME, 10), amount('m2', SAM)])];
     expect(detectArrivals(before, now, ME, FROM)).toEqual([
-      { itemId: 'milk', userId: SAM, displayName: 'milk', contributionId: 'm2', grow: false },
+      { itemId: 'milk', userId: SAM, displayName: 'milk', contributionId: 'm2', contributionIds: ['m2'], grow: false },
     ]);
   });
 
@@ -109,14 +110,14 @@ describe('detectArrivals', () => {
   test('a checked item re-added by another member grows back in', () => {
     const was = listContents([item('eggs', [amount('e1', ME, 10)], { checkedAt: NOW })]);
     expect(detectArrivals(was, [item('eggs', [amount('e2', ALEX)])], ME, FROM)).toEqual([
-      { itemId: 'eggs', userId: ALEX, displayName: 'eggs', contributionId: 'e2', grow: true },
+      { itemId: 'eggs', userId: ALEX, displayName: 'eggs', contributionId: 'e2', contributionIds: ['e2'], grow: true },
     ]);
   });
 
-  test('several new amounts on one item: one arrival, by the latest', () => {
+  test('several new amounts on one item: one arrival, by the latest, with them all', () => {
     const now = [item('eggs', [amount('e1', ALEX, 1), amount('e2', SAM, 0)])];
     expect(detectArrivals(before, now, ME, FROM)).toEqual([
-      { itemId: 'eggs', userId: SAM, displayName: 'eggs', contributionId: 'e2', grow: true },
+      { itemId: 'eggs', userId: SAM, displayName: 'eggs', contributionId: 'e2', contributionIds: ['e1', 'e2'], grow: true },
     ]);
   });
 

@@ -39,7 +39,7 @@ export function formatAiTrace(trace: AiTrace, n: number, options: TraceOptions =
     ['timeout', `${count(trace.timeout_ms)} ms`],
   ];
   const usage = [
-    ['finish reason', trace.finish_reason ?? '?'],
+    ['finish reason', `${trace.finish_reason ?? '?'}${trace.raw_finish_reason ? ` (${trace.raw_finish_reason})` : ''}`],
     ['input tokens', `${count(trace.input_tokens)}${trace.cached_input_tokens ? ` (${count(trace.cached_input_tokens)} cached)` : ''}`],
     ['output tokens', `${count(trace.output_tokens)}${trace.reasoning_tokens ? ` (${count(trace.reasoning_tokens)} reasoning)` : ''}`],
     ['total tokens', count(total)],

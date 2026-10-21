@@ -20,6 +20,7 @@ import {
   addItemsBulk,
   addSiriItem,
   clearChecked,
+  deleteItems,
   contributionsQuery,
   deleteContribution,
   deleteItem,
@@ -1032,6 +1033,26 @@ describe('clearChecked and restoreItems', () => {
 
     expect(restoreItems(cleared.ids, cleared.deletedAt)).toBe(0);
     expect(rows(view().checked)).toEqual(['milk']);
+  });
+
+  test('deleteItems deletes just the chosen live items at one time, and restoreItems brings them back unchecked', () => {
+    const milk = addItem(listId, '2 gal milk', USER)!;
+    const eggs = addItem(listId, 'eggs', USER)!;
+    addItem(listId, 'bread', USER);
+    const gone = addItem(listId, 'jam', USER)!;
+    deleteItem(gone.itemId);
+    const goneAt = itemRow(gone.itemId).deletedAt;
+
+    const deleted = deleteItems([milk.itemId, eggs.itemId, gone.itemId]);
+    expect([...deleted.ids].sort()).toEqual([milk.itemId, eggs.itemId].sort());
+    expect(itemRow(milk.itemId).deletedAt).toEqual(deleted.deletedAt);
+    expect(itemRow(gone.itemId).deletedAt).toEqual(goneAt);
+    expect(rows(view().unchecked)).toEqual(['bread']);
+
+    expect(restoreItems(deleted.ids, deleted.deletedAt)).toBe(2);
+    expect(rows(view().unchecked).sort()).toEqual(['2 gal milk', 'bread', 'eggs']);
+    expect(view().checked).toEqual([]);
+    expect(deleteItems([]).ids).toEqual([]);
   });
 
   test('a second Undo restores nothing more', () => {

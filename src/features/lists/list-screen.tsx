@@ -23,8 +23,10 @@ import {
   useReanimatedKeyboardAnimation,
 } from 'react-native-keyboard-controller';
 import Animated, {
+  Extrapolation,
   FadeIn,
   FadeInDown,
+  interpolate,
   useAnimatedRef,
   useAnimatedStyle,
   useSharedValue,
@@ -67,13 +69,14 @@ import { AddingPill } from '@/features/lists/adding-pill';
 import { useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useForeground, useKeepListAwake } from '@/features/lists/keep-awake';
-import { inSight, useListVisitNews, useNewBadgeClocks } from '@/features/lists/list-news';
+import { inSight, mergeRowNews, rowBadge, useListVisitNews, useNewBadgeClocks, type RowNews } from '@/features/lists/list-news';
 import { useAddingTail, useListPresence } from '@/features/lists/presence';
 import {
   addItem,
   checkItems,
   clearChecked,
   deleteItem,
+  deleteItems,
   groupItems,
   LIST_ITEMS_QUERY_TABLES,
   LIST_RECIPE_LINKS_QUERY_TABLES,
@@ -110,6 +113,7 @@ import {
   collapsedShowing,
   compactHeaderSubtitle,
   DEFAULT_LIST_VIEW_MODE,
+  deletedItemsToast,
   deletedToast,
   duplicateQuery,
   expandSection,
@@ -168,7 +172,8 @@ import { useT } from '@/i18n';
 import { withAisleNames } from '@/i18n/vocabulary';
 import { displayItemName } from '@/shared';
 
-type Entry = { key: string; item: ItemView; amountText?: string; hint?: string };
+/** `recipeId`: a By recipe row, showing only that recipe's amounts. */
+type Entry = { key: string; item: ItemView; amountText?: string; hint?: string; recipeId?: string | null };
 
 /** One card each (the Checked header sits above its card). */
 type Block =
@@ -277,7 +282,7 @@ export function ListScreen({ id }: { id: string }) {
   // Spec 4.1: the screen stays on while shopping this list and something on it is still to get.
   useKeepListAwake(id, shoppingOnList(pathname, id) && unchecked.length > 0);
   // Spec 4.1: by the same rule, leaving the list moves its last-seen marker. What others added since it
-  // shows as NEW rows for this visit.
+  // shows for this visit: NEW rows, or "+1 box" on items that were there.
   const newOnOpen = useListVisitNews(id, shoppingOnList(pathname, id));
   const memberNames = useMemberNames(list?.householdId);
   // Spec 4.1: another member's add arriving while the list is on screen (in the foreground) grows in, NEW.
@@ -293,10 +298,17 @@ export function ListScreen({ id }: { id: string }) {
   const allItems = useMemo(() => [...unchecked, ...checked], [unchecked, checked]);
   const arrivals = useListArrivals(id, allItems, watching, userId);
   useArrivalAnnouncements(arrivals.latest, watching, memberNames, userId);
-  // Spec 4.1: each NEW badge goes 10 s after its row is first in sight, for the rest of the visit.
+  // Spec 4.1: each badge (NEW, or "+1 box") goes 10 s after its row is first in sight, for the rest of the visit.
   const badgeClocks = useNewBadgeClocks(id, watching);
+  const rowNews = (itemId: string): RowNews | undefined => {
+    const cue = arrivals.cues.get(itemId);
+    return mergeRowNews(newOnOpen.get(itemId), cue && { fresh: cue.grow, added: new Set(cue.contributionIds) });
+  };
   const newIds = unchecked
-    .filter((item) => (newOnOpen.has(item.id) || arrivals.cues.has(item.id)) && !badgeClocks.gone.has(item.id))
+    .filter((item) => {
+      const news = rowNews(item.id);
+      return news && rowBadge(news, item.contributions, item.usualUnit) && !badgeClocks.gone.has(item.id);
+    })
     .map((item) => item.id);
   const newIdsKey = newIds.join(',');
 
@@ -489,6 +501,7 @@ export function ListScreen({ id }: { id: string }) {
                 item: e.item,
                 amountText: e.amountText,
                 hint: alsoInHint(e.alsoIn),
+                recipeId: section.recipeId,
               })),
             }),
           );
@@ -588,6 +601,26 @@ export function ListScreen({ id }: { id: string }) {
   const addToRecipe = () => {
     if (!selection || selection.size === 0) return;
     router.push({ pathname: '/list/[id]/add-to-recipe', params: { id, items: [...selection].join(',') } });
+  };
+  // Select mode's Delete (spec 4.5): the one bulk delete that asks first, as Select All can empty a shared
+  // list; Cancel keeps the selection. The toast's Undo still brings exactly those items back.
+  const deleteSelected = () => {
+    if (!selection || selection.size === 0) return;
+    const ids = [...selection];
+    ActionSheetIOS.showActionSheetWithOptions(
+      { options: [t('lists.select.delete', { count: ids.length }), t('common.cancel')], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
+      (index) => {
+        if (index !== 0) return;
+        const deleted = deleteItems(ids);
+        setSelection(null);
+        if (deleted.ids.length === 0) return;
+        setToast({
+          key: `deleted-items-${deleted.deletedAt.getTime()}`,
+          ...deletedItemsToast(deleted.ids.length),
+          actions: [{ label: t('common.undo'), onPress: () => (restoreItems(deleted.ids, deleted.deletedAt), setToast(null)) }],
+        });
+      },
+    );
   };
   useFocusEffect(
     useCallback(() => {
@@ -906,9 +939,13 @@ export function ListScreen({ id }: { id: string }) {
   ) => {
     const item = itemById.get(entry.item.id) ?? entry.item;
     const match = alreadyOnListMatch(item, query, queryFamily);
-    // Spec 4.1: another member's add, since the list was last seen or during this visit, until its badge goes.
+    // Spec 4.1: another member's add, since the list was last seen or during this visit, until its badge goes:
+    // NEW, or what they added to an item that was there ("+1 box"), counting only this row's amounts.
     const cue = item.checkedAt === null ? arrivals.cues.get(item.id) : undefined;
-    const isNew = item.checkedAt === null && newIds.includes(item.id);
+    const news = item.checkedAt === null && newIds.includes(item.id) ? rowNews(item.id) : undefined;
+    const contributions = entry.recipeId ? item.contributions.filter((c) => c.recipeId === entry.recipeId) : item.contributions;
+    const badge = news ? rowBadge(news, contributions, item.usualUnit) : null;
+    const isNew = badge?.kind === 'new';
     return (
       <ItemRow
         key={entry.key}
@@ -924,9 +961,10 @@ export function ListScreen({ id }: { id: string }) {
         amountText={entry.amountText}
         hint={entry.hint}
         isNew={isNew}
+        added={badge?.kind === 'added' ? badge.amount : undefined}
         grow={cue?.grow}
-        newRef={isNew ? newRefFor(item.id) : undefined}
-        onNewLayout={isNew ? checkNewInSight : undefined}
+        newRef={badge ? newRefFor(item.id) : undefined}
+        onNewLayout={badge ? checkNewInSight : undefined}
         aisle={aisle}
         selected={selection ? selection.has(entry.item.id) : undefined}
         onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
@@ -1238,7 +1276,13 @@ export function ListScreen({ id }: { id: string }) {
         ) : null}
 
         {selection ? (
-          <SelectionBar count={selection.size} onAddToRecipe={addToRecipe} />
+          <SelectionBar
+            count={selection.size}
+            allSelected={unchecked.length > 0 && unchecked.every((item) => selection.has(item.id))}
+            onToggleAll={(all) => setSelection(new Set(all ? unchecked.map((item) => item.id) : []))}
+            onAddToRecipe={addToRecipe}
+            onDelete={deleteSelected}
+          />
         ) : showAddBar ? (
           <ArrivesWithKeyboard>
             <ItemAddBar
@@ -1432,15 +1476,20 @@ function CollapsingHeader({ collapsed, children }: { collapsed: boolean; childre
   );
 }
 
+/** How far up the keyboard is when the add bar starts to fade in; it's fully in as the keyboard lands. */
+const ARRIVAL_FADE_FROM = 0.85;
+
 /**
- * The add bar's way in: hidden while the keyboard comes up under it, then faded in once the keyboard has
- * arrived, so the bar never travels. A hardware keyboard never comes up, so then it fades in straight away.
+ * The add bar's way in: hidden while the keyboard comes up under it, then faded in over the last stretch of the
+ * keyboard's travel, frame by frame, so it's fully in the moment the keyboard stops and only travels those last
+ * few points. A hardware keyboard never comes up, so then it fades in on a timer instead.
  */
 function ArrivesWithKeyboard({ children }: { children: ReactNode }) {
-  const opacity = useSharedValue(0);
+  const keyboard = useReanimatedKeyboardAnimation().progress;
+  const timed = useSharedValue(0);
   useEffect(() => {
     const show = () => {
-      opacity.value = withTiming(1, { duration: Motion.duration });
+      timed.value = withTiming(1, { duration: Motion.duration });
     };
     if (KeyboardController.isVisible()) {
       show();
@@ -1449,14 +1498,17 @@ function ArrivesWithKeyboard({ children }: { children: ReactNode }) {
     // The field focuses as it mounts; a software keyboard says it's coming well within this.
     const noKeyboard = setTimeout(show, Motion.duration);
     const coming = KeyboardEvents.addListener('keyboardWillShow', () => clearTimeout(noKeyboard));
-    const arrived = KeyboardEvents.addListener('keyboardDidShow', show);
     return () => {
       clearTimeout(noKeyboard);
       coming.remove();
-      arrived.remove();
     };
-  }, [opacity]);
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  }, [timed]);
+  const style = useAnimatedStyle(() => ({
+    opacity: Math.max(
+      timed.value,
+      interpolate(keyboard.value, [ARRIVAL_FADE_FROM, 1], [0, 1], Extrapolation.CLAMP),
+    ),
+  }));
   return <Animated.View style={style}>{children}</Animated.View>;
 }
 
@@ -1467,8 +1519,21 @@ function toggleIn(set: Set<string>, value: string): Set<string> {
   return next;
 }
 
-function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: () => void }) {
-  const { colors, spacing } = useTheme();
+function SelectionBar({
+  count,
+  allSelected,
+  onToggleAll,
+  onAddToRecipe,
+  onDelete,
+}: {
+  count: number;
+  allSelected: boolean;
+  /** true selects every unchecked item, folded sections too; false clears the selection. */
+  onToggleAll: (all: boolean) => void;
+  onAddToRecipe: () => void;
+  onDelete: () => void;
+}) {
+  const { colors, spacing, rounded, sizes, opacity } = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
   return (
@@ -1481,10 +1546,40 @@ function SelectionBar({ count, onAddToRecipe }: { count: number; onAddToRecipe: 
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.border,
       }}>
-      <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite">
-        {count === 0 ? t('lists.select.tapToSelect') : t('lists.select.selected', { count })}
-      </ThemedText>
-      <PrimaryButton label={t('lists.select.addToRecipe')}disabled={count === 0} onPress={onAddToRecipe} />
+      <View style={[styles.row, styles.spread]}>
+        <ThemedText variant="footnote" color="inkSecondary" accessibilityLiveRegion="polite" style={styles.shrink}>
+          {count === 0 ? t('lists.select.tapToSelect') : t('lists.select.selected', { count })}
+        </ThemedText>
+        <Button
+          variant="plain"
+          label={allSelected ? t('lists.select.deselectAll') : t('lists.select.selectAll')}
+          onPress={() => onToggleAll(!allSelected)}
+        />
+      </View>
+      <View style={[styles.row, { gap: spacing.sm }]}>
+        {/* Smaller than Add to recipe and off to the side, so it's the harder one to hit by mistake. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('lists.select.delete', { count })}
+          accessibilityState={{ disabled: count === 0 }}
+          disabled={count === 0}
+          onPress={onDelete}
+          style={({ pressed }) => [
+            styles.iconButton,
+            {
+              width: sizes.cta,
+              height: sizes.cta,
+              borderRadius: rounded.full,
+              backgroundColor: colors.dangerSoft,
+              opacity: count === 0 ? opacity.disabled : pressed ? opacity.pressed : 1,
+            },
+          ]}>
+          <Icon name="trash" color="danger" weight="semibold" />
+        </Pressable>
+        <View style={styles.flex}>
+          <PrimaryButton label={t('lists.select.addToRecipe')} disabled={count === 0} onPress={onAddToRecipe} />
+        </View>
+      </View>
     </View>
   );
 }
@@ -1494,6 +1589,8 @@ const styles = StyleSheet.create({
   grow: { flexGrow: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center' },
+  spread: { justifyContent: 'space-between' },
+  iconButton: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   switcher: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
   shrink: { flexShrink: 1 },
   inviteDot: { position: 'absolute' },

@@ -112,7 +112,7 @@ describe('ItemRow', () => {
     const tree = render({ item: item({ note: 'ripe' }), hint: 'from Chicken tacos', isNew: true });
     const badges = tree.root.findAll((n) => n.props.label === 'NEW' && typeof n.type !== 'string');
     expect(badges).toHaveLength(1);
-    expect(badges[0].props.tone ?? 'positive').toBe('positive');
+    expect(badges[0].props.tone).toBe('new');
     // Its second line is only its own.
     expect(text(tree)).toContain('"ripe · from Chicken tacos"');
     byLabel(tree, 'Limes, new, 3, ripe, from Chicken tacos');
@@ -129,6 +129,46 @@ describe('ItemRow', () => {
       byLabel(tree, 'Limes, nuevo, 3');
     } finally {
       initI18n('en');
+    }
+  });
+
+  test('another member added to it (spec 4.1): "+1 box" before the amount, no NEW, and VoiceOver says what', () => {
+    const tree = render({ added: '1 box' });
+    expect(tree.root.findAll((n) => n.props.label === 'NEW' && typeof n.type !== 'string')).toHaveLength(0);
+    const badges = tree.root.findAll((n) => n.props.label === '+1 box' && typeof n.type !== 'string');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].props.tone).toBe('new');
+    const json = text(tree);
+    expect(json.indexOf('"+1 box"')).toBeLessThan(json.indexOf('"3"'));
+    expect(hosts(tree, (n) => n.props.testID === 'added-tint')).toHaveLength(0);
+    byLabel(tree, 'Limes, 3, 1 box added');
+  });
+
+  test("what was added isn't one amount: no badge, the amount is tinted", () => {
+    const tree = render({ added: '' });
+    expect(hosts(tree, (n) => n.props.testID === 'added-badge')).toHaveLength(0);
+    expect(hosts(tree, (n) => n.props.testID === 'added-tint')).toHaveLength(1);
+    byLabel(tree, 'Limes, 3, more added');
+  });
+
+  test('in Spanish VoiceOver says "1 caja más"', () => {
+    initI18n('es');
+    try {
+      byLabel(render({ added: '1 caja' }), 'Limes, 3, 1 caja más');
+    } finally {
+      initI18n('en');
+    }
+  });
+
+  test('the change badge and tint fade out as they go, or just go under Reduce Motion', () => {
+    const faded = render({ added: '1 box' });
+    expect(hosts(faded, (n) => n.props.testID === 'added-badge')[0].props.exiting).toBeDefined();
+    expect(hosts(render({ added: '' }), (n) => n.props.testID === 'added-tint')[0].props.exiting).toBeDefined();
+    mockMotion.reduced = true;
+    try {
+      expect(hosts(render({ added: '1 box' }), (n) => n.props.testID === 'added-badge')[0].props.exiting).toBeUndefined();
+    } finally {
+      mockMotion.reduced = false;
     }
   });
 

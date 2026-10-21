@@ -24,6 +24,8 @@ export type Arrival = {
   displayName: string;
   /** That add's contribution. */
   contributionId: string;
+  /** Every amount they added this visit, for the "+1 box" badge. */
+  contributionIds: string[];
   /** A row that wasn't on the list to get (a new item, or a checked one re-added): it grows in. */
   grow: boolean;
 };
@@ -84,6 +86,7 @@ export function detectArrivals(
       userId: latest.addedBy!,
       displayName: item.displayName.trim(),
       contributionId: latest.id,
+      contributionIds: added.map((c) => c.id),
       grow: !before.open.has(item.id),
     });
   }
@@ -97,7 +100,7 @@ type Tracking = {
   contents: ListContents | null;
   /** Amounts made on the server before this don't count. */
   from: Date;
-  /** Each arrived row this visit still to get: its growth and NEW badge. */
+  /** Each arrived row this visit still to get: its growth and badge (NEW, or "+1 box"). */
   cues: ReadonlyMap<string, Arrival>;
   /** The latest arrivals, for VoiceOver; `seq` counts them. */
   latest: { seq: number; arrivals: Arrival[] };
@@ -109,8 +112,18 @@ function idle(listId: string, onScreen: boolean, latest: Tracking['latest']): Tr
   return { listId, onScreen, contents: null, from: new Date(0), cues: EMPTY, latest };
 }
 
+/** A row's later arrival keeps what came before: it still grew in, with every amount added since. */
 const withArrivals = (map: ReadonlyMap<string, Arrival>, arrivals: readonly Arrival[]) =>
-  new Map([...map, ...arrivals.map((a) => [a.itemId, a] as const)]);
+  new Map([
+    ...map,
+    ...arrivals.map((a) => {
+      const before = map.get(a.itemId);
+      const merged = before
+        ? { ...a, grow: before.grow || a.grow, contributionIds: [...new Set([...before.contributionIds, ...a.contributionIds])] }
+        : a;
+      return [a.itemId, merged] as const;
+    }),
+  ]);
 const keepOpen = (map: ReadonlyMap<string, Arrival>, open: ReadonlySet<string>) =>
   [...map.keys()].every((id) => open.has(id)) ? map : new Map([...map].filter(([id]) => open.has(id)));
 
