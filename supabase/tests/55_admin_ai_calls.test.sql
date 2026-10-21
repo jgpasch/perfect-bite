@@ -176,6 +176,7 @@ select is(
     'recovered', true,
     'user_id', '11111111-1111-1111-1111-111111111111',
     'user_email', 'alex@portal.test',
+    'user_ai_photos_blocked', false,
     'household_id', null,
     'recipe_id', null,
     'photo_path', null),

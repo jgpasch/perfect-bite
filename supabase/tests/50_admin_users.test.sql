@@ -37,17 +37,17 @@ insert into public.household_members (household_id, user_id, role, position) val
 
 -- Privileges -------------------------------------------------------------------
 select ok(
-  not has_function_privilege('anon', 'public.admin_list_users(text, integer, integer)', 'execute')
+  not has_function_privilege('anon', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
   and not has_function_privilege('anon', 'public.admin_user_detail(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
   'anon can''t execute the user functions');
 select ok(
-  not has_function_privilege('service_role', 'public.admin_list_users(text, integer, integer)', 'execute')
+  not has_function_privilege('service_role', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
   and not has_function_privilege('service_role', 'public.admin_user_detail(uuid)', 'execute')
   and not has_function_privilege('service_role', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
   'service_role can''t execute the user functions');
 select ok(
-  has_function_privilege('authenticated', 'public.admin_list_users(text, integer, integer)', 'execute')
+  has_function_privilege('authenticated', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
   and has_function_privilege('authenticated', 'public.admin_user_detail(uuid)', 'execute')
   and has_function_privilege('authenticated', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
   'authenticated can execute the user functions');

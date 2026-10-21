@@ -67,7 +67,7 @@ select is(
   '{"id": "e0000000-0000-0000-0000-000000000001", "task": "recipePhotoModeration", "model": "openai:omni-moderation-latest",
     "prompt_version": "recipe-photo-image.v1", "status": "refused", "flag": "refused", "error": "Flagged: violence",
     "fallback_of": "d0000000-0000-0000-0000-000000000001", "recovered": false,
-    "user_id": "11111111-1111-1111-1111-111111111111", "photo_path": null}'::jsonb,
+    "user_id": "11111111-1111-1111-1111-111111111111", "user_ai_photos_blocked": false, "photo_path": null}'::jsonb,
   'a flagged moderation row in the list, linked to its description, with no photo');
 select is(
   (select x -> 'recovered' from jsonb_array_elements(public.admin_list_ai_calls('failed') -> 'calls') x

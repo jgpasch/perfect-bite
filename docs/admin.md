@@ -146,6 +146,26 @@ order by u.email;
 
 **Right after pushing the plans migration to hosted**, run this and confirm the owner's account (jgpasch@gmail.com) shows `plus`, `assigned`. If it doesn't, run "Put me on plus" below.
 
+### AI photo blocks
+
+A user whose AI photo prompts are refused 3 times in 30 days loses AI photos until an admin unblocks them (spec 6.11). A refusal is an `ai_calls` row of theirs with task `recipePhotoModeration` (our moderation check flagged the prompt) or `recipePhotoImage` (the image model refused it) and status `refused`; a "not food" description doesn't count. Each refused image counts against our OpenAI account, which is why the rule exists. On the third, a trigger on `ai_calls` writes a `private.ai_photo_blocks` row and a `block_ai_photos` audit row with no admin (Activity shows it as "Blocked AI photos", by Automatic). From then on every Generate with AI they try answers "AI photos are turned off for your account." and nothing is sent to a model.
+
+In the portal, a blocked user has a red "AI photos blocked" badge in the Users list (the filter next to the search shows only them), on their page and on their refused rows on the AI calls page. Their page's **AI photos** card says since when and after how many refusals, links to the refused prompts (the Flagged tab, filtered by them and Refused) so you can read what they asked for, and has **Unblock**. A user who isn't blocked shows how many refused prompts they have in the last 30 days, once they have one.
+
+**Unblocking** needs a note (who asked and why). It calls `admin_unblock_ai_photos`, which deletes the block and writes one `unblock_ai_photos` audit row (the note, your user id, and the block's `{ refusals, blocked_at }`). They can generate again right away; the app shows Generate with AI again the next time it reloads its features (a relaunch or coming back to the foreground). Unblocking starts the count over: only refusals after it count, so it takes three new ones to block them again, not one.
+
+Who's blocked now:
+
+```sql
+select u.email, b.blocked_at, b.refusals, b.last_call_id,
+  private.ai_photo_refusals(u.id, now() - private.ai_photo_block_window()) as counted_refusals
+from private.ai_photo_blocks b
+join auth.users u on u.id = b.user_id
+order by b.blocked_at desc;
+```
+
+Unblock in the portal rather than deleting the row by hand: a deleted row writes no audit row, so the old refusals still count and the user's next refusal blocks them again.
+
 ### Add or remove an admin
 
 Admins are the users who may use the admin portal (`admin/`). In the Table Editor, open the `private` schema → `admins`. To add one, insert a row with their user id (find it under Authentication → Users, or with "Find a user" above); `added_at` fills itself in. To remove one, delete their row. Either takes effect on their next call: the portal checks on every action, so there's nothing to sign out. Deleting a user removes their row too.

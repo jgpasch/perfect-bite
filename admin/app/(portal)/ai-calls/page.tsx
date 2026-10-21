@@ -6,7 +6,8 @@ import { AiCallFilters } from "@/components/ai-call-filters";
 import { CallBadge, CallUserLink, PhotoMissing } from "@/components/ai-call-bits";
 import { MarkAiFlagsSeen } from "@/components/mark-ai-flags-seen";
 import { PageHeader } from "@/components/page-header";
-import { RelativeDate } from "@/components/user-bits";
+import { AiPhotosBlockedBadge, RelativeDate } from "@/components/user-bits";
+import { showsBlockedBadge } from "@/lib/ai-photo-block";
 import {
   AI_CALL_KIND_KEYS,
   AI_CALL_KINDS,
@@ -138,7 +139,10 @@ function CallTable({ calls, failed }: { calls: AdminAiCallRow[]; failed: boolean
                 <td className="px-4 py-2.5 whitespace-nowrap">{taskLabel(call.task)}</td>
                 <td className="px-4 py-2.5 font-mono text-[13px] text-ink-secondary">{call.model}</td>
                 <td className="px-4 py-2.5">
-                  <CallBadge call={call} />
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <CallBadge call={call} />
+                    {showsBlockedBadge(call) && <AiPhotosBlockedBadge />}
+                  </span>
                 </td>
                 {failed && (
                   <td className="max-w-80 truncate px-4 py-2.5 text-ink-secondary" title={call.error ?? undefined}>

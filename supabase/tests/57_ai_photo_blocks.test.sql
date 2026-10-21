@@ -4,13 +4,15 @@
 -- transaction, so ages are set by hand.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(32);
 
--- Alex gets blocked, Sam's rows never count, Kim is blocked through the image task.
+-- Alex gets blocked, Sam's rows never count, Kim is blocked through the image task, Lee is blocked
+-- again after an unblock.
 insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated');
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated'),
+  ('44444444-4444-4444-4444-444444444444', 'lee@test.local', 'authenticated', 'authenticated');
 insert into public.households (id, name) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alex''s household'),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Sam''s household');
@@ -160,6 +162,46 @@ select is((select count(*)::int from admin.admin_actions where action = 'block_a
 delete from public.ai_calls where user_id = '33333333-3333-3333-3333-333333333333';
 select is((select last_call_id from private.ai_photo_blocks where user_id = '33333333-3333-3333-3333-333333333333'), null,
   'deleting the call keeps the block without it');
+
+-- An unblock starts the count over --------------------------------------------
+-- Lee was blocked an hour ago and unblocked half an hour ago (admin_unblock_ai_photos deletes the
+-- block and writes this audit row; 59_admin_ai_photo_blocks calls it).
+insert into public.ai_calls (id, created_at, task, model, prompt_version, status, instructions, prompt, duration_ms, user_id) values
+  ('c5000000-0000-0000-0000-000000000001', now() - interval '1 hour', 'recipePhotoImage', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444'),
+  ('c5000000-0000-0000-0000-000000000002', now() - interval '1 hour', 'recipePhotoImage', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444'),
+  ('c5000000-0000-0000-0000-000000000003', now() - interval '1 hour', 'recipePhotoModeration', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444');
+select ok(exists (select 1 from private.ai_photo_blocks where user_id = '44444444-4444-4444-4444-444444444444'),
+  'Lee is blocked');
+delete from private.ai_photo_blocks where user_id = '44444444-4444-4444-4444-444444444444';
+insert into admin.admin_actions (action, target_user_id, details, note, performed_by, created_at) values
+  ('unblock_ai_photos', '44444444-4444-4444-4444-444444444444', '{"refusals": 3}', 'ok', 'postgres', now() - interval '30 minutes');
+
+select is(private.ai_photo_refusals('44444444-4444-4444-4444-444444444444', now() - interval '30 days'), 0,
+  'refusals before the unblock don''t count');
+insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, user_id) values
+  ('c5000000-0000-0000-0000-000000000004', 'recipePhotoImage', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444'),
+  ('c5000000-0000-0000-0000-000000000005', 'recipePhotoModeration', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444');
+select is(private.ai_photo_refusals('44444444-4444-4444-4444-444444444444', now() - interval '30 days'), 2,
+  'refusals after it do');
+select ok(not exists (select 1 from private.ai_photo_blocks where user_id = '44444444-4444-4444-4444-444444444444'),
+  'two new refusals don''t block again');
+insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, user_id) values
+  ('c5000000-0000-0000-0000-000000000006', 'recipePhotoImage', 'mock', 'v1', 'refused', '', 'p', 1, '44444444-4444-4444-4444-444444444444');
+select is(
+  (select jsonb_build_object('refusals', b.refusals, 'last_call_id', b.last_call_id)
+   from private.ai_photo_blocks b where b.user_id = '44444444-4444-4444-4444-444444444444'),
+  '{"refusals": 3, "last_call_id": "c5000000-0000-0000-0000-000000000006"}'::jsonb,
+  'a third does');
+
+-- Sam was unblocked 30½ days ago: the window is the later of the two.
+insert into admin.admin_actions (action, target_user_id, details, note, performed_by, created_at) values
+  ('unblock_ai_photos', '22222222-2222-2222-2222-222222222222', '{}', 'ok', 'postgres', now() - interval '30 days 12 hours');
+select is(private.ai_photo_refusals('22222222-2222-2222-2222-222222222222', now() - interval '30 days'), 2,
+  'an unblock before p_since changes nothing');
+select is(private.ai_photo_refusals('22222222-2222-2222-2222-222222222222', now() - interval '40 days'), 3,
+  'an unblock after p_since starts the count there');
+select is(private.ai_photo_refusals('55555555-5555-5555-5555-555555555555', now() - interval '30 days'), 0,
+  'a user with no calls has none');
 
 select * from finish();
 rollback;

@@ -42,6 +42,8 @@ describe("actionLabel", () => {
       "Deleted user",
       "Deleted own account",
       "Viewed an AI call",
+      "Blocked AI photos",
+      "Unblocked AI photos",
     ]);
   });
 
@@ -226,5 +228,43 @@ describe("actionWho", () => {
     expect(actionWho({ action: "delete_user", performed_by: "postgres", performed_by_email: null })).toBe("Dashboard");
     expect(actionWho({ action: "delete_account", performed_by: "authenticator", performed_by_email: null })).toBe("The user");
     expect(actionWho({ action: "set_plan_limit", performed_by: "gone-id", performed_by_email: null })).toBe("gone-id");
+  });
+
+  it("Automatic for a row nobody did by hand", () => {
+    expect(actionWho({ action: "block_ai_photos", performed_by: null, performed_by_email: null })).toBe("Automatic");
+    expect(actionWho({ action: "set_user_plan", performed_by: null, performed_by_email: null })).toBe("Automatic");
+  });
+});
+
+describe("AI photo blocks", () => {
+  // Noon UTC, so it's the 21st in any time zone the portal runs in.
+  const blockedAt = "2026-10-21T12:00:00+00:00";
+
+  it("are labelled and filterable", () => {
+    expect(actionLabel("block_ai_photos")).toBe("Blocked AI photos");
+    expect(actionLabel("unblock_ai_photos")).toBe("Unblocked AI photos");
+    expect(actionOptions("").map((o) => o.value)).toEqual(expect.arrayContaining(["block_ai_photos", "unblock_ai_photos"]));
+    expect(activityHref("unblock_ai_photos", 2)).toBe("/activity?action=unblock_ai_photos&page=2");
+  });
+
+  it("sums up a block by its refusals", () => {
+    expect(summary("block_ai_photos", { refusals: 3, window_days: 30 })).toBe("3 refusals");
+    expect(summary("block_ai_photos", { refusals: 1 })).toBe("1 refusal");
+    expect(summary("block_ai_photos", { refusals: "3" })).toBe("");
+    expect(summary("block_ai_photos", {})).toBe("");
+    expect(summary("block_ai_photos", null)).toBe("");
+  });
+
+  it("sums up an unblock by the block it cleared", () => {
+    expect(summary("unblock_ai_photos", { refusals: 3, blocked_at: blockedAt })).toBe("Blocked Oct 21, 2026 after 3 refusals");
+    expect(summary("unblock_ai_photos", { refusals: 4 })).toBe("after 4 refusals");
+    expect(summary("unblock_ai_photos", { blocked_at: blockedAt })).toBe("Blocked Oct 21, 2026");
+    expect(summary("unblock_ai_photos", { blocked_at: "" })).toBe("");
+    expect(summary("unblock_ai_photos", {})).toBe("");
+  });
+
+  it("link nowhere", () => {
+    expect(actionHref({ action: "block_ai_photos", details: { refusals: 3 } })).toBeNull();
+    expect(actionHref({ action: "unblock_ai_photos", details: { refusals: 3 } })).toBeNull();
   });
 });

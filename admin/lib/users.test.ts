@@ -6,6 +6,7 @@ import {
   historyPlan,
   isUuid,
   pageRange,
+  parseBlocked,
   parsePage,
   parseQuery,
   planBadge,
@@ -203,6 +204,22 @@ describe("search and paging", () => {
     expect(usersHref("  ", 3)).toBe("/users?page=3");
     expect(usersHref(" ann ", 1)).toBe("/users?q=ann");
     expect(usersHref("a&b", 2)).toBe("/users?q=a%26b&page=2");
+  });
+
+  it("keeps the Blocked filter in the URL", () => {
+    expect(usersHref("", 1, true)).toBe("/users?blocked=1");
+    expect(usersHref(" ann ", 2, true)).toBe("/users?q=ann&blocked=1&page=2");
+    expect(usersHref("ann", 1, false)).toBe("/users?q=ann");
+  });
+
+  it("reads the Blocked filter: only 1 turns it on", () => {
+    expect(parseBlocked("1")).toBe(true);
+    expect(parseBlocked(["1", "0"])).toBe(true);
+    expect(parseBlocked(undefined)).toBe(false);
+    expect(parseBlocked("")).toBe(false);
+    expect(parseBlocked("0")).toBe(false);
+    expect(parseBlocked("true")).toBe(false);
+    expect(parseBlocked([])).toBe(false);
   });
 
   it("words the page's range", () => {

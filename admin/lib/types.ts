@@ -20,6 +20,8 @@ export type AdminUserRow = {
   /** False when they're on the default. */
   plan_assigned: boolean;
   assigned_at: string | null;
+  /** Their AI photos are blocked (`private.ai_photo_blocks` has a row). */
+  ai_photos_blocked: boolean;
   /** The matches before paging (a bigint, which PostgREST sends as a number). */
   total_count: number;
 };
@@ -79,7 +81,26 @@ export type AdminUserDetail = Omit<AdminUserRow, "total_count"> & {
   plan_history: AdminPlanHistoryEntry[];
   /** Their flagged AI calls in the last 30 days, a count per flag (`{}` when none). */
   ai_flags: Record<string, number>;
+  /** Their AI photo block, or null when they aren't blocked. */
+  ai_photo_block: AiPhotoBlock | null;
+  /** `private.ai_photo_refusals` over the block window: refused prompts in the last 30 days, since their last unblock. */
+  ai_photo_refusals_30d: number;
 };
+
+/** A row of `private.ai_photo_blocks`, as `admin_user_detail` sends it (20261128120000_admin_ai_photo_blocks.sql). */
+export type AiPhotoBlock = {
+  blocked_at: string;
+  /** The refusals that blocked them. */
+  refusals: number;
+  /** The refusal that blocked them; null once that call is deleted. */
+  last_call_id: string | null;
+};
+
+/**
+ * `admin_unblock_ai_photos(p_user_id, p_note)` returns its audit row's details, the block's.
+ * Raises `note required` (22023) or `not blocked` (P0002).
+ */
+export type AdminUnblockAiPhotosResult = Pick<AiPhotoBlock, "refusals" | "blocked_at">;
 
 /** `admin_set_user_plan(p_user_id, p_plan_id, p_note)` returns its audit row's details. */
 export type AdminSetUserPlanResult = SetUserPlanDetails;
@@ -173,7 +194,7 @@ export type AdminPlanChange = {
 
 export type AdminAction = {
   id: string;
-  /** `set_user_plan`, a plan edit (`create_plan`, …), `delete_user` or `delete_account`. */
+  /** `set_user_plan`, a plan edit (`create_plan`, …), `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
   action: string;
   target_user_id: string | null;
   /** While that user still exists. */
@@ -182,7 +203,8 @@ export type AdminAction = {
   target_plan_id: string | null;
   details: Record<string, unknown>;
   note: string | null;
-  performed_by: string;
+  /** As in `AdminPlanHistoryEntry`; null for the automatic `block_ai_photos`. */
+  performed_by: string | null;
   /** As in `AdminPlanHistoryEntry`: null for `postgres` and the app's rows. */
   performed_by_email: string | null;
   created_at: string;
@@ -227,6 +249,8 @@ export type AdminAiCallRow = {
   user_id: string | null;
   /** While the user exists. */
   user_email: string | null;
+  /** The user's AI photos are blocked now. */
+  user_ai_photos_blocked: boolean;
   household_id: string | null;
   recipe_id: string | null;
   /** Image rows only: the `recipe-photos` object. */
@@ -251,7 +275,7 @@ export type AdminAiCallLink = {
 };
 
 /** `admin_ai_call(p_id)`: every column, plus the flag, the email, the photo and the linked attempts. Raises `not found` (P0002). */
-export type AdminAiCall = Omit<AdminAiCallRow, "recovered"> & {
+export type AdminAiCall = Omit<AdminAiCallRow, "recovered" | "user_ai_photos_blocked"> & {
   instructions: string;
   prompt: string;
   output: unknown;

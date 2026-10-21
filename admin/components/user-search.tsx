@@ -1,6 +1,7 @@
 "use client";
 
-// The Users search box: typing waits 300 ms, then puts the search in `?q=` (back to page 1).
+// The Users search box: typing waits 300 ms, then puts the search in `?q=` (back to page 1,
+// keeping the Blocked filter).
 // The server matches email or name, or the user id exactly when it's pasted in.
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -11,7 +12,7 @@ import { usersHref } from "@/lib/users";
 
 const DEBOUNCE_MS = 300;
 
-export function UserSearch({ query }: { query: string }) {
+export function UserSearch({ query, blocked }: { query: string; blocked: boolean }) {
   const router = useRouter();
   const [value, setValue] = useState(query);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -24,7 +25,7 @@ export function UserSearch({ query }: { query: string }) {
     setValue(next);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      if (next.trim() !== query) router.replace(usersHref(next, 1), { scroll: false });
+      if (next.trim() !== query) router.replace(usersHref(next, 1, blocked), { scroll: false });
     }, DEBOUNCE_MS);
   }
 

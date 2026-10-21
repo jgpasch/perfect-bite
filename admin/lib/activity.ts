@@ -3,6 +3,7 @@
 // be tested. `details` is whatever the writing function stored (see the migrations), so everything
 // here reads it defensively.
 import { flagLabel, taskLabel } from "./ai-calls";
+import { mediumDate } from "./format";
 import type { AdminAction, MonthlyLimit } from "./types";
 
 /** Rows a page on /activity. */
@@ -20,6 +21,8 @@ export const ACTION_LABELS = {
   delete_user: "Deleted user",
   delete_account: "Deleted own account",
   view_ai_call: "Viewed an AI call",
+  block_ai_photos: "Blocked AI photos",
+  unblock_ai_photos: "Unblocked AI photos",
 } as const satisfies Record<string, string>;
 
 export type KnownAction = keyof typeof ACTION_LABELS;
@@ -69,11 +72,15 @@ export function actionTarget(
   return { kind: "none", label: "—" };
 }
 
-/** Who did it: the admin's email, "Dashboard" for `postgres`, "The user" for the app's own deletion, else the raw value. */
+/**
+ * Who did it: the admin's email, "Dashboard" for `postgres`, "The user" for the app's own deletion,
+ * "Automatic" for a row nobody did by hand (the AI photo block's trigger), else the raw value.
+ */
 export function actionWho(row: Pick<AdminAction, "action" | "performed_by" | "performed_by_email">): string {
   if (row.performed_by_email) return row.performed_by_email;
   if (row.performed_by === "postgres") return "Dashboard";
   if (row.action === "delete_account") return "The user";
+  if (row.performed_by === null) return "Automatic";
   return row.performed_by;
 }
 
@@ -196,6 +203,15 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
       const parts = [task === null ? "AI call" : taskLabel(task)];
       if (flag !== null) parts.push(flagLabel(flag));
       return parts.join(" · ");
+    }
+    case "block_ai_photos":
+      return typeof details.refusals === "number" ? plural(details.refusals, "refusal", "refusals") : "";
+    case "unblock_ai_photos": {
+      const blockedAt = text(details.blocked_at);
+      const parts: string[] = [];
+      if (blockedAt !== null) parts.push(`Blocked ${mediumDate(blockedAt)}`);
+      if (typeof details.refusals === "number") parts.push(`after ${plural(details.refusals, "refusal", "refusals")}`);
+      return parts.join(" ");
     }
     default:
       return rawSummary(details);

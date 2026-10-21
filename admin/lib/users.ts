@@ -27,10 +27,20 @@ export function parseQuery(value: string | string[] | undefined): string {
   return (raw ?? "").trim();
 }
 
-/** The list's URL for a search and page: `/users`, `/users?q=ann`, `/users?q=ann&page=2`. */
-export function usersHref(query: string, page: number): string {
+/** `?blocked=1`, the Blocked filter: only users whose AI photos are blocked. Anything else is off. */
+export function parseBlocked(value: string | string[] | undefined): boolean {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "1";
+}
+
+/**
+ * The list's URL for a search, page and the Blocked filter: `/users`, `/users?q=ann`,
+ * `/users?q=ann&page=2`, `/users?blocked=1`.
+ */
+export function usersHref(query: string, page: number, blocked: boolean = false): string {
   const params = new URLSearchParams();
   if (query.trim() !== "") params.set("q", query.trim());
+  if (blocked) params.set("blocked", "1");
   if (page > 1) params.set("page", String(page));
   const search = params.toString();
   return search === "" ? "/users" : `/users?${search}`;

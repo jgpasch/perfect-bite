@@ -4,7 +4,9 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ChangePlan } from "@/components/change-plan";
-import { Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
+import { UnblockAiPhotos } from "@/components/unblock-ai-photos";
+import { AiPhotosBlockedBadge, Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
+import { blockedLine, refusalsHref, refusalsLine } from "@/lib/ai-photo-block";
 import { aiCallsHref, aiFlagsLine } from "@/lib/ai-calls";
 import { featureColors } from "@/lib/features";
 import { mediumDate } from "@/lib/format";
@@ -20,7 +22,8 @@ export const metadata: Metadata = { title: "User · Back office" };
 type Params = Promise<{ id: string }>;
 
 // One user (spec 4.12), from admin_user_detail: who they are, their plan, this month's usage per
-// feature, their households and how their plan has changed. Change plan is on the Plan card.
+// feature, whether their AI photos are blocked, their households and how their plan has changed.
+// Change plan is on the Plan card, Unblock on the AI photos card.
 export default function UserPage({ params }: { params: Params }) {
   return (
     <>
@@ -60,7 +63,10 @@ async function UserDetail({ params }: { params: Params }) {
         <PlanCard user={user} plans={plans} planList={planList} />
         <UsageCard user={user} />
       </div>
-      <HouseholdsCard user={user} />
+      <div className="grid gap-5 md:grid-cols-2">
+        <AiPhotosCard user={user} />
+        <HouseholdsCard user={user} />
+      </div>
       <HistoryCard user={user} plans={plans} />
     </div>
   );
@@ -93,6 +99,7 @@ function Header({ user, plans }: { user: AdminUserDetail; plans: PlanNames }) {
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-[34px] leading-tight text-ink">{user.display_name ?? user.email ?? "No name"}</h1>
           <PlanBadge name={planName(user.plan.id, plans.names)} assigned={user.plan.assigned} />
+          {user.ai_photo_block && <AiPhotosBlockedBadge />}
           {user.first_month.doubled && user.first_month.ends_at && (
             <span className="rounded-full bg-pending-soft px-2.5 py-0.5 text-[13px] font-semibold whitespace-nowrap text-pending">
               First month · 2× limits until {mediumDate(user.first_month.ends_at)}
@@ -192,6 +199,40 @@ function UsageCard({ user }: { user: AdminUserDetail }) {
           );
         })}
       </ul>
+    </Card>
+  );
+}
+
+// AI photos (spec 4.12, 6.11): blocked after too many refused prompts, with the refusals and
+// Unblock; otherwise how close they are.
+function AiPhotosCard({ user }: { user: AdminUserDetail }) {
+  const block = user.ai_photo_block;
+  const refusals = refusalsLine(user.ai_photo_refusals_30d);
+  const linkClass = "font-semibold text-primary hover:underline";
+  return (
+    <Card title="AI photos">
+      {block ? (
+        <>
+          <p className="text-[15px] font-semibold text-danger">{blockedLine(block)}</p>
+          <p className="mt-1 text-[15px]">
+            <Link href={refusalsHref(user.user_id)} className={linkClass}>
+              See the refused prompts
+            </Link>
+          </p>
+          <UnblockAiPhotos userId={user.user_id} email={user.email} />
+        </>
+      ) : (
+        <>
+          <p className="text-[15px] font-semibold text-ink">Not blocked</p>
+          {refusals !== null && (
+            <p className="mt-1 text-[15px]">
+              <Link href={refusalsHref(user.user_id)} className={linkClass}>
+                {refusals}
+              </Link>
+            </p>
+          )}
+        </>
+      )}
     </Card>
   );
 }
