@@ -139,7 +139,7 @@ select is((select d ->> 'email' from young), 'Zed.Young@portal.test', 'detail ha
 select is(
   (select array_agg(k order by k) from young, jsonb_object_keys(d) k),
   array['ai_flags', 'ai_photo_block', 'ai_photo_refusals_30d', 'created_at', 'display_name', 'email',
-        'households', 'last_sign_in_at', 'user_id'],
+        'households', 'last_active_at', 'last_sign_in_at', 'user_id'],
   'the detail has no plan, first month, usage or plan history of the user''s own');
 select is(
   (select d -> 'households' from young),
