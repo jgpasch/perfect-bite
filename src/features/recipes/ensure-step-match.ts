@@ -140,9 +140,10 @@ async function match(recipeId: string): Promise<void> {
 }
 
 /**
- * `not_entitled` stops matching for the session, and so does `limit_reached` (the plan's monthly
- * matches are used up, spec 4.12; silent, as this is background work); `rate_limited` and
- * `unavailable` pause it for an hour.
+ * `not_entitled` stops matching for the session, and so do `limit_reached` (the plan's monthly
+ * matches are used up, spec 4.12) and `daily_limit` (the user's matches today, the daily safety
+ * limit, 4.12), silently, as this is background work; `rate_limited` and `unavailable` pause it
+ * for an hour.
  */
 async function onError(error: unknown): Promise<void> {
   if ((error as { name?: unknown } | null)?.name === 'FunctionsFetchError') return;
@@ -162,7 +163,7 @@ async function onError(error: unknown): Promise<void> {
     void lostFeature('step_ingredients');
     return;
   }
-  if (code === 'limit_reached') {
+  if (code === 'limit_reached' || code === 'daily_limit') {
     stopped = true;
     return;
   }

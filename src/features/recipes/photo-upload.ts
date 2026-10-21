@@ -179,11 +179,18 @@ export function resetPhotoUpload(): void {
 /**
  * Why a generation failed: `not_food` (the server wouldn't make a photo for this recipe),
  * `already_generated` (it has had its one AI photo), `limit_reached` (the plan's AI photos this
- * month are made, spec 4.12; back at `resetsAt`), `ai_photos_blocked` (the user's AI photos are
- * blocked after repeated refused prompts until an admin clears it, spec 6.11), `failed` (anything
- * else; the server released the slot, so it can be tried again).
+ * month are made, spec 4.12; back at `resetsAt`), `daily_limit` (the user's AI photos today, the
+ * daily safety limit, spec 4.12), `ai_photos_blocked` (the user's AI photos are blocked after
+ * repeated refused prompts until an admin clears it, spec 6.11), `failed` (anything else; the
+ * server released the slot, so it can be tried again).
  */
-export type PhotoGenerationError = 'not_food' | 'already_generated' | 'limit_reached' | 'ai_photos_blocked' | 'failed';
+export type PhotoGenerationError =
+  | 'not_food'
+  | 'already_generated'
+  | 'daily_limit'
+  | 'limit_reached'
+  | 'ai_photos_blocked'
+  | 'failed';
 
 type GenerationFailure = { error: Exclude<PhotoGenerationError, 'limit_reached'> } | { error: 'limit_reached'; resetsAt: string };
 
@@ -242,6 +249,7 @@ async function generationError(error: unknown): Promise<GenerationFailure> {
   if (code === 'not_food' || (!code && status === 422)) return { error: 'not_food' };
   if (code === 'already_generated' || (!code && status === 409)) return { error: 'already_generated' };
   if (code === 'limit_reached') return { error: 'limit_reached', resetsAt: limitResetsAt(resetsAt) };
+  if (code === 'daily_limit') return { error: 'daily_limit' };
   // Blocked: hide the row until the features reload, as for a lost plan feature (spec 6.11).
   if (code === 'ai_photos_blocked') {
     void lostFeature('recipe_photo_ai');
@@ -264,6 +272,8 @@ export function photoGenerationMessage(failure: GenerationFailure): string {
       return i18n.t('recipes.photo.generateNotFood');
     case 'already_generated':
       return i18n.t('recipes.photo.generateAlready');
+    case 'daily_limit':
+      return i18n.t('errors.dailyLimit');
     case 'limit_reached':
       return i18n.t('recipes.photo.generateLimitReached', { date: resetDate(failure.resetsAt) });
     case 'ai_photos_blocked':

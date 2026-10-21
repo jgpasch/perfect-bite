@@ -66,6 +66,8 @@ export function importErrorMessage(error: ImportRecipeError, from: 'link' | 'pho
       return from === 'photo' ? i18n.t('recipes.import.errors.photoNotEntitled') : NOT_ENTITLED_MESSAGE;
     case 'rate_limited':
       return i18n.t('recipes.import.errors.rateLimited');
+    case 'daily_limit':
+      return i18n.t('errors.dailyLimit');
     case 'limit_reached':
       return importLimitMessage(error.resetsAt, from);
     case 'offline':

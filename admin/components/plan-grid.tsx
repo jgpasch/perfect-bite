@@ -427,7 +427,7 @@ function PlanActionDialog({ plan, action, onClose }: { plan: AdminPlan; action: 
 
 // --- Shared --------------------------------------------------------------------------------------
 
-function NoteField({ note, onChange, disabled }: { note: string; onChange: (note: string) => void; disabled: boolean }) {
+export function NoteField({ note, onChange, disabled }: { note: string; onChange: (note: string) => void; disabled: boolean }) {
   const id = useId();
   return (
     <div className="flex flex-col gap-1.5">
@@ -448,7 +448,7 @@ function NoteField({ note, onChange, disabled }: { note: string; onChange: (note
   );
 }
 
-function ErrorLine({ error }: { error: string | null }) {
+export function ErrorLine({ error }: { error: string | null }) {
   if (error === null) return null;
   return (
     <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-[14px] text-danger">

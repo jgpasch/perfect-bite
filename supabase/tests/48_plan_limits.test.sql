@@ -42,6 +42,10 @@ insert into public.household_plans (household_id, plan_id) values
   ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'founding'),
   ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'founding');
 
+-- The month's usage below is seeded over its first three days, any of which may be today, so the
+-- daily safety limits (60_ai_safety_limits) are lifted: this file is about the month.
+update public.ai_safety_limits set per_day = null;
+
 -- Seeds p_total of a usage column for a user this month (split over three days), and 1,000 on the
 -- last day of last month. The minute window is an hour old, so the per-minute limit doesn't bite.
 create function pg_temp.use(p_table text, p_col text, p_user uuid, p_total int)

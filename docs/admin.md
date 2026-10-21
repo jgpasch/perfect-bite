@@ -6,7 +6,7 @@ The app is run from the Supabase dashboard (Authentication → Users, the Table 
 
 **Never delete users or household rows by hand** (in Authentication → Users, the Table Editor, or with a plain `delete`). The dashboard runs as `postgres` and doesn't know the app's rules: deleting a user there skips owner promotion and leaves their personal household behind with nobody in it, and deleting a `household_members` row can leave a household with no owner. Use the snippets below, which go through tested functions in the `admin` schema and write an audit row to `admin.admin_actions`.
 
-Changes with no rules beyond the table's own constraints (a user's plan, a plan's monthly limits) can be made in the Table Editor.
+Changes with no rules beyond the table's own constraints (a user's plan, a plan's monthly limits, the safety limits) can be made in the Table Editor.
 
 ## Common jobs
 
@@ -101,7 +101,7 @@ Each plan feature has a monthly limit per plan in `public.plan_limits` (spec 4.1
 - The Table Editor still works, unaudited: `plan_limits`, edit `monthly_limit`.
 - A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
 - A household younger than 30 days (`households.created_at`) gets twice its plan's limits.
-- The per-minute limits (which catch a client stuck in a loop) and one AI photo per recipe apply on every plan, unlimited too, and aren't in the table.
+- The safety limits (below) and one AI photo per recipe apply on every plan, unlimited too, and aren't in this table.
 - Past a limit, the app says "You've used this month's … They reset on Nov 1." Usage is counted even with no limit:
 
 ```sql
@@ -111,6 +111,31 @@ from auth.users u
 cross join (values ('categorize'), ('step_ingredients'), ('recipe_import'), ('recipe_import_photo'),
                    ('recipe_tags'), ('recipe_photo_ai')) f(feature)
 where u.email = '<email>';
+```
+
+### Change the safety limits
+
+The safety limits are per user and the same on every plan, unlimited too (spec 4.12 Safety limits): a per-minute limit that stops a client stuck in a loop and a daily one (the user's UTC day) that stops a scripted account. They're rows in `public.ai_safety_limits`, one per key, read on every call, so a change applies at once. A null is no limit. Seeded:
+
+| key | in the portal | per minute (requests) | per day |
+|---|---|---|---|
+| `categorize` | Categorize | 60 | 500 names sent to the AI |
+| `step_match` | Step matching | 30 | 100 matches |
+| `recipe_tags` | Tag suggestions | 20 | 50 suggestions |
+| `recipe_import_link` | Link import | 10 | none |
+| `recipe_import_photo` | Photo import | 5 | none |
+| `recipe_import` | Recipe imports | none | 100 imports, link and photo together |
+| `recipe_photo_ai` | AI photos | none | 40 photos |
+
+Past a per-minute limit the app says "Try again in a minute"; past a daily one, "You've reached today's limit. Try again tomorrow." Background work (categorize, step matching) stays silent.
+
+- Use the admin portal: the **Safety limits** card on the Plans page lists each key with its two numbers (blank for none) and their units. **Edit** opens a form with both numbers (leave one blank for no limit) and a required note. It calls `admin_set_safety_limit`, which writes one `admin.admin_actions` row (`set_safety_limit`, the key's `{ key, per_minute, per_day }` before and after, the note and your user id); Activity shows it as "Set safety limit". An unknown key fails with `unknown key`, a negative number with the table's check.
+- The Table Editor or SQL Editor still works, unaudited: `public.ai_safety_limits`, edit `per_minute` or `per_day` (null for no limit). The keys are fixed by the table's check; a new one is a migration.
+
+```sql
+select key, per_minute, per_day from public.ai_safety_limits order by key;
+
+update public.ai_safety_limits set per_day = 200 where key = 'recipe_import';
 ```
 
 ### Add, edit or delete a plan

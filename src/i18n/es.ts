@@ -1237,6 +1237,7 @@ export const es = {
     categoryNeedsName: 'Un pasillo necesita nombre',
     googleNotConfigured: 'El inicio de sesión con Google no está configurado.',
     googleNoToken: 'Google no devolvió un token de identificación.',
+    dailyLimit: 'Llegaste al límite de hoy. Inténtalo mañana.',
   },
   signIn: {
     appName: 'The Perfect Bite',

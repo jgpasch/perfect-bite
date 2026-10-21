@@ -70,8 +70,9 @@ export type ImportDeps = {
 
 /** Why an import failed; request.ts turns it into the HTTP status. */
 export type ImportFailure =
-  | { code: Exclude<RecipeImportErrorCode, 'rate_limited' | 'limit_reached' | 'unavailable'> }
+  | { code: Exclude<RecipeImportErrorCode, 'rate_limited' | 'daily_limit' | 'limit_reached' | 'unavailable'> }
   | { code: 'rate_limited' }
+  | { code: 'daily_limit' }
   | { code: 'limit_reached' }
   | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
@@ -182,6 +183,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new ImportRecipeError({ code: 'rate_limited' }, 'Too many imports; try again later');
+  if (limit === 'daily_limit') throw new ImportRecipeError({ code: 'daily_limit' }, "Today's recipe imports are used up");
   if (limit === 'monthly_limit') throw new ImportRecipeError({ code: 'limit_reached' }, "This month's recipe imports are used up");
 
   let recipe: ExtractedRecipe | null = null;
@@ -242,7 +244,8 @@ export async function importResponse(
   try {
     categories = (await categorize(lines.map((l) => l.name))).results;
   } catch (err) {
-    // Categorize's own limits: the recipe still imports, and the app sorts the names later.
+    // Categorize's own limits (per minute or per day): the recipe still imports, and the app sorts
+    // the names later.
     if (!(err instanceof CategorizeLimitError)) throw err;
   }
 

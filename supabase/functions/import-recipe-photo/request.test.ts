@@ -143,6 +143,17 @@ Deno.test('limit_reached is 429 with resets_at, the first instant of next month 
   assertEquals(await res.json(), { error: 'limit_reached', message: 'no', resets_at: '2026-11-01T00:00:00.000Z' });
 });
 
+Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
+  const res = await handleRequest(post(JSON.stringify({ images: [jpeg()] })), {
+    importRecipePhoto: () => Promise.reject(new ImportRecipePhotoError({ code: 'daily_limit' }, 'no')),
+    env: () => 'mock',
+    now: () => Date.parse('2026-10-31T23:59:59.999Z'),
+  });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'daily_limit', message: 'no', resets_at: '2026-11-01T00:00:00.000Z' });
+});
+
 // --- Auth -------------------------------------------------------------------------------------------
 
 Deno.test('the deployed function answers 401 without a JWT, before any work', async () => {

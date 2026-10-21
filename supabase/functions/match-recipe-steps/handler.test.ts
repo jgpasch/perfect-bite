@@ -253,6 +253,23 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
   });
 });
 
+Deno.test('the daily limit is 429 daily_limit with the next UTC midnight as resets_at, and no model call', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.limit = 'daily_limit';
+    const res = await post(TACOS);
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(await res.json(), {
+      error: 'daily_limit',
+      message: "Today's step matches are used up",
+      resets_at: '2026-10-19T00:00:00.000Z',
+    });
+    assertEquals(store.steps, ['limit']);
+    assertEquals(store.aiCalls, []);
+  });
+});
+
 Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, and no model call', async () => {
   await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
     const { store, post } = setup();

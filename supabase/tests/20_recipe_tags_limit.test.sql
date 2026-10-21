@@ -36,7 +36,9 @@ select results_eq(
 
 -- No monthly limit --------------------------------------------------------------------
 -- Suggest tags is for everyone (20261129120000_household_plans): no plan feature, no monthly
--- limit. 21 so far; run 29 more, a minute window every 19, to reach 50.
+-- limit. 21 so far; run 29 more, a minute window every 19, to reach 50. now() is fixed, so these
+-- all land on one day: the daily safety limit (60_ai_safety_limits) is lifted here.
+update public.ai_safety_limits set per_day = null where key = 'recipe_tags';
 do $$
 declare i int;
 begin

@@ -419,12 +419,13 @@ describe('RecipeImportResponseSchema', () => {
 });
 
 describe('error codes', () => {
-  it('are exactly the five from spec 6.6 plus not_entitled and limit_reached from 4.12', () => {
+  it('are exactly the five from spec 6.6 plus not_entitled, daily_limit and limit_reached from 4.12', () => {
     expect(RECIPE_IMPORT_ERROR_CODES).toEqual([
       'invalid_url',
       'fetch_failed',
       'not_a_recipe',
       'rate_limited',
+      'daily_limit',
       'limit_reached',
       'unavailable',
       'not_entitled',

@@ -16,6 +16,7 @@ import {
   setListArchived,
 } from '@/features/lists/lists';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { initI18n } from '@/i18n';
 import { SHARE_PENDING_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName, SYSTEM_CATEGORIES } from '@/shared';
 import type { RecipeImportResponse } from '@/shared/schemas/recipe-import';
@@ -292,6 +293,44 @@ describe('drainShareQueue', () => {
     expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala', 'Leek soup']);
     expect(queued()).toEqual([]);
     expect(getShareQueueStatus()).toEqual({ queued: [], importing: null, waitReason: null });
+  });
+
+  test("the user's daily limit (daily_limit) keeps the file without counting a try, and the rest of the queue waits", async () => {
+    const dailyLimit = {
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: {
+          status: 429,
+          json: () => Promise.resolve({ error: 'daily_limit', message: 'Daily limit', resets_at: '2026-10-22T00:00:00.000Z' }),
+        },
+      },
+    };
+    respond({ [TIKKA_URL]: dailyLimit, [SOUP_URL]: SOUP });
+    enqueue(E1, TIKKA_URL);
+    enqueue(E2, SOUP_URL);
+
+    expect(await drain()).toEqual({ imported: [], failed: 0 });
+    expect(importedUrls()).toEqual([TIKKA_URL]);
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(0);
+    expect(getDeviceSetting(shareAttemptsKey(E2), 0)).toBe(0);
+    expect(getShareQueueStatus().waitReason).toBe('daily_limit');
+    expect(getShareQueueStatus().resetsAt).toBeUndefined();
+    expect(importsCardHeading(0, getShareQueueStatus())?.subtitle).toBe("You've reached today's limit. Try again tomorrow.");
+
+    // However many drains run before the day resets, it never becomes a failed import.
+    for (let i = 0; i < MAX_SHARE_ATTEMPTS + 1; i++) await drain();
+    expect(getDeviceSetting(shareAttemptsKey(E1), 0)).toBe(0);
+    expect(queued()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(recordFailed).not.toHaveBeenCalled();
+
+    // The day resets: both import.
+    respond({ [TIKKA_URL]: TIKKA, [SOUP_URL]: SOUP });
+    const result = await drain();
+    expect(result.imported.map((i) => i.recipeName)).toEqual(['Chicken tikka masala', 'Leek soup']);
+    expect(queued()).toEqual([]);
   });
 
   test('a failure that isn’t offline or rate limited moves on to the next share', async () => {
@@ -678,7 +717,7 @@ describe('imports card copy', () => {
     attempts: 0,
     ...extra,
   });
-  const idle = (queued: QueuedShare[], waitReason: 'offline' | 'rate_limited' | 'failed' | null = null) => ({
+  const idle = (queued: QueuedShare[], waitReason: 'offline' | 'rate_limited' | 'daily_limit' | 'failed' | null = null) => ({
     queued,
     importing: null,
     waitReason,
@@ -718,6 +757,18 @@ describe('imports card copy', () => {
     expect(waitReasonText('limit_reached', '2026-11-01T00:00:00.000Z')).toBe(
       "You've used this month's recipe imports. They reset on Nov 1.",
     );
+  });
+
+  test('waiting on the daily limit says try tomorrow, in English and Spanish', () => {
+    const queue = idle([share(E1)], 'daily_limit');
+    expect(importsCardHeading(0, queue)?.subtitle).toBe("You've reached today's limit. Try again tomorrow.");
+    expect(importsCardHeading(1, queue)?.subtitle).toBe("1 more waiting · You've reached today's limit. Try again tomorrow.");
+    initI18n('es');
+    try {
+      expect(waitReasonText('daily_limit')).toBe('Llegaste al límite de hoy. Inténtalo mañana.');
+    } finally {
+      initI18n('en');
+    }
   });
 
   test('failed imports lead, with the queue under them', () => {

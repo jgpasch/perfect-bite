@@ -74,3 +74,18 @@ export async function setDefaultPlan(id: string, note: string): Promise<ActionRe
 export async function deletePlan(id: string, note: string): Promise<ActionResult> {
   return planEdit("admin_delete_plan", { p_id: id, p_note: note.trim() });
 }
+
+// The Safety limits card (spec 4.12): a key's per-minute and per-day limits, null for none.
+export async function setSafetyLimit(
+  key: string,
+  perMinute: number | null,
+  perDay: number | null,
+  note: string,
+): Promise<ActionResult> {
+  return planEdit("admin_set_safety_limit", {
+    p_key: key,
+    p_per_minute: perMinute,
+    p_per_day: perDay,
+    p_note: note.trim(),
+  });
+}

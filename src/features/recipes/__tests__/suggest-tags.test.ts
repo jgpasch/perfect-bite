@@ -257,6 +257,14 @@ describe('errors', () => {
     expect(await suggestRecipeTags(recipeId)).toEqual({ ok: false, error: 'limit-reached', resetsAt: '2026-11-01T00:00:00.000Z' });
   });
 
+  test("the user's daily safety limit (daily_limit) is daily-limit, not rate-limited", async () => {
+    respondWithError(429, { error: 'daily_limit', message: 'Daily limit', resets_at: '2026-10-22T00:00:00.000Z' });
+    const result = await suggestRecipeTags(recipeId);
+    expect(result).toEqual({ ok: false, error: 'daily-limit' });
+    if (result.ok) throw new Error('expected a failure');
+    expect(suggestTagsFailureMessage(result)).toBe("You've reached today's limit. Try again tomorrow.");
+  });
+
   test('limit_reached without resets_at falls back to the start of next month (UTC)', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-18T12:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
     try {
@@ -297,6 +305,7 @@ describe('messages', () => {
       'no-ingredients': "Add some ingredients first, so there's something to go on.",
       'not-entitled': "Tag suggestions aren't included in your plan.",
       'rate-limited': "That's a lot of suggestions. Try again in a minute.",
+      'daily-limit': "You've reached today's limit. Try again tomorrow.",
       unavailable: "Couldn't suggest tags right now. Try again later.",
       failed: "Couldn't suggest tags right now. Try again later.",
     });
@@ -317,6 +326,7 @@ describe('messages', () => {
       expect(suggestTagsFailureMessage({ ok: false, error: 'limit-reached', resetsAt: '2026-12-01T00:00:00.000Z' })).toBe(
         'Ya usaste las sugerencias de etiquetas de este mes. Se renuevan el 1 dic.',
       );
+      expect(suggestTagsFailureMessage({ ok: false, error: 'daily-limit' })).toBe('Llegaste al límite de hoy. Inténtalo mañana.');
     } finally {
       initI18n('en');
     }

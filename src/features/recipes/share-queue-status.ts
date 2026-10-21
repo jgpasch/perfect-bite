@@ -92,6 +92,8 @@ export function waitReasonText(reason: ShareQueueStatus['waitReason'], resetsAt?
       return i18n.t('recipes.imports.waitBusy');
     case 'limit_reached':
       return importLimitMessage(limitResetsAt(resetsAt));
+    case 'daily_limit':
+      return i18n.t('errors.dailyLimit');
     case null:
       return i18n.t('recipes.imports.waitIdle');
     default:

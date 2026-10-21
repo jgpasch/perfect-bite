@@ -233,6 +233,29 @@ describe('with categorize', () => {
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(invoke).toHaveBeenLastCalledWith('categorize-ingredients', { body: { names: ['kashk'] } });
   });
+
+  test.each(['rate_limited', 'daily_limit'])(
+    "the user's safety limit (%s) leaves the names pending for a later catch-up, and the plan alone",
+    async (code) => {
+      addItem(listId, 'kashk', USER);
+      invoke.mockResolvedValue({
+        data: null,
+        error: {
+          context: {
+            status: 429,
+            json: () => Promise.resolve({ error: code, message: 'Limit', resets_at: '2026-10-22T00:00:00.000Z' }),
+          },
+        },
+      });
+      await categorizePending(['kashk']);
+      expect(row('kashk')).toMatchObject({ status: 'pending', defaultCategoryId: null });
+      expect(hasFeature('categorize')).toBe(true);
+      expect(rpcCallsFor('my_features')).toHaveLength(1);
+      await categorizePending();
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(invoke).toHaveBeenLastCalledWith('categorize-ingredients', { body: { names: ['kashk'] } });
+    },
+  );
 });
 
 describe('isNotEntitled', () => {

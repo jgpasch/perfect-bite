@@ -725,23 +725,50 @@ Deno.test('the image kill switch (AI_IMAGE_MODEL=off): 503 before the reservatio
   });
 });
 
-Deno.test('reservation answers: not_found 404, already_generated 409, monthly_limit 429, with no model call or release', async () => {
+Deno.test('reservation answers: not_found 404, already_generated 409, user_limit, daily_limit and monthly_limit 429, with no model call or release', async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const cases: [ReserveResult['status'], number, string][] = [
       ['not_found', 404, 'not_found'],
       ['already_generated', 409, 'already_generated'],
+      ['user_limit', 429, 'rate_limited'],
+      ['daily_limit', 429, 'daily_limit'],
       ['monthly_limit', 429, 'limit_reached'],
     ];
     for (const [status, httpStatus, code] of cases) {
       const store = new FakeStore();
       store.reservation = { status } as ReserveResult;
-      const { res, json, image } = await call({ store });
+      const { res, json, image, moderation } = await call({ store });
       assertEquals(res.status, httpStatus, status);
       assertEquals(json.error, code, status);
       assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve'], status);
       assertEquals(store.aiCalls, [], `${status}: no description call`);
+      assertEquals(moderation.texts, [], `${status}: no moderation call`);
       assertEquals(image.prompts, [], `${status}: no image call`);
+      assertEquals(store.uploads, [], `${status}: nothing uploaded`);
+      assertEquals(store.completed, [], `${status}: nothing completed`);
     }
+  });
+});
+
+Deno.test('the per-minute limit: 429 rate_limited with no resets_at or Retry-After', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.reservation = { status: 'user_limit' };
+    const { res, json } = await call({ store });
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(json, { error: 'rate_limited', message: 'Too many AI photos; try again later' });
+  });
+});
+
+Deno.test('the daily limit: 429 daily_limit with the next UTC midnight as resets_at', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.reservation = { status: 'daily_limit' };
+    const { res, json } = await call({ store });
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(json, { error: 'daily_limit', message: "Today's AI photos are used up", resets_at: '2026-10-19T00:00:00.000Z' });
   });
 });
 

@@ -243,6 +243,21 @@ Deno.test('the monthly limit is 429 limit_reached with next month as resets_at',
   });
 });
 
+Deno.test('the daily limit is 429 daily_limit with the next UTC midnight as resets_at', async () => {
+  const { d } = deps({
+    categorize: () => Promise.reject(new CategorizeLimitError('daily_limit')),
+    now: () => Date.parse('2026-12-31T23:59:59.999Z'),
+  });
+  const res = await handleRequest(post(JSON.stringify({ names: ['milk'] })), d);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('retry-after'), null);
+  assertEquals(await res.json(), {
+    error: 'daily_limit',
+    message: "Today's categorizing is used up",
+    resets_at: '2027-01-01T00:00:00.000Z',
+  });
+});
+
 Deno.test('a bad request is 400 before the rate limit is reached', async () => {
   const { d, calls } = deps({ categorize: () => Promise.reject(new CategorizeLimitError('user_limit')) });
   await expectError(await handleRequest(post('not json'), d), 400, 'invalid_request');

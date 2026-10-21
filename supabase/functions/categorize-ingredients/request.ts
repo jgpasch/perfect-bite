@@ -1,7 +1,7 @@
 // HTTP layer for categorize-ingredients, kept free of `@supabase/server` so Deno tests can call it.
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { reportError } from '../_shared/sentry.ts';
-import { limitReachedResponse } from '../_shared/limits.ts';
+import { dailyLimitResponse, limitReachedResponse } from '../_shared/limits.ts';
 import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
 /** Request body cap: 100 names of 64 characters fit with room for JSON and multi-byte text. */
@@ -62,7 +62,8 @@ function parseNames(bytes: Uint8Array): string[] | string {
 
 /**
  * POST { names: string[] } → 200 CategorizeResponse · 400 · 405 · 413 · 429 rate_limited (per
- * minute) or limit_reached (the plan's monthly names, with resets_at) · 500. Never logs headers.
+ * minute) or daily_limit (the day's LLM-bound names, with resets_at, the next UTC midnight) · 500.
+ * Never logs headers.
  */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
   if (req.method !== 'POST') return error(405, 'method_not_allowed', 'Use POST');
@@ -88,6 +89,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   } catch (err) {
     if (err instanceof CategorizeInputError) return error(400, 'invalid_request', err.message);
     if (err instanceof CategorizeLimitError) {
+      if (err.reason === 'daily_limit') return dailyLimitResponse("Today's categorizing is used up", deps.now?.());
       if (err.reason === 'monthly_limit') return limitReachedResponse("This month's categorizing is used up", deps.now?.());
       return error(429, 'rate_limited', 'Too many requests; try again later');
     }

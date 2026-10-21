@@ -812,6 +812,12 @@ describe('Generate with AI', () => {
     ['not_food', 422, { error: 'not_food', message: 'x' }, "Couldn't make a photo for this recipe"],
     ['already_generated', 409, { error: 'already_generated', message: 'x' }, 'This recipe already had its AI photo'],
     [
+      'daily_limit',
+      429,
+      { error: 'daily_limit', message: 'x', resets_at: '2026-10-22T00:00:00.000Z' },
+      "You've reached today's limit. Try again tomorrow.",
+    ],
+    [
       'limit_reached',
       429,
       { error: 'limit_reached', message: 'x', resets_at: '2026-11-01T00:00:00.000Z' },
@@ -883,6 +889,7 @@ describe('Generate with AI', () => {
     expect(photoGenerationMessage({ error: 'already_generated' })).toBe('This recipe already had its AI photo');
     expect(photoGenerationMessage({ error: 'failed' })).toBe("Couldn't make a photo. Try again later.");
     expect(photoGenerationMessage({ error: 'ai_photos_blocked' })).toBe('AI photos are turned off for your account.');
+    expect(photoGenerationMessage({ error: 'daily_limit' })).toBe("You've reached today's limit. Try again tomorrow.");
     expect(photoGenerationMessage({ error: 'limit_reached', resetsAt: '2027-01-01T00:00:00.000Z' })).toBe(
       "You've used this month's AI photos. They reset on Jan 1.",
     );
@@ -892,6 +899,7 @@ describe('Generate with AI', () => {
         'Ya usaste las fotos con IA de este mes. Se renuevan el 1 nov.',
       );
       expect(photoGenerationMessage({ error: 'ai_photos_blocked' })).toBe('Las fotos con IA están desactivadas para tu cuenta.');
+      expect(photoGenerationMessage({ error: 'daily_limit' })).toBe('Llegaste al límite de hoy. Inténtalo mañana.');
     } finally {
       initI18n('en');
     }

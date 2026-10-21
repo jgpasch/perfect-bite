@@ -36,7 +36,9 @@ select results_eq(
 
 -- No monthly limit --------------------------------------------------------------------
 -- Step matching is for everyone (20261129120000_household_plans): no plan feature, no monthly
--- limit. 31 so far; run 69 more, a new minute window every 29, to reach 100.
+-- limit. 31 so far; run 69 more, a new minute window every 29, to reach 100. now() is fixed, so
+-- these all land on one day: the daily safety limit (60_ai_safety_limits) is lifted here.
+update public.ai_safety_limits set per_day = null where key = 'step_match';
 do $$
 declare i int;
 begin

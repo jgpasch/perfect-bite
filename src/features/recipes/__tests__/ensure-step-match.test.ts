@@ -431,6 +431,49 @@ describe('the pauses', () => {
     expect(matchCalls()).toHaveLength(2);
     expect(saved()).not.toBeNull();
   });
+
+  test("the user's daily limit (daily_limit) stops matching for the session, silently, where rate_limited only pauses", async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const other = createRecipe('Lime soda');
+    updateRecipeSteps(other, ['Squeeze the limes.']);
+    addRecipeIngredient(other, '2 limes');
+
+    respondWithError(429, { error: 'daily_limit', message: 'x', resets_at: '2026-10-22T00:00:00.000Z' });
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(1);
+    expect(hasFeature('step_ingredients')).toBe(true);
+
+    // A second call makes no request, even past the hour a rate limit pauses for.
+    respond();
+    await ensureStepMatch(recipeId);
+    await ensureStepMatch(other);
+    now += STEP_MATCH_PAUSE_MS + 1;
+    await ensureStepMatch(recipeId);
+    await ensureStepMatch(other);
+    expect(matchCalls()).toHaveLength(1);
+    expect(saved()).toBeNull();
+    expect(saved(other)).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+
+    resetStepMatching(); // A new session.
+    await ensureStepMatch(recipeId);
+    expect(matchCalls()).toHaveLength(2);
+    expect(saved()).not.toBeNull();
+
+    // rate_limited, by contrast, only pauses: an hour later matching resumes.
+    resetStepMatching();
+    respondWithError(429, { error: 'rate_limited', message: 'x' });
+    await ensureStepMatch(other);
+    respond();
+    await ensureStepMatch(other);
+    expect(matchCalls()).toHaveLength(3);
+    now += STEP_MATCH_PAUSE_MS;
+    await ensureStepMatch(other);
+    expect(matchCalls()).toHaveLength(4);
+    expect(saved(other)).not.toBeNull();
+  });
 });
 
 describe('ensureStepMatchSoon', () => {

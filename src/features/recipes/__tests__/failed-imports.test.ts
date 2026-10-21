@@ -216,6 +216,27 @@ describe('retryFailedImport', () => {
     expect(liveRecipes()).toEqual([]);
   });
 
+  test("past the user's imports today, it keeps it, and the card says try tomorrow", async () => {
+    const id = recordFailedImport({ url: TIKKA_URL, title: 'Tikka', reason: 'rate_limited' });
+    invoke.mockResolvedValue({
+      data: null,
+      error: {
+        name: 'FunctionsHttpError',
+        message: 'Edge Function returned a non-2xx status code',
+        context: {
+          status: 429,
+          json: () => Promise.resolve({ error: 'daily_limit', message: 'Daily limit', resets_at: '2026-10-22T00:00:00.000Z' }),
+        },
+      },
+    });
+
+    expect(await retryFailedImport(id, USER)).toEqual({ ok: false, error: 'daily_limit' });
+    const [row] = rows();
+    expect([row.id, row.reason]).toEqual([id, 'daily_limit']);
+    expect(failedImportReason(row.reason)).toBe("You've reached today's limit. Try again tomorrow.");
+    expect(liveRecipes()).toEqual([]);
+  });
+
   test('signed out (no session) keeps it as offline and calls nothing', async () => {
     const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'failed' });
     supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });

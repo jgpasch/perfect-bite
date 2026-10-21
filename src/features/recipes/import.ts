@@ -66,13 +66,14 @@ export type ImportRecipeSuccess<ListId extends string | null = string | null> = 
 /**
  * `not_a_recipe`: the page isn't a single recipe. `offline`: no connection, session or config.
  * `rate_limited`: the per-minute limit or the service is unavailable ("Try again in a minute").
+ * `daily_limit`: the user's imports today are used up (the daily safety limit, spec 4.12).
  * `limit_reached`: the plan's monthly imports are used up (spec 4.12); `resetsAt` is when they come back.
  * `blocked`: the site blocked the server's fetch and the device capture didn't get past it either.
  * `not_entitled`: the user's plan doesn't have `recipe_import` (`recipe_import_photo` for photos, spec 4.12).
  * `failed`: anything else; `reason` says what the server said, when it did.
  */
 export type ImportRecipeError =
-  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'blocked' | 'not_entitled' }
+  | { ok: false; error: 'not_a_recipe' | 'offline' | 'rate_limited' | 'daily_limit' | 'blocked' | 'not_entitled' }
   | { ok: false; error: 'limit_reached'; resetsAt: string }
   | { ok: false; error: 'failed'; reason?: 'invalid_url' | 'fetch_failed' };
 
@@ -243,6 +244,7 @@ async function errorResult(error: unknown, fn: string, feature: Feature): Promis
   }
   const status = response?.status;
   if (code === 'limit_reached') return { ok: false, error: 'limit_reached', resetsAt: limitResetsAt(resetsAt) };
+  if (code === 'daily_limit') return { ok: false, error: 'daily_limit' };
   if (code === 'not_entitled' || (!code && status === 403)) {
     // The plan has no recipe import (or photo import): hide its entry points now and reload the plan (spec 4.12).
     void lostFeature(feature);

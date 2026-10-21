@@ -46,11 +46,13 @@ describe('GenerateRecipePhotoErrorSchema', () => {
       'already_generated',
       'not_food',
       'generation_failed',
+      'rate_limited',
+      'daily_limit',
       'limit_reached',
       'unavailable',
     ]);
     expect(GenerateRecipePhotoErrorSchema.parse({ error: 'not_food', message: 'No' })).toEqual({ error: 'not_food', message: 'No' });
-    expect(GenerateRecipePhotoErrorSchema.safeParse({ error: 'rate_limited', message: 'No' }).success).toBe(false);
+    expect(GenerateRecipePhotoErrorSchema.safeParse({ error: 'fetch_failed', message: 'No' }).success).toBe(false);
   });
 
   it('reads limit_reached with its resets_at', () => {

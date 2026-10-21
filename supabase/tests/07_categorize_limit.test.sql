@@ -40,6 +40,9 @@ select results_eq(
 
 -- No monthly name limit ---------------------------------------------------------------
 -- Categorize is for everyone (20261129120000_household_plans): no plan feature, no monthly limit.
+-- now() is fixed, so these all land on one day: the daily safety limit (60_ai_safety_limits) is
+-- lifted here.
+update public.ai_safety_limits set per_day = null where key = 'categorize';
 select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 250), 'ok', '250 new names pass');
 select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 1), 'ok',
   'the 251st new name passes too: there is no monthly limit');

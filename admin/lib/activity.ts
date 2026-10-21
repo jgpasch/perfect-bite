@@ -4,6 +4,7 @@
 // here reads it defensively.
 import { flagLabel, taskLabel } from "./ai-calls";
 import { mediumDate } from "./format";
+import { limitOrNone, safetyLimitLabel } from "./safety-limits";
 import type { AdminAction, MonthlyLimit } from "./types";
 
 /** Rows a page on /activity. */
@@ -18,6 +19,7 @@ export const ACTION_LABELS = {
   rename_plan: "Renamed a plan",
   set_default_plan: "Changed the default plan",
   delete_plan: "Deleted a plan",
+  set_safety_limit: "Set safety limit",
   delete_user: "Deleted user",
   delete_account: "Deleted own account",
   view_ai_call: "Viewed an AI call",
@@ -159,6 +161,26 @@ function quoted(name: unknown): string {
   return `“${text(name) ?? "?"}”`;
 }
 
+function limitValue(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+// "Categorize · per minute 60 → 30 · per day none → 200", the changed numbers only, from
+// `set_safety_limit`'s `{ before, after }` (each `{ key, per_minute, per_day }`).
+function safetyLimitSummary(before: unknown, after: unknown): string {
+  const was = record(before) ?? {};
+  const now = record(after) ?? {};
+  const key = text(now.key) ?? text(was.key);
+  const changes: string[] = [];
+  for (const [field, name] of [["per_minute", "per minute"], ["per_day", "per day"]] as const) {
+    const from = limitValue(was[field]);
+    const to = limitValue(now[field]);
+    if (from !== to) changes.push(`${name} ${limitOrNone(from)} → ${limitOrNone(to)}`);
+  }
+  if (changes.length === 0) changes.push("No change");
+  return [key === null ? "?" : safetyLimitLabel(key), ...changes].join(" · ");
+}
+
 // For an action the portal doesn't know: the details as compact JSON, cut to 80 characters.
 function rawSummary(details: Record<string, unknown>): string {
   if (Object.keys(details).length === 0) return "";
@@ -190,6 +212,8 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
       return `${text(details.previous_default) ?? "none"} → ${text(after?.id) ?? "?"}`;
     case "delete_plan":
       return `${quoted(before?.name)} · ${plural(typeof details.users === "number" ? details.users : 0, "user", "users")}`;
+    case "set_safety_limit":
+      return safetyLimitSummary(details.before, details.after);
     case "delete_user": {
       const households = householdsSummary(details.households);
       const email = text(details.email);

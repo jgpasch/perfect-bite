@@ -64,7 +64,7 @@ export const SuggestRecipeTagsResponseSchema = z.object({
 });
 export type SuggestRecipeTagsResponse = z.infer<typeof SuggestRecipeTagsResponseSchema>;
 
-export const SUGGEST_RECIPE_TAGS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'limit_reached', 'unavailable'] as const;
+export const SUGGEST_RECIPE_TAGS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'daily_limit', 'limit_reached', 'unavailable'] as const;
 export const SuggestRecipeTagsErrorCodeSchema = z.enum(SUGGEST_RECIPE_TAGS_ERROR_CODES);
 export type SuggestRecipeTagsErrorCode = z.infer<typeof SuggestRecipeTagsErrorCodeSchema>;
 

@@ -856,6 +856,11 @@ describe('errors write nothing', () => {
     expect(await run()).toEqual({ ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' });
   });
 
+  test("the user's daily safety limit is daily_limit, never rate_limited", async () => {
+    respondWithError(429, { error: 'daily_limit', message: 'Daily limit', resets_at: '2026-10-22T00:00:00.000Z' });
+    expect(await run()).toEqual({ ok: false, error: 'daily_limit' });
+  });
+
   test('limit_reached without a readable resets_at falls back to the start of next month (UTC)', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-12-14T10:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
     try {
@@ -1199,6 +1204,7 @@ describe('from photos (spec 4.10, 6.10)', () => {
   test.each([
     ['not_a_recipe', 422, { ok: false, error: 'not_a_recipe' }],
     ['rate_limited', 429, { ok: false, error: 'rate_limited' }],
+    ['daily_limit', 429, { ok: false, error: 'daily_limit' }],
     ['limit_reached', 429, { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' }],
     ['unavailable', 503, { ok: false, error: 'rate_limited' }],
     ['invalid_request', 400, { ok: false, error: 'failed' }],

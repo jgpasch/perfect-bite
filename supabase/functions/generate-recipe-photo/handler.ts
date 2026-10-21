@@ -14,11 +14,13 @@ import { moderateText, ModerationFailedError, moderationModelId, type Moderation
 
 /**
  * `reserve_recipe_photo_ai`'s answer. `blocked`: the caller's AI photos are blocked after repeated
- * refusals (6.11). `monthly_limit`: the caller has reserved their plan's AI photos this month.
+ * refusals (6.11). `user_limit` and `daily_limit`: the caller's per-minute and daily safety limits
+ * (`ai_safety_limits`, spec 4.12). `monthly_limit`: the caller has reserved their plan's AI photos
+ * this month. Nothing is reserved unless `ok`.
  */
 export type ReserveResult =
   | { status: 'ok'; householdId: string }
-  | { status: 'blocked' | 'not_found' | 'already_generated' | 'monthly_limit' };
+  | { status: 'blocked' | 'not_found' | 'already_generated' | 'user_limit' | 'daily_limit' | 'monthly_limit' };
 
 /** The recipe as stored: its name, its live ingredients' display names in order, and its `tags`. */
 export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown };
@@ -63,6 +65,8 @@ export type GenerateFailure =
   | { code: 'ai_photos_blocked' }
   | { code: 'not_found' }
   | { code: 'already_generated' }
+  | { code: 'rate_limited' }
+  | { code: 'daily_limit' }
   | { code: 'limit_reached' }
   | { code: 'not_food'; by: 'description' | 'moderation' | 'image' }
   | { code: 'generation_failed'; step: 'description' | 'moderation' | 'image' }
@@ -122,6 +126,10 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
       throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
     case 'already_generated':
       throw new GeneratePhotoError({ code: 'already_generated' }, 'This recipe already has had its AI photo');
+    case 'user_limit':
+      throw new GeneratePhotoError({ code: 'rate_limited' }, 'Too many AI photos; try again later');
+    case 'daily_limit':
+      throw new GeneratePhotoError({ code: 'daily_limit' }, "Today's AI photos are used up");
     case 'monthly_limit':
       throw new GeneratePhotoError({ code: 'limit_reached' }, "This month's AI photos are used up");
   }

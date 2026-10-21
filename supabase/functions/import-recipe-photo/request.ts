@@ -7,7 +7,7 @@ import {
   type RecipePhotoImportRequest,
 } from '@shared/index.ts';
 
-import { limitReachedResponse } from '../_shared/limits.ts';
+import { dailyLimitResponse, limitReachedResponse } from '../_shared/limits.ts';
 import { reportError } from '../_shared/sentry.ts';
 import { readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipePhotoError, type PhotoImportFailure } from './handler.ts';
@@ -42,6 +42,8 @@ function failureResponse(failure: PhotoImportFailure, message: string, now?: num
       return error(422, 'not_a_recipe', message);
     case 'rate_limited':
       return error(429, 'rate_limited', message);
+    case 'daily_limit':
+      return dailyLimitResponse(message, now);
     case 'limit_reached':
       return limitReachedResponse(message, now);
     case 'unavailable':

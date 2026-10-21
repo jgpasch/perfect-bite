@@ -50,7 +50,7 @@ export const MatchRecipeStepsResponseSchema = z.object({
 });
 export type MatchRecipeStepsResponse = z.infer<typeof MatchRecipeStepsResponseSchema>;
 
-export const MATCH_RECIPE_STEPS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'limit_reached', 'unavailable'] as const;
+export const MATCH_RECIPE_STEPS_ERROR_CODES = ['invalid_request', 'not_entitled', 'rate_limited', 'daily_limit', 'limit_reached', 'unavailable'] as const;
 export const MatchRecipeStepsErrorCodeSchema = z.enum(MATCH_RECIPE_STEPS_ERROR_CODES);
 export type MatchRecipeStepsErrorCode = z.infer<typeof MatchRecipeStepsErrorCodeSchema>;
 

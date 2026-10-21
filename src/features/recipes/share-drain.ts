@@ -130,7 +130,8 @@ const removed = new Set<string>();
  * Bad files are logged and deleted. "Not a recipe" and "not in your plan" are recorded as failed at once; other failures
  * keep the file and count a try, and the fifth is recorded as failed. Offline or rate-limited, the
  * rest wait for the next drain, as they would fail the same way. Past the plan's monthly imports
- * (`limit_reached`), the share keeps its file without counting a try, and the rest wait too. One drain at a time: a drain
+ * (`limit_reached`) or the user's imports today (`daily_limit`), the share keeps its file without
+ * counting a try, and the rest wait too. One drain at a time: a drain
  * started during another does nothing.
  */
 export async function drainShareQueue(userId: string, options: ShareDrainOptions = {}): Promise<ShareDrainResult> {
@@ -169,6 +170,11 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
       if (imported.error === 'limit_reached') {
         waitReason = imported.error;
         resetsAt = imported.resetsAt;
+        break;
+      }
+      // The user's imports today are used up: the same, until the day resets.
+      if (imported.error === 'daily_limit') {
+        waitReason = imported.error;
         break;
       }
       // Trying again won't change the page or the plan: these fail at once.

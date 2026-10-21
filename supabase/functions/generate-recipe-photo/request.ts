@@ -2,7 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { GenerateRecipePhotoRequestSchema, type GenerateRecipePhotoRequest, type GenerateRecipePhotoResponse } from '@shared/index.ts';
 
-import { limitReachedResponse } from '../_shared/limits.ts';
+import { dailyLimitResponse, limitReachedResponse } from '../_shared/limits.ts';
 import { reportError } from '../_shared/sentry.ts';
 import { MOCK_MODEL_ID } from '../_shared/ai/registry.ts';
 import { AI_OFF } from '../_shared/ai/tasks.ts';
@@ -40,6 +40,10 @@ function failureResponse(failure: GenerateFailure, message: string, now?: number
       return error(404, 'not_found', message);
     case 'already_generated':
       return error(409, 'already_generated', message);
+    case 'rate_limited':
+      return error(429, 'rate_limited', message);
+    case 'daily_limit':
+      return dailyLimitResponse(message, now);
     case 'limit_reached':
       return limitReachedResponse(message, now);
     case 'not_food':
@@ -80,7 +84,7 @@ export function missingConfig(env: (key: string) => string | undefined): string 
 
 /**
  * POST GenerateRecipePhotoRequest → 200 GenerateRecipePhotoResponse · 400 · 403 · 404 · 405 · 409 ·
- * 413 · 422 · 429 limit_reached (with resets_at) · 500 (incl. not_configured) · 502 · 503 with Retry-After. Never logs headers.
+ * 413 · 422 · 429 rate_limited, daily_limit or limit_reached (both with resets_at) · 500 (incl. not_configured) · 502 · 503 with Retry-After. Never logs headers.
  */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
   if (req.method !== 'POST') return error(405, 'method_not_allowed', 'Use POST');

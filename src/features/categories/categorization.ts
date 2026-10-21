@@ -40,7 +40,8 @@ let catchUp: Promise<void> | null = null;
 /**
  * Categorizes `names` (normalized) in one request. With no argument, it's the catch-up run: up to
  * 100 local `pending` and `failed` names, at most one run in flight. Never throws; on any failure
- * the names stay as they are, for the next catch-up.
+ * (including 429 `rate_limited` and `daily_limit`, the user's safety limits, spec 4.12) the names
+ * stay as they are, for the next catch-up.
  */
 export function categorizePending(names?: readonly string[]): Promise<void> {
   if (names) return send(names);

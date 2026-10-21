@@ -190,11 +190,37 @@ export type AdminPlanChange = {
   previous_default?: string | null;
 };
 
+// --- Safety limits: admin_list_safety_limits, admin_set_safety_limit ------------------------
+// From 20261130120000_ai_safety_limits.sql.
+
+/** A row of `public.ai_safety_limits`: a key's per-user limits, null for none. */
+export type AdminSafetyLimit = {
+  /** `categorize`, `step_match`, `recipe_tags`, `recipe_import_link`, `recipe_import_photo`, `recipe_import` or `recipe_photo_ai`. */
+  key: string;
+  /** Requests a minute. */
+  per_minute: number | null;
+  /** A UTC day, in the key's unit (names for categorize, link and photo imports together for recipe_import, else requests). */
+  per_day: number | null;
+};
+
+/** `admin_list_safety_limits()`: every key, in the fixed order. */
+export type AdminSafetyLimitList = AdminSafetyLimit[];
+
+/**
+ * `admin_set_safety_limit(p_key, p_per_minute, p_per_day, p_note)` returns its audit row's details
+ * (`set_safety_limit`). Raises `unknown key` (P0002), `note required` (22023) or, for a negative
+ * number, the table's check (23514).
+ */
+export type AdminSetSafetyLimitResult = {
+  before: AdminSafetyLimit;
+  after: AdminSafetyLimit;
+};
+
 // --- Activity: admin_list_actions ------------------------------------------------------------
 
 export type AdminAction = {
   id: string;
-  /** `set_user_plan`, a plan edit (`create_plan`, …), `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
+  /** `set_user_plan`, a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
   action: string;
   target_user_id: string | null;
   /** While that user still exists. */

@@ -140,6 +140,14 @@ Deno.test('limit_reached is 429 with resets_at, the first instant of next month 
   assertEquals(await res.json(), { error: 'limit_reached', message: 'nope', resets_at: '2026-03-01T00:00:00.000Z' });
 });
 
+Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
+  const d = { ...failingDeps({ code: 'daily_limit' }), now: () => Date.parse('2026-02-28T23:59:00Z') };
+  const res = await handleRequest(post(SIMPLE), d);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'daily_limit', message: 'nope', resets_at: '2026-03-01T00:00:00.000Z' });
+});
+
 Deno.test('an unexpected error is a 500 internal_error', async () => {
   const { d } = deps({ matchSteps: () => Promise.reject(new Error('boom')) });
   await expectError(await handleRequest(post(SIMPLE), d), 500, 'internal_error');

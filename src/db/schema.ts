@@ -407,6 +407,7 @@ export type FailedImportReason =
   | 'not_a_recipe'
   | 'offline'
   | 'rate_limited'
+  | 'daily_limit'
   | 'limit_reached'
   | 'blocked'
   | 'not_entitled'

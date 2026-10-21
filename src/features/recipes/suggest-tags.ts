@@ -20,9 +20,17 @@ import { getRecipe, recipeIngredientsQuery } from './recipes';
 /**
  * `offline`: no connection, session or config. `no-ingredients`: the recipe has none, so nothing
  * was sent. `not-entitled`: the plan has no `recipe_tags` (4.12). `rate-limited`: the per-minute
- * limit. `unavailable`: the kill switch or the model failed. `failed`: anything else.
+ * limit. `daily-limit`: the user's suggestions today (the daily safety limit, 4.12).
+ * `unavailable`: the kill switch or the model failed. `failed`: anything else.
  */
-export type SuggestTagsError = 'offline' | 'no-ingredients' | 'not-entitled' | 'rate-limited' | 'unavailable' | 'failed';
+export type SuggestTagsError =
+  | 'offline'
+  | 'no-ingredients'
+  | 'not-entitled'
+  | 'rate-limited'
+  | 'daily-limit'
+  | 'unavailable'
+  | 'failed';
 
 /** A failed suggestion; `limit-reached` is the plan's monthly limit (4.12), back at `resetsAt`. */
 export type SuggestTagsFailure = { ok: false; error: SuggestTagsError } | { ok: false; error: 'limit-reached'; resetsAt: string };
@@ -43,6 +51,7 @@ onLanguageChanged(() => {
     'no-ingredients': i18n.t('recipes.tags.errors.noIngredients'),
     'not-entitled': i18n.t('recipes.tags.errors.notEntitled'),
     'rate-limited': i18n.t('recipes.tags.errors.rateLimited'),
+    'daily-limit': i18n.t('errors.dailyLimit'),
     unavailable: i18n.t('recipes.tags.errors.unavailable'),
     failed: i18n.t('recipes.tags.errors.unavailable'),
   };
@@ -128,6 +137,7 @@ async function failure(error: unknown): Promise<SuggestTagsFailure> {
     return fail('not-entitled');
   }
   if (code === 'limit_reached') return { ok: false, error: 'limit-reached', resetsAt: limitResetsAt(resetsAt) };
+  if (code === 'daily_limit') return fail('daily-limit');
   if (code === 'rate_limited' || (!code && status === 429)) return fail('rate-limited');
   if (code === 'unavailable' || (!code && status === 503)) return fail('unavailable');
   console.warn('suggest-recipe-tags returned an error', error);

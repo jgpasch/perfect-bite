@@ -28,6 +28,8 @@ export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: 
         row?.status === 'blocked' ||
         row?.status === 'not_found' ||
         row?.status === 'already_generated' ||
+        row?.status === 'user_limit' ||
+        row?.status === 'daily_limit' ||
         row?.status === 'monthly_limit'
       ) {
         return { status: row.status };

@@ -318,6 +318,21 @@ test('the monthly limit: 429 limit_reached with next month as resets_at, and no 
   assertEquals(aiCalls.length, 0);
 });
 
+test('the daily limit: 429 daily_limit with the next UTC midnight as resets_at, and no model call', async () => {
+  const { post, store, aiCalls } = setup();
+  store.limit = 'daily_limit';
+  const res = await post({ images: [PAGE_1] });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), {
+    error: 'daily_limit',
+    message: "Today's recipe imports are used up",
+    resets_at: '2026-10-19T00:00:00.000Z',
+  });
+  assertEquals(store.limitChecks, 1);
+  assertEquals(aiCalls.length, 0);
+});
+
 test('an invalid request is a 400 before the plan, the limits or the model', async () => {
   const { post, store, aiCalls } = setup();
   await expectError(await post({ images: [] }), 400, 'invalid_request');
@@ -465,14 +480,16 @@ test('an unexpected error is a 500 that says nothing about it', async () => {
   assertEquals(await res.json(), { error: 'internal_error', message: 'Photo import failed' });
 });
 
-test('categorize’s own limit: the recipe still imports, its names pending', async () => {
-  const { deps } = setup({
-    categorize: () => Promise.reject(new CategorizeLimitError('user_limit')),
+for (const reason of ['user_limit', 'daily_limit'] as const) {
+  test(`categorize’s own limit (${reason}): the recipe still imports, its names pending`, async () => {
+    const { deps } = setup({
+      categorize: () => Promise.reject(new CategorizeLimitError(reason)),
+    });
+    const res = await importRecipePhoto({ images: [PAGE_1] }, deps);
+    assertEquals(res.name, 'Mock photo recipe');
+    assertEquals(res.ingredients.map((i) => [i.status, i.categoryId]), [['pending', null], ['pending', null], ['pending', null]]);
   });
-  const res = await importRecipePhoto({ images: [PAGE_1] }, deps);
-  assertEquals(res.name, 'Mock photo recipe');
-  assertEquals(res.ingredients.map((i) => [i.status, i.categoryId]), [['pending', null], ['pending', null], ['pending', null]]);
-});
+}
 
 test('every photo import is a fresh call: nothing is cached', async () => {
   const { deps, calls } = setup();

@@ -27,6 +27,7 @@ export type SuggestDeps = {
 /** Why a suggestion failed; request.ts turns it into the HTTP status. */
 export type SuggestFailure =
   | { code: 'rate_limited' }
+  | { code: 'daily_limit' }
   | { code: 'limit_reached' }
   | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
@@ -53,6 +54,7 @@ export async function suggestRecipeTags(request: SuggestRecipeTagsRequest, deps:
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new SuggestTagsError({ code: 'rate_limited' }, 'Too many tag suggestions; try again later');
+  if (limit === 'daily_limit') throw new SuggestTagsError({ code: 'daily_limit' }, "Today's tag suggestions are used up");
   if (limit === 'monthly_limit') throw new SuggestTagsError({ code: 'limit_reached' }, "This month's tag suggestions are used up");
 
   let output;

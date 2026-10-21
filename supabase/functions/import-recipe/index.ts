@@ -1,9 +1,9 @@
 // POST /functions/v1/import-recipe — body: RecipeImportRequest (spec 6.6).
 // 200 RecipeImportResponse · 400 invalid_url/invalid_request · 401 no/invalid user (from
 // withSupabase) · 403 not_entitled (the household's plan has no `recipe_import`, spec 4.12) · 405
-// · 413 · 422 not_a_recipe · 429 rate_limited (per minute) or limit_reached (the plan's monthly
-// imports, with resets_at) · 502 fetch_failed · 503 unavailable (with
-// Retry-After) · 500.
+// · 413 · 422 not_a_recipe · 429 rate_limited (per minute), daily_limit (the day's link and photo
+// imports, with resets_at, the next UTC midnight) or limit_reached (the plan's monthly imports, with
+// resets_at) · 502 fetch_failed · 503 unavailable (with Retry-After) · 500.
 import { withSupabase } from '@supabase/server';
 
 import { fetchPage } from '../_shared/fetch-page.ts';

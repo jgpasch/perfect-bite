@@ -1,8 +1,9 @@
 // Drift guard for the admin portal (spec 4.12). Jest ignores `admin/`, so this reads its files as
 // text: the portal's feature map must name exactly the app's features, and its tokens.css must
-// carry every colour of the app's theme, so changing either without the portal fails here.
+// carry every colour of the app's theme, and its safety-limit keys must be the migrations'
+// `private.safety_limit_keys()`, so changing any of them without the portal fails here.
 import { describe, expect, it, jest } from '@jest/globals';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AisleColors, Palette, type ColorScheme } from '@/constants/theme';
@@ -39,6 +40,25 @@ function adminFeatureKeys(source: string): string[] {
   return [...block[1].matchAll(/^\s*([a-z_]+):\s*\{/gm)].map((m) => m[1]);
 }
 
+/** The keys of the `SAFETY_LIMITS` map in admin/lib/safety-limits.ts, in order. */
+function adminSafetyLimitKeys(source: string): string[] {
+  const block = /export const SAFETY_LIMITS = \{([\s\S]*?)\n\}/.exec(source);
+  if (!block) throw new Error('admin/lib/safety-limits.ts has no SAFETY_LIMITS map');
+  return [...block[1].matchAll(/^\s*([a-z_]+):\s*\{/gm)].map((m) => m[1]);
+}
+
+/** The keys in the last `private.safety_limit_keys()` among the migrations (in file order), in order. */
+function migrationSafetyLimitKeys(migrations: { name: string; sql: string }[]): string[] {
+  let keys: string[] | null = null;
+  for (const { sql } of [...migrations].sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const m of sql.matchAll(/function private\.safety_limit_keys\(\)[\s\S]*?array\[([^\]]*)\]/g)) {
+      keys = [...m[1].matchAll(/'([a-z_]+)'/g)].map((k) => k[1]);
+    }
+  }
+  if (keys === null) throw new Error('no migration defines private.safety_limit_keys()');
+  return keys;
+}
+
 describe('cssVar', () => {
   it('turns a token name into its kebab-case variable', () => {
     expect(cssVar('background')).toBe('--background');
@@ -57,6 +77,30 @@ describe('admin/lib/features.ts', () => {
   it('is read the way the test thinks', () => {
     expect(adminFeatureKeys('export const FEATURES = {\n  a_b: { x: 1 },\n  c: { y: 2 },\n} as const;')).toEqual(['a_b', 'c']);
     expect(() => adminFeatureKeys('const nothing = 1;')).toThrow('no FEATURES map');
+  });
+});
+
+describe('admin/lib/safety-limits.ts', () => {
+  const dir = 'supabase/migrations';
+  const migrations = readdirSync(join(root, dir))
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => ({ name, sql: read(join(dir, name)) }));
+
+  it('names exactly private.safety_limit_keys(), in its order', () => {
+    expect(adminSafetyLimitKeys(read('admin/lib/safety-limits.ts'))).toEqual(migrationSafetyLimitKeys(migrations));
+  });
+
+  it('is read the way the test thinks', () => {
+    expect(adminSafetyLimitKeys('export const SAFETY_LIMITS = {\n  a_b: { x: 1 },\n  c: { y: 2 },\n} as const;')).toEqual(['a_b', 'c']);
+    expect(() => adminSafetyLimitKeys('const nothing = 1;')).toThrow('no SAFETY_LIMITS map');
+    const fn = (keys: string) => `create function private.safety_limit_keys()\nreturns text[]\nas $$ select array[${keys}]; $$;`;
+    expect(
+      migrationSafetyLimitKeys([
+        { name: '2_later.sql', sql: fn("'b', 'a'") },
+        { name: '1_first.sql', sql: fn("'a'") },
+      ]),
+    ).toEqual(['b', 'a']);
+    expect(() => migrationSafetyLimitKeys([{ name: '1.sql', sql: 'select 1;' }])).toThrow('no migration defines');
   });
 });
 

@@ -2,7 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { MatchRecipeStepsRequestSchema, type MatchRecipeStepsRequest, type MatchRecipeStepsResponse } from '@shared/index.ts';
 
-import { limitReachedResponse } from '../_shared/limits.ts';
+import { dailyLimitResponse, limitReachedResponse } from '../_shared/limits.ts';
 import { reportError } from '../_shared/sentry.ts';
 import { readBody } from '../categorize-ingredients/request.ts';
 import { AI_FAILED_RETRY_AFTER, PAUSED_RETRY_AFTER } from '../suggest-recipe-tags/request.ts';
@@ -34,6 +34,8 @@ function failureResponse(failure: MatchStepsFailure, message: string, now?: numb
   switch (failure.code) {
     case 'rate_limited':
       return error(429, 'rate_limited', message);
+    case 'daily_limit':
+      return dailyLimitResponse(message, now);
     case 'limit_reached':
       return limitReachedResponse(message, now);
     case 'unavailable':

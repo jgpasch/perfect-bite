@@ -254,6 +254,22 @@ Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, 
   });
 });
 
+Deno.test('the daily limit is 429 daily_limit with the next UTC midnight as resets_at, and no model call', async () => {
+  await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.limit = 'daily_limit';
+    const res = await post(TIKKA);
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get('Retry-After'), null);
+    assertEquals(await res.json(), {
+      error: 'daily_limit',
+      message: "Today's tag suggestions are used up",
+      resets_at: '2026-10-19T00:00:00.000Z',
+    });
+    assertEquals(store.steps, ['limit']);
+  });
+});
+
 Deno.test('AI_MODEL_TAGS=off is 503 unavailable, using no budget and calling no model', async () => {
   await withEnv({ AI_MODEL_TAGS: 'off', AI_MODEL_RECIPE: 'mock' }, async () => {
     const { store, post } = setup();

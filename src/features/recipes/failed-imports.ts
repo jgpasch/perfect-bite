@@ -74,6 +74,8 @@ export function failedImportReason(reason: FailedImportReason, now: number = Dat
   switch (reason) {
     case 'limit_reached':
       return importLimitMessage(limitResetsAt(null, now));
+    case 'daily_limit':
+      return i18n.t('errors.dailyLimit');
     case 'not_a_recipe':
       return i18n.t('recipes.imports.reasons.notARecipe');
     case 'blocked':

@@ -27,6 +27,7 @@ export type MatchStepsDeps = {
 /** Why a match failed; request.ts turns it into the HTTP status. */
 export type MatchStepsFailure =
   | { code: 'rate_limited' }
+  | { code: 'daily_limit' }
   | { code: 'limit_reached' }
   | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
 
@@ -55,6 +56,7 @@ export async function matchSteps(request: MatchRecipeStepsRequest, deps: MatchSt
 
   const limit = await deps.store.checkLimit();
   if (limit === 'user_limit') throw new MatchStepsError({ code: 'rate_limited' }, 'Too many step matches; try again later');
+  if (limit === 'daily_limit') throw new MatchStepsError({ code: 'daily_limit' }, "Today's step matches are used up");
   if (limit === 'monthly_limit') throw new MatchStepsError({ code: 'limit_reached' }, "This month's step matches are used up");
 
   const sent = request.steps.flatMap((text, i) => (text === '' ? [] : [i]));

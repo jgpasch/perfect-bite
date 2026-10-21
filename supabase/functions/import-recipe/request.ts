@@ -2,7 +2,7 @@
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { RecipeImportRequestSchema, type RecipeImportRequest, type RecipeImportResponse } from '@shared/index.ts';
 
-import { limitReachedResponse } from '../_shared/limits.ts';
+import { dailyLimitResponse, limitReachedResponse } from '../_shared/limits.ts';
 import { reportError } from '../_shared/sentry.ts';
 import { readBody } from '../categorize-ingredients/request.ts';
 import { ImportRecipeError, type ImportFailure } from './handler.ts';
@@ -41,6 +41,8 @@ function failureResponse(failure: ImportFailure, message: string, now?: number):
       return error(422, 'not_a_recipe', message);
     case 'rate_limited':
       return error(429, 'rate_limited', message);
+    case 'daily_limit':
+      return dailyLimitResponse(message, now);
     case 'limit_reached':
       return limitReachedResponse(message, now);
     case 'unavailable':

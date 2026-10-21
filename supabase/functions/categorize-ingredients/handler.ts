@@ -90,11 +90,12 @@ export interface CategorizeStore {
 }
 
 /**
- * A limit function's answer: `user_limit` is the per-minute limit (every plan); `monthly_limit` is
- * the user's plan's monthly limit (`plan_limits`, spec 4.12). Functions answer them 429
- * `rate_limited` and 429 `limit_reached`.
+ * A limit function's answer: `user_limit` is the per-minute safety limit and `daily_limit` the daily
+ * one (`ai_safety_limits`, the user's UTC day, every plan); `monthly_limit` is the plan's monthly
+ * limit (`plan_limits`, spec 4.12; only the import checks answer it). Functions answer them 429
+ * `rate_limited`, 429 `daily_limit` and 429 `limit_reached`.
  */
-export type LimitResult = 'ok' | 'user_limit' | 'monthly_limit';
+export type LimitResult = 'ok' | 'user_limit' | 'daily_limit' | 'monthly_limit';
 
 export type CategorizeResult = {
   status: IngredientStatus;

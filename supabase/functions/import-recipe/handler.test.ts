@@ -1014,6 +1014,23 @@ test('monthly limit → 429 limit_reached with next month as resets_at, before a
   assertEquals(aiCalls, []);
 });
 
+test('daily limit → 429 daily_limit with the next UTC midnight as resets_at, before any fetch or LLM call', async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  store.limit = 'daily_limit';
+  store.getCached = () => Promise.reject(new Error('should not be read'));
+  const res = await post({ url: PASTA_URL });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), {
+    error: 'daily_limit',
+    message: "Today's recipe imports are used up",
+    resets_at: '2026-10-11T00:00:00.000Z',
+  });
+  assertEquals(store.saves, []);
+  assertEquals(fetched, []);
+  assertEquals(aiCalls, []);
+});
+
 Deno.test('AI_MODEL_RECIPE=off → 503 without counting against the limits', () =>
   withEnv({ AI_MODEL_RECIPE: 'off', AI_MODEL_CATEGORIZE: 'mock' }, async () => {
     const { post, store, fetched } = setup();
@@ -1024,7 +1041,7 @@ Deno.test('AI_MODEL_RECIPE=off → 503 without counting against the limits', () 
     assertEquals(fetched, []);
   }));
 
-for (const limit of ['user_limit', 'monthly_limit'] as const) {
+for (const limit of ['user_limit', 'daily_limit', 'monthly_limit'] as const) {
   test(`categorize’s own limit (${limit}) doesn’t fail the import: the names come back pending`, async () => {
     const { post, catStore, calls } = setup();
     catStore.limit = limit;

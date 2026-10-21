@@ -74,6 +74,14 @@ Deno.test('limit_reached is 429 with resets_at, the first instant of next month 
   assertEquals(await res.json(), { error: 'limit_reached', message: 'nope', resets_at: '2027-01-01T00:00:00.000Z' });
 });
 
+Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
+  const d = { ...failing({ code: 'daily_limit' }), now: () => Date.parse('2026-12-31T23:30:00Z') };
+  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get('Retry-After'), null);
+  assertEquals(await res.json(), { error: 'daily_limit', message: 'nope', resets_at: '2027-01-01T00:00:00.000Z' });
+});
+
 Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after a model failure', async () => {
   for (const [reason, retryAfter] of [
     ['ai_off', PAUSED_RETRY_AFTER],

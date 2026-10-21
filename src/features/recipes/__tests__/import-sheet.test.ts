@@ -85,6 +85,18 @@ describe('importErrorMessage', () => {
     );
   });
 
+  test("the daily safety limit says try tomorrow, for a link or photos, never 'Try again in a minute'", () => {
+    const error = { ok: false, error: 'daily_limit' } as const;
+    expect(importErrorMessage(error)).toBe("You've reached today's limit. Try again tomorrow.");
+    expect(importErrorMessage(error, 'photo')).toBe("You've reached today's limit. Try again tomorrow.");
+    initI18n('es');
+    try {
+      expect(importErrorMessage(error)).toBe('Llegaste al límite de hoy. Inténtalo mañana.');
+    } finally {
+      initI18n('en');
+    }
+  });
+
   test('the monthly limit in Spanish', () => {
     initI18n('es');
     try {

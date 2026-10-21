@@ -1399,6 +1399,8 @@ export const en = {
     categoryNeedsName: 'A category needs a name',
     googleNotConfigured: 'Google sign-in is not configured.',
     googleNoToken: 'Google didn’t return an ID token.',
+    /** A per-user daily safety limit (spec 4.12), where a person started the request. */
+    dailyLimit: "You've reached today's limit. Try again tomorrow.",
   },
   signIn: {
     appName: 'The Perfect Bite',

@@ -30,6 +30,8 @@ export type GenerateRecipePhotoResponse = z.infer<typeof GenerateRecipePhotoResp
  * `not_food` (422): the recipe isn't food, or its text isn't something to put in a food photo, or
  * the image model refused it.
  * `generation_failed` (502): a model failed or timed out; the slot was released, so try again.
+ * `rate_limited` (429): the user's per-minute safety limit (4.12); nothing was reserved.
+ * `daily_limit` (429, with `resets_at`, the next UTC midnight): the user's daily safety limit (4.12).
  * `limit_reached` (429, with `resets_at`): the user has made their plan's AI photos this month.
  * `unavailable` (503, with Retry-After): a kill switch.
  */
@@ -41,6 +43,8 @@ export const GENERATE_RECIPE_PHOTO_ERROR_CODES = [
   'already_generated',
   'not_food',
   'generation_failed',
+  'rate_limited',
+  'daily_limit',
   'limit_reached',
   'unavailable',
 ] as const;

@@ -39,6 +39,7 @@ describe("actionLabel", () => {
       "Renamed a plan",
       "Changed the default plan",
       "Deleted a plan",
+      "Set safety limit",
       "Deleted user",
       "Deleted own account",
       "Viewed an AI call",
@@ -128,6 +129,32 @@ describe("actionSummary", () => {
   it("delete_plan: the name and its users", () => {
     expect(summary("delete_plan", { before: plan({ name: "Old", users: 0 }), after: null, users: 0 })).toBe("“Old” · 0 users");
     expect(summary("delete_plan", { before: plan(), after: null, users: 1 })).toBe("“Founding” · 1 user");
+  });
+
+  it("set_safety_limit: the key's label and the numbers that changed, none for null", () => {
+    const row = (key: string, per_minute: number | null, per_day: number | null) => ({ key, per_minute, per_day });
+    expect(summary("set_safety_limit", { before: row("categorize", 60, 500), after: row("categorize", 30, 1500) })).toBe(
+      "Categorize · per minute 60 → 30 · per day 500 → 1,500",
+    );
+    expect(summary("set_safety_limit", { before: row("recipe_import", null, 100), after: row("recipe_import", null, 200) })).toBe(
+      "Recipe imports · per day 100 → 200",
+    );
+    expect(summary("set_safety_limit", { before: row("recipe_photo_ai", 5, 40), after: row("recipe_photo_ai", null, null) })).toBe(
+      "AI photos · per minute 5 → none · per day 40 → none",
+    );
+    expect(summary("set_safety_limit", { before: row("step_match", 30, 100), after: row("step_match", 30, 100) })).toBe(
+      "Step matching · No change",
+    );
+  });
+
+  it("set_safety_limit: an unknown key raw, and odd details", () => {
+    expect(summary("set_safety_limit", { before: { key: "new_key", per_minute: 1, per_day: null }, after: { key: "new_key", per_minute: 2, per_day: null } })).toBe(
+      "new_key · per minute 1 → 2",
+    );
+    expect(summary("set_safety_limit", {})).toBe("? · No change");
+    expect(summary("set_safety_limit", { before: null, after: { key: "categorize", per_minute: 10 } })).toBe(
+      "Categorize · per minute none → 10",
+    );
   });
 
   it("delete_user: the email and what happened to their households", () => {
