@@ -49,21 +49,26 @@ export interface RecipeImportStore {
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
   /**
-   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
-   * `_shared/entitlements.ts`). Called first, before the rate limit, the cache or any fetch.
+   * Throws NotEntitledError unless the plan of `householdId` (the household the recipe is saved to)
+   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). No
+   * household (old builds): any of the caller's households. Called first, before the rate limit,
+   * the cache or any fetch.
    */
-  requireFeature(feature: Feature): Promise<void>;
+  requireFeature(feature: Feature, householdId?: string): Promise<void>;
 }
 
 export type ImportDeps = {
   store: RecipeImportStore;
-  /** The shared `categorize()`, bound to its own store and the caller's limits. */
-  categorize: (names: string[]) => Promise<CategorizeResponse>;
+  /**
+   * The shared `categorize()`, bound to its own store and the caller's limits. `caller` is the
+   * request's (with its household), recorded on each `ai_calls` row.
+   */
+  categorize: (names: string[], caller?: AiCaller) => Promise<CategorizeResponse>;
   /** `fetchPage` from `_shared/fetch-page.ts`; tests inject one with a fake resolver and fetch. */
   fetchPage: (url: string) => Promise<FetchedPage>;
   /** Tests inject a MockLanguageModelV4 for extract-recipe; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
-  /** The signed-in caller, recorded on each `ai_calls` row. */
+  /** The signed-in caller, recorded on each `ai_calls` row with the request's `householdId`. */
   caller?: AiCaller;
   now?: () => number;
 };
@@ -167,13 +172,15 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
  */
 export async function importRecipe(request: RecipeImportRequest, deps: ImportDeps): Promise<RecipeImportResponse> {
   try {
-    await deps.store.requireFeature('recipe_import');
+    // A household the caller isn't in is refused here too.
+    await deps.store.requireFeature('recipe_import', request.householdId);
   } catch (err) {
     if (err instanceof NotEntitledError) {
       throw new ImportRecipeError({ code: 'not_entitled' }, "Recipe import isn't included in your plan");
     }
     throw err;
   }
+  const caller = callerIn(deps.caller, request.householdId);
   const now = deps.now ?? Date.now;
   const urlKey = canonicalRecipeUrl(request.url);
   if (!urlKey) throw new ImportRecipeError({ code: 'invalid_url' }, 'Not an http(s) URL');
@@ -214,7 +221,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
         throw err;
       }
     }
-    recipe = await extract(page, deps);
+    recipe = await extract(page, { ...deps, caller });
     // Client-supplied pages are never cached, so one user can't poison the cache for others.
     if (!request.page) {
       try {
@@ -226,7 +233,15 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
   }
 
   if (!recipe.is_recipe) throw new ImportRecipeError({ code: 'not_a_recipe' }, 'That page is not a recipe');
-  return importResponse(recipe, urlKey, deps.categorize);
+  return importResponse(recipe, urlKey, (names) => deps.categorize(names, caller));
+}
+
+/**
+ * The caller as an import's `ai_calls` rows record it: in the household the recipe is saved to,
+ * which `requireFeature` has checked they're in (none from old builds).
+ */
+export function callerIn(caller: AiCaller | undefined, householdId: string | undefined): AiCaller | undefined {
+  return caller && { ...caller, householdId: householdId ?? null };
 }
 
 /**

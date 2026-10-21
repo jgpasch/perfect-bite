@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { isHouseholdMember } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import type { SuggestTagsStore } from './handler.ts';
 
@@ -13,6 +14,10 @@ export function createSuggestTagsStore(admin: SupabaseClient, limits: { userId: 
       const { data, error } = await admin.rpc('check_recipe_tags_limit', { p_user_id: limits.userId });
       if (error) throw error;
       return data as LimitResult;
+    },
+
+    isMember(householdId) {
+      return isHouseholdMember(admin, limits.userId, householdId);
     },
 
     async logAiCall(call) {

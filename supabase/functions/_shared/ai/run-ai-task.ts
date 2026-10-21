@@ -28,6 +28,21 @@ export type AiTaskResult<T> = {
 /** Who made a call: the signed-in user and, when the request has one, the household. */
 export type AiCaller = { userId: string; householdId: string | null };
 
+/**
+ * The caller with a request's `householdId` when they're a member of it, else none (spec 6.4). For
+ * functions that only record the household (tags, step matching), so a household the caller isn't
+ * in is ignored rather than refused. No caller (the CLIs) asks nothing.
+ */
+export async function recordedCaller(
+  caller: AiCaller | undefined,
+  householdId: string | undefined,
+  store: { isMember(householdId: string): Promise<boolean> },
+): Promise<AiCaller | undefined> {
+  if (!caller) return undefined;
+  const member = householdId !== undefined && (await store.isMember(householdId));
+  return { ...caller, householdId: member ? householdId : null };
+}
+
 /** The AI photo's image call (spec §6.11): not an `aiTasks` task, but logged in `ai_calls` beside them. */
 export const RECIPE_PHOTO_IMAGE_TASK = 'recipePhotoImage';
 

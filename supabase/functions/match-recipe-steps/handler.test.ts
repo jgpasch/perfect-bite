@@ -30,14 +30,20 @@ async function withEnv(vars: Record<string, string>, fn: () => Promise<void>) {
 }
 
 class FakeStore implements StepMatchStore {
-  /** Every step, in order: `limit`, `ai_call`. */
+  /** Every step, in order: `limit`, `member:<household>`, `ai_call`. */
   steps: string[] = [];
   aiCalls: AiCallRecord[] = [];
   limit: LimitResult = 'ok';
+  /** The households the caller is a member of. */
+  households = new Set<string>();
 
   async checkLimit() {
     this.steps.push('limit');
     return this.limit;
+  }
+  async isMember(householdId: string) {
+    this.steps.push(`member:${householdId}`);
+    return this.households.has(householdId);
   }
   async logAiCall(call: AiCallRecord) {
     this.steps.push('ai_call');
@@ -195,6 +201,56 @@ Deno.test('a failed call is logged with the caller too', async () => {
     const { store, post } = setup({ model: answering({ nope: true }) });
     assertEquals((await post(TACOS)).status, 503);
     assertEquals(store.aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
+  });
+});
+
+const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+Deno.test('a household the caller is in is recorded on ai_calls, checked once after the limit', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.households.add(HOUSEHOLD_ID);
+    assertEquals((await post({ ...TACOS, householdId: HOUSEHOLD_ID })).status, 200);
+    assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [[CALLER.userId, HOUSEHOLD_ID]]);
+    assertEquals(store.steps, ['limit', `member:${HOUSEHOLD_ID}`, 'ai_call']);
+  });
+});
+
+Deno.test("a household the caller isn't in is ignored: the match still answers, with no household on the row", async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    const res = await post({ ...TACOS, householdId: HOUSEHOLD_ID });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).steps[1], [{ id: 'ing-oil', quantity: null }]);
+    assertEquals(store.aiCalls.map((c) => [c.user_id, c.household_id]), [[CALLER.userId, null]]);
+  });
+});
+
+Deno.test('a failed call carries the household too', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup({ model: answering({ nope: true }) });
+    store.households.add(HOUSEHOLD_ID);
+    assertEquals((await post({ ...TACOS, householdId: HOUSEHOLD_ID })).status, 503);
+    assertEquals(store.aiCalls.map((c) => [c.status, c.household_id]), [['invalid_output', HOUSEHOLD_ID]]);
+  });
+});
+
+Deno.test('a householdId that is not a uuid is 400 invalid_request, with nothing counted', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    const res = await post({ ...TACOS, householdId: 42 });
+    assertEquals(res.status, 400);
+    assertEquals((await res.json()).error, 'invalid_request');
+    assertEquals(store.steps, []);
+  });
+});
+
+Deno.test('a refused match (limit) never asks about the household', async () => {
+  await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
+    const { store, post } = setup();
+    store.limit = 'daily_limit';
+    assertEquals((await post({ ...TACOS, householdId: HOUSEHOLD_ID })).status, 429);
+    assertEquals(store.steps, ['limit']);
   });
 });
 

@@ -6,14 +6,20 @@ import type { RecipePhotoStore } from './handler.ts';
 export const RECIPE_PHOTOS_BUCKET = 'recipe-photos';
 
 /**
- * RecipePhotoStore over the service-role client. The plan check and the reservation are for
- * `userId` (the reservation also checks they're in the recipe's household). Each `ai_calls` row
+ * RecipePhotoStore over the service-role client. The plan check (in the recipe's household) and the
+ * reservation are for `userId` (both also check they're in that household). Each `ai_calls` row
  * carries the caller from the handler.
  */
 export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: string }): RecipePhotoStore {
   return {
-    requireFeature(feature) {
-      return requireFeature(admin, limits.userId, feature);
+    async recipeHousehold(recipeId) {
+      const { data, error } = await admin.from('recipes').select('household_id').eq('id', recipeId).is('deleted_at', null).maybeSingle();
+      if (error) throw error;
+      return (data?.household_id as string | undefined) ?? null;
+    },
+
+    requireFeature(feature, householdId) {
+      return requireFeature(admin, limits.userId, feature, householdId);
     },
 
     async reserve(recipeId) {

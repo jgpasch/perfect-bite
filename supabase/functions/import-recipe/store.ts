@@ -46,8 +46,8 @@ export function createRecipeImportStore(admin: SupabaseClient, limits: { userId:
       if (error) throw error;
     },
 
-    requireFeature(feature) {
-      return requireFeature(admin, limits.userId, feature);
+    requireFeature(feature, householdId) {
+      return requireFeature(admin, limits.userId, feature, householdId);
     },
   };
 }

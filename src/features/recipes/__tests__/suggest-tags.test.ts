@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 
-import { db, outbox, recipes } from '@/db';
+import { db, households, outbox, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getFeatures, hasFeature } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
@@ -106,7 +106,19 @@ describe('the request', () => {
         { name: 'garam masala', quantity: null, unit: null, note: null },
         { name: 'garlic', quantity: 4, unit: 'clove', note: null },
       ],
+      householdId: recipeRow()!.householdId,
     });
+  });
+
+  test("carries the recipe's own household, not the current one", async () => {
+    const CABIN = '019a4c10-0000-7000-8000-00000000cab1';
+    db.insert(households).values({ id: CABIN, name: 'Lake cabin' }).run();
+    const cabinRecipe = createRecipe('Lake chili', CABIN);
+    addRecipeIngredient(cabinRecipe, 'beans');
+    expect(buildSuggestTagsRequest(cabinRecipe)!.householdId).toBe(CABIN);
+    expect(buildSuggestTagsRequest(recipeId)!.householdId).not.toBe(CABIN);
+    await suggestRecipeTags(cabinRecipe);
+    expect((invoke.mock.calls[0][1] as { body: { householdId: string } }).body.householdId).toBe(CABIN);
   });
 
   test('leaves deleted ingredients out', () => {
@@ -138,6 +150,7 @@ describe('the request', () => {
           { name: 'chicken thighs', quantity: 2, unit: 'lb', note: null },
           { name: 'garam masala', quantity: null, unit: null, note: null },
         ],
+        householdId: recipeRow()!.householdId,
       },
     });
   });

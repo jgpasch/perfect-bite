@@ -15,15 +15,15 @@ import { createRecipePhotoImportStore } from './store.ts';
 export default {
   fetch: withSupabase({ auth: 'user' }, (req, ctx) => {
     const userId = ctx.userClaims!.id;
-    const caller = { userId, householdId: null };
     const store = createRecipePhotoImportStore(ctx.supabaseAdmin, { userId });
     const categorizeStore = createCategorizeStore(ctx.supabaseAdmin, { userId });
     return handleRequest(req, {
       importRecipePhoto: (request) =>
         importRecipePhoto(request, {
           store,
-          categorize: (names) => categorize(names, categorizeStore, undefined, caller),
-          caller,
+          categorize: (names, caller) => categorize(names, categorizeStore, undefined, caller),
+          // The handler adds the request's household once the plan check has passed.
+          caller: { userId, householdId: null },
         }),
     });
   }),

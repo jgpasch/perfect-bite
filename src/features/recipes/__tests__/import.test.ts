@@ -8,12 +8,13 @@ import {
   ingredientUsage,
   listItemContributions,
   listItems,
+  lists,
   outbox,
   recipeIngredients,
   recipes,
 } from '@/db';
 import { addItem, groupItems, listItemsQuery, setItemChecked } from '@/features/lists/items';
-import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
+import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import { getFeatures, hasFeature, setFeatures } from '@/features/plans/features';
 import { clearFeatures, startFeatures } from '@/features/plans/load';
 import { normalizeIngredientName, OTHER_CATEGORY_ID, stepIngredientsBasis, SYSTEM_CATEGORIES } from '@/shared';
@@ -124,6 +125,9 @@ const TIKKA_MATCH: NonNullable<RecipeImportResponse['stepIngredients']> = [
 
 let listId: string;
 let warn: ReturnType<typeof jest.spyOn>;
+
+/** The household of the default list, which an import onto it sends (spec 4.12). */
+const listHousehold = () => getList(listId)!.householdId;
 
 function respond(data: unknown = TIKKA) {
   invoke.mockResolvedValue({ data, error: null });
@@ -279,12 +283,26 @@ describe('a new recipe', () => {
     expect(itemFor('chicken thigh')).toMatchObject({ addedBy: USER, checkedAt: null });
   });
 
-  test('sends the URL, and the page when there is one', async () => {
+  test("sends the URL and the list's household, and the page when there is one", async () => {
     await importOk();
-    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: URL_ } });
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: URL_, householdId: listHousehold() } });
     const page = { title: 'Tikka', jsonLd: ['{"@type":"Recipe"}'], text: 'Chicken tikka masala' };
     await importOk({ page });
-    expect(invoke).toHaveBeenLastCalledWith('import-recipe', { body: { url: URL_, page } });
+    expect(invoke).toHaveBeenLastCalledWith('import-recipe', { body: { url: URL_, page, householdId: listHousehold() } });
+  });
+
+  test("a list in another household sends that household, not the current one", async () => {
+    const CABIN = '019a4c10-0000-7000-8000-00000000cab1';
+    db.insert(households).values({ id: CABIN, name: 'Lake cabin' }).run();
+    db.update(lists).set({ householdId: CABIN }).where(eq(lists.id, listId)).run();
+    await importOk();
+    expect((invoke.mock.calls[0][1] as { body: { householdId: string } }).body.householdId).toBe(CABIN);
+  });
+
+  test('a list not on the device sends no household, and the import fails with nothing written', async () => {
+    expect(await importRecipe({ url: URL_, listId: 'list-gone' })).toEqual({ ok: false, error: 'failed' });
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: URL_ } });
+    expect(liveRecipes()).toEqual([]);
   });
 
   test('no name uses the host', async () => {
@@ -731,6 +749,8 @@ describe('recipe-only (a household, no list)', () => {
       undo: expect.any(Function),
     });
     expect(recipeHousehold(result.recipeId)).toBe(OTHER);
+    // The household it's saved to goes with the request, for the plan check (spec 4.12).
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: URL_, householdId: OTHER } });
     expect(liveRecipes()).toEqual([
       { id: result.recipeId, name: 'Chicken tikka masala', sourceUrl: CANONICAL, notes: null },
     ]);
@@ -982,7 +1002,10 @@ describe('device fallback for blocked sites', () => {
 
     expect(capture).toHaveBeenCalledTimes(1);
     expect(capture).toHaveBeenCalledWith(URL_);
-    expect(bodies()).toEqual([{ url: URL_ }, { url: URL_, page: PAGE }]);
+    expect(bodies()).toEqual([
+      { url: URL_, householdId: listHousehold() },
+      { url: URL_, page: PAGE, householdId: listHousehold() },
+    ]);
     expect(result.recipeName).toBe('Chicken tikka masala');
     expect(result.added).toBe(4);
     expect(liveRecipes()).toEqual([
@@ -994,7 +1017,7 @@ describe('device fallback for blocked sites', () => {
     captureWith({ ok: true, page: { title: '  ', jsonLd: [], text: 'Tikka: 2 lb chicken' } });
     invoke.mockResolvedValueOnce(blocked()).mockResolvedValueOnce({ data: TIKKA, error: null });
     await importOk();
-    expect(bodies()[1]).toEqual({ url: URL_, page: { text: 'Tikka: 2 lb chicken' } });
+    expect(bodies()[1]).toEqual({ url: URL_, page: { text: 'Tikka: 2 lb chicken' }, householdId: listHousehold() });
   });
 
   test('the second call’s own error comes back, with nothing written', async () => {
@@ -1124,9 +1147,15 @@ describe('from photos (spec 4.10, 6.10)', () => {
     await importRecipeFromPhotos({ listId, photoUris: PAGES });
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenCalledWith('import-recipe-photo', {
-      body: { images: PAGES.map((uri) => ({ mediaType: 'image/jpeg', data: b64(uri) })) },
+      body: { images: PAGES.map((uri) => ({ mediaType: 'image/jpeg', data: b64(uri) })), householdId: listHousehold() },
     });
     expect(mockBase64.mock.calls.map(([uri]) => uri)).toEqual(PAGES);
+  });
+
+  test('a photo import into a household sends that household', async () => {
+    const householdId = db.select().from(households).get()!.id;
+    await importRecipeFromPhotos({ householdId, photoUris: PAGES.slice(0, 1) });
+    expect((invoke.mock.calls[0][1] as { body: { householdId: string } }).body.householdId).toBe(householdId);
   });
 
   test('creates a recipe with no link and no photo, and adds every ingredient to the list', async () => {

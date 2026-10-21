@@ -3,7 +3,7 @@
 // index.ts wires the real store.
 import type { MatchRecipeStepsRequest, MatchRecipeStepsResponse } from '@shared/index.ts';
 
-import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { recordedCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import { matchRecipeSteps, StepMatchError, type MatchDeps } from './match.ts';
@@ -12,6 +12,8 @@ import { matchRecipeSteps, StepMatchError, type MatchDeps } from './match.ts';
 export interface StepMatchStore {
   /** Counts one match against the per-user limits (`public.check_step_match_limit`). */
   checkLimit(): Promise<LimitResult>;
+  /** Whether the caller is a member of `householdId`. */
+  isMember(householdId: string): Promise<boolean>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
 }
@@ -20,7 +22,7 @@ export type MatchStepsDeps = {
   store: StepMatchStore;
   /** Tests inject a MockLanguageModelV4; otherwise the task's env model. */
   model?: MatchDeps['model'];
-  /** The signed-in caller, recorded on each `ai_calls` row. */
+  /** The signed-in caller, recorded on each `ai_calls` row with the request's `householdId` when they're in it. */
   caller?: MatchDeps['caller'];
 };
 
@@ -59,12 +61,13 @@ export async function matchSteps(request: MatchRecipeStepsRequest, deps: MatchSt
   if (limit === 'daily_limit') throw new MatchStepsError({ code: 'daily_limit' }, "Today's step matches are used up");
   if (limit === 'monthly_limit') throw new MatchStepsError({ code: 'limit_reached' }, "This month's step matches are used up");
 
+  const caller = await recordedCaller(deps.caller, request.householdId, deps.store);
   const sent = request.steps.flatMap((text, i) => (text === '' ? [] : [i]));
   let result;
   try {
     result = await matchRecipeSteps(
       { steps: sent.map((i) => request.steps[i]), ingredients: request.ingredients },
-      { model: deps.model, caller: deps.caller, onCall: (call) => deps.store.logAiCall(call) },
+      { model: deps.model, caller, onCall: (call) => deps.store.logAiCall(call) },
     );
   } catch (err) {
     if (!(err instanceof StepMatchError)) throw err;

@@ -150,9 +150,14 @@ class FakeRecipeStore implements RecipeImportStore {
   /** The features the caller's plan has, and every feature checked. */
   features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
-  async requireFeature(feature: Feature) {
+  /** The household each plan check was for (undefined: none sent). */
+  featureHouseholds: (string | undefined)[] = [];
+  /** Households the caller isn't in: `has_feature` answers false there. */
+  notMemberOf = new Set<string>();
+  async requireFeature(feature: Feature, householdId?: string) {
     this.featureChecks.push(feature);
-    if (!this.features.has(feature)) throw new NotEntitledError(feature);
+    this.featureHouseholds.push(householdId);
+    if (!this.features.has(feature) || (householdId !== undefined && this.notMemberOf.has(householdId))) throw new NotEntitledError(feature);
   }
 }
 
@@ -260,7 +265,7 @@ function setup(overrides: Partial<ImportDeps> = {}) {
   }) as typeof fetch;
   const deps: ImportDeps = {
     store,
-    categorize: (names) => categorize(names, catStore, undefined, CALLER),
+    categorize: (names, caller) => categorize(names, catStore, undefined, caller),
     fetchPage: (url) => fetchPage(url, { resolve: async (host) => DNS[host] ?? [], fetch: fakeFetch }),
     caller: CALLER,
     now: () => store.now,
@@ -341,6 +346,50 @@ test('ai_calls rows carry the caller: the extraction and the inline categorize, 
       ['categorize', CALLER.userId, null],
     ],
   );
+});
+
+const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+test('the household goes to the plan check and onto every ai_calls row: the extraction and the inline categorize', async () => {
+  const { post, aiCalls, store } = setup();
+  assertEquals((await post({ url: PASTA_URL, householdId: HOUSEHOLD_ID })).status, 200);
+  assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  assertEquals(
+    aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
+    [
+      ['extractRecipe', CALLER.userId, HOUSEHOLD_ID],
+      ['categorize', CALLER.userId, HOUSEHOLD_ID],
+    ],
+  );
+});
+
+test('a client-supplied page carries the household too', async () => {
+  const { post, aiCalls } = setup();
+  const res = await post({ url: BARS_URL, page: { title: 'Lemon Bars', text: '1 cup flour\n2 lemons, juiced\n3 eggs' }, householdId: HOUSEHOLD_ID });
+  assertEquals(res.status, 200);
+  assertEquals(aiCalls.map((c) => c.household_id), aiCalls.map(() => HOUSEHOLD_ID));
+  assert(aiCalls.length > 0);
+});
+
+test('no household (old builds): the plan check gets none and the rows have none', async () => {
+  const { post, store, aiCalls } = setup();
+  assertEquals((await post({ url: PASTA_URL })).status, 200);
+  assertEquals(store.featureHouseholds, [undefined]);
+  assertEquals(aiCalls.map((c) => c.household_id), [null, null]);
+});
+
+test("a household the caller isn't in: 403 not_entitled before any limit, fetch, cache or model work", async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  store.notMemberOf.add(HOUSEHOLD_ID);
+  await expectError(await post({ url: PASTA_URL, householdId: HOUSEHOLD_ID }), 403, 'not_entitled');
+  assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  assertEquals([store.limitChecks, store.saves, fetched, aiCalls], [0, [], [], []]);
+});
+
+test('a householdId that is not a uuid is 400 invalid_request, with no plan check', async () => {
+  const { post, store } = setup();
+  await expectError(await post({ url: PASTA_URL, householdId: 'household-1' }), 400, 'invalid_request');
+  assertEquals(store.featureChecks, []);
 });
 
 test('JSON-LD path makes 0 categorize calls when every name is already known', async () => {

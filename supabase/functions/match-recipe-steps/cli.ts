@@ -177,6 +177,11 @@ export class MemoryStepMatchStore implements StepMatchStore {
     return 'ok' as const;
   }
 
+  /** No caller and no household here. */
+  async isMember() {
+    return false;
+  }
+
   async logAiCall(call: AiCallRecord) {
     this.aiCalls.push(call);
   }

@@ -195,7 +195,7 @@ describe('drainShareQueue', () => {
     enqueue(E1, TIKKA_URL, { page });
     await drain();
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: TIKKA_URL, page } });
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: TIKKA_URL, page, householdId: personal } });
   });
 
   test('imports several shares oldest first', async () => {

@@ -4,7 +4,7 @@ import type { SuggestRecipeTagsRequest, SuggestRecipeTagsResponse } from '@share
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
 import { buildSuggestRecipeTagsPrompt, SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from '../_shared/ai/prompts/suggest-recipe-tags.v1.ts';
-import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { recordedCaller, runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanSuggestedTags, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { isProviderFailure, type LimitResult } from '../categorize-ingredients/handler.ts';
 
@@ -12,6 +12,8 @@ import { isProviderFailure, type LimitResult } from '../categorize-ingredients/h
 export interface SuggestTagsStore {
   /** Counts one suggestion against the per-user limits (`public.check_recipe_tags_limit`). */
   checkLimit(): Promise<LimitResult>;
+  /** Whether the caller is a member of `householdId`. */
+  isMember(householdId: string): Promise<boolean>;
   /** Writes one `ai_calls` row. */
   logAiCall(call: AiCallRecord): Promise<void>;
 }
@@ -20,7 +22,7 @@ export type SuggestDeps = {
   store: SuggestTagsStore;
   /** Tests inject a MockLanguageModelV4; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
-  /** The signed-in caller, recorded on each `ai_calls` row. */
+  /** The signed-in caller, recorded on each `ai_calls` row with the request's `householdId` when they're in it. */
   caller?: AiCaller;
 };
 
@@ -57,11 +59,12 @@ export async function suggestRecipeTags(request: SuggestRecipeTagsRequest, deps:
   if (limit === 'daily_limit') throw new SuggestTagsError({ code: 'daily_limit' }, "Today's tag suggestions are used up");
   if (limit === 'monthly_limit') throw new SuggestTagsError({ code: 'limit_reached' }, "This month's tag suggestions are used up");
 
+  const caller = await recordedCaller(deps.caller, request.householdId, deps.store);
   let output;
   try {
     ({ output } = await runAiTask('suggestRecipeTags', buildSuggestRecipeTagsPrompt(request), {
       model: deps.model,
-      caller: deps.caller,
+      caller,
       onCall: (call) => deps.store.logAiCall(call),
     }));
   } catch (err) {

@@ -36,3 +36,22 @@ export async function requireFeature(
   if (error) throw error;
   if (data !== true) throw new NotEntitledError(feature);
 }
+
+/**
+ * Whether `userId` is a member of `householdId`. For functions that only record a request's
+ * household on `ai_calls` (tags, step matching): a household the caller isn't in is left off.
+ */
+export async function isHouseholdMember(
+  admin: Pick<SupabaseClient, 'from'>,
+  userId: string,
+  householdId: string,
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from('household_members')
+    .select('household_id')
+    .eq('household_id', householdId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data !== null;
+}

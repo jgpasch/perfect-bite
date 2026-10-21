@@ -49,6 +49,8 @@ export const SuggestRecipeTagsRequestSchema = z.object({
   ingredients: z
     .array(SuggestRecipeTagsIngredientSchema)
     .transform((items) => items.filter((i) => i.name !== '').slice(0, MAX_RECIPE_INGREDIENTS)),
+  /** The recipe's household, only recorded on `ai_calls` (spec 6.4); ignored when the caller isn't in it. Optional for old builds. */
+  householdId: z.uuid().optional(),
 });
 export type SuggestRecipeTagsRequest = z.infer<typeof SuggestRecipeTagsRequestSchema>;
 /** What the app sends, before the schema trims and cuts it. */

@@ -12,7 +12,7 @@ const post = (body: string, headers: Record<string, string> = {}) =>
 
 /** Standard base64 of `n` zero bytes. */
 const zeros = (n: number) => 'A'.repeat(Math.floor(n / 3) * 4) + (n % 3 === 1 ? 'AA==' : n % 3 === 2 ? 'AAA=' : '');
-const jpeg = (n = 3000) => ({ mediaType: 'image/jpeg', data: zeros(n) });
+const jpeg = (n = 3000) => ({ mediaType: 'image/jpeg' as const, data: zeros(n) });
 
 /** handleRequest with a fake importer that records what it got. */
 function setup(env: Record<string, string> = { AI_MODEL_RECIPE: 'mock' }) {
@@ -37,11 +37,21 @@ async function expect400(res: Response, field: string) {
 
 Deno.test('a valid request reaches the importer as sent, images in order', async () => {
   const { got, send } = setup();
-  const images = [jpeg(10), { mediaType: 'image/png', data: zeros(11) }, { mediaType: 'image/webp', data: zeros(12) }];
+  const images = [jpeg(10), { mediaType: 'image/png' as const, data: zeros(11) }, { mediaType: 'image/webp' as const, data: zeros(12) }];
   const res = await send(post(JSON.stringify({ images })));
   assertEquals(res.status, 200);
   assertEquals((await res.json()).sourceUrl, null);
   assertEquals(got, [{ images }]);
+});
+
+Deno.test('householdId: a uuid reaches the importer; anything else is 400 invalid_request', async () => {
+  const { got, send } = setup();
+  const householdId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  assertEquals((await send(post(JSON.stringify({ images: [jpeg(10)], householdId })))).status, 200);
+  assertEquals(got[0].householdId, householdId);
+  await expect400(await send(post(JSON.stringify({ images: [jpeg(10)], householdId: 'h1' }))), 'householdId');
+  await expect400(await send(post(JSON.stringify({ images: [jpeg(10)], householdId: null }))), 'householdId');
+  assertEquals(got.length, 1);
 });
 
 Deno.test('the image count: none or more than 3 is 400 invalid_request', async () => {

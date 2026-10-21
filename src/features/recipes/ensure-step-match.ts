@@ -99,6 +99,8 @@ function pending(recipeId: string): { body: MatchRecipeStepsRequestInput; basis:
         unit: i.unit,
         note: i.note,
       })),
+      // Only recorded on the call's `ai_calls` row (spec 6.4).
+      householdId: recipe.householdId,
     },
   };
 }

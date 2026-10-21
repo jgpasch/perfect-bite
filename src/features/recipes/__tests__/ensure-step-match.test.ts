@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 
-import { db, recipes } from '@/db';
+import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId } from '@/features/lists/lists';
 import { DEFAULT_FEATURES, hasFeature, setFeatures } from '@/features/plans/features';
 import { normalizeIngredientName, stepIngredientsBasis } from '@/shared';
@@ -136,6 +136,7 @@ describe('a recipe that needs a match', () => {
               { id: chicken, name: 'chicken thighs', quantity: 2, unit: 'lb', note: null },
               { id: limes, name: 'limes', quantity: 3, unit: null, note: null },
             ],
+            householdId: db.select().from(recipes).where(eq(recipes.id, recipeId)).get()!.householdId,
           },
         },
       ],
@@ -146,6 +147,16 @@ describe('a recipe that needs a match', () => {
       steps: [[{ id: chicken, quantity: null }], [{ id: limes, quantity: null }], []],
     });
     expect(matchState()).toBe('fresh');
+  });
+
+  test("sends the recipe's own household, not the current one", async () => {
+    const CABIN = '019a4c10-0000-7000-8000-00000000cab1';
+    db.insert(households).values({ id: CABIN, name: 'Lake cabin' }).run();
+    const cabinRecipe = createRecipe('Cabin tacos', CABIN);
+    updateRecipeSteps(cabinRecipe, STEPS);
+    addRecipeIngredient(cabinRecipe, '3 limes');
+    await ensureStepMatch(cabinRecipe);
+    expect(matchCalls().map(([, options]) => (options as { body: { householdId: string } }).body.householdId)).toEqual([CABIN]);
   });
 
   test('keeps the shares the function answers with', async () => {

@@ -49,10 +49,14 @@ const TACOS: StoredRecipe = {
 };
 
 class FakeStore implements RecipePhotoStore {
-  /** Every step, in order: `feature:<name>`, `reserve`, `read`, `ai_call`, `upload:<path>`, `complete`, `release`. */
+  /** Every step, in order: `household`, `feature:<name>`, `reserve`, `read`, `ai_call`, `upload:<path>`, `complete`, `release`. */
   steps: string[] = [];
   aiCalls: AiCallRecord[] = [];
+  /** The live recipe's household; null when it's gone. */
+  household: string | null = HOUSEHOLD_ID;
   features = new Set<Feature>(['recipe_photo_ai']);
+  /** The household each plan check was for. */
+  featureHouseholds: string[] = [];
   reservation: ReserveResult = { status: 'ok', householdId: HOUSEHOLD_ID };
   recipe: StoredRecipe | null = TACOS;
   uploads: { path: string; bytes: Uint8Array }[] = [];
@@ -60,8 +64,14 @@ class FakeStore implements RecipePhotoStore {
   completeAnswer = true;
   failUpload = false;
 
-  async requireFeature(feature: Feature) {
+  async recipeHousehold(recipeId: string) {
+    this.steps.push('household');
+    assertEquals(recipeId, RECIPE_ID);
+    return this.household;
+  }
+  async requireFeature(feature: Feature, householdId: string) {
     this.steps.push(`feature:${feature}`);
+    this.featureHouseholds.push(householdId);
     if (!this.features.has(feature)) throw new NotEntitledError(feature);
   }
   async reserve(_recipeId: string) {
@@ -197,7 +207,7 @@ Deno.test('success: reads the recipe, describes it, makes the image, uploads it 
     const path = `${HOUSEHOLD_ID}/${RECIPE_ID}/${PHOTO_ID}.jpg`;
     assertEquals(res.status, 200);
     assertEquals(json, { path });
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'ai_call', `upload:${path}`, 'complete']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'ai_call', `upload:${path}`, 'complete']);
     assertEquals(store.uploads, [{ path, bytes: JPEG }]);
     assertEquals(store.completed, [{ recipeId: RECIPE_ID, description: MOCK_PHOTO_DESCRIPTION, path }]);
     assertEquals(image.prompts.length, 1);
@@ -629,7 +639,7 @@ Deno.test('a flagged prompt: 422 not_food, released, the image model never calle
     const moderation = fakeModeration({ flagged: true, categories: ['violence', 'violence/graphic'] });
     const { res, json, store, image } = await call({ moderation });
     assertEquals([res.status, json], [422, { error: 'not_food', message: "This recipe can't have an AI photo" }]);
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'release']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'release']);
     assertEquals(image.prompts, []);
     assertEquals([store.uploads, store.completed], [[], []]);
     assertEquals(store.aiCalls.map((c) => c.task), ['recipePhotoDescription', 'recipePhotoModeration']);
@@ -662,7 +672,7 @@ Deno.test('a moderation failure: 502 generation_failed, released, no image call,
     for (const [moderation, status, httpStatus, errorBodyText] of cases) {
       const { res, json, store, image } = await call({ moderation });
       assertEquals([res.status, json.error], [502, 'generation_failed'], status);
-      assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'release'], status);
+      assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'release'], status);
       assertEquals(image.prompts, [], status);
       const row = store.aiCalls[1];
       assertEquals([row.task, row.status, row.http_status, row.error_body, row.output], ['recipePhotoModeration', status, httpStatus, errorBodyText, null], status);
@@ -700,8 +710,60 @@ Deno.test('not entitled: 403 before anything else', async () => {
     const { res, json, image } = await call({ store });
     assertEquals(res.status, 403);
     assertEquals(json.error, 'not_entitled');
-    assertEquals(store.steps, ['feature:recipe_photo_ai']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai']);
     assertEquals(image.prompts, []);
+  });
+});
+
+Deno.test("the plan is checked in the live recipe's household", async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const OTHER_HOUSEHOLD = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
+    const store = new FakeStore();
+    store.household = OTHER_HOUSEHOLD;
+    store.features.clear();
+    const { res, json } = await call({ store });
+    assertEquals([res.status, json.error], [403, 'not_entitled']);
+    assertEquals(store.featureHouseholds, [OTHER_HOUSEHOLD]);
+  });
+});
+
+Deno.test('success: one plan check, in the recipe’s household', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const { res, store } = await call();
+    assertEquals(res.status, 200);
+    assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  });
+});
+
+Deno.test('a recipe gone (or never there) at the lookup: 404 not_found with no plan check, reservation or call', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.household = null;
+    const { res, json, image, moderation } = await call({ store });
+    assertEquals([res.status, json.error], [404, 'not_found']);
+    assertEquals(store.steps, ['household']);
+    assertEquals([store.aiCalls, store.uploads, image.prompts, moderation.texts], [[], [], [], []]);
+  });
+});
+
+Deno.test('not entitled in the household (a plan without AI photos, or a caller not in it): nothing reserved or written', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.features.clear();
+    const { res } = await call({ store });
+    assertEquals(res.status, 403);
+    assertFalse(store.steps.includes('reserve'));
+    assertEquals([store.aiCalls, store.uploads, store.completed], [[], [], []]);
+  });
+});
+
+Deno.test('an error from the household lookup is a 500, with nothing reserved', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.recipeHousehold = () => Promise.reject(new Error('db down'));
+    const { res, json } = await call({ store });
+    assertEquals([res.status, json.error], [500, 'internal_error']);
+    assertEquals(store.steps, []);
   });
 });
 
@@ -711,7 +773,7 @@ Deno.test('the description kill switch: 503 after the plan, before the reservati
     assertEquals(res.status, 503);
     assertEquals(json.error, 'unavailable');
     assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
-    assertEquals(store.steps, ['feature:recipe_photo_ai']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai']);
   });
 });
 
@@ -720,7 +782,7 @@ Deno.test('the image kill switch (AI_IMAGE_MODEL=off): 503 before the reservatio
     const { res, json, store, image } = await call({ env: { AI_IMAGE_MODEL: 'off' } });
     assertEquals(res.status, 503);
     assertEquals(json.error, 'unavailable');
-    assertEquals(store.steps, ['feature:recipe_photo_ai']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai']);
     assertEquals(image.prompts, []);
   });
 });
@@ -740,7 +802,7 @@ Deno.test('reservation answers: not_found 404, already_generated 409, user_limit
       const { res, json, image, moderation } = await call({ store });
       assertEquals(res.status, httpStatus, status);
       assertEquals(json.error, code, status);
-      assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve'], status);
+      assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve'], status);
       assertEquals(store.aiCalls, [], `${status}: no description call`);
       assertEquals(moderation.texts, [], `${status}: no moderation call`);
       assertEquals(image.prompts, [], `${status}: no image call`);
@@ -779,7 +841,7 @@ Deno.test('a blocked user: 403 ai_photos_blocked, with no model call, moderation
     const { res, json, image, moderation } = await call({ store });
     assertEquals(res.status, 403);
     assertEquals(json, { error: 'ai_photos_blocked', message: 'AI photos are turned off for your account' });
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve']);
     assertEquals(store.aiCalls, []);
     assertEquals(moderation.texts, []);
     assertEquals(image.prompts, []);
@@ -804,7 +866,7 @@ Deno.test('the recipe gone after the reservation: 404 and released', async () =>
     const { res, json } = await call({ store });
     assertEquals(res.status, 404);
     assertEquals(json.error, 'not_found');
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'release']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'release']);
   });
 });
 
@@ -815,7 +877,7 @@ Deno.test('isFood false: 422 not_food, released, no image call', async () => {
     const { res, json, store, image } = await call({ model: answering({ isFood: false, description: 'ignored' }) });
     assertEquals(res.status, 422);
     assertEquals(json.error, 'not_food');
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'release']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'release']);
     assertEquals(image.prompts, []);
     assertEquals(store.completed, []);
   });
@@ -837,7 +899,7 @@ Deno.test('a moderation refusal from the image model: 422 not_food, released, no
     const { res, json, store } = await call({ image: fakeImage(new ImageRefusedError('Refused: moderation_blocked')) });
     assertEquals(res.status, 422);
     assertEquals(json.error, 'not_food');
-    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'ai_call', 'release']);
+    assertEquals(store.steps, ['household', 'feature:recipe_photo_ai', 'reserve', 'read', 'ai_call', 'ai_call', 'ai_call', 'release']);
     assertEquals(store.uploads, []);
   });
 });

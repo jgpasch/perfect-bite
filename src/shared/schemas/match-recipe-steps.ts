@@ -35,6 +35,8 @@ export const MatchRecipeStepsRequestSchema = z.object({
     .refine((items) => new Set(items.map((i) => i.id)).size === items.length, 'Ingredient ids must be unique')
     .transform((items) => items.filter((i) => i.name !== '').slice(0, MAX_RECIPE_INGREDIENTS))
     .refine((items) => items.length > 0, 'A recipe needs at least one ingredient'),
+  /** The recipe's household, only recorded on `ai_calls` (spec 6.4); ignored when the caller isn't in it. Optional for old builds. */
+  householdId: z.uuid().optional(),
 });
 export type MatchRecipeStepsRequest = z.infer<typeof MatchRecipeStepsRequestSchema>;
 /** What the app sends, before the schema trims and cuts it. */

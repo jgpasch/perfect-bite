@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockCategorize, namesFromPrompt } from '../_shared/ai/mock-model.ts';
 import { resolveModel } from '../_shared/ai/registry.ts';
-import { runAiTask, setAiTraceListener, type AiCallRecord, type AiTrace } from '../_shared/ai/run-ai-task.ts';
+import { recordedCaller, runAiTask, setAiTraceListener, type AiCallRecord, type AiTrace } from '../_shared/ai/run-ai-task.ts';
 import {
   aiTasks,
   CATEGORIZE_THINKING,
@@ -656,4 +656,40 @@ Deno.test('registry: Anthropic is not registered without ANTHROPIC_API_KEY', asy
   await withEnv({}, () => {
     assertThrows(() => resolveModel('anthropic:claude-haiku-5-5'));
   });
+});
+
+const RECORDED_HOUSEHOLD = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+/** A store answering membership from `households`, recording each household asked about. */
+function memberStore(...households: string[]) {
+  const asked: string[] = [];
+  const isMember = (id: string) => {
+    asked.push(id);
+    return Promise.resolve(households.includes(id));
+  };
+  return { asked, isMember };
+}
+
+Deno.test('recordedCaller: a household the caller is in is kept', async () => {
+  const store = memberStore(RECORDED_HOUSEHOLD);
+  const caller = await recordedCaller({ userId: 'u1', householdId: null }, RECORDED_HOUSEHOLD, store);
+  assertEquals(caller, { userId: 'u1', householdId: RECORDED_HOUSEHOLD });
+  assertEquals(store.asked, [RECORDED_HOUSEHOLD]);
+});
+
+Deno.test("recordedCaller: a household the caller isn't in is dropped, the caller kept", async () => {
+  const caller = await recordedCaller({ userId: 'u1', householdId: null }, RECORDED_HOUSEHOLD, memberStore());
+  assertEquals(caller, { userId: 'u1', householdId: null });
+});
+
+Deno.test('recordedCaller: no household asks nothing; no caller asks nothing and stays none', async () => {
+  const store = memberStore(RECORDED_HOUSEHOLD);
+  assertEquals(await recordedCaller({ userId: 'u1', householdId: null }, undefined, store), { userId: 'u1', householdId: null });
+  assertEquals(await recordedCaller(undefined, RECORDED_HOUSEHOLD, store), undefined);
+  assertEquals(store.asked, []);
+});
+
+Deno.test('recordedCaller: a membership error is thrown as is', async () => {
+  const isMember = () => Promise.reject(new Error('db down'));
+  await assertRejects(() => recordedCaller({ userId: 'u1', householdId: null }, RECORDED_HOUSEHOLD, { isMember }), Error, 'db down');
 });

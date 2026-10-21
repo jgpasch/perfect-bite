@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { assertEquals, assertRejects } from '@std/assert';
 
-import { NotEntitledError, requireFeature } from './entitlements.ts';
+import { isHouseholdMember, NotEntitledError, requireFeature } from './entitlements.ts';
 
 const USER = '019a4c10-0000-7000-8000-0000000de701';
 const HOUSEHOLD = '019a4c10-0000-7000-8000-00000000a001';
@@ -49,6 +49,45 @@ Deno.test('requireFeature: a database error is thrown as is, not as NotEntitledE
   const dbError = { message: 'permission denied for function has_feature', code: '42501' };
   const { admin } = fakeAdmin({ data: null, error: dbError });
   const err = await requireFeature(admin, USER, 'recipe_import').then(
+    () => null,
+    (e: unknown) => e,
+  );
+  assertEquals(err, dbError);
+});
+
+/** A service-role client whose `from(table).select().eq().eq().maybeSingle()` records the filters and answers `answer`. */
+function fakeTable(answer: { data: unknown; error: unknown }) {
+  const queries: { table: string; select: string; eq: [string, string][] }[] = [];
+  const admin = {
+    from: (table: string) => {
+      const query = { table, select: '', eq: [] as [string, string][] };
+      queries.push(query);
+      const builder = {
+        select: (columns: string) => ((query.select = columns), builder),
+        eq: (column: string, value: string) => (query.eq.push([column, value]), builder),
+        maybeSingle: () => Promise.resolve(answer),
+      };
+      return builder;
+    },
+  } as unknown as Pick<SupabaseClient, 'from'>;
+  return { admin, queries };
+}
+
+Deno.test('isHouseholdMember: a membership row is true, read by household and user', async () => {
+  const { admin, queries } = fakeTable({ data: { household_id: HOUSEHOLD }, error: null });
+  assertEquals(await isHouseholdMember(admin, USER, HOUSEHOLD), true);
+  assertEquals(queries, [{ table: 'household_members', select: 'household_id', eq: [['household_id', HOUSEHOLD], ['user_id', USER]] }]);
+});
+
+Deno.test('isHouseholdMember: no row is false', async () => {
+  const { admin } = fakeTable({ data: null, error: null });
+  assertEquals(await isHouseholdMember(admin, USER, HOUSEHOLD), false);
+});
+
+Deno.test('isHouseholdMember: a database error is thrown as is', async () => {
+  const dbError = { message: 'invalid input syntax for type uuid', code: '22P02' };
+  const { admin } = fakeTable({ data: null, error: dbError });
+  const err = await isHouseholdMember(admin, USER, HOUSEHOLD).then(
     () => null,
     (e: unknown) => e,
   );

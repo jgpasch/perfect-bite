@@ -164,7 +164,8 @@ describe('retryFailedImport', () => {
 
     expect(result).toMatchObject({ ok: true, recipeName: 'Chicken tikka masala', listId: groceries, added: 2 });
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: TIKKA_URL } });
+    // The household the recipe is saved to: the default list's.
+    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: TIKKA_URL, householdId: getList(groceries)!.householdId } });
     expect(rows()).toEqual([]);
     expect(liveRecipes()).toEqual([{ name: 'Chicken tikka masala' }]);
     expect(itemNames(groceries)).toEqual(['garlic', 'onion']);

@@ -51,10 +51,15 @@ class FakePhotoStore implements RecipePhotoImportStore {
   limitChecks = 0;
   features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
+  /** The household each plan check was for (undefined: none sent). */
+  featureHouseholds: (string | undefined)[] = [];
+  /** Households the caller isn't in: `has_feature` answers false there. */
+  notMemberOf = new Set<string>();
 
-  async requireFeature(feature: Feature) {
+  async requireFeature(feature: Feature, householdId?: string) {
     this.featureChecks.push(feature);
-    if (!this.features.has(feature)) throw new NotEntitledError(feature);
+    this.featureHouseholds.push(householdId);
+    if (!this.features.has(feature) || (householdId !== undefined && this.notMemberOf.has(householdId))) throw new NotEntitledError(feature);
   }
   async checkLimit() {
     this.limitChecks++;
@@ -146,7 +151,7 @@ function setup(overrides: Partial<PhotoImportDeps> = {}) {
   const catStore = new FakeCategorizeStore(aiCalls);
   const deps: PhotoImportDeps = {
     store,
-    categorize: (names) => categorize(names, catStore, undefined, CALLER),
+    categorize: (names, caller) => categorize(names, catStore, undefined, caller),
     caller: CALLER,
     ...overrides,
   };
@@ -371,6 +376,46 @@ test('a failed extraction is logged with the caller too', async () => {
   const { post, aiCalls } = setup({ model: fixedModel({ nope: true }) });
   assertEquals((await post({ images: [PAGE_1] })).status, 503);
   assertEquals(aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
+});
+
+const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+test('the household goes to the plan check and onto every ai_calls row: the extraction and the inline categorize', async () => {
+  const { post, aiCalls, store } = setup();
+  assertEquals((await post({ images: [PAGE_1], householdId: HOUSEHOLD_ID })).status, 200);
+  assertEquals(store.featureHouseholds, [HOUSEHOLD_ID]);
+  assertEquals(
+    aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
+    [
+      ['extractRecipePhoto', CALLER.userId, HOUSEHOLD_ID],
+      ['categorize', CALLER.userId, HOUSEHOLD_ID],
+    ],
+  );
+});
+
+test('a failed extraction carries the household too', async () => {
+  const { post, aiCalls } = setup({ model: fixedModel({ nope: true }) });
+  assertEquals((await post({ images: [PAGE_1], householdId: HOUSEHOLD_ID })).status, 503);
+  assertEquals(aiCalls.map((c) => [c.status, c.household_id]), [['invalid_output', HOUSEHOLD_ID]]);
+});
+
+test('no household (old builds): the plan check gets none', async () => {
+  const { post, store } = setup();
+  assertEquals((await post({ images: [PAGE_1] })).status, 200);
+  assertEquals(store.featureHouseholds, [undefined]);
+});
+
+test("a household the caller isn't in: 403 not_entitled before the limit or the model", async () => {
+  const { post, store, aiCalls } = setup();
+  store.notMemberOf.add(HOUSEHOLD_ID);
+  await expectError(await post({ images: [PAGE_1], householdId: HOUSEHOLD_ID }), 403, 'not_entitled');
+  assertEquals([store.featureHouseholds, store.limitChecks, aiCalls], [[HOUSEHOLD_ID], 0, []]);
+});
+
+test('a householdId that is not a uuid is 400 invalid_request, with no plan check', async () => {
+  const { post, store } = setup();
+  await expectError(await post({ images: [PAGE_1], householdId: '' }), 400, 'invalid_request');
+  assertEquals(store.featureChecks, []);
 });
 
 test('ai_calls holds each image’s type, size and SHA-256, never its bytes', async () => {

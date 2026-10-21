@@ -268,6 +268,9 @@ export class MemoryPhotoStore implements RecipePhotoStore {
     private readonly write: (bytes: Uint8Array) => Promise<string>,
   ) {}
 
+  async recipeHousehold() {
+    return ZERO_ID;
+  }
   async requireFeature(_feature: Feature) {}
   async reserve(): Promise<ReserveResult> {
     return { status: 'ok', householdId: ZERO_ID };

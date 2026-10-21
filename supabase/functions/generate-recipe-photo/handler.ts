@@ -27,8 +27,10 @@ export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown 
 
 /** The tables and bucket generate-recipe-photo uses, as it sees them. index.ts implements it with the service role. */
 export interface RecipePhotoStore {
-  /** Throws NotEntitledError unless the caller's plan has `feature`. Called first. */
-  requireFeature(feature: Feature): Promise<void>;
+  /** The live recipe's household, or null when it's gone. Read-only; called first. */
+  recipeHousehold(recipeId: string): Promise<string | null>;
+  /** Throws NotEntitledError unless the caller is in `householdId` and its plan has `feature`. */
+  requireFeature(feature: Feature, householdId: string): Promise<void>;
   /** `public.reserve_recipe_photo_ai` for the caller and this recipe. */
   reserve(recipeId: string): Promise<ReserveResult>;
   /** The live recipe in `householdId`, or null when it's gone. */
@@ -97,7 +99,7 @@ function logOutcome(fields: Record<string, unknown>) {
 }
 
 /**
- * Makes a recipe's one AI photo (spec 6.11): the plan, the kill switches, the reservation, the
+ * Makes a recipe's one AI photo (spec 6.11): the recipe's household and its plan, the kill switches, the reservation, the
  * recipe (title, ingredient names, cuisines; read here, never sent by the app), the description,
  * the moderation check of the image prompt, the image, the upload. Every failure after the reservation releases it, so the recipe keeps its
  * one photo. Throws `GeneratePhotoError` for every expected failure. Never writes `recipes`: the
@@ -106,8 +108,12 @@ function logOutcome(fields: Record<string, unknown>) {
 export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, deps: GenerateDeps): Promise<GenerateRecipePhotoResponse> {
   const { store } = deps;
   const { recipeId } = request;
+  // The plan is the recipe's household's, found without writing anything, so an unentitled call
+  // reserves nothing and counts nothing.
+  const recipeHousehold = await store.recipeHousehold(recipeId);
+  if (recipeHousehold === null) throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
   try {
-    await store.requireFeature('recipe_photo_ai');
+    await store.requireFeature('recipe_photo_ai', recipeHousehold);
   } catch (err) {
     if (err instanceof NotEntitledError) throw new GeneratePhotoError({ code: 'not_entitled' }, "AI photos aren't included in your plan");
     throw err;

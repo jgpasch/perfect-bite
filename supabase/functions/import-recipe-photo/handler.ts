@@ -8,15 +8,17 @@ import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-a
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { isProviderFailure, type LimitResult } from '../categorize-ingredients/handler.ts';
-import { importResponse, type ImportDeps } from '../import-recipe/handler.ts';
+import { callerIn, importResponse, type ImportDeps } from '../import-recipe/handler.ts';
 
 /** The tables import-recipe-photo uses, as it sees them. index.ts implements it with the service role. */
 export interface RecipePhotoImportStore {
   /**
-   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
-   * `_shared/entitlements.ts`). Called first, before the kill switch, the rate limit or the model.
+   * Throws NotEntitledError unless the plan of `householdId` (the household the recipe is saved to)
+   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). No
+   * household (old builds): any of the caller's households. Called first, before the kill switch,
+   * the rate limit or the model.
    */
-  requireFeature(feature: Feature): Promise<void>;
+  requireFeature(feature: Feature, householdId?: string): Promise<void>;
   /** Counts one photo import against the per-user limits (`public.check_recipe_photo_limit`): per minute, daily and monthly. */
   checkLimit(): Promise<LimitResult>;
   /** Writes one `ai_calls` row. Its prompt describes each image; it never holds the bytes. */
@@ -29,7 +31,7 @@ export type PhotoImportDeps = {
   categorize: ImportDeps['categorize'];
   /** Tests inject a MockLanguageModelV4 for extract-recipe-photo; otherwise the task's env model. */
   model?: { instance: LanguageModel; modelId: string };
-  /** The signed-in caller, recorded on each `ai_calls` row. */
+  /** The signed-in caller, recorded on each `ai_calls` row with the request's `householdId`. */
   caller?: AiCaller;
 };
 
@@ -61,13 +63,15 @@ export class ImportRecipePhotoError extends Error {
 export async function importRecipePhoto(request: RecipePhotoImportRequest, deps: PhotoImportDeps): Promise<RecipeImportResponse> {
   try {
     // Link and photo imports share `recipe_import` (spec 4.12).
-    await deps.store.requireFeature('recipe_import');
+    // A household the caller isn't in is refused here too.
+    await deps.store.requireFeature('recipe_import', request.householdId);
   } catch (err) {
     if (err instanceof NotEntitledError) {
       throw new ImportRecipePhotoError({ code: 'not_entitled' }, "Photo import isn't included in your plan");
     }
     throw err;
   }
+  const caller = callerIn(deps.caller, request.householdId);
 
   // Before the limit, so a call refused by the kill switch uses no budget.
   if (!isAiEnabled('extractRecipePhoto')) {
@@ -84,7 +88,7 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
   try {
     ({ output } = await runAiTask('extractRecipePhoto', await buildExtractRecipePhotoPrompt(request.images), {
       model: deps.model,
-      caller: deps.caller,
+      caller,
       onCall: (call) => deps.store.logAiCall(call),
     }));
   } catch (err) {
@@ -97,5 +101,5 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
   // The model's own steps, as from page text; `image_url` is always null (the model never sets it).
   const recipe = cleanExtractedRecipe(output);
   if (!recipe.is_recipe) throw new ImportRecipePhotoError({ code: 'not_a_recipe' }, "That photo doesn't look like a recipe");
-  return importResponse(recipe, null, deps.categorize);
+  return importResponse(recipe, null, (names) => deps.categorize(names, caller));
 }

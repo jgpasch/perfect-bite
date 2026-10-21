@@ -104,13 +104,14 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'offline' };
     userId = auth.session.user.id;
-    let fetched = await requestImport(input.page ? { url: input.url, page: input.page } : { url: input.url });
+    const householdId = targetHouseholdId(input);
+    let fetched = await requestImport({ url: input.url, ...(input.page && { page: input.page }), ...(householdId && { householdId }) });
     // The site blocked the server's fetch: load it on the device and send what the page shows.
     // Only a link with no page of its own falls back, and only for `fetch_failed`.
     if (!input.page && isFetchFailed(fetched)) {
       const captured = await capturePage(input.url);
       if (captured.ok) {
-        fetched = await requestImport({ url: input.url, page: toRequestPage(captured.page) });
+        fetched = await requestImport({ url: input.url, page: toRequestPage(captured.page), ...(householdId && { householdId }) });
         if (isFetchFailed(fetched)) return { ok: false, error: 'blocked' };
       } else if (captured.reason === 'timeout') {
         return { ok: false, error: 'blocked' };
@@ -153,10 +154,12 @@ export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Pr
     const { data: auth } = await supabase.auth.getSession();
     if (!auth.session) return { ok: false, error: 'offline' };
     userId = auth.session.user.id;
+    const householdId = targetHouseholdId(input);
     const body: RecipePhotoImportRequest = {
       images: await Promise.all(
         input.photoUris.map(async (uri) => ({ mediaType: 'image/jpeg' as const, data: await new File(uri).base64() })),
       ),
+      ...(householdId && { householdId }),
     };
     const fetched = await requestFunction('import-recipe-photo', body, 'recipe_import_photo');
     if ('ok' in fetched) return fetched;
@@ -200,6 +203,16 @@ function saveAndMatch(input: SaveInput, recipe: RecipeImportResponse, userId: st
     console.warn('Saving the imported recipe failed', e);
     return { ok: false, error: 'failed' };
   }
+}
+
+/**
+ * The household an import saves the recipe to, sent with the request so the server checks that
+ * household's plan (spec 4.12): the list's, or the one given. Undefined for a list that isn't on
+ * the device (the save fails anyway).
+ */
+function targetHouseholdId(target: ImportTarget): string | undefined {
+  if (!target.listId) return target.householdId;
+  return db.select({ householdId: lists.householdId }).from(lists).where(eq(lists.id, target.listId)).get()?.householdId;
 }
 
 /** One call to `import-recipe`: the recipe, or the error it answered with. */

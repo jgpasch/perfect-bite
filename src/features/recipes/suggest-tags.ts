@@ -69,7 +69,10 @@ export function suggestTagsFailureMessage(failure: SuggestTagsFailure): string {
   return suggestTagsMessage(failure.error);
 }
 
-/** The request for a recipe: its name, notes as stored and live ingredients in order. Null if it's gone. */
+/**
+ * The request for a recipe: its name, notes as stored, live ingredients in order and its household
+ * (only recorded on the call's `ai_calls` row, spec 6.4). Null if it's gone.
+ */
 export function buildSuggestTagsRequest(recipeId: string): SuggestRecipeTagsRequestInput | null {
   const recipe = getRecipe(recipeId);
   if (!recipe) return null;
@@ -79,6 +82,7 @@ export function buildSuggestTagsRequest(recipeId: string): SuggestRecipeTagsRequ
     ingredients: recipeIngredientsQuery(recipeId)
       .all()
       .map((i) => ({ name: i.displayName, quantity: i.quantity, unit: i.unit, note: i.note })),
+    householdId: recipe.householdId,
   };
 }
 

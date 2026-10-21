@@ -10,8 +10,8 @@ import type { RecipePhotoImportStore } from './handler.ts';
  */
 export function createRecipePhotoImportStore(admin: SupabaseClient, limits: { userId: string }): RecipePhotoImportStore {
   return {
-    requireFeature(feature) {
-      return requireFeature(admin, limits.userId, feature);
+    requireFeature(feature, householdId) {
+      return requireFeature(admin, limits.userId, feature, householdId);
     },
 
     async checkLimit() {
