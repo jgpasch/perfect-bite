@@ -209,7 +209,7 @@ export type AiCallKind = "flagged" | "failed" | "photos";
 export type AdminAiCallRow = {
   id: string;
   created_at: string;
-  /** As stored: an `AiTaskName` or `recipePhotoImage`. */
+  /** As stored: an `AiTaskName`, `recipePhotoModeration` or `recipePhotoImage`. */
   task: string;
   /** `provider:model`. */
   model: string;

@@ -4,11 +4,12 @@ import type { GenerateRecipePhotoRequest, GenerateRecipePhotoResponse } from '@s
 import type { LanguageModel } from 'ai';
 
 import { buildRecipePhotoImagePrompt, RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
-import { RECIPE_PHOTO_IMAGE_TASK, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { RECIPE_PHOTO_IMAGE_TASK, RECIPE_PHOTO_MODERATION_TASK, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
 import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
+import { moderateText, ModerationFailedError, moderationModelId, type ModerationResult } from './moderation.ts';
 
 /** `reserve_recipe_photo_ai`'s answer. `monthly_limit`: the caller has reserved their plan's AI photos this month. */
 export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'monthly_limit' };
@@ -42,6 +43,8 @@ export type GenerateDeps = {
   model?: { instance: LanguageModel; modelId: string };
   /** The image call, given the caller's hashed `safetyIdentifier` (none without a caller). Defaults to OpenAI's Images API (`generateImage`). */
   generateImage?: (prompt: string, options: Pick<ImageOptions, 'safetyIdentifier'>) => Promise<GeneratedImage>;
+  /** The moderation check of the image prompt, before the image call. Defaults to OpenAI's moderation endpoint (`moderateText`). */
+  moderate?: (text: string) => Promise<ModerationResult>;
   /** The new object's file name. Defaults to `crypto.randomUUID`. */
   newId?: () => string;
   /** Reads an env var, for the image kill switch. Defaults to `Deno.env.get`. */
@@ -54,8 +57,8 @@ export type GenerateFailure =
   | { code: 'not_found' }
   | { code: 'already_generated' }
   | { code: 'limit_reached' }
-  | { code: 'not_food'; by: 'description' | 'image' }
-  | { code: 'generation_failed'; step: 'description' | 'image' }
+  | { code: 'not_food'; by: 'description' | 'moderation' | 'image' }
+  | { code: 'generation_failed'; step: 'description' | 'moderation' | 'image' }
   | { code: 'unavailable'; reason: 'ai_off' };
 
 export class GeneratePhotoError extends Error {
@@ -68,7 +71,7 @@ export class GeneratePhotoError extends Error {
   }
 }
 
-/** Writes the image call's `ai_calls` row. A failure to log is logged, never thrown, as `runAiTask` does. */
+/** Writes the moderation or image call's `ai_calls` row. A failure to log is logged, never thrown, as `runAiTask` does. */
 async function logImageCall(store: RecipePhotoStore, call: AiCallRecord): Promise<void> {
   try {
     await store.logAiCall(call);
@@ -85,7 +88,7 @@ function logOutcome(fields: Record<string, unknown>) {
 /**
  * Makes a recipe's one AI photo (spec 6.11): the plan, the kill switches, the reservation, the
  * recipe (title, ingredient names, cuisines; read here, never sent by the app), the description,
- * the image, the upload. Every failure after the reservation releases it, so the recipe keeps its
+ * the moderation check of the image prompt, the image, the upload. Every failure after the reservation releases it, so the recipe keeps its
  * one photo. Throws `GeneratePhotoError` for every expected failure. Never writes `recipes`: the
  * app sets the answered path as `photo_path`.
  */
@@ -149,15 +152,15 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
 
     const path = `${householdId}/${recipeId}/${(deps.newId ?? (() => crypto.randomUUID()))()}.jpg`.toLowerCase();
     const imagePrompt = buildRecipePhotoImagePrompt(description);
-    const imageStarted = Date.now();
-    // One `recipePhotoImage` row per image call, success or failure, linked to the description row.
-    const logImage = (fields: Pick<AiCallRecord, 'model' | 'status' | 'output' | 'input_tokens' | 'output_tokens' | 'error' | 'http_status' | 'error_body'>) =>
+    type StepFields = Pick<AiCallRecord, 'model' | 'status' | 'output' | 'input_tokens' | 'output_tokens' | 'error' | 'http_status' | 'error_body'>;
+    // One row per moderation and per image call, success or failure, each linked to the description row.
+    const logStep = (task: typeof RECIPE_PHOTO_MODERATION_TASK | typeof RECIPE_PHOTO_IMAGE_TASK, stepStarted: number, fields: StepFields) =>
       logImageCall(store, {
         id: crypto.randomUUID(),
         user_id: caller?.userId ?? null,
         household_id: caller?.householdId ?? null,
         recipe_id: recipeKey,
-        task: RECIPE_PHOTO_IMAGE_TASK,
+        task,
         prompt_version: RECIPE_PHOTO_IMAGE_PROMPT_VERSION,
         instructions: '',
         prompt: imagePrompt,
@@ -167,10 +170,47 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
         provider_metadata: null,
         cached_input_tokens: null,
         reasoning_tokens: null,
-        duration_ms: Date.now() - imageStarted,
+        duration_ms: Date.now() - stepStarted,
         fallback_of: described.callId,
         ...fields,
       });
+
+    // The exact image prompt goes through moderation first, so a bad one is stopped by us rather
+    // than refused by the image model (a refusal there counts against our OpenAI account).
+    const moderationStarted = Date.now();
+    let moderation: ModerationResult;
+    try {
+      moderation = await (deps.moderate ?? ((text) => moderateText(text, { env: deps.env })))(imagePrompt);
+    } catch (err) {
+      const known = err instanceof ModerationFailedError ? err : null;
+      await logStep(RECIPE_PHOTO_MODERATION_TASK, moderationStarted, {
+        model: moderationModelId(deps.env),
+        status: known?.failure ?? 'error',
+        output: null,
+        input_tokens: null,
+        output_tokens: null,
+        error: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 2000),
+        http_status: known?.httpStatus ?? null,
+        error_body: known?.body?.slice(0, 4000) ?? null,
+      });
+      // Fails closed: no answer from moderation, no image call.
+      if (known) return await fail({ code: 'generation_failed', step: 'moderation' }, known.message, 'moderation_failed');
+      throw err;
+    }
+    await logStep(RECIPE_PHOTO_MODERATION_TASK, moderationStarted, {
+      model: moderationModelId(deps.env),
+      status: moderation.flagged ? 'refused' : 'ok',
+      output: { flagged: moderation.flagged, categories: moderation.categories },
+      input_tokens: null,
+      output_tokens: null,
+      error: moderation.flagged ? `Flagged: ${moderation.categories.join(', ') || 'no category'}`.slice(0, 2000) : null,
+      http_status: null,
+      error_body: null,
+    });
+    if (moderation.flagged) return await fail({ code: 'not_food', by: 'moderation' }, "This recipe can't have an AI photo", 'moderation_flagged');
+
+    const imageStarted = Date.now();
+    const logImage = (fields: StepFields) => logStep(RECIPE_PHOTO_IMAGE_TASK, imageStarted, fields);
 
     let generated: GeneratedImage;
     try {

@@ -184,8 +184,10 @@ describe("labels", () => {
       "Tag suggestions",
       "Step matching",
       "AI photo: description",
+      "AI photo: moderation",
       "AI photo: image",
     ]);
+    expect(taskLabel("recipePhotoModeration")).toBe("AI photo: moderation");
   });
 
   it("names every status and flag", () => {
@@ -278,6 +280,13 @@ describe("linkLabel", () => {
   it("links an AI photo's description and image call to each other", () => {
     expect(linkLabel("fallback", "recipePhotoDescription", "recipePhotoImage")).toBe("Image call");
     expect(linkLabel("primary", "recipePhotoImage", "recipePhotoDescription")).toBe("Description");
+  });
+
+  it("links an AI photo's moderation check to its description", () => {
+    expect(linkLabel("fallback", "recipePhotoDescription", "recipePhotoModeration")).toBe("Moderation");
+    expect(linkLabel("primary", "recipePhotoModeration", "recipePhotoDescription")).toBe("Description");
+    expect(linkLabel("fallback", "recipePhotoModeration", "recipePhotoModeration")).toBe("Fallback");
+    expect(linkLabel("primary", "recipePhotoModeration", "recipePhotoImage")).toBe("Primary");
   });
 });
 

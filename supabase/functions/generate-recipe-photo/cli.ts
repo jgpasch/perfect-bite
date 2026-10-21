@@ -1,7 +1,7 @@
 // `yarn ai:image https://example.com/some-recipe`, `yarn ai:image --file page.html` or
 // `yarn ai:image --title "Fish tacos" --ingredients "cod, corn tortillas, red cabbage"`: runs the
-// function's own generateRecipePhoto() on one recipe by hand, with the same prompts, checks and
-// image call, against an in-memory store (no plans, no reservation, no database or Storage). It
+// function's own generateRecipePhoto() on one recipe by hand, with the same prompts, checks,
+// moderation and image call, against an in-memory store (no plans, no reservation, no database or Storage). It
 // prints the description and writes the image to generated-images/ (git-ignored). A link or file
 // goes through the import's own fetch and extraction first (import-recipe's importRecipe, with
 // categorize on the mock), with nothing cached or written. Every LLM call is printed in full unless
@@ -10,7 +10,8 @@ import type { GenerateRecipePhotoRequest, RecipeImportRequest } from '@shared/in
 
 import { buildRecipePhotoDescriptionPrompt, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-description.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { AI_OFF } from '../_shared/ai/tasks.ts';
+import { buildRecipePhotoImagePrompt, RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
+import { AI_OFF, cleanPhotoDescription } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import type { Feature } from '../_shared/entitlements.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
@@ -20,18 +21,34 @@ import { MemoryRecipeStore, placeholderUrl } from '../import-recipe/cli.ts';
 import { ImportRecipeError, importRecipe } from '../import-recipe/handler.ts';
 import { describeRecipePhoto, DescribeFailedError, photoRecipe } from './describe.ts';
 import { generateRecipePhoto, GeneratePhotoError, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
-import { estimateImageCost, generateImage, IMAGE_QUALITIES, IMAGE_SIZE, imageModel, imageQuality, type GeneratedImage } from './image.ts';
+import {
+  estimateImageCost,
+  generateImage,
+  IMAGE_QUALITIES,
+  IMAGE_SIZE,
+  ImageFailedError,
+  imageModel,
+  imageQuality,
+  ImageRefusedError,
+  type GeneratedImage,
+} from './image.ts';
+import { moderateText, ModerationFailedError, moderationModelId, type ModerationResult } from './moderation.ts';
 
 export const USAGE = `Usage: yarn ai:image [options] <recipe-url>
        yarn ai:image [options] --file <page.html>
        yarn ai:image [options] --title <name> --ingredients <names>
+       yarn ai:image [options] --description <text>
 
-Makes a recipe's AI photo as generate-recipe-photo would: describes the dish, then generates the
-image from the description. Prints the description and writes the image to generated-images/.
-Nothing is written to the database or Storage.
+Makes a recipe's AI photo as generate-recipe-photo would: describes the dish, moderates the image
+prompt (printing the answer), then generates the image from the description. Prints the
+description and writes the image to generated-images/. Nothing is written to the database or
+Storage.
 
 Options:
   --file <path>                      Read the recipe from a saved HTML page
+  --description <text>               Skip the description call: build the image prompt from this
+                                     text and moderate it (free). A flagged prompt stops there.
+                                     Not with --title, --file or a link.
   --title <name>                     A recipe typed in: its title
   --ingredients <names>              Its ingredient names, comma-separated ("cod, corn tortillas").
                                      Repeat to add more.
@@ -48,11 +65,14 @@ Options:
   --quiet                            Only the description, the file and the totals
   -h, --help                         Show this help
 
-An image costs about a cent on gpt-image-1-mini at medium; the description a small fraction of that.`;
+An image costs about a cent on gpt-image-1-mini at medium; the description a small fraction of that.
+The moderation check is free.`;
 
 export type CliArgs = {
   url: string | null;
   file: string | null;
+  /** `--description`: the image prompt is built from this, with no description call. */
+  description: string | null;
   title: string | null;
   ingredients: string[];
   cuisines: string[];
@@ -85,6 +105,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   const args: CliArgs = {
     url: null,
     file: null,
+    description: null,
     title: null,
     ingredients: [],
     cuisines: [],
@@ -100,6 +121,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   };
   const valued: [string, string, (value: string) => void][] = [
     ['--file', 'page.html', (v) => (args.file = v)],
+    ['--description', '"Golden rice in a clay bowl."', (v) => (args.description = v)],
     ['--title', '"Fish tacos"', (v) => (args.title = v)],
     ['--ingredients', '"cod, corn tortillas"', (v) => args.ingredients.push(...v.split(',').map((s) => s.trim()).filter(Boolean))],
     ['--cuisine', 'mexican', (v) => args.cuisines.push(v)],
@@ -138,6 +160,13 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     throw new CliUsageError(`--quality must be one of ${IMAGE_QUALITIES.join(', ')}`);
   }
   const typed = args.title !== null || args.ingredients.length > 0 || args.cuisines.length > 0;
+  if (args.description !== null) {
+    if (typed || args.file !== null || args.url !== null) {
+      throw new CliUsageError('--description skips the recipe: give it without --title, --ingredients, --cuisine, --file or a link.');
+    }
+    if (args.describeOnly) throw new CliUsageError('--description makes no description call, so --describe-only has nothing to do.');
+    return args;
+  }
   const sources = [args.url !== null, args.file !== null, typed].filter(Boolean).length;
   if (sources === 0) throw new CliUsageError('No recipe given: pass a URL, --file, or --title and --ingredients.');
   if (sources > 1) throw new CliUsageError('Give one recipe: a URL, --file, or --title and --ingredients, not several.');
@@ -162,7 +191,70 @@ export function formatImageCost(image: Pick<GeneratedImage, 'model' | 'quality' 
   return `image:          ${image.model}, ${image.quality}, ${IMAGE_SIZE}${tokens}, ${image.ms} ms, ${costText}`;
 }
 
+/** Pure: a moderation answer, e.g. `moderation:     flagged (self-harm, violence)`. */
+export function formatModeration(moderation: ModerationResult): string {
+  if (!moderation.flagged) return 'moderation:     not flagged';
+  return `moderation:     flagged (${moderation.categories.join(', ') || 'no category'})`;
+}
+
 const ZERO_ID = '00000000-0000-0000-0000-000000000000';
+
+/** Writes the image to `--out` (or `io.writeFile`) and answers its path. */
+async function writeImage(args: CliArgs, io: CliIo, title: string, now: Date, bytes: Uint8Array): Promise<string> {
+  const path = `${args.out}/${imageFileName(title, now)}`;
+  if (io.writeFile) await io.writeFile(path, bytes);
+  else {
+    await Deno.mkdir(args.out, { recursive: true });
+    await Deno.writeFile(path, bytes);
+  }
+  return path;
+}
+
+/**
+ * `--description`: no recipe and no description call. Builds the image prompt from the text (cut
+ * as the function cuts a description), moderates it and prints the answer; a flagged prompt stops
+ * there, before the image (exit 1). Otherwise makes the image as the function would.
+ */
+async function runWithDescription(text: string, args: CliArgs, io: CliIo, imageEnv: (key: string) => string | undefined): Promise<number> {
+  const cleaned = cleanPhotoDescription({ isFood: true, description: text });
+  if (cleaned === null || !cleaned.isFood) {
+    io.err(`--description is empty.\n\n${USAGE}`);
+    return 2;
+  }
+  const prompt = buildRecipePhotoImagePrompt(cleaned.description);
+  io.out(`--- image prompt (${RECIPE_PHOTO_IMAGE_PROMPT_VERSION}), moderated with ${moderationModelId(imageEnv)} ---\n${prompt}\n`);
+  let moderation: ModerationResult;
+  try {
+    moderation = await moderateText(prompt, { env: imageEnv, fetch: io.fetch });
+  } catch (err) {
+    if (!(err instanceof ModerationFailedError)) throw err;
+    io.err(`Failed: generation_failed (moderation): ${err.message}`);
+    return 1;
+  }
+  io.out(formatModeration(moderation));
+  if (moderation.flagged) {
+    io.err('Flagged: the function would answer 422 not_food (by the moderation) and make no image.');
+    return 1;
+  }
+  io.out(`--- image prompt, to ${imageModel(imageEnv)} at ${imageQuality(imageEnv)} ---\n${prompt}\n`);
+  let image: GeneratedImage;
+  try {
+    image = await generateImage(prompt, { env: imageEnv, fetch: io.fetch });
+  } catch (err) {
+    if (err instanceof ImageRefusedError) {
+      io.err(`Failed: not_food (by the image): ${err.message}`);
+      return 1;
+    }
+    if (err instanceof ImageFailedError) {
+      io.err(`Failed: generation_failed (image): ${err.message}`);
+      return 1;
+    }
+    throw err;
+  }
+  io.out(`Wrote ${await writeImage(args, io, cleaned.description, io.now?.() ?? new Date(), image.bytes)}\n`);
+  io.out(formatImageCost(image));
+  return 0;
+}
 
 /** The function's store in memory: every feature granted, always reserved, and the upload written to a local file. */
 export class MemoryPhotoStore implements RecipePhotoStore {
@@ -286,7 +378,8 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
 
   const env = io.env ?? ((key: string) => Deno.env.get(key));
   const model = args.model ?? (env('AI_MODEL_PHOTO_DESCRIPTION')?.trim() || env('AI_MODEL_TAGS')?.trim() || env('AI_MODEL_RECIPE')?.trim());
-  if (!model || model === AI_OFF) {
+  // --description makes no description call, so it needs no description model.
+  if (args.description === null && (!model || model === AI_OFF)) {
     io.err('No description model: set AI_MODEL_PHOTO_DESCRIPTION (or AI_MODEL_TAGS or AI_MODEL_RECIPE) in supabase/functions/.env, or pass --model (e.g. --model mock).');
     return 2;
   }
@@ -306,6 +399,8 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
 
   const stopTrace = args.quiet ? () => {} : traceAiCalls(io.out, { raw: args.raw });
   try {
+    // Without --description a model was checked above; `!model` only narrows it for what follows.
+    if (args.description !== null || !model) return await runWithDescription(args.description ?? '', args, io, imageEnv);
     let loaded: Loaded;
     try {
       loaded = await loadRecipe(args, io, recipeModel);
@@ -343,16 +438,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       }
 
       const now = io.now?.() ?? new Date();
-      const write = async (bytes: Uint8Array) => {
-        const path = `${args.out}/${imageFileName(recipe.title, now)}`;
-        if (io.writeFile) await io.writeFile(path, bytes);
-        else {
-          await Deno.mkdir(args.out, { recursive: true });
-          await Deno.writeFile(path, bytes);
-        }
-        return path;
-      };
-      const store = new MemoryPhotoStore(loaded.recipe, write);
+      const store = new MemoryPhotoStore(loaded.recipe, (bytes) => writeImage(args, io, recipe.title, now, bytes));
       // Set inside the image call; `as` so TS doesn't narrow it to null here.
       let image = null as GeneratedImage | null;
       const request: GenerateRecipePhotoRequest = { recipeId: ZERO_ID };
@@ -360,6 +446,11 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         await generateRecipePhoto(request, {
           store,
           env: imageEnv,
+          moderate: async (text) => {
+            const moderation = await moderateText(text, { env: imageEnv, fetch: io.fetch });
+            io.out(formatModeration(moderation));
+            return moderation;
+          },
           generateImage: async (prompt) => {
             io.out(`--- image prompt, to ${imageModel(imageEnv)} at ${imageQuality(imageEnv)} ---\n${prompt}\n`);
             image = await generateImage(prompt, { env: imageEnv, fetch: io.fetch });

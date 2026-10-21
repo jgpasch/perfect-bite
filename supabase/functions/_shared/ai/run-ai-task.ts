@@ -31,18 +31,21 @@ export type AiCaller = { userId: string; householdId: string | null };
 /** The AI photo's image call (spec §6.11): not an `aiTasks` task, but logged in `ai_calls` beside them. */
 export const RECIPE_PHOTO_IMAGE_TASK = 'recipePhotoImage';
 
+/** The AI photo's moderation check of the image prompt (spec §6.11), logged beside the image call. */
+export const RECIPE_PHOTO_MODERATION_TASK = 'recipePhotoModeration';
+
 /** One model attempt, as stored in `public.ai_calls`, with who made it (spec §6.4, §6.5). */
 export type AiCallRecord = {
   id: string;
   /** Null for calls with no signed-in caller (the `yarn ai:*` scripts, evals). */
   user_id: string | null;
   household_id: string | null;
-  /** The recipe an AI photo's rows are for (description and image); null for every other task. */
+  /** The recipe an AI photo's rows are for (description, moderation and image); null for every other task. */
   recipe_id: string | null;
-  task: AiTaskName | typeof RECIPE_PHOTO_IMAGE_TASK;
+  task: AiTaskName | typeof RECIPE_PHOTO_IMAGE_TASK | typeof RECIPE_PHOTO_MODERATION_TASK;
   model: string;
   prompt_version: string;
-  /** `refused`: the image model's content-policy refusal (image rows only). */
+  /** `refused`: the image model's content-policy refusal, or a flagged moderation check (image and moderation rows only). */
   status: 'ok' | 'api_error' | 'invalid_output' | 'timeout' | 'refused' | 'error';
   instructions: string;
   prompt: string;

@@ -1,9 +1,9 @@
 // Tests for `yarn ai:image` with the mock models; nothing touches the network or the disk.
-import { assertEquals, assertFalse, assertStringIncludes, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertStringIncludes, assertThrows } from '@std/assert';
 
 import { MOCK_PHOTO_DESCRIPTION } from '../_shared/ai/mock-model.ts';
 import { MOCK_RECIPE_PHOTO_JPEG } from '../_shared/fixtures/mock-recipe-photo.ts';
-import { CliUsageError, formatImageCost, imageFileName, parseArgs, run, type CliIo } from './cli.ts';
+import { CliUsageError, formatImageCost, formatModeration, imageFileName, parseArgs, run, USAGE, type CliIo } from './cli.ts';
 
 const MODEL_VARS = ['AI_MODEL_PHOTO_DESCRIPTION', 'AI_MODEL_TAGS', 'AI_MODEL_RECIPE'] as const;
 
@@ -23,7 +23,7 @@ async function withCleanEnv<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function io(env: Record<string, string> = {}) {
+function io(env: Record<string, string> = {}, fetch: typeof globalThis.fetch = (() => Promise.reject(new Error('no network in tests'))) as typeof globalThis.fetch) {
   let out = '';
   let err = '';
   const files: { path: string; bytes: Uint8Array }[] = [];
@@ -31,7 +31,7 @@ function io(env: Record<string, string> = {}) {
     out: (t) => (out += `${t}\n`),
     err: (t) => (err += `${t}\n`),
     writeFile: async (path, bytes) => void files.push({ path, bytes }),
-    fetch: (() => Promise.reject(new Error('no network in tests'))) as typeof fetch,
+    fetch,
     env: (key) => env[key],
     now: () => new Date('2026-10-18T12:34:56.789Z'),
   };
@@ -109,5 +109,96 @@ Deno.test('run: no description model, or no OpenAI key for a real image model, i
     const off = io({ AI_MODEL_TAGS: 'mock', AI_IMAGE_MODEL: 'off' });
     assertEquals(await run(['--title', 'Soup'], off.cliIo), 2);
     assertStringIncludes(off.err(), 'AI_IMAGE_MODEL is off');
+  });
+});
+
+// --- moderation and --description -----------------------------------------------------------------------
+
+/** A fake OpenAI answering every request with `body`, recording each URL. */
+function openAi(body: unknown) {
+  const urls: string[] = [];
+  const fetch = (async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  return { urls, fetch };
+}
+
+const FLAGGED = { results: [{ flagged: true, categories: { violence: true, 'self-harm': true, sexual: false } }] };
+
+Deno.test('parseArgs: --description, alone or with output options, and never with a recipe', () => {
+  const args = parseArgs(['--description', 'Golden rice in a clay bowl.', '--image-model', 'mock', '--quiet']);
+  assertEquals([args.description, args.url, args.file, args.title, args.imageModel], ['Golden rice in a clay bowl.', null, null, null, 'mock']);
+  assertEquals(parseArgs(['--description=Soup']).description, 'Soup');
+  for (const argv of [
+    ['--description', 'Soup', '--title', 'Soup'],
+    ['--description', 'Soup', '--ingredients', 'leeks'],
+    ['--description', 'Soup', '--file', 'page.html'],
+    ['--description', 'Soup', 'https://example.com/r'],
+  ]) {
+    assertThrows(() => parseArgs(argv), CliUsageError, '--description skips the recipe', argv.join(' '));
+  }
+  assertThrows(() => parseArgs(['--description', 'Soup', '--describe-only']), CliUsageError, '--describe-only has nothing to do');
+  assertThrows(() => parseArgs(['--description']), CliUsageError, 'needs a value');
+  assertStringIncludes(USAGE, '--description <text>');
+});
+
+Deno.test('formatModeration: not flagged, or flagged with its categories', () => {
+  assertEquals(formatModeration({ flagged: false, categories: [] }), 'moderation:     not flagged');
+  assertEquals(formatModeration({ flagged: true, categories: ['self-harm', 'violence'] }), 'moderation:     flagged (self-harm, violence)');
+  assertEquals(formatModeration({ flagged: true, categories: [] }), 'moderation:     flagged (no category)');
+});
+
+Deno.test('run: a typed recipe prints the moderation answer before the image', async () => {
+  await withCleanEnv(async () => {
+    const t = io();
+    assertEquals(await run(['--title', 'Soup', '--ingredients', 'leeks', '--model', 'mock', '--image-model', 'mock', '--quiet'], t.cliIo), 0, t.err());
+    assertStringIncludes(t.out(), 'moderation:     not flagged');
+    assert(t.out().indexOf('moderation:') < t.out().indexOf('--- image prompt'));
+  });
+});
+
+Deno.test('run: a flagged image prompt stops before the image, exit 1, nothing written', async () => {
+  await withCleanEnv(async () => {
+    const fake = openAi(FLAGGED);
+    const t = io({ OPENAI_API_KEY: 'sk-test' }, fake.fetch);
+    assertEquals(await run(['--title', 'Soup', '--ingredients', 'leeks', '--model', 'mock', '--quiet'], t.cliIo), 1);
+    assertStringIncludes(t.out(), 'moderation:     flagged (self-harm, violence)');
+    assertStringIncludes(t.err(), 'Failed: not_food (by the moderation)');
+    assertEquals(fake.urls, ['https://api.openai.com/v1/moderations']);
+    assertEquals(t.files, []);
+  });
+});
+
+Deno.test('run --description: no description model needed; a flagged prompt is free and stops before the image', async () => {
+  await withCleanEnv(async () => {
+    const fake = openAi(FLAGGED);
+    const t = io({ OPENAI_API_KEY: 'sk-test' }, fake.fetch);
+    assertEquals(await run(['--description', 'A  bloody   steak\non a plate.', '--quiet'], t.cliIo), 1);
+    assertStringIncludes(t.out(), 'The dish: A bloody steak on a plate.');
+    assertStringIncludes(t.out(), 'moderated with openai:omni-moderation-latest');
+    assertStringIncludes(t.out(), 'moderation:     flagged (self-harm, violence)');
+    assertStringIncludes(t.err(), 'would answer 422 not_food (by the moderation) and make no image');
+    assertEquals(fake.urls, ['https://api.openai.com/v1/moderations']);
+    assertEquals(t.files, []);
+  });
+});
+
+Deno.test('run --description: a clean prompt goes on to the image', async () => {
+  await withCleanEnv(async () => {
+    const t = io();
+    assertEquals(await run(['--description', 'Golden rice in a clay bowl.', '--image-model', 'mock', '--quiet'], t.cliIo), 0, t.err());
+    assertStringIncludes(t.out(), 'moderation:     not flagged');
+    assertStringIncludes(t.out(), 'Wrote generated-images/golden-rice-in-a-clay-bowl-2026-10-18T12-34-56.jpg');
+    assertEquals(t.files, [{ path: 'generated-images/golden-rice-in-a-clay-bowl-2026-10-18T12-34-56.jpg', bytes: MOCK_RECIPE_PHOTO_JPEG }]);
+  });
+});
+
+Deno.test('run --description: a moderation failure exits 1 and makes no image', async () => {
+  await withCleanEnv(async () => {
+    const t = io({ OPENAI_API_KEY: 'sk-test' });
+    assertEquals(await run(['--description', 'Soup.', '--quiet'], t.cliIo), 1);
+    assertStringIncludes(t.err(), 'Failed: generation_failed (moderation): Request failed: no network in tests');
+    assertEquals(t.files, []);
   });
 });

@@ -20,7 +20,7 @@ export const AI_CALL_KINDS = {
 
 export const AI_CALL_KIND_KEYS = Object.keys(AI_CALL_KINDS) as AiCallKind[];
 
-/** `ai_calls.task` as stored, in the order the functions were built, with readable labels. */
+/** `ai_calls.task` as stored, in the order the functions were built (an AI photo's steps in the order they run), with readable labels. */
 export const TASK_LABELS = {
   categorize: "Categorize",
   extractRecipe: "Recipe import",
@@ -28,6 +28,7 @@ export const TASK_LABELS = {
   suggestRecipeTags: "Tag suggestions",
   matchRecipeSteps: "Step matching",
   recipePhotoDescription: "AI photo: description",
+  recipePhotoModeration: "AI photo: moderation",
   recipePhotoImage: "AI photo: image",
 } as const satisfies Record<string, string>;
 
@@ -216,12 +217,13 @@ export function tokensText(call: {
 
 /**
  * How a linked attempt reads on a call's page: "Fallback" and "Primary", except that an AI photo's
- * description and image call link to each other ("Image call" / "Description"), not as fallbacks.
+ * moderation check and image call link to its description ("Moderation" or "Image call" /
+ * "Description"), not as fallbacks.
  */
 export function linkLabel(direction: "fallback" | "primary", callTask: string, linkedTask: string): string {
-  const image = "recipePhotoImage";
-  if (direction === "fallback") return linkedTask === image && callTask !== image ? "Image call" : "Fallback";
-  return callTask === image && linkedTask !== image ? "Description" : "Primary";
+  const steps: Record<string, string> = { recipePhotoModeration: "Moderation", recipePhotoImage: "Image call" };
+  if (direction === "fallback") return Object.hasOwn(steps, linkedTask) && !Object.hasOwn(steps, callTask) ? steps[linkedTask] : "Fallback";
+  return Object.hasOwn(steps, callTask) && !Object.hasOwn(steps, linkedTask) ? "Description" : "Primary";
 }
 
 /**
