@@ -24,6 +24,7 @@ export const ACTION_LABELS = {
   delete_user: "Deleted user",
   delete_account: "Deleted own account",
   view_ai_call: "Viewed an AI call",
+  view_user_activity: "Viewed a user's activity",
   block_ai_photos: "Blocked AI photos",
   unblock_ai_photos: "Unblocked AI photos",
 } as const satisfies Record<string, string>;
@@ -187,8 +188,27 @@ function safetyLimitSummary(before: unknown, after: unknown): string {
   return [key === null ? "?" : safetyLimitLabel(key), ...changes].join(" · ");
 }
 
-// For an action the portal doesn't know: the details as compact JSON, cut to 80 characters.
-function rawSummary(details: Record<string, unknown>): string {
+// "lists, ai · item.checked · from Oct 1, 2026 · before Oct 21, 2026", from `view_user_activity`'s
+// filters (`{ areas, actions, household_id, from, to }`, `to` exclusive); "No filters" with none.
+function viewFiltersSummary(details: Record<string, unknown>): string {
+  const names = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item !== "") : [];
+  const parts: string[] = [];
+  const areas = names(details.areas);
+  const actions = names(details.actions);
+  if (areas.length > 0) parts.push(areas.join(", "));
+  if (actions.length > 0) parts.push(actions.join(", "));
+  const household = text(details.household_id);
+  if (household !== null) parts.push(`household ${household}`);
+  const from = text(details.from);
+  const to = text(details.to);
+  if (from !== null) parts.push(`from ${mediumDate(from)}`);
+  if (to !== null) parts.push(`before ${mediumDate(to)}`);
+  return parts.length === 0 ? "No filters" : parts.join(" · ");
+}
+
+/** For an action the portal doesn't know: the details as compact JSON, cut to 80 characters. */
+export function rawSummary(details: Record<string, unknown>): string {
   if (Object.keys(details).length === 0) return "";
   const json = JSON.stringify(details);
   return json.length > 80 ? `${json.slice(0, 79)}…` : json;
@@ -240,6 +260,8 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
       if (flag !== null) parts.push(flagLabel(flag));
       return parts.join(" · ");
     }
+    case "view_user_activity":
+      return viewFiltersSummary(details);
     case "block_ai_photos":
       return typeof details.refusals === "number" ? plural(details.refusals, "refusal", "refusals") : "";
     case "unblock_ai_photos": {

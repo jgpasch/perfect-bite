@@ -42,6 +42,8 @@ export type AdminUserDetail = Omit<AdminUserRow, "total_count" | "ai_photos_bloc
   ai_photo_block: AiPhotoBlock | null;
   /** `private.ai_photo_refusals` over the block window: refused prompts in the last 30 days, since their last unblock. */
   ai_photo_refusals_30d: number;
+  /** Their newest activity entry or AI call (20261205120000_admin_user_activity.sql); null with neither. */
+  last_active_at: string | null;
 };
 
 /** A row of `private.ai_photo_blocks`, as `admin_user_detail` sends it (20261128120000_admin_ai_photo_blocks.sql). */
@@ -263,7 +265,7 @@ export type AdminSetSafetyLimitResult = {
 
 export type AdminAction = {
   id: string;
-  /** `set_household_plan`, `set_user_plan` (older rows), a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `block_ai_photos` or `unblock_ai_photos`. */
+  /** `set_household_plan`, `set_user_plan` (older rows), a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `view_user_activity`, `block_ai_photos` or `unblock_ai_photos`. */
   action: string;
   target_user_id: string | null;
   /** While that user still exists. */
@@ -285,6 +287,44 @@ export type AdminActionList = {
   actions: AdminAction[];
   /** The matches before paging. */
   total_count: number;
+};
+
+// --- User activity: admin_user_activity -----------------------------------------------------
+// From 20261204120000_user_activity.sql (what's logged) and 20261205120000_admin_user_activity.sql.
+
+/** Where an entry comes from: the user's writes, their AI calls, or an admin action about them. */
+export type UserActivitySource = "app" | "ai" | "admin";
+
+/** One entry of `admin_user_activity`. Area and action are strings so an unknown one still shows. */
+export type UserActivityEntry = {
+  at: string;
+  source: UserActivitySource;
+  /** `lists`, `recipes`, `plan`, `aisles`, `household`, `settings`, `devices`, `ai` or `admin`. */
+  area: string;
+  /** A catalog action (`item.checked`, …), `ai.<task>` or `admin.<action>`. */
+  action: string;
+  /** The row the entry is about (an AI call's or admin action's id for those sources); null for settings and devices. */
+  entity_id: string | null;
+  household_id: string | null;
+  /** The household's name then (the snapshot), else its name now; null with no household. */
+  household: string | null;
+  /** The writing transaction (`app` only); entries sharing one fold together. */
+  txid: number | null;
+  /**
+   * `app`: the catalog's names (spec 4.12), plus `invited_email` on `invite.created` while the invite
+   * exists. `ai`: `{ id, status, flag, recipe_id }`. `admin`: `{ details, note, performed_by_email }`.
+   */
+  data: Record<string, unknown>;
+};
+
+/** `admin_user_activity(p_user_id, p_areas, p_actions, p_household_id, p_from, p_to, p_before, p_limit)`. */
+export type AdminUserActivity = {
+  /** Newest first; a page never splits one timestamp. */
+  entries: UserActivityEntry[];
+  /** `p_before` for the next page; null at the end. */
+  next_before: string | null;
+  /** Per area (all nine, zeros included) over the user, household and dates, ignoring the area and action filters. */
+  counts: Record<string, number>;
 };
 
 // --- AI calls: admin_list_ai_calls, admin_ai_call, admin_ai_call_flag_count -----------------

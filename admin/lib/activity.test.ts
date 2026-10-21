@@ -44,6 +44,7 @@ describe("actionLabel", () => {
       "Deleted user",
       "Deleted own account",
       "Viewed an AI call",
+      "Viewed a user's activity",
       "Blocked AI photos",
       "Unblocked AI photos",
     ]);
@@ -239,6 +240,32 @@ describe("actionTarget", () => {
 
   it("nothing at all", () => {
     expect(actionTarget(empty)).toEqual({ kind: "none", label: "—" });
+  });
+});
+
+describe("view_user_activity", () => {
+  it("is labelled, filterable and targets the user", () => {
+    expect(actionLabel("view_user_activity")).toBe("Viewed a user's activity");
+    expect(actionOptions("").map((o) => o.value)).toContain("view_user_activity");
+    const user = "7d0c2f4e-1b3a-4c5d-8e9f-0a1b2c3d4e5f";
+    expect(
+      actionTarget({ target_user_id: user, target_user_email: "a@b.com", target_plan_id: null, target_household_id: null }),
+    ).toEqual({ kind: "user", label: "a@b.com", href: `/users/${user}` });
+  });
+
+  it("sums up the filters", () => {
+    expect(summary("view_user_activity", { areas: null, actions: null, household_id: null, from: null, to: null })).toBe("No filters");
+    expect(summary("view_user_activity", {})).toBe("No filters");
+    expect(
+      summary("view_user_activity", {
+        areas: ["lists", "ai"],
+        actions: ["item.checked"],
+        household_id: "h1",
+        from: "2026-10-01T12:00:00Z",
+        to: "2026-10-21T12:00:00Z",
+      }),
+    ).toBe("lists, ai · item.checked · household h1 · from Oct 1, 2026 · before Oct 21, 2026");
+    expect(summary("view_user_activity", { areas: [1, "", "plan"] })).toBe("plan");
   });
 });
 

@@ -256,6 +256,42 @@ order by created_at desc;
 
 `performed_by` is always `postgres` from the dashboard, so the `note` is the only record of who asked and why. From the admin portal it's the admin's user id, and the note is still required.
 
+### Follow a user's activity
+
+In the portal, open the user (Users → their row). The **Activity** card, after Households, lists what they did in the last 90 days, newest first, grouped by day: "Checked *Cucumber* on *Groceries*", "Added 2 cups *Flour* to *Groceries* from *Banana bread*", "Planned *Lasagna* for Tue 3 Nov dinner". The household is the muted name at the end of a line. One gesture that wrote many rows (a recipe with 12 ingredients) shows as one line with a count, "Added 12 ingredients to *Lasagna*"; click it to see each. **Load older** fetches the next 100. The header's **Last active** is their newest entry or AI call.
+
+Filter with the area chips (each with its count; pick several, **All** clears them), the action select (the chosen areas' actions), the household select and the From/To dates (UTC days, both included). The filters are in the page's URL, so a filtered view can be linked.
+
+**What's logged.** Every change of theirs that reached the server, written by table triggers (`private.log_user_activity()`), whatever path it took: the app's sync, the household functions, settings and push tokens. Plus their AI calls (area AI, "Import recipe failed", linking to the call) and what admins did to their account (area Admin, "Admin changed plan: …" with the note). The areas and actions (spec 4.12 has each one's `data`):
+
+- **Lists**: `list.created`, `list.renamed`, `list.edited` (emoji or colour), `list.reordered`, `list.archived`, `list.unarchived`, `list.deleted`, `list.restored`; `item.added`, `item.add_undone`, `item.checked`, `item.unchecked`, `item.moved`, `item.renamed`, `item.edited` (note, or a contribution's quantity), `item.photo_added`, `item.photo_removed`, `item.merged` (Combine), `item.deleted`, `item.restored`.
+- **Recipes**: `recipe.created` (with the link's site, "a photo" or by hand), `recipe.renamed`, `recipe.edited` (the field names only), `recipe.tagged`, `recipe.photo_added`, `recipe.photo_removed`, `recipe.deleted`, `recipe.restored`; `ingredient.added`, `ingredient.removed`, `ingredient.edited`, `ingredient.reordered`.
+- **Plan**: `plan.added`, `plan.moved`, `plan.reordered`, `plan.removed`, `plan.restored`.
+- **Aisles**: `aisle.created`, `aisle.renamed`, `aisle.deleted`, `aisle.assigned` (an ingredient's aisle, or Reset to default); `staple.added`, `staple.removed`.
+- **Household**: `household.created`, `household.renamed`, `household.combine_languages`, `household.left`, `household.deleted`; `invite.created`, `invite.revoked`, `invite.accepted`, `invite.declined`; `member.removed`, `member.role_changed`.
+- **Settings**: `settings.default_list`, `settings.aisle_order`, `settings.notifications`.
+- **Devices**: `device.registered`, `device.unregistered` (the platform only, never the token).
+- **AI**: `ai.<task>`, one per AI call, with its status and flag.
+- **Admin**: `admin.<action>`, the `admin.admin_actions` rows about them.
+
+An action the portal doesn't know yet still shows, as its name and `data`.
+
+**What isn't.** Anything that doesn't write: opening a screen, searching, viewing a recipe. An offline edit shows when it syncs, at that time. Writes with no signed-in user (pg_cron, Edge Functions on the service role, the dashboard) aren't logged, and nor are updates that only touch `updated_at`, `field_clock` or `created_at`. Never the text the user wrote (notes, steps, a plan note) or an invited person's email: an invite shows the email only while the invite exists, read from `household_invites` ("Invited someone" once it's gone). Names are as they were then, so a later rename doesn't change old lines. A deleted member is scrubbed from others' entries ("Removed a member").
+
+**90 days.** The daily `user-activity-retention` job deletes older entries. Deleting an account deletes the user's entries. The log started empty on the day its migration ran: nothing before then is recorded.
+
+**Viewing is audited.** Opening the card (each first page, whatever the filters, so changing a filter counts too) writes a `view_user_activity` row to `admin.admin_actions` with the filters; **Load older** doesn't. Activity lists them as "Viewed a user's activity", with the user as the target, and they show in the user's own Activity under Admin.
+
+In the SQL Editor the log is `private.user_activity`:
+
+```sql
+select created_at, area, action, household_id, data
+from private.user_activity
+where user_id = '<user id>'
+order by created_at desc, id desc
+limit 100;
+```
+
 ### Demo data for the portal (local only)
 
 `supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`), each owning one household, the households on every plan, with 40 days of usage of both plan features (demo-1's household at founding's monthly limits, demo-2's over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:

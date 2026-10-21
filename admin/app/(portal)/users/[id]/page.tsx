@@ -4,24 +4,36 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { UnblockAiPhotos } from "@/components/unblock-ai-photos";
+import { UserActivityFilters } from "@/components/user-activity-filters";
+import { UserActivityList } from "@/components/user-activity-list";
 import { AiPhotosBlockedBadge, Avatar, PlanBadge, RelativeDate } from "@/components/user-bits";
 import { blockedLine, refusalsHref, refusalsLine } from "@/lib/ai-photo-block";
 import { aiCallsHref, aiFlagsLine } from "@/lib/ai-calls";
 import { householdHref, membersCount, roleLabel } from "@/lib/households";
 import { createClient } from "@/lib/supabase/server";
 import { forbidIfNotAuthorized } from "@/lib/supabase/session";
-import type { AdminUserDetail } from "@/lib/types";
+import type { AdminUserActivity, AdminUserDetail } from "@/lib/types";
+import {
+  hasFilters,
+  parseUserActivityParams,
+  userActivityArgs,
+  userActivityHref,
+  userActivitySearch,
+  type UserActivityParams,
+} from "@/lib/user-activity";
 import { isUuid } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "User · Back office" };
 
 type Params = Promise<{ id: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 // One user (spec 4.12), from admin_user_detail: who they are, whether their AI photos are blocked,
 // and their households, each with its plan and linking to its page, where the plan is changed. A
-// user has no plan of their own.
-export default function UserPage({ params }: { params: Params }) {
+// user has no plan of their own. Then their activity, from admin_user_activity, filtered by the
+// search params (opening it is audited).
+export default function UserPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   return (
     <>
       <Link
@@ -32,13 +44,13 @@ export default function UserPage({ params }: { params: Params }) {
         Users
       </Link>
       <Suspense fallback={<p className="text-[15px] text-ink-secondary">Loading…</p>}>
-        <UserDetail params={params} />
+        <UserDetail params={params} searchParams={searchParams} />
       </Suspense>
     </>
   );
 }
 
-async function UserDetail({ params }: { params: Params }) {
+async function UserDetail({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   const { id } = await params;
   if (!isUuid(id)) return <NoSuchUser />;
 
@@ -56,6 +68,15 @@ async function UserDetail({ params }: { params: Params }) {
         <HouseholdsCard user={user} />
         <AiPhotosCard user={user} />
       </div>
+      <Suspense
+        fallback={
+          <Card title="Activity">
+            <p className="text-[15px] text-ink-secondary">Loading activity…</p>
+          </Card>
+        }
+      >
+        <ActivityCard user={user} searchParams={searchParams} />
+      </Suspense>
     </div>
   );
 }
@@ -90,7 +111,8 @@ function Header({ user }: { user: AdminUserDetail }) {
         </div>
         <p className="mt-1 text-[15px] text-ink-secondary">
           {user.display_name && user.email ? `${user.email} · ` : ""}
-          Joined <RelativeDate iso={user.created_at} /> · Last sign-in <RelativeDate iso={user.last_sign_in_at} />
+          Joined <RelativeDate iso={user.created_at} /> · Last sign-in <RelativeDate iso={user.last_sign_in_at} /> · Last
+          active <RelativeDate iso={user.last_active_at} />
         </p>
         <p className="mt-0.5 font-mono text-[12px] text-ink-tertiary select-all">{user.user_id}</p>
         <p className="mt-1 text-[15px] text-ink-secondary">
@@ -138,6 +160,53 @@ function AiPhotosCard({ user }: { user: AdminUserDetail }) {
         </>
       )}
     </Card>
+  );
+}
+
+// Activity (spec 4.12 User activity): the first page for the filters, which the function audits.
+async function ActivityCard({ user, searchParams }: { user: AdminUserDetail; searchParams: SearchParams }) {
+  const filters = parseUserActivityParams(await searchParams);
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("admin_user_activity", userActivityArgs(user.user_id, filters));
+  forbidIfNotAuthorized(error);
+  if (error) throw new Error(`Couldn't load the user's activity: ${error.message}`);
+  const activity = data as AdminUserActivity;
+  const search = userActivitySearch(filters);
+
+  return (
+    <Card title="Activity">
+      <UserActivityFilters
+        userId={user.user_id}
+        params={filters}
+        counts={activity.counts}
+        households={user.households.map((household) => ({ id: household.id, name: household.name }))}
+      />
+      <div className="mt-4">
+        {activity.entries.length === 0 ? (
+          <ActivityEmpty userId={user.user_id} filters={filters} />
+        ) : (
+          <UserActivityList
+            key={search}
+            userId={user.user_id}
+            search={search}
+            entries={activity.entries}
+            nextBefore={activity.next_before}
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function ActivityEmpty({ userId, filters }: { userId: string; filters: UserActivityParams }) {
+  if (!hasFilters(filters)) return <p className="text-[15px] text-ink-secondary">Nothing in the last 90 days</p>;
+  return (
+    <p className="text-[15px] text-ink-secondary">
+      Nothing matches these filters.{" "}
+      <Link href={userActivityHref(userId, {})} scroll={false} className="font-semibold text-primary hover:underline">
+        Clear filters
+      </Link>
+    </p>
   );
 }
 
