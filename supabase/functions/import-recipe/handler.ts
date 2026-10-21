@@ -17,7 +17,7 @@ import {
 } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v5.ts';
+import { buildExtractRecipePrompt, EXTRACT_RECIPE_PROMPT_VERSION, truncateText } from '../_shared/ai/prompts/extract-recipe.v6.ts';
 import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';

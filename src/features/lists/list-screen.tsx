@@ -59,6 +59,7 @@ import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
 import { combineLanguagesQuery } from '@/features/households/households';
+import { ListInviteCards } from '@/features/households/invite-cards';
 import { useMemberNames } from '@/features/households/member-names';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
@@ -386,6 +387,8 @@ export function ListScreen({ id }: { id: string }) {
     itemId?: string;
   } | null>(null);
   const highlightedId = toast?.itemId ?? null;
+  // Spec 4.7: a pinned invite's failed Join or Decline says why in the list's toast.
+  const showInviteMessage = useCallback((message: string) => setToast({ key: `invite-${Date.now()}`, message, actions: [] }), []);
   const slugById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.slug])), [categoryRows]);
   const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
   // An animated ref, so a drag in As added can scroll the list from the UI thread.
@@ -1226,6 +1229,8 @@ export function ListScreen({ id }: { id: string }) {
                     },
                   ]}
                 />
+                {/* Spec 4.7: the household just joined, and an invite still waiting. */}
+                <ListInviteCards householdId={list.householdId} onMessage={showInviteMessage} />
               </View>
             }
             ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}

@@ -10,6 +10,7 @@ import {
   arrivalAnnouncement,
   detectArrivals,
   listContents,
+  openSince,
   readListContents,
   type Arrival,
 } from '../arrivals';
@@ -112,6 +113,42 @@ describe('detectArrivals', () => {
     expect(detectArrivals(was, [item('eggs', [amount('e2', ALEX)])], ME, FROM)).toEqual([
       { itemId: 'eggs', userId: ALEX, displayName: 'eggs', contributionId: 'e2', contributionIds: ['e2'], grow: true },
     ]);
+  });
+
+  test("an item that comes down before its amount still grows in when the amount does", () => {
+    const first = [item('milk', [amount('m1', ME, 10)]), item('bread', [amount('b1', ALEX, 10)]), item('limes', [])];
+    const was = { contributions: before.contributions, open: openSince(before, first) };
+    expect(detectArrivals(before, first, ME, FROM)).toEqual([]);
+    expect(was.open.has('limes')).toBe(false);
+    const then = [...first.slice(0, 2), item('limes', [amount('l1', ALEX)])];
+    expect(detectArrivals(was, then, ME, FROM)).toEqual([arrival('limes', ALEX, { contributionId: 'l1', contributionIds: ['l1'] })]);
+    expect(openSince(was, then).has('limes')).toBe(true);
+  });
+
+  test('a re-add unchecked before its amount comes down still grows back in', () => {
+    const checked = listContents([item('eggs', [amount('e1', ME, 10)], { checkedAt: NOW })]);
+    const unchecked = [item('eggs', [amount('e1', ME, 10)])];
+    const was = { contributions: checked.contributions, open: openSince(checked, unchecked) };
+    expect(was.open.has('eggs')).toBe(false);
+    expect(detectArrivals(was, [item('eggs', [amount('e1', ME, 10), amount('e2', ALEX)])], ME, FROM)).toEqual([
+      arrival('eggs', ALEX, { contributionId: 'e2', contributionIds: ['e2'] }),
+    ]);
+  });
+
+  test("an item the live query doesn't show yet is still there: a Combine into it doesn't grow", () => {
+    const lagging = { contributions: before.contributions, open: openSince(before, []) };
+    expect([...lagging.open].sort()).toEqual(['bread', 'milk']);
+    const shown = [item('milk', [amount('m1', ME, 10)]), item('bread', [amount('b1', ALEX, 10)])];
+    const caughtUp = { contributions: before.contributions, open: openSince(lagging, shown) };
+    expect([...caughtUp.open].sort()).toEqual(['bread', 'milk']);
+    const now = [item('milk', [amount('m1', ME, 10), amount('m2', SAM)]), shown[1]];
+    expect(detectArrivals(caughtUp, now, ME, FROM)).toEqual([
+      arrival('milk', SAM, { contributionId: 'm2', contributionIds: ['m2'], grow: false }),
+    ]);
+  });
+
+  test('a checked item leaves the items to get', () => {
+    expect(openSince(before, [item('milk', [amount('m1', ME, 10)], { checkedAt: NOW })]).has('milk')).toBe(false);
   });
 
   test('several new amounts on one item: one arrival, by the latest, with them all', () => {

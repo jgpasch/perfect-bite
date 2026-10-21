@@ -8,6 +8,7 @@ import { Screen } from '@/components/themed-view';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { getAccount } from '@/features/auth/account';
+import { InviteWelcome } from '@/features/households/invite-cards';
 import { useMyInvites } from '@/features/households/my-invites';
 import { openList, resolveCurrentListId, useCurrentListVersion } from '@/features/lists/current-list';
 import { ListScreen } from '@/features/lists/list-screen';
@@ -38,11 +39,24 @@ export default function ListTab() {
   return <NoLists hasOthers={data.length > 0} />;
 }
 
-/** No open lists: make one, or open the sheet for archived lists and invites. */
+/**
+ * No open lists. While invites are waiting (an invited new user, spec 4.7): the invite cards.
+ * Otherwise make one. Either way, archived lists are a button away in the Your lists sheet.
+ */
 function NoLists({ hasOthers }: { hasOthers: boolean }) {
   const { spacing } = useTheme();
   const t = useT();
   const invites = useMyInvites();
+  const yourLists = hasOthers ? (
+    <Button label={t('lists.noLists.yourLists')} variant="plain" onPress={() => router.push('/lists-sheet')} />
+  ) : null;
+  if (invites.length > 0) {
+    return (
+      <Screen>
+        <InviteWelcome invites={invites} footer={yourLists} />
+      </Screen>
+    );
+  }
   return (
     <Screen>
       <EmptyState
@@ -50,13 +64,7 @@ function NoLists({ hasOthers }: { hasOthers: boolean }) {
         action={
           <View style={{ gap: spacing.sm }}>
             <PrimaryButton label={t('lists.noLists.newList')} onPress={() => promptListName(null, '', openList)} />
-            {hasOthers || invites.length > 0 ? (
-              <Button
-                label={invites.length > 0 ? t('lists.noLists.invites', { count: invites.length }) : t('lists.noLists.yourLists')}
-                variant="plain"
-                onPress={() => router.push('/lists-sheet')}
-              />
-            ) : null}
+            {yourLists}
           </View>
         }
       />

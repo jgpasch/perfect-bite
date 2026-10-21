@@ -172,8 +172,6 @@ export const es = {
     noLists: {
       message: 'Aún no tienes listas.',
       newList: 'Nueva lista',
-      invites_one: '{{count}} invitación pendiente',
-      invites_other: '{{count}} invitaciones pendientes',
       yourLists: 'Tus listas',
     },
     edit: {
@@ -1155,6 +1153,39 @@ export const es = {
       keep: 'Unirme y conservarlo',
       delete: 'Unirme y eliminar {{name}}',
       deleteFailed: 'Te uniste, pero no se pudo eliminar {{name}}. Puedes eliminarlo en Ajustes.',
+    },
+    /** The List tab's invite cards (spec 4.7, mockups A and C). */
+    welcome: {
+      label: 'Te invitaron',
+      invitedYouTo: '{{name}} te invitó a',
+      invitedYouToUnnamed: 'Te invitaron a',
+      members_one: '{{count}} miembro',
+      members_other: '{{count}} miembros',
+      pitch: 'Comparte una lista de compras, sus recetas y el plan de comidas. Marca algo y todos lo ven.',
+      join: 'Unirme a {{household}}',
+      decline: 'Rechazar',
+      or: 'o',
+      startOwn: 'Empezar mi propia lista',
+      startOwnInstead: 'Mejor empezar mi propia lista',
+      later: 'Puedes unirte después desde Tus listas.',
+      manyTitle: '{{count}} invitaciones pendientes',
+      manyTwo: 'Únete a una o a las dos. Cada una tiene sus propias listas.',
+      manyMore: 'Únete a las que quieras. Cada una tiene sus propias listas.',
+      from_one: 'De {{name}} · {{count}} miembro',
+      from_other: 'De {{name}} · {{count}} miembros',
+    },
+    pinned: {
+      title: '{{name}} te invitó a {{household}}',
+      titleUnnamed: 'Te invitaron a {{household}}',
+      detail_one: '{{count}} miembro · sus listas se suman a las tuyas',
+      detail_other: '{{count}} miembros · sus listas se suman a las tuyas',
+      notNow: 'Ahora no',
+    },
+    joined: {
+      title: 'Ya estás en {{household}}',
+      message: 'Las listas y recetas de {{name}} ahora son tuyas. Toca el nombre de la lista para cambiar.',
+      messageUnnamed: 'Sus listas y recetas ahora son tuyas. Toca el nombre de la lista para cambiar.',
+      dismiss: 'Cerrar',
     },
   },
   account: {

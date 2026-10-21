@@ -185,7 +185,7 @@ export default function HouseholdInviteSheet() {
   );
 }
 
-/** Step 2 (S3): who it's for, then the ways to tell them, the skip note and Done. */
+/** Step 2 (S3): who it's for, then the ways to tell them and the skip note; Done closes the sheet. */
 function SendStep({
   email,
   link,
@@ -199,7 +199,7 @@ function SendStep({
   inviter: string | null;
   onBack: () => void;
 }) {
-  const { colors, aisles, spacing, sizes, rounded } = useTheme();
+  const { colors, aisles, spacing, sizes, rounded, scheme } = useTheme();
   const t = useT();
   const [available, setAvailable] = useState<{ sms: boolean | null; mail: boolean | null }>({ sms: null, mail: null });
   const [copied, setCopied] = useState(0);
@@ -246,13 +246,17 @@ function SendStep({
   const dismissToast = useCallback(() => setCopied(0), []);
   const channels = inviteChannels(available);
 
-  // A root scroll view, as on step 1; Done sits at its foot, pushed down by a spacer.
+  // A root scroll view, as on step 1. Done is in the toolbar: at the foot of the scroll view, iOS 26
+  // laid it out below the sheet's bottom edge.
   return (
-    <Screen
-      scroll
-      contentContainerStyle={{ flexGrow: 1, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
+    <Screen scroll contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button icon="chevron.left" accessibilityLabel={t('common.back')} onPress={onBack} />
+      </Stack.Toolbar>
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button variant="done" tintColor={prominentButtonTint(scheme, colors)} onPress={() => router.back()}>
+          {t('common.done')}
+        </Stack.Toolbar.Button>
       </Stack.Toolbar>
       <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
         {inviteSendTitle(email)}
@@ -301,15 +305,11 @@ function SendStep({
           {inviteSkipNote(email)}
         </ThemedText>
       </View>
-      <View style={styles.flex} />
       {copied ? (
         <View style={{ paddingTop: spacing.md }}>
           <Toast key={copied} message={t('invites.sheet.linkCopied')} actions={[]} onDismiss={dismissToast} />
         </View>
       ) : null}
-      <View style={{ alignItems: 'center', paddingTop: spacing.sm }}>
-        <Button label={t('common.done')} variant="plain" onPress={() => router.back()} />
-      </View>
     </Screen>
   );
 }

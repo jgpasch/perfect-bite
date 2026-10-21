@@ -18,7 +18,8 @@ const SECTIONS = [
   { href: "/activity", label: "Activity", icon: Activity },
 ] as const;
 
-/** `flaggedCount` is AI calls' badge: flagged calls in the last 7 days, hidden at zero. */
+/** `flaggedCount` is AI calls' badge: flagged calls in the last 7 days not yet seen
+ *  on the Flagged tab, hidden at zero. */
 export function Sidebar({ email, flaggedCount }: { email: string; flaggedCount: number }) {
   const pathname = usePathname();
   return (
@@ -50,7 +51,7 @@ export function Sidebar({ email, flaggedCount }: { email: string; flaggedCount: 
               {label}
               {badge !== null && (
                 <span
-                  aria-label={`${badge} flagged in the last 7 days`}
+                  aria-label={`${badge} new flagged in the last 7 days`}
                   className="ml-auto rounded-full bg-danger-soft px-2 py-0.5 text-[12px] font-bold text-danger"
                 >
                   {badge > 99 ? "99+" : badge}

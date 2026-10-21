@@ -30,14 +30,38 @@ export type Arrival = {
   grow: boolean;
 };
 
-/** What was on the list when the visit began, and since: every amount, and the items still to get. */
+/**
+ * What was on the list when the visit began, and since: every amount, and the items still to get. An
+ * item counts as there only with an amount: pull brings an item and its amounts in separate
+ * transactions, so the item can show before them, and its amount is still an arrival that grows in.
+ */
 export type ListContents = { contributions: ReadonlySet<string>; open: ReadonlySet<string> };
 
 export function listContents(items: readonly ItemView[]): ListContents {
   return {
     contributions: new Set(items.flatMap((item) => item.contributions.map((c) => c.id))),
-    open: new Set(items.filter((item) => item.checkedAt === null).map((item) => item.id)),
+    open: new Set(items.filter((item) => item.checkedAt === null && item.contributions.length > 0).map((item) => item.id)),
   };
+}
+
+/**
+ * The items to get after `before`, as a visit counts them: those already there, and those that just
+ * gained an amount. An item that's only been unchecked (a re-add whose amount hasn't come down yet)
+ * isn't there yet, so the amount that follows grows it back in. The live query can lag the visit's
+ * first read, so an item it doesn't show yet is still there.
+ */
+export function openSince(before: ListContents, items: readonly ItemView[]): ReadonlySet<string> {
+  const shown = new Set(items.map((item) => item.id));
+  return new Set([
+    ...[...before.open].filter((id) => !shown.has(id)),
+    ...items
+      .filter(
+        (item) =>
+          item.checkedAt === null &&
+          (before.open.has(item.id) || item.contributions.some((c) => !before.contributions.has(c.id))),
+      )
+      .map((item) => item.id),
+  ]);
 }
 
 /**
@@ -56,7 +80,7 @@ export function readListContents(listId: string): ListContents {
     .all();
   return {
     contributions: new Set(rows.flatMap((r) => (r.contributionId ? [r.contributionId] : []))),
-    open: new Set(rows.filter((r) => r.checkedAt === null).map((r) => r.itemId)),
+    open: new Set(rows.filter((r) => r.checkedAt === null && r.contributionId).map((r) => r.itemId)),
   };
 }
 
@@ -146,11 +170,12 @@ export function useListArrivals(listId: string, items: readonly ItemView[], onSc
     const now = listContents(items);
     // The live query can lag the visit's first read: a row it hasn't shown yet isn't gone.
     const contributions = new Set([...tracking.contents.contributions, ...now.contributions]);
-    if (!sameSet(contributions, tracking.contents.contributions) || !sameSet(now.open, tracking.contents.open)) {
+    const open = openSince(tracking.contents, items);
+    if (!sameSet(contributions, tracking.contents.contributions) || !sameSet(open, tracking.contents.open)) {
       const arrivals = detectArrivals(tracking.contents, items, me, tracking.from);
       next = {
         ...tracking,
-        contents: { contributions, open: now.open },
+        contents: { contributions, open },
         cues: keepOpen(withArrivals(tracking.cues, arrivals), now.open),
         latest: arrivals.length > 0 ? { seq: tracking.latest.seq + 1, arrivals } : tracking.latest,
       };

@@ -9,14 +9,17 @@ type Props = Omit<PressableProps, 'children' | 'style'> & {
   label: string;
 };
 
-/** The primary CTA: 54 pt, `primary`, full radius, full width, with an optional leading SF Symbol. */
-export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon?: IconName }) {
+/**
+ * The primary CTA: 54 pt, `primary`, full radius, full width, with an optional leading SF Symbol.
+ * `loading` swaps the glyph for a spinner (pass `disabled` too while it runs).
+ */
+export function PrimaryButton({ label, icon, loading = false, disabled, ...rest }: Props & { icon?: IconName; loading?: boolean }) {
   const { colors, spacing, rounded, sizes, opacity } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, busy: loading }}
       disabled={disabled}
       style={({ pressed }) => [
         styles.button,
@@ -26,11 +29,16 @@ export function PrimaryButton({ label, icon, disabled, ...rest }: Props & { icon
           gap: spacing.sm,
           borderRadius: rounded.full,
           backgroundColor: colors.primary,
-          opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
+          // A busy button stays solid; the others dim while it runs.
+          opacity: disabled && !loading ? opacity.disabled : pressed ? opacity.pressed : 1,
         },
       ]}
       {...rest}>
-      {icon ? <Icon name={icon} color="onPrimary" weight="semibold" /> : null}
+      {loading ? (
+        <ActivityIndicator color={colors.onPrimary} />
+      ) : icon ? (
+        <Icon name={icon} color="onPrimary" weight="semibold" />
+      ) : null}
       <ThemedText variant="headline" color="onPrimary" style={styles.label}>
         {label}
       </ThemedText>

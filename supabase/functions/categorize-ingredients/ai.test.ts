@@ -534,6 +534,43 @@ Deno.test('runAiTask: a safety block is not an API failure, so the fallback is n
   assertEquals(calls.map((c) => [c.model, c.finish_reason]), [['mock:model', 'content-filter']]);
 });
 
+Deno.test('runAiTask: every safety block but recitation is final; recitation tries the fallback', async () => {
+  for (const [shape, answer] of Object.entries(SAFETY_BLOCKS)) {
+    const calls: AiCallRecord[] = [];
+    const run = () =>
+      runAiTask(
+        'categorize',
+        { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+        { model: { instance: answeringModel(answer), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+      );
+    await withEnv({ AI_MODEL_CATEGORIZE_FALLBACK: 'mock' }, async () => {
+      if (shape !== 'Gemini RECITATION finish') {
+        await assertRejects(run);
+        assertEquals(calls.map((c) => c.model), ['mock:model'], shape);
+        return;
+      }
+      const res = await run();
+      assertEquals(res.model, 'mock');
+      assertEquals(calls.map((c) => [c.model, c.status, c.raw_finish_reason]), [['mock:model', 'invalid_output', 'RECITATION'], ['mock', 'ok', null]]);
+      assertEquals(calls[1].fallback_of, calls[0].id);
+    });
+  }
+});
+
+Deno.test('runAiTask: a recitation block with no fallback set is thrown after one attempt', async () => {
+  const calls: AiCallRecord[] = [];
+  await withEnv({}, () =>
+    assertRejects(() =>
+      runAiTask(
+        'categorize',
+        { instructions: 'rules', prompt: PROMPT(['milk']), itemCount: 1 },
+        { model: { instance: answeringModel(SAFETY_BLOCKS['Gemini RECITATION finish']), modelId: 'mock:model' }, onCall: async (c) => void calls.push(c) },
+      ),
+    ),
+  );
+  assertEquals(calls.map((c) => c.raw_finish_reason), ['RECITATION']);
+});
+
 Deno.test('runAiTask: no model configured and none injected is a clear error', async () => {
   await withEnv({}, async () => {
     await assertRejects(

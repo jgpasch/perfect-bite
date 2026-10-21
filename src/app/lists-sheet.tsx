@@ -1,7 +1,7 @@
 import { Host, List, Section, Text as SwiftText } from '@expo/ui/swift-ui';
 import { deleteDisabled, environment } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack } from 'expo-router';
-import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { ActionSheetIOS, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,16 +17,8 @@ import { listHue } from '@/domain/aisle-color';
 import { getAccount } from '@/features/auth/account';
 import { householdsQuery } from '@/features/households/households';
 import { InviteRow } from '@/features/households/invite-row';
-import type { MyInvite } from '@/features/households/invites';
-import {
-  declineInvitePrompt,
-  declineMyInvite,
-  householdToReplace,
-  joinMyInvite,
-  replaceHouseholdPrompt,
-  useMyInvites,
-  type MyInviteResult,
-} from '@/features/households/my-invites';
+import { useInviteActions } from '@/features/households/invite-actions';
+import { useMyInvites } from '@/features/households/my-invites';
 import { resolveCurrentListId, setCurrentList, useCurrentListVersion } from '@/features/lists/current-list';
 import { householdHeaderLabel, listRowAccessibilityLabel, listRowCount, listsOverview } from '@/features/lists/list-view';
 import {
@@ -67,42 +59,7 @@ export default function ListsSheet() {
   const [reordering, setReordering] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const invites = useMyInvites();
-  const [busyInvite, setBusyInvite] = useState<{ id: string; action: 'join' | 'decline' } | null>(null);
-  const [toast, setToast] = useState<{ key: number; message: string } | null>(null);
-  const dismissToast = useCallback(() => setToast(null), []);
-
-  const settle = (result: MyInviteResult) => {
-    setBusyInvite(null);
-    // A new key restarts the toast's timer when one is already showing.
-    const message = result.ok ? result.notice : result.message;
-    if (message) setToast((t) => ({ key: (t?.key ?? 0) + 1, message }));
-  };
-  // With a household of their own and nobody else in it, ask whether to keep it first.
-  const join = async (invite: MyInvite) => {
-    setBusyInvite({ id: invite.id, action: 'join' });
-    const replacing = userId ? await householdToReplace(invite.householdId, userId) : null;
-    if (!replacing) return void joinMyInvite(invite).then(settle);
-    const prompt = replaceHouseholdPrompt(invite.householdName, replacing);
-    Alert.alert(prompt.title, prompt.message, [
-      { text: t('common.cancel'), style: 'cancel', onPress: () => setBusyInvite(null) },
-      { text: prompt.keep, onPress: () => void joinMyInvite(invite).then(settle) },
-      { text: prompt.remove, style: 'destructive', onPress: () => void joinMyInvite(invite, replacing).then(settle) },
-    ]);
-  };
-  const decline = (invite: MyInvite) => {
-    const prompt = declineInvitePrompt(invite);
-    Alert.alert(prompt.title, prompt.message, [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('invites.card.decline'),
-        style: 'destructive',
-        onPress: () => {
-          setBusyInvite({ id: invite.id, action: 'decline' });
-          void declineMyInvite(invite).then(settle);
-        },
-      },
-    ]);
-  };
+  const { join, decline, busyFor, toast, dismissToast } = useInviteActions();
 
   const pick = (listId: string) => {
     setCurrentList(listId);
@@ -197,7 +154,7 @@ export default function ListsSheet() {
                   <InviteRow
                     key={invite.id}
                     invite={invite}
-                    busy={busyInvite?.id === invite.id ? busyInvite.action : null}
+                    busy={busyFor(invite)}
                     onJoin={() => void join(invite)}
                     onDecline={() => decline(invite)}
                   />

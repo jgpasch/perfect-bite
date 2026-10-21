@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { AiCallFilters } from "@/components/ai-call-filters";
 import { CallBadge, CallUserLink, PhotoMissing } from "@/components/ai-call-bits";
+import { MarkAiFlagsSeen } from "@/components/mark-ai-flags-seen";
 import { PageHeader } from "@/components/page-header";
 import { RelativeDate } from "@/components/user-bits";
 import {
@@ -32,7 +33,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 // AI calls (spec 4.12), from admin_list_ai_calls: flagged calls, failed calls and the AI photos
 // made, newest first, in tabs (`?kind=`), with filters and paging in the URL. Each opens its call;
-// opening one is audited, so those links don't prefetch.
+// opening one is audited, so those links don't prefetch. Viewing Flagged clears the sidebar's badge.
 export default function AiCallsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <>
@@ -59,6 +60,7 @@ async function AiCallsResults({ searchParams }: { searchParams: SearchParams }) 
 
   return (
     <>
+      {params.kind === "flagged" && <MarkAiFlagsSeen />}
       <Tabs params={params} />
       <div className="mb-4">
         <AiCallFilters params={params} userLabel={userLabel} />

@@ -29,9 +29,9 @@ function answer(overrides: Partial<ExtractRecipeOutput>): ExtractRecipeOutput {
 const item = (name: string, quantity: number | null = null) => ({ name, quantity, unit: null, note: '' });
 const step = (n: number, ...uses: [number, number | null][]) => ({ step: n, uses: uses.map(([ingredient, quantity]) => ({ ingredient, quantity })) });
 
-Deno.test('v4: its own version (the extractRecipe task runs v5 now)', () => {
+Deno.test('v4: its own version (the extractRecipe task runs v6 now)', () => {
   assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v4');
-  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v5');
+  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v6');
 });
 
 async function sha256(s: string): Promise<string> {

@@ -309,6 +309,8 @@ export const Sizes = {
   /** the dot on that chevron while an invite is waiting, and its ring in the header colour */
   inviteDot: 10,
   inviteDotRing: 2,
+  /** the inviter's round avatar on the List tab's invite card */
+  inviteAvatar: 56,
   /** a list's colour dot in the Your lists sheet */
   listDot: 12,
   /** a colour swatch in the Edit list sheet; the chosen one is ringed (`focusRing`) a ring's width out */

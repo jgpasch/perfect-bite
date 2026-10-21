@@ -378,7 +378,7 @@ Deno.test('recipeMaxOutputTokens: 60 per item plus 300, capped at 10,000 (v4: li
 
 Deno.test('extractRecipe task: temperature 0, 30 s timeout, its own model and fallback env vars', async () => {
   const task = aiTasks.extractRecipe;
-  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v5']);
+  assertEquals([task.temperature, task.timeoutMs, task.promptVersion], [0, 30_000, 'extract-recipe.v6']);
   assertEquals(RECIPE_THINKING, 'low');
   await withEnv({}, () => assertEquals([task.model(), task.fallbackModel()], [null, null]));
   await withEnv({ AI_MODEL_RECIPE: ' google:gemini-3.8-flash ', AI_MODEL_RECIPE_FALLBACK: 'anthropic:claude-haiku-5-5' }, () =>
@@ -439,8 +439,8 @@ Deno.test('mock model end to end: an injection line stays an ingredient, and the
       step_ingredients: null,
       image_url: null,
     });
-    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v5']);
-    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v5']]);
+    assertEquals([res.model, res.promptVersion], ['mock', 'extract-recipe.v6']);
+    assertEquals(calls.map((c) => [c.task, c.model, c.status, c.prompt_version]), [['extractRecipe', 'mock', 'ok', 'extract-recipe.v6']]);
     assertEquals([calls[0].instructions, calls[0].prompt], [built.instructions, built.prompt]);
   });
 });
@@ -505,7 +505,7 @@ Deno.test('runAiTask v3: an answer without steps (a v2 answer) fails the schema 
       onCall: async (c) => void calls.push(c),
     }),
   );
-  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v5']]);
+  assertEquals(calls.map((c) => [c.status, c.prompt_version]), [['invalid_output', 'extract-recipe.v6']]);
 });
 
 Deno.test('runAiTask: output that fails the schema is an invalid_output call', async () => {

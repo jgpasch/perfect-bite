@@ -30,6 +30,20 @@ export function ensureStarterData(userId: string): void {
   });
 }
 
+/**
+ * Start my own list, on the List tab's invite card (spec 4.7): the starter household and its
+ * Groceries list, or, when the user already has a household with no open list, a Groceries list in
+ * it as the default. Returns the list to open.
+ */
+export function startOwnList(userId: string): string {
+  ensureStarterData(userId);
+  const existing = getDefaultListId(userId);
+  if (existing) return existing;
+  const id = createList('Groceries');
+  setDefaultList(userId, id);
+  return id;
+}
+
 function insertPersonalHousehold(tx: Exec): string {
   const id = newId();
   insertRow(tx, households, { id, name: 'Personal' });
@@ -73,6 +87,17 @@ export function listsWithCountsQuery() {
     .orderBy(asc(lists.position));
 }
 export type ListSummary = Awaited<ReturnType<typeof listsWithCountsQuery>>[number];
+
+/** The household's first open list in the user's order, or null when it has none. */
+export function firstOpenListIn(householdId: string): string | null {
+  const row = db
+    .select({ id: lists.id })
+    .from(lists)
+    .where(and(eq(lists.householdId, householdId), live, isNull(lists.archivedAt)))
+    .orderBy(asc(lists.position))
+    .get();
+  return row?.id ?? null;
+}
 
 export function listQuery(id: string) {
   return db.select().from(lists).where(and(eq(lists.id, id), live));

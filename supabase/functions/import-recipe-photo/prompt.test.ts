@@ -44,9 +44,9 @@ async function withEnv(vars: Record<string, string | null>, fn: () => void | Pro
 
 const UNSET = { AI_MODEL_RECIPE_PHOTO: null, AI_MODEL_RECIPE_PHOTO_FALLBACK: null, AI_MODEL_RECIPE: null, AI_MODEL_RECIPE_FALLBACK: null, AI_THINKING_RECIPE_PHOTO: null, AI_THINKING_RECIPE: null };
 
-Deno.test('its own version, the one the extractRecipePhoto task runs; v1 keeps its own', () => {
+Deno.test('its own version (the extractRecipePhoto task runs v3 now); v1 keeps its own', () => {
   assertEquals(EXTRACT_RECIPE_PHOTO_PROMPT_VERSION, 'extract-recipe-photo.v2');
-  assertEquals(aiTasks.extractRecipePhoto.promptVersion, 'extract-recipe-photo.v2');
+  assertEquals(aiTasks.extractRecipePhoto.promptVersion, 'extract-recipe-photo.v3');
   assertEquals(V1_VERSION, 'extract-recipe-photo.v1');
 });
 

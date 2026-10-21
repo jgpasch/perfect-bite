@@ -6,7 +6,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipePhoto } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
+import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe-photo.v3.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import {

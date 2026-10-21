@@ -191,8 +191,6 @@ export const en = {
     noLists: {
       message: 'No lists yet.',
       newList: 'New list',
-      invites_one: '{{count}} invite waiting',
-      invites_other: '{{count}} invites waiting',
       yourLists: 'Your lists',
     },
     edit: {
@@ -1313,6 +1311,39 @@ export const en = {
       keep: 'Join and keep it',
       delete: 'Join and delete {{name}}',
       deleteFailed: "Joined, but {{name}} couldn't be deleted. You can delete it in Settings.",
+    },
+    /** The List tab's invite cards (spec 4.7, mockups A and C). */
+    welcome: {
+      label: "You're invited",
+      invitedYouTo: '{{name}} invited you to',
+      invitedYouToUnnamed: "You're invited to",
+      members_one: '{{count}} member',
+      members_other: '{{count}} members',
+      pitch: 'Share one grocery list, their recipes and the meal plan. Check something off and everyone sees it.',
+      join: 'Join {{household}}',
+      decline: 'Decline',
+      or: 'or',
+      startOwn: 'Start my own list',
+      startOwnInstead: 'Start my own list instead',
+      later: 'You can join later from Your lists.',
+      manyTitle: '{{count}} invites waiting',
+      manyTwo: 'Join one or both. Each keeps its own lists.',
+      manyMore: 'Join any of them. Each keeps its own lists.',
+      from_one: 'From {{name}} · {{count}} member',
+      from_other: 'From {{name}} · {{count}} members',
+    },
+    pinned: {
+      title: '{{name}} invited you to {{household}}',
+      titleUnnamed: "You're invited to {{household}}",
+      detail_one: '{{count}} member · their lists join yours',
+      detail_other: '{{count}} members · their lists join yours',
+      notNow: 'Not now',
+    },
+    joined: {
+      title: "You're in {{household}}",
+      message: "{{name}}'s lists and recipes are yours now. Tap the list's name to switch.",
+      messageUnnamed: "Its lists and recipes are yours now. Tap the list's name to switch.",
+      dismiss: 'Dismiss',
     },
   },
   /** Deleting your account (spec 4.8). */

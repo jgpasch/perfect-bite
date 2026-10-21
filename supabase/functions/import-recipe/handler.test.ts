@@ -4,7 +4,7 @@ import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
 import { mockExtractRecipe, pageFromPrompt } from '../_shared/ai/mock-model.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v5.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION } from '../_shared/ai/prompts/extract-recipe.v6.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { fetchPage, readPage } from '../_shared/fetch-page.ts';
@@ -508,8 +508,8 @@ test('v2: a model time out of range is null', async () => {
   }
 });
 
-test('v5: the cache key is the v5 prompt version; cached v1 to v4 results are not served', async () => {
-  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v5');
+test('v6: the cache key is the v6 prompt version; cached v1 to v5 results are not served', async () => {
+  assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v6');
   const { post, store, calls } = setup({ model: editedModel((a) => ({ ...a, tags: TAGS })) });
   const old = { is_recipe: true, name: 'Old Pasta', servings: 2, ingredients: [{ name: 'garlic', quantity: 1, unit: null, note: '' }] };
   store.cache.set(`${PASTA_KEY}|extract-recipe.v1`, { result: old, is_recipe: true, created_at: new Date(NOW).toISOString() });
@@ -528,12 +528,17 @@ test('v5: the cache key is the v5 prompt version; cached v1 to v4 results are no
     is_recipe: true,
     created_at: new Date(NOW).toISOString(),
   });
+  store.cache.set(`${PASTA_KEY}|extract-recipe.v5`, {
+    result: { ...old, tags: TAGS, total_minutes: 20, steps: ['Boil.'], step_ingredients: null, image_url: null },
+    is_recipe: true,
+    created_at: new Date(NOW).toISOString(),
+  });
   const body: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals([body.name, body.tags], ['Garlic Pasta', TAGS]);
   assertEquals(calls('extractRecipe'), 1);
-  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v5']]);
+  assertEquals(store.saves.map((s) => [s.urlKey, s.promptVersion]), [[PASTA_KEY, 'extract-recipe.v6']]);
 
-  // A cached v5 result is served with its tags and time, with no call.
+  // A cached v6 result is served with its tags and time, with no call.
   const again: RecipeImportResponse = await (await post({ url: PASTA_URL })).json();
   assertEquals(again.tags, TAGS);
   assertEquals(calls('extractRecipe'), 1);

@@ -6,6 +6,7 @@ import { useSyncExternalStore } from 'react';
 import { db, households } from '@/db';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { notePushMoment } from '@/features/push/ask';
+import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { i18n } from '@/i18n';
 import { pullNow } from '@/sync/pull';
 
@@ -26,9 +27,13 @@ let generation = 0;
 /** Last known connectivity; null until the OS reports it. */
 let online: boolean | null = null;
 
+function notify() {
+  for (const listener of [...listeners]) listener();
+}
+
 function setInvites(next: MyInvite[]) {
   invites = next;
-  for (const listener of [...listeners]) listener();
+  notify();
 }
 
 export function getMyInvites(): MyInvite[] {
@@ -72,7 +77,60 @@ export function refreshMyInvites(): Promise<void> {
 export function clearMyInvites(): void {
   generation++;
   inFlight = null;
+  // Re-read from the device setting on the next sign-in.
+  hidden = null;
+  if (joined) dismissJoined();
   if (invites.length > 0) setInvites([]);
+}
+
+// --- Joined and hidden (spec 4.7, the invite cards) ------------------------------------------
+
+/** The household just joined from an invite, for the "You're in" card on its lists. */
+export type JoinedHousehold = { householdId: string; householdName: string; invitedBy: string | null };
+
+/** In memory only, like the invites: it goes with a restart or sign-out. */
+let joined: JoinedHousehold | null = null;
+
+export function getJoinedHousehold(): JoinedHousehold | null {
+  return joined;
+}
+
+export function useJoinedHousehold(): JoinedHousehold | null {
+  return useSyncExternalStore(subscribe, getJoinedHousehold);
+}
+
+/** Closes the "You're in" card. */
+export function dismissJoined(): void {
+  joined = null;
+  notify();
+}
+
+/** The invites whose card on a list was put away with Not now, on this device. */
+export const HIDDEN_INVITES_KEY = 'invites.hiddenIds';
+
+let hidden: string[] | null = null;
+
+export function getHiddenInviteIds(): string[] {
+  hidden ??= getDeviceSetting<string[]>(HIDDEN_INVITES_KEY, []);
+  return hidden;
+}
+
+export function useHiddenInviteIds(): string[] {
+  return useSyncExternalStore(subscribe, getHiddenInviteIds);
+}
+
+/** Not now: the invite's card leaves the list; it stays in the Your lists sheet. */
+export function hideInvite(inviteId: string): void {
+  const ids = getHiddenInviteIds();
+  if (ids.includes(inviteId)) return;
+  hidden = [...ids, inviteId];
+  setDeviceSetting(HIDDEN_INVITES_KEY, hidden);
+  notify();
+}
+
+/** The invite pinned on a list: the first waiting one (newest first, as the sheet lists them) not put away with Not now. */
+export function pinnedInvite(waiting: readonly MyInvite[], hiddenIds: readonly string[]): MyInvite | null {
+  return waiting.find((i) => !hiddenIds.includes(i.id)) ?? null;
 }
 
 function removeMyInvite(inviteId: string) {
@@ -147,8 +205,12 @@ export async function joinMyInvite(
     },
     'accept',
   );
-  // Now sharing a household: the moment to offer notifications (spec 4.13).
-  if (result.ok) notePushMoment();
+  if (result.ok) {
+    joined = { householdId: invite.householdId, householdName: invite.householdName, invitedBy: invite.invitedBy };
+    notify();
+    // Now sharing a household: the moment to offer notifications (spec 4.13).
+    notePushMoment();
+  }
   if (!result.ok || !replacing) return result;
   return (await deleteReplaced(replacing)) ?? result;
 }

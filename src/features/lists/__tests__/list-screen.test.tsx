@@ -144,6 +144,8 @@ jest.mock('@/components/section-header', () => {
 // Invites waiting for the signed-in user; the switcher shows a dot for them.
 const mockInvites: { current: MyInvite[] } = { current: [] };
 jest.mock('@/features/households/my-invites', () => ({ useMyInvites: () => mockInvites.current }));
+// The invite cards on the list have their own tests (invite-cards.test.tsx).
+jest.mock('@/features/households/invite-cards', () => ({ ListInviteCards: () => null }));
 
 const mockPath: { current: string } = { current: '/lists' };
 const mockPush = jest.fn();

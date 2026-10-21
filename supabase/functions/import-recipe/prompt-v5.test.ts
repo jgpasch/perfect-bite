@@ -50,9 +50,9 @@ const MARINADE = [
   'Broil it.',
 ];
 
-Deno.test('v5: its own version, the one the extractRecipe task runs', () => {
+Deno.test('v5: its own version (the extractRecipe task runs v6 now)', () => {
   assertEquals(EXTRACT_RECIPE_PROMPT_VERSION, 'extract-recipe.v5');
-  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v5');
+  assertEquals(aiTasks.extractRecipe.promptVersion, 'extract-recipe.v6');
 });
 
 Deno.test('v5: the section rules, the choice rules and every rule it keeps from v4', () => {

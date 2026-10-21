@@ -3,7 +3,7 @@
 import type { RecipeImportResponse, RecipePhotoImportRequest } from '@shared/index.ts';
 import { NoObjectGeneratedError, type LanguageModel } from 'ai';
 
-import { buildExtractRecipePhotoPrompt } from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
+import { buildExtractRecipePhotoPrompt } from '../_shared/ai/prompts/extract-recipe-photo.v3.ts';
 import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';

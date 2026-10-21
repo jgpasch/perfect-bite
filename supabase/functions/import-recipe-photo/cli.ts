@@ -13,7 +13,7 @@ import {
   type RecipePhotoMediaType,
 } from '@shared/index.ts';
 
-import type { PromptImage } from '../_shared/ai/prompts/extract-recipe-photo.v2.ts';
+import type { PromptImage } from '../_shared/ai/prompts/extract-recipe-photo.v3.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import { MemoryStore } from '../categorize-ingredients/cli.ts';

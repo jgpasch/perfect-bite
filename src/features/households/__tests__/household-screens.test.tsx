@@ -1236,7 +1236,7 @@ describe('HouseholdInviteSheet', () => {
 
     test('Done closes', async () => {
       const root = await render(<HouseholdInviteSheet />);
-      await pressAsync(byLabel(root, 'Done'));
+      await pressAsync(byType(root, 'ToolbarButton').find((b) => b.props.children === 'Done')!);
       expect(mockRouter.back).toHaveBeenCalledTimes(1);
     });
   });
@@ -1507,7 +1507,7 @@ describe('in Spanish', () => {
         'También puedes saltarte esto. Si Pat inicia sesión con este correo, verá la invitación en la app.',
       ]),
     );
-    expect(byLabel(root, 'Listo')).toBeDefined();
+    expect(byType(root, 'ToolbarButton').some((b) => b.props.children === 'Listo')).toBe(true);
   });
 
   test('the join screen: a valid invite, and one that can no longer be used', async () => {

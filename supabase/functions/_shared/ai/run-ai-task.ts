@@ -171,6 +171,15 @@ function isApiFailure(err: unknown): boolean {
   return APICallError.isInstance(err) || RetryError.isInstance(err);
 }
 
+/**
+ * Gemini's `RECITATION` block: the answer copied too much of a source it knows (a published
+ * recipe's steps, copied word for word as the prompts ask). It says nothing about harm, so unlike
+ * the other safety blocks it's worth trying on the fallback model.
+ */
+function isRecitationBlock(err: unknown, rawFinishReason: string | undefined): boolean {
+  return NoObjectGeneratedError.isInstance(err) && err.finishReason === 'content-filter' && rawFinishReason === 'RECITATION';
+}
+
 /** False when the model's answer had no structured output (`result.output` would throw). */
 function hasOutput(result: { readonly output: unknown }): boolean {
   try {
@@ -204,6 +213,8 @@ export async function runAiTask<N extends AiTaskName>(
   };
 
   let lastCallId: string | null = null;
+  /** Errors from attempts Gemini blocked for recitation, which the fallback may retry. */
+  const recitations = new WeakSet<object>();
   const attempt = async (model: { instance?: LanguageModel; modelId: string }) => {
     const id = crypto.randomUUID();
     const fallbackOf = lastCallId;
@@ -298,6 +309,7 @@ export async function runAiTask<N extends AiTaskName>(
         response_body: apiError?.responseBody ?? invalid?.response?.body ?? null,
         warnings: [],
       });
+      if (isRecitationBlock(err, step.rawFinishReason)) recitations.add(err as object);
       throw err;
     }
     console.log(
@@ -341,7 +353,7 @@ export async function runAiTask<N extends AiTaskName>(
   try {
     ran = await attempt(primary);
   } catch (err) {
-    if (!fallback || !isApiFailure(err)) throw err;
+    if (!fallback || !(isApiFailure(err) || recitations.has(err as object))) throw err;
     console.warn(
       JSON.stringify({ level: 'warn', event: 'ai_fallback', task: name, from: primary.modelId, to: fallback.modelId, error: String(err).slice(0, 200) }),
     );

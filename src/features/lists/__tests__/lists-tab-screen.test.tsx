@@ -52,6 +52,11 @@ jest.mock('@/features/lists/list-screen', () => {
 });
 const mockInvites: { current: MyInvite[] } = { current: [] };
 jest.mock('@/features/households/my-invites', () => ({ useMyInvites: () => mockInvites.current }));
+// The cards themselves have their own tests (invite-cards.test.tsx); here, a marker with the invites.
+jest.mock('@/features/households/invite-cards', () => {
+  const { createElement } = require('react');
+  return { InviteWelcome: (props: object) => createElement('InviteWelcome', props) };
+});
 
 const mockPush = jest.fn();
 const mockNavigate = jest.fn();
@@ -222,21 +227,31 @@ describe('with no open lists', () => {
     expect(mockPush).toHaveBeenCalledWith('/lists-sheet');
   });
 
-  test.each([
-    [1, '1 invite waiting'],
-    [2, '2 invites waiting'],
-  ])('with %i invite(s), the button says so and opens the sheet', (count, label) => {
+  const invite = (i: number): MyInvite => ({
+    id: `inv${i}`,
+    householdId: `h${i}`,
+    householdName: 'Beach house',
+    invitedBy: 'Sam',
+    memberCount: 3,
+  });
+
+  test('with invites waiting, the invite cards instead of "No lists yet."', () => {
     deleteList(groceries);
-    mockInvites.current = Array.from({ length: count }, (_, i) => ({
-      id: `inv${i}`,
-      householdId: `h${i}`,
-      householdName: 'Beach house',
-      invitedBy: 'Sam',
-      memberCount: 3,
-    }));
+    mockInvites.current = [invite(0), invite(1)];
     render();
-    expect(hasPressable('Your lists')).toBe(false);
-    press(pressable(label));
-    expect(mockPush).toHaveBeenCalledWith('/lists-sheet');
+    const welcome = tree!.root.findAll((n) => n.type === ('InviteWelcome' as never));
+    expect(welcome).toHaveLength(1);
+    expect(welcome[0].props.invites).toEqual(mockInvites.current);
+    expect(lines()).not.toContain('No lists yet.');
+    expect(hasPressable('New list')).toBe(false);
+    expect(welcome[0].props.footer).toBeNull();
+  });
+
+  test('with invites waiting and archived lists, the cards carry the Your lists button', () => {
+    setListArchived(groceries, true);
+    mockInvites.current = [invite(0)];
+    render();
+    const welcome = tree!.root.find((n) => n.type === ('InviteWelcome' as never));
+    expect(welcome.props.footer).not.toBeNull();
   });
 });

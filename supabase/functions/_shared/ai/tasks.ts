@@ -26,8 +26,8 @@ import { z } from 'zod';
 
 import { mockCategorizeModel, mockPhotoDescriptionModel, mockRecipeModel, mockRecipePhotoModel, mockStepsModel, mockTagsModel } from './mock-model.ts';
 import { CATEGORIZE_PROMPT_VERSION } from './prompts/categorize.v3.ts';
-import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v2.ts';
-import { EXTRACT_RECIPE_PROMPT_VERSION, SECTION_LINE_PREFIX, truncateText } from './prompts/extract-recipe.v5.ts';
+import { EXTRACT_RECIPE_PHOTO_PROMPT_VERSION } from './prompts/extract-recipe-photo.v3.ts';
+import { EXTRACT_RECIPE_PROMPT_VERSION, SECTION_LINE_PREFIX, truncateText } from './prompts/extract-recipe.v6.ts';
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
 import { MAX_DESCRIPTION_WORDS, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from './prompts/recipe-photo-description.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
