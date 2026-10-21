@@ -131,6 +131,18 @@ The feature keys themselves are fixed in code; a new feature is a migration.
 
 The Table Editor (`plans`, `plan_features`, `plan_limits`) still works, but isn't audited. A feature with no `plan_limits` row has no monthly limit.
 
+### Launching paid plans
+
+Plans are moving from users to households (spec 4.12; `tasks.md` tracks it): once that lands, every household has an explicit plan in `household_plans`, written when it's made, and the default plan only decides what **new** households start on. Until paid plans launch, the default is **founding** (it replaces plus), so every household made before then is a founding household: it stays on founding, free, for good.
+
+When paid plans launch:
+
+1. Create the paid plan in the portal with its own id and name (never reuse `founding`), turn on its features and set its monthly limits.
+2. Make it the default. Only households made from then on start on it; no existing household moves, so founders keep founding.
+3. **Never add a feature to founding again.** A new feature goes into a new plan, so founders get exactly what founding had at launch. Changing founding's monthly limits is still fine and applies to every founder.
+
+To move a founding household to a paid plan (they asked to), change that household's plan in the portal with a note. A household's plan can be changed but never cleared: a household with no row has no features.
+
 ### Which plan is each user on
 
 ```sql
