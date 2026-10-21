@@ -88,6 +88,8 @@ export function createThrottle<T>(send: (value: T) => void, ms: number = PRESENC
 
 /** Leaves still in progress, by topic. Realtime hands back an existing channel for a topic, so a join waits for these. */
 const leaving = new Map<string, Promise<unknown>>();
+/** Channels a session that hasn't left still owns: never removed as left over. */
+const inUse = new Set<RealtimeChannel>();
 
 export type ListPresenceSession = {
   /** Whether this user is adding now; tracked (throttled) once the channel is joined. */
@@ -124,9 +126,15 @@ export function joinListPresence(
     if (left) return;
     // Realtime hands back the channel already on a topic, and a joined one takes no new presence
     // callbacks (it throws). One still here is left over from a leave that never closed it, so it
-    // goes first; if it won't, this list goes without presence rather than crashing.
+    // goes first; if it won't, this list goes without presence rather than crashing. One another
+    // session still owns (a second screen on this list) stays: removing it would set the two off
+    // knocking each other off the channel, each reopening in turn.
     const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`);
     if (stale) {
+      if (inUse.has(stale)) {
+        console.warn(`[presence] ${topic}: already joined by another screen`);
+        return;
+      }
       if (retried) {
         console.warn(`[presence] ${topic}: an earlier channel is still open`);
         return;
@@ -138,6 +146,7 @@ export function joinListPresence(
     }
     const ch = supabase.channel(topic, { config: { private: true, presence: { key: userId, enabled: true } } });
     channel = ch;
+    inUse.add(ch);
     ch.on('presence', { event: 'sync' }, () => {
       if (!left) onOthers(othersAdding(ch.presenceState(), userId));
     });
@@ -156,6 +165,7 @@ export function joinListPresence(
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.warn(`[presence] ${topic}: ${status}`, err);
       if (status === 'CLOSED' && channel === ch) {
         // A closed channel is already off the client's list, so open() makes a new one.
+        inUse.delete(ch);
         channel = null;
         reopenTimer = setTimeout(() => {
           reopenTimer = null;
@@ -184,6 +194,7 @@ export function joinListPresence(
       if (reopenTimer) clearTimeout(reopenTimer);
       reopenTimer = null;
       if (!channel) return;
+      inUse.delete(channel);
       const done = Promise.resolve(supabase.removeChannel(channel))
         .catch(() => {})
         .finally(() => {

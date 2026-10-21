@@ -329,6 +329,25 @@ describe('joinListPresence', () => {
     expect(openChannels()).toEqual([realtimeChannels[1]]);
   });
 
+  test('a second session on the same list leaves the first one\'s channel alone', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    joinListPresence(LIST, ME, true, () => {});
+    const first = only();
+    joinListPresence(LIST, ME, false, () => {});
+    await flush();
+    expect(supabase.removeChannel).not.toHaveBeenCalled();
+    expect(openChannels()).toEqual([first]);
+    expect(warn).toHaveBeenCalledWith('[presence] list:list-1: already joined by another screen');
+    warn.mockRestore();
+  });
+
+  test('once the first session leaves, a new one joins as usual', async () => {
+    joinListPresence(LIST, ME, false, () => {}).leave();
+    await flush();
+    joinListPresence(LIST, ME, false, () => {});
+    expect(openChannels()).toHaveLength(1);
+  });
+
   test('a left-over channel that will not go means no presence, not a crash', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     supabase.removeChannel.mockImplementationOnce(() => Promise.resolve('error'));
