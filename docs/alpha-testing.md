@@ -29,7 +29,7 @@ Work the app itself still needs. Sections 1–7 are setup steps; this is the bui
 - Sign in with Apple (only for a public App Store release, spec §4.8 note).
 - Universal Links for invites: `perfectbite://` links work between our two phones.
 - The `siri-add` upload from the extension (spec §4.9): without it, a Siri add shows up for the other person once the speaker opens the app.
-- Account deletion, privacy policy and App Store screenshots: needed for App Review, which internal TestFlight skips. The privacy policy must disclose that what's sent to the AI (recipe text, ingredient names, photo descriptions) is logged with the account that sent it and kept 30 days (180 for flagged calls), and that admins can read it.
+- Account deletion, privacy policy and App Store screenshots: needed for App Review, which internal TestFlight skips. The privacy policy must disclose that what's sent to the AI (recipe text, ingredient names, photo descriptions) is logged with the account that sent it and kept 30 days (180 for flagged calls), and that admins can read it. It must also disclose that actions that reach the server (list, recipe, meal plan, household and settings changes) are logged with the account and the names of what they touched, kept 90 days, deleted with the account, and that admins can read them; and the App Store privacy label must declare Product Interaction, linked to the user.
 
 ## 1. Apple Developer Program
 
