@@ -10,8 +10,8 @@ update public.plans set is_default = false where is_default;
 update public.plans set is_default = true where id = 'founding';
 
 -- boss is the admin. old's household (60 days old, so no doubling) is on founding; mid's on free.
--- A plan counts its households (household_plans rows), not users: the users with no user_plans
--- row don't add to the default's count.
+-- A plan counts its households (household_plans rows), not users: users don't add to the
+-- default's count.
 insert into auth.users (id, email, aud, role, created_at) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@plans.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('11111111-1111-1111-1111-111111111111', 'old@plans.test', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -292,7 +292,7 @@ select results_eq($$ select id from public.plans where is_default $$, $$ values 
 -- moves no one. old's household keeps founding (recipe_import with no limit, lifted above), not
 -- gold's 50.
 select ok((select plan_id from public.household_plans where household_id = 'd1000000-0000-0000-0000-000000000001') = 'founding'
-  and public.has_feature('11111111-1111-1111-1111-111111111111', 'recipe_import')
+  and public.has_feature('11111111-1111-1111-1111-111111111111', 'recipe_import', 'd1000000-0000-0000-0000-000000000001')
   and private.monthly_limit('recipe_import', 'd1000000-0000-0000-0000-000000000001') is null,
   'changing the default moves no household: its plan, features and limits stay');
 set local role authenticated;

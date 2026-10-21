@@ -18,20 +18,19 @@ export class NotEntitledError extends Error {
 
 /**
  * Throws NotEntitledError unless the household's plan has `feature`. `householdId` is the
- * household the action is in, when known: `has_feature` answers false unless `userId` is a member
- * of it. With no household, it answers true when any of the user's households' plans has
- * `feature`. A database error is thrown as is.
+ * household the action is in: `has_feature` answers false unless `userId` is a member of it. A
+ * database error is thrown as is.
  */
 export async function requireFeature(
   admin: Pick<SupabaseClient, 'rpc'>,
   userId: string,
   feature: Feature,
-  householdId?: string,
+  householdId: string,
 ): Promise<void> {
   const { data, error } = await admin.rpc('has_feature', {
     p_user_id: userId,
     p_feature: feature,
-    p_household_id: householdId ?? null,
+    p_household_id: householdId,
   });
   if (error) throw error;
   if (data !== true) throw new NotEntitledError(feature);

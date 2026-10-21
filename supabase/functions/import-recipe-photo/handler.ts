@@ -14,17 +14,16 @@ import { callerIn, importResponse, type ImportDeps } from '../import-recipe/hand
 export interface RecipePhotoImportStore {
   /**
    * Throws NotEntitledError unless the plan of `householdId` (the household the recipe is saved to)
-   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). No
-   * household (old builds): any of the caller's households. Called first, before the kill switch,
-   * the rate limit or the model.
+   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). Called
+   * first, before the kill switch, the rate limit or the model.
    */
-  requireFeature(feature: Feature, householdId?: string): Promise<void>;
+  requireFeature(feature: Feature, householdId: string): Promise<void>;
   /**
    * Counts one photo import against the per-user safety limits (per minute, daily) and the monthly
    * `recipe_import` allowance of `householdId`, shared with link imports
-   * (`public.check_recipe_photo_limit`; none, from an old build: the user's oldest household).
+   * (`public.check_recipe_photo_limit`).
    */
-  checkLimit(householdId?: string): Promise<LimitResult>;
+  checkLimit(householdId: string): Promise<LimitResult>;
   /** Writes one `ai_calls` row. Its prompt describes each image; it never holds the bytes. */
   logAiCall(call: AiCallRecord): Promise<void>;
 }

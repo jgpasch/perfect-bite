@@ -1,9 +1,9 @@
 -- Plans and features (spec 4.12, 5): the seeded plans, the two feature keys, household_plans,
--- has_feature, my_household_features, my_features' answer for old builds, client access and the
--- rows the household_plans migration wrote.
+-- has_feature (a null household is false), my_household_features, client access, and the per-user
+-- pieces (user_plans, my_features, initial_household_plan) dropped.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(58);
+select plan(49);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Shared (founding): Alex owner, Sam and Kim members. Kim also owns Cabin (unlimited). Lee owns
@@ -48,9 +48,7 @@ select results_eq(
   $$ values ('founding', 'recipe_import', 50), ('founding', 'recipe_photo_ai', 20),
             ('unlimited', 'recipe_import', null::integer), ('unlimited', 'recipe_photo_ai', null::integer) $$,
   'founding allows 50 imports and 20 AI photos a month; unlimited has no limits');
-select is_empty(
-  $$ select 1 from public.user_plans where plan_id in ('plus', 'none', 'basic') $$,
-  'no user_plans row names an old plan id');
+select hasnt_table('public', 'user_plans', 'user_plans is dropped: a plan belongs to a household');
 
 -- The two feature keys ------------------------------------------------------------
 select is(private.feature_keys(), array['recipe_import', 'recipe_photo_ai'], 'feature_keys is the two keys');
@@ -92,16 +90,17 @@ select ok(not public.has_feature('11111111-1111-1111-1111-111111111111', 'catego
 select ok(public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_import', 'aaaaaaaa-0000-0000-0000-00000000000b'),
   'Kim gets recipe_import in their unlimited Cabin');
 
--- A null household (an old client) takes the best of the user's households.
-select ok(public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_photo_ai'),
-  'a null household: any of the user''s households with the feature is enough');
-select ok(not public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_import'),
-  'a null household: a user whose households have none gets nothing');
+-- A null household is false: every request names the household it acts in.
+select ok(not public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_photo_ai'),
+  'a null household: false, though both of Kim''s households have the feature');
+select ok(not public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_import', null),
+  'a null household passed explicitly: false');
 select ok(not public.has_feature('55555555-5555-5555-5555-555555555555', 'recipe_import'),
   'a null household: a user in no household gets nothing');
 update public.household_plans set plan_id = 'founding' where household_id = 'aaaaaaaa-0000-0000-0000-00000000000c';
-select ok(public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_import'),
-  'moving one of Lee''s households to founding gives them recipe_import with no household');
+select ok(public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_import', 'aaaaaaaa-0000-0000-0000-00000000000c')
+  and not public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_import'),
+  'moving Lee''s Attic to founding gives recipe_import in Attic, still not with no household');
 
 -- The row decides at once, and editing it stamps assigned_at (now() is fixed in the transaction).
 update public.household_plans set plan_id = 'free', assigned_at = '2026-01-01'
@@ -123,8 +122,8 @@ update public.plans set is_default = true where id = 'unlimited';
 select ok(not public.has_feature('44444444-4444-4444-4444-444444444444', 'recipe_import', 'aaaaaaaa-0000-0000-0000-00000000000d'),
   'a household with no row has no features, whatever the default');
 
--- my_household_features and my_features (as authenticated) -------------------------
--- A plan with only AI photos, for my_features' per-key answer.
+-- my_household_features (as authenticated) ------------------------------------------
+-- A plan with only AI photos.
 insert into public.plans (id, name) values ('photos', 'Photos');
 insert into public.plan_features values ('photos', 'recipe_photo_ai');
 insert into public.household_plans (household_id, plan_id) values ('aaaaaaaa-0000-0000-0000-00000000000d', 'photos');
@@ -135,25 +134,20 @@ select is(public.my_household_features(),
   '{"households": {"aaaaaaaa-0000-0000-0000-00000000000a": ["recipe_import", "recipe_photo_ai"],
                    "aaaaaaaa-0000-0000-0000-00000000000b": ["recipe_import", "recipe_photo_ai"]}}'::jsonb,
   'my_household_features gives each of Kim''s households its features, sorted');
-select is(public.my_features(),
-  array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_photo_ai', 'recipe_tags', 'step_ingredients'],
-  'my_features (old builds): Kim gets every old key');
-select is(public.my_features('aaaaaaaa-0000-0000-0000-00000000000a'), public.my_features(),
-  'my_features ignores its household argument');
 
 select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);
 select is(public.my_household_features(),
   '{"households": {"aaaaaaaa-0000-0000-0000-00000000000c": [],
                    "aaaaaaaa-0000-0000-0000-00000000000d": ["recipe_photo_ai"]}}'::jsonb,
   'my_household_features lists a free household with no features');
-select is(public.my_features(), array['categorize', 'recipe_photo_ai', 'recipe_tags', 'step_ingredients'],
-  'my_features: categorize, tags and step matching always, recipe_photo_ai from one household, no imports');
 
 select set_config('request.jwt.claims', '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}', true);
 select is(public.my_household_features(), '{"households": {}}'::jsonb,
   'my_household_features for a user in no household is empty');
-select is(public.my_features(), array['categorize', 'recipe_tags', 'step_ingredients'],
-  'my_features for a user in no household is only the always-on keys');
+reset role;
+select ok(to_regprocedure('public.my_features(uuid)') is null,
+  'my_features (old builds'' per-user answer in the old keys) is dropped');
+set local role authenticated;
 
 -- Client access -----------------------------------------------------------------
 select throws_ok($$ select * from public.household_plans $$, '42501', null, 'clients can''t read household_plans');
@@ -164,7 +158,6 @@ select throws_ok($$ update public.household_plans set plan_id = 'unlimited' $$, 
   'clients can''t change a household''s plan');
 select throws_ok($$ select * from public.plans $$, '42501', null, 'clients can''t read plans');
 select throws_ok($$ select * from public.plan_features $$, '42501', null, 'clients can''t read plan_features');
-select throws_ok($$ select * from public.user_plans $$, '42501', null, 'clients can''t read user_plans');
 select throws_ok($$ select public.has_feature('33333333-3333-3333-3333-333333333333', 'recipe_import') $$,
   '42501', null, 'clients can''t execute has_feature');
 reset role;
@@ -179,10 +172,6 @@ select ok(
   and not has_function_privilege('anon', 'public.my_household_features()', 'execute')
   and not has_function_privilege('public', 'public.my_household_features()', 'execute'),
   'only signed-in users can execute my_household_features');
-select ok(
-  has_function_privilege('authenticated', 'public.my_features(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.my_features(uuid)', 'execute'),
-  'my_features is still there for old builds');
 select ok(
   not has_table_privilege('anon', 'public.household_plans', 'select')
   and not has_table_privilege('authenticated', 'public.household_plans', 'select')
@@ -208,32 +197,9 @@ delete from public.households where id = 'aaaaaaaa-0000-0000-0000-00000000000d';
 select is_empty($$ select 1 from public.household_plans where household_id = 'aaaaaaaa-0000-0000-0000-00000000000d' $$,
   'deleting a household deletes its row');
 
--- The migration's rows (private.initial_household_plan) ------------------------------
--- An owner's user_plans plan, never a member's; two owners: more features wins, ties by id; else
--- the default. Old ids were renamed (plus to founding, none and basic to free) before any row.
-update public.plans set is_default = false where is_default;
-update public.plans set is_default = true where id = 'founding';
-insert into public.plans (id, name) values ('aaa', 'A'), ('zzz', 'Z');
-insert into public.plan_features values ('aaa', 'recipe_import'), ('zzz', 'recipe_import');
-insert into public.user_plans (user_id, plan_id) values
-  ('22222222-2222-2222-2222-222222222222', 'unlimited'),
-  ('33333333-3333-3333-3333-333333333333', 'free');
-select is(private.initial_household_plan('aaaaaaaa-0000-0000-0000-00000000000a'), 'founding',
-  'Shared: its owner has no user_plans row and members'' plans don''t count, so the default');
-select is(private.initial_household_plan('aaaaaaaa-0000-0000-0000-00000000000b'), 'free',
-  'Cabin: its owner Kim''s plan (free)');
-insert into public.household_members (household_id, user_id, role, position) values
-  ('aaaaaaaa-0000-0000-0000-00000000000b', '22222222-2222-2222-2222-222222222222', 'owner', 2);
-select is(private.initial_household_plan('aaaaaaaa-0000-0000-0000-00000000000b'), 'unlimited',
-  'two owners on free and unlimited: the plan with more features wins');
-update public.user_plans set plan_id = 'zzz' where user_id = '22222222-2222-2222-2222-222222222222';
-update public.user_plans set plan_id = 'aaa' where user_id = '33333333-3333-3333-3333-333333333333';
-select is(private.initial_household_plan('aaaaaaaa-0000-0000-0000-00000000000b'), 'aaa',
-  'two owners on plans with as many features: the lower plan id wins');
-update public.plans set is_default = false where is_default;
-select is(private.initial_household_plan('aaaaaaaa-0000-0000-0000-00000000000a'), null,
-  'no owner plan and no default: no row');
-update public.plans set is_default = true where id = 'founding';
+-- The per-user plan pieces are gone ---------------------------------------------------
+select ok(to_regprocedure('private.initial_household_plan(uuid)') is null,
+  'initial_household_plan (the migration''s rule over user_plans) is dropped');
 
 select * from finish();
 rollback;

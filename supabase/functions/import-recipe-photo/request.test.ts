@@ -6,6 +6,8 @@ import { ImportRecipePhotoError } from './handler.ts';
 import { handleRequest, MAX_BODY_BYTES, PAUSED_RETRY_AFTER } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/import-recipe-photo';
+/** The household a request names (required). */
+const HOUSEHOLD = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
 const post = (body: string, headers: Record<string, string> = {}) =>
   new Request(ENDPOINT, { method: 'POST', body, headers: { 'content-type': 'application/json', ...headers } });
@@ -38,43 +40,44 @@ async function expect400(res: Response, field: string) {
 Deno.test('a valid request reaches the importer as sent, images in order', async () => {
   const { got, send } = setup();
   const images = [jpeg(10), { mediaType: 'image/png' as const, data: zeros(11) }, { mediaType: 'image/webp' as const, data: zeros(12) }];
-  const res = await send(post(JSON.stringify({ images })));
+  const res = await send(post(JSON.stringify({ images, householdId: HOUSEHOLD })));
   assertEquals(res.status, 200);
   assertEquals((await res.json()).sourceUrl, null);
-  assertEquals(got, [{ images }]);
+  assertEquals(got, [{ images, householdId: HOUSEHOLD }]);
 });
 
-Deno.test('householdId: a uuid reaches the importer; anything else is 400 invalid_request', async () => {
+Deno.test('householdId: a uuid reaches the importer; none (an old build) or anything else is 400 invalid_request', async () => {
   const { got, send } = setup();
-  const householdId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-  assertEquals((await send(post(JSON.stringify({ images: [jpeg(10)], householdId })))).status, 200);
-  assertEquals(got[0].householdId, householdId);
-  await expect400(await send(post(JSON.stringify({ images: [jpeg(10)], householdId: 'h1' }))), 'householdId');
-  await expect400(await send(post(JSON.stringify({ images: [jpeg(10)], householdId: null }))), 'householdId');
+  const images = [jpeg(10)];
+  assertEquals((await send(post(JSON.stringify({ images, householdId: HOUSEHOLD })))).status, 200);
+  assertEquals(got[0].householdId, HOUSEHOLD);
+  await expect400(await send(post(JSON.stringify({ images }))), 'householdId');
+  await expect400(await send(post(JSON.stringify({ images, householdId: 'h1' }))), 'householdId');
+  await expect400(await send(post(JSON.stringify({ images, householdId: null }))), 'householdId');
   assertEquals(got.length, 1);
 });
 
 Deno.test('the image count: none or more than 3 is 400 invalid_request', async () => {
   const { got, send } = setup();
-  await expect400(await send(post(JSON.stringify({ images: [] }))), 'images');
-  await expect400(await send(post(JSON.stringify({ images: [jpeg(), jpeg(), jpeg(), jpeg()] }))), 'images');
+  await expect400(await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[] }))), 'images');
+  await expect400(await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg(), jpeg(), jpeg(), jpeg()] }))), 'images');
   await expect400(await send(post(JSON.stringify({}))), 'images');
   assertEquals(got.length, 0);
 });
 
 Deno.test('an image over 2 MB decoded is 400 invalid_request, naming it; exactly 2 MB passes', async () => {
   const { got, send } = setup();
-  const res = await send(post(JSON.stringify({ images: [jpeg(), jpeg(2 * 1024 * 1024 + 1)] })));
+  const res = await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg(), jpeg(2 * 1024 * 1024 + 1)] })));
   assertEquals(res.status, 400);
   assertEquals(await res.json(), { error: 'invalid_request', message: 'images.1.data: Image over 2 MB' });
-  assertEquals((await send(post(JSON.stringify({ images: [jpeg(2 * 1024 * 1024)] })))).status, 200);
+  assertEquals((await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg(2 * 1024 * 1024)] })))).status, 200);
   assertEquals(got.length, 1);
 });
 
 Deno.test('a media type other than JPEG, PNG or WebP is 400 invalid_request', async () => {
   const { got, send } = setup();
   for (const mediaType of ['image/heic', 'image/gif', 'text/html']) {
-    await expect400(await send(post(JSON.stringify({ images: [{ mediaType, data: zeros(10) }] }))), 'images.0.mediaType');
+    await expect400(await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[{ mediaType, data: zeros(10) }] }))), 'images.0.mediaType');
   }
   assertEquals(got.length, 0);
 });
@@ -82,7 +85,7 @@ Deno.test('a media type other than JPEG, PNG or WebP is 400 invalid_request', as
 Deno.test('bad base64 is 400 invalid_request, without echoing the data', async () => {
   const { got, send } = setup();
   for (const data of ['not base64!', 'TWE', 'data:image/jpeg;base64,TWFu', '-_9z', '']) {
-    const res = await send(post(JSON.stringify({ images: [{ mediaType: 'image/jpeg', data }] })));
+    const res = await send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[{ mediaType: 'image/jpeg', data }] })));
     assertEquals(res.status, 400);
     const body = await res.json();
     assertEquals(body, { error: 'invalid_request', message: 'images.0.data: Not base64' });
@@ -102,7 +105,7 @@ Deno.test('a body over 8 MB is 413, by Content-Length or as read', async () => {
   assertEquals(declared.status, 413);
   assertEquals((await declared.json()).error, 'payload_too_large');
   // Three images under the per-image cap, but over the body cap together.
-  const big = JSON.stringify({ images: [jpeg(2_000_000), jpeg(2_000_000), jpeg(2_000_000), jpeg(400_000)] });
+  const big = JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg(2_000_000), jpeg(2_000_000), jpeg(2_000_000), jpeg(400_000)] });
   const read = await send(new Request(ENDPOINT, { method: 'POST', body: big }));
   assertEquals(read.status, 413);
   assertEquals(got.length, 0);
@@ -116,11 +119,11 @@ Deno.test('only POST', async () => {
 });
 
 Deno.test('neither AI_MODEL_RECIPE_PHOTO nor AI_MODEL_RECIPE set is 500 not_configured; either one is enough', async () => {
-  const none = await setup({}).send(post(JSON.stringify({ images: [jpeg()] })));
+  const none = await setup({}).send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })));
   assertEquals(none.status, 500);
   assertEquals((await none.json()).error, 'not_configured');
-  assertEquals((await setup({ AI_MODEL_RECIPE_PHOTO: 'mock' }).send(post(JSON.stringify({ images: [jpeg()] })))).status, 200);
-  assertEquals((await setup({ AI_MODEL_RECIPE: 'off' }).send(post(JSON.stringify({ images: [jpeg()] })))).status, 200, 'off is the handler’s 503');
+  assertEquals((await setup({ AI_MODEL_RECIPE_PHOTO: 'mock' }).send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })))).status, 200);
+  assertEquals((await setup({ AI_MODEL_RECIPE: 'off' }).send(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })))).status, 200, 'off is the handler’s 503');
 });
 
 Deno.test('each failure’s status and body', async () => {
@@ -132,7 +135,7 @@ Deno.test('each failure’s status and body', async () => {
     [new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_failed' }, 'no'), 503, 'unavailable', '30'],
   ];
   for (const [err, status, code, retryAfter] of cases) {
-    const res = await handleRequest(post(JSON.stringify({ images: [jpeg()] })), {
+    const res = await handleRequest(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })), {
       importRecipePhoto: () => Promise.reject(err),
       env: () => 'mock',
     });
@@ -143,7 +146,7 @@ Deno.test('each failure’s status and body', async () => {
 });
 
 Deno.test('limit_reached is 429 with resets_at, the first instant of next month (UTC)', async () => {
-  const res = await handleRequest(post(JSON.stringify({ images: [jpeg()] })), {
+  const res = await handleRequest(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })), {
     importRecipePhoto: () => Promise.reject(new ImportRecipePhotoError({ code: 'limit_reached' }, 'no')),
     env: () => 'mock',
     now: () => Date.parse('2026-10-18T09:00:00Z'),
@@ -154,7 +157,7 @@ Deno.test('limit_reached is 429 with resets_at, the first instant of next month 
 });
 
 Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
-  const res = await handleRequest(post(JSON.stringify({ images: [jpeg()] })), {
+  const res = await handleRequest(post(JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] })), {
     importRecipePhoto: () => Promise.reject(new ImportRecipePhotoError({ code: 'daily_limit' }, 'no')),
     env: () => 'mock',
     now: () => Date.parse('2026-10-31T23:59:59.999Z'),
@@ -174,7 +177,7 @@ Deno.test('the deployed function answers 401 without a JWT, before any work', as
   Deno.env.set('AI_MODEL_RECIPE', 'mock');
   try {
     const { default: fn } = await import('./index.ts');
-    const body = JSON.stringify({ images: [jpeg()] });
+    const body = JSON.stringify({ householdId: HOUSEHOLD, images:[jpeg()] });
     const res = await fn.fetch(post(body));
     assertEquals(res.status, 401);
     await res.body?.cancel();

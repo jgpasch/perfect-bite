@@ -2,7 +2,7 @@
 \ir seed-admin-demo.tmp
 create table public.tmp_c1 as select
   (select count(*) from auth.users where id::text like 'de300000-%') u,
-  (select count(*) from public.user_plans where user_id::text like 'de300000-%') up,
+  (select count(*) from public.household_plans where household_id::text like 'de300000-%') up,
   (select count(*) from private.categorize_usage where user_id::text like 'de300000-%')
    + (select count(*) from private.recipe_import_usage where user_id::text like 'de300000-%')
    + (select count(*) from private.recipe_photo_import_usage where user_id::text like 'de300000-%')
@@ -15,11 +15,11 @@ create table public.tmp_c1 as select
 \ir seed-admin-demo.tmp
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(17);
+select plan(18);
 select is((select u from public.tmp_c1), 10::bigint, 'ten users');
 select is((select count(*) from public.profiles where user_id::text like 'de300000-%'), 10::bigint, 'ten profiles');
 select is((select display_name from public.profiles where user_id = 'de300000-0000-4000-8000-000000000001'), 'Maya Chen', 'display name');
-select is((select up from public.tmp_c1), 7::bigint, 'seven assigned');
+select is((select up from public.tmp_c1), 10::bigint, 'ten households, each with a plan row');
 select is((select calls from public.tmp_c1), 54::bigint, '48 calls and 6 fallbacks');
 select is((select acts from public.tmp_c1), 5::bigint, 'five actions');
 select is((select count(*) from auth.users where id::text like 'de300000-%'), (select u from public.tmp_c1), 'second run: users');
@@ -38,7 +38,11 @@ select is(
   (select bool_and((select sum(d.used) from private.daily_usage(l.feature, date_trunc('month', now() at time zone 'utc')::date) d
                     where d.user_id = 'de300000-0000-4000-8000-000000000002') > l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
   true, 'demo-2 over founding limits');
-select is((select count(distinct plan_id) from public.user_plans where user_id::text like 'de300000-%'), (select count(*) from public.plans), 'every plan used');
+select is((select count(distinct plan_id) from public.household_plans where household_id::text like 'de300000-%'), (select count(*) from public.plans), 'every plan used');
+select is(
+  (select bool_and(private.monthly_usage('de300000-0000-4000-8003-000000000001', l.feature) = l.monthly_limit)
+   from public.plan_limits l where l.plan_id = 'founding'),
+  true, 'demo-1''s household exactly at founding limits');
 select diag((select usage from public.tmp_c1)::text || ' usage rows');
 select diag((select string_agg(f || '=' || (select coalesce(sum(d.used), 0) from private.daily_usage(f, date_trunc('month', now() at time zone 'utc')::date) d
                                             where d.user_id = 'de300000-0000-4000-8000-000000000003'), ' ') from unnest(private.feature_keys()) f));
@@ -49,6 +53,7 @@ select ok((public.admin_list_actions() ->> 'total_count')::integer >= 5, 'admin_
 select * from finish();
 commit;
 -- The removal from the header.
+delete from public.households where id::text like 'de300000-%';
 delete from auth.users where id::text like 'de300000-%';
 delete from public.ai_calls where id::text like 'de300000-%';
 delete from admin.admin_actions where id::text like 'de300000-%';

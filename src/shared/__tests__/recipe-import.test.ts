@@ -99,13 +99,22 @@ describe('canonicalRecipeUrl', () => {
 
 describe('RecipeImportRequestSchema', () => {
   const url = 'https://example.com/pad-thai';
+  const householdId = '019a4c0f-0000-7000-8000-0000000000a1';
 
-  it('accepts a bare URL', () => {
-    expect(RecipeImportRequestSchema.parse({ url })).toEqual({ url });
+  it('accepts a bare URL with its household', () => {
+    expect(RecipeImportRequestSchema.parse({ url, householdId })).toEqual({ url, householdId });
+  });
+
+  it('requires the household the recipe is saved to (an old build sent none)', () => {
+    const missing = RecipeImportRequestSchema.safeParse({ url });
+    expect(missing.success).toBe(false);
+    expect(missing.error?.issues[0]?.path).toEqual(['householdId']);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId: null }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId: 'home' }).success).toBe(false);
   });
 
   it('accepts a captured page', () => {
-    const req = { url, page: { title: 'Pad Thai', jsonLd: ['{"@type":"Recipe"}'], text: 'Pad Thai…' } };
+    const req = { url, householdId, page: { title: 'Pad Thai', jsonLd: ['{"@type":"Recipe"}'], text: 'Pad Thai…' } };
     expect(RecipeImportRequestSchema.parse(req)).toEqual(req);
   });
 
@@ -117,39 +126,39 @@ describe('RecipeImportRequestSchema', () => {
 
   it('caps JSON-LD at 10 blocks', () => {
     const blocks = (n: number) => Array.from({ length: n }, () => '{}');
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: blocks(10) } }).success).toBe(true);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: blocks(11) } }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { jsonLd: blocks(10) } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { jsonLd: blocks(11) } }).success).toBe(false);
   });
 
   it('caps each JSON-LD block at 200 KB', () => {
     expect(MAX_JSON_LD_BLOCK_BYTES).toBe(204_800);
     const ok = 'a'.repeat(MAX_JSON_LD_BLOCK_BYTES);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: ['{}', ok] } }).success).toBe(true);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { jsonLd: ['{}', `${ok}a`] } }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { jsonLd: ['{}', ok] } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { jsonLd: ['{}', `${ok}a`] } }).success).toBe(false);
   });
 
   it('caps page text at 50 KB', () => {
     expect(MAX_PAGE_TEXT_BYTES).toBe(51_200);
     const ok = 'a'.repeat(MAX_PAGE_TEXT_BYTES);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: ok } }).success).toBe(true);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: `${ok}a` } }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { text: ok } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { text: `${ok}a` } }).success).toBe(false);
   });
 
   it('counts the caps in UTF-8 bytes, not characters', () => {
     // "é" is 2 bytes: half the cap in characters is exactly the cap in bytes.
     const half = 'é'.repeat(MAX_PAGE_TEXT_BYTES / 2);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: half } }).success).toBe(true);
-    expect(RecipeImportRequestSchema.safeParse({ url, page: { text: `${half}é` } }).success).toBe(false);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { text: half } }).success).toBe(true);
+    expect(RecipeImportRequestSchema.safeParse({ url, householdId, page: { text: `${half}é` } }).success).toBe(false);
   });
 
   it('takes the page’s image URL as given (the server cleans it)', () => {
     const page = { title: 'Pad Thai', imageUrl: '/images/pad-thai.jpg' };
-    expect(RecipeImportRequestSchema.parse({ url, page })).toEqual({ url, page });
+    expect(RecipeImportRequestSchema.parse({ url, householdId, page })).toEqual({ url, householdId, page });
   });
 
   it('leaves out an image URL that isn’t a string or is over 2048 characters, without failing the request', () => {
     for (const imageUrl of [42, null, { url: 'https://example.com/a.jpg' }, `https://example.com/${'a'.repeat(2048)}`]) {
-      const parsed = RecipeImportRequestSchema.safeParse({ url, page: { title: 'Pad Thai', imageUrl } });
+      const parsed = RecipeImportRequestSchema.safeParse({ url, householdId, page: { title: 'Pad Thai', imageUrl } });
       expect(parsed.success).toBe(true);
       expect(parsed.data?.page).toEqual({ title: 'Pad Thai' });
     }

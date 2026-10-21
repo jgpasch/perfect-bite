@@ -81,9 +81,6 @@ Every household has an explicit `household_plans` row, written when it's made wi
 Use the admin portal: **Households**, find the household (by its name, a member's email or name, or its id; or open a user and follow one of their households), then **Change plan** on its page: pick a plan and write a note. There's no "default" choice: a household's plan can be changed but never cleared. It calls `admin_set_household_plan`, which writes one `admin.admin_actions` row (`set_household_plan`, the household, the plan, `{ from, to }`, the note, and your user id in `performed_by`), so the change shows in the household's plan history and in Activity. Every member gets the new plan on their next AI request; the app shows or hides features the next time it's opened. The household's page also shows its members, its first month (twice the limits for 30 days after it was made) and this month's use of both features against its limits.
 
 The Table Editor still works, but nothing records who changed what or why: `household_plans`, edit `plan_id` on the household's row (`free`, `founding` or `unlimited`); `assigned_at` updates itself. **Don't delete a row**: a household with none has no features. The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.
-
-(`user_plans` and `admin_set_user_plan` still exist until per-user plans are dropped, but decide nothing and the portal doesn't use them.)
-
 ### Change a plan's monthly limits
 
 Each plan feature has a monthly limit per plan in `public.plan_limits` (spec 4.12): the calendar month in UTC, resetting on the 1st. Both count calls; link and photo imports share `recipe_import`'s. Seeded:
@@ -261,13 +258,13 @@ order by created_at desc;
 
 ### Demo data for the portal (local only)
 
-`supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`) on every plan, with 40 days of usage of every feature (demo-1 at founding's monthly limits, demo-2 over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:
+`supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`), each owning one household, the households on every plan, with 40 days of usage of both plan features (demo-1's household at founding's monthly limits, demo-2's over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:
 
 ```bash
 psql postgresql://postgres:postgres@127.0.0.1:55322/postgres -f supabase/seed-admin-demo.sql
 ```
 
-or paste it into the local SQL editor (http://127.0.0.1:55323). Running it again inserts nothing. The file's header has the three `delete`s that remove it. Never run it against hosted.
+or paste it into the local SQL editor (http://127.0.0.1:55323). Running it again inserts nothing. The file's header has the four `delete`s that remove it. Never run it against hosted.
 
 ## Snippets
 

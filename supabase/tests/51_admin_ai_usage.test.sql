@@ -10,16 +10,14 @@ select plan(31);
 update public.plans set is_default = false where is_default;
 update public.plans set is_default = true where id = 'founding';
 
--- a and b are 100 days old; b is on free, a on the default (founding). Limits come from their
--- households' plans: a's household is on founding, b's on free, both 100 days old (no first-month
--- doubling).
+-- a and b are 100 days old. Limits come from their households' plans: a's household is on
+-- founding, b's on free, both 100 days old (no first-month doubling).
 insert into auth.users (id, email, aud, role, created_at) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('11111111-1111-1111-1111-111111111111', 'a@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('22222222-2222-2222-2222-222222222222', 'b@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('33333333-3333-3333-3333-333333333333', 'idle@usage.test', 'authenticated', 'authenticated', now() - interval '100 days');
 insert into private.admins (user_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
-insert into public.user_plans (user_id, plan_id) values ('22222222-2222-2222-2222-222222222222', 'free');
 insert into public.households (id, name, created_at) values
   ('d1000000-0000-0000-0000-000000000001', 'A''s', now() - interval '100 days'),
   ('d2000000-0000-0000-0000-000000000002', 'B''s', now() - interval '100 days');

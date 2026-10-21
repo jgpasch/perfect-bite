@@ -2,14 +2,14 @@
 -- seed, private.monthly_limit per household (the plan, the first-month doubling by household age),
 -- private.household_ai_usage and private.monthly_usage per household, each limit function's
 -- 'monthly_limit' answer against the household's allowance (shared by its members, link and photo
--- imports together; a null household is the user's oldest), and the AI photo monthly limit.
+-- imports together; a null household is refused), and the AI photo monthly limit.
 -- Categorize, tags and step matching have no monthly limit and no household counts.
 -- now() is fixed within the transaction, so a month's usage is seeded straight into the usage
 -- tables: spread over the month's first three days (any of them may be today or later, which still
 -- counts) plus a big day last month that mustn't count.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(85);
+select plan(84);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Each user owns one household: Fay a founding one 60 days old, Uma an unlimited one, Rex a free
@@ -147,8 +147,6 @@ select ok(
 select ok(
   not has_function_privilege('authenticated', 'private.monthly_usage(uuid, text)', 'execute')
   and not has_function_privilege('service_role', 'private.monthly_usage(uuid, text)', 'execute')
-  and not has_function_privilege('authenticated', 'private.oldest_household(uuid)', 'execute')
-  and not has_function_privilege('service_role', 'private.oldest_household(uuid)', 'execute')
   and not has_function_privilege('service_role', 'private.check_household_monthly_limit(uuid, uuid, text)', 'execute')
   and not has_function_privilege('service_role', 'private.count_household_ai_usage(uuid, text)', 'execute'),
   'clients can''t call the household usage helpers');
@@ -189,11 +187,8 @@ update auth.users set created_at = now() - interval '400 days' where id = '44444
 select is(private.monthly_limit('recipe_import'::text, 'dddddddd-dddd-dddd-dddd-dddddddddddd'), 100,
   'an old account in a household 29 days old still gets the doubled limit');
 
--- private.oldest_household (where an old client's request counts) ---------------------------
-select is(private.oldest_household('88888888-8888-8888-8888-888888888888'), 'abababab-abab-abab-abab-abababababab'::uuid,
-  'oldest_household is the user''s household made first');
-select is(private.oldest_household('66666666-6666-6666-6666-666666666666'), null::uuid,
-  'a user in no household has none');
+-- Every request names its household: the old client's fallback is gone ----------------------
+select ok(to_regprocedure('private.oldest_household(uuid)') is null, 'private.oldest_household is dropped');
 
 -- categorize: no monthly limit ---------------------------------------------------------
 select pg_temp.use('categorize_usage', 'new_names', '11111111-1111-1111-1111-111111111111', 5000);
@@ -255,16 +250,17 @@ select is(public.check_recipe_import_limit('88888888-8888-8888-8888-888888888888
 select is(array[private.monthly_usage('abababab-abab-abab-abab-abababababab', 'recipe_import'),
                 private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import')],
   array[1, 50], 'imports: a member''s use in household A doesn''t count in B, nor B''s in A');
-select is(public.check_recipe_photo_limit('88888888-8888-8888-8888-888888888888'), 'ok',
-  'imports: a request with no household (an old client) passes on Gus''s oldest, B');
+select throws_ok($$ select public.check_recipe_photo_limit('88888888-8888-8888-8888-888888888888') $$,
+  '22023', 'household required', 'imports: a photo import with no household is refused');
 select is(array[private.monthly_usage('abababab-abab-abab-abab-abababababab', 'recipe_import'),
-                private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import')],
-  array[2, 50], 'imports: and counts against B');
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'imports: no household, and Fay''s oldest (her only one, A) is full');
+                private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import'),
+                pg_temp.today('recipe_photo_import_usage', 'imports', '88888888-8888-8888-8888-888888888888')],
+  array[1, 50, 1], 'imports: and counts nothing, on any household or the user (no oldest-household fallback)');
+select throws_ok($$ select public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', null) $$,
+  '22023', 'household required', 'imports: a link import with no household is refused');
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'abababab-abab-abab-abab-abababababab'), 'monthly_limit',
   'imports: a household the user isn''t in is refused');
-select is(private.monthly_usage('abababab-abab-abab-abab-abababababab', 'recipe_import'), 2,
+select is(private.monthly_usage('abababab-abab-abab-abab-abababababab', 'recipe_import'), 1,
   'imports: and nothing is counted on it');
 update public.plan_limits set monthly_limit = 51 where plan_id = 'founding' and feature = 'recipe_import';
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'ok',
@@ -289,10 +285,10 @@ update private.recipe_import_usage set requests_this_minute = 10, minute_start =
 select is(public.check_recipe_import_limit('33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), 'user_limit',
   'imports: unlimited is still held to the per-minute limit');
 select is(array[public.check_recipe_photo_limit('22222222-2222-2222-2222-222222222222', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'),
-                public.check_recipe_import_limit('66666666-6666-6666-6666-666666666666'),
+                public.check_recipe_import_limit('66666666-6666-6666-6666-666666666666', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
                 public.check_recipe_import_limit('77777777-7777-7777-7777-777777777777', 'ffffffff-ffff-ffff-ffff-ffffffffffff')],
   array['monthly_limit', 'monthly_limit', 'monthly_limit'],
-  'imports: a free household, no household, or a household with no row: refused');
+  'imports: a free household, a user in no household, or a household with no row: refused');
 
 select pg_temp.household_use('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'recipe_import', 49);
 select is(public.check_recipe_photo_limit('55555555-5555-5555-5555-555555555555', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'), 'ok',

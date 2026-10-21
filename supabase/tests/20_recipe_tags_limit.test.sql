@@ -80,7 +80,7 @@ insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaa
 insert into public.household_members (household_id, user_id, role, position) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1);
 insert into public.household_plans (household_id, plan_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding');
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'ok',
   'a user with many tag suggestions can still import');
 
 -- Retention -----------------------------------------------------------------------------

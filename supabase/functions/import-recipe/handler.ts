@@ -39,11 +39,10 @@ export type CachedImport = { result: unknown; is_recipe: boolean; created_at: st
 export interface RecipeImportStore {
   /**
    * Counts one import against the per-user safety limits and the monthly allowance of
-   * `householdId`, the household the recipe is saved to (`public.check_recipe_import_limit`; none,
-   * from an old build: the user's oldest household). Called once per request, before the cache is
-   * read.
+   * `householdId`, the household the recipe is saved to (`public.check_recipe_import_limit`).
+   * Called once per request, before the cache is read.
    */
-  checkLimit(householdId?: string): Promise<LimitResult>;
+  checkLimit(householdId: string): Promise<LimitResult>;
   /** The `recipe_imports` row for this URL and prompt version, whatever its age; null if none. */
   getCached(urlKey: string, promptVersion: string): Promise<CachedImport | null>;
   /** Inserts or replaces the row, with `created_at` now. */
@@ -52,11 +51,10 @@ export interface RecipeImportStore {
   logAiCall(call: AiCallRecord): Promise<void>;
   /**
    * Throws NotEntitledError unless the plan of `householdId` (the household the recipe is saved to)
-   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). No
-   * household (old builds): any of the caller's households. Called first, before the rate limit,
-   * the cache or any fetch.
+   * has `feature` and the caller is in it (`requireFeature` in `_shared/entitlements.ts`). Called
+   * first, before the rate limit, the cache or any fetch.
    */
-  requireFeature(feature: Feature, householdId?: string): Promise<void>;
+  requireFeature(feature: Feature, householdId: string): Promise<void>;
 }
 
 export type ImportDeps = {
@@ -240,10 +238,10 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
 
 /**
  * The caller as an import's `ai_calls` rows record it: in the household the recipe is saved to,
- * which `requireFeature` has checked they're in (none from old builds).
+ * which `requireFeature` has checked they're in.
  */
-export function callerIn(caller: AiCaller | undefined, householdId: string | undefined): AiCaller | undefined {
-  return caller && { ...caller, householdId: householdId ?? null };
+export function callerIn(caller: AiCaller | undefined, householdId: string): AiCaller | undefined {
+  return caller && { ...caller, householdId };
 }
 
 /**

@@ -5,7 +5,7 @@ create temp table demo_users (
   id uuid,
   full_name text,
   joined interval,
-  plan_id text,           -- null: no user_plans row, so the default plan
+  plan_id text,           -- null: the default plan, as a household made now gets
   level text
 ) on commit drop;
 
@@ -35,10 +35,22 @@ select
 from demo_users u
 on conflict do nothing;
 
-insert into public.user_plans (user_id, plan_id, assigned_at)
-select u.id, u.plan_id, now() - u.joined + interval '1 day'
+insert into public.households (id, name, created_at)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid,
+  split_part(u.full_name, ' ', 1) || '''s household', now() - u.joined
 from demo_users u
-where u.plan_id is not null
+on conflict do nothing;
+
+insert into public.household_members (household_id, user_id, role, position)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid, u.id, 'owner', 1
+from demo_users u
+on conflict do nothing;
+
+insert into public.household_plans (household_id, plan_id, assigned_at)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid,
+  coalesce(u.plan_id, (select p.id from public.plans p where p.is_default)), now() - u.joined
+from demo_users u
+where coalesce(u.plan_id, (select p.id from public.plans p where p.is_default)) is not null
 on conflict do nothing;
 
 create temp table demo_usage on commit drop as
@@ -105,6 +117,13 @@ on conflict do nothing;
 
 insert into private.recipe_photo_ai_usage (user_id, day, photos)
 select user_id, day, used from demo_usage where feature = 'recipe_photo_ai'
+on conflict do nothing;
+
+insert into private.household_ai_usage (household_id, feature, day, used)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid, m.feature, m.day, m.used
+from demo_usage m
+join demo_users u on u.id = m.user_id
+where m.feature in ('recipe_import', 'recipe_photo_ai')
 on conflict do nothing;
 
 insert into public.ai_calls (

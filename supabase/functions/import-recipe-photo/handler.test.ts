@@ -51,20 +51,20 @@ class FakePhotoStore implements RecipePhotoImportStore {
   limitChecks = 0;
   features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
-  /** The household each plan check was for (undefined: none sent). */
-  featureHouseholds: (string | undefined)[] = [];
+  /** The household each plan check was for. */
+  featureHouseholds: string[] = [];
   /** Households the caller isn't in: `has_feature` answers false there. */
   notMemberOf = new Set<string>();
 
-  async requireFeature(feature: Feature, householdId?: string) {
+  async requireFeature(feature: Feature, householdId: string) {
     this.featureChecks.push(feature);
     this.featureHouseholds.push(householdId);
-    if (!this.features.has(feature) || (householdId !== undefined && this.notMemberOf.has(householdId))) throw new NotEntitledError(feature);
+    if (!this.features.has(feature) || this.notMemberOf.has(householdId)) throw new NotEntitledError(feature);
   }
-  /** The household each limit check counted against (undefined: none sent). */
-  limitHouseholds: (string | undefined)[] = [];
+  /** The household each limit check counted against. */
+  limitHouseholds: string[] = [];
 
-  async checkLimit(householdId?: string) {
+  async checkLimit(householdId: string) {
     this.limitChecks++;
     this.limitHouseholds.push(householdId);
     return this.limit;
@@ -148,6 +148,15 @@ function fixedModel(answer: unknown, seen: unknown[] = []): { instance: Language
 
 const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
 
+/** The household every request names (required), unless a test sets the key itself. */
+const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+/** A request body with `HOUSEHOLD_ID` added when it has no `householdId` key (`householdId: undefined` sends none). */
+function withHousehold(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || 'householdId' in body) return body;
+  return { ...body, householdId: HOUSEHOLD_ID };
+}
+
 /** Wired as index.ts does: the caller goes to the extraction and to the inline categorize. */
 function setup(overrides: Partial<PhotoImportDeps> = {}) {
   const aiCalls: AiCallRecord[] = [];
@@ -161,7 +170,7 @@ function setup(overrides: Partial<PhotoImportDeps> = {}) {
   };
   const calls = (task: string) => aiCalls.filter((c) => c.task === task).length;
   const post = (body: unknown) =>
-    handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
+    handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(withHousehold(body)), headers: { 'content-type': 'application/json' } }), {
       importRecipePhoto: (request) => importRecipePhoto(request, deps),
       env: (key) => Deno.env.get(key),
       now: () => Date.parse('2026-10-18T12:00:00Z'),
@@ -272,7 +281,7 @@ test('not entitled wins over the kill switch', async () => {
 test('a plan with only recipe_photo_ai can’t import a photo', async () => {
   const { deps, store } = setup();
   store.features = new Set(['recipe_photo_ai']);
-  const err = await importRecipePhoto({ images: [PAGE_1] }, deps).catch((e) => e);
+  const err = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID },deps).catch((e) => e);
   assert(err instanceof ImportRecipePhotoError);
   assertEquals(err.failure, { code: 'not_entitled' });
 });
@@ -355,7 +364,7 @@ test('an invalid request is a 400 before the plan, the limits or the model', asy
 test('the model gets each image as an image part after its "Page n of m:" line, in order', async () => {
   const seen: unknown[] = [];
   const { deps } = setup({ model: fixedModel(mockExtractRecipePhoto([5000]), seen) });
-  await importRecipePhoto({ images: [PAGE_1, PAGE_2] }, deps);
+  await importRecipePhoto({ images: [PAGE_1, PAGE_2], householdId: HOUSEHOLD_ID },deps);
   const parts = seen[0] as { type: string; text?: string; mediaType?: string; data?: unknown }[];
   assertEquals(parts.map((p) => p.type), ['text', 'text', 'file', 'text', 'file']);
   assertEquals(parts[1].text, 'Page 1 of 2:');
@@ -364,14 +373,15 @@ test('the model gets each image as an image part after its "Page n of m:" line, 
   assertStringIncludes(parts[0].text!, 'Untrusted photos of one recipe, 2 pages in order');
 });
 
-test('ai_calls rows carry the caller: the extraction and the inline categorize, with no household', async () => {
+test("ai_calls rows carry the caller in the request's household, though index.ts's caller names none", async () => {
   const { post, aiCalls } = setup();
+  assertEquals(CALLER.householdId, null);
   assertEquals((await post({ images: [PAGE_1] })).status, 200);
   assertEquals(
     aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
     [
-      ['extractRecipePhoto', CALLER.userId, null],
-      ['categorize', CALLER.userId, null],
+      ['extractRecipePhoto', CALLER.userId, HOUSEHOLD_ID],
+      ['categorize', CALLER.userId, HOUSEHOLD_ID],
     ],
   );
 });
@@ -379,10 +389,8 @@ test('ai_calls rows carry the caller: the extraction and the inline categorize, 
 test('a failed extraction is logged with the caller too', async () => {
   const { post, aiCalls } = setup({ model: fixedModel({ nope: true }) });
   assertEquals((await post({ images: [PAGE_1] })).status, 503);
-  assertEquals(aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, null]]);
+  assertEquals(aiCalls.map((c) => [c.status, c.user_id, c.household_id]), [['invalid_output', CALLER.userId, HOUSEHOLD_ID]]);
 });
-
-const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
 test('the household goes to the plan check, the limit check and onto every ai_calls row: the extraction and the inline categorize', async () => {
   const { post, aiCalls, store } = setup();
@@ -404,11 +412,14 @@ test('a failed extraction carries the household too', async () => {
   assertEquals(aiCalls.map((c) => [c.status, c.household_id]), [['invalid_output', HOUSEHOLD_ID]]);
 });
 
-test('no household (old builds): the plan check and the limit check get none', async () => {
-  const { post, store } = setup();
-  assertEquals((await post({ images: [PAGE_1] })).status, 200);
-  assertEquals(store.featureHouseholds, [undefined]);
-  assertEquals(store.limitHouseholds, [undefined]);
+test('no household (an old build): 400 invalid_request naming householdId, before the plan check, limit or model', async () => {
+  const { post, store, aiCalls } = setup();
+  const res = await post({ images: [PAGE_1], householdId: undefined });
+  assertEquals(res.status, 400);
+  const body = await res.json();
+  assertEquals(body.error, 'invalid_request');
+  assertStringIncludes(body.message, 'householdId');
+  assertEquals([store.featureChecks, store.limitChecks, aiCalls], [[], 0, []]);
 });
 
 test("the household's monthly allowance used up: 429 limit_reached, checked against that household", async () => {
@@ -468,7 +479,7 @@ test('the model’s answer is cleaned as a link import’s: caps, units, steps, 
     image_url: 'https://evil.example.com/x.jpg',
   };
   const { deps } = setup({ model: fixedModel(answer) });
-  const res = await importRecipePhoto({ images: [PAGE_1] }, deps);
+  const res = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID },deps);
   assertEquals(res.name, 'Lime chicken');
   assertEquals(res.ingredients.map((i) => [i.displayName, i.unit, i.note]), [['chicken thighs', 'lb', ''], ['thyme', null, 'sprigs, fresh']]);
   assertEquals(res.steps, ['Season the chicken.', 'Roast.']);
@@ -485,11 +496,11 @@ test('v2: ## lines in the model’s steps become headings, choice_sections marks
     step_ingredients: [1, 2, 3].map((step) => ({ step, uses: [{ ingredient: 1, quantity: null }] })),
     choice_sections: [2, 3],
   };
-  const res = await importRecipePhoto({ images: [PAGE_1] }, setup({ model: fixedModel(answer) }).deps);
+  const res = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID },setup({ model: fixedModel(answer) }).deps);
   assertEquals(res.steps, [{ section: 'Season' }, 'Season the chicken.', { section: 'Roast', choice: true }, 'Roast it.', { section: 'Grill', choice: true }, 'Grill it.']);
   assertEquals(res.stepIngredients?.length, 3);
   // One number is never a choice.
-  const single = await importRecipePhoto({ images: [PAGE_1] }, setup({ model: fixedModel({ ...answer, choice_sections: [2] }) }).deps);
+  const single = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID },setup({ model: fixedModel({ ...answer, choice_sections: [2] }) }).deps);
   assertEquals(single.steps.filter((e) => typeof e !== 'string'), [{ section: 'Season' }, { section: 'Roast' }, { section: 'Grill' }]);
 });
 
@@ -543,7 +554,7 @@ for (const reason of ['user_limit', 'daily_limit'] as const) {
     const { deps } = setup({
       categorize: () => Promise.reject(new CategorizeLimitError(reason)),
     });
-    const res = await importRecipePhoto({ images: [PAGE_1] }, deps);
+    const res = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID },deps);
     assertEquals(res.name, 'Mock photo recipe');
     assertEquals(res.ingredients.map((i) => [i.status, i.categoryId]), [['pending', null], ['pending', null], ['pending', null]]);
   });
@@ -551,7 +562,7 @@ for (const reason of ['user_limit', 'daily_limit'] as const) {
 
 test('every photo import is a fresh call: nothing is cached', async () => {
   const { deps, calls } = setup();
-  const request: RecipePhotoImportRequest = { images: [PAGE_1] };
+  const request: RecipePhotoImportRequest = { images: [PAGE_1], householdId: HOUSEHOLD_ID };
   await importRecipePhoto(request, deps);
   await importRecipePhoto(request, deps);
   assertEquals(calls('extractRecipePhoto'), 2);

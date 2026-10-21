@@ -18,7 +18,7 @@ import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import { MemoryStore } from '../categorize-ingredients/cli.ts';
 import { categorize } from '../categorize-ingredients/handler.ts';
-import { formatCallStats, formatRecipe } from '../import-recipe/cli.ts';
+import { CLI_HOUSEHOLD_ID, formatCallStats, formatRecipe } from '../import-recipe/cli.ts';
 import { ImportRecipePhotoError, importRecipePhoto, type RecipePhotoImportStore } from './handler.ts';
 
 export const USAGE = `Usage: yarn ai:recipe-photo [options] <image> [<image> <image>]
@@ -310,7 +310,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     io.err(err.message);
     return 2;
   }
-  const parsed = RecipePhotoImportRequestSchema.safeParse({ images });
+  const parsed = RecipePhotoImportRequestSchema.safeParse({ images, householdId: CLI_HOUSEHOLD_ID });
   if (!parsed.success) {
     io.err(`The request isn't valid: ${parsed.error.issues[0].path.join('.')}: ${parsed.error.issues[0].message}`);
     return 2;

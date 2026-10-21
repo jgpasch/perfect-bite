@@ -24,10 +24,15 @@ Deno.test('checkLimit: the household is passed to check_recipe_import_limit', as
   assertEquals(calls, [{ fn: 'check_recipe_import_limit', args: { p_user_id: USER, p_household_id: HOUSEHOLD } }]);
 });
 
-Deno.test('checkLimit: no household (an old build) sends null, so the user\'s oldest counts', async () => {
-  const { admin, calls } = fakeAdmin({ data: 'monthly_limit', error: null });
-  assertEquals(await createRecipeImportStore(admin, { userId: USER }).checkLimit(), 'monthly_limit');
-  assertEquals(calls[0].args, { p_user_id: USER, p_household_id: null });
+Deno.test('checkLimit: a refusal is returned as answered', async () => {
+  const { admin } = fakeAdmin({ data: 'monthly_limit', error: null });
+  assertEquals(await createRecipeImportStore(admin, { userId: USER }).checkLimit(HOUSEHOLD), 'monthly_limit');
+});
+
+Deno.test('requireFeature: has_feature is asked about the request\'s household', async () => {
+  const { admin, calls } = fakeAdmin({ data: true, error: null });
+  await createRecipeImportStore(admin, { userId: USER }).requireFeature('recipe_import', HOUSEHOLD);
+  assertEquals(calls, [{ fn: 'has_feature', args: { p_user_id: USER, p_feature: 'recipe_import', p_household_id: HOUSEHOLD } }]);
 });
 
 Deno.test('checkLimit: an rpc error is thrown', async () => {

@@ -139,6 +139,9 @@ export class MemoryRecipeStore implements RecipeImportStore {
   async requireFeature(_feature: Feature) {}
 }
 
+/** The household a CLI request names (required); the in-memory store has no households, so any id does. */
+export const CLI_HOUSEHOLD_ID = '00000000-0000-4000-8000-000000000000';
+
 const SLUG_BY_ID = new Map<string, string>(SYSTEM_CATEGORIES.map((c) => [c.id, c.slug]));
 
 function table(rows: string[][]): string {
@@ -263,7 +266,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     return 2;
   }
 
-  const request: RecipeImportRequest = { url: args.url ?? placeholderUrl(args.file!) };
+  const request: RecipeImportRequest = { url: args.url ?? placeholderUrl(args.file!), householdId: CLI_HOUSEHOLD_ID };
   if (args.file !== null) {
     let html: string;
     try {

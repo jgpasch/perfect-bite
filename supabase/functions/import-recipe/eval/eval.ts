@@ -33,7 +33,7 @@ import {
   type EvalRecipe,
   type RecipeOutcome,
 } from '../../match-recipe-steps/eval/eval.ts';
-import { MemoryRecipeStore } from '../cli.ts';
+import { CLI_HOUSEHOLD_ID, MemoryRecipeStore } from '../cli.ts';
 import { ImportRecipeError, importRecipe } from '../handler.ts';
 
 export const USAGE = `Usage: yarn ai:eval:recipe [options]
@@ -457,6 +457,7 @@ export async function runEval(
       const response = await importRecipe(
         {
           url: page.url,
+          householdId: CLI_HOUSEHOLD_ID,
           page: {
             ...(read.title === null ? {} : { title: read.title }),
             jsonLd: read.jsonLd,

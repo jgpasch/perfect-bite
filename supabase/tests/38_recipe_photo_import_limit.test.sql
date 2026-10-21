@@ -7,7 +7,7 @@
 -- every call lands in the same minute; the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(29);
 
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -36,20 +36,20 @@ insert into public.household_plans (household_id, plan_id) values
 -- Per-minute limit ------------------------------------------------------------------
 create temp table results (n int, result text);
 insert into results
-  select n, public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111')
+  select n, public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
   from generate_series(1, 5) n;
 select is((select count(*)::int from results where result = 'ok'), 5, '5 imports in a minute pass');
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'user_limit',
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'user_limit',
   'the 6th import in a minute is refused');
 select results_eq(
   $$ select imports_this_minute, imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111' $$,
   $$ values (5, 5) $$, 'a refused import does not count');
-select is(public.check_recipe_photo_limit('22222222-2222-2222-2222-222222222222'), 'ok',
+select is(public.check_recipe_photo_limit('22222222-2222-2222-2222-222222222222', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 'ok',
   'another user is not affected by the first user''s minute limit');
 
 update private.recipe_photo_import_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'the minute window resets');
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'ok', 'the minute window resets');
 select results_eq(
   $$ select imports_this_minute, minute_start, imports from private.recipe_photo_import_usage
      where user_id = '11111111-1111-1111-1111-111111111111' $$,
@@ -66,7 +66,7 @@ begin
       update private.recipe_photo_import_usage set minute_start = minute_start - interval '1 minute'
         where user_id = '11111111-1111-1111-1111-111111111111';
     end if;
-    if public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111') <> 'ok' then
+    if public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 'ok' then
       raise exception 'import % was refused', i;
     end if;
   end loop;
@@ -75,22 +75,22 @@ select is((select imports from private.recipe_photo_import_usage where user_id =
   '50 imports a month pass');
 update private.recipe_photo_import_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'monthly_limit',
   'the 51st import in a month is refused, even in a fresh minute');
 select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused import is not counted');
 select is(private.monthly_usage('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'recipe_import'), 50,
   'each photo import counted on Alex''s household''s recipe_import, the refused one not');
-select is(public.check_recipe_photo_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
+select is(public.check_recipe_photo_limit('44444444-4444-4444-4444-444444444444', 'dddddddd-dddd-dddd-dddd-dddddddddddd'), 'monthly_limit',
   'a user whose household is on free (no recipe_import) is refused');
 
 -- In a household's first month the limit doubles: 100.
 update public.households set created_at = now() - interval '10 days' where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'ok',
   'in the household''s first month the 51st passes (doubled to 100)');
 
 -- No global cap (52 imports so far across users) ---------------------------------------
-select is(public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333'), 'ok',
+select is(public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), 'ok',
   'another user still imports photos, whatever others used');
 select results_eq(
   $$ select imports_this_minute, imports from private.recipe_photo_import_usage where user_id = '33333333-3333-3333-3333-333333333333' $$,
@@ -104,7 +104,7 @@ select is((select command from cron.job where jobname = 'recipe-photo-import-usa
 
 -- The other limits -----------------------------------------------------------------------
 -- Link imports share the household's allowance (48_plan_limits): 51 of the doubled 100 used.
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 'ok',
   'a link import passes under the shared, doubled allowance');
 select is(public.check_recipe_photos_limit('11111111-1111-1111-1111-111111111111'), 'ok',
   'and still list a page''s photos');
@@ -124,6 +124,8 @@ select is((select count(*)::int from private.recipe_photo_import_usage), 5, 'and
 
 -- Bad arguments and access ----------------------------------------------------------
 select throws_ok($$ select public.check_recipe_photo_limit(null) $$, '22023', null, 'a null user is rejected');
+select throws_ok($$ select public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333') $$,
+  '22023', 'household required', 'no household is rejected: a photo import names the household it''s saved to');
 
 select ok(
   not has_function_privilege('authenticated', 'public.check_recipe_photo_limit(uuid, uuid)', 'execute')
@@ -134,7 +136,7 @@ select ok(
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
-select throws_ok($$ select public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111') $$,
+select throws_ok($$ select public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') $$,
   '42501', null, 'authenticated cannot call the limit function');
 select throws_ok($$ select * from private.recipe_photo_import_usage $$, '42501', null, 'authenticated cannot read recipe_photo_import_usage');
 

@@ -1,11 +1,12 @@
 -- Demo data for the admin portal, local only (spec 4.12). Never run it against hosted.
 --
--- Ten fake users (demo-1@example.com … demo-10@example.com) on every plan, some with no user_plans
--- row (so on the default), one joined under 30 days ago (doubled limits); usage of every feature
--- over the last 40 days, with demo-1 at founding's monthly limits and demo-2 over them; a few
--- ai_calls rows per task with mixed statuses, tokens and fallbacks; and a few admin.admin_actions
--- rows (on the old plan ids, as audit rows from before the household plans migration are). No
--- households: user_plans only.
+-- Ten fake users (demo-1@example.com … demo-10@example.com), each owning one household made when
+-- they joined, with an explicit household_plans row on every plan (some on the default plan at the
+-- time of the run), one household under 30 days old (doubled limits); usage of both plan features
+-- over the last 40 days, on the user and on their household, with demo-1's household at founding's
+-- monthly limits and demo-2's over them; a few ai_calls rows per task with mixed statuses, tokens
+-- and fallbacks; and a few admin.admin_actions rows (on the old plan ids, as audit rows from before
+-- the household plans migration are).
 -- seed.sql doesn't run it, so `supabase db reset` leaves it out and the pgTAP counts and the app's
 -- dev data don't change.
 --
@@ -17,8 +18,10 @@
 -- fixed id (all start de300000-), and a second run inserts nothing. Dates are relative to the run,
 -- so to move them to today, remove it and run it again.
 --
--- Remove it (deleting the users cascades to their profiles, plans and usage):
+-- Remove it (deleting the households cascades to their plans, members and usage; deleting the
+-- users to their profiles and usage):
 --
+--   delete from public.households where id::text like 'de300000-%';
 --   delete from auth.users where id::text like 'de300000-%';
 --   delete from public.ai_calls where id::text like 'de300000-%';
 --   delete from admin.admin_actions where id::text like 'de300000-%';
@@ -32,7 +35,7 @@ create temp table demo_users (
   id uuid,
   full_name text,
   joined interval,
-  plan_id text,           -- null: no user_plans row, so the default plan
+  plan_id text,           -- null: the default plan, as a household made now gets
   level text
 ) on commit drop;
 
@@ -64,15 +67,30 @@ select
 from demo_users u
 on conflict do nothing;
 
-insert into public.user_plans (user_id, plan_id, assigned_at)
-select u.id, u.plan_id, now() - u.joined + interval '1 day'
+-- One household each, owned by the user and made when they joined, with its plan row (a plan
+-- belongs to a household; every household has a row).
+insert into public.households (id, name, created_at)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid,
+  split_part(u.full_name, ' ', 1) || '''s household', now() - u.joined
 from demo_users u
-where u.plan_id is not null
 on conflict do nothing;
 
--- Usage per user, feature in their plan and UTC day, in the limits' units (categorize: names; the
--- rest: calls), from deterministic hashes so every run gives the same numbers. Plans only have
--- recipe_import and recipe_photo_ai now, so the other keys' scales go unused.
+insert into public.household_members (household_id, user_id, role, position)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid, u.id, 'owner', 1
+from demo_users u
+on conflict do nothing;
+
+insert into public.household_plans (household_id, plan_id, assigned_at)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid,
+  coalesce(u.plan_id, (select p.id from public.plans p where p.is_default)), now() - u.joined
+from demo_users u
+where coalesce(u.plan_id, (select p.id from public.plans p where p.is_default)) is not null
+on conflict do nothing;
+
+-- Usage per user, feature in their household's plan and UTC day, in the limits' units
+-- (categorize: names; the rest: calls), from deterministic hashes so every run gives the same
+-- numbers. Plans only have recipe_import and recipe_photo_ai now, so the other keys' scales go
+-- unused.
 create temp table demo_usage on commit drop as
 select u.id as user_id, f.feature, d.day, v.used
 from demo_users u
@@ -138,6 +156,15 @@ on conflict do nothing;
 
 insert into private.recipe_photo_ai_usage (user_id, day, photos)
 select user_id, day, used from demo_usage where feature = 'recipe_photo_ai'
+on conflict do nothing;
+
+-- The same use of the two plan features on the user's household, where the monthly limit is
+-- checked (each household has one member, so its usage is its owner's).
+insert into private.household_ai_usage (household_id, feature, day, used)
+select ('de300000-0000-4000-8003-' || lpad(u.n::text, 12, '0'))::uuid, m.feature, m.day, m.used
+from demo_usage m
+join demo_users u on u.id = m.user_id
+where m.feature in ('recipe_import', 'recipe_photo_ai')
 on conflict do nothing;
 
 -- Model calls: eight per task over the last 30 days (the table's retention), mostly ok, one each

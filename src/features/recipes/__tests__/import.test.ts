@@ -299,9 +299,9 @@ describe('a new recipe', () => {
     expect((invoke.mock.calls[0][1] as { body: { householdId: string } }).body.householdId).toBe(CABIN);
   });
 
-  test('a list not on the device sends no household, and the import fails with nothing written', async () => {
+  test('a list not on the device has no household to send, so the import fails before any request', async () => {
     expect(await importRecipe({ url: URL_, listId: 'list-gone' })).toEqual({ ok: false, error: 'failed' });
-    expect(invoke).toHaveBeenCalledWith('import-recipe', { body: { url: URL_ } });
+    expect(invoke).not.toHaveBeenCalled();
     expect(liveRecipes()).toEqual([]);
   });
 
@@ -1280,6 +1280,12 @@ describe('from photos (spec 4.10, 6.10)', () => {
   test('no photos sends nothing', async () => {
     expect(await importRecipeFromPhotos({ listId, photoUris: [] })).toEqual({ ok: false, error: 'failed' });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test('a list not on the device has no household to send, so it fails before reading or sending a photo', async () => {
+    expect(await importRecipeFromPhotos({ listId: 'list-gone', photoUris: PAGES })).toEqual({ ok: false, error: 'failed' });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(mockBase64).not.toHaveBeenCalled();
   });
 
   describe('keeps the pages (spec 4.10)', () => {

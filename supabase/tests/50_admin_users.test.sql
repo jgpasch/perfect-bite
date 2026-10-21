@@ -1,24 +1,22 @@
 -- Portal functions for users (spec 4.12): admin_list_users and admin_user_detail (no plan of the
--- user's own: their households, each with its plan), admin_set_user_plan (kept, unused by the
--- portal, until per-user plans are dropped), and private.first_month_ends_at (per household) behind
--- private.monthly_limit.
+-- user's own: their households, each with its plan; admin_set_user_plan is dropped), and
+-- private.first_month_ends_at (per household) behind private.monthly_limit.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(46);
+select plan(32);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Founding is the default here, as on hosted (supabase/seed.sql makes unlimited the default locally).
 update public.plans set is_default = false where is_default;
 update public.plans set is_default = true where id = 'founding';
 
--- young: founding by default, 10 days old. mid: free, 20 days old. old: default, 60 days old.
+-- young: 10 days old. mid: 20 days old, in no household. old: 60 days old.
 insert into auth.users (id, email, aud, role, created_at, raw_user_meta_data) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@portal.test', 'authenticated', 'authenticated', now() - interval '100 days', '{}'),
   ('11111111-1111-1111-1111-111111111111', 'Zed.Young@portal.test', 'authenticated', 'authenticated', now() - interval '10 days', '{"full_name":"Quixote Young"}'),
   ('22222222-2222-2222-2222-222222222222', 'zed.mid@portal.test', 'authenticated', 'authenticated', now() - interval '20 days', '{}'),
   ('33333333-3333-3333-3333-333333333333', 'zed.old@portal.test', 'authenticated', 'authenticated', now() - interval '60 days', '{}');
 insert into private.admins (user_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
-insert into public.user_plans (user_id, plan_id) values ('22222222-2222-2222-2222-222222222222', 'free');
 
 -- 205 more users, to see the 200 cap.
 insert into auth.users (id, email, aud, role, created_at)
@@ -51,18 +49,15 @@ insert into public.household_plans (household_id, plan_id) values
 -- Privileges -------------------------------------------------------------------
 select ok(
   not has_function_privilege('anon', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
-  and not has_function_privilege('anon', 'public.admin_user_detail(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
+  and not has_function_privilege('anon', 'public.admin_user_detail(uuid)', 'execute'),
   'anon can''t execute the user functions');
 select ok(
   not has_function_privilege('service_role', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
-  and not has_function_privilege('service_role', 'public.admin_user_detail(uuid)', 'execute')
-  and not has_function_privilege('service_role', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
+  and not has_function_privilege('service_role', 'public.admin_user_detail(uuid)', 'execute'),
   'service_role can''t execute the user functions');
 select ok(
   has_function_privilege('authenticated', 'public.admin_list_users(text, integer, integer, boolean)', 'execute')
-  and has_function_privilege('authenticated', 'public.admin_user_detail(uuid)', 'execute')
-  and has_function_privilege('authenticated', 'public.admin_set_user_plan(uuid, text, text)', 'execute'),
+  and has_function_privilege('authenticated', 'public.admin_user_detail(uuid)', 'execute'),
   'authenticated can execute the user functions');
 select ok(
   not has_function_privilege('authenticated', 'private.first_month_ends_at(uuid)', 'execute')
@@ -86,11 +81,7 @@ select throws_ok($$ select * from public.admin_list_users() $$, '42501', 'not au
   'admin_list_users refuses a non-admin');
 select throws_ok($$ select public.admin_user_detail('11111111-1111-1111-1111-111111111111') $$, '42501', 'not authorized',
   'admin_user_detail refuses a non-admin');
-select throws_ok($$ select public.admin_set_user_plan('11111111-1111-1111-1111-111111111111', 'unlimited', 'me') $$,
-  '42501', 'not authorized', 'admin_set_user_plan refuses a non-admin');
 reset role;
-select is((select plan_id from public.user_plans where user_id = '11111111-1111-1111-1111-111111111111'), null,
-  'the refused plan change changed nothing');
 
 set local role anon;
 select throws_ok($$ select * from public.admin_list_users() $$, '42501', null, 'anon can''t call admin_list_users');
@@ -169,54 +160,10 @@ set local role authenticated;
 select is(public.admin_user_detail('22222222-2222-2222-2222-222222222222') -> 'households', '[]'::jsonb,
   'a user in no household has none listed');
 
--- admin_set_user_plan ---------------------------------------------------------------
-select is(public.admin_set_user_plan('11111111-1111-1111-1111-111111111111', 'free', 'asked for less'),
-  '{"from": null, "to": "free"}'::jsonb, 'setting a plan returns from and to');
+-- Per-user plans are gone ------------------------------------------------------------
 reset role;
-select is((select plan_id from public.user_plans where user_id = '11111111-1111-1111-1111-111111111111'), 'free',
-  'setting a plan writes user_plans');
-select is(
-  (select row(target_plan_id, details, note, performed_by)::text from admin.admin_actions
-   where action = 'set_user_plan' and target_user_id = '11111111-1111-1111-1111-111111111111'),
-  row('free', '{"from": null, "to": "free"}'::jsonb, 'asked for less', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')::text,
-  'one audit row with the admin''s id');
--- The next row must sort after this one: now() is fixed within the transaction.
-update admin.admin_actions set created_at = now() - interval '1 minute'
-where action = 'set_user_plan' and target_user_id = '11111111-1111-1111-1111-111111111111';
-
-set local role authenticated;
-select is(public.admin_set_user_plan('11111111-1111-1111-1111-111111111111', null, 'back to default'),
-  '{"from": "free", "to": null}'::jsonb, 'setting null returns to null');
-reset role;
-select is((select count(*)::int from public.user_plans where user_id = '11111111-1111-1111-1111-111111111111'), 0,
-  'setting null deletes the user_plans row');
-select is((select count(*)::int from admin.admin_actions
-  where action = 'set_user_plan' and target_user_id = '11111111-1111-1111-1111-111111111111'), 2,
-  'setting null writes one more audit row');
-
-set local role authenticated;
-select is(public.admin_set_user_plan('22222222-2222-2222-2222-222222222222', 'free', 'same again'),
-  '{"from": "free", "to": "free"}'::jsonb, 'setting the plan they''re on returns it as both');
-reset role;
-select is((select plan_id from public.user_plans where user_id = '22222222-2222-2222-2222-222222222222'), 'free',
-  'and they stay on it');
-set local role authenticated;
-
-select throws_ok($$ select public.admin_set_user_plan('22222222-2222-2222-2222-222222222222', 'gold', 'typo') $$,
-  'P0002', 'plan not found', 'an unknown plan raises plan not found');
-select throws_ok($$ select public.admin_set_user_plan('22222222-2222-2222-2222-222222222222', 'founding', '   ') $$,
-  '22023', 'note required', 'a blank note raises note required');
-select throws_ok($$ select public.admin_set_user_plan('22222222-2222-2222-2222-222222222222', 'founding', null) $$,
-  '22023', 'note required', 'a null note raises note required');
-select throws_ok($$ select public.admin_set_user_plan('99999999-9999-9999-9999-999999999999', 'founding', 'who') $$,
-  'P0002', 'user not found', 'an unknown user raises user not found');
-reset role;
-select is(
-  (select row(
-    (select plan_id from public.user_plans where user_id = '22222222-2222-2222-2222-222222222222'),
-    (select count(*) from admin.admin_actions where action = 'set_user_plan'
-       and target_user_id = '22222222-2222-2222-2222-222222222222'))::text),
-  row('free', 1::bigint)::text, 'the refused changes changed nothing and wrote no audit row');
+select ok(to_regprocedure('public.admin_set_user_plan(uuid, text, text)') is null,
+  'admin_set_user_plan is dropped: a user has no plan of their own');
 
 select * from finish();
 rollback;

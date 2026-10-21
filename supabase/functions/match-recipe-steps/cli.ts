@@ -22,7 +22,7 @@ import { traceAiCalls } from '../_shared/ai/trace.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
 import { formatStats, MemoryStore } from '../categorize-ingredients/cli.ts';
 import { categorize } from '../categorize-ingredients/handler.ts';
-import { MemoryRecipeStore, placeholderUrl } from '../import-recipe/cli.ts';
+import { CLI_HOUSEHOLD_ID, MemoryRecipeStore, placeholderUrl } from '../import-recipe/cli.ts';
 import { ImportRecipeError, importRecipe } from '../import-recipe/handler.ts';
 import { ingredientFromLine } from '../suggest-recipe-tags/cli.ts';
 import { formatAmount, formatMatch } from './format.ts';
@@ -204,7 +204,7 @@ async function loadRecipe(args: CliArgs, io: CliIo, recipeModel: string | null):
     return { name: null, source: null, input, extractCalls: [] };
   }
   if (!recipeModel) throw new CliUsageError('AI_MODEL_RECIPE is not set. Add it to supabase/functions/.env or pass --recipe-model.');
-  const request: RecipeImportRequest = { url: args.url ?? placeholderUrl(args.file!) };
+  const request: RecipeImportRequest = { url: args.url ?? placeholderUrl(args.file!), householdId: CLI_HOUSEHOLD_ID };
   if (args.file !== null) {
     let html: string;
     try {

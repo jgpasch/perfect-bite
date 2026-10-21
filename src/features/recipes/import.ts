@@ -104,13 +104,15 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
     if (!auth.session) return { ok: false, error: 'offline' };
     userId = auth.session.user.id;
     const householdId = targetHouseholdId(input);
-    let fetched = await requestImport({ url: input.url, ...(input.page && { page: input.page }), ...(householdId && { householdId }) });
+    // A list that isn't on the device: the save would fail anyway, so don't spend an import.
+    if (!householdId) return { ok: false, error: 'failed' };
+    let fetched = await requestImport({ url: input.url, ...(input.page && { page: input.page }), householdId });
     // The site blocked the server's fetch: load it on the device and send what the page shows.
     // Only a link with no page of its own falls back, and only for `fetch_failed`.
     if (!input.page && isFetchFailed(fetched)) {
       const captured = await capturePage(input.url);
       if (captured.ok) {
-        fetched = await requestImport({ url: input.url, page: toRequestPage(captured.page), ...(householdId && { householdId }) });
+        fetched = await requestImport({ url: input.url, page: toRequestPage(captured.page), householdId });
         if (isFetchFailed(fetched)) return { ok: false, error: 'blocked' };
       } else if (captured.reason === 'timeout') {
         return { ok: false, error: 'blocked' };
@@ -154,11 +156,12 @@ export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Pr
     if (!auth.session) return { ok: false, error: 'offline' };
     userId = auth.session.user.id;
     const householdId = targetHouseholdId(input);
+    if (!householdId) return { ok: false, error: 'failed' };
     const body: RecipePhotoImportRequest = {
       images: await Promise.all(
         input.photoUris.map(async (uri) => ({ mediaType: 'image/jpeg' as const, data: await new File(uri).base64() })),
       ),
-      ...(householdId && { householdId }),
+      householdId,
     };
     const fetched = await requestFunction('import-recipe-photo', body);
     if ('ok' in fetched) return fetched;
@@ -206,8 +209,8 @@ function saveAndMatch(input: SaveInput, recipe: RecipeImportResponse, userId: st
 
 /**
  * The household an import saves the recipe to, sent with the request so the server checks that
- * household's plan (spec 4.12): the list's, or the one given. Undefined for a list that isn't on
- * the device (the save fails anyway).
+ * household's plan (spec 4.12; the functions require it): the list's, or the one given. Undefined
+ * for a list that isn't on the device, which fails before the request (the save would fail anyway).
  */
 function targetHouseholdId(target: ImportTarget): string | undefined {
   if (!target.listId) return target.householdId;
@@ -239,7 +242,7 @@ function isFetchFailed(result: RecipeImportResponse | ImportRecipeError): boolea
 }
 
 /** Maps a `functions.invoke` error to a result: a network failure is offline, an HTTP error by its code. */
-async function errorResult(error: unknown, fn: string, householdId: string | undefined): Promise<ImportRecipeError> {
+async function errorResult(error: unknown, fn: string, householdId: string): Promise<ImportRecipeError> {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === 'FunctionsFetchError') return { ok: false, error: 'offline' };
   const response = (error as { context?: unknown } | null)?.context as

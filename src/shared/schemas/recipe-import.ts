@@ -91,8 +91,8 @@ export type RecipeImportPage = z.infer<typeof RecipeImportPageSchema>;
 export const RecipeImportRequestSchema = z.object({
   url: HttpUrlSchema,
   page: RecipeImportPageSchema.optional(),
-  /** The household the recipe is saved to, where the plan is checked (spec 4.12). Optional for old builds. */
-  householdId: z.uuid().optional(),
+  /** The household the recipe is saved to, where the plan is checked and the import counted (spec 4.12). */
+  householdId: z.uuid(),
 });
 export type RecipeImportRequest = z.infer<typeof RecipeImportRequestSchema>;
 

@@ -40,7 +40,7 @@ export type RecipePhoto = z.infer<typeof RecipePhotoSchema>;
 /** `POST /import-recipe-photo`: the pages of one recipe, in order. */
 export const RecipePhotoImportRequestSchema = z.object({
   images: z.array(RecipePhotoSchema).min(1).max(MAX_PHOTO_IMPORT_IMAGES),
-  /** The household the recipe is saved to, where the plan is checked (spec 4.12). Optional for old builds. */
-  householdId: z.uuid().optional(),
+  /** The household the recipe is saved to, where the plan is checked and the import counted (spec 4.12). */
+  householdId: z.uuid(),
 });
 export type RecipePhotoImportRequest = z.infer<typeof RecipePhotoImportRequestSchema>;

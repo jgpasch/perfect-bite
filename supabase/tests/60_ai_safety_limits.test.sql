@@ -156,15 +156,15 @@ select is(array[public.check_categorize_limit('22222222-2222-2222-2222-222222222
 update public.ai_safety_limits set per_minute = 2 where key = 'recipe_import_link';
 update public.ai_safety_limits set per_minute = 1 where key = 'recipe_import_photo';
 update public.ai_safety_limits set per_day = 4 where key = 'recipe_import';
-select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['ok', 'ok', 'user_limit'], 'link import: recipe_import_link''s per_minute 2 refuses the third');
-select is(array[public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['ok', 'user_limit'], 'photo import: recipe_import_photo''s per_minute 1 refuses the second');
 update public.ai_safety_limits set per_minute = 2 where key = 'recipe_import_photo';
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'), 'ok',
   'photo import: raising per_minute applies on the next call');
 -- 2 link and 2 photo imports today: recipe_import's 4 a day is reached by both kinds together.
 select pg_temp.new_minute('recipe_import_usage', '11111111-1111-1111-1111-111111111111');
@@ -172,8 +172,8 @@ select pg_temp.new_minute('recipe_photo_import_usage', '11111111-1111-1111-1111-
 create temp table before_imports as
   select 'link' as kind, requests_this_minute, minute_start, imports from private.recipe_import_usage
   union all select 'photo', imports_this_minute, minute_start, imports from private.recipe_photo_import_usage;
-select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['daily_limit', 'daily_limit'], 'imports: link and photo share recipe_import''s daily count');
 select set_eq(
   $$ select 'link' as kind, requests_this_minute, minute_start, imports from private.recipe_import_usage
@@ -181,17 +181,17 @@ select set_eq(
   $$ select * from before_imports $$,
   'imports: the daily refusals count nothing');
 update public.ai_safety_limits set per_day = 5 where key = 'recipe_import';
-select is(array[public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['ok', 'daily_limit'], 'imports: raising recipe_import''s per_day lets one more through, of either kind');
 update public.ai_safety_limits set per_day = 4 where key = 'recipe_import_link';
 update public.ai_safety_limits set per_day = null where key = 'recipe_import';
 select pg_temp.new_minute('recipe_import_usage', '11111111-1111-1111-1111-111111111111');
-select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['ok', 'ok'], 'imports: a null recipe_import per_day skips the shared daily check');
 select pg_temp.new_minute('recipe_import_usage', '11111111-1111-1111-1111-111111111111');
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'daily_limit',
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'), 'daily_limit',
   'imports: recipe_import_link''s own per_day, when set, refuses link imports');
 select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 4,
   'imports: and counts nothing');
@@ -200,13 +200,13 @@ update public.ai_safety_limits set per_day = null where key = 'recipe_import_lin
 update public.ai_safety_limits set per_minute = 1 where key = 'recipe_import';
 select pg_temp.new_minute('recipe_import_usage', '11111111-1111-1111-1111-111111111111');
 select pg_temp.new_minute('recipe_photo_import_usage', '11111111-1111-1111-1111-111111111111');
-select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'),
-                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111')],
+select is(array[public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'),
+                public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001')],
   array['ok', 'user_limit'], 'imports: recipe_import''s per_minute counts link and photo together');
 update public.ai_safety_limits set per_minute = null where key = 'recipe_import';
 update public.ai_safety_limits set per_minute = null where key in ('recipe_import_link', 'recipe_import_photo');
 update private.recipe_import_usage set requests_this_minute = 1000 where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111', 'c1000000-0000-4000-8000-000000000001'), 'ok',
   'imports: null per_minute everywhere skips the minute checks');
 
 -- Daily before monthly: Fay's 60 imports today use up founding's 50 a month and the day's 3.
@@ -216,10 +216,10 @@ insert into private.recipe_import_usage (user_id, day, minute_start, imports) va
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now() - interval '1 hour', 60);
 insert into private.household_ai_usage (household_id, feature, day, used) values
   ('c2000000-0000-4000-8000-000000000002', 'recipe_import', (now() at time zone 'utc')::date, 60);
-select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222'), 'daily_limit',
+select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222', 'c2000000-0000-4000-8000-000000000002'), 'daily_limit',
   'imports: daily_limit comes before monthly_limit');
 update public.ai_safety_limits set per_day = null where key = 'recipe_import';
-select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222'), 'monthly_limit',
+select is(public.check_recipe_import_limit('22222222-2222-2222-2222-222222222222', 'c2000000-0000-4000-8000-000000000002'), 'monthly_limit',
   'imports: with the day lifted, the month refuses');
 select is((select array[(select imports from private.recipe_import_usage
                          where user_id = '22222222-2222-2222-2222-222222222222'),

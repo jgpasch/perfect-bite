@@ -18,21 +18,15 @@ function fakeAdmin(answer: { data: unknown; error: unknown }) {
   return { admin, calls };
 }
 
-Deno.test('requireFeature: has_feature true resolves, calling it once with the user and feature', async () => {
+Deno.test('requireFeature: has_feature true resolves, calling it once with the user, feature and household', async () => {
   const { admin, calls } = fakeAdmin({ data: true, error: null });
-  assertEquals(await requireFeature(admin, USER, 'recipe_photo_ai'), undefined);
-  assertEquals(calls, [{ fn: 'has_feature', args: { p_user_id: USER, p_feature: 'recipe_photo_ai', p_household_id: null } }]);
-});
-
-Deno.test('requireFeature: the household, when given, is passed through', async () => {
-  const { admin, calls } = fakeAdmin({ data: true, error: null });
-  await requireFeature(admin, USER, 'recipe_import', HOUSEHOLD);
-  assertEquals(calls[0].args, { p_user_id: USER, p_feature: 'recipe_import', p_household_id: HOUSEHOLD });
+  assertEquals(await requireFeature(admin, USER, 'recipe_photo_ai', HOUSEHOLD), undefined);
+  assertEquals(calls, [{ fn: 'has_feature', args: { p_user_id: USER, p_feature: 'recipe_photo_ai', p_household_id: HOUSEHOLD } }]);
 });
 
 Deno.test('requireFeature: has_feature false throws NotEntitledError naming the feature', async () => {
   const { admin } = fakeAdmin({ data: false, error: null });
-  const err = await assertRejects(() => requireFeature(admin, USER, 'recipe_import'), NotEntitledError);
+  const err = await assertRejects(() => requireFeature(admin, USER, 'recipe_import', HOUSEHOLD), NotEntitledError);
   assertEquals(err.feature, 'recipe_import');
   assertEquals(err.name, 'NotEntitledError');
   assertEquals(err.message, "Your plan doesn't include recipe_import");
@@ -41,14 +35,14 @@ Deno.test('requireFeature: has_feature false throws NotEntitledError naming the 
 Deno.test('requireFeature: anything but true (null, a string) is not entitled', async () => {
   for (const data of [null, 'true', 1]) {
     const { admin } = fakeAdmin({ data, error: null });
-    await assertRejects(() => requireFeature(admin, USER, 'recipe_photo_ai'), NotEntitledError);
+    await assertRejects(() => requireFeature(admin, USER, 'recipe_photo_ai', HOUSEHOLD), NotEntitledError);
   }
 });
 
 Deno.test('requireFeature: a database error is thrown as is, not as NotEntitledError', async () => {
   const dbError = { message: 'permission denied for function has_feature', code: '42501' };
   const { admin } = fakeAdmin({ data: null, error: dbError });
-  const err = await requireFeature(admin, USER, 'recipe_import').then(
+  const err = await requireFeature(admin, USER, 'recipe_import', HOUSEHOLD).then(
     () => null,
     (e: unknown) => e,
   );

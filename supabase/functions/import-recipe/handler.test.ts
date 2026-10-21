@@ -133,9 +133,9 @@ class FakeRecipeStore implements RecipeImportStore {
   saves: { urlKey: string; promptVersion: string; result: ExtractedRecipe }[] = [];
   now = NOW;
 
-  /** The household each limit check counted against (undefined: none sent). */
-  limitHouseholds: (string | undefined)[] = [];
-  async checkLimit(householdId?: string) {
+  /** The household each limit check counted against. */
+  limitHouseholds: string[] = [];
+  async checkLimit(householdId: string) {
     this.limitChecks++;
     this.limitHouseholds.push(householdId);
     return this.limit;
@@ -153,14 +153,14 @@ class FakeRecipeStore implements RecipeImportStore {
   /** The features the caller's plan has, and every feature checked. */
   features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
-  /** The household each plan check was for (undefined: none sent). */
-  featureHouseholds: (string | undefined)[] = [];
+  /** The household each plan check was for. */
+  featureHouseholds: string[] = [];
   /** Households the caller isn't in: `has_feature` answers false there. */
   notMemberOf = new Set<string>();
-  async requireFeature(feature: Feature, householdId?: string) {
+  async requireFeature(feature: Feature, householdId: string) {
     this.featureChecks.push(feature);
     this.featureHouseholds.push(householdId);
-    if (!this.features.has(feature) || (householdId !== undefined && this.notMemberOf.has(householdId))) throw new NotEntitledError(feature);
+    if (!this.features.has(feature) || this.notMemberOf.has(householdId)) throw new NotEntitledError(feature);
   }
 }
 
@@ -247,6 +247,15 @@ function editedModel(edit: (answer: ReturnType<typeof mockExtractRecipe>) => unk
 
 const CALLER = { userId: '11111111-1111-4111-8111-111111111111', householdId: null };
 
+/** The household every request names (required), unless a test sets the key itself. */
+const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+/** A request body with `HOUSEHOLD_ID` added when it has no `householdId` key (`householdId: undefined` sends none). */
+function withHousehold(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || 'householdId' in body) return body;
+  return { ...body, householdId: HOUSEHOLD_ID };
+}
+
 /**
  * The real fetchPage over the fake DNS and pages; records every URL fetched. Wired as index.ts
  * does: the caller goes to the extraction and to the inline categorize.
@@ -276,7 +285,7 @@ function setup(overrides: Partial<ImportDeps> = {}) {
   };
   const calls = (task: string) => aiCalls.filter((c) => c.task === task).length;
   const post = (body: unknown) =>
-    handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), {
+    handleRequest(new Request(ENDPOINT, { method: 'POST', body: JSON.stringify(withHousehold(body)), headers: { 'content-type': 'application/json' } }), {
       importRecipe: (request) => importRecipe(request, deps),
       env: (key) => Deno.env.get(key),
       now: () => store.now,
@@ -339,19 +348,18 @@ test('JSON-LD path: 1 extract call on the JSON-LD lines, 1 categorize call, then
   assertEquals(store.limitChecks, 1);
 });
 
-test('ai_calls rows carry the caller: the extraction and the inline categorize, with no household', async () => {
+test("ai_calls rows carry the caller in the request's household, though index.ts's caller names none", async () => {
   const { post, aiCalls } = setup();
+  assertEquals(CALLER.householdId, null);
   assertEquals((await post({ url: PASTA_URL })).status, 200);
   assertEquals(
     aiCalls.map((c) => [c.task, c.user_id, c.household_id]),
     [
-      ['extractRecipe', CALLER.userId, null],
-      ['categorize', CALLER.userId, null],
+      ['extractRecipe', CALLER.userId, HOUSEHOLD_ID],
+      ['categorize', CALLER.userId, HOUSEHOLD_ID],
     ],
   );
 });
-
-const HOUSEHOLD_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
 test('the household goes to the plan check, the limit check and onto every ai_calls row: the extraction and the inline categorize', async () => {
   const { post, aiCalls, store } = setup();
@@ -375,12 +383,20 @@ test('a client-supplied page carries the household too', async () => {
   assert(aiCalls.length > 0);
 });
 
-test('no household (old builds): the plan check and the limit check get none and the rows have none', async () => {
-  const { post, store, aiCalls } = setup();
-  assertEquals((await post({ url: PASTA_URL })).status, 200);
-  assertEquals(store.featureHouseholds, [undefined]);
-  assertEquals(store.limitHouseholds, [undefined]);
-  assertEquals(aiCalls.map((c) => c.household_id), [null, null]);
+test('no household (an old build): 400 invalid_request naming householdId, before the plan check, limit, fetch or model', async () => {
+  const { post, store, fetched, aiCalls } = setup();
+  const res = await post({ url: PASTA_URL, householdId: undefined });
+  assertEquals(res.status, 400);
+  const body = await res.json();
+  assertEquals(body.error, 'invalid_request');
+  assertStringIncludes(body.message, 'householdId');
+  assertEquals([store.featureChecks, store.limitChecks, fetched, aiCalls], [[], 0, [], []]);
+});
+
+test('a null household is 400 invalid_request too', async () => {
+  const { post, store } = setup();
+  await expectError(await post({ url: PASTA_URL, householdId: null }), 400, 'invalid_request');
+  assertEquals(store.featureChecks, []);
 });
 
 test("the household's monthly allowance used up: 429 limit_reached, checked against that household, before any fetch", async () => {
@@ -460,12 +476,12 @@ test('a client-supplied page is used as is: no fetch', async () => {
 
 test('the model’s name and servings win; JSON-LD fills an empty name and its yield wins', async () => {
   const { deps } = setup({ model: editedModel((a) => ({ ...a, name: '  ', servings: 9 })) });
-  const res = await importRecipe({ url: PASTA_URL }, deps);
+  const res = await importRecipe({ url: PASTA_URL, householdId: HOUSEHOLD_ID },deps);
   assertEquals(res.name, 'Garlic Pasta');
   assertEquals(res.servings, 4);
 
   const text = setup({ model: editedModel((a) => ({ ...a, name: 'Best Lemon Bars', servings: 16 })) });
-  const bars = await importRecipe({ url: BARS_URL }, text.deps);
+  const bars = await importRecipe({ url: BARS_URL, householdId: HOUSEHOLD_ID },text.deps);
   assertEquals(bars.name, 'Best Lemon Bars');
   assertEquals(bars.servings, 16, 'with no JSON-LD the model’s servings are used');
 });
@@ -481,7 +497,7 @@ test('the output caps apply: long names are dropped, unknown units go to the not
       ],
     })),
   });
-  const res = await importRecipe({ url: PASTA_URL }, deps);
+  const res = await importRecipe({ url: PASTA_URL, householdId: HOUSEHOLD_ID },deps);
   assertEquals(res.ingredients.map((i) => [i.ingredientName, i.quantity, i.unit, i.note]), [
     ['thyme', 2, null, 'sprig, fresh'],
     ['garlic', 2, 'clove', 'minced'],
@@ -1157,7 +1173,7 @@ for (const features of [[], ['recipe_photo_ai']] as Feature[][]) {
 test('without recipe_import, a client-supplied page is refused too, with nothing extracted', async () => {
   const { deps, store, aiCalls } = setup();
   store.features = new Set(['recipe_photo_ai']);
-  const err = await importRecipe({ url: BARS_URL, page: { title: 'Lemon Bars', text: '1 cup flour' } }, deps).then(
+  const err = await importRecipe({ url: BARS_URL, householdId: HOUSEHOLD_ID, page:{ title: 'Lemon Bars', text: '1 cup flour' } }, deps).then(
     () => null,
     (e: unknown) => e,
   );
@@ -1172,7 +1188,7 @@ test('the plan is checked before the URL and the kill switch', async () => {
     const { post, deps, store } = setup();
     store.features = new Set();
     await expectError(await post({ url: PASTA_URL }), 403, 'not_entitled');
-    const err = await importRecipe({ url: 'ftp://example.com/a' }, deps).then(
+    const err = await importRecipe({ url: 'ftp://example.com/a', householdId: HOUSEHOLD_ID },deps).then(
       () => null,
       (e: unknown) => e,
     );
@@ -1245,7 +1261,7 @@ test('importRecipe throws ImportRecipeError with the failure', async () => {
   const { deps, store } = setup();
   store.limit = 'user_limit';
   try {
-    await importRecipe({ url: PASTA_URL }, deps);
+    await importRecipe({ url: PASTA_URL, householdId: HOUSEHOLD_ID },deps);
     throw new Error('expected a throw');
   } catch (err) {
     assert(err instanceof ImportRecipeError);

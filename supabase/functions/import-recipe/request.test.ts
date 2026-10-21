@@ -11,6 +11,10 @@ import {
 } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/import-recipe';
+/** The household a request names (required). */
+const HOUSEHOLD = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+/** A valid request body. */
+const A_REQUEST = JSON.stringify({ url: 'https://a.example', householdId: HOUSEHOLD });
 const OK: RecipeImportResponse = {
   name: 'Toast',
   sourceUrl: 'https://example.com/toast',
@@ -52,31 +56,43 @@ async function expectError(res: Response, status: number, code: string) {
 Deno.test('a valid request returns importRecipe’s response and passes the parsed request through', async () => {
   const { d, calls } = deps();
   const page = { title: 'Toast', jsonLd: ['{}'], text: '2 slices bread' };
-  const res = await handleRequest(post(JSON.stringify({ url: 'https://example.com/toast', page, extra: 1 })), d);
+  const res = await handleRequest(post(JSON.stringify({ url: 'https://example.com/toast', page, householdId: HOUSEHOLD, extra: 1 })), d);
   assertEquals(res.status, 200);
   assertEquals(await res.json(), OK);
-  assertEquals(calls, [{ url: 'https://example.com/toast', page }]);
+  assertEquals(calls, [{ url: 'https://example.com/toast', page, householdId: HOUSEHOLD }]);
+});
+
+Deno.test('no household (an old build), or one that is not a uuid, is 400 invalid_request naming householdId', async () => {
+  for (const body of [{ url: 'https://a.example' }, { url: 'https://a.example', householdId: null }, { url: 'https://a.example', householdId: 'h1' }]) {
+    const { d, calls } = deps();
+    const res = await handleRequest(post(JSON.stringify(body)), d);
+    assertEquals(res.status, 400);
+    const answer = await res.json();
+    assertEquals(answer.error, 'invalid_request');
+    assertEquals(answer.message.startsWith('householdId:'), true, answer.message);
+    assertEquals(calls, []);
+  }
 });
 
 // --- Failures from importRecipe -----------------------------------------------------------------------
 
 Deno.test('each import failure maps to its status and code', async () => {
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'invalid_url' })), 400, 'invalid_url');
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'fetch_failed' })), 502, 'fetch_failed');
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'not_a_recipe' })), 422, 'not_a_recipe');
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'rate_limited' })), 429, 'rate_limited');
+  await expectError(await handleRequest(post(A_REQUEST), failing({ code: 'invalid_url' })), 400, 'invalid_url');
+  await expectError(await handleRequest(post(A_REQUEST), failing({ code: 'fetch_failed' })), 502, 'fetch_failed');
+  await expectError(await handleRequest(post(A_REQUEST), failing({ code: 'not_a_recipe' })), 422, 'not_a_recipe');
+  await expectError(await handleRequest(post(A_REQUEST), failing({ code: 'rate_limited' })), 429, 'rate_limited');
 });
 
 Deno.test('limit_reached is 429 with resets_at, the first instant of next month (UTC)', async () => {
   const d = { ...failing({ code: 'limit_reached' }), now: () => Date.parse('2026-12-31T23:30:00Z') };
-  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  const res = await handleRequest(post(A_REQUEST), d);
   assertEquals(res.status, 429);
   assertEquals(await res.json(), { error: 'limit_reached', message: 'nope', resets_at: '2027-01-01T00:00:00.000Z' });
 });
 
 Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
   const d = { ...failing({ code: 'daily_limit' }), now: () => Date.parse('2026-12-31T23:30:00Z') };
-  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  const res = await handleRequest(post(A_REQUEST), d);
   assertEquals(res.status, 429);
   assertEquals(res.headers.get('Retry-After'), null);
   assertEquals(await res.json(), { error: 'daily_limit', message: 'nope', resets_at: '2027-01-01T00:00:00.000Z' });
@@ -87,7 +103,7 @@ Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after 
     ['ai_off', PAUSED_RETRY_AFTER],
     ['ai_failed', AI_FAILED_RETRY_AFTER],
   ] as const) {
-    const res = await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'unavailable', reason }));
+    const res = await handleRequest(post(A_REQUEST), failing({ code: 'unavailable', reason }));
     assertEquals(res.headers.get('Retry-After'), String(retryAfter), reason);
     await expectError(res, 503, 'unavailable');
   }
@@ -97,20 +113,20 @@ Deno.test('unavailable is 503 with Retry-After: an hour when paused, 30 s after 
 Deno.test('not_entitled is 403 with its message and no Retry-After', async () => {
   const failure = new ImportRecipeError({ code: 'not_entitled' }, "Recipe import isn't included in your plan");
   const { d } = deps({ importRecipe: () => Promise.reject(failure) });
-  const res = await handleRequest(post('{"url":"https://a.example"}'), d);
+  const res = await handleRequest(post(A_REQUEST), d);
   assertEquals(res.status, 403);
   assertEquals(res.headers.get('Retry-After'), null);
   assertEquals(await res.json(), { error: 'not_entitled', message: "Recipe import isn't included in your plan" });
 });
 
 Deno.test('fetch_failed doesn’t echo the fetch error to the client', async () => {
-  const res = await handleRequest(post('{"url":"https://a.example"}'), failing({ code: 'fetch_failed' }));
+  const res = await handleRequest(post(A_REQUEST), failing({ code: 'fetch_failed' }));
   assertEquals(await res.json(), { error: 'fetch_failed', message: 'The page could not be fetched' });
 });
 
 Deno.test('an unexpected error is a 500 internal_error', async () => {
   const { d } = deps({ importRecipe: () => Promise.reject(new Error('boom')) });
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), d), 500, 'internal_error');
+  await expectError(await handleRequest(post(A_REQUEST), d), 500, 'internal_error');
 });
 
 // --- 400 --------------------------------------------------------------------------------------------
@@ -124,10 +140,12 @@ Deno.test('a missing, non-string or non-http(s) url is 400 invalid_url and never
 });
 
 Deno.test('bad JSON or a bad page is 400 invalid_request', async () => {
-  const tooMany = { url: 'https://a.example', page: { jsonLd: Array.from({ length: 11 }, () => '{}') } };
-  const bigBlock = { url: 'https://a.example', page: { jsonLd: ['x'.repeat(200 * 1024 + 1)] } };
-  const bigText = { url: 'https://a.example', page: { text: 'é'.repeat(25 * 1024 + 1) } };
-  for (const body of ['{not json', 'null', JSON.stringify(tooMany), JSON.stringify(bigBlock), JSON.stringify(bigText), '{"url":"https://a.example","page":{"title":5}}']) {
+  const url = 'https://a.example';
+  const tooMany = { url, householdId: HOUSEHOLD, page: { jsonLd: Array.from({ length: 11 }, () => '{}') } };
+  const bigBlock = { url, householdId: HOUSEHOLD, page: { jsonLd: ['x'.repeat(200 * 1024 + 1)] } };
+  const bigText = { url, householdId: HOUSEHOLD, page: { text: 'é'.repeat(25 * 1024 + 1) } };
+  const badTitle = { url, householdId: HOUSEHOLD, page: { title: 5 } };
+  for (const body of ['{not json', 'null', JSON.stringify(tooMany), JSON.stringify(bigBlock), JSON.stringify(bigText), JSON.stringify(badTitle)]) {
     const { d, calls } = deps();
     await expectError(await handleRequest(post(body), d), 400, 'invalid_request');
     assertEquals(calls, []);
@@ -137,7 +155,7 @@ Deno.test('bad JSON or a bad page is 400 invalid_request', async () => {
 Deno.test('a page at the caps is accepted', async () => {
   const { d, calls } = deps();
   const page = { jsonLd: Array.from({ length: 10 }, () => 'x'.repeat(200 * 1024)), text: 'é'.repeat(25 * 1024) };
-  const res = await handleRequest(post(JSON.stringify({ url: 'https://a.example', page })), d);
+  const res = await handleRequest(post(JSON.stringify({ url: 'https://a.example', householdId: HOUSEHOLD, page })), d);
   assertEquals(res.status, 200);
   assertEquals(calls.length, 1);
 });
@@ -165,7 +183,7 @@ Deno.test('a body over the cap is 413, declared or streamed', async () => {
 
 Deno.test('an unset AI_MODEL_RECIPE is a 500 not_configured', async () => {
   const { d, calls } = deps({ env: () => undefined });
-  await expectError(await handleRequest(post('{"url":"https://a.example"}'), d), 500, 'not_configured');
+  await expectError(await handleRequest(post(A_REQUEST), d), 500, 'not_configured');
   assertEquals(calls, []);
 });
 
