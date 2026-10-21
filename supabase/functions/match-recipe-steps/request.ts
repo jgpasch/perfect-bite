@@ -32,8 +32,6 @@ const error = (status: number, code: string, message: string, retryAfter?: numbe
 
 function failureResponse(failure: MatchStepsFailure, message: string, now?: number): Response {
   switch (failure.code) {
-    case 'not_entitled':
-      return error(403, 'not_entitled', message);
     case 'rate_limited':
       return error(429, 'rate_limited', message);
     case 'limit_reached':
@@ -57,7 +55,7 @@ function parseRequest(bytes: Uint8Array): MatchRecipeStepsRequest | Response {
 }
 
 /**
- * POST MatchRecipeStepsRequest → 200 MatchRecipeStepsResponse · 400 · 403 · 405 · 413 · 429 · 500
+ * POST MatchRecipeStepsRequest → 200 MatchRecipeStepsResponse · 400 · 405 · 413 · 429 · 500
  * (incl. not_configured) · 503 with Retry-After. Never logs headers or the recipe.
  */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {

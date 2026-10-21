@@ -14,8 +14,8 @@ import type { AdminPlan } from "./types";
 
 function plan(overrides: Partial<AdminPlan> = {}): AdminPlan {
   return {
-    id: "plus",
-    name: "Plus",
+    id: "founding",
+    name: "Founding",
     is_default: false,
     users: 3,
     features: [
@@ -75,10 +75,10 @@ describe("activityHref", () => {
 
 describe("actionSummary", () => {
   it("set_user_plan: plan ids, null as the default", () => {
-    expect(summary("set_user_plan", { from: "plus", to: "unlimited" })).toBe("plus → unlimited");
-    expect(summary("set_user_plan", { from: null, to: "base" })).toBe("default → base");
-    expect(summary("set_user_plan", { from: "base", to: null })).toBe("base → default");
-    expect(summary("set_user_plan", { from: "plus", to: "plus" })).toBe("plus → plus");
+    expect(summary("set_user_plan", { from: "founding", to: "unlimited" })).toBe("founding → unlimited");
+    expect(summary("set_user_plan", { from: null, to: "free" })).toBe("default → free");
+    expect(summary("set_user_plan", { from: "free", to: null })).toBe("free → default");
+    expect(summary("set_user_plan", { from: "founding", to: "founding" })).toBe("founding → founding");
   });
 
   it("set_plan_limit: the feature's limit before and after", () => {
@@ -111,23 +111,23 @@ describe("actionSummary", () => {
     expect(summary("create_plan", { before: null, after: plan({ name: "Pro", features: [] }), users: 0 })).toBe("“Pro” · no features");
     expect(
       summary("create_plan", { before: null, after: plan({ features: [{ feature: "categorize", monthly_limit: 1 }] }), users: 0 }),
-    ).toBe("“Plus” · 1 feature");
+    ).toBe("“Founding” · 1 feature");
   });
 
   it("rename_plan: old name → new name", () => {
-    expect(summary("rename_plan", { before: plan(), after: plan({ name: "Plus+" }), users: 3 })).toBe("“Plus” → “Plus+”");
+    expect(summary("rename_plan", { before: plan(), after: plan({ name: "Founders" }), users: 3 })).toBe("“Founding” → “Founders”");
   });
 
   it("set_default_plan: the previous default → the new one", () => {
-    expect(summary("set_default_plan", { before: plan(), after: plan({ is_default: true }), users: 9, previous_default: "base" })).toBe(
-      "base → plus",
+    expect(summary("set_default_plan", { before: plan(), after: plan({ is_default: true }), users: 9, previous_default: "free" })).toBe(
+      "free → founding",
     );
-    expect(summary("set_default_plan", { before: plan(), after: plan(), users: 9, previous_default: null })).toBe("none → plus");
+    expect(summary("set_default_plan", { before: plan(), after: plan(), users: 9, previous_default: null })).toBe("none → founding");
   });
 
   it("delete_plan: the name and its users", () => {
     expect(summary("delete_plan", { before: plan({ name: "Old", users: 0 }), after: null, users: 0 })).toBe("“Old” · 0 users");
-    expect(summary("delete_plan", { before: plan(), after: null, users: 1 })).toBe("“Plus” · 1 user");
+    expect(summary("delete_plan", { before: plan(), after: null, users: 1 })).toBe("“Founding” · 1 user");
   });
 
   it("delete_user: the email and what happened to their households", () => {
@@ -170,7 +170,7 @@ describe("actionTarget", () => {
   const empty = { target_user_id: null, target_user_email: null, target_plan_id: null, target_household_id: null };
 
   it("prefers the user's email, linking to their page", () => {
-    expect(actionTarget({ ...empty, target_user_id: "u1", target_user_email: "ann@example.com", target_plan_id: "plus" })).toEqual({
+    expect(actionTarget({ ...empty, target_user_id: "u1", target_user_email: "ann@example.com", target_plan_id: "founding" })).toEqual({
       kind: "user",
       label: "ann@example.com",
       href: "/users/u1",
@@ -178,7 +178,10 @@ describe("actionTarget", () => {
   });
 
   it("then the plan id, then the household id", () => {
-    expect(actionTarget({ ...empty, target_plan_id: "plus", target_household_id: "h1" })).toEqual({ kind: "plan", label: "plus" });
+    expect(actionTarget({ ...empty, target_plan_id: "founding", target_household_id: "h1" })).toEqual({
+      kind: "plan",
+      label: "founding",
+    });
     expect(actionTarget({ ...empty, target_household_id: "h1" })).toEqual({ kind: "household", label: "h1" });
   });
 

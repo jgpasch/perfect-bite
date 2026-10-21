@@ -20,6 +20,12 @@ values (
   'email', now(), now(), now()
 );
 
+-- Unlimited is the default plan locally (spec 4.12), so every household made against local
+-- Supabase (the one below, and any the app or a test user makes later) gets an unlimited
+-- household_plans row and manual testing has every feature. Hosted keeps founding as the default.
+update public.plans set is_default = false where is_default;
+update public.plans set is_default = true where id = 'unlimited';
+
 -- The dev user's household, which they own, with a "Groceries" list as their default (the shape
 -- ensureStarterData in src/features/lists/lists.ts gives a new user). The household goes through
 -- create_household as the dev user, the way the app's push sends it. On sign-in the app pulls it
@@ -33,12 +39,6 @@ values ('019a4c10-0000-7000-8000-00000000a002', '019a4c10-0000-7000-8000-0000000
 
 insert into public.user_settings (user_id, default_list_id)
 values ('019a4c10-0000-7000-8000-0000000de701', '019a4c10-0000-7000-8000-00000000a002');
-
--- The dev user is on unlimited (spec 4.12), so manual testing against local Supabase has every
--- feature. The migrations' own owner-on-a-plan inserts run before this file makes the user, so
--- they're no-ops locally.
-insert into public.user_plans (user_id, plan_id)
-values ('019a4c10-0000-7000-8000-0000000de701', 'unlimited');
 
 -- The dev user is an admin (spec 4.12), so the admin portal works against local Supabase. As above,
 -- the migration's owner insert runs before this file makes the user.

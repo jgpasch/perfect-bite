@@ -3,20 +3,10 @@ import { describe, expect, it } from "vitest";
 import { defaultChoiceTitle, isNoteValid, movedMessage, planChoices, planSummary } from "./plan-change";
 import type { AdminPlan, AdminPlanList } from "./types";
 
-const none: AdminPlan = { id: "none", name: "None", is_default: false, users: 2, features: [] };
-const basic: AdminPlan = {
-  id: "basic",
-  name: "Basic",
-  is_default: false,
-  users: 1,
-  features: [
-    { feature: "categorize", monthly_limit: 250 },
-    { feature: "step_ingredients", monthly_limit: 100 },
-  ],
-};
-const plus: AdminPlan = {
-  id: "plus",
-  name: "Plus",
+const free: AdminPlan = { id: "free", name: "Free", is_default: false, users: 2, features: [] };
+const founding: AdminPlan = {
+  id: "founding",
+  name: "Founding",
   is_default: true,
   users: 7,
   features: [
@@ -38,15 +28,22 @@ const unlimited: AdminPlan = {
     { feature: "recipe_import", monthly_limit: null },
   ],
 };
-const plans: AdminPlanList = [basic, none, plus, unlimited];
+const plans: AdminPlanList = [founding, free, unlimited];
 
 describe("planSummary", () => {
   it("lists each feature with its limit and unit in the plan's order", () => {
-    expect(planSummary(basic)).toBe("Categorize 250 names · Step matching 100 matches");
+    expect(
+      planSummary({
+        features: [
+          { feature: "categorize", monthly_limit: 250 },
+          { feature: "step_ingredients", monthly_limit: 100 },
+        ],
+      }),
+    ).toBe("Categorize 250 names · Step matching 100 matches");
   });
 
   it("uses the singular for a limit of 1 and a thousands separator", () => {
-    expect(planSummary(plus)).toBe(
+    expect(planSummary(founding)).toBe(
       "Categorize 250 names · Recipe import 40 imports · Photo import 1 photo import · " +
         "Tag suggestions 50 suggestions · Step matching 100 matches · AI photos 15 photos",
     );
@@ -59,7 +56,7 @@ describe("planSummary", () => {
   });
 
   it("says No features for an empty plan", () => {
-    expect(planSummary(none)).toBe("No features");
+    expect(planSummary(free)).toBe("No features");
   });
 
   it("shows an unknown feature by its key", () => {
@@ -71,13 +68,12 @@ describe("planChoices", () => {
   it("puts the default first, named after the default plan, then every plan in order", () => {
     const choices = planChoices(plans, null);
     expect(choices.map((c) => [c.value, c.planId, c.title])).toEqual([
-      ["", null, "Default (Plus)"],
-      ["basic", "basic", "Basic"],
-      ["none", "none", "None"],
-      ["plus", "plus", "Plus"],
+      ["", null, "Default (Founding)"],
+      ["founding", "founding", "Founding"],
+      ["free", "free", "Free"],
       ["unlimited", "unlimited", "Unlimited"],
     ]);
-    expect(choices[0].summary).toBe(planSummary(plus));
+    expect(choices[0].summary).toBe(planSummary(founding));
     expect(choices[2].summary).toBe("No features");
   });
 
@@ -86,8 +82,8 @@ describe("planChoices", () => {
   });
 
   it("marks their own plan, not the default, even when it's the default plan", () => {
-    expect(planChoices(plans, "basic").filter((c) => c.current).map((c) => c.value)).toEqual(["basic"]);
-    expect(planChoices(plans, "plus").filter((c) => c.current).map((c) => c.value)).toEqual(["plus"]);
+    expect(planChoices(plans, "free").filter((c) => c.current).map((c) => c.value)).toEqual(["free"]);
+    expect(planChoices(plans, "founding").filter((c) => c.current).map((c) => c.value)).toEqual(["founding"]);
   });
 
   it("marks nothing when their plan isn't in the list", () => {
@@ -95,7 +91,7 @@ describe("planChoices", () => {
   });
 
   it("with no default plan, the default choice has no features", () => {
-    const choices = planChoices([basic, none], null);
+    const choices = planChoices([free, unlimited], null);
     expect(choices[0]).toEqual({ value: "", planId: null, title: "Default", summary: "No features", current: true });
     expect(planChoices([], null)).toHaveLength(1);
   });
@@ -103,19 +99,21 @@ describe("planChoices", () => {
 
 describe("defaultChoiceTitle", () => {
   it("names the default plan", () => {
-    expect(defaultChoiceTitle(plans)).toBe("Default (Plus)");
-    expect(defaultChoiceTitle([none])).toBe("Default");
+    expect(defaultChoiceTitle(plans)).toBe("Default (Founding)");
+    expect(defaultChoiceTitle([free])).toBe("Default");
   });
 });
 
 describe("movedMessage", () => {
   it("names the email and the choice", () => {
-    expect(movedMessage("ann@example.com", { title: "Basic" })).toBe("Moved ann@example.com to Basic");
-    expect(movedMessage("ann@example.com", { title: "Default (Plus)" })).toBe("Moved ann@example.com to Default (Plus)");
+    expect(movedMessage("ann@example.com", { title: "Free" })).toBe("Moved ann@example.com to Free");
+    expect(movedMessage("ann@example.com", { title: "Default (Founding)" })).toBe(
+      "Moved ann@example.com to Default (Founding)",
+    );
   });
 
   it("falls back without an email", () => {
-    expect(movedMessage(null, { title: "None" })).toBe("Moved the user to None");
+    expect(movedMessage(null, { title: "Free" })).toBe("Moved the user to Free");
   });
 });
 

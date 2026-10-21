@@ -21,11 +21,13 @@
 // - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
 // - A full pull also notices lost memberships (4.7): a household the server listed for the user
 //   last time and doesn't now is purged from this device with its queued mutations (`purge.ts`),
-//   once the households still listed are in. Households the server has never listed (e.g. one
-//   created here and not pushed yet) are left alone.
+//   once the households still listed are in. So is a household created here that the server
+//   refused (its `create_household` was rejected, e.g. `already in a household`) and doesn't list.
+//   Other households the server has never listed (e.g. one created here and not pushed yet) are
+//   left alone.
 // - After a full pull, each household's members' names are cached again (`get_household_members`,
 //   `refreshMemberNames`), so the app can say who checked or added something.
-import { and, eq, getTableColumns, getTableName, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, getTableName, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
@@ -572,9 +574,24 @@ export function onMemberships(userId: string, listener: MembershipListener): () 
 }
 
 /**
+ * Households created on this device whose creation the server refused for good (a rejected
+ * `create_household`, e.g. `already in a household`) and that it doesn't list in `current`.
+ */
+function refusedHouseholds(tx: Exec, current: string[]): string[] {
+  const rows = tx.select({ mutation: outbox.mutation }).from(outbox).where(isNotNull(outbox.rejectedAt)).all();
+  const ids = new Set<string>();
+  for (const { mutation: m } of rows as { mutation: Mutation }[]) {
+    // An insert carries `created_at`; a later rename doesn't (as in push.ts).
+    if (m.table === 'households' && m.id && 'created_at' in m.fields && !current.includes(m.id)) ids.add(m.id);
+  }
+  return [...ids];
+}
+
+/**
  * Purges the households the last full pull listed and this one doesn't (left, removed or deleted,
- * 4.7), and remembers `current` for next time. Everyone always has a household, so an empty list
- * is taken as a bad answer: nothing is purged and the last list is kept.
+ * 4.7), and the ones created here that the server refused and doesn't list, and remembers
+ * `current` for next time. Everyone always has a household, so an empty list is taken as a bad
+ * answer: nothing is purged and the last list is kept.
  */
 function purgeLostHouseholds(current: string[]): void {
   if (current.length === 0) return;
@@ -589,6 +606,12 @@ function purgeLostHouseholds(current: string[]): void {
       // Joining again pulls it in full.
       const prefix = householdCursorKey(householdId, '');
       for (const key of Object.keys(cursors)) if (key.startsWith(prefix)) delete cursors[key];
+    }
+    // Never on the server, so nothing of it there to keep (and no cursors or photos of it here).
+    for (const householdId of refusedHouseholds(tx, current)) {
+      if (lost.includes(householdId)) continue;
+      const summary = purgeHousehold(tx, householdId);
+      console.info(`[pull] the server refused to create ${householdId}; removed it from this device`, summary);
     }
     writeState(tx, { cursors, memberships: current });
     purged = lost.length > 0;

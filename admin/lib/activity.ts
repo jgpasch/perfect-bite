@@ -166,7 +166,7 @@ function rawSummary(details: Record<string, unknown>): string {
   return json.length > 80 ? `${json.slice(0, 79)}…` : json;
 }
 
-/** One line from the row's `details`: "plus → unlimited", "recipe_import limit 40 → 60", …. */
+/** One line from the row's `details`: "founding → unlimited", "recipe_import limit 40 → 60", …. */
 export function actionSummary(row: Pick<AdminAction, "action" | "details">): string {
   const details = record(row.details) ?? {};
   const before = record(details.before) as Snapshot | null;

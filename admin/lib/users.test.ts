@@ -145,25 +145,25 @@ describe("whoWording", () => {
 
 describe("plan names", () => {
   const names = new Map([
-    ["plus", "Plus"],
-    ["basic", "Basic"],
+    ["founding", "Founding"],
+    ["free", "Free"],
   ]);
 
   it("names a plan from the list, else by its id", () => {
-    expect(planName("plus", names)).toBe("Plus");
+    expect(planName("founding", names)).toBe("Founding");
     expect(planName("gone", names)).toBe("gone");
     expect(planName(null, names)).toBe("No plan");
   });
 
   it("marks the default on the badge only when unassigned", () => {
-    expect(planBadge("Plus", true)).toBe("Plus");
-    expect(planBadge("Plus", false)).toBe("Plus · default");
+    expect(planBadge("Founding", true)).toBe("Founding");
+    expect(planBadge("Founding", false)).toBe("Founding · default");
   });
 
   it("names the default in plan history", () => {
-    expect(historyPlan(null, names, "Plus")).toBe("Default (Plus)");
+    expect(historyPlan(null, names, "Founding")).toBe("Default (Founding)");
     expect(historyPlan(null, names, null)).toBe("Default");
-    expect(historyPlan("basic", names, "Plus")).toBe("Basic");
+    expect(historyPlan("free", names, "Founding")).toBe("Free");
   });
 });
 

@@ -15,10 +15,9 @@ import {
 } from "./plans";
 import type { AdminPlan } from "./types";
 
-const none: AdminPlan = { id: "none", name: "None", is_default: false, users: 0, features: [] };
-const basic: AdminPlan = {
-  id: "basic",
-  name: "Basic",
+const free: AdminPlan = {
+  id: "free",
+  name: "Free",
   is_default: false,
   users: 1,
   features: [
@@ -26,9 +25,9 @@ const basic: AdminPlan = {
     { feature: "step_ingredients", monthly_limit: 0 },
   ],
 };
-const plus: AdminPlan = {
-  id: "plus",
-  name: "Plus",
+const founding: AdminPlan = {
+  id: "founding",
+  name: "Founding",
   is_default: true,
   users: 7,
   features: [
@@ -40,21 +39,21 @@ const plus: AdminPlan = {
 
 describe("cellWording", () => {
   it("is a dash for a feature not in the plan", () => {
-    expect(cellWording(none, "categorize")).toBe("—");
-    expect(cellWording(basic, "recipe_import")).toBe("—");
+    expect(cellWording({ ...free, features: [] }, "categorize")).toBe("—");
+    expect(cellWording(free, "recipe_import")).toBe("—");
   });
 
   it("is the limit, with thousands separators", () => {
-    expect(cellWording(basic, "categorize")).toBe("250");
-    expect(cellWording(plus, "categorize")).toBe("1,500");
+    expect(cellWording(free, "categorize")).toBe("250");
+    expect(cellWording(founding, "categorize")).toBe("1,500");
   });
 
   it("is 0 for a zero limit, not a dash", () => {
-    expect(cellWording(basic, "step_ingredients")).toBe("0");
+    expect(cellWording(free, "step_ingredients")).toBe("0");
   });
 
   it("is No limit for a null limit", () => {
-    expect(cellWording(plus, "recipe_tags")).toBe("No limit");
+    expect(cellWording(founding, "recipe_tags")).toBe("No limit");
   });
 });
 
@@ -86,19 +85,19 @@ describe("usersCount", () => {
 
 describe("defaultLimit", () => {
   it("is the default plan's limit for the feature", () => {
-    expect(defaultLimit([none, basic, plus], "recipe_import")).toBe(40);
+    expect(defaultLimit([free, founding], "recipe_import")).toBe(40);
   });
 
   it("is null when the default has the feature with no limit", () => {
-    expect(defaultLimit([none, basic, plus], "recipe_tags")).toBeNull();
+    expect(defaultLimit([free, founding], "recipe_tags")).toBeNull();
   });
 
   it("is null when the default doesn't have the feature", () => {
-    expect(defaultLimit([none, basic, plus], "recipe_photo_ai")).toBeNull();
+    expect(defaultLimit([free, founding], "recipe_photo_ai")).toBeNull();
   });
 
   it("is null with no default plan", () => {
-    expect(defaultLimit([none, basic], "categorize")).toBeNull();
+    expect(defaultLimit([free], "categorize")).toBeNull();
   });
 });
 
@@ -175,19 +174,19 @@ describe("deleteBlockedReason", () => {
 
 describe("plan ids", () => {
   it("follows the server's rule", () => {
-    expect(isPlanIdValid("plus_copy")).toBe(true);
+    expect(isPlanIdValid("founding_copy")).toBe(true);
     expect(isPlanIdValid("p2")).toBe(true);
     expect(isPlanIdValid("p")).toBe(false);
-    expect(isPlanIdValid("2plus")).toBe(false);
-    expect(isPlanIdValid("Plus")).toBe(false);
-    expect(isPlanIdValid("plus-copy")).toBe(false);
+    expect(isPlanIdValid("2founding")).toBe(false);
+    expect(isPlanIdValid("Founding")).toBe(false);
+    expect(isPlanIdValid("founding-copy")).toBe(false);
     expect(isPlanIdValid("a".repeat(31))).toBe(true);
     expect(isPlanIdValid("a".repeat(32))).toBe(false);
   });
 
   it("prefills Duplicate with <id>_copy and <name> copy", () => {
-    expect(copyId("plus")).toBe("plus_copy");
-    expect(copyName("Plus")).toBe("Plus copy");
+    expect(copyId("founding")).toBe("founding_copy");
+    expect(copyName("Founding")).toBe("Founding copy");
   });
 
   it("cuts a long id so the copy still fits", () => {

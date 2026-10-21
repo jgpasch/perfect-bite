@@ -2,7 +2,7 @@
 -- the personal household made for someone left with none.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(45);
+select plan(46);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex owns S (shared), which Pat, Robin and Jamie joined in that order. Alex also owns X and
@@ -163,6 +163,11 @@ select is(
   (select l.id from public.lists l
    where l.household_id = (select (result ->> 'new_household_id')::uuid from results where step = 'jamie_removed')),
   'Jamie''s default list, which was in S, now points at the new Groceries list');
+select results_eq(
+  $$ select hp.plan_id from public.household_plans hp
+     where hp.household_id = (select (result ->> 'new_household_id')::uuid from results where step = 'jamie_removed') $$,
+  $$ select p.id from public.plans p where p.is_default $$,
+  'the new household gets the default plan''s row (spec 4.12)');
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);

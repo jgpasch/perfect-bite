@@ -2,17 +2,32 @@
 -- private.monthly_usage.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(26);
 
 -- Fixtures (as postgres) ------------------------------------------------------
--- a and b are 100 days old (no first-month doubling); b is on basic, a on the default (plus).
+-- Founding is the default here, as on hosted (supabase/seed.sql makes unlimited the default locally).
+update public.plans set is_default = false where is_default;
+update public.plans set is_default = true where id = 'founding';
+
+-- a and b are 100 days old; b is on free, a on the default (founding). Limits come from their
+-- households' plans: a's household is on founding, b's on free, both 100 days old (no first-month
+-- doubling).
 insert into auth.users (id, email, aud, role, created_at) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('11111111-1111-1111-1111-111111111111', 'a@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('22222222-2222-2222-2222-222222222222', 'b@usage.test', 'authenticated', 'authenticated', now() - interval '100 days'),
   ('33333333-3333-3333-3333-333333333333', 'idle@usage.test', 'authenticated', 'authenticated', now() - interval '100 days');
 insert into private.admins (user_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
-insert into public.user_plans (user_id, plan_id) values ('22222222-2222-2222-2222-222222222222', 'basic');
+insert into public.user_plans (user_id, plan_id) values ('22222222-2222-2222-2222-222222222222', 'free');
+insert into public.households (id, name, created_at) values
+  ('d1000000-0000-0000-0000-000000000001', 'A''s', now() - interval '100 days'),
+  ('d2000000-0000-0000-0000-000000000002', 'B''s', now() - interval '100 days');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('d1000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'owner', 1),
+  ('d2000000-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values
+  ('d1000000-0000-0000-0000-000000000001', 'founding'),
+  ('d2000000-0000-0000-0000-000000000002', 'free');
 
 -- 12 more users with one import each this month, to see top_users stop at 10.
 insert into auth.users (id, email, aud, role, created_at)
@@ -38,7 +53,8 @@ from generate_series(1, 12) n;
 insert into private.recipe_import_usage (user_id, day, minute_start, imports) values
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 41, now(), 50);
 
--- categorize counts names: a sent 30 names in 2 requests today, b 5 in 1.
+-- categorize counts names: a sent 30 names in 2 requests today, b 5 in 1. (Categorize is no longer
+-- a plan feature, so admin_ai_usage leaves it out, but monthly_usage still counts it.)
 insert into private.categorize_usage (user_id, day, minute_start, requests_this_minute, new_names) values
   ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date, now(), 2, 30),
   ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, now(), 1, 5);
@@ -97,8 +113,8 @@ create temp view f as
 
 select is(
   (select array_agg(e ->> 'feature' order by o) from r, jsonb_array_elements(d -> 'features') with ordinality as x (e, o)),
-  array['categorize', 'recipe_import', 'recipe_import_photo', 'recipe_tags', 'step_ingredients', 'recipe_photo_ai'],
-  'features are the six in order');
+  array['recipe_import', 'recipe_photo_ai'],
+  'features are the two in order');
 select is((select d ->> 'month_start' from r), date_trunc('month', now() at time zone 'utc')::date::text,
   'month_start is the first of this UTC month');
 
@@ -131,27 +147,22 @@ select is((select jsonb_array_length(e -> 'top_users') from f where feature = 'r
   'top_users stops at 10');
 select is(
   (select e -> 'top_users' -> 0 from f where feature = 'recipe_import'),
-  '{"user_id": "11111111-1111-1111-1111-111111111111", "email": "a@usage.test", "plan_id": "plus", "used": 7, "limit": 40}'::jsonb,
-  'the heaviest user first, with email, default plan, this month''s use and their limit');
+  '{"user_id": "11111111-1111-1111-1111-111111111111", "email": "a@usage.test", "plan_id": "founding", "used": 7, "limit": 50}'::jsonb,
+  'the heaviest user first, with email, default plan, this month''s use and their household''s limit');
 select is(
   (select e -> 'top_users' -> 1 from f where feature = 'recipe_import'),
-  '{"user_id": "22222222-2222-2222-2222-222222222222", "email": "b@usage.test", "plan_id": "basic", "used": 5, "limit": null}'::jsonb,
-  'an assigned plan shows, with no limit for a feature not in it');
+  '{"user_id": "22222222-2222-2222-2222-222222222222", "email": "b@usage.test", "plan_id": "free", "used": 5, "limit": 0}'::jsonb,
+  'an assigned plan shows, with limit 0 when none of their households'' plans has the feature');
 select is(
   (select e -> 'top_users' -> 2 ->> 'user_id' from f where feature = 'recipe_import'),
   'cccccccc-0000-0000-0000-000000000001', 'ties are ordered by user id');
 
--- categorize is in names; an unused feature is all zeros
-select is(
-  (select jsonb_build_object('used', e -> 'used', 'users', e -> 'users',
-          'top', jsonb_path_query_array(e -> 'top_users', '$[*].used'))
-   from f where feature = 'categorize'),
-  '{"used": 35, "users": 2, "top": [30, 5]}'::jsonb, 'categorize counts names, not requests');
+-- an unused feature is all zeros
 select is(
   (select jsonb_build_object('used', e -> 'used', 'users', e -> 'users', 'top_users', e -> 'top_users',
           'nonzero', (select count(*) from jsonb_array_elements(e -> 'daily') x where (x ->> 'used')::int <> 0),
           'days', jsonb_array_length(e -> 'daily'))
-   from f where feature = 'recipe_tags'),
+   from f where feature = 'recipe_photo_ai'),
   '{"used": 0, "users": 0, "top_users": [], "nonzero": 0, "days": 40}'::jsonb,
   'an unused feature has zeros, 40 empty days and no top users');
 

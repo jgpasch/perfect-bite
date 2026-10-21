@@ -68,7 +68,7 @@ export function planName(planId: string | null, names: ReadonlyMap<string, strin
   return names.get(planId) ?? planId;
 }
 
-/** The badge: "Plus", or "Plus · default" for a user who has no plan of their own. */
+/** The badge: "Founding", or "Founding · default" for a user who has no plan of their own. */
 export function planBadge(name: string, assigned: boolean): string {
   return assigned ? name : `${name} · default`;
 }

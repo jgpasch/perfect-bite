@@ -1,21 +1,15 @@
-// match-recipe-steps (spec 6.8): the plan, the off switch and the limits around matchRecipeSteps(),
+// match-recipe-steps (spec 6.8): the off switch and the limits around matchRecipeSteps(),
 // behind a store interface, so it runs in Deno tests with a fake store and MockLanguageModelV4.
 // index.ts wires the real store.
 import type { MatchRecipeStepsRequest, MatchRecipeStepsResponse } from '@shared/index.ts';
 
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
-import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import { matchRecipeSteps, StepMatchError, type MatchDeps } from './match.ts';
 
 /** The tables match-recipe-steps uses, as it sees them. index.ts implements it with the service role. */
 export interface StepMatchStore {
-  /**
-   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
-   * `_shared/entitlements.ts`). Called first, before the rate limit or the model.
-   */
-  requireFeature(feature: Feature): Promise<void>;
   /** Counts one match against the per-user limits (`public.check_step_match_limit`). */
   checkLimit(): Promise<LimitResult>;
   /** Writes one `ai_calls` row. */
@@ -32,7 +26,6 @@ export type MatchStepsDeps = {
 
 /** Why a match failed; request.ts turns it into the HTTP status. */
 export type MatchStepsFailure =
-  | { code: 'not_entitled' }
   | { code: 'rate_limited' }
   | { code: 'limit_reached' }
   | { code: 'unavailable'; reason: 'ai_off' | 'ai_failed' };
@@ -48,21 +41,13 @@ export class MatchStepsError extends Error {
 }
 
 /**
- * Matches one recipe's ingredients to its steps (spec 6.8): the plan, the off switch, the limits,
- * then one model call. Blank steps aren't sent and use nothing; the model's ingredient numbers are
- * mapped back to the request's ids. Throws `MatchStepsError` for every expected failure. Nothing is
- * cached and nothing is written but the usage counters and `ai_calls`.
+ * Matches one recipe's ingredients to its steps (spec 6.8): the off switch, the limits, then one
+ * model call. Step ingredients aren't a plan feature (spec 4.12), so there's no plan check. Blank
+ * steps aren't sent and use nothing; the model's ingredient numbers are mapped back to the
+ * request's ids. Throws `MatchStepsError` for every expected failure. Nothing is cached and nothing
+ * is written but the usage counters and `ai_calls`.
  */
 export async function matchSteps(request: MatchRecipeStepsRequest, deps: MatchStepsDeps): Promise<MatchRecipeStepsResponse> {
-  try {
-    await deps.store.requireFeature('step_ingredients');
-  } catch (err) {
-    if (err instanceof NotEntitledError) {
-      throw new MatchStepsError({ code: 'not_entitled' }, "Step ingredients aren't included in your plan");
-    }
-    throw err;
-  }
-
   // Before the limit, so a call refused by the off switch uses no budget.
   if (!isAiEnabled('matchRecipeSteps')) {
     throw new MatchStepsError({ code: 'unavailable', reason: 'ai_off' }, 'Step matching is turned off');

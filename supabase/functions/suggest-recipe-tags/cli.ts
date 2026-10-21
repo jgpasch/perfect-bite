@@ -14,7 +14,6 @@ import {
 import { buildSuggestRecipeTagsPrompt, SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from '../_shared/ai/prompts/suggest-recipe-tags.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
-import type { Feature } from '../_shared/entitlements.ts';
 import { formatStats } from '../categorize-ingredients/cli.ts';
 import { formatTags } from '../import-recipe/cli.ts';
 import { SuggestTagsError, suggestRecipeTags, type SuggestTagsStore } from './handler.ts';
@@ -114,12 +113,9 @@ export function ingredientFromLine(line: string): SuggestRecipeTagsRequestInput[
   return { name: name.trim(), quantity: parsed.quantity, unit: parsed.unit, note: rest.join(',').trim() };
 }
 
-/** `ai_calls` in memory; there are no limits or plans. */
+/** `ai_calls` in memory; there are no limits. */
 export class MemoryTagsStore implements SuggestTagsStore {
   aiCalls: AiCallRecord[] = [];
-
-  /** No database, so no plans: every feature is granted. */
-  async requireFeature(_feature: Feature) {}
 
   /** Local and manual: no rate limits. */
   async checkLimit() {

@@ -70,39 +70,37 @@ Add `instructions, prompt, response_text, output` to see exactly what was sent a
 
 ### Change a user's plan
 
-A user's plan decides which AI features they get (spec 4.12):
+A household's plan decides which of the two plan features its members get (spec 4.12): `recipe_import` (from a link and from photos) and `recipe_photo_ai`. Categorizing, tag suggestions and step matching are for everyone on every plan.
 
-- **none**: no AI features.
-- **basic**: categorizing new ingredients and matching ingredients to steps for cook mode.
-- **plus** (the default): also recipe import from a link and from photos, AI tag suggestions and AI recipe photos; every feature today.
-- **unlimited**: every feature, with no monthly limits. It's the plan for family.
+- **free**: neither.
+- **founding** (the default): both, 50 imports and 20 AI photos a month.
+- **unlimited**: both, with no monthly limits. It's the plan for family.
 
-A user with no `user_plans` row is on the default plan. Each plan also sets how much of each feature a user may use a month (below).
+Every household has a `household_plans` row, written when it's made with the plan that's the default at that moment; changing the default moves no one. A household with no row has no features. Until the portal goes per household, change a household's plan in the Table Editor: `household_plans`, edit `plan_id` on its row (`assigned_at` updates itself). The portal's plan form below still writes `user_plans`, which no longer decides anything (old app builds read `my_features`, which answers from the user's households).
 
 Use the admin portal: find the user (by email, name or user id), pick the plan or the default, and write a note. It calls `admin_set_user_plan`, which writes one `admin.admin_actions` row (`set_user_plan`, `{ from, to }`, the note, and your user id in `performed_by`), so the change shows in the user's plan history.
 
 The Table Editor still works, but nothing records who changed what or why:
 
 1. Find their id in Authentication → Users.
-2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`none`, `basic`, `plus` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
+2. Table Editor → `user_plans`. To put them on a plan, insert a row with their `user_id` and a `plan_id` (`free`, `founding` or `unlimited`), or edit `plan_id` on their existing row. `assigned_at` updates itself.
 3. To put them back on the default plan, delete their row.
 
 The foreign key only accepts real plans, so a typo is rejected. Nothing caches the plan on the server: `has_feature` reads it on each call.
 
 ### Change a plan's monthly limits
 
-Each AI feature has a monthly limit per plan, per user, in `public.plan_limits` (spec 4.12): the calendar month in UTC, resetting on the 1st. `categorize` counts names sent to the AI; the others count calls. Seeded:
+Each plan feature has a monthly limit per plan in `public.plan_limits` (spec 4.12): the calendar month in UTC, resetting on the 1st. Both count calls; link and photo imports share `recipe_import`'s. Seeded:
 
-| plan | categorize | step_ingredients | recipe_import | recipe_import_photo | recipe_tags | recipe_photo_ai |
-|---|---|---|---|---|---|---|
-| plus | 250 | 100 | 40 | 20 | 50 | 15 |
-| basic | 250 | 100 | | | | |
-| unlimited | null | null | null | null | null | null |
+| plan | recipe_import | recipe_photo_ai |
+|---|---|---|
+| founding | 50 | 20 |
+| unlimited | null | null |
 
 - Use the admin portal: pick the plan and the feature, set the limit (or none) and write a note. It calls `admin_set_plan_limit`, which writes one `admin.admin_actions` row (`set_plan_limit`, the plan before and after, the note and your user id). It takes effect on the next call.
 - The Table Editor still works, unaudited: `plan_limits`, edit `monthly_limit`.
 - A null `monthly_limit` means no monthly limit, and so does **deleting a row**: deleting a row lifts the limit for that plan and feature.
-- An account younger than 30 days gets twice its plan's limits.
+- A household younger than 30 days (`households.created_at`) gets twice its plan's limits.
 - The per-minute limits (which catch a client stuck in a loop) and one AI photo per recipe apply on every plan, unlimited too, and aren't in the table.
 - Past a limit, the app says "You've used this month's … They reset on Nov 1." Usage is counted even with no limit:
 
@@ -143,20 +141,21 @@ When paid plans launch:
 
 To move a founding household to a paid plan (they asked to), change that household's plan in the portal with a note. A household's plan can be changed but never cleared: a household with no row has no features.
 
-### Which plan is each user on
+### Which plan is each household on
 
 ```sql
-select u.email,
-  coalesce(up.plan_id, d.id) as plan,
-  case when up.plan_id is null then 'defaulted' else 'assigned' end as how,
-  up.assigned_at
-from auth.users u
-left join public.user_plans up on up.user_id = u.id
-left join public.plans d on d.is_default
-order by u.email;
+select h.name, h.id, hp.plan_id, hp.assigned_at,
+  (select string_agg(u.email, ', ' order by u.email)
+   from public.household_members m join auth.users u on u.id = m.user_id
+   where m.household_id = h.id) as members
+from public.households h
+left join public.household_plans hp on hp.household_id = h.id
+order by h.created_at;
 ```
 
-**Right after pushing the plans migration to hosted**, run this and confirm the owner's account (jgpasch@gmail.com) shows `plus`, `assigned`. If it doesn't, run "Put me on plus" below.
+A null `plan_id` is a household with no row, so no features; there shouldn't be any.
+
+**Right after pushing the household plans migration to hosted**, run this and confirm every household the owner (jgpasch@gmail.com) is in shows `unlimited`, and no household shows a null plan. If one doesn't, run "Put a household on a plan" below.
 
 ### AI photo blocks
 
@@ -242,7 +241,7 @@ order by created_at desc;
 
 ### Demo data for the portal (local only)
 
-`supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`) on every plan, with 40 days of usage of every feature (demo-1 at plus's monthly limits, demo-2 over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:
+`supabase/seed-admin-demo.sql` fills a local database with something for the portal to show: ten fake users (`demo-1@example.com` … `demo-10@example.com`) on every plan, with 40 days of usage of every feature (demo-1 at founding's monthly limits, demo-2 over them), a few `ai_calls` rows per task and a few audit rows. `seed.sql` doesn't run it, so run it by hand after each `supabase db reset`:
 
 ```bash
 psql postgresql://postgres:postgres@127.0.0.1:55322/postgres -f supabase/seed-admin-demo.sql
@@ -269,12 +268,16 @@ select admin.delete_user(
 
 An unknown id raises `user not found` and changes nothing.
 
-### Put me on plus
+### Put a household on a plan
+
+Every household the account is in goes on unlimited:
 
 ```sql
-insert into public.user_plans (user_id, plan_id)
-select id, 'plus' from auth.users where email = 'jgpasch@gmail.com'
-on conflict (user_id) do update set plan_id = 'plus';
+insert into public.household_plans (household_id, plan_id)
+select m.household_id, 'unlimited'
+from public.household_members m join auth.users u on u.id = m.user_id
+where u.email = 'jgpasch@gmail.com'
+on conflict (household_id) do update set plan_id = excluded.plan_id;
 ```
 
-Change the email to put someone else on plus. It does nothing if no account has that email.
+Change the email and the plan id for someone else. It does nothing if no account has that email.

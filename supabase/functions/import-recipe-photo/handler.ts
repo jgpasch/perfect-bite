@@ -59,7 +59,8 @@ export class ImportRecipePhotoError extends Error {
  */
 export async function importRecipePhoto(request: RecipePhotoImportRequest, deps: PhotoImportDeps): Promise<RecipeImportResponse> {
   try {
-    await deps.store.requireFeature('recipe_import_photo');
+    // Link and photo imports share `recipe_import` (spec 4.12).
+    await deps.store.requireFeature('recipe_import');
   } catch (err) {
     if (err instanceof NotEntitledError) {
       throw new ImportRecipePhotoError({ code: 'not_entitled' }, "Photo import isn't included in your plan");

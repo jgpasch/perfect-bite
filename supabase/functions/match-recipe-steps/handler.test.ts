@@ -7,7 +7,6 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from '../_shared/ai/prompts/match-recipe-steps.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import { matchSteps, type MatchStepsDeps, type StepMatchStore } from './handler.ts';
 import { AI_FAILED_RETRY_AFTER, handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
@@ -31,16 +30,11 @@ async function withEnv(vars: Record<string, string>, fn: () => Promise<void>) {
 }
 
 class FakeStore implements StepMatchStore {
-  /** Every step, in order: `feature:<name>`, `limit`, `ai_call`. */
+  /** Every step, in order: `limit`, `ai_call`. */
   steps: string[] = [];
   aiCalls: AiCallRecord[] = [];
-  features = new Set<Feature>(['categorize', 'step_ingredients']);
   limit: LimitResult = 'ok';
 
-  async requireFeature(feature: Feature) {
-    this.steps.push(`feature:${feature}`);
-    if (!this.features.has(feature)) throw new NotEntitledError(feature);
-  }
   async checkLimit() {
     this.steps.push('limit');
     return this.limit;
@@ -129,7 +123,7 @@ Deno.test('the mock matches end to end, answering with the request ids and the p
       ],
       promptVersion: MATCH_RECIPE_STEPS_PROMPT_VERSION,
     });
-    assertEquals(store.steps, ['feature:step_ingredients', 'limit', 'ai_call']);
+    assertEquals(store.steps, ['limit', 'ai_call']);
   });
 });
 
@@ -206,24 +200,25 @@ Deno.test('a failed call is logged with the caller too', async () => {
 
 // --- Order and refusals ---------------------------------------------------------------------------
 
-Deno.test('not_entitled is 403 before the limit or any model work', async () => {
+Deno.test('answers a user on the free plan (no feature check)', async () => {
+  // Step ingredients are for everyone (spec 4.12). A store whose plan check would refuse every
+  // feature, as the old `requireFeature` did for a plan without `step_ingredients`, is never asked.
   await withEnv({ AI_MODEL_STEPS: 'mock' }, async () => {
     const { store, post } = setup();
-    store.features.delete('step_ingredients');
+    Object.assign(store, {
+      requireFeature(feature: string) {
+        store.steps.push(`feature:${feature}`);
+        return Promise.reject(new Error(`Your plan doesn't include ${feature}`));
+      },
+    });
     const res = await post(TACOS);
-    assertEquals(res.status, 403);
-    assertEquals(await res.json(), { error: 'not_entitled', message: "Step ingredients aren't included in your plan" });
-    assertEquals(store.steps, ['feature:step_ingredients']);
-  });
-});
-
-Deno.test('not_entitled comes first even with the off switch on or the limit reached', async () => {
-  await withEnv({ AI_MODEL_STEPS: 'off', AI_MODEL_RECIPE: 'mock' }, async () => {
-    const { store, post } = setup();
-    store.features.clear();
-    store.limit = 'user_limit';
-    assertEquals((await post(TACOS)).status, 403);
-    assertEquals(store.steps, ['feature:step_ingredients']);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).steps, [
+      [{ id: 'ing-thighs', quantity: null }, { id: 'ing-limes', quantity: null }],
+      [{ id: 'ing-oil', quantity: null }],
+      [{ id: 'ing-limes', quantity: null }],
+    ]);
+    assertEquals(store.steps, ['limit', 'ai_call']);
   });
 });
 
@@ -234,7 +229,7 @@ Deno.test('AI_MODEL_STEPS=off is 503 unavailable, using no budget and calling no
     assertEquals(res.status, 503);
     assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
     assertEquals(await res.json(), { error: 'unavailable', message: 'Step matching is turned off' });
-    assertEquals(store.steps, ['feature:step_ingredients']);
+    assertEquals(store.steps, []);
   });
 });
 
@@ -254,7 +249,7 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
     assertEquals(res.status, 429);
     assertEquals(res.headers.get('Retry-After'), null);
     assertEquals(await res.json(), { error: 'rate_limited', message: 'Too many step matches; try again later' });
-    assertEquals(store.steps, ['feature:step_ingredients', 'limit']);
+    assertEquals(store.steps, ['limit']);
   });
 });
 
@@ -270,7 +265,7 @@ Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, 
       message: "This month's step matches are used up",
       resets_at: '2026-11-01T00:00:00.000Z',
     });
-    assertEquals(store.steps, ['feature:step_ingredients', 'limit']);
+    assertEquals(store.steps, ['limit']);
     assertEquals(store.aiCalls, []);
   });
 });

@@ -48,8 +48,8 @@ async function start(userId: string, ...answers: unknown[]) {
 }
 
 describe('before the first load', () => {
-  test('assumes the default plan, plus: every feature', () => {
-    const plus = [
+  test('assumes the default plan, founding: every feature', () => {
+    const founding = [
       'categorize',
       'recipe_import',
       'recipe_import_photo',
@@ -57,9 +57,9 @@ describe('before the first load', () => {
       'recipe_tags',
       'step_ingredients',
     ];
-    expect(DEFAULT_FEATURES).toEqual(plus);
-    expect(getFeatures()).toEqual(plus);
-    expect([...FEATURES].sort()).toEqual(plus);
+    expect(DEFAULT_FEATURES).toEqual(founding);
+    expect(getFeatures()).toEqual(founding);
+    expect([...FEATURES].sort()).toEqual(founding);
     for (const feature of FEATURES) expect(hasFeature(feature)).toBe(true);
   });
 
@@ -80,7 +80,7 @@ describe('loading', () => {
     expect(hasFeature('recipe_import')).toBe(true);
   });
 
-  test('the none plan has nothing', async () => {
+  test('a plan with no features has nothing', async () => {
     await start('u1', []);
     expect(getFeatures()).toEqual([]);
     expect(hasFeature('categorize')).toBe(false);
@@ -114,7 +114,7 @@ describe('loading', () => {
 
   test('a malformed answer changes nothing', async () => {
     await start('u1', ['categorize', 'recipe_import']);
-    respondToRpc('my_features', { data: 'plus' });
+    respondToRpc('my_features', { data: 'founding' });
     await refreshFeatures();
     expect(getFeatures()).toEqual(['categorize', 'recipe_import']);
     expect(warn).toHaveBeenCalled();

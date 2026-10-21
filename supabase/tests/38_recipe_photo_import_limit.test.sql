@@ -1,17 +1,36 @@
--- import-recipe-photo rate limits (spec 6.10): per user 5 a minute and the plan's monthly limit
--- (plus: 20; 48_plan_limits covers each plan), no global cap, a refused call uses no budget,
--- separate from the link-import and page-photo limits, the retention job, and only service_role
--- can call it. now() is fixed within the transaction, so every call lands in the same minute; the
--- window reset is simulated by moving minute_start back.
+-- import-recipe-photo rate limits (spec 6.10): per user 5 a minute and the household plan's
+-- monthly recipe_import limit (founding: 50, doubled in a household's first month; usage is
+-- counted on the photo table, separately from link imports; 48_plan_limits covers each plan), no
+-- global cap, a refused call uses no budget, separate from the link-import and page-photo limits,
+-- the retention job, and only service_role can call it. now() is fixed within the transaction, so
+-- every call lands in the same minute; the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(27);
 
--- Older than 30 days, so the default plan's (plus's) limits apply undoubled.
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('44444444-4444-4444-4444-444444444444', 'lee@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
+
+-- Alex, Sam and Kim each have a household on founding made over 30 days ago, so founding's 50
+-- apply undoubled. Lee's household is on free (no features).
+insert into public.households (id, name, created_at) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alex''s household', now() - interval '60 days'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Sam''s household', now() - interval '60 days'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Kim''s household', now() - interval '60 days'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Lee''s household', now() - interval '60 days');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'owner', 1),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'owner', 1),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'founding'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'founding'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'free');
 
 -- Per-minute limit ------------------------------------------------------------------
 create temp table results (n int, result text);
@@ -36,12 +55,12 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 6) $$,
   'a new window starts at 1; the day keeps counting');
 
--- Monthly limit (plus: 20) ------------------------------------------------------------
--- 6 so far; run 14 more, a new minute window every 4, to reach exactly 20.
+-- Monthly limit (founding's recipe_import: 50) ------------------------------------------
+-- 6 so far; run 44 more, a new minute window every 4, to reach exactly 50.
 do $$
 declare i int;
 begin
-  for i in 1..14 loop
+  for i in 1..44 loop
     if i % 4 = 0 then
       update private.recipe_photo_import_usage set minute_start = minute_start - interval '1 minute'
         where user_id = '11111111-1111-1111-1111-111111111111';
@@ -51,16 +70,23 @@ begin
     end if;
   end loop;
 end $$;
-select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 20,
-  '20 imports a month pass');
+select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
+  '50 imports a month pass');
 update private.recipe_photo_import_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
 select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'the 21st import in a month is refused, even in a fresh minute');
-select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 20,
+  'the 51st import in a month is refused, even in a fresh minute');
+select is((select imports from private.recipe_photo_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused import is not counted');
+select is(public.check_recipe_photo_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
+  'a user whose household is on free (no recipe_import) is refused');
 
--- No global cap (21 imports so far across users) ---------------------------------------
+-- In a household's first month the limit doubles: 100.
+update public.households set created_at = now() - interval '10 days' where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+  'in the household''s first month the 51st passes (doubled to 100)');
+
+-- No global cap (52 imports so far across users) ---------------------------------------
 select is(public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333'), 'ok',
   'another user still imports photos, whatever others used');
 select results_eq(
@@ -89,7 +115,8 @@ select is((select count(*)::int from private.recipe_photo_import_usage where day
   'the retention job deletes usage rows older than 40 days');
 select is((select count(*)::int from private.recipe_photo_import_usage where day = (now() at time zone 'utc')::date - 40), 1,
   'and keeps the row 40 days old');
-select is((select count(*)::int from private.recipe_photo_import_usage), 4, 'and today''s');
+-- Today's: Alex's, Sam's, Kim's and Lee's (a refused call still makes the day's row).
+select is((select count(*)::int from private.recipe_photo_import_usage), 5, 'and today''s');
 
 -- Bad arguments and access ----------------------------------------------------------
 select throws_ok($$ select public.check_recipe_photo_limit(null) $$, '22023', null, 'a null user is rejected');

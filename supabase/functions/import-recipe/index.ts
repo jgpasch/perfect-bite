@@ -1,6 +1,6 @@
 // POST /functions/v1/import-recipe — body: RecipeImportRequest (spec 6.6).
 // 200 RecipeImportResponse · 400 invalid_url/invalid_request · 401 no/invalid user (from
-// withSupabase) · 403 not_entitled (the caller's plan has no `recipe_import`, spec 4.12) · 405
+// withSupabase) · 403 not_entitled (the household's plan has no `recipe_import`, spec 4.12) · 405
 // · 413 · 422 not_a_recipe · 429 rate_limited (per minute) or limit_reached (the plan's monthly
 // imports, with resets_at) · 502 fetch_failed · 503 unavailable (with
 // Retry-After) · 500.
@@ -18,12 +18,7 @@ export default {
     const userId = ctx.userClaims!.id;
     const caller = { userId, householdId: null };
     const store = createRecipeImportStore(ctx.supabaseAdmin, { userId });
-    // `recipe_import` implies `categorize` (spec 4.12), and importRecipe checks it first, so the
-    // inline categorize doesn't check its own feature again.
-    const categorizeStore = {
-      ...createCategorizeStore(ctx.supabaseAdmin, { userId }),
-      requireFeature: () => Promise.resolve(),
-    };
+    const categorizeStore = createCategorizeStore(ctx.supabaseAdmin, { userId });
     return handleRequest(req, {
       importRecipe: (request) =>
         importRecipe(request, {

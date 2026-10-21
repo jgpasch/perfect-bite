@@ -16,6 +16,10 @@ insert into public.households (id, name) values
 insert into public.household_members (household_id, user_id, role, position) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'owner', 1);
+-- Both households are on founding (recipe_photo_ai: 20 a month, 40 in a household's first month).
+insert into public.household_plans (household_id, plan_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'founding');
 insert into public.recipes (id, household_id, name, deleted_at) values
   ('a4000000-0000-7000-8000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Blueberry bread', null),
   ('a4000000-0000-7000-8000-000000000002', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tacos', null),
@@ -24,12 +28,13 @@ insert into public.recipes (id, household_id, name, deleted_at) values
   ('a4000000-0000-7000-8000-00000000000d', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Gone', now());
 
 -- The feature -----------------------------------------------------------------
-select ok(exists (select 1 from public.plan_features where plan_id = 'plus' and feature = 'recipe_photo_ai')
+select ok(exists (select 1 from public.plan_features where plan_id = 'founding' and feature = 'recipe_photo_ai')
   and exists (select 1 from public.plan_features where plan_id = 'unlimited' and feature = 'recipe_photo_ai'),
-  'plus and unlimited have recipe_photo_ai');
-select ok(not exists (select 1 from public.plan_features
-                      where plan_id not in ('plus', 'unlimited') and feature = 'recipe_photo_ai'),
-  'none and basic don''t');
+  'founding and unlimited have recipe_photo_ai');
+select ok(exists (select 1 from public.plans where id = 'free')
+  and not exists (select 1 from public.plan_features
+                  where plan_id not in ('founding', 'unlimited') and feature = 'recipe_photo_ai'),
+  'free doesn''t');
 
 -- Access ----------------------------------------------------------------------
 select ok(

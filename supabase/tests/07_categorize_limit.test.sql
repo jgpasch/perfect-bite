@@ -1,12 +1,11 @@
 -- categorize-ingredients rate limits (spec 6.4). now() is fixed within the transaction, so every
 -- call below lands in the same minute; the window reset is simulated by moving minute_start back.
 -- There is no global cap (20261112120000_drop_global_caps.sql): only the per-user limits refuse,
--- per minute and the plan's monthly names (48_plan_limits covers each plan).
+-- per minute. Categorize has had no monthly limit since 20261129120000_household_plans.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(31);
 
--- Older than 30 days, so the default plan's (plus's) 250 names a month apply undoubled.
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -39,31 +38,43 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 2) $$,
   'a new window starts at 1 request at the current minute');
 
--- Per-user monthly names (plus: 250) --------------------------------------------------
-select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 250), 'ok', '250 new names a month pass');
-select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 1), 'monthly_limit', 'the 251st new name does not');
+-- No monthly name limit ---------------------------------------------------------------
+-- Categorize is for everyone (20261129120000_household_plans): no plan feature, no monthly limit.
+select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 250), 'ok', '250 new names pass');
+select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 1), 'ok',
+  'the 251st new name passes too: there is no monthly limit');
 select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 0), 'ok',
-  'a request with 0 new names still passes after the monthly name limit');
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 251), 'monthly_limit',
-  '251 new names in one request are refused whole');
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 249), 'ok', '249 pass');
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 2), 'monthly_limit',
-  'a batch that would cross 250 is refused whole, not split');
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 1), 'ok', 'exactly 250 pass');
+  'a request with 0 new names passes');
+select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 251), 'ok',
+  '251 new names in one request pass');
+select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 10000), 'ok',
+  'a batch of 10000 names passes');
+select is((select new_names from private.categorize_usage where user_id = '33333333-3333-3333-3333-333333333333'),
+  10251, 'usage still counts every name');
+select is(private.monthly_limit('33333333-3333-3333-3333-333333333333'::uuid, 'categorize'), null,
+  'categorize has no monthly limit');
 
 -- Refused requests change nothing ----------------------------------------------------
+-- Only the minute limit refuses now: fill Sam's minute.
+update private.categorize_usage set requests_this_minute = 60, minute_start = date_trunc('minute', now())
+  where user_id = '22222222-2222-2222-2222-222222222222';
 create temp table before_usage as select * from private.categorize_usage;
-select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 5), 'monthly_limit', 'refused (monthly limit)');
+select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 5), 'user_limit', 'refused (minute limit)');
 select set_eq($$ select * from private.categorize_usage $$, $$ select * from before_usage $$,
   'a refused request leaves the usage rows unchanged');
 
 -- No global cap ----------------------------------------------------------------------
--- 502 names so far across users; a fresh user's whole 250 still pass, whatever everyone used.
+-- 10504 names so far across users; a fresh user's names still pass, whatever everyone used.
 select is(public.check_categorize_limit('44444444-4444-4444-4444-444444444444', 250), 'ok',
-  'a fresh user gets their whole monthly names, whatever others used');
-select is((select sum(new_names)::int from private.categorize_usage), 752, 'usage still counts each user''s names');
-select is(public.check_categorize_limit('44444444-4444-4444-4444-444444444444', 1), 'monthly_limit',
-  'and then their own limit refuses');
+  'a fresh user''s names pass, whatever others used');
+select is((select sum(new_names)::int from private.categorize_usage), 10754, 'usage still counts each user''s names');
+-- A household whose plan has no features (free) still categorizes.
+insert into public.households (id, name) values ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Lee''s household');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'free');
+select is(public.check_categorize_limit('44444444-4444-4444-4444-444444444444', 1), 'ok',
+  'a user whose household is on free still categorizes');
 
 -- Null user (the pg_cron sweep) -------------------------------------------------------
 create temp table sweep as

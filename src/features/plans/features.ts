@@ -1,5 +1,5 @@
 // The signed-in user's plan features (spec 4.12): what `my_features()` returned (`load.ts` loads
-// and caches it). Until the first answer the default plan (plus) is assumed, so nothing hides
+// and caches it). Until the first answer the default plan (founding) is assumed, so nothing hides
 // or stops by mistake. The app only hides or skips; Edge Functions enforce.
 import { useSyncExternalStore } from 'react';
 
@@ -13,7 +13,7 @@ export const FEATURES = [
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
-/** The default plan's features (plus), assumed until the first load. */
+/** The default plan's features (founding), assumed until the first load. */
 export const DEFAULT_FEATURES: readonly Feature[] = [
   'categorize',
   'recipe_import',

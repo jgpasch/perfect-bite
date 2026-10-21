@@ -78,7 +78,7 @@ export function copyId(id: string): string {
   return `${id.slice(0, 31 - "_copy".length)}_copy`;
 }
 
-/** Duplicate's prefilled name: "Plus copy". */
+/** Duplicate's prefilled name: "Founding copy". */
 export function copyName(name: string): string {
   return `${name} copy`;
 }

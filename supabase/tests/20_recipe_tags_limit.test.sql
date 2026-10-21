@@ -1,12 +1,11 @@
--- suggest-recipe-tags rate limits (spec 6.7): per user 20 a minute and the plan's monthly limit
--- (plus: 50; 48_plan_limits covers each plan), no global cap, a refused call uses no budget, the
--- retention job, and only service_role can call it. now() is fixed within the transaction, so
--- every call lands in the same minute; the window reset is simulated by moving minute_start back.
+-- suggest-recipe-tags rate limits (spec 6.7): per user 20 a minute and no monthly limit (since
+-- 20261129120000_household_plans), no global cap, a refused call uses no budget, the retention
+-- job, and only service_role can call it. now() is fixed within the transaction, so every call
+-- lands in the same minute; the window reset is simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(25);
 
--- Older than 30 days, so the default plan's (plus's) limits apply undoubled.
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
@@ -35,8 +34,9 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 21) $$,
   'a new window starts at 1; the day keeps counting');
 
--- Monthly limit (plus: 50) ------------------------------------------------------------
--- 21 so far; run 29 more, a minute window every 19, to reach exactly 50.
+-- No monthly limit --------------------------------------------------------------------
+-- Suggest tags is for everyone (20261129120000_household_plans): no plan feature, no monthly
+-- limit. 21 so far; run 29 more, a minute window every 19, to reach 50.
 do $$
 declare i int;
 begin
@@ -54,12 +54,12 @@ select is((select suggestions from private.recipe_tags_usage where user_id = '11
   '50 suggestions a month pass');
 update private.recipe_tags_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
-select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'the 51st suggestion in a month is refused, even in a fresh minute');
-select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
-  'the refused suggestion is not counted');
+select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+  'the 51st suggestion in a month passes too: there is no monthly limit');
+select is((select suggestions from private.recipe_tags_usage where user_id = '11111111-1111-1111-1111-111111111111'), 51,
+  'and it is counted');
 
--- No global cap (51 suggestions so far across users) ----------------------------------
+-- No global cap (52 suggestions so far across users) ----------------------------------
 select is(public.check_recipe_tags_limit('33333333-3333-3333-3333-333333333333'), 'ok',
   'another user still gets suggestions, whatever others used');
 select results_eq(
@@ -73,8 +73,13 @@ select is((select command from cron.job where jobname = 'recipe-tags-usage-reten
   'the retention job keeps recipe_tags_usage 40 days, and prunes nothing else');
 
 -- The import limits are separate ----------------------------------------------------------
+-- Importing is a plan feature: Alex's household is on founding.
+insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alex''s household');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding');
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
-  'a user out of tag suggestions can still import');
+  'a user with many tag suggestions can still import');
 
 -- Retention -----------------------------------------------------------------------------
 insert into private.recipe_tags_usage (user_id, day, minute_start) values

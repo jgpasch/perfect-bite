@@ -148,7 +148,7 @@ class FakeRecipeStore implements RecipeImportStore {
     this.aiCalls.push(call);
   }
   /** The features the caller's plan has, and every feature checked. */
-  features = new Set<Feature>(['categorize', 'recipe_import', 'recipe_import_photo']);
+  features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
   async requireFeature(feature: Feature) {
     this.featureChecks.push(feature);
@@ -201,8 +201,6 @@ class FakeCategorizeStore implements CategorizeStore {
   async checkLimit() {
     return this.limit;
   }
-  /** Like index.ts: `recipe_import` was checked first and implies `categorize`. */
-  async requireFeature() {}
 }
 
 /** A model whose every call throws `error`. */
@@ -1057,8 +1055,8 @@ test('AI_MODEL_CATEGORIZE=off still imports, with the names pending', async () =
 
 // --- Plans ------------------------------------------------------------------------------------------
 
-for (const features of [[], ['categorize']] as Feature[][]) {
-  test(`without recipe_import (plan: ${features.join(', ') || 'none'}): 403 not_entitled before anything else`, async () => {
+for (const features of [[], ['recipe_photo_ai']] as Feature[][]) {
+  test(`without recipe_import (plan: ${features.join(', ') || 'free'}): 403 not_entitled before anything else`, async () => {
     const { post, store, fetched, aiCalls } = setup({
       categorize: () => Promise.reject(new Error('should not categorize')),
     });
@@ -1080,7 +1078,7 @@ for (const features of [[], ['categorize']] as Feature[][]) {
 
 test('without recipe_import, a client-supplied page is refused too, with nothing extracted', async () => {
   const { deps, store, aiCalls } = setup();
-  store.features = new Set(['categorize']);
+  store.features = new Set(['recipe_photo_ai']);
   const err = await importRecipe({ url: BARS_URL, page: { title: 'Lemon Bars', text: '1 cup flour' } }, deps).then(
     () => null,
     (e: unknown) => e,
@@ -1108,7 +1106,7 @@ test('the plan is checked before the URL and the kill switch', async () => {
 
 test('with recipe_import: checked once, then imported and categorized as usual', async () => {
   const { post, store, calls } = setup();
-  store.features = new Set(['categorize', 'recipe_import']);
+  store.features = new Set(['recipe_import']);
   const res = await post({ url: PASTA_URL });
   assertEquals(res.status, 200);
   assertEquals(await res.json(), PASTA_RESPONSE);

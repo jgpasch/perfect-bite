@@ -99,7 +99,7 @@ Deno.test('placeholderUrl: names the file, on a host that never resolves', () =>
 Deno.test('MemoryRecipeStore: no limits, cache keyed by URL and prompt version, calls logged', async () => {
   const store = new MemoryRecipeStore();
   assertEquals(await store.checkLimit(), 'ok');
-  for (const feature of ['categorize', 'recipe_import', 'recipe_import_photo'] as const) {
+  for (const feature of ['recipe_import', 'recipe_photo_ai'] as const) {
     assertEquals(await store.requireFeature(feature), undefined, `${feature} is granted`);
   }
   assertEquals(await store.getCached('https://a.com/r', 'v1'), null);

@@ -1,16 +1,32 @@
 -- import-recipe (spec 6.6): the recipe_imports cache is service role only with no user id, the
 -- retention jobs are scheduled and delete only old rows, and the per-user import limits: per minute
--- and the plan's monthly one (no global cap; 48_plan_limits covers each plan). now() is fixed within the transaction, so every call lands in the same minute;
--- the window reset is simulated by moving minute_start back.
+-- and the household plan's monthly one (no global cap; 48_plan_limits covers each plan). now() is
+-- fixed within the transaction, so every call lands in the same minute; the window reset is
+-- simulated by moving minute_start back.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(35);
+select plan(36);
 
--- Older than 30 days, so the default plan's (plus's) limits apply undoubled.
 insert into auth.users (id, email, aud, role, created_at) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
+  ('44444444-4444-4444-4444-444444444444', 'lee@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
+
+-- Each of Alex, Sam and Kim has a household on founding, made over 30 days ago, so founding's 50
+-- imports a month apply undoubled. Lee is in no household.
+insert into public.households (id, name, created_at) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alex''s household', now() - interval '60 days'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Sam''s household', now() - interval '60 days'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Kim''s household', now() - interval '60 days');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'owner', 1),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'founding'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'founding');
 
 -- recipe_imports ---------------------------------------------------------------------
 select has_pk('public', 'recipe_imports', 'recipe_imports has a primary key');
@@ -60,12 +76,12 @@ select results_eq(
   $$ values (1, date_trunc('minute', now()), 11) $$,
   'a new window starts at 1 import; the day keeps counting');
 
--- Monthly limit (plus: 40) -------------------------------------------------------------
--- 11 imports so far; run 29 more, a minute window at a time, to reach exactly 40.
+-- Monthly limit (founding: 50) ---------------------------------------------------------
+-- 11 imports so far; run 39 more, a minute window at a time, to reach exactly 50.
 do $$
 declare i int;
 begin
-  for i in 1..29 loop
+  for i in 1..39 loop
     update private.recipe_import_usage set minute_start = minute_start - interval '1 minute'
       where user_id = '11111111-1111-1111-1111-111111111111';
     if public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111') <> 'ok' then
@@ -73,16 +89,18 @@ begin
     end if;
   end loop;
 end $$;
-select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 40,
-  '40 imports a month pass');
+select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
+  '50 imports a month pass');
 update private.recipe_import_usage set minute_start = minute_start - interval '1 minute'
   where user_id = '11111111-1111-1111-1111-111111111111';
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'the 41st import in a month is refused, even in a fresh minute');
-select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 40,
+  'the 51st import in a month is refused, even in a fresh minute');
+select is((select imports from private.recipe_import_usage where user_id = '11111111-1111-1111-1111-111111111111'), 50,
   'the refused import is not counted');
+select is(public.check_recipe_import_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
+  'a user in no household (so no plan) is refused');
 
--- No global cap (41 imports so far across users) --------------------------------------
+-- No global cap (51 imports so far across users) --------------------------------------
 select is(public.check_recipe_import_limit('33333333-3333-3333-3333-333333333333'), 'ok',
   'another user still imports, whatever others used');
 select results_eq(

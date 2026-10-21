@@ -7,7 +7,6 @@ import { normalizeIngredientName, OTHER_CATEGORY_ID, SYSTEM_CATEGORIES } from '@
 
 import { buildCategorizePrompt, CATEGORIZE_PROMPT_VERSION } from '../_shared/ai/prompts/categorize.v3.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import type { Feature } from '../_shared/entitlements.ts';
 import { isThinkingSetting, THINKING_SETTINGS, type ThinkingSetting } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
 import {
@@ -226,9 +225,6 @@ export class MemoryStore implements CategorizeStore {
   async checkLimit(_newNames = 0): Promise<LimitResult> {
     return 'ok';
   }
-
-  /** No database, so no plans: every feature is granted. */
-  async requireFeature(_feature: Feature) {}
 }
 
 export type CliIo = {

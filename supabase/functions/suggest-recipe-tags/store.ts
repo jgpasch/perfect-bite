@@ -1,19 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { requireFeature } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import type { SuggestTagsStore } from './handler.ts';
 
 /**
- * SuggestTagsStore over the service-role client. The plan check and the rate limit are per
- * `userId`. Each `ai_calls` row carries the caller from the handler.
+ * SuggestTagsStore over the service-role client. The rate limit is per `userId`. Each `ai_calls`
+ * row carries the caller from the handler.
  */
 export function createSuggestTagsStore(admin: SupabaseClient, limits: { userId: string }): SuggestTagsStore {
   return {
-    requireFeature(feature) {
-      return requireFeature(admin, limits.userId, feature);
-    },
-
     async checkLimit() {
       const { data, error } = await admin.rpc('check_recipe_tags_limit', { p_user_id: limits.userId });
       if (error) throw error;

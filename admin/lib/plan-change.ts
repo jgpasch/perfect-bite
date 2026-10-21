@@ -9,7 +9,7 @@ export type PlanChoice = {
   /** The radio's value: the plan id, or "" for the default. */
   value: string;
   planId: string | null;
-  /** "Default (Plus)", or the plan's name. */
+  /** "Default (Founding)", or the plan's name. */
   title: string;
   /** Its features and limits in one line. */
   summary: string;
@@ -29,7 +29,7 @@ export function planSummary(plan: Pick<AdminPlan, "features">): string {
     .join(" · ");
 }
 
-/** The default choice's title: "Default (Plus)", or "Default" when no plan is the default. */
+/** The default choice's title: "Default (Founding)", or "Default" when no plan is the default. */
 export function defaultChoiceTitle(plans: AdminPlanList): string {
   const fallback = plans.find((plan) => plan.is_default);
   return fallback ? `Default (${fallback.name})` : "Default";
@@ -59,7 +59,7 @@ export function planChoices(plans: AdminPlanList, current: string | null): PlanC
   ];
 }
 
-/** "Moved ann@example.com to Basic"; the default reads as its choice, "Default (Plus)". */
+/** "Moved ann@example.com to Free"; the default reads as its choice, "Default (Founding)". */
 export function movedMessage(email: string | null, choice: Pick<PlanChoice, "title">): string {
   return `Moved ${email ?? "the user"} to ${choice.title}`;
 }

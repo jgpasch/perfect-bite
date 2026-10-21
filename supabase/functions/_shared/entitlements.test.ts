@@ -20,8 +20,8 @@ function fakeAdmin(answer: { data: unknown; error: unknown }) {
 
 Deno.test('requireFeature: has_feature true resolves, calling it once with the user and feature', async () => {
   const { admin, calls } = fakeAdmin({ data: true, error: null });
-  assertEquals(await requireFeature(admin, USER, 'categorize'), undefined);
-  assertEquals(calls, [{ fn: 'has_feature', args: { p_user_id: USER, p_feature: 'categorize', p_household_id: null } }]);
+  assertEquals(await requireFeature(admin, USER, 'recipe_photo_ai'), undefined);
+  assertEquals(calls, [{ fn: 'has_feature', args: { p_user_id: USER, p_feature: 'recipe_photo_ai', p_household_id: null } }]);
 });
 
 Deno.test('requireFeature: the household, when given, is passed through', async () => {
@@ -41,14 +41,14 @@ Deno.test('requireFeature: has_feature false throws NotEntitledError naming the 
 Deno.test('requireFeature: anything but true (null, a string) is not entitled', async () => {
   for (const data of [null, 'true', 1]) {
     const { admin } = fakeAdmin({ data, error: null });
-    await assertRejects(() => requireFeature(admin, USER, 'categorize'), NotEntitledError);
+    await assertRejects(() => requireFeature(admin, USER, 'recipe_photo_ai'), NotEntitledError);
   }
 });
 
 Deno.test('requireFeature: a database error is thrown as is, not as NotEntitledError', async () => {
   const dbError = { message: 'permission denied for function has_feature', code: '42501' };
   const { admin } = fakeAdmin({ data: null, error: dbError });
-  const err = await requireFeature(admin, USER, 'categorize').then(
+  const err = await requireFeature(admin, USER, 'recipe_import').then(
     () => null,
     (e: unknown) => e,
   );

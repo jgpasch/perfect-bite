@@ -71,6 +71,11 @@ select is((select command from cron.job where jobname = 'recipe-photos-usage-ret
   'the retention job keeps recipe_photos_usage 40 days, like the other usage tables, and prunes nothing else');
 
 -- The import limit is separate ------------------------------------------------------------
+-- Importing is a plan feature (20261129120000_household_plans): Alex's household is on founding.
+insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alex''s household');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding');
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
   'a user out of page-photo requests can still import');
 

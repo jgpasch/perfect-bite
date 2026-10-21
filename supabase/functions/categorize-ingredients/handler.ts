@@ -6,7 +6,6 @@ import { APICallError, NoObjectGeneratedError, RetryError, type LanguageModel } 
 import { buildCategorizePrompt } from '../_shared/ai/prompts/categorize.v3.ts';
 import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled, type CategorizeOutput } from '../_shared/ai/tasks.ts';
-import type { Feature } from '../_shared/entitlements.ts';
 
 /** Names per request (LLM boundaries: input). */
 export const MAX_NAMES = 100;
@@ -88,11 +87,6 @@ export interface CategorizeStore {
    * names it would send to the LLM. Called once per request, before anything is written.
    */
   checkLimit(newNames: number): Promise<LimitResult>;
-  /**
-   * Throws NotEntitledError unless the caller's plan has `feature` (`requireFeature` in
-   * `_shared/entitlements.ts`). Called first, before the rate limit or any database or LLM work.
-   */
-  requireFeature(feature: Feature): Promise<void>;
 }
 
 /**
@@ -172,8 +166,8 @@ function toResult(row: IngredientRow): CategorizeResult {
 /**
  * Answers every input name from the database, sending only the uncategorized ones (with attempts
  * left) to the LLM in one call per 100 names. `model` is injected by tests; otherwise the task's
- * env model is used. `caller` is recorded on each `ai_calls` row. Throws NotEntitledError, before
- * any other work, without `categorize`.
+ * env model is used. `caller` is recorded on each `ai_calls` row. Categorizing isn't a plan
+ * feature (spec 4.12): every user gets it, held only to the rate limits.
  */
 export async function categorize(
   names: readonly string[],
@@ -181,7 +175,6 @@ export async function categorize(
   model?: { instance: LanguageModel; modelId: string },
   caller?: AiCaller,
 ): Promise<CategorizeResponse> {
-  await store.requireFeature('categorize');
   if (names.length > MAX_NAMES) throw new CategorizeInputError(`At most ${MAX_NAMES} names per request`);
 
   // Normalized name → display name (the first spelling seen). Names empty after normalizing are dropped.

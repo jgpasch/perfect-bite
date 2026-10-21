@@ -284,6 +284,23 @@ describe('a rejected mutation does not block the rest', () => {
     ]);
   });
 
+  test("create_household refused with 'already in a household' (400 P0001) is recorded and the queue moves on", async () => {
+    resetDb();
+    insertRow(db, households, { id: H, name: 'Home' });
+    addList('l1');
+    respondToRpc('create_household', { data: null, error: { code: 'P0001', message: 'already in a household' }, status: 400 });
+    applyAll();
+
+    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 1, rejected: 1, failed: false });
+
+    expect(rpcCalls.map((c) => c.fn)).toEqual(['create_household', 'apply_mutations']);
+    expect(sent(0).map((m) => m.id)).toEqual(['l1']);
+    expect(outboxRows().map((r) => [r.mutation.table, r.mutation.id, r.error, r.rejectedAt])).toEqual([
+      ['households', H, { code: 'P0001', message: 'already in a household' }, T0],
+    ]);
+    expect(getPushState().attempts).toBe(0);
+  });
+
   test('a household change other than creation is recorded as unsupported', async () => {
     updateRows(db, households, eq(households.id, H), { name: 'Renamed' });
     addList('l1');

@@ -10,16 +10,16 @@ create temp table demo_users (
 ) on commit drop;
 
 insert into demo_users values
-  (1,  'de300000-0000-4000-8000-000000000001', 'Maya Chen',    interval '152 days', 'plus',      'at'),
+  (1,  'de300000-0000-4000-8000-000000000001', 'Maya Chen',    interval '152 days', 'founding',  'at'),
   (2,  'de300000-0000-4000-8000-000000000002', 'Theo Okafor',  interval '121 days', null,        'over'),
   (3,  'de300000-0000-4000-8000-000000000003', 'Priya Raman',  interval '98 days',  'unlimited', 'heavy'),
-  (4,  'de300000-0000-4000-8000-000000000004', 'Sam Delgado',  interval '90 days',  'basic',     'medium'),
-  (5,  'de300000-0000-4000-8000-000000000005', 'Lena Fischer', interval '76 days',  'none',      'light'),
+  (4,  'de300000-0000-4000-8000-000000000004', 'Sam Delgado',  interval '90 days',  'free',      'medium'),
+  (5,  'de300000-0000-4000-8000-000000000005', 'Lena Fischer', interval '76 days',  'free',      'light'),
   (6,  'de300000-0000-4000-8000-000000000006', 'Kofi Mensah',  interval '63 days',  null,        'light'),
-  (7,  'de300000-0000-4000-8000-000000000007', 'Ana Souza',    interval '47 days',  'plus',      'medium'),
-  (8,  'de300000-0000-4000-8000-000000000008', 'Jonas Berg',   interval '38 days',  'basic',     'light'),
+  (7,  'de300000-0000-4000-8000-000000000007', 'Ana Souza',    interval '47 days',  'founding',  'medium'),
+  (8,  'de300000-0000-4000-8000-000000000008', 'Jonas Berg',   interval '38 days',  'free',      'light'),
   (9,  'de300000-0000-4000-8000-000000000009', 'Hana Sato',    interval '12 days',  null,        'medium'),
-  (10, 'de300000-0000-4000-8000-000000000010', 'Omar Haddad',  interval '160 days', 'plus',      'light');
+  (10, 'de300000-0000-4000-8000-000000000010', 'Omar Haddad',  interval '160 days', 'founding',  'light');
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -80,7 +80,7 @@ select u.id, l.feature, (now() at time zone 'utc')::date,
     0
   )
 from demo_users u
-join public.plan_limits l on l.plan_id = 'plus' and l.monthly_limit is not null
+join public.plan_limits l on l.plan_id = 'founding' and l.monthly_limit is not null
 where u.level in ('at', 'over');
 
 insert into private.categorize_usage (user_id, day, minute_start, new_names)
@@ -159,6 +159,8 @@ from (
 ) c
 on conflict do nothing;
 
+-- Old audit rows: they keep the plan ids of their day (plus, basic, none), as real rows from before
+-- the household plans migration do (admin_actions.target_plan_id has no foreign key).
 insert into admin.admin_actions (
   id, action, target_user_id, target_plan_id, details, note, performed_by, created_at
 ) values

@@ -68,9 +68,8 @@ Deno.test('ingredientFromLine parses the amount and keeps what follows the first
   assertEquals(ingredientFromLine('salt'), { name: 'salt', quantity: null, unit: null, note: '' });
 });
 
-Deno.test('MemoryTagsStore grants every feature and never limits', async () => {
+Deno.test('MemoryTagsStore never limits', async () => {
   const store = new MemoryTagsStore();
-  await store.requireFeature('recipe_tags');
   assertEquals(await store.checkLimit(), 'ok');
 });
 

@@ -2,8 +2,10 @@
 --
 -- Ten fake users (demo-1@example.com … demo-10@example.com) on every plan, some with no user_plans
 -- row (so on the default), one joined under 30 days ago (doubled limits); usage of every feature
--- over the last 40 days, with demo-1 at plus's monthly limits and demo-2 over them; a few ai_calls
--- rows per task with mixed statuses, tokens and fallbacks; and a few admin.admin_actions rows.
+-- over the last 40 days, with demo-1 at founding's monthly limits and demo-2 over them; a few
+-- ai_calls rows per task with mixed statuses, tokens and fallbacks; and a few admin.admin_actions
+-- rows (on the old plan ids, as audit rows from before the household plans migration are). No
+-- households: user_plans only.
 -- seed.sql doesn't run it, so `supabase db reset` leaves it out and the pgTAP counts and the app's
 -- dev data don't change.
 --
@@ -24,7 +26,7 @@
 begin;
 
 -- level: how much of each feature in their plan they use. light, medium and heavy are spread over
--- the days; at and over also reach plus's monthly limit (exactly, and by a quarter more) this month.
+-- the days; at and over also reach founding's monthly limit (exactly, and by a quarter more) this month.
 create temp table demo_users (
   n integer,
   id uuid,
@@ -35,16 +37,16 @@ create temp table demo_users (
 ) on commit drop;
 
 insert into demo_users values
-  (1,  'de300000-0000-4000-8000-000000000001', 'Maya Chen',    interval '152 days', 'plus',      'at'),
+  (1,  'de300000-0000-4000-8000-000000000001', 'Maya Chen',    interval '152 days', 'founding',  'at'),
   (2,  'de300000-0000-4000-8000-000000000002', 'Theo Okafor',  interval '121 days', null,        'over'),
   (3,  'de300000-0000-4000-8000-000000000003', 'Priya Raman',  interval '98 days',  'unlimited', 'heavy'),
-  (4,  'de300000-0000-4000-8000-000000000004', 'Sam Delgado',  interval '90 days',  'basic',     'medium'),
-  (5,  'de300000-0000-4000-8000-000000000005', 'Lena Fischer', interval '76 days',  'none',      'light'),
+  (4,  'de300000-0000-4000-8000-000000000004', 'Sam Delgado',  interval '90 days',  'free',      'medium'),
+  (5,  'de300000-0000-4000-8000-000000000005', 'Lena Fischer', interval '76 days',  'free',      'light'),
   (6,  'de300000-0000-4000-8000-000000000006', 'Kofi Mensah',  interval '63 days',  null,        'light'),
-  (7,  'de300000-0000-4000-8000-000000000007', 'Ana Souza',    interval '47 days',  'plus',      'medium'),
-  (8,  'de300000-0000-4000-8000-000000000008', 'Jonas Berg',   interval '38 days',  'basic',     'light'),
+  (7,  'de300000-0000-4000-8000-000000000007', 'Ana Souza',    interval '47 days',  'founding',  'medium'),
+  (8,  'de300000-0000-4000-8000-000000000008', 'Jonas Berg',   interval '38 days',  'free',      'light'),
   (9,  'de300000-0000-4000-8000-000000000009', 'Hana Sato',    interval '12 days',  null,        'medium'),
-  (10, 'de300000-0000-4000-8000-000000000010', 'Omar Haddad',  interval '160 days', 'plus',      'light');
+  (10, 'de300000-0000-4000-8000-000000000010', 'Omar Haddad',  interval '160 days', 'founding',  'light');
 
 -- Users. The profile (display name from full_name) comes from the on_auth_user_created trigger.
 -- No password or identity: they're for looking at, not signing in as.
@@ -69,8 +71,8 @@ where u.plan_id is not null
 on conflict do nothing;
 
 -- Usage per user, feature in their plan and UTC day, in the limits' units (categorize: names; the
--- rest: calls), from deterministic hashes so every run gives the same numbers. Scale is roughly a
--- thirtieth of plus's limit.
+-- rest: calls), from deterministic hashes so every run gives the same numbers. Plans only have
+-- recipe_import and recipe_photo_ai now, so the other keys' scales go unused.
 create temp table demo_usage on commit drop as
 select u.id as user_id, f.feature, d.day, v.used
 from demo_users u
@@ -98,7 +100,7 @@ where d.day >= ((now() - u.joined) at time zone 'utc')::date
   and not (u.level in ('at', 'over') and g.days_ago = 0)
   and v.used > 0;
 
--- at and over: today tops this month up to plus's limit (at) or a quarter over it (over).
+-- at and over: today tops this month up to founding's limit (at) or a quarter over it (over).
 insert into demo_usage (user_id, feature, day, used)
 select u.id, l.feature, (now() at time zone 'utc')::date,
   greatest(
@@ -111,7 +113,7 @@ select u.id, l.feature, (now() at time zone 'utc')::date,
     0
   )
 from demo_users u
-join public.plan_limits l on l.plan_id = 'plus' and l.monthly_limit is not null
+join public.plan_limits l on l.plan_id = 'founding' and l.monthly_limit is not null
 where u.level in ('at', 'over');
 
 insert into private.categorize_usage (user_id, day, minute_start, new_names)
@@ -195,7 +197,8 @@ on conflict do nothing;
 
 -- Audit rows: plan changes from the portal (performed by the dev user from seed.sql, whose email
 -- shows when that user exists), a rename, and a delete_user from the dashboard (postgres) whose
--- user is gone.
+-- user is gone. They keep the plan ids of their day (plus, basic, none), as real rows from before
+-- the household plans migration do (admin_actions.target_plan_id has no foreign key).
 insert into admin.admin_actions (
   id, action, target_user_id, target_plan_id, details, note, performed_by, created_at
 ) values

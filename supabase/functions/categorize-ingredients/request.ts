@@ -1,7 +1,6 @@
 // HTTP layer for categorize-ingredients, kept free of `@supabase/server` so Deno tests can call it.
 // index.ts verifies the JWT first (401 comes from the library), then calls handleRequest.
 import { reportError } from '../_shared/sentry.ts';
-import { NotEntitledError } from '../_shared/entitlements.ts';
 import { limitReachedResponse } from '../_shared/limits.ts';
 import { CategorizeInputError, CategorizeLimitError, MAX_NAMES, type CategorizeResponse } from './handler.ts';
 
@@ -62,7 +61,7 @@ function parseNames(bytes: Uint8Array): string[] | string {
 }
 
 /**
- * POST { names: string[] } → 200 CategorizeResponse · 400 · 403 · 405 · 413 · 429 rate_limited (per
+ * POST { names: string[] } → 200 CategorizeResponse · 400 · 405 · 413 · 429 rate_limited (per
  * minute) or limit_reached (the plan's monthly names, with resets_at) · 500. Never logs headers.
  */
 export async function handleRequest(req: Request, deps: RequestDeps): Promise<Response> {
@@ -87,7 +86,6 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   try {
     return Response.json(await deps.categorize(names));
   } catch (err) {
-    if (err instanceof NotEntitledError) return error(403, 'not_entitled', "Categorizing isn't included in your plan");
     if (err instanceof CategorizeInputError) return error(400, 'invalid_request', err.message);
     if (err instanceof CategorizeLimitError) {
       if (err.reason === 'monthly_limit') return limitReachedResponse("This month's categorizing is used up", deps.now?.());

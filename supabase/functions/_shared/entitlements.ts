@@ -1,17 +1,14 @@
 // Plan checks for Edge Functions (spec 4.12). Every check goes through `public.has_feature`, the
-// only place a plan is resolved, so plans can go per household by changing only that function.
+// only place a plan is resolved. Plans are per household: `has_feature` resolves the plan of the
+// household the action is in. Only recipe import (link and photo share `recipe_import`) and AI
+// photos are plan features; categorizing, tag suggestions and step ingredients are for everyone
+// and aren't checked.
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** The features a plan can grant (`plan_features.feature`). */
-export type Feature =
-  | 'categorize'
-  | 'recipe_import'
-  | 'recipe_import_photo'
-  | 'recipe_photo_ai'
-  | 'recipe_tags'
-  | 'step_ingredients';
+export type Feature = 'recipe_import' | 'recipe_photo_ai';
 
-/** The caller's plan doesn't include `feature`. Functions answer 403 `not_entitled`. */
+/** The household's plan doesn't include `feature`. Functions answer 403 `not_entitled`. */
 export class NotEntitledError extends Error {
   override name = 'NotEntitledError';
   constructor(readonly feature: Feature) {
@@ -20,8 +17,10 @@ export class NotEntitledError extends Error {
 }
 
 /**
- * Throws NotEntitledError unless `userId`'s plan has `feature`. `householdId` is the household the
- * action is in, when known; `has_feature` ignores it today. A database error is thrown as is.
+ * Throws NotEntitledError unless the household's plan has `feature`. `householdId` is the
+ * household the action is in, when known: `has_feature` answers false unless `userId` is a member
+ * of it. With no household, it answers true when any of the user's households' plans has
+ * `feature`. A database error is thrown as is.
  */
 export async function requireFeature(
   admin: Pick<SupabaseClient, 'rpc'>,

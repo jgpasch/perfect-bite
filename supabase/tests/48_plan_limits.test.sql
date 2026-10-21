@@ -1,6 +1,7 @@
 -- Monthly limits per plan (spec 4.12, 5, 6.1, 6.6–6.11): public.plan_limits and its seed,
--- private.monthly_limit (the plan, the first-month doubling), private.monthly_usage, each limit
--- function's 'monthly_limit' answer on plus, basic and unlimited, and the AI photo monthly limit.
+-- private.monthly_limit per household (the plan, the first-month doubling by household age) and its
+-- per-user transition wrapper, private.monthly_usage, each limit function's 'monthly_limit' answer,
+-- and the AI photo monthly limit. Categorize, tags and step matching have no monthly limit.
 -- now() is fixed within the transaction, so a month's usage is seeded straight into the usage
 -- tables: spread over the month's first three days (any of them may be today or later, which still
 -- counts) plus a big day last month that mustn't count.
@@ -9,18 +10,37 @@ create extension if not exists pgtap with schema extensions;
 select plan(67);
 
 -- Fixtures (as postgres) ------------------------------------------------------
--- plus has no user_plans row (the default). Ages are set by hand: a null created_at isn't young.
-insert into auth.users (id, email, aud, role, created_at) values
-  ('11111111-1111-1111-1111-111111111111', 'plus@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
-  ('22222222-2222-2222-2222-222222222222', 'basic@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
-  ('33333333-3333-3333-3333-333333333333', 'unlimited@test.local', 'authenticated', 'authenticated', now() - interval '60 days'),
-  ('44444444-4444-4444-4444-444444444444', 'young@test.local', 'authenticated', 'authenticated', now() - interval '29 days'),
-  ('55555555-5555-5555-5555-555555555555', 'older@test.local', 'authenticated', 'authenticated', now() - interval '31 days'),
-  ('66666666-6666-6666-6666-666666666666', 'none@test.local', 'authenticated', 'authenticated', now() - interval '60 days');
-insert into public.user_plans (user_id, plan_id) values
-  ('22222222-2222-2222-2222-222222222222', 'basic'),
-  ('33333333-3333-3333-3333-333333333333', 'unlimited'),
-  ('66666666-6666-6666-6666-666666666666', 'none');
+-- Each user owns one household: Fay a founding one 60 days old, Uma an unlimited one, Rex a free
+-- one, Yan a founding one 29 days old, Oli a founding one 31 days old. Ned is in no household;
+-- Nia's household has no household_plans row.
+insert into auth.users (id, email, aud, role) values
+  ('11111111-1111-1111-1111-111111111111', 'fay@test.local', 'authenticated', 'authenticated'),
+  ('22222222-2222-2222-2222-222222222222', 'rex@test.local', 'authenticated', 'authenticated'),
+  ('33333333-3333-3333-3333-333333333333', 'uma@test.local', 'authenticated', 'authenticated'),
+  ('44444444-4444-4444-4444-444444444444', 'yan@test.local', 'authenticated', 'authenticated'),
+  ('55555555-5555-5555-5555-555555555555', 'oli@test.local', 'authenticated', 'authenticated'),
+  ('66666666-6666-6666-6666-666666666666', 'ned@test.local', 'authenticated', 'authenticated'),
+  ('77777777-7777-7777-7777-777777777777', 'nia@test.local', 'authenticated', 'authenticated');
+insert into public.households (id, name, created_at) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Fay''s', now() - interval '60 days'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Rex''s', now() - interval '60 days'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Uma''s', now() - interval '60 days'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Yan''s', now() - interval '29 days'),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Oli''s', now() - interval '31 days'),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'Nia''s', now() - interval '60 days');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'owner', 1),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'owner', 1),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'owner', 1),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '55555555-5555-5555-5555-555555555555', 'owner', 1),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', '77777777-7777-7777-7777-777777777777', 'owner', 1);
+insert into public.household_plans (household_id, plan_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'founding'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'free'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'unlimited'),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'founding'),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'founding');
 
 -- Seeds p_total of a usage column for a user this month (split over three days), and 1,000 on the
 -- last day of last month. The minute window is an hour old, so the per-minute limit doesn't bite.
@@ -43,19 +63,15 @@ $$;
 -- plan_limits -------------------------------------------------------------------
 select set_eq(
   $$ select plan_id, feature, monthly_limit from public.plan_limits $$,
-  $$ values
-       ('plus', 'categorize', 250), ('plus', 'step_ingredients', 100), ('plus', 'recipe_import', 40),
-       ('plus', 'recipe_import_photo', 20), ('plus', 'recipe_tags', 50), ('plus', 'recipe_photo_ai', 15),
-       ('basic', 'categorize', 250), ('basic', 'step_ingredients', 100),
-       ('unlimited', 'categorize', null::int), ('unlimited', 'step_ingredients', null), ('unlimited', 'recipe_import', null),
-       ('unlimited', 'recipe_import_photo', null), ('unlimited', 'recipe_tags', null), ('unlimited', 'recipe_photo_ai', null) $$,
-  'plan_limits holds exactly the seeded rows (none has none)');
+  $$ values ('founding', 'recipe_import', 50), ('founding', 'recipe_photo_ai', 20),
+            ('unlimited', 'recipe_import', null::int), ('unlimited', 'recipe_photo_ai', null) $$,
+  'plan_limits holds exactly the seeded rows (free has none)');
 select col_is_pk('public', 'plan_limits', array['plan_id', 'feature'], 'the key is (plan_id, feature)');
-select throws_ok($$ insert into public.plan_limits values ('basic', 'recipe_tags', -1) $$, '23514', null,
+select throws_ok($$ insert into public.plan_limits values ('free', 'recipe_import', -1) $$, '23514', null,
   'a negative limit is rejected');
-select throws_ok($$ insert into public.plan_limits values ('basic', 'photo_search', 5) $$, '23514', null,
-  'an unknown feature is rejected');
-select throws_ok($$ insert into public.plan_limits values ('gold', 'recipe_tags', 5) $$, '23503', null,
+select throws_ok($$ insert into public.plan_limits values ('free', 'recipe_tags', 5) $$, '23514', null,
+  'an old feature key is rejected');
+select throws_ok($$ insert into public.plan_limits values ('gold', 'recipe_import', 5) $$, '23503', null,
   'an unknown plan is rejected');
 select ok((select relrowsecurity from pg_class where oid = 'public.plan_limits'::regclass), 'RLS is on');
 select ok(obj_description('public.plan_limits'::regclass, 'pg_class') like '%null monthly_limit means no monthly limit%',
@@ -67,152 +83,155 @@ select ok(
   and not has_table_privilege('authenticated', 'private.recipe_photo_ai_usage', 'select')
   and not has_table_privilege('anon', 'private.recipe_photo_ai_usage', 'select'),
   'clients have no privileges on plan_limits or recipe_photo_ai_usage');
+select ok(
+  not has_function_privilege('authenticated', 'private.monthly_limit(text, uuid)', 'execute')
+  and not has_function_privilege('service_role', 'private.monthly_limit(text, uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'private.first_month_ends_at(uuid)', 'execute'),
+  'clients can''t call the household monthly_limit or first_month_ends_at');
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 select throws_ok($$ select * from public.plan_limits $$, '42501', null, 'authenticated can''t read plan_limits');
-select throws_ok($$ select private.monthly_limit('11111111-1111-1111-1111-111111111111', 'categorize') $$, '42501', null,
-  'authenticated can''t call monthly_limit');
+select throws_ok($$ select private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import') $$, '42501', null,
+  'authenticated can''t call the per-user monthly_limit');
 reset role;
 
--- private.monthly_limit ------------------------------------------------------------
-create temp table features (feature text);
-insert into features values ('categorize'), ('step_ingredients'), ('recipe_import'), ('recipe_import_photo'), ('recipe_tags'), ('recipe_photo_ai');
+-- private.first_month_ends_at and private.monthly_limit(feature, household) -------------------
+select is(private.first_month_ends_at('dddddddd-dddd-dddd-dddd-dddddddddddd'), now() - interval '29 days' + interval '30 days',
+  'a household''s first month ends 30 days after households.created_at');
+select is(private.first_month_ends_at('99999999-9999-9999-9999-999999999999'), null::timestamptz,
+  'an unknown household has no first month');
+select is(array[private.monthly_limit('recipe_import'::text, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+                private.monthly_limit('recipe_photo_ai'::text, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')],
+  array[50, 20], 'a founding household 60 days old gets founding''s 50 and 20');
+select is(array[private.monthly_limit('recipe_import'::text, 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+                private.monthly_limit('recipe_photo_ai'::text, 'dddddddd-dddd-dddd-dddd-dddddddddddd')],
+  array[100, 40], 'a household 29 days old gets twice its plan''s limits');
+select is(private.monthly_limit('recipe_import'::text, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'), 50,
+  'a household 31 days old doesn''t');
+select is(array[private.monthly_limit('recipe_import'::text, 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+                private.monthly_limit('recipe_photo_ai'::text, 'cccccccc-cccc-cccc-cccc-cccccccccccc')],
+  array[null, null]::integer[], 'an unlimited household has no limit');
+select is(private.monthly_limit('recipe_import'::text, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), 0,
+  'a free household (no feature) gets 0');
+select is(private.monthly_limit('recipe_import'::text, 'ffffffff-ffff-ffff-ffff-ffffffffffff'), 0,
+  'a household with no row gets 0');
+-- The first month goes by the household, not the user: an old account in a new household doubles.
+update auth.users set created_at = now() - interval '400 days' where id = '44444444-4444-4444-4444-444444444444';
+select is(private.monthly_limit('recipe_import'::text, 'dddddddd-dddd-dddd-dddd-dddddddddddd'), 100,
+  'an old account in a household 29 days old still gets the doubled limit');
 
-select set_eq(
-  $$ select feature, private.monthly_limit('11111111-1111-1111-1111-111111111111', feature) from features $$,
-  $$ values ('categorize', 250), ('step_ingredients', 100), ('recipe_import', 40), ('recipe_import_photo', 20),
-            ('recipe_tags', 50), ('recipe_photo_ai', 15) $$,
-  'a user with no user_plans row gets plus''s limits');
-select set_eq(
-  $$ select feature, private.monthly_limit('22222222-2222-2222-2222-222222222222', feature) from features $$,
-  $$ values ('categorize', 250), ('step_ingredients', 100), ('recipe_import', null::int), ('recipe_import_photo', null),
-            ('recipe_tags', null), ('recipe_photo_ai', null) $$,
-  'a basic user gets basic''s, and null for a feature with no row');
-select is((select count(*)::int from features where private.monthly_limit('33333333-3333-3333-3333-333333333333', feature) is null),
-  6, 'an unlimited user gets null for every feature');
-select is(private.monthly_limit('66666666-6666-6666-6666-666666666666', 'categorize'), null::int, 'none has no rows, so null');
-select set_eq(
-  $$ select feature, private.monthly_limit('44444444-4444-4444-4444-444444444444', feature) from features $$,
-  $$ values ('categorize', 500), ('step_ingredients', 200), ('recipe_import', 80), ('recipe_import_photo', 40),
-            ('recipe_tags', 100), ('recipe_photo_ai', 30) $$,
-  'an account 29 days old gets twice its plan''s limits');
-select is(private.monthly_limit('55555555-5555-5555-5555-555555555555', 'recipe_import'), 40,
-  'an account 31 days old doesn''t');
-select is(private.monthly_limit('11111111-1111-1111-1111-111111111111', 'categorize', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 250,
-  'the household is accepted and ignored, as in has_feature');
+-- The per-user wrapper (the check functions, until usage is per household) ---------------------
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), 50,
+  'no household: the user''s founding household''s limit');
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 50,
+  'their own household: its limit');
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), 0,
+  'a household they''re not in: 0');
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import_photo'), 50,
+  'photo import reads recipe_import''s limit');
+select is(array[private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'categorize'),
+                private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_tags'),
+                private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'step_ingredients')],
+  array[null, null, null]::integer[], 'categorize, tags and step matching have no monthly limit');
+select is(array[private.monthly_limit('22222222-2222-2222-2222-222222222222'::uuid, 'recipe_import'),
+                private.monthly_limit('66666666-6666-6666-6666-666666666666'::uuid, 'recipe_import'),
+                private.monthly_limit('77777777-7777-7777-7777-777777777777'::uuid, 'recipe_import')],
+  array[0, 0, 0], 'a free household, no household, or a household with no row: 0');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'member', 2);
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), 100,
+  'no household, in two: the higher limit');
+insert into public.household_members (household_id, user_id, role, position) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member', 3);
+select is(private.monthly_limit('11111111-1111-1111-1111-111111111111'::uuid, 'recipe_import'), null::int,
+  'no household, one of them unlimited: no limit');
+delete from public.household_members where user_id = '11111111-1111-1111-1111-111111111111'
+  and household_id <> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
--- categorize (plus 250, basic 250; names) --------------------------------------------
-select pg_temp.use('categorize_usage', 'new_names', '11111111-1111-1111-1111-111111111111', 249);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'categorize'), 249,
+-- categorize: no monthly limit -------------------------------------------------------
+select pg_temp.use('categorize_usage', 'new_names', '11111111-1111-1111-1111-111111111111', 5000);
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'categorize'), 5000,
   'categorize: the month''s usage sums its days, not last month''s');
-select is(public.check_categorize_limit('11111111-1111-1111-1111-111111111111', 1), 'ok', 'categorize: plus passes at 250');
-create temp table before_usage as select * from private.categorize_usage;
-select is(public.check_categorize_limit('11111111-1111-1111-1111-111111111111', 1), 'monthly_limit',
-  'categorize: plus is refused at 251');
-select set_eq($$ select * from private.categorize_usage $$, $$ select * from before_usage $$,
-  'categorize: a refused request writes nothing');
-select pg_temp.use('categorize_usage', 'new_names', '22222222-2222-2222-2222-222222222222', 250);
-select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 1), 'monthly_limit',
-  'categorize: basic is refused past 250');
-select pg_temp.use('categorize_usage', 'new_names', '33333333-3333-3333-3333-333333333333', 5000);
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 100), 'ok',
-  'categorize: unlimited passes any month''s total');
+select is(public.check_categorize_limit('11111111-1111-1111-1111-111111111111', 100), 'ok',
+  'categorize: 5,100 names in a month pass on founding');
+select is(public.check_categorize_limit('22222222-2222-2222-2222-222222222222', 300), 'ok',
+  'categorize: a free household''s user is categorized too');
 update private.categorize_usage set requests_this_minute = 60, minute_start = date_trunc('minute', now())
-  where user_id = '33333333-3333-3333-3333-333333333333' and day = (now() at time zone 'utc')::date;
-select is(public.check_categorize_limit('33333333-3333-3333-3333-333333333333', 1), 'user_limit',
-  'categorize: unlimited is still held to 60 requests a minute');
-update public.plan_limits set monthly_limit = 260 where plan_id = 'plus' and feature = 'categorize';
-select is(public.check_categorize_limit('11111111-1111-1111-1111-111111111111', 10), 'ok',
-  'categorize: raising plus''s row raises the limit at once');
+  where user_id = '11111111-1111-1111-1111-111111111111' and day = (now() at time zone 'utc')::date;
+select is(public.check_categorize_limit('11111111-1111-1111-1111-111111111111', 1), 'user_limit',
+  'categorize: still held to 60 requests a minute');
 
--- import-recipe (plus 40) ------------------------------------------------------------
-select pg_temp.use('recipe_import_usage', 'imports', '11111111-1111-1111-1111-111111111111', 39);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import'), 39,
+-- import-recipe (founding 50) ------------------------------------------------------------
+select pg_temp.use('recipe_import_usage', 'imports', '11111111-1111-1111-1111-111111111111', 49);
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import'), 49,
   'recipe_import: last month''s usage doesn''t count');
-select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'recipe_import: plus passes at 40');
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'recipe_import: founding passes at 50');
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'recipe_import: plus is refused at 41');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import'), 40,
+  'recipe_import: founding is refused at 51');
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import'), 50,
   'recipe_import: the refused call isn''t counted');
+select pg_temp.use('recipe_import_usage', 'imports', '44444444-4444-4444-4444-444444444444', 99);
+select is(public.check_recipe_import_limit('44444444-4444-4444-4444-444444444444'), 'ok',
+  'recipe_import: a household in its first month passes at 100');
+select is(public.check_recipe_import_limit('44444444-4444-4444-4444-444444444444'), 'monthly_limit',
+  'recipe_import: and is refused at 101');
 select pg_temp.use('recipe_import_usage', 'imports', '33333333-3333-3333-3333-333333333333', 1000);
 select is(public.check_recipe_import_limit('33333333-3333-3333-3333-333333333333'), 'ok', 'recipe_import: unlimited passes');
 update private.recipe_import_usage set requests_this_minute = 10, minute_start = date_trunc('minute', now())
   where user_id = '33333333-3333-3333-3333-333333333333' and day = (now() at time zone 'utc')::date;
 select is(public.check_recipe_import_limit('33333333-3333-3333-3333-333333333333'), 'user_limit',
   'recipe_import: unlimited is still held to the per-minute limit');
-delete from public.plan_limits where plan_id = 'plus' and feature = 'recipe_import';
+update public.plan_limits set monthly_limit = 51 where plan_id = 'founding' and feature = 'recipe_import';
 select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
-  'recipe_import: deleting plus''s row lifts the limit at once');
+  'recipe_import: raising founding''s row raises the limit at once');
+delete from public.plan_limits where plan_id = 'founding' and feature = 'recipe_import';
+select is(public.check_recipe_import_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+  'recipe_import: deleting founding''s row lifts the limit at once');
+insert into public.plan_limits values ('founding', 'recipe_import', 50);
 
--- suggest-recipe-tags (plus 50) --------------------------------------------------------
-select pg_temp.use('recipe_tags_usage', 'suggestions', '11111111-1111-1111-1111-111111111111', 49);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_tags'), 49,
+-- suggest-recipe-tags: no monthly limit ---------------------------------------------------
+select pg_temp.use('recipe_tags_usage', 'suggestions', '11111111-1111-1111-1111-111111111111', 1000);
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_tags'), 1000,
   'recipe_tags: last month''s usage doesn''t count');
-select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'recipe_tags: plus passes at 50');
-select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'recipe_tags: plus is refused at 51');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_tags'), 50,
-  'recipe_tags: the refused call isn''t counted');
-select pg_temp.use('recipe_tags_usage', 'suggestions', '33333333-3333-3333-3333-333333333333', 1000);
-select is(public.check_recipe_tags_limit('33333333-3333-3333-3333-333333333333'), 'ok', 'recipe_tags: unlimited passes');
-update private.recipe_tags_usage set requests_this_minute = 20, minute_start = date_trunc('minute', now())
-  where user_id = '33333333-3333-3333-3333-333333333333' and day = (now() at time zone 'utc')::date;
-select is(public.check_recipe_tags_limit('33333333-3333-3333-3333-333333333333'), 'user_limit',
-  'recipe_tags: unlimited is still held to the per-minute limit');
-update public.plan_limits set monthly_limit = 51 where plan_id = 'plus' and feature = 'recipe_tags';
 select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'ok',
-  'recipe_tags: raising plus''s row raises the limit at once');
+  'recipe_tags: 1,001 suggestions in a month pass');
+select is(public.check_recipe_tags_limit('22222222-2222-2222-2222-222222222222'), 'ok',
+  'recipe_tags: a free household''s user gets suggestions');
+update private.recipe_tags_usage set requests_this_minute = 20, minute_start = date_trunc('minute', now())
+  where user_id = '11111111-1111-1111-1111-111111111111' and day = (now() at time zone 'utc')::date;
+select is(public.check_recipe_tags_limit('11111111-1111-1111-1111-111111111111'), 'user_limit',
+  'recipe_tags: still held to the per-minute limit');
 
--- match-recipe-steps (step_ingredients: plus 100, basic 100) -----------------------------
-select pg_temp.use('step_match_usage', 'matches', '11111111-1111-1111-1111-111111111111', 99);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'step_ingredients'), 99,
+-- match-recipe-steps: no monthly limit ------------------------------------------------------
+select pg_temp.use('step_match_usage', 'matches', '11111111-1111-1111-1111-111111111111', 1000);
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'step_ingredients'), 1000,
   'step_ingredients: last month''s usage doesn''t count');
-select is(public.check_step_match_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'step_ingredients: plus passes at 100');
-select is(public.check_step_match_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'step_ingredients: plus is refused at 101');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'step_ingredients'), 100,
-  'step_ingredients: the refused call isn''t counted');
-select pg_temp.use('step_match_usage', 'matches', '22222222-2222-2222-2222-222222222222', 99);
-select is(public.check_step_match_limit('22222222-2222-2222-2222-222222222222'), 'ok', 'step_ingredients: basic passes at 100');
-select is(public.check_step_match_limit('22222222-2222-2222-2222-222222222222'), 'monthly_limit',
-  'step_ingredients: basic is refused at 101');
-select pg_temp.use('step_match_usage', 'matches', '33333333-3333-3333-3333-333333333333', 1000);
-select is(public.check_step_match_limit('33333333-3333-3333-3333-333333333333'), 'ok', 'step_ingredients: unlimited passes');
+select is(public.check_step_match_limit('11111111-1111-1111-1111-111111111111'), 'ok',
+  'step_ingredients: 1,001 matches in a month pass');
+select is(public.check_step_match_limit('66666666-6666-6666-6666-666666666666'), 'ok',
+  'step_ingredients: even a user in no household is matched');
 update private.step_match_usage set requests_this_minute = 30, minute_start = date_trunc('minute', now())
-  where user_id = '33333333-3333-3333-3333-333333333333' and day = (now() at time zone 'utc')::date;
-select is(public.check_step_match_limit('33333333-3333-3333-3333-333333333333'), 'user_limit',
-  'step_ingredients: unlimited is still held to the per-minute limit');
-update public.plan_limits set monthly_limit = 101 where plan_id = 'basic' and feature = 'step_ingredients';
-select is(public.check_step_match_limit('22222222-2222-2222-2222-222222222222'), 'ok',
-  'step_ingredients: raising basic''s row raises the limit at once');
+  where user_id = '11111111-1111-1111-1111-111111111111' and day = (now() at time zone 'utc')::date;
+select is(public.check_step_match_limit('11111111-1111-1111-1111-111111111111'), 'user_limit',
+  'step_ingredients: still held to the per-minute limit');
 
--- import-recipe-photo (plus 20) ----------------------------------------------------------
-select pg_temp.use('recipe_photo_import_usage', 'imports', '11111111-1111-1111-1111-111111111111', 19);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import_photo'), 19,
+-- import-recipe-photo (recipe_import's limit, founding 50) ------------------------------------
+select pg_temp.use('recipe_photo_import_usage', 'imports', '55555555-5555-5555-5555-555555555555', 49);
+select is(private.monthly_usage('55555555-5555-5555-5555-555555555555', 'recipe_import_photo'), 49,
   'recipe_import_photo: last month''s usage doesn''t count');
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok', 'recipe_import_photo: plus passes at 20');
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'monthly_limit',
-  'recipe_import_photo: plus is refused at 21');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_import_photo'), 20,
-  'recipe_import_photo: the refused call isn''t counted');
-select pg_temp.use('recipe_photo_import_usage', 'imports', '33333333-3333-3333-3333-333333333333', 1000);
-select is(public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333'), 'ok', 'recipe_import_photo: unlimited passes');
+select is(public.check_recipe_photo_limit('55555555-5555-5555-5555-555555555555'), 'ok',
+  'recipe_import_photo: founding passes at 50 (recipe_import''s limit)');
+select is(public.check_recipe_photo_limit('55555555-5555-5555-5555-555555555555'), 'monthly_limit',
+  'recipe_import_photo: founding is refused at 51');
+select is(public.check_recipe_photo_limit('22222222-2222-2222-2222-222222222222'), 'monthly_limit',
+  'recipe_import_photo: a free household''s user gets none');
 update private.recipe_photo_import_usage set imports_this_minute = 5, minute_start = date_trunc('minute', now())
-  where user_id = '33333333-3333-3333-3333-333333333333' and day = (now() at time zone 'utc')::date;
-select is(public.check_recipe_photo_limit('33333333-3333-3333-3333-333333333333'), 'user_limit',
-  'recipe_import_photo: unlimited is still held to the per-minute limit');
-update public.plan_limits set monthly_limit = 21 where plan_id = 'plus' and feature = 'recipe_import_photo';
-select is(public.check_recipe_photo_limit('11111111-1111-1111-1111-111111111111'), 'ok',
-  'recipe_import_photo: raising plus''s row raises the limit at once');
+  where user_id = '55555555-5555-5555-5555-555555555555' and day = (now() at time zone 'utc')::date;
+select is(public.check_recipe_photo_limit('55555555-5555-5555-5555-555555555555'), 'user_limit',
+  'recipe_import_photo: the per-minute limit comes first');
 
--- AI photos (plus 15) -----------------------------------------------------------------
--- Plus owns household A with recipes R1–R3 and the deleted D; unlimited owns household U with R9.
-insert into public.households (id, name) values
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Plus''s household'),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Unlimited''s household');
-insert into public.household_members (household_id, user_id, role, position) values
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'owner', 1);
+-- AI photos (founding 20) -------------------------------------------------------------
+-- Fay's household has recipes R1–R3 and the deleted D; Uma's has R9.
 insert into public.recipes (id, household_id, name, deleted_at) values
   ('a4000000-0000-7000-8000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Blueberry bread', null),
   ('a4000000-0000-7000-8000-000000000002', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tacos', null),
@@ -220,19 +239,19 @@ insert into public.recipes (id, household_id, name, deleted_at) values
   ('a4000000-0000-7000-8000-00000000000d', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Gone', now()),
   ('a4000000-0000-7000-8000-000000000009', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Stew', null);
 
--- 14 reserved this month over three days (and 1,000 last month).
+-- 19 reserved this month over three days (and 1,000 last month).
 insert into private.recipe_photo_ai_usage (user_id, day, photos) values
-  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date, 6),
-  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date + 1, 4),
-  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date + 2, 4),
+  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date, 7),
+  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date + 1, 6),
+  ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date + 2, 6),
   ('11111111-1111-1111-1111-111111111111', date_trunc('month', now() at time zone 'utc')::date - 1, 1000);
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 14,
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 19,
   'recipe_photo_ai: the month''s reservations, not last month''s');
 select results_eq(
   $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000001') $$,
   $$ values ('ok'::text, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid) $$,
-  'recipe_photo_ai: the 15th reservation this month is fine');
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 15,
+  'recipe_photo_ai: the 20th reservation this month is fine');
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 20,
   'recipe_photo_ai: and is counted at the reservation');
 
 create temp table before_ai as select * from private.recipe_photo_ai;
@@ -240,7 +259,7 @@ create temp table before_ai_usage as select * from private.recipe_photo_ai_usage
 select results_eq(
   $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000002') $$,
   $$ values ('monthly_limit'::text, null::uuid) $$,
-  'recipe_photo_ai: the 16th reservation in a month is monthly_limit for an older plus account');
+  'recipe_photo_ai: the 21st reservation in a month is monthly_limit for an older founding household');
 select results_eq(
   $$ select * from public.reserve_recipe_photo_ai('11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-00000000000d') $$,
   $$ values ('not_found'::text, null::uuid) $$,
@@ -257,7 +276,7 @@ select ok(
   'recipe_photo_ai: not_found, already_generated and monthly_limit write nothing');
 
 do $$ begin perform public.release_recipe_photo_ai('a4000000-0000-7000-8000-000000000001'); end $$;
-select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 15,
+select is(private.monthly_usage('11111111-1111-1111-1111-111111111111', 'recipe_photo_ai'), 20,
   'recipe_photo_ai: a released slot isn''t given back');
 
 -- The month turns: this month's reservations become last month's.

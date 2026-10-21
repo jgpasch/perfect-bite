@@ -122,7 +122,6 @@ Deno.test('a missing or blank name, bad JSON or a bad ingredient is 400 invalid_
 Deno.test('each failure maps to its status, code and Retry-After', async () => {
   const body = JSON.stringify({ name: 'Toast', notes: null, ingredients: [] });
   const cases = [
-    [{ code: 'not_entitled' }, 403, 'not_entitled', null],
     [{ code: 'rate_limited' }, 429, 'rate_limited', null],
     [{ code: 'unavailable', reason: 'ai_off' }, 503, 'unavailable', String(PAUSED_RETRY_AFTER)],
     [{ code: 'unavailable', reason: 'ai_failed' }, 503, 'unavailable', String(AI_FAILED_RETRY_AFTER)],

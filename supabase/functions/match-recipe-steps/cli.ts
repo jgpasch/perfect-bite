@@ -19,7 +19,6 @@ import { buildMatchRecipeStepsPrompt, MATCH_RECIPE_STEPS_PROMPT_VERSION } from '
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import type { StepMatch } from '../_shared/ai/tasks.ts';
 import { traceAiCalls } from '../_shared/ai/trace.ts';
-import type { Feature } from '../_shared/entitlements.ts';
 import { fetchPage as realFetchPage, readPage, type FetchedPage } from '../_shared/fetch-page.ts';
 import { formatStats, MemoryStore } from '../categorize-ingredients/cli.ts';
 import { categorize } from '../categorize-ingredients/handler.ts';
@@ -169,12 +168,9 @@ export function matchIndexes(request: MatchRecipeStepsRequest, steps: MatchRecip
   return steps.map((uses) => uses.map((use) => ({ ingredient: index.get(use.id)!, quantity: use.quantity })));
 }
 
-/** `ai_calls` in memory; there are no limits or plans. */
+/** `ai_calls` in memory; there are no limits. */
 export class MemoryStepMatchStore implements StepMatchStore {
   aiCalls: AiCallRecord[] = [];
-
-  /** No database, so no plans: every feature is granted. */
-  async requireFeature(_feature: Feature) {}
 
   /** Local and manual: no rate limits. */
   async checkLimit() {

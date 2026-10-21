@@ -49,7 +49,7 @@ class FakePhotoStore implements RecipePhotoImportStore {
   constructor(readonly aiCalls: AiCallRecord[]) {}
   limit: LimitResult = 'ok';
   limitChecks = 0;
-  features = new Set<Feature>(['categorize', 'recipe_import', 'recipe_import_photo']);
+  features = new Set<Feature>(['recipe_import']);
   featureChecks: Feature[] = [];
 
   async requireFeature(feature: Feature) {
@@ -102,7 +102,6 @@ class FakeCategorizeStore implements CategorizeStore {
   async checkLimit() {
     return this.limit;
   }
-  async requireFeature() {}
 }
 
 /** A model whose every call throws `error`. */
@@ -216,7 +215,7 @@ test('two pages: one extract-recipe-photo call, one categorize call, then a reci
   assertEquals(calls('extractRecipePhoto'), 1);
   assertEquals(calls('categorize'), 1);
   assertEquals(calls('extractRecipe'), 0, 'not the link task');
-  assertEquals(store.featureChecks, ['recipe_import_photo']);
+  assertEquals(store.featureChecks, ['recipe_import']);
   assertEquals(store.limitChecks, 1);
 });
 
@@ -246,26 +245,35 @@ test('AI_MODEL_RECIPE_PHOTO=mock runs the photo mock while AI_MODEL_RECIPE is a 
 
 // --- Order of the checks -----------------------------------------------------------------------------
 
-test('no recipe_import_photo in the plan: 403 before the kill switch, the limits or any model call', async () => {
+test('no recipe_import in the plan: 403 before the kill switch, the limits or any model call', async () => {
   const { post, store, aiCalls } = setup();
-  store.features.delete('recipe_import_photo');
+  store.features.delete('recipe_import');
   await expectError(await post({ images: [PAGE_1] }), 403, 'not_entitled');
+  assertEquals(store.featureChecks, ['recipe_import']);
   assertEquals(store.limitChecks, 0);
   assertEquals(aiCalls.length, 0);
 });
 
 test('not entitled wins over the kill switch', async () => {
   const { post, store } = setup();
-  store.features.delete('recipe_import_photo');
+  store.features.delete('recipe_import');
   await expectError(await post({ images: [PAGE_1] }), 403, 'not_entitled');
 }, { AI_MODEL_RECIPE_PHOTO: 'off' });
 
-test('a plan with recipe_import but not recipe_import_photo can’t import a photo', async () => {
+test('a plan with only recipe_photo_ai can’t import a photo', async () => {
   const { deps, store } = setup();
-  store.features = new Set(['categorize', 'recipe_import']);
+  store.features = new Set(['recipe_photo_ai']);
   const err = await importRecipePhoto({ images: [PAGE_1] }, deps).catch((e) => e);
   assert(err instanceof ImportRecipePhotoError);
   assertEquals(err.failure, { code: 'not_entitled' });
+});
+
+test('recipe_import alone (the same key as a link import) is enough to import a photo', async () => {
+  const { post, store } = setup();
+  store.features = new Set(['recipe_import']);
+  const res = await post({ images: [PAGE_1] });
+  assertEquals(res.status, 200);
+  assertEquals(store.featureChecks, ['recipe_import']);
 });
 
 test('AI_MODEL_RECIPE_PHOTO=off: 503 with Retry-After an hour, before the limits, so no budget is used', async () => {

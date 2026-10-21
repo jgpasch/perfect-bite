@@ -16,6 +16,7 @@ import {
   listItems,
   lists,
   mealPlanEntries,
+  outbox,
   recipes,
   userCategoryOrder,
   userSettings,
@@ -1990,6 +1991,90 @@ describe('lost memberships (4.7)', () => {
     expect(localHouseholds()).toEqual([H1, 'local-only']);
     expect(outboxRows()).toEqual(queued);
     expect(getPullState().memberships).toEqual([H1]);
+  });
+
+  describe('a household created here that the server refused (already in a household)', () => {
+    const LOCAL_H = 'local-only';
+
+    /** H1 pulled; then a household made on this device, with a list, an item and queued mutations. */
+    async function createLocalHousehold() {
+      seedPulledList();
+      await pullNow();
+      db.transaction((tx) => {
+        insertRow(tx, households, { id: LOCAL_H, name: 'New' });
+        insertRow(tx, lists, { id: 'local-list', householdId: LOCAL_H, name: 'New list', position: 2 });
+        insertRow(tx, listItems, {
+          id: 'local-item',
+          listId: 'local-list',
+          householdId: LOCAL_H,
+          ingredientName: 'milk',
+          displayName: 'milk',
+        });
+      });
+      updateRows(db, lists, eq(lists.id, L), { name: 'Home, renamed' });
+    }
+
+    const creations = () => outboxRows().filter((r) => r.mutation.table === 'households' && r.mutation.id === LOCAL_H);
+
+    /** What push records for a 400 P0001 from `create_household`; its list and item stay queued. */
+    const rejectCreation = () => {
+      for (const row of creations()) {
+        db.update(outbox)
+          .set({ rejectedAt: new Date(), error: { code: 'P0001', message: 'already in a household' } })
+          .where(eq(outbox.id, row.id))
+          .run();
+      }
+    };
+
+    test('is purged on the next full pull, with its rows and its outbox rows', async () => {
+      await createLocalHousehold();
+      expect(creations()).toHaveLength(1);
+      rejectCreation();
+
+      await expect(pullNow()).resolves.toMatchObject({ households: [H1], error: null });
+
+      expect(localHouseholds()).toEqual([H1]);
+      expect(db.select({ id: lists.id }).from(lists).all()).toEqual([{ id: L }]);
+      expect(itemRow('local-item')).toBeUndefined();
+      // Only H1's unpushed rename is left.
+      expect(outboxRows().map((r) => [r.householdId, r.mutation.fields])).toEqual([[H1, { name: 'Home, renamed' }]]);
+      expect(getPullState().memberships).toEqual([H1]);
+    });
+
+    test("isn't purged while its creation is still pending", async () => {
+      await createLocalHousehold();
+      const queued = outboxRows();
+
+      await pullNow();
+
+      expect(localHouseholds()).toEqual([H1, LOCAL_H]);
+      expect(itemRow('local-item')).toMatchObject({ householdId: LOCAL_H });
+      expect(outboxRows()).toEqual(queued);
+    });
+
+    test("isn't purged when the server lists it", async () => {
+      await createLocalHousehold();
+      rejectCreation();
+      memberships = [H1, LOCAL_H];
+      put('households', remoteHousehold(LOCAL_H, ts(5), 'New'));
+
+      await pullNow();
+
+      expect(localHouseholds()).toEqual([H1, LOCAL_H]);
+      expect(db.select({ id: lists.id }).from(lists).orderBy(asc(lists.id)).all()).toEqual([{ id: L }, { id: 'local-list' }]);
+      expect(creations()).toHaveLength(1);
+    });
+
+    test("isn't purged by a pull whose membership list is empty", async () => {
+      await createLocalHousehold();
+      rejectCreation();
+      memberships = [];
+
+      await pullNow();
+
+      expect(localHouseholds()).toEqual([H1, LOCAL_H]);
+      expect(creations()).toHaveLength(1);
+    });
   });
 
   test('an empty membership list purges nothing and keeps the last list', async () => {

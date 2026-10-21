@@ -1,12 +1,11 @@
 import { OTHER_CATEGORY_ID } from '@shared/index.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { requireFeature } from '../_shared/entitlements.ts';
 import type { CategorizedAnswer, CategorizeStore, IngredientRow, LimitResult } from './handler.ts';
 
 /**
- * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The plan
- * check and the rate limit are per `userId`.
+ * CategorizeStore over the service-role client. `ingredients` is global: no user filter. The rate
+ * limit is per `userId`.
  */
 export function createCategorizeStore(admin: SupabaseClient, limits: { userId: string }): CategorizeStore {
   const ingredients = () => admin.from('ingredients');
@@ -111,10 +110,6 @@ export function createCategorizeStore(admin: SupabaseClient, limits: { userId: s
       });
       if (error) throw error;
       return data as LimitResult;
-    },
-
-    requireFeature(feature) {
-      return requireFeature(admin, limits.userId, feature);
     },
   };
 }

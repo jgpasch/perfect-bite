@@ -7,7 +7,6 @@ import { MockLanguageModelV4 } from 'ai/test';
 
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from '../_shared/ai/prompts/suggest-recipe-tags.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
-import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import { suggestRecipeTags, type SuggestDeps, type SuggestTagsStore } from './handler.ts';
 import { AI_FAILED_RETRY_AFTER, handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
@@ -31,16 +30,11 @@ async function withEnv(vars: Record<string, string>, fn: () => Promise<void>) {
 }
 
 class FakeStore implements SuggestTagsStore {
-  /** Every step, in order: `feature:<name>`, `limit`, `ai_call`. */
+  /** Every step, in order: `limit`, `ai_call`. */
   steps: string[] = [];
   aiCalls: AiCallRecord[] = [];
-  features = new Set<Feature>(['categorize', 'recipe_import', 'recipe_tags']);
   limit: LimitResult = 'ok';
 
-  async requireFeature(feature: Feature) {
-    this.steps.push(`feature:${feature}`);
-    if (!this.features.has(feature)) throw new NotEntitledError(feature);
-  }
   async checkLimit() {
     this.steps.push('limit');
     return this.limit;
@@ -118,7 +112,7 @@ Deno.test('the mock suggests tags from the name and ingredients, with the prompt
       tags: tags({ cuisine: ['indian'], protein: ['chicken'] }),
       promptVersion: SUGGEST_RECIPE_TAGS_PROMPT_VERSION,
     });
-    assertEquals(store.steps, ['feature:recipe_tags', 'limit', 'ai_call']);
+    assertEquals(store.steps, ['limit', 'ai_call']);
   });
 });
 
@@ -214,23 +208,21 @@ Deno.test('a failed call is logged with the caller too', async () => {
 
 // --- Order and refusals ---------------------------------------------------------------------------
 
-Deno.test('not_entitled is 403 before the limit or any model work', async () => {
+Deno.test('answers a user on the free plan (no feature check)', async () => {
+  // Tag suggestions are for everyone (spec 4.12). A store whose plan check would refuse every
+  // feature, as the old `requireFeature` did for a plan without `recipe_tags`, is never asked.
   await withEnv({ AI_MODEL_TAGS: 'mock' }, async () => {
     const { store, post } = setup();
-    store.features.delete('recipe_tags');
+    Object.assign(store, {
+      requireFeature(feature: string) {
+        store.steps.push(`feature:${feature}`);
+        return Promise.reject(new Error(`Your plan doesn't include ${feature}`));
+      },
+    });
     const res = await post(TIKKA);
-    assertEquals(res.status, 403);
-    assertEquals(await res.json(), { error: 'not_entitled', message: "Tag suggestions aren't included in your plan" });
-    assertEquals(store.steps, ['feature:recipe_tags']);
-  });
-});
-
-Deno.test('not_entitled comes first even with the kill switch on', async () => {
-  await withEnv({ AI_MODEL_TAGS: 'off' }, async () => {
-    const { store, post } = setup();
-    store.features.clear();
-    assertEquals((await post(TIKKA)).status, 403);
-    assertEquals(store.steps, ['feature:recipe_tags']);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).tags, tags({ cuisine: ['indian'], protein: ['chicken'] }));
+    assertEquals(store.steps, ['limit', 'ai_call']);
   });
 });
 
@@ -242,7 +234,7 @@ Deno.test('the per-user limit is 429 rate_limited with no model call', async () 
     assertEquals(res.status, 429);
     assertEquals(res.headers.get('Retry-After'), null);
     assertEquals((await res.json()).error, 'rate_limited');
-    assertEquals(store.steps, ['feature:recipe_tags', 'limit']);
+    assertEquals(store.steps, ['limit']);
   });
 });
 
@@ -258,7 +250,7 @@ Deno.test('the monthly limit is 429 limit_reached with next month as resets_at, 
       message: "This month's tag suggestions are used up",
       resets_at: '2026-11-01T00:00:00.000Z',
     });
-    assertEquals(store.steps, ['feature:recipe_tags', 'limit']);
+    assertEquals(store.steps, ['limit']);
   });
 });
 
@@ -269,7 +261,7 @@ Deno.test('AI_MODEL_TAGS=off is 503 unavailable, using no budget and calling no 
     assertEquals(res.status, 503);
     assertEquals(res.headers.get('Retry-After'), String(PAUSED_RETRY_AFTER));
     assertEquals(await res.json(), { error: 'unavailable', message: 'Tag suggestions are turned off' });
-    assertEquals(store.steps, ['feature:recipe_tags']);
+    assertEquals(store.steps, []);
   });
 });
 

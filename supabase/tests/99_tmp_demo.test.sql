@@ -9,7 +9,7 @@ create table public.tmp_c1 as select
    + (select count(*) from private.recipe_tags_usage where user_id::text like 'de300000-%')
    + (select count(*) from private.step_match_usage where user_id::text like 'de300000-%')
    + (select count(*) from private.recipe_photo_ai_usage where user_id::text like 'de300000-%') usage,
-  (select sum(new_names) from private.categorize_usage where user_id::text like 'de300000-%') names,
+  (select sum(imports) from private.recipe_import_usage where user_id::text like 'de300000-%') imports,
   (select count(*) from public.ai_calls where id::text like 'de300000-%') calls,
   (select count(*) from admin.admin_actions where id::text like 'de300000-%') acts;
 \ir seed-admin-demo.tmp
@@ -25,20 +25,20 @@ select is((select acts from public.tmp_c1), 5::bigint, 'five actions');
 select is((select count(*) from auth.users where id::text like 'de300000-%'), (select u from public.tmp_c1), 'second run: users');
 select is((select count(*) from public.ai_calls where id::text like 'de300000-%'), (select calls from public.tmp_c1), 'second run: calls');
 select is((select count(*) from admin.admin_actions where id::text like 'de300000-%'), (select acts from public.tmp_c1), 'second run: actions');
-select is((select sum(new_names) from private.categorize_usage where user_id::text like 'de300000-%'), (select names from public.tmp_c1), 'second run: names');
+select is((select sum(imports) from private.recipe_import_usage where user_id::text like 'de300000-%'), (select imports from public.tmp_c1), 'second run: imports');
 select is(
-  (select count(*) from unnest(array['categorize','recipe_import','recipe_import_photo','recipe_tags','step_ingredients','recipe_photo_ai']) f
+  (select count(*) from unnest(private.feature_keys()) f
    where exists (select 1 from private.daily_usage(f, (now() at time zone 'utc')::date - 39) d where d.user_id::text like 'de300000-%')),
-  6::bigint, 'every feature has usage');
+  2::bigint, 'both features have usage');
 select is(
-  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000001', l.feature) = l.monthly_limit) from public.plan_limits l where l.plan_id = 'plus'),
-  true, 'demo-1 exactly at plus limits');
+  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000001', l.feature) = l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
+  true, 'demo-1 exactly at founding limits');
 select is(
-  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000002', l.feature) > l.monthly_limit) from public.plan_limits l where l.plan_id = 'plus'),
-  true, 'demo-2 over plus limits');
+  (select bool_and(private.monthly_usage('de300000-0000-4000-8000-000000000002', l.feature) > l.monthly_limit) from public.plan_limits l where l.plan_id = 'founding'),
+  true, 'demo-2 over founding limits');
 select is((select count(distinct plan_id) from public.user_plans where user_id::text like 'de300000-%'), (select count(*) from public.plans), 'every plan used');
 select diag((select usage from public.tmp_c1)::text || ' usage rows');
-select diag((select string_agg(f || '=' || private.monthly_usage('de300000-0000-4000-8000-000000000003', f), ' ') from unnest(array['categorize','recipe_import','recipe_import_photo','recipe_tags','step_ingredients','recipe_photo_ai']) f));
+select diag((select string_agg(f || '=' || private.monthly_usage('de300000-0000-4000-8000-000000000003', f), ' ') from unnest(private.feature_keys()) f));
 select set_config('request.jwt.claims', '{"sub": "019a4c10-0000-7000-8000-0000000de701"}', true);
 select ok((public.admin_ai_usage() -> 'features') is not null, 'admin_ai_usage runs');
 select ok((select total_count from public.admin_list_users('demo-') limit 1) = 10, 'admin_list_users finds them');
