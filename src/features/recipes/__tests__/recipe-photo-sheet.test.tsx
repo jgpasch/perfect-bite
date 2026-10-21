@@ -843,10 +843,46 @@ describe('Generate with AI', () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  test('blocked (403 ai_photos_blocked): "AI photos are turned off for your account." with no Try again, and the feature is dropped', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // The real lostFeature drops the feature from the store; the plan reload isn't under test here.
+    mockLostFeature.mockImplementationOnce(() => {
+      setFeatures(DEFAULT_FEATURES.filter((f) => f !== 'recipe_photo_ai'));
+      return Promise.resolve();
+    });
+    failWith(403, { error: 'ai_photos_blocked', message: 'AI photos are turned off for your account' });
+    const root = await generate();
+    await act(async () => {});
+    expect(generating(root)).toHaveLength(0);
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe('AI photos are turned off for your account.');
+    expect(toast.props.actions).toEqual([]);
+    expect(getRecipe(bread)).toMatchObject({ photoPath: null });
+    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai']]);
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    // The Generate with AI row is gone until the features reload.
+    const sheet = await renderSheet();
+    expect(generateRow(sheet)).toHaveLength(0);
+    expect(texts(sheet)).toEqual(['Choose a photo', 'Photo library', 'Take photo']);
+  });
+
+  test('a bare 403 with no code is still read as not_entitled, not as blocked', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    failWith(403, 'oops');
+    const root = await generate();
+    await act(async () => {});
+    const [toast] = toasts(root);
+    expect(toast.props.message).toBe("Couldn't make a photo. Try again later.");
+    expect(toast.props.actions.map((a: { label: string }) => a.label)).toEqual(['Try again']);
+    expect(mockLostFeature.mock.calls).toEqual([['recipe_photo_ai']]);
+  });
+
   test('photoGenerationMessage: each failure, the monthly limit in English and Spanish', () => {
     expect(photoGenerationMessage({ error: 'not_food' })).toBe("Couldn't make a photo for this recipe");
     expect(photoGenerationMessage({ error: 'already_generated' })).toBe('This recipe already had its AI photo');
     expect(photoGenerationMessage({ error: 'failed' })).toBe("Couldn't make a photo. Try again later.");
+    expect(photoGenerationMessage({ error: 'ai_photos_blocked' })).toBe('AI photos are turned off for your account.');
     expect(photoGenerationMessage({ error: 'limit_reached', resetsAt: '2027-01-01T00:00:00.000Z' })).toBe(
       "You've used this month's AI photos. They reset on Jan 1.",
     );
@@ -855,6 +891,7 @@ describe('Generate with AI', () => {
       expect(photoGenerationMessage({ error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' })).toBe(
         'Ya usaste las fotos con IA de este mes. Se renuevan el 1 nov.',
       );
+      expect(photoGenerationMessage({ error: 'ai_photos_blocked' })).toBe('Las fotos con IA están desactivadas para tu cuenta.');
     } finally {
       initI18n('en');
     }

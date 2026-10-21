@@ -1,6 +1,7 @@
 // POST /functions/v1/generate-recipe-photo — body: GenerateRecipePhotoRequest (spec 6.11).
 // 200 GenerateRecipePhotoResponse · 400 invalid_request · 401 no/invalid user (from withSupabase) ·
-// 403 not_entitled (the caller's plan has no `recipe_photo_ai`, spec 4.12) · 404 not_found · 405 ·
+// 403 not_entitled (the caller's plan has no `recipe_photo_ai`, spec 4.12) · 403 ai_photos_blocked
+// (the caller's AI photos are blocked after repeated refusals, spec 6.11) · 404 not_found · 405 ·
 // 409 already_generated · 413 · 422 not_food · 429 limit_reached (the plan's monthly AI photos, with
 // resets_at) · 502 generation_failed · 503 unavailable (with
 // Retry-After) · 500.

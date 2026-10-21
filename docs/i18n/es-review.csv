@@ -63,6 +63,10 @@ lists.select.tapToSelect,Tap items to select them,Toca artículos para seleccion
 lists.select.selected_one,{{count}} selected,{{count}} seleccionado,Plural form for a count of 1.
 lists.select.selected_other,{{count}} selected,{{count}} seleccionados,Plural form for every other count.
 lists.select.addToRecipe,Add to recipe,Agregar a receta,
+lists.select.selectAll,Select All,Seleccionar todo,
+lists.select.deselectAll,Deselect All,Anular selección,
+lists.select.delete_one,Delete {{count}} item,Eliminar {{count}} artículo,Plural form for a count of 1.
+lists.select.delete_other,Delete {{count}} items,Eliminar {{count}} artículos,Plural form for every other count.
 lists.row.checkOff,Check off {{name}},Marcar {{name}},
 lists.row.checkOffAction,Check off,Marcar,
 lists.row.uncheckAction,Uncheck,Desmarcar,
@@ -71,6 +75,9 @@ lists.row.selectHint,Double-tap to select,Toca dos veces para seleccionar,
 lists.row.hasPhoto,has a photo,tiene una foto,
 lists.news.badge,NEW,NUEVO,
 lists.news.rowLabel,new,nuevo,
+lists.news.added,+{{amount}},+{{amount}},
+lists.news.addedLabel,{{amount}} added,{{amount}} más,
+lists.news.addedSomeLabel,more added,se agregó más,
 lists.arrivals.addedOne,{{name}} added {{item}},{{name}} agregó {{item}},
 lists.arrivals.addedMany_one,{{name}} added {{count}} item,{{name}} agregó {{count}} artículo,Plural form for a count of 1.
 lists.arrivals.addedMany_other,{{name}} added {{count}} items,{{name}} agregó {{count}} artículos,Plural form for every other count.
@@ -85,6 +92,8 @@ lists.toasts.movedFrom,Moved {{name}} from {{list}},Se movió {{name}} de {{list
 lists.toasts.deleted,Deleted {{name}},Se eliminó {{name}},
 lists.toasts.cleared_one,Cleared {{count}} item,Se borró {{count}} artículo,Plural form for a count of 1.
 lists.toasts.cleared_other,Cleared {{count}} items,Se borraron {{count}} artículos,Plural form for every other count.
+lists.toasts.deletedItems_one,Deleted {{count}} item,Se eliminó {{count}} artículo,Plural form for a count of 1.
+lists.toasts.deletedItems_other,Deleted {{count}} items,Se eliminaron {{count}} artículos,Plural form for every other count.
 lists.toasts.checkedAll_one,Checked {{count}} item,Se marcó {{count}} artículo,Plural form for a count of 1.
 lists.toasts.checkedAll_other,Checked {{count}} items,Se marcaron {{count}} artículos,Plural form for every other count.
 lists.toasts.uncheckedAll_one,Unchecked {{count}} item,Se desmarcó {{count}} artículo,Plural form for a count of 1.
@@ -127,8 +136,6 @@ lists.prompt.save,Save,Guardar,
 lists.prompt.create,Create,Crear,
 lists.noLists.message,No lists yet.,Aún no tienes listas.,
 lists.noLists.newList,New list,Nueva lista,
-lists.noLists.invites_one,{{count}} invite waiting,{{count}} invitación pendiente,Plural form for a count of 1.
-lists.noLists.invites_other,{{count}} invites waiting,{{count}} invitaciones pendientes,Plural form for every other count.
 lists.noLists.yourLists,Your lists,Tus listas,
 lists.edit.name,Name,Nombre,
 lists.edit.colour,Colour,Color,
@@ -403,6 +410,7 @@ recipes.photo.generateNotFood,Couldn't make a photo for this recipe,No se pudo c
 recipes.photo.generateAlready,This recipe already had its AI photo,Esta receta ya tuvo su foto con IA,
 recipes.photo.generateFailed,Couldn't make a photo. Try again later.,No se pudo crear una foto. Inténtalo más tarde.,
 recipes.photo.generateLimitReached,You've used this month's AI photos. They reset on {{date}}.,Ya usaste las fotos con IA de este mes. Se renuevan el {{date}}.,
+recipes.photo.generateBlocked,AI photos are turned off for your account.,Las fotos con IA están desactivadas para tu cuenta.,
 recipes.link.placeholder,Add a link to the recipe,Agrega un enlace a la receta,
 recipes.link.label,Link to the recipe,Enlace a la receta,
 recipes.link.row,"Recipe link, {{link}}","Enlace de la receta, {{link}}",
@@ -989,6 +997,32 @@ invites.replace.message,"You'll share {{household}}'s lists and recipes. You can
 invites.replace.keep,Join and keep it,Unirme y conservarlo,
 invites.replace.delete,Join and delete {{name}},Unirme y eliminar {{name}},
 invites.replace.deleteFailed,"Joined, but {{name}} couldn't be deleted. You can delete it in Settings.","Te uniste, pero no se pudo eliminar {{name}}. Puedes eliminarlo en Ajustes.",
+invites.welcome.label,You're invited,Te invitaron,
+invites.welcome.invitedYouTo,{{name}} invited you to,{{name}} te invitó a,
+invites.welcome.invitedYouToUnnamed,You're invited to,Te invitaron a,
+invites.welcome.members_one,{{count}} member,{{count}} miembro,Plural form for a count of 1.
+invites.welcome.members_other,{{count}} members,{{count}} miembros,Plural form for every other count.
+invites.welcome.pitch,"Share one grocery list, their recipes and the meal plan. Check something off and everyone sees it.","Comparte una lista de compras, sus recetas y el plan de comidas. Marca algo y todos lo ven.",
+invites.welcome.join,Join {{household}},Unirme a {{household}},
+invites.welcome.decline,Decline,Rechazar,
+invites.welcome.or,or,o,
+invites.welcome.startOwn,Start my own list,Empezar mi propia lista,
+invites.welcome.startOwnInstead,Start my own list instead,Mejor empezar mi propia lista,
+invites.welcome.later,You can join later from Your lists.,Puedes unirte después desde Tus listas.,
+invites.welcome.manyTitle,{{count}} invites waiting,{{count}} invitaciones pendientes,
+invites.welcome.manyTwo,Join one or both. Each keeps its own lists.,Únete a una o a las dos. Cada una tiene sus propias listas.,
+invites.welcome.manyMore,Join any of them. Each keeps its own lists.,Únete a las que quieras. Cada una tiene sus propias listas.,
+invites.welcome.from_one,From {{name}} · {{count}} member,De {{name}} · {{count}} miembro,Plural form for a count of 1.
+invites.welcome.from_other,From {{name}} · {{count}} members,De {{name}} · {{count}} miembros,Plural form for every other count.
+invites.pinned.title,{{name}} invited you to {{household}},{{name}} te invitó a {{household}},
+invites.pinned.titleUnnamed,You're invited to {{household}},Te invitaron a {{household}},
+invites.pinned.detail_one,{{count}} member · their lists join yours,{{count}} miembro · sus listas se suman a las tuyas,Plural form for a count of 1.
+invites.pinned.detail_other,{{count}} members · their lists join yours,{{count}} miembros · sus listas se suman a las tuyas,Plural form for every other count.
+invites.pinned.notNow,Not now,Ahora no,
+invites.joined.title,You're in {{household}},Ya estás en {{household}},
+invites.joined.message,{{name}}'s lists and recipes are yours now. Tap the list's name to switch.,Las listas y recetas de {{name}} ahora son tuyas. Toca el nombre de la lista para cambiar.,
+invites.joined.messageUnnamed,Its lists and recipes are yours now. Tap the list's name to switch.,Sus listas y recetas ahora son tuyas. Toca el nombre de la lista para cambiar.,
+invites.joined.dismiss,Dismiss,Cerrar,
 account.delete,Delete account,Eliminar cuenta,
 account.deleteHint,Deletes your account and data. Asks you first.,Elimina tu cuenta y tus datos. Primero te pregunta.,
 account.confirmTitle,Delete your account?,¿Eliminar tu cuenta?,

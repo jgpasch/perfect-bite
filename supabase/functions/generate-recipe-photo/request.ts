@@ -34,6 +34,8 @@ function failureResponse(failure: GenerateFailure, message: string, now?: number
   switch (failure.code) {
     case 'not_entitled':
       return error(403, 'not_entitled', message);
+    case 'ai_photos_blocked':
+      return error(403, 'ai_photos_blocked', message);
     case 'not_found':
       return error(404, 'not_found', message);
     case 'already_generated':

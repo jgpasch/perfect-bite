@@ -11,8 +11,13 @@ import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describ
 import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 import { moderateText, ModerationFailedError, moderationModelId, type ModerationResult } from './moderation.ts';
 
-/** `reserve_recipe_photo_ai`'s answer. `monthly_limit`: the caller has reserved their plan's AI photos this month. */
-export type ReserveResult = { status: 'ok'; householdId: string } | { status: 'not_found' | 'already_generated' | 'monthly_limit' };
+/**
+ * `reserve_recipe_photo_ai`'s answer. `blocked`: the caller's AI photos are blocked after repeated
+ * refusals (6.11). `monthly_limit`: the caller has reserved their plan's AI photos this month.
+ */
+export type ReserveResult =
+  | { status: 'ok'; householdId: string }
+  | { status: 'blocked' | 'not_found' | 'already_generated' | 'monthly_limit' };
 
 /** The recipe as stored: its name, its live ingredients' display names in order, and its `tags`. */
 export type StoredRecipe = { name: string; ingredients: string[]; tags: unknown };
@@ -54,6 +59,7 @@ export type GenerateDeps = {
 /** Why a generation failed; request.ts turns it into the HTTP status. */
 export type GenerateFailure =
   | { code: 'not_entitled' }
+  | { code: 'ai_photos_blocked' }
   | { code: 'not_found' }
   | { code: 'already_generated' }
   | { code: 'limit_reached' }
@@ -109,6 +115,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
 
   const reserved = await store.reserve(recipeId);
   switch (reserved.status) {
+    case 'blocked':
+      throw new GeneratePhotoError({ code: 'ai_photos_blocked' }, 'AI photos are turned off for your account');
     case 'not_found':
       throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
     case 'already_generated':

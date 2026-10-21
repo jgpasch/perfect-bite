@@ -24,7 +24,12 @@ export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: 
       if (error) throw error;
       const row = (data as { status: string; household_id: string | null }[])[0];
       if (row?.status === 'ok' && row.household_id) return { status: 'ok', householdId: row.household_id };
-      if (row?.status === 'not_found' || row?.status === 'already_generated' || row?.status === 'monthly_limit') {
+      if (
+        row?.status === 'blocked' ||
+        row?.status === 'not_found' ||
+        row?.status === 'already_generated' ||
+        row?.status === 'monthly_limit'
+      ) {
         return { status: row.status };
       }
       throw new Error(`reserve_recipe_photo_ai answered ${JSON.stringify(data)}`);

@@ -487,6 +487,7 @@ export const es = {
       generateAlready: 'Esta receta ya tuvo su foto con IA',
       generateFailed: 'No se pudo crear una foto. Inténtalo más tarde.',
       generateLimitReached: 'Ya usaste las fotos con IA de este mes. Se renuevan el {{date}}.',
+      generateBlocked: 'Las fotos con IA están desactivadas para tu cuenta.',
     },
     link: {
       placeholder: 'Agrega un enlace a la receta',

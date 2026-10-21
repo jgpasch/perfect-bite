@@ -560,6 +560,7 @@ export const en = {
       generateFailed: "Couldn't make a photo. Try again later.",
       /** The plan's monthly limit (spec 4.12); `date` is when it resets, e.g. "Nov 1". */
       generateLimitReached: "You've used this month's AI photos. They reset on {{date}}.",
+      generateBlocked: 'AI photos are turned off for your account.',
     },
     /** The recipe band's link row. */
     link: {

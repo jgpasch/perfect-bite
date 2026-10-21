@@ -682,6 +682,20 @@ Deno.test('reservation answers: not_found 404, already_generated 409, monthly_li
   });
 });
 
+Deno.test('a blocked user: 403 ai_photos_blocked, with no model call, moderation or release', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.reservation = { status: 'blocked' };
+    const { res, json, image, moderation } = await call({ store });
+    assertEquals(res.status, 403);
+    assertEquals(json, { error: 'ai_photos_blocked', message: 'AI photos are turned off for your account' });
+    assertEquals(store.steps, ['feature:recipe_photo_ai', 'reserve']);
+    assertEquals(store.aiCalls, []);
+    assertEquals(moderation.texts, []);
+    assertEquals(image.prompts, []);
+  });
+});
+
 Deno.test('the monthly limit: 429 limit_reached with next month as resets_at', async () => {
   await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
     const store = new FakeStore();

@@ -24,9 +24,11 @@ export const GenerateRecipePhotoResponseSchema = z.object({
 export type GenerateRecipePhotoResponse = z.infer<typeof GenerateRecipePhotoResponseSchema>;
 
 /**
- * `not_found` (404): no such live recipe in the caller's households. `already_generated` (409): it
- * has had its one AI photo, or one is being made. `not_food` (422): the recipe isn't food, or its
- * text isn't something to put in a food photo, or the image model refused it.
+ * `ai_photos_blocked` (403): the caller's AI photos are blocked after repeated refused prompts,
+ * until an admin clears it (6.11). `not_found` (404): no such live recipe in the caller's
+ * households. `already_generated` (409): it has had its one AI photo, or one is being made.
+ * `not_food` (422): the recipe isn't food, or its text isn't something to put in a food photo, or
+ * the image model refused it.
  * `generation_failed` (502): a model failed or timed out; the slot was released, so try again.
  * `limit_reached` (429, with `resets_at`): the user has made their plan's AI photos this month.
  * `unavailable` (503, with Retry-After): a kill switch.
@@ -34,6 +36,7 @@ export type GenerateRecipePhotoResponse = z.infer<typeof GenerateRecipePhotoResp
 export const GENERATE_RECIPE_PHOTO_ERROR_CODES = [
   'invalid_request',
   'not_entitled',
+  'ai_photos_blocked',
   'not_found',
   'already_generated',
   'not_food',

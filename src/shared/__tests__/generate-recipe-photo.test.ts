@@ -41,6 +41,7 @@ describe('GenerateRecipePhotoErrorSchema', () => {
     expect(GENERATE_RECIPE_PHOTO_ERROR_CODES).toEqual([
       'invalid_request',
       'not_entitled',
+      'ai_photos_blocked',
       'not_found',
       'already_generated',
       'not_food',
