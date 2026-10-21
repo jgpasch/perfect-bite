@@ -1,6 +1,6 @@
 // generate-recipe-photo (spec 6.11) end to end through handleRequest, with a fake store, the mock
 // or a MockLanguageModelV4 for the description, and a fake image call. Nothing touches the network.
-import { assert, assertEquals, assertFalse, assertMatch, assertNotEquals, assertStringIncludes } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertMatch, assertNotEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { APICallError, type LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 
@@ -9,7 +9,7 @@ import { RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from '../_shared/ai/prompts/r
 import { RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
 import type { AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
-import { generateRecipePhoto, type GenerateDeps, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
+import { generateRecipePhoto, GeneratePhotoError, type GenerateDeps, type RecipePhotoStore, type ReserveResult, type StoredRecipe } from './handler.ts';
 import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 import { ModerationFailedError, moderateText, type ModerationResult } from './moderation.ts';
 import { handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
@@ -362,6 +362,69 @@ Deno.test('the mock image model logs an ok row too, named mock, with no tokens',
     const row = store.aiCalls[2];
     assertEquals([row.task, row.model, row.status, row.input_tokens, row.output_tokens], ['recipePhotoImage', 'mock', 'ok', null, null]);
     assertEquals(row.output, { quality: 'medium', path: IMAGE_PATH });
+  });
+});
+
+// --- the mock refusal word (testing blocks by hand) --------------------------------------------------
+
+const REFUSE_ME: StoredRecipe = { ...TACOS, name: 'refuse-me pasta' };
+const MOCK_IMAGE_ENV = (key: string) => (key === 'AI_IMAGE_MODEL' ? 'mock' : undefined);
+
+Deno.test('with the mock models, a title with refuse-me is flagged by moderation: a refused row, not_food, the slot given back', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.recipe = REFUSE_ME;
+    const err = await assertRejects(
+      () => generateRecipePhoto({ recipeId: RECIPE_ID }, { store, userId: USER_ID, newId: () => PHOTO_ID, env: MOCK_IMAGE_ENV }),
+      GeneratePhotoError,
+    );
+    assertEquals(err.failure, { code: 'not_food', by: 'moderation' });
+    assertEquals(store.aiCalls.map((c) => [c.task, c.model, c.status]), [
+      ['recipePhotoDescription', 'mock', 'ok'],
+      ['recipePhotoModeration', 'mock', 'refused'],
+    ]);
+    const row = store.aiCalls[1];
+    assertEquals([row.user_id, row.household_id, row.error, row.output], [USER_ID, HOUSEHOLD_ID, 'Flagged: mock', { flagged: true, categories: ['mock'] }]);
+    assertStringIncludes(row.prompt, `${MOCK_PHOTO_DESCRIPTION} (refuse-me)`);
+    assertEquals(store.steps.at(-1), 'release');
+    assertEquals(store.uploads, []);
+  });
+});
+
+Deno.test('with the mock image model past moderation, a title with refuse-me is a refused image row', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.recipe = { ...TACOS, name: 'Weeknight REFUSE-ME soup' };
+    const moderation = fakeModeration();
+    const err = await assertRejects(
+      () => generateRecipePhoto({ recipeId: RECIPE_ID }, { store, userId: USER_ID, moderate: moderation.moderate, newId: () => PHOTO_ID, env: MOCK_IMAGE_ENV }),
+      GeneratePhotoError,
+    );
+    assertEquals(err.failure, { code: 'not_food', by: 'image' });
+    assertStringIncludes(moderation.texts[0], 'refuse-me');
+    const row = store.aiCalls[2];
+    assertEquals([row.task, row.model, row.status, row.error], ['recipePhotoImage', 'mock', 'refused', 'ImageRefusedError: Refused: moderation_blocked (mock)']);
+    assertEquals(store.uploads, []);
+  });
+});
+
+Deno.test('with the mock models, a recipe without refuse-me gets its photo and the prompt has no word added', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    const answer = await generateRecipePhoto({ recipeId: RECIPE_ID }, { store, userId: USER_ID, newId: () => PHOTO_ID, env: MOCK_IMAGE_ENV });
+    assertEquals(answer, { path: IMAGE_PATH });
+    assertFalse(store.aiCalls[1].prompt.includes('refuse-me'));
+  });
+});
+
+Deno.test('a real image model never sees the title: refuse-me in it changes nothing', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const store = new FakeStore();
+    store.recipe = REFUSE_ME;
+    const { res, image, moderation } = await call({ store });
+    assertEquals(res.status, 200);
+    assertFalse(image.prompts[0].includes('refuse-me'));
+    assertFalse(moderation.texts[0].includes('refuse-me'));
   });
 });
 

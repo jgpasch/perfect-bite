@@ -2,10 +2,10 @@
 // free moderation endpoint before the image call, so a bad prompt stops with us instead of being
 // refused by the image model (each refusal there counts against our OpenAI account). A plain
 // fetch, no SDK, as image.ts. It follows `AI_IMAGE_MODEL`: `mock` answers not flagged with no
-// network call; `off` never gets here (the caller checks `isImageEnabled` first).
+// network call (flagged, category `mock`, for a text with `MOCK_REFUSAL_WORD`); `off` never gets here (the caller checks `isImageEnabled` first).
 import { MOCK_MODEL_ID } from '../_shared/ai/registry.ts';
 import { AI_OFF } from '../_shared/ai/tasks.ts';
-import { imageModel, type ImageErrorAnswer, type ImageFailure } from './image.ts';
+import { hasMockRefusalWord, imageModel, type ImageErrorAnswer, type ImageFailure } from './image.ts';
 
 export const OPENAI_MODERATIONS_URL = 'https://api.openai.com/v1/moderations';
 export const MODERATION_MODEL = 'omni-moderation-latest';
@@ -58,7 +58,7 @@ export async function moderateText(text: string, options: ModerationOptions = {}
   const env = options.env ?? defaultEnv;
   const model = imageModel(env);
   if (model === AI_OFF) throw new ModerationFailedError('AI_IMAGE_MODEL is off', 'error');
-  if (model === MOCK_MODEL_ID) return { flagged: false, categories: [] };
+  if (model === MOCK_MODEL_ID) return hasMockRefusalWord(text) ? { flagged: true, categories: ['mock'] } : { flagged: false, categories: [] };
 
   const apiKey = env('OPENAI_API_KEY')?.trim();
   if (!apiKey) throw new ModerationFailedError('OPENAI_API_KEY is not set', 'error');

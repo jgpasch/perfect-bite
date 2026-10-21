@@ -166,6 +166,54 @@ order by b.blocked_at desc;
 
 Unblock in the portal rather than deleting the row by hand: a deleted row writes no audit row, so the old refusals still count and the user's next refusal blocks them again.
 
+### Testing AI photo blocks
+
+Two ways to get refusals without asking a real model for a bad image.
+
+**Fake refusals in the local database.** `yarn dev:ai-refusals <email> [count]` inserts `count` (default 3) refused `recipePhotoImage` rows for that user (model `mock`, their oldest household, `error` "Fake refusal (dev:ai-refusals)"), one at a time, so they go through the real trigger: the third blocks them as a real refusal would. It prints their refusal count and whether they're blocked. `yarn dev:ai-refusals <email> --clear` deletes their fake rows, their block and the block's `block_ai_photos` audit row. It needs `psql`, connects to `postgresql://postgres:postgres@127.0.0.1:55322/postgres` (or `DATABASE_URL`) and refuses any host but `127.0.0.1` or `localhost`, so it can't touch hosted. `--clear` leaves other rows alone: an `unblock_ai_photos` audit row from the portal, and refused rows the mock model made (below), stay.
+
+**A refusal from the mock model.** With `AI_IMAGE_MODEL=mock` and `AI_MODEL_PHOTO_DESCRIPTION=mock` in `supabase/functions/.env`, Generate with AI on a recipe whose title contains `refuse-me` (any case, e.g. "refuse-me pasta") is refused: the mock moderation check flags the prompt (a `refused` `recipePhotoModeration` row, error "Flagged: mock") and the app shows "Couldn't make a photo for this recipe". The mock description never repeats the title, so with the mock image model the function adds the word to the image prompt itself; the mock image model refuses a prompt with the word too (`Refused: moderation_blocked (mock)`). A real image model never sees the word. Each recipe has one try, so make a new one per refusal; the third blocks the account.
+
+**On hosted**, run these in the SQL editor. Set the email on the first line. Three fake refusals, which block the user:
+
+```sql
+do $$
+declare
+  v_email text := 'someone@example.com';
+  v_user uuid;
+  v_household uuid;
+begin
+  select id into v_user from auth.users where lower(email) = lower(v_email);
+  if v_user is null then raise exception 'No user with the email %', v_email; end if;
+  select m.household_id into v_household
+  from public.household_members m join public.households h on h.id = m.household_id
+  where m.user_id = v_user order by h.created_at, h.id limit 1;
+  for i in 1..3 loop
+    insert into public.ai_calls (id, task, model, prompt_version, status, instructions, prompt, duration_ms, error, user_id, household_id)
+    values (gen_random_uuid(), 'recipePhotoImage', 'mock', 'recipe-photo-image.v1', 'refused', '',
+      'Fake refused prompt (dev:ai-refusals)', 0, 'Fake refusal (dev:ai-refusals)', v_user, v_household);
+  end loop;
+end $$;
+```
+
+And clearing them, the block and its audit row:
+
+```sql
+do $$
+declare
+  v_email text := 'someone@example.com';
+  v_user uuid;
+begin
+  select id into v_user from auth.users where lower(email) = lower(v_email);
+  if v_user is null then raise exception 'No user with the email %', v_email; end if;
+  delete from admin.admin_actions a using private.ai_photo_blocks b
+  where b.user_id = v_user and a.target_user_id = v_user
+    and a.action = 'block_ai_photos' and a.created_at >= b.blocked_at;
+  delete from private.ai_photo_blocks where user_id = v_user;
+  delete from public.ai_calls where user_id = v_user and error = 'Fake refusal (dev:ai-refusals)';
+end $$;
+```
+
 ### Add or remove an admin
 
 Admins are the users who may use the admin portal (`admin/`). In the Table Editor, open the `private` schema → `admins`. To add one, insert a row with their user id (find it under Authentication → Users, or with "Find a user" above); `added_at` fills itself in. To remove one, delete their row. Either takes effect on their next call: the portal checks on every action, so there's nothing to sign out. Deleting a user removes their row too.

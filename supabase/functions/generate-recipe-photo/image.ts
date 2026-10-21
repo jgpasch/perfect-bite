@@ -14,6 +14,16 @@ export const IMAGE_SIZE = '1536x1024';
 export const IMAGE_COMPRESSION = 80;
 /** No answer within this is a failure (502). */
 export const IMAGE_TIMEOUT_MS = 60_000;
+/**
+ * The mock image model refuses a prompt containing this (any case), and the mock moderation check
+ * flags it, so a recipe titled "refuse-me pasta" makes a real refused row locally (6.11).
+ */
+export const MOCK_REFUSAL_WORD = 'refuse-me';
+
+/** True when `text` holds `MOCK_REFUSAL_WORD`, in any case. */
+export function hasMockRefusalWord(text: string): boolean {
+  return text.toLowerCase().includes(MOCK_REFUSAL_WORD);
+}
 
 type Env = (key: string) => string | undefined;
 const defaultEnv: Env = (key) => Deno.env.get(key);
@@ -129,6 +139,7 @@ export async function generateImage(prompt: string, options: ImageOptions = {}):
   const quality = imageQuality(env);
   const started = Date.now();
   if (model === AI_OFF) throw new ImageFailedError('AI_IMAGE_MODEL is off', 'error');
+  if (model === MOCK_MODEL_ID && hasMockRefusalWord(prompt)) throw new ImageRefusedError('Refused: moderation_blocked (mock)');
   if (model === MOCK_MODEL_ID) return { bytes: MOCK_RECIPE_PHOTO_JPEG.slice(), model, quality, ms: Date.now() - started, usage: null };
 
   const apiKey = env('OPENAI_API_KEY')?.trim();

@@ -96,6 +96,21 @@ Deno.test('AI_IMAGE_MODEL=mock answers not flagged with no network call and no k
   assertEquals(fake.sent, []);
 });
 
+Deno.test('the mock flags a text with refuse-me, in any case, with no network call', async () => {
+  const fake = answering(500, {});
+  const env = (key: string) => (key === 'AI_IMAGE_MODEL' ? 'mock' : undefined);
+  assertEquals(await moderateText('The dish: refuse-me pasta.', { env, fetch: fake.fetch }), { flagged: true, categories: ['mock'] });
+  assertEquals(await moderateText('The dish: REFUSE-ME pasta.', { env, fetch: fake.fetch }), { flagged: true, categories: ['mock'] });
+  assertEquals(await moderateText('The dish: refuse me pasta.', { env, fetch: fake.fetch }), { flagged: false, categories: [] });
+  assertEquals(fake.sent, []);
+});
+
+Deno.test('a real model sends refuse-me on to OpenAI like any text', async () => {
+  const fake = answering(200, CLEAN);
+  assertEquals(await moderateText('refuse-me', { env: KEY_ENV, fetch: fake.fetch }), { flagged: false, categories: [] });
+  assertEquals(fake.sent.length, 1);
+});
+
 Deno.test('moderationModelId: openai:omni-moderation-latest, or mock with the mock image model', () => {
   assertEquals(moderationModelId(() => undefined), 'openai:omni-moderation-latest');
   assertEquals(moderationModelId((key) => (key === 'AI_IMAGE_MODEL' ? 'gpt-image-1' : undefined)), 'openai:omni-moderation-latest');

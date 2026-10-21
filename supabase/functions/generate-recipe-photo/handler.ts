@@ -4,11 +4,12 @@ import type { GenerateRecipePhotoRequest, GenerateRecipePhotoResponse } from '@s
 import type { LanguageModel } from 'ai';
 
 import { buildRecipePhotoImagePrompt, RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
+import { MOCK_MODEL_ID } from '../_shared/ai/registry.ts';
 import { RECIPE_PHOTO_IMAGE_TASK, RECIPE_PHOTO_MODERATION_TASK, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
-import { generateImage as realGenerateImage, ImageFailedError, ImageRefusedError, imageModel, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
+import { generateImage as realGenerateImage, hasMockRefusalWord, ImageFailedError, ImageRefusedError, imageModel, MOCK_REFUSAL_WORD, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 import { moderateText, ModerationFailedError, moderationModelId, type ModerationResult } from './moderation.ts';
 
 /**
@@ -159,7 +160,10 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
     description = described.description;
 
     const path = `${householdId}/${recipeId}/${(deps.newId ?? (() => crypto.randomUUID()))()}.jpg`.toLowerCase();
-    const imagePrompt = buildRecipePhotoImagePrompt(description);
+    // Mock only: the description never repeats the title, so a title with the refusal word carries
+    // it into the prompt, where the mock moderation check flags it (testing blocks by hand, 6.11).
+    const mockRefusal = image === MOCK_MODEL_ID && hasMockRefusalWord(stored.name);
+    const imagePrompt = buildRecipePhotoImagePrompt(mockRefusal ? `${description} (${MOCK_REFUSAL_WORD})` : description);
     type StepFields = Pick<AiCallRecord, 'model' | 'status' | 'output' | 'input_tokens' | 'output_tokens' | 'error' | 'http_status' | 'error_body'>;
     // One row per moderation and per image call, success or failure, each linked to the description row.
     const logStep = (task: typeof RECIPE_PHOTO_MODERATION_TASK | typeof RECIPE_PHOTO_IMAGE_TASK, stepStarted: number, fields: StepFields) =>

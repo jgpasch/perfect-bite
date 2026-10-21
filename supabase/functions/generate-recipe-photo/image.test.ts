@@ -6,6 +6,7 @@ import { MOCK_RECIPE_PHOTO_JPEG } from '../_shared/fixtures/mock-recipe-photo.ts
 import {
   estimateImageCost,
   generateImage,
+  hasMockRefusalWord,
   ImageFailedError,
   ImageRefusedError,
   imageModel,
@@ -13,6 +14,7 @@ import {
   imageQuality,
   isContentPolicyError,
   isImageEnabled,
+  MOCK_REFUSAL_WORD,
   OPENAI_IMAGES_URL,
   safetyIdentifierFor,
 } from './image.ts';
@@ -131,6 +133,27 @@ Deno.test('mock answers the fixed JPEG with no network call or key; off and a mi
   assertEquals(sent, []);
   assertEquals(isImageEnabled(envOf({ AI_IMAGE_MODEL: 'off' })), false);
   assertEquals(isImageEnabled(envOf({})), true);
+});
+
+Deno.test('the mock refuses a prompt with refuse-me, in any case, and makes a photo otherwise', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  const env = envOf({ AI_IMAGE_MODEL: 'mock' });
+  for (const prompt of ['The dish: refuse-me pasta.', 'The dish: Refuse-Me pasta.']) {
+    const err = await assertRejects(() => generateImage(prompt, { env, fetch }), ImageRefusedError);
+    assertEquals([err.message, err.httpStatus, err.body], ['Refused: moderation_blocked (mock)', null, null]);
+  }
+  const image = await generateImage('The dish: refuse pasta, me.', { env, fetch });
+  assertEquals(image.bytes, MOCK_RECIPE_PHOTO_JPEG);
+  assertEquals(sent, []);
+  assertEquals(MOCK_REFUSAL_WORD, 'refuse-me');
+  assert(hasMockRefusalWord('xREFUSE-MEx'));
+  assertFalse(hasMockRefusalWord('refuse_me'));
+});
+
+Deno.test('a real model sends refuse-me on to OpenAI like any prompt', async () => {
+  const { sent, fetch } = fakeFetch(200, OK_BODY);
+  await generateImage('refuse-me', { env: KEYED, fetch });
+  assertEquals(sent.length, 1);
 });
 
 Deno.test('the mock JPEG is a small baseline JPEG', () => {
