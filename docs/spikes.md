@@ -5,7 +5,7 @@ The three spikes from spec §10 M0. Each records what was done, what's still ope
 | # | Spike | Status |
 |---|---|---|
 | 1 | Siri recognizes "add to The Perfect Bite" | Code ready and builds; **needs the device test below** |
-| 2 | Token refresh from the intent extension | Desk analysis; **recommendation needs sign-off** |
+| 2 | Token refresh from the intent extension | **Decided 2026-10-22**: option C, a scoped device credential, built first for share import |
 | 3 | Sync engine (PowerSync) vs custom | Desk evaluation; **decision needed before M1** |
 | 4 | Gemini 3.8 Flash latency (not M0; spec 6.4) | Thinking set to `low`; **timings to run by hand** |
 | 5 | Step ingredients: can a model match ingredients to steps? (cook mode, spec 4.5) | Eval run 2026-10-16; **go**, on the recipe model |
@@ -67,6 +67,16 @@ Supabase rotates refresh tokens: each refresh returns a new refresh token and in
 | C. **Scoped device token** (recommended) | At sign-in, the app calls a `register-siri-device` function that returns a random token, stored hashed in `siri_device_tokens (user_id, token_hash, created_at, last_used_at, revoked_at)`. The app saves it in the shared Keychain (`afterFirstUnlock`). The extension sends it to `siri-add`, which accepts nothing else and can only add items to lists the user can access. Sign-out and account deletion revoke it. | No rotation, works locked, never touches the app's session. Small extra surface, limited to adding items. |
 
 **Recommendation: C.** It needs a spec update to 4.9 and the M8 milestone (new table, two small functions, revoke on sign-out). Nothing to build in M0. Until M8, Siri adds upload when the app next opens, as in stash.
+
+### Outcome (2026-10-22)
+
+**C, generalized and built first for share import** (spec 6.12, plan `docs/share-server-import-plan.md` §2). Instead of a Siri-only `siri_device_tokens`, one `device_credentials` table holds scoped credentials (`scopes`, `share.ingest` now, `siri.add` when `siri-add` is built), one live per (user, app installation):
+- `register-device-credential` (signed-in session) issues a 32-byte random token valid 90 days and stores only its sha256; the app renews it on foreground with under 30 days left, and a replaced credential keeps working for 24 h so a queued upload still lands.
+- The app keeps `{ token, userId, installationId, expiresAt }` in a dedicated shared Keychain access group with `expo-secure-store` and `AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY` (not backed up, readable while locked); the share extension reads it for its background upload to `share-ingest`.
+- Sign-out revokes it when online and always deletes the Keychain item (offline, it stays valid server-side until it expires, a known limit); account deletion cascades; a lost device is revoked by an admin in the portal (`admin_revoke_device_credentials`, audited), with no in-app device list.
+- Only `share-ingest` (and later `siri-add`) accepts it, each checking its scope; it never becomes a Supabase session, so the app's refresh token rotation is untouched.
+
+Siri's own upload (spec 4.9, `future/siri-tasks.md`) reuses this with the `siri.add` scope.
 
 ---
 

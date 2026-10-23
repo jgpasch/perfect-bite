@@ -8,12 +8,13 @@ Parked and future work lives in [`future/`](future/README.md), one `<feature>-ta
 
 Local ports are 553xx, not the CLI defaults (543xx), so this project and stash can run at the same time. Migrations live in `supabase/migrations/`, pgTAP tests in `supabase/tests/` (`supabase test db`). Serve Edge Functions with `supabase functions serve --env-file supabase/functions/.env`.
 
-pg_cron calls the `send-notifications` worker (every minute) and `photo-cleanup` through pg_net, using Vault secrets. `supabase db reset` wipes them, so to run either locally, seed them again (SQL editor at http://127.0.0.1:55323, or psql on port 55322). The database runs in a container, so the URL is the host's functions port 55321:
+pg_cron calls the `send-notifications` and `share-import-worker` workers (every minute) and `photo-cleanup` through pg_net, using Vault secrets. `supabase db reset` wipes them, so to run any of them locally, seed them again (SQL editor at http://127.0.0.1:55323, or psql on port 55322). The database runs in a container, so the URL is the host's functions port 55321:
 
 ```sql
 select vault.create_secret('http://host.docker.internal:55321', 'project_url');
 select vault.create_secret('<SECRET_KEY from `supabase status`>', 'notifications_worker_key');
 select vault.create_secret('<SECRET_KEY from `supabase status`>', 'photo_cleanup_key');
+select vault.create_secret('<SECRET_KEY from `supabase status`>', 'share_import_worker_key');
 ```
 
 Without them the cron jobs do nothing.
