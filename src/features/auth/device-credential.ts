@@ -6,6 +6,7 @@
 // The extension reads the item as expo-secure-store writes it: a generic password with
 // `kSecAttrService` `KEYCHAIN_SERVICE + ":no-auth"`, `kSecAttrAccount` the UTF-8 of
 // `CREDENTIAL_KEY`, in `KEYCHAIN_ACCESS_GROUP`; its value is the JSON of `DeviceCredential`.
+import { getRandomBytes } from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform } from 'react-native';
 import { v4 as uuidv4 } from 'uuid';
@@ -46,7 +47,8 @@ const supported = () => Platform.OS === 'ios';
 export function getInstallationId(): string {
   const stored = getDeviceSetting<string | null>(INSTALLATION_ID_KEY, null);
   if (stored) return stored;
-  const id = uuidv4();
+  // Hermes has no crypto.getRandomValues; expo-crypto supplies the random bytes.
+  const id = uuidv4({ random: getRandomBytes(16) });
   setDeviceSetting(INSTALLATION_ID_KEY, id);
   return id;
 }
