@@ -67,8 +67,8 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select throws_ok($$ select count(*) from private.user_activity $$, '42501', null,
   'a signed-in client can''t read user_activity');
 reset role;
-select is((select count(*)::int from pg_trigger where tgname like '%_log_user_activity'), 17,
-  'the trigger is on 17 tables');
+select is((select count(*)::int from pg_trigger where tgname like '%_log_user_activity'), 18,
+  'the trigger is on 18 tables');
 select ok(not exists (select 1 from pg_trigger where tgname like '%_log_user_activity'
   and tgrelid in ('public.ingredient_usage'::regclass, 'public.ingredient_unit_usage'::regclass)),
   'not on the usage counters');

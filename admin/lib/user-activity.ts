@@ -66,6 +66,8 @@ export const APP_ACTIONS = {
   "recipe.renamed": { area: "recipes", label: "Renamed a recipe" },
   "recipe.edited": { area: "recipes", label: "Edited a recipe" },
   "recipe.tagged": { area: "recipes", label: "Changed a recipe's tags" },
+  "recipe.favorited": { area: "recipes", label: "Favorited a recipe" },
+  "recipe.unfavorited": { area: "recipes", label: "Unfavorited a recipe" },
   "recipe.photo_added": { area: "recipes", label: "Added a recipe photo" },
   "recipe.photo_removed": { area: "recipes", label: "Removed a recipe photo" },
   "recipe.deleted": { area: "recipes", label: "Deleted a recipe" },
@@ -344,6 +346,10 @@ function appSentence(entry: Pick<UserActivityEntry, "action" | "data" | "househo
       return ["Edited recipe ", em(d.recipe), fieldsText(d.fields)];
     case "recipe.tagged":
       return ["Changed the tags on ", em(d.recipe)];
+    case "recipe.favorited":
+      return ["Favorited ", em(d.recipe)];
+    case "recipe.unfavorited":
+      return ["Unfavorited ", em(d.recipe)];
     case "recipe.photo_added":
       return ["Added a photo to ", em(d.recipe)];
     case "recipe.photo_removed":

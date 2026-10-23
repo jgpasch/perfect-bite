@@ -77,6 +77,8 @@ const CATALOG: [string, Record<string, unknown>, string][] = [
   ["recipe.renamed", { recipe: "Lasagna", from: "Lasagne" }, "Renamed recipe *Lasagne* to *Lasagna*"],
   ["recipe.edited", { recipe: "Lasagna", fields: ["servings", "notes"] }, "Edited recipe *Lasagna*: servings, notes"],
   ["recipe.tagged", { recipe: "Lasagna" }, "Changed the tags on *Lasagna*"],
+  ["recipe.favorited", { recipe: "Tacos" }, "Favorited *Tacos*"],
+  ["recipe.unfavorited", { recipe: "Tacos" }, "Unfavorited *Tacos*"],
   ["recipe.photo_added", { recipe: "Lasagna" }, "Added a photo to *Lasagna*"],
   ["recipe.photo_removed", { recipe: "Lasagna" }, "Removed the photo from *Lasagna*"],
   ["recipe.deleted", { recipe: "Lasagna" }, "Deleted recipe *Lasagna*"],

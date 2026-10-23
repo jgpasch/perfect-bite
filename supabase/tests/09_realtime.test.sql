@@ -9,7 +9,8 @@ select set_eq(
     'households', 'household_members', 'lists', 'recipes', 'list_items', 'recipe_ingredients',
     'list_item_contributions', 'ingredient_usage', 'ingredient_unit_usage', 'categories',
     'household_category_overrides', 'user_settings', 'ingredients',
-    'household_staples', 'meal_plan_entries', 'household_category_order', 'user_household_category_order'
+    'household_staples', 'meal_plan_entries', 'household_category_order', 'user_household_category_order',
+    'recipe_favorites'
   ],
   'the synced tables, memberships and the catalog are published to Realtime'
 );
