@@ -1,6 +1,7 @@
 // Pieces of the sheets that add recipes to a list: Add to a list (spec 4.5) and Shop this week (spec 4.16).
+import * as Haptics from 'expo-haptics';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CheckCircle } from '@/components/check-circle';
@@ -45,7 +46,8 @@ export function SheetLabel({ children }: { children: string }) {
 
 /**
  * A row in "Untick what you have": a round check, the name (with an "Always have" tag for a staple), and the scaled
- * amount. Off rows are muted.
+ * amount. Off rows are muted. With `onToggleStaple`, long-press (light haptic) or VoiceOver's Always have / Don't
+ * always have action marks or unmarks it (spec 4.5 Marking from a recipe).
  */
 export function IngredientChoice({
   label,
@@ -53,24 +55,48 @@ export function IngredientChoice({
   staple,
   on,
   onPress,
+  onToggleStaple,
 }: {
   label: string;
   amount: string;
   staple: boolean;
   on: boolean;
   onPress: () => void;
+  onToggleStaple?: () => void;
 }) {
   const t = useT();
   const { colors, spacing, sizes, opacity } = useTheme();
   // Off rows use `inkSecondary`, not `inkTertiary`: tertiary is too light for text (DESIGN.md).
   const ink = on ? 'ink' : 'inkSecondary';
   const alwaysHave = t('item.alwaysHave');
+  const stapleAction = t(staple ? 'recipes.screen.unmarkAlwaysHave' : 'recipes.screen.markAlwaysHave');
   return (
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: on }}
       accessibilityLabel={[label, staple ? alwaysHave : null, amount || null].filter(Boolean).join(', ')}
+      accessibilityActions={onToggleStaple ? [{ name: 'alwaysHave', label: stapleAction }] : undefined}
+      onAccessibilityAction={
+        onToggleStaple
+          ? ({ nativeEvent }) => {
+              if (nativeEvent.actionName === 'alwaysHave') onToggleStaple();
+            }
+          : undefined
+      }
       onPress={onPress}
+      onLongPress={
+        onToggleStaple
+          ? () => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              ActionSheetIOS.showActionSheetWithOptions(
+                { title: label, options: [stapleAction, t('common.cancel')], cancelButtonIndex: 1 },
+                (index) => {
+                  if (index === 0) onToggleStaple();
+                },
+              );
+            }
+          : undefined
+      }
       style={({ pressed }) => [
         styles.row,
         {

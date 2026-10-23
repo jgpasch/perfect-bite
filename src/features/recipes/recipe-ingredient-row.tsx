@@ -19,15 +19,28 @@ type Props = {
   amount?: string;
   onEdit: () => void;
   onDelete: () => void;
-  /** Long-press, and VoiceOver's "Add to a list" action: the menu of lists to add it to (spec 4.5). */
+  /** Long-press, and VoiceOver's "Add to a list" action: the menu of lists to add it to, and Always have (spec 4.5). */
   onAddToList: () => void;
+  /** Whether it's one of the household's staples: names its VoiceOver action Always have or Don't always have. */
+  staple: boolean;
+  /** VoiceOver's Always have / Don't always have action: marks or unmarks it at once (spec 4.5 Marking from a recipe). */
+  onToggleStaple: () => void;
 };
 
 /**
  * A recipe ingredient in the Ingredients card: aisle dot, name, amount. Tap to edit, long-press to add it to a list,
  * swipe left to delete.
  */
-export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdit, onDelete, onAddToList }: Props) {
+export function RecipeIngredientRow({
+  ingredient,
+  dotColor,
+  amount: shown,
+  onEdit,
+  onDelete,
+  onAddToList,
+  staple,
+  onToggleStaple,
+}: Props) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const { entering, exiting, layout } = useMotion();
@@ -55,10 +68,12 @@ export function RecipeIngredientRow({ ingredient, dotColor, amount: shown, onEdi
           accessibilityHint={t('recipes.screen.ingredientHint')}
           accessibilityActions={[
             { name: 'addToList', label: t('recipes.screen.addIngredientToList') },
+            { name: 'alwaysHave', label: t(staple ? 'recipes.screen.unmarkAlwaysHave' : 'recipes.screen.markAlwaysHave') },
             { name: 'delete', label: t('common.delete') },
           ]}
           onAccessibilityAction={({ nativeEvent }) => {
             if (nativeEvent.actionName === 'addToList') onAddToList();
+            if (nativeEvent.actionName === 'alwaysHave') onToggleStaple();
             if (nativeEvent.actionName === 'delete') onDelete();
           }}
           style={({ pressed }) => [

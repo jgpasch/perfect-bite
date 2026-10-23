@@ -39,6 +39,7 @@ import { formatAmount } from '@/domain/quantity-display';
 import { getAccount } from '@/features/auth/account';
 import { ingredientAisles } from '@/features/categories/categories';
 import { categorizePending } from '@/features/categories/categorization';
+import { isStaple, setStaple, stapleToast, useStapleNames } from '@/features/households/staples';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { openList, resolveCurrentListId } from '@/features/lists/current-list';
 import { listsWithCountsQuery } from '@/features/lists/lists';
@@ -130,6 +131,11 @@ export default function RecipeScreen() {
     null,
   );
   const dismissAddedToast = useCallback(() => setAdded(null), []);
+  // The household's staples, for each ingredient's Always have / Don't always have (spec 4.5 Marking from a recipe),
+  // and the last mark or unmark, for its "Added Salt to Always have" toast.
+  const staples = useStapleNames(householdId);
+  const [stapled, setStapled] = useState<{ key: string; ingredientName: string; displayName: string; on: boolean } | null>(null);
+  const dismissStapledToast = useCallback(() => setStapled(null), []);
   // The stepper's servings: null is the recipe's own. Kept only while the screen is open.
   const [chosen, setChosen] = useState<number | null>(null);
   // The household's own photo, else the site's (spec 4.5).
@@ -255,23 +261,37 @@ export default function RecipeScreen() {
     );
   };
 
+  // Spec 4.5 Marking from a recipe: marks or unmarks the ingredient for the recipe's household at once, with Undo.
+  const toggleStaple = (ingredient: RecipeIngredient) => {
+    const on = !isStaple(recipe.householdId, ingredient.ingredientName);
+    setStaple(recipe.householdId, ingredient.ingredientName, on, getAccount()?.userId ?? null);
+    // Each change flips `on`, so the key differs from the toast before and the new one restarts its timer.
+    setStapled({ key: `${ingredient.id}-${on}`, ingredientName: ingredient.ingredientName, displayName: ingredient.displayName, on });
+  };
+
   // Spec 4.5: long-pressing an ingredient (light haptic) offers the household's open lists, the current one first,
   // and adds it at the stepper's servings, as its row shows it. The screen stays put, with Undo and Open list.
+  // Then Always have (Don't always have for a staple), offered with no open list too.
   const addToListMenu = (ingredient: RecipeIngredient) => {
     const userId = getAccount()?.userId ?? null;
     const all = listsWithCountsQuery().all();
     const open = all.filter((l) => l.archivedAt === null);
     const offered = ingredientMenuLists(all, recipe.householdId, resolveCurrentListId(open, userId));
-    if (offered.length === 0) return;
+    const staple = isStaple(recipe.householdId, ingredient.ingredientName);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const multiplier = base !== null && servings !== null ? servingsMultiplier(servings, base) : 1;
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: displayItemName(ingredient.displayName),
-        options: [...offered.map((l) => quickAddTitle(l.name)), t('common.cancel')],
-        cancelButtonIndex: offered.length,
+        options: [
+          ...offered.map((l) => quickAddTitle(l.name)),
+          t(staple ? 'recipes.screen.unmarkAlwaysHave' : 'recipes.screen.markAlwaysHave'),
+          t('common.cancel'),
+        ],
+        cancelButtonIndex: offered.length + 1,
       },
       (index) => {
+        if (index === offered.length) return toggleStaple(ingredient);
         const list = offered[index];
         if (!list) return;
         const add = addIngredientToList(list.id, id, ingredient, multiplier, userId);
@@ -472,6 +492,8 @@ export default function RecipeScreen() {
                       amount={base !== null && servings !== null && servings !== base ? scaledAmount(item, servings, base) : undefined}
                       onEdit={() => edit(item)}
                       onAddToList={() => addToListMenu(item)}
+                      staple={staples.has(item.ingredientName)}
+                      onToggleStaple={() => toggleStaple(item)}
                       onDelete={() => removeIngredient(item)}
                     />
                   ))
@@ -568,6 +590,24 @@ export default function RecipeScreen() {
                     { label: t('recipes.tab.openList'), onPress: () => (setAdded(null), openList(added.listId)) },
                   ]}
                   onDismiss={dismissAddedToast}
+                />
+              </View>
+            ) : null}
+            {stapled ? (
+              <View style={{ paddingBottom: spacing.sm }}>
+                <Toast
+                  key={stapled.key}
+                  {...stapleToast(recipe.householdId, stapled.displayName, stapled.on)}
+                  actions={[
+                    {
+                      label: t('common.undo'),
+                      onPress: () => (
+                        setStaple(recipe.householdId, stapled.ingredientName, !stapled.on, getAccount()?.userId ?? null),
+                        setStapled(null)
+                      ),
+                    },
+                  ]}
+                  onDismiss={dismissStapledToast}
                 />
               </View>
             ) : null}

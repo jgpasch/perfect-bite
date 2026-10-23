@@ -2,10 +2,12 @@
 // member marks or unmarks one, it syncs to everyone in the household, and it never crosses
 // households. Recipe adds leave them out by default (`src/features/recipes/add-to-list.ts`).
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { useMemo } from 'react';
 
-import { db, householdStaples, ingredientUsage } from '@/db';
+import { db, households, householdStaples, ingredientUsage } from '@/db';
+import { useLiveQueryOn } from '@/db/live-query';
 import { i18n } from '@/i18n';
-import { normalizeIngredientName, parseQuantity } from '@/shared';
+import { displayItemName, normalizeIngredientName, parseQuantity } from '@/shared';
 import { upsertRow } from '@/sync/mutate';
 
 /** Tables `staplesQuery` reads, for `useLiveQueryOn`. */
@@ -58,6 +60,22 @@ export function alwaysHaveFootnote(householdName: string | null): string {
   return name ? i18n.t('item.alwaysHaveFootnote', { name }) : i18n.t('item.alwaysHaveFootnoteYours');
 }
 
+/**
+ * The recipe screen's toast after marking or unmarking from an ingredient (spec 4.5 Marking from a recipe):
+ * "Added *Salt* to Always have", and on a second line who it changes it for, the household's name picked as
+ * `alwaysHaveFootnote` picks it.
+ */
+export function stapleToast(householdId: string, displayName: string, on: boolean): { message: string; emphasis: string } {
+  const name = displayItemName(displayName);
+  const household = db.select({ name: households.name }).from(households).where(eq(households.id, householdId)).get();
+  const householdName = household?.name.trim();
+  const first = i18n.t(on ? 'recipes.toasts.stapleAdded' : 'recipes.toasts.stapleRemoved', { name });
+  const second = householdName
+    ? i18n.t('recipes.toasts.stapleFor', { name: householdName })
+    : i18n.t('recipes.toasts.stapleForYours');
+  return { message: `${first}\n${second}`, emphasis: name };
+}
+
 /** The staple key for typed text, read as the add bar reads it with the amount ignored: `2 tbsp Olive oils` → `olive oil`. */
 export function stapleKeyFromText(text: string): string | null {
   return normalizeIngredientName(parseQuantity(text).name) || null;
@@ -87,5 +105,26 @@ export function stapleNames(householdId: string): Set<string> {
       .where(and(eq(householdStaples.householdId, householdId), isNull(householdStaples.deletedAt)))
       .all()
       .map((r) => r.ingredientName),
+  );
+}
+
+/** The household's staples' keys as one JSON array: always one row, so an empty result means not read yet. */
+function stapleKeysQuery(householdId: string) {
+  return db
+    .select({ keys: sql<string>`json_group_array(${householdStaples.ingredientName})` })
+    .from(householdStaples)
+    .where(and(eq(householdStaples.householdId, householdId), isNull(householdStaples.deletedAt)));
+}
+
+/**
+ * `stapleNames`, kept current (live query): follows marks on this phone and synced from other members' phones.
+ * Until the live query's first read lands, read at once, so a sheet opens with its tags.
+ */
+export function useStapleNames(householdId: string): Set<string> {
+  const { data } = useLiveQueryOn(stapleKeysQuery(householdId), [householdStaples], [householdId]);
+  const keys = data[0]?.keys;
+  return useMemo(
+    () => (keys === undefined ? stapleNames(householdId) : new Set(JSON.parse(keys) as string[])),
+    [householdId, keys],
   );
 }

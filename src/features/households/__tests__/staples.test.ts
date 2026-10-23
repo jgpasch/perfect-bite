@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 
 import { db, householdStaples, households, ingredientUsage, outbox } from '@/db';
 import { getDefaultListId, ensureStarterData, getList } from '@/features/lists/lists';
+import { i18n } from '@/i18n';
 import { resetDb } from '@/test/db';
 
 import {
@@ -14,6 +15,7 @@ import {
   stapleNames,
   staplesCountLabel,
   staplesQuery,
+  stapleToast,
 } from '../staples';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -131,6 +133,37 @@ describe('alwaysHaveFootnote', () => {
     expect(alwaysHaveFootnote(' Home ')).toBe('Left off when you add a recipe. Changes it for everyone in Home.');
     expect(alwaysHaveFootnote(null)).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
     expect(alwaysHaveFootnote('  ')).toBe('Left off when you add a recipe. Changes it for everyone in your household.');
+  });
+});
+
+describe('stapleToast', () => {
+  test('marked or unmarked, with the household on a second line and the name in bold', () => {
+    expect(stapleToast(CABIN, 'salt', true)).toEqual({
+      message: 'Added Salt to Always have\nFor everyone in Cabin',
+      emphasis: 'Salt',
+    });
+    expect(stapleToast(CABIN, 'olive oil', false)).toEqual({
+      message: 'Removed Olive oil from Always have\nFor everyone in Cabin',
+      emphasis: 'Olive oil',
+    });
+  });
+
+  test('a blank or missing household name reads "your household", and a padded one is trimmed', () => {
+    db.update(households).set({ name: '  ' }).where(eq(households.id, CABIN)).run();
+    expect(stapleToast(CABIN, 'salt', true).message).toBe('Added Salt to Always have\nFor everyone in your household');
+    expect(stapleToast('nope', 'salt', false).message).toBe('Removed Salt from Always have\nFor everyone in your household');
+    db.update(households).set({ name: ' Cabin ' }).where(eq(households.id, CABIN)).run();
+    expect(stapleToast(CABIN, 'salt', true).message).toBe('Added Salt to Always have\nFor everyone in Cabin');
+  });
+
+  test('in Spanish', async () => {
+    await i18n.changeLanguage('es');
+    try {
+      expect(stapleToast(CABIN, 'sal', true).message).toBe('Se agregó Sal a Siempre tengo\nPara todos en Cabin');
+      expect(stapleToast('nope', 'sal', false).message).toBe('Se quitó Sal de Siempre tengo\nPara todos en tu hogar');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });
 

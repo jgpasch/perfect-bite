@@ -14,7 +14,7 @@ import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
-import { db, householdMemberNames, households, lists, outbox, recipeFavorites, recipes } from '@/db';
+import { db, householdMemberNames, households, householdStaples, lists, outbox, recipeFavorites, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { resolveCurrentListId, setCurrentList } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
@@ -339,8 +339,8 @@ describe('RecipeScreen', () => {
       act(() => byA11y(root, '2 Limes').props.onLongPress());
       const { options } = sheet(spy);
       expect(options.title).toBe('Limes');
-      expect(options.options).toEqual(['Add to Party', 'Add to Groceries', 'Cancel']);
-      expect(options.cancelButtonIndex).toBe(2);
+      expect(options.options).toEqual(['Add to Party', 'Add to Groceries', 'Always have', 'Cancel']);
+      expect(options.cancelButtonIndex).toBe(3);
     });
 
     test('picking a list adds the ingredient there, with Undo and Open list on a toast', () => {
@@ -369,8 +369,9 @@ describe('RecipeScreen', () => {
       const spy = spySheet();
       const root = render(<RecipeScreen />);
       act(() => byA11y(root, '2 Limes').props.onLongPress());
-      sheet(spy).pick(1);
+      sheet(spy).pick(2);
       expect(onList()).toEqual([]);
+      expect(isStaple(getRecipe(tacos)!.householdId, 'lime')).toBe(false);
       expect(texts(root)).not.toContain('Added Limes to Groceries');
     });
 
@@ -393,9 +394,116 @@ describe('RecipeScreen', () => {
       const spy = spySheet();
       const root = render(<RecipeScreen />);
       const row = byA11y(root, '2 Limes');
-      expect(row.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual(['Add to a list', 'Delete']);
+      expect(row.props.accessibilityActions.map((a: { label: string }) => a.label)).toEqual([
+        'Add to a list',
+        'Always have',
+        'Delete',
+      ]);
       act(() => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'addToList' } }));
       expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Always have from an ingredient (spec 4.5 Marking from a recipe)', () => {
+    type SheetOptions = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[0];
+    const spySheet = () => jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    const sheet = (spy: ReturnType<typeof spySheet>) => {
+      const [options, callback] = spy.mock.calls[spy.mock.calls.length - 1];
+      return { options: options as SheetOptions, pick: (index: number) => act(() => callback(index)) };
+    };
+    const household = () => getRecipe(tacos)!.householdId;
+    const nameHousehold = (name: string) =>
+      db.update(households).set({ name }).where(eq(households.id, household())).run();
+    const stapleRow = () =>
+      db
+        .select()
+        .from(householdStaples)
+        .where(and(eq(householdStaples.householdId, household()), eq(householdStaples.ingredientName, 'salt')))
+        .get();
+
+    test('a non-staple offers Always have after the lists; picking it marks it with the toast, and Undo unmarks it', () => {
+      addRecipeIngredient(tacos, '1 tsp salt');
+      nameHousehold('Casa');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '1 tsp Salt').props.onLongPress());
+      const { options, pick } = sheet(spy);
+      expect(options.title).toBe('Salt');
+      expect(options.options).toEqual(['Add to Groceries', 'Always have', 'Cancel']);
+      expect(options.cancelButtonIndex).toBe(2);
+      pick(1);
+      expect(isStaple(household(), 'salt')).toBe(true);
+      expect(stapleRow()?.createdBy).toBe(USER);
+      // Nothing went on the list.
+      expect(listRows(groceries)).toEqual([]);
+      expect(texts(root)).toContain('Added Salt to Always have\nFor everyone in Casa');
+      // The row's VoiceOver action follows.
+      expect(byA11y(root, '1 tsp Salt').props.accessibilityActions.map((a: { label: string }) => a.label)).toContain(
+        "Don't always have",
+      );
+      press(byA11y(root, 'Undo'));
+      expect(isStaple(household(), 'salt')).toBe(false);
+      expect(texts(root).some((s) => s.startsWith('Added Salt to Always have'))).toBe(false);
+    });
+
+    test("a staple offers Don't always have; picking it unmarks it, and Undo marks it again", () => {
+      addRecipeIngredient(tacos, '1 tsp salt');
+      setStaple(household(), 'salt', true, USER);
+      nameHousehold('  ');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '1 tsp Salt').props.onLongPress());
+      const { options, pick } = sheet(spy);
+      expect(options.options).toEqual(['Add to Groceries', "Don't always have", 'Cancel']);
+      pick(1);
+      expect(isStaple(household(), 'salt')).toBe(false);
+      // A blank household name reads "your household".
+      expect(texts(root)).toContain('Removed Salt from Always have\nFor everyone in your household');
+      press(byA11y(root, 'Undo'));
+      expect(isStaple(household(), 'salt')).toBe(true);
+    });
+
+    test('with no open list in the household, the sheet still offers Always have and Cancel', () => {
+      addRecipeIngredient(tacos, '1 tsp salt');
+      setListArchived(groceries, true);
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '1 tsp Salt').props.onLongPress());
+      const { options, pick } = sheet(spy);
+      expect(options.options).toEqual(['Always have', 'Cancel']);
+      expect(options.cancelButtonIndex).toBe(1);
+      pick(1);
+      expect(isStaple(household(), 'salt')).toBe(false);
+      pick(0);
+      expect(isStaple(household(), 'salt')).toBe(true);
+    });
+
+    test("VoiceOver's Always have action marks it at once, with the toast; Don't always have unmarks it", () => {
+      addRecipeIngredient(tacos, '1 tsp salt');
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, '1 tsp Salt').props.onAccessibilityAction({ nativeEvent: { actionName: 'alwaysHave' } }));
+      expect(spy).not.toHaveBeenCalled();
+      expect(isStaple(household(), 'salt')).toBe(true);
+      expect(texts(root).some((s) => s.startsWith('Added Salt to Always have\nFor everyone in'))).toBe(true);
+      act(() => byA11y(root, '1 tsp Salt').props.onAccessibilityAction({ nativeEvent: { actionName: 'alwaysHave' } }));
+      expect(isStaple(household(), 'salt')).toBe(false);
+      expect(texts(root).some((s) => s.startsWith('Removed Salt from Always have'))).toBe(true);
+    });
+
+    test('marks only for the recipe’s household', () => {
+      insertRow(db, households, { id: 'h-cabin', name: 'Cabin' });
+      const cabinTacos = createRecipe('Cabin tacos', 'h-cabin');
+      addRecipeIngredient(cabinTacos, 'salt');
+      mockParams.id = cabinTacos;
+      const spy = spySheet();
+      const root = render(<RecipeScreen />);
+      act(() => byA11y(root, 'Salt').props.onLongPress());
+      expect(sheet(spy).options.options).toEqual(['Always have', 'Cancel']);
+      sheet(spy).pick(0);
+      expect(isStaple('h-cabin', 'salt')).toBe(true);
+      expect(isStaple(household(), 'salt')).toBe(false);
+      expect(texts(root)).toContain('Added Salt to Always have\nFor everyone in Cabin');
     });
   });
 
@@ -1566,7 +1674,17 @@ describe('RecipeIngredientRow', () => {
     const ingredient = { ...recipeIngredientsQuery(tacos).all().find((i) => i.id === id)!, note: 'verde' };
     const onEdit = jest.fn();
     const onDelete = jest.fn();
-    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={onEdit} onDelete={onDelete} onAddToList={() => {}} />);
+    const root = render(
+      <RecipeIngredientRow
+        ingredient={ingredient}
+        dotColor="#f00"
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onAddToList={() => {}}
+        staple={false}
+        onToggleStaple={() => {}}
+      />,
+    );
     expect(texts(root)).toEqual(['Salsa', 'verde', '1 cup']);
     const row = byA11y(root, '1 cup Salsa verde');
     press(row);
@@ -1580,9 +1698,45 @@ describe('RecipeIngredientRow', () => {
   test('without an amount it shows the name alone', () => {
     addRecipeIngredient(tacos, 'cilantro');
     const [ingredient] = recipeIngredientsQuery(tacos).all();
-    const root = render(<RecipeIngredientRow ingredient={ingredient} dotColor="#f00" onEdit={() => {}} onDelete={() => {}} onAddToList={() => {}} />);
+    const root = render(
+      <RecipeIngredientRow
+        ingredient={ingredient}
+        dotColor="#f00"
+        onEdit={() => {}}
+        onDelete={() => {}}
+        onAddToList={() => {}}
+        staple={false}
+        onToggleStaple={() => {}}
+      />,
+    );
     expect(texts(root)).toEqual(['Cilantro']);
     expect(queryA11y(root, 'Cilantro')).toHaveLength(1);
+  });
+
+  test("VoiceOver's actions: Add to a list, then Always have (Don't always have for a staple), then Delete", () => {
+    addRecipeIngredient(tacos, 'salt');
+    const [ingredient] = recipeIngredientsQuery(tacos).all();
+    const onAddToList = jest.fn();
+    const onToggleStaple = jest.fn();
+    const row = (staple: boolean) => (
+      <RecipeIngredientRow
+        ingredient={ingredient}
+        dotColor="#f00"
+        onEdit={() => {}}
+        onDelete={() => {}}
+        onAddToList={onAddToList}
+        staple={staple}
+        onToggleStaple={onToggleStaple}
+      />
+    );
+    const root = render(row(false));
+    const actions = () => byA11y(root, 'Salt').props.accessibilityActions.map((a: { label: string }) => a.label);
+    expect(actions()).toEqual(['Add to a list', 'Always have', 'Delete']);
+    act(() => byA11y(root, 'Salt').props.onAccessibilityAction({ nativeEvent: { actionName: 'alwaysHave' } }));
+    expect(onToggleStaple).toHaveBeenCalledTimes(1);
+    expect(onAddToList).not.toHaveBeenCalled();
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}>{row(true)}</SafeAreaProvider>));
+    expect(actions()).toEqual(['Add to a list', "Don't always have", 'Delete']);
   });
 });
 
@@ -1734,9 +1888,105 @@ describe('AddRecipeToListSheet', () => {
       expect(isStaple(household(), 'cilantro')).toBe(true);
     });
 
-    test('rows have no long-press to mark or unmark', () => {
-      const root = render(<AddRecipeToListSheet />);
-      expect(checkboxes(root).map((c) => c.props.onLongPress)).toEqual([undefined, undefined, undefined]);
+    describe('long-press to mark or unmark (spec 4.5 Marking from a recipe)', () => {
+      type SheetOptions = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[0];
+      const spySheet = () => jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+      const sheet = (spy: ReturnType<typeof spySheet>) => {
+        const [options, callback] = spy.mock.calls[spy.mock.calls.length - 1];
+        return { options: options as SheetOptions, pick: (index: number) => act(() => callback(index)) };
+      };
+
+      test('marking unticks the row and tags it; unmarking ticks it and drops the tag; no toast', () => {
+        const spy = spySheet();
+        const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+        const root = render(<AddRecipeToListSheet />);
+        act(() => checkboxes(root)[2].props.onLongPress());
+        const { options, pick } = sheet(spy);
+        expect(options.title).toBe('Cilantro');
+        expect(options.options).toEqual(['Always have', 'Cancel']);
+        expect(options.cancelButtonIndex).toBe(1);
+        pick(0);
+        expect(isStaple(household(), 'cilantro')).toBe(true);
+        expect(choices(root)).toEqual([
+          ['Ground beef, 1 lb', true],
+          ['Tortillas, 8', true],
+          ['Cilantro, Always have', false],
+        ]);
+        expect(tags(root)).toEqual(['inkSecondary']);
+        expect(texts(root)).toContain('2 of 3');
+
+        act(() => checkboxes(root)[2].props.onLongPress());
+        expect(sheet(spy).options.options).toEqual(["Don't always have", 'Cancel']);
+        sheet(spy).pick(0);
+        expect(isStaple(household(), 'cilantro')).toBe(false);
+        expect(choices(root)[2]).toEqual(['Cilantro', true]);
+        expect(tags(root)).toEqual([]);
+        expect(texts(root)).toContain('3 of 3');
+        expect(texts(root).some((s) => s.includes('Always have\n'))).toBe(false);
+        expect(announce).not.toHaveBeenCalled();
+      });
+
+      test('Cancel changes nothing', () => {
+        const spy = spySheet();
+        const root = render(<AddRecipeToListSheet />);
+        act(() => checkboxes(root)[0].props.onLongPress());
+        sheet(spy).pick(1);
+        expect(isStaple(household(), 'ground beef')).toBe(false);
+        expect(choices(root)[0]).toEqual(['Ground beef, 1 lb', true]);
+      });
+
+      test('every row with the same ingredient follows', () => {
+        addRecipeIngredient(tacos, '2 tbsp cilantro');
+        const spy = spySheet();
+        const root = render(<AddRecipeToListSheet />);
+        // Untick one by hand first: marking unticks both, unmarking ticks both.
+        press(checkboxes(root)[3]);
+        act(() => checkboxes(root)[2].props.onLongPress());
+        sheet(spy).pick(0);
+        expect(choices(root).map(([, checked]) => checked)).toEqual([true, true, false, false]);
+        expect(choices(root).slice(2).map(([label]) => label)).toEqual(['Cilantro, Always have', 'Cilantro, Always have, 2 tbsp']);
+        act(() => checkboxes(root)[3].props.onLongPress());
+        expect(sheet(spy).options.options).toEqual(["Don't always have", 'Cancel']);
+        sheet(spy).pick(0);
+        expect(choices(root).map(([, checked]) => checked)).toEqual([true, true, true, true]);
+        expect(tags(root)).toEqual([]);
+      });
+
+      test("a tap only ticks: it doesn't change the staple", () => {
+        setStaple(household(), 'cilantro', true, USER);
+        const root = render(<AddRecipeToListSheet />);
+        press(checkboxes(root)[2]);
+        press(checkboxes(root)[0]);
+        expect(isStaple(household(), 'cilantro')).toBe(true);
+        expect(isStaple(household(), 'ground beef')).toBe(false);
+        expect(choices(root).map(([, checked]) => checked)).toEqual([false, true, true]);
+      });
+
+      test("VoiceOver's action marks and unmarks without the sheet", () => {
+        const spy = spySheet();
+        const root = render(<AddRecipeToListSheet />);
+        const actions = () => checkboxes(root)[1].props.accessibilityActions.map((a: { label: string }) => a.label);
+        expect(actions()).toEqual(['Always have']);
+        act(() => checkboxes(root)[1].props.onAccessibilityAction({ nativeEvent: { actionName: 'alwaysHave' } }));
+        expect(spy).not.toHaveBeenCalled();
+        const tortillas = recipeIngredientsQuery(tacos).all()[1].ingredientName;
+        expect(isStaple(household(), tortillas)).toBe(true);
+        expect(checkboxes(root)[1].props.accessibilityState.checked).toBe(false);
+        expect(actions()).toEqual(["Don't always have"]);
+        act(() => checkboxes(root)[1].props.onAccessibilityAction({ nativeEvent: { actionName: 'alwaysHave' } }));
+        expect(isStaple(household(), tortillas)).toBe(false);
+        expect(checkboxes(root)[1].props.accessibilityState.checked).toBe(true);
+      });
+
+      test("the tags are live: another member's mark shows on the next render", () => {
+        const root = render(<AddRecipeToListSheet />);
+        expect(tags(root)).toEqual([]);
+        // Synced from another phone: a write the sheet didn't make. Any re-render (here a tick) reads it.
+        act(() => setStaple(household(), 'ground beef', true, 'user-2'));
+        press(checkboxes(root)[1]);
+        expect(choices(root)[0]).toEqual(['Ground beef, Always have, 1 lb', true]);
+        expect(tags(root)).toEqual(['inkSecondary']);
+      });
     });
 
     test("another household's staples, or an unmarked one, start ticked with no tag", () => {

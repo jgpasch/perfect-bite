@@ -535,6 +535,9 @@ export const en = {
       ingredientHint: 'Double-tap to edit',
       /** An ingredient row's long-press menu and VoiceOver action (spec 4.5). */
       addIngredientToList: 'Add to a list',
+      /** Its long-press menu and VoiceOver action, and the Add to a list sheet's rows' (spec 4.5 Marking from a recipe). */
+      markAlwaysHave: 'Always have',
+      unmarkAlwaysHave: "Don't always have",
       removed: 'Removed {{name}}',
       addPlaceholder: 'Add 2 cups flour…',
       addLabel: 'Add an ingredient',
@@ -754,6 +757,11 @@ export const en = {
     toasts: {
       /** An ingredient's long-press add on the recipe screen (spec 4.5). */
       addedIngredient: 'Added {{name}} to {{list}}',
+      /** Marking an ingredient from the recipe screen (spec 4.5 Marking from a recipe), with a stapleFor line. */
+      stapleAdded: 'Added {{name}} to Always have',
+      stapleRemoved: 'Removed {{name}} from Always have',
+      stapleFor: 'For everyone in {{name}}',
+      stapleForYours: 'For everyone in your household',
       added_one: 'Added {{name}} · {{count}} item',
       added_other: 'Added {{name}} · {{count}} items',
       addedTo_one: 'Added {{name}} to {{list}} · {{count}} item',

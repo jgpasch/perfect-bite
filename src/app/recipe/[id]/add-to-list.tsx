@@ -14,7 +14,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import { setRecipeAddResult, takeAdjust } from '@/features/lists/recipe-add-result';
-import { stapleNames } from '@/features/households/staples';
+import { isStaple, setStaple, useStapleNames } from '@/features/households/staples';
 import { IngredientChoice, SheetLabel, SheetLayout, toggled } from '@/features/recipes/add-sheet';
 import {
   addRecipeToList,
@@ -64,7 +64,8 @@ export default function AddRecipeToListSheet() {
     return offered(fromList) ?? offered(userId ? getDefaultListId(userId) : null) ?? lists[0]?.id ?? null;
   });
   // Spec 4.5: the household's staples (Always have) start unticked and are tagged; ticking one doesn't change it.
-  const [staples] = useState(() => (recipe ? stapleNames(recipe.householdId) : new Set<string>()));
+  // The tags follow marks from here and from other members' phones.
+  const staples = useStapleNames(recipe?.householdId ?? '');
   const [selected, setSelected] = useState(() => defaultSelection(ingredients, staples));
   // With the recipe's servings, people (board 17); without, a multiplier pill (board 07).
   const base = recipe?.servings ?? null;
@@ -75,6 +76,20 @@ export default function AddRecipeToListSheet() {
   const listName = lists.find((l) => l.id === listId)?.name ?? '';
 
   if (!recipe || !listId) return <Screen />;
+
+  // Spec 4.5 Marking from a recipe: marking unticks every row with that ingredient, unmarking ticks them. No toast:
+  // the tag is the feedback.
+  const toggleStaple = (ingredientName: string) => {
+    const on = !isStaple(recipe.householdId, ingredientName);
+    setStaple(recipe.householdId, ingredientName, on, userId);
+    const next = new Set(selected);
+    for (const i of ingredients) {
+      if (i.ingredientName !== ingredientName) continue;
+      if (on) next.delete(i.id);
+      else next.add(i.id);
+    }
+    setSelected(next);
+  };
 
   // Spec 4.4: no clash step. Every ingredient already open Combines, and the list shows the toast.
   // Opened from Adjust, this add replaces the add bar's one.
@@ -163,6 +178,7 @@ export default function AddRecipeToListSheet() {
               staple={staples.has(i.ingredientName)}
               on={on}
               onPress={() => setSelected(toggled(selected, i.id))}
+              onToggleStaple={() => toggleStaple(i.ingredientName)}
             />
           );
         })}
