@@ -1,0 +1,357 @@
+{
+  "description": "Creates the recipe, its ingredients and its step match, and adds every ingredient to the list.",
+  "results": {
+    "ok": true,
+    "recipeId": "00000000-0000-7000-8000-000000000006",
+    "recipeName": "Chicken tikka masala",
+    "listId": "00000000-0000-7000-8000-000000000003",
+    "created": true,
+    "added": 4,
+    "combined": 1
+  },
+  "writes": [
+    {
+      "table": "recipes",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "name": "Chicken tikka masala",
+        "notes": null,
+        "source_url": "https://example.com/tikka",
+        "tags": {
+          "saved": [],
+          "meal": [
+            "dinner"
+          ],
+          "cuisine": [
+            "indian"
+          ],
+          "protein": [
+            "chicken"
+          ],
+          "diet": [],
+          "method": []
+        },
+        "tags_edited": false,
+        "total_minutes": 50,
+        "steps": [
+          "Marinate the chicken.",
+          "Grill it.",
+          "Simmer in the sauce."
+        ],
+        "step_ingredients": null,
+        "servings": 4,
+        "image_url": "https://example.com/tikka.jpg",
+        "photo_path": null,
+        "source_pages": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000007",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh",
+        "display_name": "chicken thighs",
+        "quantity": 2,
+        "unit": "lb",
+        "note": "boneless",
+        "position": 1,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000008",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "garlic",
+        "display_name": "garlic",
+        "quantity": 4,
+        "unit": "clove",
+        "note": "minced",
+        "position": 2,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000009",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "red onion",
+        "display_name": "red onion",
+        "quantity": null,
+        "unit": null,
+        "note": null,
+        "position": 3,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000010",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "zqx tikka paste",
+        "display_name": "zqx tikka paste",
+        "quantity": null,
+        "unit": null,
+        "note": "to taste",
+        "position": 4,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipes",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "step_ingredients": {
+          "v": 1,
+          "basis": "034ebf7e13e98c",
+          "steps": [
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000007",
+                "quantity": null
+              },
+              {
+                "id": "00000000-0000-7000-8000-000000000008",
+                "quantity": 2
+              }
+            ],
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000007",
+                "quantity": null
+              }
+            ],
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000009",
+                "quantity": null
+              },
+              {
+                "id": "00000000-0000-7000-8000-000000000010",
+                "quantity": null
+              }
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh"
+      },
+      "fields": {
+        "display_name": "chicken thighs",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "ingredient_unit_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh",
+        "unit_key": "lb"
+      },
+      "fields": {
+        "last_used_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000011",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000005",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "recipe",
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "quantity": 2,
+        "unit": "lb",
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "garlic"
+      },
+      "fields": {
+        "display_name": "garlic",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "ingredient_unit_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "garlic",
+        "unit_key": "clove"
+      },
+      "fields": {
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000013",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "garlic",
+        "display_name": "garlic",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000012",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000013",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "recipe",
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "quantity": 4,
+        "unit": "clove",
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "red onion"
+      },
+      "fields": {
+        "display_name": "red onion",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000015",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "red onion",
+        "display_name": "red onion",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000014",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000015",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "recipe",
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "quantity": null,
+        "unit": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "zqx tikka paste"
+      },
+      "fields": {
+        "display_name": "zqx tikka paste",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000017",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "zqx tikka paste",
+        "display_name": "zqx tikka paste",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000016",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000017",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "recipe",
+        "recipe_id": "00000000-0000-7000-8000-000000000006",
+        "quantity": null,
+        "unit": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    }
+  ]
+}

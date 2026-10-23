@@ -1,8 +1,9 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, test } from '@jest/globals';
 
 import type { Unit } from '@/shared';
+import * as shared from '@/shared/domain/quantity-math';
 
-import { combineAmounts, stepAmount, summarizeAmounts } from '../quantity-math';
+import { combineAmounts, noAmountUnit, stepAmount, summarizeAmounts } from '../quantity-math';
 
 const a = (quantity: number | null, unit: Unit | null = null) => ({ quantity, unit });
 
@@ -203,38 +204,8 @@ describe('stepAmount', () => {
   });
 });
 
-describe('combineAmounts', () => {
-  it('returns a single amount as is', () => {
-    expect(combineAmounts([a(2, 'lb')])).toEqual(a(2, 'lb'));
-    expect(combineAmounts([a(3)])).toEqual(a(3));
-  });
-
-  it('sums the same unit', () => {
-    expect(combineAmounts([a(1, 'gal'), a(2, 'gal')])).toEqual(a(3, 'gal'));
-    expect(combineAmounts([a(2), a(null)])).toEqual(a(3));
-  });
-
-  it('converts within a dimension', () => {
-    expect(combineAmounts([a(2, 'lb'), a(8, 'oz')])).toEqual(a(2.5, 'lb'));
-  });
-
-  it('returns null when the total is not one amount', () => {
-    expect(combineAmounts([a(2, 'can'), a(400, 'g')])).toBeNull();
-    expect(combineAmounts([a(1, 'cup'), a(1, 'tsp')])).toBeNull(); // rounding would hide the tsp
-    expect(combineAmounts([a(1, 'gal'), a(null)])).toBeNull();
-  });
-
-  it('counts null quantities as the usual unit', () => {
-    expect(combineAmounts([a(1, 'gal'), a(null)], 'gal')).toEqual(a(2, 'gal'));
-    expect(combineAmounts([a(8, 'oz'), a(null)], 'lb')).toEqual(a(1.5, 'lb'));
-    expect(combineAmounts([a(null)], 'gal')).toEqual(a(1, 'gal'));
-    expect(combineAmounts([a(null)])).toEqual(a(1));
-    expect(combineAmounts([a(null)], 'tbsp')).toEqual(a(1, 'tbsp')); // a lone add steps from the usual unit
-    expect(combineAmounts([a(2, 'tbsp'), a(null)], 'tbsp')).toBeNull();
-  });
-
-  it('is one of the usual unit, or a count of one, for no amounts', () => {
-    expect(combineAmounts([], 'gal')).toEqual(a(1, 'gal'));
-    expect(combineAmounts([])).toEqual(a(1));
-  });
+// combineAmounts and noAmountUnit are tested in src/shared/domain/__tests__/quantity-math.test.ts.
+test('re-exports the shared arithmetic', () => {
+  expect(combineAmounts).toBe(shared.combineAmounts);
+  expect(noAmountUnit).toBe(shared.noAmountUnit);
 });

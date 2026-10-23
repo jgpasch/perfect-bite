@@ -1,0 +1,76 @@
+{
+  "description": "pepino is a new item beside the open cucumber.",
+  "results": [
+    {
+      "itemId": "00000000-0000-7000-8000-000000000007",
+      "contributionId": "00000000-0000-7000-8000-000000000006",
+      "kind": "new",
+      "pendingNames": []
+    }
+  ],
+  "writes": [
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "pepino"
+      },
+      "fields": {
+        "display_name": "pepino",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "ingredient_unit_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "pepino",
+        "unit_key": "count"
+      },
+      "fields": {
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000007",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "pepino",
+        "display_name": "pepino",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000007",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "manual",
+        "recipe_id": null,
+        "quantity": 2,
+        "unit": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    }
+  ]
+}

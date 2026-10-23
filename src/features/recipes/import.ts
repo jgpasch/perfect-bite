@@ -13,7 +13,14 @@ import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { stepIngredientsBasis, stepTexts, type StepIngredients } from '@/shared';
+import { stepTexts } from '@/shared';
+import {
+  findReusableRecipe,
+  importedStepIngredients,
+  nameOf,
+  servingsOf,
+  type ReuseCandidate,
+} from '@/shared/domain/recipe-import';
 import {
   canonicalRecipeUrl,
   RecipeImportErrorSchema,
@@ -292,7 +299,12 @@ function save(input: SaveInput, imported: RecipeImportResponse, userId: string):
       householdId = household.id;
     }
 
-    const existing = findRecipe(tx, householdId, imported.sourceUrl, input.importId);
+    const importRecipeId = input.importId ? recipeIdForImport(input.importId) : undefined;
+    const existing = findReusableRecipe(reuseCandidates(tx, householdId, imported.sourceUrl, importRecipeId), {
+      householdId,
+      sourceUrl: imported.sourceUrl,
+      importRecipeId,
+    });
     let recipeId = existing?.id;
     if (!recipeId) {
       recipeId = createImportedRecipe(tx, householdId, imported, input.importId);
@@ -310,7 +322,7 @@ function save(input: SaveInput, imported: RecipeImportResponse, userId: string):
         tx,
       );
       // The import's own step match makes the recipe's match fresh, so ensureStepMatch skips it.
-      const stepIngredients = importedStepIngredients(tx, recipeId, imported);
+      const stepIngredients = importedStepIngredients(imported, liveIngredientIds(tx, recipeId));
       if (stepIngredients) updateRows(tx, recipes, eq(recipes.id, recipeId), { stepIngredients });
     }
 
@@ -347,32 +359,39 @@ function save(input: SaveInput, imported: RecipeImportResponse, userId: string):
   };
 }
 
+const reuseColumns = {
+  id: recipes.id,
+  name: recipes.name,
+  householdId: recipes.householdId,
+  sourceUrl: recipes.sourceUrl,
+  deletedAt: recipes.deletedAt,
+};
+
 /**
- * The household's recipe for this import: the one an earlier run of the same import created, else
- * a live one with the same canonical source URL. A photo import has no URL (spec 6.10), so it only
- * ever finds its own earlier run.
+ * The recipes `findReusableRecipe` picks from for this import: the live one an earlier run of the
+ * same import created, then the household's live ones with a source URL (none for a photo import,
+ * which has no URL, spec 6.10).
  */
-function findRecipe(
+function reuseCandidates(
   exec: Exec,
   householdId: string,
   sourceUrl: string | null,
-  importId: string | undefined,
-): { id: string; name: string } | undefined {
-  if (importId) {
-    const byId = exec
-      .select({ id: recipes.id, name: recipes.name })
-      .from(recipes)
-      .where(and(eq(recipes.id, recipeIdForImport(importId)), isNull(recipes.deletedAt)))
-      .get();
-    if (byId) return byId;
-  }
-  if (sourceUrl === null) return undefined;
-  return exec
-    .select({ id: recipes.id, name: recipes.name, sourceUrl: recipes.sourceUrl })
+  importRecipeId: string | undefined,
+): ReuseCandidate[] {
+  const own = importRecipeId
+    ? exec
+        .select(reuseColumns)
+        .from(recipes)
+        .where(and(eq(recipes.id, importRecipeId), isNull(recipes.deletedAt)))
+        .all()
+    : [];
+  if (sourceUrl === null) return own;
+  const linked = exec
+    .select(reuseColumns)
     .from(recipes)
     .where(and(eq(recipes.householdId, householdId), isNull(recipes.deletedAt), isNotNull(recipes.sourceUrl)))
-    .all()
-    .find((r) => canonicalRecipeUrl(r.sourceUrl!) === sourceUrl);
+    .all();
+  return [...own, ...linked];
 }
 
 function createImportedRecipe(
@@ -399,48 +418,15 @@ function createImportedRecipe(
   return id;
 }
 
-/**
- * The response's step match (indexes into its ingredients) as `recipes.step_ingredients` for the
- * recipe the import just created, whose ingredients are the response's in the same order. Null
- * when there's none, or it doesn't line up with the saved steps and ingredients: the recipe stays
- * unmatched and ensureStepMatch matches it.
- */
-function importedStepIngredients(exec: Exec, recipeId: string, imported: RecipeImportResponse): StepIngredients | null {
-  const match = imported.stepIngredients;
-  // One entry per step string: headings aren't steps.
-  const stepCount = stepTexts(imported.steps).length;
-  if (!match || stepCount === 0 || match.length !== stepCount) return null;
-  const ids = exec
+/** The recipe's live ingredient ids by position, for `importedStepIngredients`. */
+function liveIngredientIds(exec: Exec, recipeId: string): string[] {
+  return exec
     .select({ id: recipeIngredients.id })
     .from(recipeIngredients)
     .where(and(eq(recipeIngredients.recipeId, recipeId), isNull(recipeIngredients.deletedAt)))
     .orderBy(asc(recipeIngredients.position))
     .all()
     .map((i) => i.id);
-  if (ids.length !== imported.ingredients.length) return null;
-  if (match.some((uses) => uses.some((use) => use.index >= ids.length))) return null;
-  return {
-    v: 1,
-    basis: stepIngredientsBasis(imported.steps, ids),
-    steps: match.map((uses) => uses.map((use) => ({ id: ids[use.index], quantity: use.quantity }))),
-  };
-}
-
-/** `recipes.servings`: a whole number from 1 to 100, else null. */
-function servingsOf(servings: number | null): number | null {
-  return servings !== null && Number.isInteger(servings) && servings >= 1 && servings <= 100 ? servings : null;
-}
-
-/** The recipe's name, or its site's host when the page gave none ("Recipe" without a link). */
-function nameOf(imported: RecipeImportResponse): string {
-  const name = imported.name.trim().replace(/\s+/g, ' ');
-  if (name) return name;
-  if (imported.sourceUrl === null) return 'Recipe';
-  try {
-    return new URL(imported.sourceUrl).hostname;
-  } catch {
-    return 'Recipe';
-  }
 }
 
 /** The response's categories in the shape `applyResults` takes. */

@@ -1,0 +1,154 @@
+{
+  "description": "Saves the recipe to the household and adds nothing to a list.",
+  "results": {
+    "ok": true,
+    "recipeId": "00000000-0000-7000-8000-000000000004",
+    "recipeName": "Chicken tikka masala",
+    "listId": null,
+    "created": true,
+    "added": 0,
+    "combined": 0
+  },
+  "writes": [
+    {
+      "table": "recipes",
+      "id": "00000000-0000-7000-8000-000000000004",
+      "fields": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "name": "Chicken tikka masala",
+        "notes": null,
+        "source_url": "https://example.com/tikka",
+        "tags": {
+          "saved": [],
+          "meal": [
+            "dinner"
+          ],
+          "cuisine": [
+            "indian"
+          ],
+          "protein": [
+            "chicken"
+          ],
+          "diet": [],
+          "method": []
+        },
+        "tags_edited": false,
+        "total_minutes": 50,
+        "steps": [
+          "Marinate the chicken.",
+          "Grill it.",
+          "Simmer in the sauce."
+        ],
+        "step_ingredients": null,
+        "servings": 4,
+        "image_url": "https://example.com/tikka.jpg",
+        "photo_path": null,
+        "source_pages": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000005",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000004",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh",
+        "display_name": "chicken thighs",
+        "quantity": 2,
+        "unit": "lb",
+        "note": "boneless",
+        "position": 1,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000004",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "garlic",
+        "display_name": "garlic",
+        "quantity": 4,
+        "unit": "clove",
+        "note": "minced",
+        "position": 2,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000007",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000004",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "red onion",
+        "display_name": "red onion",
+        "quantity": null,
+        "unit": null,
+        "note": null,
+        "position": 3,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipe_ingredients",
+      "id": "00000000-0000-7000-8000-000000000008",
+      "fields": {
+        "recipe_id": "00000000-0000-7000-8000-000000000004",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "zqx tikka paste",
+        "display_name": "zqx tikka paste",
+        "quantity": null,
+        "unit": null,
+        "note": "to taste",
+        "position": 4,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "recipes",
+      "id": "00000000-0000-7000-8000-000000000004",
+      "fields": {
+        "step_ingredients": {
+          "v": 1,
+          "basis": "0a78b1f3ffcaca",
+          "steps": [
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000005",
+                "quantity": null
+              },
+              {
+                "id": "00000000-0000-7000-8000-000000000006",
+                "quantity": 2
+              }
+            ],
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000005",
+                "quantity": null
+              }
+            ],
+            [
+              {
+                "id": "00000000-0000-7000-8000-000000000007",
+                "quantity": null
+              },
+              {
+                "id": "00000000-0000-7000-8000-000000000008",
+                "quantity": null
+              }
+            ]
+          ]
+        }
+      }
+    }
+  ]
+}

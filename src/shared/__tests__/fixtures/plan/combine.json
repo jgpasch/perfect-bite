@@ -1,0 +1,59 @@
+{
+  "description": "An open item for the ingredient: the amount is added to it.",
+  "results": [
+    {
+      "itemId": "00000000-0000-7000-8000-000000000005",
+      "contributionId": "00000000-0000-7000-8000-000000000006",
+      "kind": "combine",
+      "existingName": "eggs",
+      "totalAmountText": "5",
+      "pendingNames": []
+    }
+  ],
+  "writes": [
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "egg"
+      },
+      "fields": {
+        "display_name": "eggs",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "ingredient_unit_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "egg",
+        "unit_key": "count"
+      },
+      "fields": {
+        "last_used_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000005",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "manual",
+        "recipe_id": null,
+        "quantity": 3,
+        "unit": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    }
+  ]
+}

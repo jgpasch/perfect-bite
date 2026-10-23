@@ -2,8 +2,9 @@
 
 import { unitName } from '@/i18n/vocabulary';
 import type { Unit } from '@/shared';
+import type { Amount } from '@/shared/domain/quantity-math';
 
-export type Amount = { quantity: number | null; unit: Unit | null };
+export type { Amount };
 
 const FRACTIONS: [number, string][] = [
   [1 / 8, '⅛'],

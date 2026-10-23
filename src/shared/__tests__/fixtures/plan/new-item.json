@@ -1,0 +1,130 @@
+{
+  "description": "Adds to an empty list: each a new item with its amount.",
+  "results": [
+    {
+      "itemId": "00000000-0000-7000-8000-000000000005",
+      "contributionId": "00000000-0000-7000-8000-000000000004",
+      "kind": "new",
+      "pendingNames": []
+    },
+    {
+      "itemId": "00000000-0000-7000-8000-000000000007",
+      "contributionId": "00000000-0000-7000-8000-000000000006",
+      "kind": "new",
+      "pendingNames": []
+    }
+  ],
+  "writes": [
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh"
+      },
+      "fields": {
+        "display_name": "chicken thighs",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "ingredient_unit_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh",
+        "unit_key": "lb"
+      },
+      "fields": {
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000005",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "chicken thigh",
+        "display_name": "chicken thighs",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000004",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000005",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "manual",
+        "recipe_id": null,
+        "quantity": 2,
+        "unit": "lb",
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "ingredient_usage",
+      "key": {
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "milk"
+      },
+      "fields": {
+        "display_name": "milk",
+        "last_used_at": "2026-03-02T12:01:00.000Z",
+        "hidden_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      },
+      "counters": {
+        "use_count": 1
+      }
+    },
+    {
+      "table": "list_items",
+      "id": "00000000-0000-7000-8000-000000000007",
+      "fields": {
+        "list_id": "00000000-0000-7000-8000-000000000003",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "ingredient_name": "milk",
+        "display_name": "milk",
+        "note": null,
+        "checked_at": null,
+        "checked_by": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "photo_path": null,
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    },
+    {
+      "table": "list_item_contributions",
+      "id": "00000000-0000-7000-8000-000000000006",
+      "fields": {
+        "list_item_id": "00000000-0000-7000-8000-000000000007",
+        "household_id": "00000000-0000-7000-8000-000000000001",
+        "source": "manual",
+        "recipe_id": null,
+        "quantity": null,
+        "unit": null,
+        "added_by": "00000000-0000-4000-8000-0000000000aa",
+        "deleted_at": null,
+        "created_at": "2026-03-02T12:01:00.000Z"
+      }
+    }
+  ]
+}
