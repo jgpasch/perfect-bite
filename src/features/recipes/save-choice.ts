@@ -44,12 +44,8 @@ export function saveButtonTitle(addToList: boolean, listName: string | null): st
   return listName === null ? i18n.t('recipes.import.saveAndAddList') : i18n.t('recipes.import.saveAndAdd', { name: listName });
 }
 
-/** What the share sheet says after saving. */
-export function shareSavedMessage(addToList: boolean): string {
-  return addToList
-    ? "Added. It'll be on your list when you open The Perfect Bite."
-    : "Saved. It'll be in your recipes when you open The Perfect Bite.";
-}
+/** What the share sheet says after saving, with the list on or off: the server imports it (spec 4.10). */
+export const SHARE_SAVED_MESSAGE = "Saved. We'll prepare it in the background.";
 
 // A live binding: follows the app's language once i18n is initialized.
 export let NO_LISTS_IN_HOUSEHOLD = '';

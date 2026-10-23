@@ -2,9 +2,9 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Spec 4.10: Share → The Perfect Bite. Picks a household, and optionally a list, and queues a share
-/// envelope for the app to import.
-/// No network call and no React Native in here (extension memory limits).
+/// Spec 4.10: Share → The Perfect Bite. Picks a household, and optionally a list, queues a share
+/// envelope and starts its background upload to `share-ingest`; the server imports it.
+/// No React Native in here (extension memory limits), and no request the sheet waits on.
 @objc(ShareViewController)
 final class ShareViewController: UIViewController {
   private let model = ShareModel()
@@ -45,8 +45,8 @@ final class ShareModel: ObservableObject {
   }
   @Published var selectedListId: String?
   @Published var loading = true
-  /// Set once saved: whether the share went to a list, for the confirmation's wording.
-  @Published var saved: Bool?
+  /// Set once saved.
+  @Published var saved = false
   @Published var error: String?
   let snapshot: SiriQueue.ListSnapshot
   let households: [ShareChoice.Household]
@@ -88,7 +88,7 @@ final class ShareModel: ObservableObject {
   var displayTitle: String { page?.title ?? host ?? "" }
 
   var canSave: Bool {
-    !loading && saved == nil && url != nil && householdId != nil && (!addsToList || selectedList != nil)
+    !loading && !saved && url != nil && householdId != nil && (!addsToList || selectedList != nil)
   }
 
   /// Safari's web page first (it carries the page), then a web URL, then the first URL in text.
@@ -133,13 +133,15 @@ final class ShareModel: ObservableObject {
       householdId: householdId, addToList: addsToList, listId: selectedList?.id)
     let envelope = ShareQueue.makeEnvelope(
       url: url, listId: target.listId, householdId: target.householdId, addToList: target.addToList,
-      page: page)
+      page: page, userId: snapshot.userId)
     do {
-      try ShareQueue.enqueue(envelope)
+      let body = try ShareQueue.enqueue(envelope)
       SiriQueue.log(
         "share ok id=\(envelope.id) household=\(target.householdId ?? "-") list=\(target.listId ?? "-") "
           + "jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0)")
-      saved = target.addToList
+      // Only once the envelope is written; with no upload, the app submits it later.
+      ShareUpload.start(envelope, body: body)
+      saved = true
       Task {
         try? await Task.sleep(for: .seconds(1.2))
         onDone()
@@ -189,8 +191,8 @@ struct ShareView: View {
     NavigationStack {
       ZStack {
         Pantry.background.ignoresSafeArea()
-        if let addedToList = model.saved {
-          SavedView(text: ShareChoice.savedMessage(addToList: addedToList))
+        if model.saved {
+          SavedView(text: ShareChoice.savedMessage)
         } else {
           content
         }
@@ -198,7 +200,7 @@ struct ShareView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", action: model.onCancel).foregroundStyle(Pantry.ink).disabled(model.saved != nil)
+          Button("Cancel", action: model.onCancel).foregroundStyle(Pantry.ink).disabled(model.saved)
         }
       }
     }

@@ -58,11 +58,8 @@ enum ShareChoice {
     addToList ? "Save & add to \(listName ?? "list")" : "Save recipe"
   }
 
-  static func savedMessage(addToList: Bool) -> String {
-    addToList
-      ? "Added. It'll be on your list when you open The Perfect Bite."
-      : "Saved. It'll be in your recipes when you open The Perfect Bite."
-  }
+  /// The same with the list on or off: the server imports the share (spec 4.10).
+  static let savedMessage = "Saved. We'll prepare it in the background."
 
   /// The envelope's target: `listId` only when adding to a list; on with no list saves the recipe only.
   static func envelopeTarget(householdId: String?, addToList: Bool, listId: String?)

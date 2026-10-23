@@ -9,8 +9,8 @@ import {
   householdLists,
   initialSaveChoice,
   saveButtonTitle,
+  SHARE_SAVED_MESSAGE,
   shareEnvelopeTarget,
-  shareSavedMessage,
 } from '../save-choice';
 
 const HOME = '11111111-1111-4111-8111-111111111111';
@@ -104,10 +104,10 @@ describe('saveButtonTitle', () => {
   });
 });
 
-describe('shareSavedMessage', () => {
-  test('says the recipe is saved with the list off, and keeps the list wording with it on', () => {
-    expect(shareSavedMessage(false)).toBe("Saved. It'll be in your recipes when you open The Perfect Bite.");
-    expect(shareSavedMessage(true)).toBe("Added. It'll be on your list when you open The Perfect Bite.");
+describe('SHARE_SAVED_MESSAGE', () => {
+  test('says the recipe is saved and prepared in the background, not that the app has to be opened', () => {
+    expect(SHARE_SAVED_MESSAGE).toBe("Saved. We'll prepare it in the background.");
+    expect(SHARE_SAVED_MESSAGE).not.toContain('open The Perfect Bite');
   });
 });
 

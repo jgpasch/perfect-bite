@@ -5,11 +5,44 @@ import { ShareEnvelopeSchema, shareAddsToList } from '../schemas/share';
 import recipeOnly from './fixtures/share-envelope.recipe-only.json';
 import safari from './fixtures/share-envelope.safari.json';
 import urlOnly from './fixtures/share-envelope.url-only.json';
+import v2 from './fixtures/share-envelope.v2.json';
 
 // Contract test: the fixtures are JSON as targets/_shared/ShareQueue.swift encodes it (escaped
 // slashes, `listId: null` written explicitly, a nil `page` omitted). The URL-only fixture is as an
-// older extension wrote it, without `householdId` and `addToList`. Update both sides together.
+// older extension wrote it, without `householdId` and `addToList`; the v2 one is as the extension
+// that uploads writes it, with `v` and `userId`. Update both sides together.
 describe('ShareEnvelopeSchema', () => {
+  it('accepts a v2 envelope with the sharer and the version', () => {
+    const envelope = ShareEnvelopeSchema.parse(v2);
+    expect(envelope.v).toBe(2);
+    expect(envelope.userId).toBe('7d3f9c2a-5b1e-4f6a-8c0d-2e9b4a7f1c36');
+    expect(envelope.url).toBe('https://www.bonappetit.com/recipe/lemon-pasta');
+    expect(envelope.page).toEqual({ title: 'Lemon Pasta', imageUrl: 'https://assets.bonappetit.com/photos/lemon-pasta.jpg' });
+  });
+
+  it('accepts a v2 envelope without userId (a snapshot from an older app has none)', () => {
+    const { userId: _userId, ...noUser } = v2;
+    const envelope = ShareEnvelopeSchema.parse(noUser);
+    expect(envelope.v).toBe(2);
+    expect(envelope).not.toHaveProperty('userId');
+  });
+
+  it('rejects another version or a userId that is not a UUID', () => {
+    expect(ShareEnvelopeSchema.safeParse({ ...v2, v: 1 }).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse({ ...v2, v: 3 }).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse({ ...v2, v: '2' }).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse({ ...v2, userId: 'me' }).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse({ ...v2, userId: null }).success).toBe(false);
+  });
+
+  it('an older envelope has neither v nor userId', () => {
+    for (const fixture of [safari, urlOnly, recipeOnly]) {
+      const envelope = ShareEnvelopeSchema.parse(fixture);
+      expect(envelope).not.toHaveProperty('v');
+      expect(envelope).not.toHaveProperty('userId');
+    }
+  });
+
   it('accepts a Safari share with the captured page', () => {
     const envelope = ShareEnvelopeSchema.parse(safari);
     expect(envelope.url).toBe('https://www.halfbakedharvest.com/20-minute-thai-peanut-chicken-ramen/');

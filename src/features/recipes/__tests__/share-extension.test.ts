@@ -13,7 +13,7 @@ import {
 } from '@/shared/schemas/recipe-import';
 
 import { PAGE_IMAGE_SOURCES } from '../page-capture';
-import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle, shareSavedMessage } from '../save-choice';
+import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle, SHARE_SAVED_MESSAGE } from '../save-choice';
 
 jest.mock('@/global.css', () => ({}));
 
@@ -224,8 +224,10 @@ describe('share-recipe target', () => {
     expect(swift).toContain(`"${saveButtonTitle(false, null)}"`);
     expect(saveButtonTitle(true, 'X')).toBe('Save & add to X');
     expect(swift).toContain('"Save & add to \\(listName ?? "list")"');
-    expect(swift).toContain(`"${shareSavedMessage(true)}"`);
-    expect(swift).toContain(`"${shareSavedMessage(false)}"`);
+    // One message whichever way the switch is: the server imports the share.
+    expect(swift).toContain(`static let savedMessage = "${SHARE_SAVED_MESSAGE}"`);
+    expect(view).toContain('SavedView(text: ShareChoice.savedMessage)');
+    expect(swift).not.toContain('open The Perfect Bite');
     expect(swift).toContain(`static let noListsMessage = "${NO_LISTS_IN_HOUSEHOLD}"`);
     expect(swift).toContain('let on = addToList && listId != nil');
     expect(swift).toContain('static let path = "share/prefs.json"');
@@ -243,5 +245,200 @@ describe('share-recipe target', () => {
       const name = token as keyof typeof Palette.light;
       expect([token, `#${light}`, `#${dark}`]).toEqual([token, Palette.light[name], Palette.dark[name]]);
     }
+  });
+});
+
+// The background upload (spec 4.10 step 3) and the app's completion (modules/share-upload). Swift
+// can't run here and the targets have no Swift tests, so this checks the contract between the files
+// each side writes and reads, and that both sides use the same names.
+describe('share background upload', () => {
+  const ROOT = join(__dirname, '..', '..', '..', '..');
+  const QUEUE = readFileSync(join(ROOT, 'targets', '_shared', 'ShareQueue.swift'), 'utf8');
+  const VIEW = readFileSync(join(TARGET_DIR, 'ShareViewController.swift'), 'utf8');
+  const MODULE_DIR = join(ROOT, 'modules', 'share-upload');
+  const MODULE = readFileSync(join(MODULE_DIR, 'ios', 'ShareUploadAppDelegate.swift'), 'utf8');
+  const APP_GROUP = readFileSync(join(ROOT, 'src', 'features', 'siri', 'app-group.ts'), 'utf8');
+  const CREDENTIAL = readFileSync(join(ROOT, 'src', 'features', 'auth', 'device-credential.ts'), 'utf8');
+
+  /** The string a TS `export const NAME = '…'` holds. */
+  const tsConst = (source: string, name: string) => {
+    const match = source.match(new RegExp(`export const ${name} = '([^']+)'`));
+    expect(match).not.toBeNull();
+    return match![1];
+  };
+  /** The string a Swift `static let name = "…"` holds. */
+  const swiftConst = (source: string, name: string) => {
+    const match = source.match(new RegExp(`static let ${name} = "([^"]+)"`));
+    expect(match).not.toBeNull();
+    return match![1];
+  };
+
+  test('the extension and the app module use the same session, App Group and paths as the app', () => {
+    const appGroupId = tsConst(APP_GROUP, 'APP_GROUP_ID');
+    const uploadDir = tsConst(APP_GROUP, 'SHARE_UPLOAD_DIR');
+    const stateDir = tsConst(APP_GROUP, 'SHARE_UPLOAD_STATE_DIR');
+    expect([appGroupId, uploadDir, stateDir]).toEqual(['group.com.jgp.perfectbite', 'share/upload', 'share/upload-state']);
+
+    expect(swiftConst(QUEUE, 'sessionIdentifier')).toBe('com.jgp.perfectbite.share.upload');
+    expect(swiftConst(QUEUE, 'uploadPath')).toBe(uploadDir);
+    expect(swiftConst(QUEUE, 'uploadStatePath')).toBe(stateDir);
+    expect(swiftConst(QUEUE, 'pendingPath')).toBe(tsConst(APP_GROUP, 'SHARE_PENDING_DIR'));
+    expect(QUEUE).toContain('configuration.sharedContainerIdentifier = SiriQueue.appGroupId');
+
+    expect(swiftConst(MODULE, 'sessionIdentifier')).toBe('com.jgp.perfectbite.share.upload');
+    expect(swiftConst(MODULE, 'appGroupId')).toBe(appGroupId);
+    expect(swiftConst(MODULE, 'uploadPath')).toBe(uploadDir);
+    expect(swiftConst(MODULE, 'uploadStatePath')).toBe(stateDir);
+    expect(MODULE).toContain('configuration.sharedContainerIdentifier = ShareUploadFiles.appGroupId');
+  });
+
+  test('the extension reads the credential where expo-secure-store writes it', () => {
+    expect(swiftConst(QUEUE, 'accessGroup')).toBe(tsConst(CREDENTIAL, 'KEYCHAIN_ACCESS_GROUP'));
+    expect(swiftConst(QUEUE, 'service')).toBe(`${tsConst(CREDENTIAL, 'KEYCHAIN_SERVICE')}:no-auth`);
+    expect(swiftConst(QUEUE, 'account')).toBe(tsConst(CREDENTIAL, 'CREDENTIAL_KEY'));
+    // The fields of `DeviceCredential`, all strings.
+    expect(CREDENTIAL).toContain(
+      'export type DeviceCredential = { token: string; userId: string; installationId: string; expiresAt: string };',
+    );
+    for (const field of ['token', 'userId', 'installationId', 'expiresAt']) {
+      expect(QUEUE).toContain(`    let ${field}: String\n`);
+    }
+    // The same user (ignoring case) and not expired, else no upload.
+    expect(QUEUE).toContain('credential.userId.lowercased() == userId.lowercased()');
+    expect(QUEUE).toContain('let expires = parseDate(credential.expiresAt), expires > now');
+  });
+
+  test('the envelope carries v: 2 and the snapshot user', () => {
+    expect(QUEUE).toContain('static let envelopeVersion = 2');
+    expect(QUEUE).toContain('try c.encodeIfPresent(v, forKey: .v)');
+    expect(QUEUE).toContain('try c.encodeIfPresent(userId, forKey: .userId)');
+    expect(VIEW).toContain('page: page, userId: snapshot.userId)');
+  });
+
+  test('the upload starts after the atomic write, from the body file, with the bearer token and id', () => {
+    const write = VIEW.indexOf('let body = try ShareQueue.enqueue(envelope)');
+    const start = VIEW.indexOf('ShareUpload.start(envelope, body: body)');
+    expect(write).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(write);
+    expect(QUEUE).toContain('request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")');
+    expect(QUEUE).toContain('request.setValue(id, forHTTPHeaderField: "Idempotency-Key")');
+    expect(QUEUE).toContain('request.httpMethod = "POST"');
+    expect(QUEUE).toContain('fromFile: uploads.appendingPathComponent(name))');
+    expect(QUEUE).toContain('URLSessionConfiguration.background(withIdentifier: sessionIdentifier)');
+    expect(QUEUE).toContain('Bundle.main.object(forInfoDictionaryKey: urlInfoKey)');
+    // The state is { startedAt, attempts }, marked accepted on a 2xx.
+    expect(QUEUE).toMatch(
+      /struct State: Codable \{\n\s+var startedAt: String\n\s+var attempts: Int\n\s+var accepted: Bool\?\n\s+var acceptedAt: String\?\n/,
+    );
+    expect(QUEUE).toContain('State(startedAt: timestamp(), attempts: 1)');
+  });
+
+  test('a 2xx deletes the body and marks the state accepted; nothing there deletes the envelope', () => {
+    const rule = 'guard error == nil, let status, (200..<300).contains(status) else { return }';
+    expect(QUEUE).toContain(rule);
+    expect(MODULE).toContain(rule);
+    expect(QUEUE).toContain('state.accepted = true');
+    expect(MODULE).toContain('state["accepted"] = true');
+    // Only reconciliation deletes share/pending/<id>.json.
+    const completion = (source: string) => source.slice(source.indexOf('static func complete('));
+    expect(completion(QUEUE)).not.toMatch(/\bpendingPath\b|pendingDir|share\/pending/);
+    expect(completion(MODULE)).not.toMatch(/\bpendingPath\b|pendingDir|share\/pending/);
+  });
+
+  test('the module is an AppDelegate subscriber that finishes only its own session', () => {
+    const config = JSON.parse(readFileSync(join(MODULE_DIR, 'expo-module.config.json'), 'utf8'));
+    expect(config).toEqual({ platforms: ['apple'], apple: { appDelegateSubscribers: ['ShareUploadAppDelegate'] } });
+    expect(MODULE).toContain('public class ShareUploadAppDelegate: ExpoAppDelegateSubscriber {');
+    expect(MODULE).toContain('handleEventsForBackgroundURLSession identifier: String,');
+    // Another session's handler is called at once; ours once the events are delivered.
+    expect(MODULE).toMatch(/guard identifier == ShareUploadFiles\.sessionIdentifier else \{\n\s+completionHandler\(\)\n\s+return\n/);
+    expect(MODULE).toContain('func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession)');
+    expect(readFileSync(join(MODULE_DIR, 'ios', 'ShareUpload.podspec'), 'utf8')).toContain("s.dependency 'ExpoModulesCore'");
+  });
+
+  test("the extension's Info.plist reads the URL from the SHARE_INGEST_URL build setting", () => {
+    const info = plist.parse(readFileSync(join(TARGET_DIR, 'Info.plist'), 'utf8'));
+    const { URL_SETTING } = require(join(TARGET_DIR, 'expo-target.config.js')) as { URL_SETTING: string };
+    expect(URL_SETTING).toBe('SHARE_INGEST_URL');
+    expect(info[swiftConst(QUEUE, 'urlInfoKey')]).toBe('$(SHARE_INGEST_URL)');
+    // Local Supabase is plain http on the LAN.
+    expect(info.NSAppTransportSecurity).toEqual({ NSAllowsLocalNetworking: true });
+  });
+});
+
+describe('share-recipe target: the share-ingest URL', () => {
+  const target = require(join(TARGET_DIR, 'expo-target.config.js')) as {
+    (config: unknown): unknown;
+    shareIngestUrl: (env: Record<string, string | undefined>) => string | null;
+    setShareIngestUrl: (project: unknown, url: string | null) => void;
+  };
+
+  test('is the Supabase URL the app is built with, plus /functions/v1/share-ingest', () => {
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'https://ardfjdorkkzymrqdihlw.supabase.co' })).toBe(
+      'https://ardfjdorkkzymrqdihlw.supabase.co/functions/v1/share-ingest',
+    );
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'http://192.168.86.29:55321/' })).toBe(
+      'http://192.168.86.29:55321/functions/v1/share-ingest',
+    );
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: ' https://x.supabase.co// ' })).toBe(
+      'https://x.supabase.co/functions/v1/share-ingest',
+    );
+  });
+
+  test('is null without a usable Supabase URL', () => {
+    expect(target.shareIngestUrl({})).toBeNull();
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: '' })).toBeNull();
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'ardfjdorkkzymrqdihlw.supabase.co' })).toBeNull();
+    expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'ftp://x.supabase.co' })).toBeNull();
+  });
+
+  /** A target as @bacons/xcode models one: its product name and build settings. */
+  const fakeTarget = (productName: string) => {
+    const settings: Record<string, string> = {};
+    return {
+      props: { productName },
+      settings,
+      setBuildSetting: (key: string, value: string) => {
+        settings[key] = value;
+      },
+      removeBuildSetting: (key: string) => {
+        delete settings[key];
+      },
+    };
+  };
+
+  test('sets the build setting on the share extension only, and removes it without a URL', () => {
+    const app = fakeTarget('PerfectBite');
+    const share = fakeTarget('ShareRecipe');
+    const intent = fakeTarget('AddIntent');
+    const project = { rootObject: { props: { targets: [app, share, intent] } } };
+    target.setShareIngestUrl(project, 'https://x.supabase.co/functions/v1/share-ingest');
+    expect(share.settings).toEqual({ SHARE_INGEST_URL: 'https://x.supabase.co/functions/v1/share-ingest' });
+    expect(app.settings).toEqual({});
+    expect(intent.settings).toEqual({});
+    target.setShareIngestUrl(project, null);
+    expect(share.settings).toEqual({});
+  });
+
+  test('registers an Xcode project mod that sets it from the environment', async () => {
+    const config: { ios: unknown; mods?: { ios?: Record<string, (c: unknown) => Promise<unknown>> } } = {
+      ios: { entitlements: { 'com.apple.security.application-groups': [], 'keychain-access-groups': [] } },
+    };
+    target(config);
+    const mod = config.mods?.ios?.xcodeProjectBeta2;
+    expect(typeof mod).toBe('function');
+    const share = fakeTarget('ShareRecipe');
+    const before = process.env.EXPO_PUBLIC_SUPABASE_URL;
+    process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://env.supabase.co';
+    try {
+      await mod!({
+        modRequest: { nextMod: async (c: unknown) => c, platform: 'ios', modName: 'xcodeProjectBeta2' },
+        modResults: { rootObject: { props: { targets: [share] } } },
+      });
+    } finally {
+      if (before === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+      else process.env.EXPO_PUBLIC_SUPABASE_URL = before;
+    }
+    expect(share.settings).toEqual({ SHARE_INGEST_URL: 'https://env.supabase.co/functions/v1/share-ingest' });
   });
 });
