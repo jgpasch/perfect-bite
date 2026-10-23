@@ -38,7 +38,7 @@ describe('item strings in English', () => {
     const recipe = { source: 'recipe' as const, addedBy: ME, recipeName: '{{who}} $t(common.undo)' };
     expect(addedLine({ ...recipe, createdAt: NOW }, ME, NOW)).toBe('{{who}} $t(common.undo), just now');
     expect(sharedAisleFootnote('{{name}}')).toBe('Changes it for everyone in {{name}}.');
-    expect(aisleRowLabel('$t(common.done)', 0, 2, '{{household}}')).toBe('$t(common.done), {{household}}, 1 of 2');
+    expect(aisleRowLabel('$t(common.done)', 0, 2)).toBe('$t(common.done), 1 of 2');
   });
 });
 
@@ -101,8 +101,7 @@ describe('item strings in Spanish', () => {
   it('reads the aisle rows, their actions and moves', () => {
     initI18n('es');
     expect(aisleRowLabel('Frutas y verduras', 0, 20)).toBe('Frutas y verduras, 1 de 20');
-    expect(aisleRowLabel('Costco', 2, 20, 'Casa')).toBe('Costco, Casa, 3 de 20');
-    expect(aisleRowLabel('Costco', 2, 20, null)).toBe('Costco, 3 de 20');
+    expect(aisleRowLabel('Costco', 2, 20)).toBe('Costco, 3 de 20');
     expect(aisleRowActions(0, 3)).toEqual([{ name: 'moveDown', label: 'Bajar' }]);
     expect(aisleRowActions(2, 3)).toEqual([{ name: 'moveUp', label: 'Subir' }]);
     expect(aisleRowActions(0, 1)).toEqual([]);

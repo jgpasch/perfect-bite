@@ -41,12 +41,9 @@ export function aisleRowActions(index: number, count: number): { name: 'moveUp' 
   return actions;
 }
 
-/** What VoiceOver reads for an aisle row: "Produce, 1 of 20", or "Costco, Test home, 3 of 20" with a household line. */
-export function aisleRowLabel(name: string, index: number, count: number, household?: string | null): string {
-  const position = index + 1;
-  return household
-    ? i18n.t('aisleOrder.rowWithHousehold', { name, household, position, count })
-    : i18n.t('aisleOrder.row', { name, position, count });
+/** What VoiceOver reads for an aisle row: "Produce, 1 of 20". */
+export function aisleRowLabel(name: string, index: number, count: number): string {
+  return i18n.t('aisleOrder.row', { name, position: index + 1, count });
 }
 
 /** What VoiceOver announces after a Move up / Move down: "Moved to 3 of 20". */

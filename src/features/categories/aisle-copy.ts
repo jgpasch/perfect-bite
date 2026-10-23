@@ -1,4 +1,4 @@
-// Copy for shared aisles (spec 4.3.2, 4.3.3): an aisle choice and a custom aisle belong to the household.
+// Copy for shared aisles (spec 4.3.2): an aisle choice belongs to the household.
 
 import { i18n } from '@/i18n';
 
@@ -6,16 +6,4 @@ import { i18n } from '@/i18n';
 export function sharedAisleFootnote(householdName: string | null): string {
   const name = householdName?.trim();
   return name ? i18n.t('item.sharedAisle', { name }) : i18n.t('item.sharedAisleYours');
-}
-
-/**
- * The aisle order screen's second line for an aisle: its household's name, so two "Costco" aisles
- * can be told apart. Null for a system aisle, an unknown household, or a user in one household.
- */
-export function aisleHouseholdLine(
-  householdId: string | null,
-  households: readonly { id: string; name: string }[],
-): string | null {
-  if (householdId === null || households.length < 2) return null;
-  return households.find((h) => h.id === householdId)?.name ?? null;
 }

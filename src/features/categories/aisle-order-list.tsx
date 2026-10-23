@@ -32,8 +32,7 @@ import {
   moveId,
 } from './aisle-order';
 
-/** `household`: a custom aisle's household name, shown as a second line (null for none). */
-export type AisleOrderItem = { id: string; name: string; slug: string | null; household?: string | null };
+export type AisleOrderItem = { id: string; name: string; slug: string | null };
 
 type Props = {
   aisles: AisleOrderItem[];
@@ -304,7 +303,7 @@ function AisleRow({
     <GestureDetector gesture={gesture}>
       <Animated.View
         accessible
-        accessibilityLabel={aisleRowLabel(aisle.name, index, count, aisle.household)}
+        accessibilityLabel={aisleRowLabel(aisle.name, index, count)}
         accessibilityHint={t('aisleOrder.rowHint')}
         accessibilityActions={aisleRowActions(index, count)}
         onAccessibilityAction={(e) => {
@@ -336,11 +335,6 @@ function AisleRow({
           <ThemedText variant={dragging ? 'headline' : 'body'} numberOfLines={2} style={!dragging && styles.semibold}>
             {aisle.name}
           </ThemedText>
-          {aisle.household ? (
-            <ThemedText variant="footnote" color="inkSecondary" numberOfLines={1}>
-              {aisle.household}
-            </ThemedText>
-          ) : null}
         </View>
         <View style={[styles.grip, { width: sizes.grip }]}>
           <Icon name="line.3.horizontal" size={sizes.icon} color={look.grip} />

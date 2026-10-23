@@ -1948,13 +1948,26 @@ describe('the Checked header', () => {
 });
 
 describe('Reorder aisles', () => {
-  test('By aisle has Reorder aisles… in the list menu, which opens the aisle order', () => {
+  test("By aisle has Reorder aisles… in the list menu, which opens the aisle order for the list's household", () => {
     put('milk');
     render();
     expect(menuAction('Reorder aisles…')).toBeUndefined();
     setView('category');
     press(menuAction('Reorder aisles…'));
-    expect(mockPush).toHaveBeenCalledWith('/category-order');
+    const householdId = getList(listId)!.householdId;
+    expect(householdId).toBeTruthy();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/category-order', params: { householdId } });
+  });
+
+  test("a list in another household opens that household's aisle order", () => {
+    db.insert(households).values({ id: 'h-cabin', name: 'Cabin', createdAt: new Date(5) }).run();
+    listId = createList('Cabin groceries', 'h-cabin');
+    shownId = listId;
+    put('milk');
+    render();
+    setView('category');
+    press(menuAction('Reorder aisles…'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/category-order', params: { householdId: 'h-cabin' } });
   });
 
   test('By recipe has none', () => {

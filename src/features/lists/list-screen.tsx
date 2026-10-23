@@ -1182,9 +1182,11 @@ export function ListScreen({ id }: { id: string }) {
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => router.push({ pathname: '/list/[id]/edit', params: { id } })}>
               {t('lists.screen.editList')}
             </Stack.Toolbar.MenuAction>
-            {/* By aisle: a way to the aisle order (also in Settings). */}
+            {/* By aisle: the aisle order for the list's household (also in its household screen). */}
             {viewMode === 'category' ? (
-              <Stack.Toolbar.MenuAction icon="arrow.up.arrow.down" onPress={() => router.push('/category-order')}>
+              <Stack.Toolbar.MenuAction
+                icon="arrow.up.arrow.down"
+                onPress={() => router.push({ pathname: '/category-order', params: { householdId } })}>
                 {t('lists.screen.reorderAisles')}
               </Stack.Toolbar.MenuAction>
             ) : null}

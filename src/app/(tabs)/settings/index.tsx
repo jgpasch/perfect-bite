@@ -197,11 +197,6 @@ export default function SettingsScreen() {
 
         <SettingsSection title={t('settings.aisles')}>
           <SettingsRow
-            label={t('settings.aisleOrder')}
-            icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
-            onPress={() => router.push('/category-order')}
-          />
-          <SettingsRow
             label={t('settings.aisleColours')}
             value={aisleColorStyleLabel(aisleColors)}
             icon={{ name: 'paintpalette', hue: 'rose' }}

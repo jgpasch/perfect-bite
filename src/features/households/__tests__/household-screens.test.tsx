@@ -6,7 +6,17 @@ import { ActionSheetIOS, Alert, type AlertButton, Share } from 'react-native';
 import { eq } from 'drizzle-orm';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, householdStaples, households, ingredients, ingredientUsage, outbox, recipes } from '@/db';
+import {
+  db,
+  householdCategoryOrder,
+  householdStaples,
+  households,
+  ingredients,
+  ingredientUsage,
+  outbox,
+  recipes,
+  userHouseholdCategoryOrder,
+} from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { clearPushMoment, pushMomentPending } from '@/features/push/ask';
 import { initI18n } from '@/i18n';
@@ -468,7 +478,7 @@ describe('HouseholdScreen', () => {
         const sheet = sheetSpy();
         const alert = alertSpy();
         const root = await render(<HouseholdScreen />);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Member', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Aisle order', 'Household', 'Shared with the household unless you keep your own.', 'Invite someone', 'Delete household', 'Leave household']);
         await pressAsync(byLabel(root, 'Sam'));
         expect(sheet.mock.calls[0][0]).toEqual({
           title: 'Sam',
@@ -486,7 +496,7 @@ describe('HouseholdScreen', () => {
         await act(async () => confirmButton(alert, 0, 'Make owner').onPress!());
         expect(mockSetRole).toHaveBeenCalledWith(HOME, 'sam', 'owner');
         expect(mockFetchMembers).toHaveBeenCalledTimes(2);
-        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Invite someone', 'Delete household', 'Leave household']);
+        expect(texts(root)).toEqual(['Smith home', '0 lists · 1 recipe', 'J', 'S', 'Members', 'John (You)', 'Owner', 'Sam', 'Owner', 'Household settings', 'Always have', 'None', 'Combine English and Spanish names', 'Leche and milk become one item on your lists.', 'These change it for everyone in Smith home.', 'Aisle order', 'Household', 'Shared with the household unless you keep your own.', 'Invite someone', 'Delete household', 'Leave household']);
         // Sam is now another owner: the sheet offers Remove as owner.
         expect(byLabel(root, 'Sam').props.accessibilityHint).toBe('Remove as owner or remove.');
         expect(alert).toHaveBeenCalledTimes(1);
@@ -875,6 +885,63 @@ describe('Household settings: Combine English and Spanish names (spec 4.15)', ()
     await act(async () => combineSwitch(root).props.onValueChange(true));
     expect(alert).toHaveBeenCalledWith("You're offline", 'Connect to the internet and try again.');
     expect(combineSwitch(root).props).toMatchObject({ value: false, disabled: false });
+  });
+});
+
+describe('Aisle order row (spec 4.3.3, 4.7)', () => {
+  const rerender = async () => {
+    await act(async () => tree!.update(<HouseholdScreen />));
+  };
+
+  beforeEach(() => {
+    mockParams.id = HOME;
+    mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
+  });
+
+  test('sits under the Household settings card, with its own footnote, for a member too', async () => {
+    mockFetchMembers.mockResolvedValue([{ ...ME_OWNER, role: 'member' }, { ...SAM, role: 'owner' }]);
+    const root = await render(<HouseholdScreen />);
+    const all = texts(root);
+    const at = all.indexOf('These change it for everyone in Smith home.');
+    expect(all.slice(at + 1, at + 4)).toEqual(['Aisle order', 'Household', 'Shared with the household unless you keep your own.']);
+    expect(all.indexOf('Aisle order')).toBeLessThan(all.indexOf('Invite someone'));
+  });
+
+  test('says Household with no order saved, and while following a saved household order', async () => {
+    const root = await render(<HouseholdScreen />);
+    expect(byLabel(root, 'Aisle order').props.value).toBe('Household');
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [] }).run();
+    await rerender();
+    expect(byLabel(root, 'Aisle order').props.value).toBe('Household');
+  });
+
+  test('says Your own while the user keeps their own order for this household, and Household again once it goes', async () => {
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [] }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [] }).run();
+    const root = await render(<HouseholdScreen />);
+    expect(byLabel(root, 'Aisle order').props.value).toBe('Your own');
+    db.delete(userHouseholdCategoryOrder).run();
+    await rerender();
+    expect(byLabel(root, 'Aisle order').props.value).toBe('Household');
+  });
+
+  test("another household's own order, or another user's, doesn't count", async () => {
+    db.insert(households).values({ id: 'cabin', name: 'Cabin' }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: 'cabin', categoryIds: [] }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: 'sam', householdId: HOME, categoryIds: [] }).run();
+    const root = await render(<HouseholdScreen />);
+    expect(byLabel(root, 'Aisle order').props.value).toBe('Household');
+  });
+
+  test('opens the Aisle order screen for this household', async () => {
+    const root = await render(<HouseholdScreen />);
+    await pressAsync(byLabel(root, 'Aisle order'));
+    expect(mockRouter.push).toHaveBeenLastCalledWith({ pathname: '/category-order', params: { householdId: HOME } });
+  });
+
+  test('follows either order changing, here or pulled', async () => {
+    await render(<HouseholdScreen />);
+    expect(mockWatched).toEqual(expect.arrayContaining([[userHouseholdCategoryOrder], [householdCategoryOrder]]));
   });
 });
 
@@ -1439,8 +1506,14 @@ describe('in Spanish', () => {
         'Enviada · vence 17 oct',
         'Siempre tengo',
         'Ninguno',
+        'Orden de pasillos',
+        'Del hogar',
+        'Se comparte con el hogar, salvo que tengas el tuyo.',
       ]),
     );
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [] }).run();
+    await act(async () => tree!.update(<HouseholdScreen />));
+    expect(byLabel(root, 'Orden de pasillos').props.value).toBe('El tuyo');
     expect(hasA11y(root, 'Cambiar nombre del hogar')).toBe(true);
     expect(hasA11y(root, 'Sam, Miembro')).toBe(true);
     expect(hasA11y(root, 'pat@example.com, Enviada por John · vence 17 oct, Pendiente')).toBe(true);

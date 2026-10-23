@@ -156,7 +156,7 @@ describe('AisleOrderList', () => {
     { id: 'a', name: 'Produce', slug: 'produce' },
     { id: 'b', name: 'Bakery', slug: 'bakery' },
     { id: 'c', name: 'Dairy', slug: 'dairy' },
-    { id: 'd', name: 'Costco', slug: null, household: 'Test home' },
+    { id: 'd', name: 'Costco', slug: null },
   ];
 
   function render(onMove = jest.fn()) {
@@ -167,14 +167,12 @@ describe('AisleOrderList', () => {
     return { root: tree!, onMove };
   }
 
-  it('reads each row as its name, household and place', () => {
+  it('reads each row as its name and place, with no household line', () => {
     const { root } = render();
-    expect(rowLabels(root)).toEqual([
-      'Produce, 1 of 4',
-      'Bakery, 2 of 4',
-      'Dairy, 3 of 4',
-      'Costco, Test home, 4 of 4',
-    ]);
+    expect(rowLabels(root)).toEqual(['Produce, 1 of 4', 'Bakery, 2 of 4', 'Dairy, 3 of 4', 'Costco, 4 of 4']);
+    // One text per row: the name.
+    const texts = root.root.findAll((n) => typeof n.type === 'string' && typeof n.props.children === 'string');
+    expect(texts.map((n) => n.props.children)).toEqual(['Produce', 'Bakery', 'Dairy', 'Costco']);
   });
 
   it('offers Move up / Move down, leaving them out at the ends', () => {
@@ -238,7 +236,7 @@ describe('the Aisle order screen', () => {
   beforeEach(() => {
     resetDb();
     seedCatalog();
-    mockParams = {};
+    mockParams = { householdId: HOME };
     db.insert(households).values({ id: HOME, name: 'Home', createdAt: new Date(1) }).run();
   });
 
@@ -292,10 +290,26 @@ describe('the Aisle order screen', () => {
     db.insert(households).values({ id: CABIN, name: 'Cabin', createdAt: new Date(2) }).run();
     createCategory(HOME, 'Costco');
     createCategory(CABIN, 'Farm stand');
-    // Without a household, the user's first one.
     const root = render();
-    expect(rowLabels(root)).toHaveLength(SYSTEM_CATEGORIES.length + 1);
-    expect(rowLabels(root).at(-1)).toBe(`Costco, ${SYSTEM_CATEGORIES.length + 1} of ${SYSTEM_CATEGORIES.length + 1}`);
+    const count = SYSTEM_CATEGORIES.length + 1;
+    expect(rowLabels(root)).toEqual([
+      ...SYSTEM_CATEGORIES.map((c, i) => `${c.name}, ${i + 1} of ${count}`),
+      `Costco, ${count} of ${count}`,
+    ]);
+    // No household names under the aisles.
+    const texts = root.root.findAll((n) => typeof n.type === 'string' && typeof n.props.children === 'string');
+    expect(texts.map((n) => n.props.children)).not.toEqual(expect.arrayContaining(['Home']));
+    expect(texts.map((n) => n.props.children)).not.toEqual(expect.arrayContaining(['Farm stand']));
+  });
+
+  it("without a household id it borrows no household's custom aisles and saves nothing", () => {
+    createCategory(HOME, 'Costco');
+    mockParams = {};
+    const root = render();
+    expect(rowLabels(root)).toHaveLength(SYSTEM_CATEGORIES.length);
+    expect(rowLabels(root).some((l) => l.startsWith('Costco'))).toBe(false);
+    a11yAction(rows(root)[0], 'moveDown');
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
   });
 
   it('opens on the household it is given, and saves to that household only', () => {

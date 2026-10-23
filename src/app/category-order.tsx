@@ -4,30 +4,25 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { prominentButtonTint } from '@/components/appearance';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
-import { households } from '@/db';
-import { useLiveQueryOn } from '@/db/live-query';
 import { getAccount } from '@/features/auth/account';
 import { moveId } from '@/features/categories/aisle-order';
 import { AisleOrderList } from '@/features/categories/aisle-order-list';
 import { saveMyAisleOrder } from '@/features/categories/aisle-orders';
 import { useAisleOrder } from '@/features/categories/use-aisle-order';
-import { householdsQuery } from '@/features/households/households';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 /**
- * "Aisle order" (spec 4.3.3, board 12): one household's aisles (`householdId`, else the user's
- * first household) in the order the user follows there. Each move saves the whole order as the
- * user's own for that household. Opened from Settings (Store aisle order) or from a list's ⋯ menu
- * in By aisle (Reorder aisles…).
+ * "Aisle order" (spec 4.3.3, board 12): the aisles of the household `householdId` (its system
+ * aisles plus its own custom ones) in the order the user follows there. Each move saves the whole
+ * order as the user's own for that household. Opened from the household's screen (Settings →
+ * Households → [Household] → Aisle order) or from a list's ⋯ menu in By aisle (Reorder aisles…).
  */
 export default function CategoryOrderScreen() {
   const t = useT();
   const { spacing, colors, scheme } = useTheme();
   const userId = getAccount()?.userId ?? '';
-  const params = useLocalSearchParams<{ householdId?: string }>();
-  const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households], []);
-  const householdId = params.householdId ?? householdRows[0]?.id ?? '';
+  const { householdId = '' } = useLocalSearchParams<{ householdId?: string }>();
   const { categories: ordered } = useAisleOrder(userId, householdId);
 
   return (

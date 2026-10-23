@@ -210,23 +210,23 @@ describe('Settings', () => {
     const root = render(<SettingsScreen />);
     expect(headers(root)).toEqual(expect.arrayContaining(['Shopping', 'Aisles', 'General', 'Households']));
     button(root, 'Siri adds to, Groceries');
-    button(root, 'Store aisle order');
     button(root, 'Aisle colours, Whole row');
     button(root, 'Sync status, Synced');
+  });
+
+  it('has no top-level aisle order entry: it is in each household (spec 4.3.3)', () => {
+    const root = render(<SettingsScreen />);
+    const labels = buttons(root).map((b) => b.props.accessibilityLabel as string);
+    expect(labels.filter((l) => /aisle order/i.test(l))).toEqual([]);
+    expect(textOf(root)).toContain('Members, invites, Always have, aisle order and name matching are in each household.');
   });
 
   it('opens each Shopping screen', () => {
     const root = render(<SettingsScreen />);
     click(button(root, /^Siri adds to/));
-    click(button(root, 'Store aisle order'));
     click(button(root, /^Aisle colours/));
     click(button(root, /^Sync status/));
-    expect(mockPush.mock.calls).toEqual([
-      ['/settings/siri'],
-      ['/category-order'],
-      ['/settings/aisle-colors'],
-      ['/settings/sync'],
-    ]);
+    expect(mockPush.mock.calls).toEqual([['/settings/siri'], ['/settings/aisle-colors'], ['/settings/sync']]);
   });
 
   it('has a Notifications row after Siri adds to, opening its screen (spec 4.13)', () => {
@@ -234,7 +234,7 @@ describe('Settings', () => {
     const labels = buttons(root).map((b) => b.props.accessibilityLabel as string);
     const siri = labels.findIndex((l) => l.startsWith('Siri adds to'));
     expect(labels[siri + 1]).toBe('Notifications');
-    expect(labels.indexOf('Notifications')).toBeLessThan(labels.indexOf('Store aisle order'));
+    expect(labels.indexOf('Notifications')).toBeLessThan(labels.findIndex((l) => l.startsWith('Aisle colours')));
     click(button(root, 'Notifications'));
     expect(mockPush).toHaveBeenCalledWith('/settings/notifications');
   });
@@ -519,7 +519,7 @@ describe('Settings', () => {
       const root = render(<SettingsScreen />);
       expect(headers(root)[0]).toBe('Households');
       expect(textOf(root)).toContain(
-        'Households Personal 1 list · 0 recipes Cabin 0 lists · 0 recipes Members, invites, Always have and name matching are in each household. Shopping',
+        'Households Personal 1 list · 0 recipes Cabin 0 lists · 0 recipes Members, invites, Always have, aisle order and name matching are in each household. Shopping',
       );
       expect(root.root.findAll((n) => n.type === Switch && /^Combine/.test(n.props.accessibilityLabel ?? ''))).toEqual([]);
     });

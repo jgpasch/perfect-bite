@@ -13,6 +13,7 @@ import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
 import { memberHue } from '@/domain/aisle-color';
 import { useAccountState } from '@/features/auth/account';
+import { useAisleOrder } from '@/features/categories/use-aisle-order';
 import { CombineLanguagesRow } from '@/features/households/combine-languages-row';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import {
@@ -59,8 +60,9 @@ type MembersState = { status: 'loading' } | { status: 'error' } | { status: 'rea
  * A household and its members (spec 4.7, board 11), read-only: an amber band with the name, its
  * list and recipe counts and the members' avatars, then the Members card. Members come from the
  * server, so this needs a connection and a registered household; anything else shows the error
- * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`). Under
- * Members, the Invited section (design S4) lists the household's open invites, loaded with the
+ * with Retry. "Invite someone" opens the invite sheet (`src/app/household-invite.tsx`). After
+ * the Household settings card, the Aisle order row ("Household" or "Your own", by the order the
+ * user follows) opens the Aisle order screen for this household. Under Members, the Invited section (design S4) lists the household's open invites, loaded with the
  * members; it's hidden when there are none or they can't be fetched (offline). Tapping one offers
  * Send again (email invites) and Cancel invite. Owners tap another member's row to make them an
  * owner (or, for another owner, a member again) or remove them, and their own row to step down
@@ -85,6 +87,7 @@ export default function HouseholdScreen() {
   const { data } = useLiveQueryOn(householdsWithCountsQuery(), HOUSEHOLD_COUNT_TABLES);
   const household = data.find((h) => h.id === id);
   const { data: staples } = useLiveQueryOn(staplesQuery(id), STAPLES_QUERY_TABLES, [id]);
+  const { source: aisleSource } = useAisleOrder(userId ?? '', id);
   const band = householdBandColors(colors, aisles);
 
   const [state, setState] = useState<MembersState>({ status: 'loading' });
@@ -434,6 +437,22 @@ export default function HouseholdScreen() {
       </SettingsSection>
       <ThemedText variant="footnote" color="inkSecondary" style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
         {t('households.screen.settingsFootnote', { name: householdName })}
+      </ThemedText>
+
+      {/* Its own card and footnote: a personal order doesn't change it for everyone. */}
+      <View style={{ paddingTop: spacing.lg }}>
+        <Card>
+          <SettingsRow
+            label={t('households.screen.aisleOrder')}
+            value={t(aisleSource === 'personal' ? 'households.screen.aisleOrderYourOwn' : 'households.screen.aisleOrderHousehold')}
+            icon={{ name: 'arrow.up.arrow.down', hue: 'blue' }}
+            last
+            onPress={() => router.push({ pathname: '/category-order', params: { householdId: id } })}
+          />
+        </Card>
+      </View>
+      <ThemedText variant="footnote" color="inkSecondary" style={{ paddingTop: spacing.sm, paddingHorizontal: spacing.xxl }}>
+        {t('households.screen.aisleOrderFootnote')}
       </ThemedText>
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
