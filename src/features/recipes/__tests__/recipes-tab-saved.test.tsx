@@ -144,7 +144,7 @@ const label = (node: ReactTestInstance) =>
 /** The heart and bookmark after the name, as [symbol, colour token]. */
 const marks = (node: ReactTestInstance) =>
   node
-    .findAll((n) => n.type === ('Icon' as never) && ['heart.fill', 'bookmark'].includes(n.props.name))
+    .findAll((n) => n.type === ('Icon' as never) && ['heart.fill', 'heart', 'bookmark'].includes(n.props.name))
     .map((n) => [n.props.name, n.props.color]);
 const menu = (root: ReactTestRenderer, id: string) => card(root, id).findAll((n) => n.type === ('LinkMenuAction' as never));
 const action = (root: ReactTestRenderer, id: string, title: string) => menu(root, id).find((a) => a.props.title === title)!;
@@ -175,6 +175,8 @@ beforeEach(() => {
     .values([
       { householdId: 'home', userId: 'user-1', displayName: 'Jo Doe', joinedAt: '2026-10-01T00:00:00Z' },
       { householdId: 'home', userId: 'user-2', displayName: 'Sam Lee', joinedAt: '2026-10-02T00:00:00Z' },
+      { householdId: 'home', userId: 'user-3', displayName: 'Ana Ruiz', joinedAt: '2026-10-03T00:00:00Z' },
+      { householdId: 'home', userId: 'user-4', displayName: 'Bo Chen', joinedAt: '2026-10-04T00:00:00Z' },
     ])
     .run();
 });
@@ -186,26 +188,43 @@ afterEach(() => {
 });
 
 describe('a row with Saved marks', () => {
-  const combos: [string[], boolean, string[][], string][] = [
-    [[], false, [], 'Tacos, Dinner, 35 min'],
-    [[], true, [['heart.fill', 'primary']], 'Tacos, Dinner, 35 min'],
-    [['want-to-try'], false, [['bookmark', 'inkSecondary']], 'Tacos, Want to try, Dinner, 35 min'],
+  // [saved tags, whose favorites, icons after the name, VoiceOver]
+  const combos: [string[], string[], string[][], string][] = [
+    [[], [], [], 'Tacos, Dinner, 35 min'],
+    [[], ['user-1'], [['heart.fill', 'primary']], 'Tacos, Your favorite, Dinner, 35 min'],
+    // Mine wins over others': still the filled heart and "Your favorite".
+    [[], ['user-1', 'user-2'], [['heart.fill', 'primary']], 'Tacos, Your favorite, Dinner, 35 min'],
+    [[], ['user-2'], [['heart', 'inkSecondary']], "Tacos, Sam's favorite, Dinner, 35 min"],
+    [[], ['user-2', 'user-3'], [['heart', 'inkSecondary']], 'Tacos, Favorite of Ana and Sam, Dinner, 35 min'],
+    [[], ['user-2', 'user-3', 'user-4'], [['heart', 'inkSecondary']], 'Tacos, Favorite of Ana and 2 others, Dinner, 35 min'],
+    [['want-to-try'], [], [['bookmark', 'inkSecondary']], 'Tacos, Want to try, Dinner, 35 min'],
     [
       ['want-to-try'],
-      true,
+      ['user-1'],
       [
         ['heart.fill', 'primary'],
         ['bookmark', 'inkSecondary'],
       ],
-      'Tacos, Want to try, Dinner, 35 min',
+      'Tacos, Your favorite, Want to try, Dinner, 35 min',
+    ],
+    [
+      ['want-to-try'],
+      ['user-2'],
+      [
+        ['heart', 'inkSecondary'],
+        ['bookmark', 'inkSecondary'],
+      ],
+      "Tacos, Sam's favorite, Want to try, Dinner, 35 min",
     ],
     // An old stored `favorite` slug is ignored for display.
-    [['favorite'], false, [], 'Tacos, Dinner, 35 min'],
+    [['favorite'], [], [], 'Tacos, Dinner, 35 min'],
+    // Someone no longer in the household counts for nothing.
+    [[], ['user-9'], [], 'Tacos, Dinner, 35 min'],
   ];
 
-  test.each(combos)('saved %j, mine %j: icons %j after the name, VoiceOver "%s"', (saved, mine, icons, voiceOver) => {
+  test.each(combos)('saved %j, favorites of %j: icons %j after the name, VoiceOver "%s"', (saved, users, icons, voiceOver) => {
     const id = addRecipe('Tacos', { ...EMPTY, saved, meal: ['dinner'] });
-    if (mine) favorite(id);
+    for (const user of users) favorite(id, user);
     const root = render();
     expect(marks(card(root, id))).toEqual(icons);
     expect(label(card(root, id))).toBe(voiceOver);
@@ -240,7 +259,17 @@ describe('a row with Saved marks', () => {
       ['heart.fill', 'primary'],
       ['bookmark', 'inkSecondary'],
     ]);
-    expect(label(card(root, id))).toBe('Tacos, Want to try, Dinner, 35 min');
+    expect(label(card(root, id))).toBe('Tacos, Your favorite, Want to try, Dinner, 35 min');
+  });
+
+  test('a large tile shows the outlined heart for only another member’s favorite', () => {
+    setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'large');
+    const id = addRecipe('Tacos', { ...EMPTY, meal: ['dinner'] });
+    favorite(id, 'user-2');
+    const root = render();
+    expect(marks(card(root, id))).toEqual([['heart', 'inkSecondary']]);
+    expect(card(root, id).find((n) => n.type === ('Icon' as never) && n.props.name === 'heart').props.size).toBe(12);
+    expect(label(card(root, id))).toBe("Tacos, Sam's favorite, Dinner, 35 min");
   });
 });
 
@@ -287,10 +316,18 @@ describe('the long-press menu', () => {
     let root = render();
     expect(action(root, id, 'Favorite').props.icon).toBe('heart');
     choose(root, id, 'Favorite');
+    expect(favoriteRow(id)!.deletedAt).toBeNull();
+    expect(favoriteRow(id, 'user-2')!.deletedAt).toBeNull();
     root = render();
+    expect(marks(card(root, id))).toEqual([['heart.fill', 'primary']]);
     choose(root, id, 'Unfavorite');
     expect(favoriteRow(id)!.deletedAt).toBeInstanceOf(Date);
     expect(favoriteRow(id, 'user-2')!.deletedAt).toBeNull();
+    // Back to the outlined heart for Sam's.
+    root = render();
+    expect(marks(card(root, id))).toEqual([['heart', 'inkSecondary']]);
+    expect(label(card(root, id))).toBe("Tacos, Sam's favorite, Dinner, 35 min");
+    expect(action(root, id, 'Favorite')).toBeDefined();
   });
 
   test('an old stored `favorite` slug isn’t the user’s favorite, and is kept when Want to try saves', () => {
@@ -346,5 +383,50 @@ describe('the long-press menu', () => {
     setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'my-favorites'));
     root = render();
     expect(rowNames(root)).toEqual(['Tacos']);
+  });
+});
+
+describe('the Favorites and My favorites chips', () => {
+  const chips = (root: ReactTestRenderer) =>
+    root.root.findAll(
+      (n) =>
+        typeof n.type === 'string' &&
+        n.props.accessibilityRole === 'button' &&
+        /^Remove .* filter$/.test(n.props.accessibilityLabel ?? ''),
+    );
+  const chipText = (chip: ReactTestInstance) =>
+    chip.findAll((n) => n.type === ('Text' as never)).map((n) => [n.props.children].flat().join(''));
+
+  test.each<['favorites' | 'my-favorites', string, string[]]>([
+    ['favorites', 'Favorites', ['Soup', 'Tacos']],
+    ['my-favorites', 'My favorites', ['Tacos']],
+  ])('%s shows "%s ✕"; removing it shows every recipe again', (value, text, names) => {
+    const tacos = addRecipe('Tacos', null);
+    const soup = addRecipe('Soup', null, 2);
+    addRecipe('Dal', null, 3);
+    favorite(tacos);
+    favorite(soup, 'user-2');
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', value));
+    let root = render();
+    expect(rowNames(root)).toEqual(names);
+    const [chip] = chips(root);
+    expect(chip.props.accessibilityLabel).toBe(`Remove ${text} filter`);
+    expect(chipText(chip).join(' ')).toContain(text);
+    const pressable = root.root.find(
+      (n) => n.props.accessibilityLabel === chip.props.accessibilityLabel && typeof n.props.onPress === 'function',
+    );
+    act(() => pressable.props.onPress());
+    root = render();
+    expect(chips(root)).toEqual([]);
+    expect(rowNames(root)).toEqual(['Dal', 'Soup', 'Tacos']);
+  });
+
+  test('both on show both chips, Favorites first', () => {
+    const tacos = addRecipe('Tacos', null);
+    favorite(tacos);
+    favorite(tacos, 'user-2');
+    setRecipeFilters(toggleRecipeFilter(toggleRecipeFilter(noRecipeFilters(), 'saved', 'my-favorites'), 'saved', 'favorites'));
+    const root = render();
+    expect(chips(root).map((c) => c.props.accessibilityLabel)).toEqual(['Remove Favorites filter', 'Remove My favorites filter']);
   });
 });

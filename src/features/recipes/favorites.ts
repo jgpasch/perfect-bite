@@ -11,7 +11,11 @@ import { useLiveQueryOn } from '@/db/live-query';
 import { getAccount } from '@/features/auth/account';
 import { nameOf, shortMemberNames, type MemberNames } from '@/features/households/member-names';
 import { i18n } from '@/i18n';
+import type { RecipeTags } from '@/shared/recipe-tags';
+import type { Exec } from '@/sync/clock';
 import { upsertRow } from '@/sync/mutate';
+
+import { updateRecipeTags } from './recipes';
 
 /** A recipe's favorites: the user's own, and the other current members' names, A–Z. */
 export type RecipeFavorite = { mine: boolean; others: string[] };
@@ -91,10 +95,10 @@ export function useRecipeFavorites(): FavoritesByRecipe {
 }
 
 /** Whether the user has the recipe as a favorite. */
-export function isMyFavorite(recipeId: string): boolean {
+export function isMyFavorite(recipeId: string, exec: Exec = db): boolean {
   const me = getAccount()?.userId;
   if (!me) return false;
-  const row = db
+  const row = exec
     .select({ deletedAt: recipeFavorites.deletedAt })
     .from(recipeFavorites)
     .where(and(eq(recipeFavorites.recipeId, recipeId), eq(recipeFavorites.userId, me)))
@@ -104,15 +108,27 @@ export function isMyFavorite(recipeId: string): boolean {
 
 /**
  * Favorites (`on`) or unfavorites a recipe for the user only, whatever other members have. Unfavoriting
- * sets `deleted_at` and favoriting again clears it. No change, no user or no recipe: no write.
+ * sets `deleted_at` and favoriting again clears it. No change, no user or no recipe: no write. `exec`: the
+ * caller's transaction (the Tags sheet's Save).
  */
-export function setMyFavorite(recipeId: string, on: boolean): void {
+export function setMyFavorite(recipeId: string, on: boolean, exec: Exec = db): void {
   const userId = getAccount()?.userId;
-  if (!userId || isMyFavorite(recipeId) === on) return;
-  const recipe = db.select({ householdId: recipes.householdId }).from(recipes).where(eq(recipes.id, recipeId)).get();
+  if (!userId || isMyFavorite(recipeId, exec) === on) return;
+  const recipe = exec.select({ householdId: recipes.householdId }).from(recipes).where(eq(recipes.id, recipeId)).get();
   if (!recipe) return;
   const deletedAt = on ? null : new Date();
-  upsertRow(db, recipeFavorites, { recipeId, userId, householdId: recipe.householdId, deletedAt }, { deletedAt });
+  upsertRow(exec, recipeFavorites, { recipeId, userId, householdId: recipe.householdId, deletedAt }, { deletedAt });
+}
+
+/**
+ * The Tags sheet's Save (spec 4.14): the tags, the time and `tagsEdited` (`updateRecipeTags`) and, when
+ * its Favorite pill changed (`favorite` given), the user's own favorite, in one transaction.
+ */
+export function saveRecipeTags(id: string, tags: RecipeTags, totalMinutes: number | null, favorite?: boolean): void {
+  db.transaction((tx) => {
+    updateRecipeTags(id, tags, totalMinutes, tx);
+    if (favorite !== undefined) setMyFavorite(id, favorite, tx);
+  });
 }
 
 /**

@@ -6,6 +6,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { NAME_IS_LINK_FOOTNOTE } from '@/features/recipes/add-recipe';
 import { recipeServesLabel } from '@/features/recipes/add-to-list';
 import { failedImportReason } from '@/features/recipes/failed-imports';
+import { favoriteLabel } from '@/features/recipes/favorites';
 import {
   importedOnRecipesToast,
   importErrorMessage,
@@ -67,6 +68,11 @@ jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
 jest.mock('@/components/icon', () => ({ Icon: () => null }));
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+// The tag row reads the favorites (`favorites.ts`), which ask who's signed in.
+jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: 'user-1' }) }));
+jest.mock('@/db/live-query', () => ({
+  useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
+}));
 
 afterEach(() => initI18n('en'));
 
@@ -173,9 +179,15 @@ describe('recipes strings in Spanish', () => {
     initI18n('es');
     // An old stored `favorite` slug is unknown: not shown (4.14).
     expect(recipeTagLine({ ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] }, 90)).toEqual({
-      favorite: false,
+      favorite: null,
       text: 'Por probar · Cena · Más de 1 hora',
       accessibilityLabel: 'Etiquetas: Por probar, Cena, Más de 1 hora',
+    });
+    // A favorite reads first, as `favoriteLabel` gives it.
+    expect(recipeTagLine(null, 90, { mine: false, label: favoriteLabel(false, ['Sam'])! })).toEqual({
+      favorite: 'others',
+      text: 'Más de 1 hora',
+      accessibilityLabel: 'Etiquetas: Favorita de Sam, Más de 1 hora',
     });
   });
 
@@ -353,11 +365,11 @@ describe('recipes strings in Spanish', () => {
     initI18n('es');
     let root!: ReactTestRenderer;
     act(() => {
-      root = create(<RecipeTagRow recipe={{ tags: null, totalMinutes: null }} onEdit={() => {}} onSuggest={() => {}} />);
+      root = create(<RecipeTagRow recipe={{ id: 'r1', tags: null, totalMinutes: null }} onEdit={() => {}} onSuggest={() => {}} />);
     });
     expect(texts(root)).toEqual(expect.arrayContaining(['Agregar etiquetas', 'Sugerir etiquetas']));
     act(() => {
-      root.update(<RecipeTagRow recipe={{ tags: null, totalMinutes: 90 }} onEdit={() => {}} />);
+      root.update(<RecipeTagRow recipe={{ id: 'r1', tags: null, totalMinutes: 90 }} onEdit={() => {}} />);
     });
     expect(texts(root)).toEqual(expect.arrayContaining(['Más de 1 hora']));
     expect(labels(root)).toEqual(expect.arrayContaining(['Etiquetas: Más de 1 hora']));

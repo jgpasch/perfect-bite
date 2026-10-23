@@ -469,6 +469,15 @@ describe('labels', () => {
     );
   });
 
+  test('a row reads its favorite right after the name, before Want to try (spec 4.5)', () => {
+    const tacos = { name: 'Tacos', tags: { ...emptyRecipeTags(), saved: ['want-to-try'], meal: ['dinner'] }, totalMinutes: 35 };
+    expect(recipeRowLabel(tacos, 'Groceries', null, 'none', 'Your favorite')).toBe(
+      'Tacos, Your favorite, Want to try, Dinner, 35 min, on Groceries',
+    );
+    expect(recipeRowLabel({ ...tacos, tags: null }, null, 'limes', 'none', "Sam's favorite")).toBe("Tacos, Sam's favorite, has limes");
+    expect(recipeRowLabel(tacos, null, null, 'none', null)).toBe('Tacos, Want to try, Dinner, 35 min');
+  });
+
   test("a recipe's Saved marks: the favorite from its favorites (mine, else others'), Want to try from the tags", () => {
     const marks = (saved: string[], favorite?: { mine: boolean; others: string[] } | null) =>
       recipeSavedMarks({ ...emptyRecipeTags(), saved }, favorite);

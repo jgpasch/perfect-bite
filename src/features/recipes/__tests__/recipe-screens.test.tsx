@@ -5,7 +5,7 @@ import { AccessibilityInfo, ActionSheetIOS, Alert, ScrollView, Text, type AlertB
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -14,7 +14,7 @@ import { Pill } from '@/components/pill';
 import { SectionHeader } from '@/components/section-header';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
-import { db, households, lists, outbox, recipes } from '@/db';
+import { db, householdMemberNames, households, lists, outbox, recipeFavorites, recipes } from '@/db';
 import { isStaple, setStaple } from '@/features/households/staples';
 import { resolveCurrentListId, setCurrentList } from '@/features/lists/current-list';
 import { groupItems, listItemsQuery } from '@/features/lists/items';
@@ -582,6 +582,38 @@ const setTags = (fields: { tags: RecipeTags | null; tagsEdited?: boolean; totalM
     .set({ tags: fields.tags, tagsEdited: fields.tagsEdited ?? false, totalMinutes: fields.totalMinutes ?? null })
     .where(eq(recipes.id, tacos))
     .run();
+/** Jo (the user), Sam and Ana as current members of the recipe's household. */
+const addMembers = () =>
+  db
+    .insert(householdMemberNames)
+    .values(
+      [
+        [USER, 'Jo Doe'],
+        ['user-2', 'Sam Lee'],
+        ['user-3', 'Ana Ruiz'],
+      ].map(([userId, displayName], i) => ({
+        householdId: getRecipe(tacos)!.householdId,
+        userId,
+        displayName,
+        joinedAt: `2026-10-0${i + 1}T00:00:00Z`,
+      })),
+    )
+    .run();
+/** `userId`'s live favorite of the recipe, as a pull would bring it. */
+const addFavorite = (userId: string, recipeId = tacos) =>
+  db.insert(recipeFavorites).values({ recipeId, userId, householdId: getRecipe(recipeId)!.householdId }).run();
+const favoriteRow = (userId: string, recipeId = tacos) =>
+  db
+    .select()
+    .from(recipeFavorites)
+    .where(and(eq(recipeFavorites.recipeId, recipeId), eq(recipeFavorites.userId, userId)))
+    .get();
+const favoriteMutations = () =>
+  db
+    .select()
+    .from(outbox)
+    .all()
+    .filter((m) => m.mutation.table === 'recipe_favorites');
 const outboxRecipeUpdates = () =>
   db
     .select()
@@ -911,6 +943,48 @@ describe('RecipeScreen tags', () => {
     expect(tagLine(root).props.accessibilityLabel).toBe('Tags: Want to try, Dinner');
   });
 
+  describe('a favorite', () => {
+    const hearts = (root: ReactTestRenderer) =>
+      tagRow(root)
+        .findAll((n) => n.type === Icon && ['heart', 'heart.fill'].includes(n.props.name))
+        .map((n) => [n.props.name, n.props.color, n.props.size]);
+
+    test.each<[string[], [string, string, number], string]>([
+      [[USER], ['heart.fill', 'primary', 12], 'Tags: Your favorite, Dinner, Under 30 min'],
+      [[USER, 'user-2'], ['heart.fill', 'primary', 12], 'Tags: Your favorite, Dinner, Under 30 min'],
+      [['user-2'], ['heart', 'inkSecondary', 12], "Tags: Sam's favorite, Dinner, Under 30 min"],
+      [['user-2', 'user-3'], ['heart', 'inkSecondary', 12], 'Tags: Favorite of Ana and Sam, Dinner, Under 30 min'],
+    ])('of %j: %j first, VoiceOver "%s"', (users, heart, voiceOver) => {
+      addMembers();
+      for (const user of users) addFavorite(user);
+      setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, totalMinutes: 20 });
+      const root = render(<RecipeScreen />);
+      expect(hearts(root)).toEqual([heart]);
+      expect(rowIcons(root)).toEqual(['tag', heart[0], 'chevron.right']);
+      expect(rowTexts(root)).toEqual(['Dinner · Under 30 min']);
+      expect(tagLine(root).props.accessibilityLabel).toBe(voiceOver);
+    });
+
+    test('only a favorite: its heart, not Add tags', () => {
+      addMembers();
+      addFavorite('user-2');
+      const root = render(<RecipeScreen />);
+      expect(rowButtons(root)).toEqual(["Tags: Sam's favorite"]);
+      expect(rowIcons(root)).toEqual(['tag', 'heart', 'chevron.right']);
+      expect(queryA11y(root, 'Add tags')).toHaveLength(0);
+    });
+
+    test('someone no longer in the household, or an unfavorited row, shows no heart', () => {
+      addMembers();
+      addFavorite('user-9');
+      addFavorite(USER);
+      db.update(recipeFavorites).set({ deletedAt: new Date() }).where(eq(recipeFavorites.userId, USER)).run();
+      const root = render(<RecipeScreen />);
+      expect(hearts(root)).toEqual([]);
+      expect(rowButtons(root)).toEqual(['Add tags']);
+    });
+  });
+
   test('many tags stay on one line', () => {
     setTags({
       tags: {
@@ -1104,18 +1178,100 @@ describe('RecipeTagsSheet', () => {
     expect(field(root, 'Minutes').props.value).toBe('20');
   });
 
-  test('Saved comes first, its tag is Want to try, and Save keeps it with an old stored `favorite`', () => {
+  test('Saved comes first, Favorite then Want to try, and Save keeps an old stored `favorite`', () => {
     setTags({ tags: { ...emptyRecipeTags(), saved: ['favorite'], meal: ['dinner'] } });
     const root = render(<RecipeTagsSheet />);
     const t = texts(root);
     expect(t.indexOf('Saved')).toBeGreaterThan(-1);
     expect(t.indexOf('Saved')).toBeLessThan(t.indexOf('Meal'));
-    // Favorites aren't a tag any more: the old slug isn't a pill.
-    expect(root.root.findAll((n) => n.props.accessibilityRole === 'togglebutton' && n.props.label === 'Favorite')).toHaveLength(0);
+    expect(t.indexOf('Favorite')).toBeGreaterThan(t.indexOf('Saved'));
+    expect(t.indexOf('Favorite')).toBeLessThan(t.indexOf('Want to try'));
+    // Favorites aren't a tag any more: the old slug doesn't turn on the user's Favorite pill.
+    expect(pill(root, 'Favorite').props.accessibilityState).toEqual({ checked: false });
     press(pill(root, 'Want to try'));
     expect(selected(root)).toEqual(['Want to try', 'Dinner']);
     act(() => toolbar(root, 'Save').props.onPress());
     expect(getRecipe(tacos)!.tags).toEqual({ ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] });
+    expect(favoriteRow(USER)).toBeUndefined();
+  });
+
+  describe('the Favorite pill', () => {
+    test('starts from the user’s own favorite, not another member’s', () => {
+      addMembers();
+      addFavorite('user-2');
+      let root = render(<RecipeTagsSheet />);
+      expect(selected(root)).toEqual([]);
+      act(() => tree?.unmount());
+      addFavorite(USER);
+      root = render(<RecipeTagsSheet />);
+      expect(selected(root)).toEqual(['Favorite']);
+      expect(pill(root, 'Favorite').props.accessibilityState).toEqual({ checked: true });
+    });
+
+    test('Save favorites with the tags in one transaction; another member’s stays', () => {
+      addMembers();
+      addFavorite('user-2');
+      const root = render(<RecipeTagsSheet />);
+      press(pill(root, 'Favorite'));
+      press(pill(root, 'Dinner'));
+      expect(selected(root)).toEqual(['Favorite', 'Dinner']);
+      const spy = jest.spyOn(db, 'transaction');
+      act(() => toolbar(root, 'Save').props.onPress());
+      // One outer transaction: the tags' and the favorite's writes are savepoints inside it.
+      expect(spy.mock.calls.length).toBe(1);
+      expect(favoriteRow(USER)).toMatchObject({ deletedAt: null });
+      expect(favoriteRow('user-2')).toMatchObject({ deletedAt: null });
+      expect(getRecipe(tacos)).toMatchObject({ tags: { ...emptyRecipeTags(), meal: ['dinner'] }, tagsEdited: true });
+      expect(favoriteMutations()).toHaveLength(1);
+      expect(mockBack).toHaveBeenCalled();
+    });
+
+    test('Save unfavorites; untouched, Save writes no favorite', () => {
+      addFavorite(USER);
+      let root = render(<RecipeTagsSheet />);
+      press(pill(root, 'Dinner'));
+      act(() => toolbar(root, 'Save').props.onPress());
+      const before = favoriteRow(USER)!;
+      expect(before.deletedAt).toBeNull();
+      expect(favoriteMutations()).toHaveLength(0);
+      act(() => tree?.unmount());
+
+      root = render(<RecipeTagsSheet />);
+      press(pill(root, 'Favorite'));
+      act(() => toolbar(root, 'Save').props.onPress());
+      expect(favoriteRow(USER)!.deletedAt).toBeInstanceOf(Date);
+    });
+
+    test('toggled twice is no change: Save writes no favorite', () => {
+      const root = render(<RecipeTagsSheet />);
+      press(pill(root, 'Favorite'));
+      press(pill(root, 'Favorite'));
+      act(() => toolbar(root, 'Save').props.onPress());
+      expect(favoriteRow(USER)).toBeUndefined();
+    });
+
+    test('Cancel writes nothing', () => {
+      const queued = db.select().from(outbox).all().length;
+      const root = render(<RecipeTagsSheet />);
+      press(pill(root, 'Favorite'));
+      press(pill(root, 'Dinner'));
+      act(() => toolbar(root, 'Cancel').props.onPress());
+      expect(favoriteRow(USER)).toBeUndefined();
+      expect(getRecipe(tacos)).toMatchObject({ tags: null, tagsEdited: false });
+      expect(db.select().from(outbox).all()).toHaveLength(queued);
+    });
+
+    test('a suggestion never touches it', async () => {
+      addRecipeIngredient(tacos, '1 lb ground beef');
+      addFavorite(USER);
+      mockSuggest.mockResolvedValue({ ok: true, tags: { meal: ['dinner'], cuisine: [], protein: ['beef'], diet: [], method: [] } });
+      const root = render(<RecipeTagsSheet />);
+      await act(async () => byLabel(root, 'Suggest tags').props.onPress());
+      expect(selected(root)).toEqual(['Favorite', 'Dinner', 'Beef']);
+      act(() => toolbar(root, 'Save').props.onPress());
+      expect(favoriteRow(USER)!.deletedAt).toBeNull();
+      expect(favoriteMutations()).toHaveLength(0);
+    });
   });
 
   test('a facet at its maximum disables its other pills and says why; deselecting frees them', () => {

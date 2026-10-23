@@ -6,7 +6,7 @@ import { ScrollView, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, lists, mealPlanEntries, recipeFavorites, recipes } from '@/db';
+import { db, householdMemberNames, households, lists, mealPlanEntries, recipeFavorites, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { resetRecipesSegment } from '@/features/meal-plan/plan-tab';
 import { getRecipeSortChoice, setDeviceSetting, setPlanTab, setRecipeSortChoice } from '@/features/settings/device-settings';
@@ -458,5 +458,29 @@ describe('See all', () => {
     expect(shelfKeys(root)).toEqual([]);
     expect(allHeading(root)).toHaveLength(0);
     expect(rowNames(root)).toEqual(['Curry', 'Dal']);
+  });
+
+  test('another member’s favorite is on the shelf too (outlined heart), and in its See all', () => {
+    addCollection();
+    db.insert(householdMemberNames)
+      .values([
+        { householdId: 'home', userId: 'user-1', displayName: 'Jo Doe', joinedAt: '2026-10-01T00:00:00Z' },
+        { householdId: 'home', userId: 'user-2', displayName: 'Sam Lee', joinedAt: '2026-10-02T00:00:00Z' },
+      ])
+      .run();
+    db.insert(recipeFavorites).values({ recipeId: 'pho', userId: 'user-2', householdId: 'home' }).run();
+    // Someone not in the household counts for nothing.
+    db.insert(recipeFavorites).values({ recipeId: 'gnocchi', userId: 'user-9', householdId: 'home' }).run();
+    const root = render();
+    expect(tiles(shelf(root, 'favorites'))).toEqual(['Curry, 35 min', 'Dal, 35 min', 'Pho, 35 min']);
+    seeAll(root, 'favorites');
+    expect(rowNames(root)).toEqual(['Curry', 'Dal', 'Pho']);
+    const hearts = (name: string) =>
+      root.root
+        .find((n) => n.type === ('Link' as never) && n.props.href.params.id === name)
+        .findAll((n) => n.type === ('Icon' as never) && String(n.props.name).startsWith('heart'))
+        .map((n) => [n.props.name, n.props.color]);
+    expect(hearts('pho')).toEqual([['heart', 'inkSecondary']]);
+    expect(hearts('curry')).toEqual([['heart.fill', 'primary']]);
   });
 });

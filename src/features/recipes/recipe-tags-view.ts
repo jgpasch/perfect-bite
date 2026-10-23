@@ -55,29 +55,31 @@ function tagPillLabel(facet: string, value: string): string {
 }
 
 export type RecipeTagLine = {
-  /** Favorite is tagged: the line starts with a heart instead of the word. */
-  favorite: boolean;
-  /** The other values in pill order, without facet names: "Lunch · Dinner · Under 1 hour". */
+  /** The line starts with a heart: filled for the user's own favorite, outlined for only others'. */
+  favorite: 'mine' | 'others' | null;
+  /** The tag values in pill order, without facet names: "Lunch · Dinner · Under 1 hour". */
   text: string;
-  /** What VoiceOver reads, every tag in full: "Tags: Favorite, Lunch, Dinner, Under 1 hour". */
+  /** What VoiceOver reads, every tag in full: "Tags: Your favorite, Lunch, Dinner, Under 1 hour". */
   accessibilityLabel: string;
 };
 
 /**
  * The recipe band's one-line tags (spec 4.14): `recipeTagPills`' values in their order, joined with
- * " · ", Favorite pulled out as a heart. Null when there's nothing to show (Add tags instead).
+ * " · ", after a heart when it's a favorite. `favorite`: whether it's the user's own (else only other
+ * members') and what VoiceOver reads for it (`favoriteLabel`), or null. A favorite counts as a tag, so
+ * the line is null only with neither (Add tags instead).
  */
-export function recipeTagLine(tags: RecipeTags | null, totalMinutes: number | null): RecipeTagLine | null {
-  const pills = recipeTagPills(tags, totalMinutes);
-  if (!pills.length) return null;
-  const favorite = pills.some((p) => p.key === 'saved:favorite');
+export function recipeTagLine(
+  tags: RecipeTags | null,
+  totalMinutes: number | null,
+  favorite: { mine: boolean; label: string } | null = null,
+): RecipeTagLine | null {
+  const values = recipeTagPills(tags, totalMinutes).map((p) => p.value);
+  if (!values.length && !favorite) return null;
   return {
-    favorite,
-    text: pills
-      .filter((p) => p.key !== 'saved:favorite')
-      .map((p) => p.value)
-      .join(' · '),
-    accessibilityLabel: i18n.t('recipes.tags.line', { tags: pills.map((p) => p.value).join(', ') }),
+    favorite: favorite ? (favorite.mine ? 'mine' : 'others') : null,
+    text: values.join(' · '),
+    accessibilityLabel: i18n.t('recipes.tags.line', { tags: [...(favorite ? [favorite.label] : []), ...values].join(', ') }),
   };
 }
 

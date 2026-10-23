@@ -146,9 +146,10 @@ export function updateRecipeServings(id: string, servings: number | null): void 
 /**
  * Saves the Tags sheet (spec 4.14): the tags, the total time and `tagsEdited` in one update, so the
  * "Tagged when you imported it" note goes. `tags` is the whole stored value, unknown slugs included.
+ * `exec`: the caller's transaction (`saveRecipeTags`, which writes the favorite with it).
  */
-export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: number | null): void {
-  updateRows(db, recipes, eq(recipes.id, id), {
+export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: number | null, exec: Exec = db): void {
+  updateRows(exec, recipes, eq(recipes.id, id), {
     tags: RecipeTagsSchema.parse(tags),
     totalMinutes,
     tagsEdited: true,

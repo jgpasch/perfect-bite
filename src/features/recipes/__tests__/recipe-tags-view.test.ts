@@ -67,7 +67,7 @@ describe('recipeTagPills', () => {
 describe('recipeTagLine', () => {
   test('values only, in pill order, joined with " · "; VoiceOver reads them all', () => {
     expect(recipeTagLine(tags({ protein: ['chicken'], meal: ['dinner', 'lunch'], cuisine: ['american'] }), 50)).toEqual({
-      favorite: false,
+      favorite: null,
       text: 'Lunch · Dinner · American · Chicken · Under 1 hour',
       accessibilityLabel: 'Tags: Lunch, Dinner, American, Chicken, Under 1 hour',
     });
@@ -76,7 +76,7 @@ describe('recipeTagLine', () => {
   // Favorites are per person now (4.14), not a tag: an old stored `favorite` slug is neither shown nor read.
   test('an old `favorite` slug is ignored', () => {
     expect(recipeTagLine(tags({ saved: ['want-to-try', 'favorite'], meal: ['dinner'] }), null)).toEqual({
-      favorite: false,
+      favorite: null,
       text: 'Want to try · Dinner',
       accessibilityLabel: 'Tags: Want to try, Dinner',
     });
@@ -87,7 +87,33 @@ describe('recipeTagLine', () => {
   });
 
   test('a time alone', () => {
-    expect(recipeTagLine(null, 20)).toEqual({ favorite: false, text: 'Under 30 min', accessibilityLabel: 'Tags: Under 30 min' });
+    expect(recipeTagLine(null, 20)).toEqual({ favorite: null, text: 'Under 30 min', accessibilityLabel: 'Tags: Under 30 min' });
+  });
+
+  test('a favorite comes first: filled when mine, outlined when only others’, read with its label', () => {
+    expect(recipeTagLine(tags({ meal: ['lunch'] }), 50, { mine: true, label: 'Your favorite' })).toEqual({
+      favorite: 'mine',
+      text: 'Lunch · Under 1 hour',
+      accessibilityLabel: 'Tags: Your favorite, Lunch, Under 1 hour',
+    });
+    expect(recipeTagLine(tags({ meal: ['lunch'] }), null, { mine: false, label: "Sam's favorite" })).toEqual({
+      favorite: 'others',
+      text: 'Lunch',
+      accessibilityLabel: "Tags: Sam's favorite, Lunch",
+    });
+  });
+
+  test('a favorite alone is a line (its heart), not Add tags', () => {
+    expect(recipeTagLine(null, null, { mine: false, label: 'Favorite of Ana and Sam' })).toEqual({
+      favorite: 'others',
+      text: '',
+      accessibilityLabel: 'Tags: Favorite of Ana and Sam',
+    });
+    expect(recipeTagLine(tags({ saved: ['favorite'] }), null, { mine: true, label: 'Your favorite' })).toEqual({
+      favorite: 'mine',
+      text: '',
+      accessibilityLabel: 'Tags: Your favorite',
+    });
   });
 
   test('many tags: every value, in order', () => {

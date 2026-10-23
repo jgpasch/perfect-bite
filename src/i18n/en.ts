@@ -697,6 +697,8 @@ export const en = {
       title: 'Tags',
       pill: '{{facet}}: {{value}}',
       line: 'Tags: {{tags}}',
+      /** The Saved group's pill for the user's own favorite (not a tag). */
+      favorite: 'Favorite',
       editHint: 'Edits tags',
       add: 'Add tags',
       importNote: 'Tagged when you imported it',

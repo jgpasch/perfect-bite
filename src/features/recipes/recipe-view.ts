@@ -116,19 +116,22 @@ export function recipeSavedMarks(
 }
 
 /**
- * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Want to try, Dinner, 35 min, on Groceries" (Want
- * to try only when set). A row a search matched only through an ingredient reads that in place of the meta:
- * "Tacos, has chicken thighs".
+ * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Your favorite, Want to try, Dinner, 35 min, on
+ * Groceries" (the favorite and Want to try only when there). A row a search matched
+ * only through an ingredient reads that in place of the meta: "Tacos, has chicken thighs".
  */
 export function recipeRowLabel(
   recipe: { name: string; tags: RecipeTags | null; totalMinutes: number | null },
   onList?: string | null,
   ingredientMatch?: string | null,
   group: RecipeGroup = 'none',
+  /** Who has it as a favorite, as `favoriteLabel` reads it ("Your favorite"), or null. */
+  favorite?: string | null,
 ): string {
   const marks = recipeSavedMarks(recipe.tags);
   return [
     recipe.name,
+    favorite,
     marks.wantToTry ? tagLabel('saved', 'want-to-try') : null,
     ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe, group)),
     onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,

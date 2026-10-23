@@ -17,7 +17,8 @@ import {
   splitTotalMinutes,
   toggleTag,
 } from '@/features/recipes/recipe-tags-view';
-import { getRecipe, recipeIngredientsQuery, updateRecipeTags } from '@/features/recipes/recipes';
+import { isMyFavorite, saveRecipeTags } from '@/features/recipes/favorites';
+import { getRecipe, recipeIngredientsQuery } from '@/features/recipes/recipes';
 import {
   NOTHING_SUGGESTED_NOTE,
   suggestRecipeTags,
@@ -38,7 +39,9 @@ type Suggestion =
 
 /**
  * The Tags sheet (spec 4.14): "Tagged when you imported it" while the import's tags are unedited, then one group of toggle pills per facet, capped at its maximum, then the
- * total time. Save writes the tags, the time and `tagsEdited` in one update; Cancel writes nothing.
+ * total time. The Saved group is Favorite (the user's own, `setMyFavorite`) and Want to try. Save writes the
+ * tags, the time and `tagsEdited` in one update, and the favorite in the same transaction when its pill
+ * changed; Cancel writes nothing.
  * Suggest tags (on every plan, spec 4.12) fills the picks from the AI (never the time); nothing is
  * saved until Save. `suggest=1` (the recipe band's pill) starts it as the sheet opens.
  */
@@ -51,6 +54,9 @@ export default function RecipeTagsSheet() {
   const [recipe] = useState(() => getRecipe(id));
   const [hasIngredients] = useState(() => recipeIngredientsQuery(id).all().length > 0);
   const [tags, setTags] = useState(() => RecipeTagsSchema.safeParse(recipe?.tags).data ?? emptyRecipeTags());
+  // The Saved group's Favorite pill: the user's own favorite (4.14), not a tag.
+  const [wasFavorite] = useState(() => isMyFavorite(id));
+  const [favorite, setFavorite] = useState(wasFavorite);
   const [time, setTime] = useState(() => splitTotalMinutes(recipe?.totalMinutes ?? null));
   const [suggestion, setSuggestion] = useState<Suggestion>({ status: 'idle' });
   // Bumped by each call, Cancel and unmount: an answer for an older number is dropped.
@@ -92,7 +98,7 @@ export default function RecipeTagsSheet() {
   const parsedTime = parseTotalTime(time.hours, time.minutes);
   const save = () => {
     if (!parsedTime.ok) return;
-    updateRecipeTags(recipe.id, tags, parsedTime.totalMinutes);
+    saveRecipeTags(recipe.id, tags, parsedTime.totalMinutes, favorite !== wasFavorite ? favorite : undefined);
     router.back();
   };
   const cancel = () => {
@@ -176,6 +182,16 @@ export default function RecipeTagsSheet() {
               ) : null}
             </View>
             <View style={[styles.row, styles.wrap, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+              {/* Saved starts with the user's own favorite; not a tag, so the facet's maximum doesn't apply. */}
+              {facet.key === 'saved' ? (
+                <Pill
+                  label={t('recipes.tags.favorite')}
+                  selected={favorite}
+                  accessibilityRole="togglebutton"
+                  accessibilityState={{ checked: favorite }}
+                  onPress={() => setFavorite((on) => !on)}
+                />
+              ) : null}
               {facet.values.map((value) => {
                 const on = tags[facet.key].includes(value.slug);
                 const blocked = full && !on;

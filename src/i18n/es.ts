@@ -609,6 +609,7 @@ export const es = {
       title: 'Etiquetas',
       pill: '{{facet}}: {{value}}',
       line: 'Etiquetas: {{tags}}',
+      favorite: 'Favorita',
       editHint: 'Edita las etiquetas',
       add: 'Agregar etiquetas',
       importNote: 'Etiquetada al importarla',

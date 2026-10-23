@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, recipeFavorites, recipes } from '@/db';
+import { db, householdMemberNames, households, recipeFavorites, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -522,6 +522,33 @@ describe('Group by', () => {
     expect(mealSections(root).map(([title, count]) => [title, count])).toEqual([
       ['Favorites', 1],
       ['Not saved', 6],
+    ]);
+  });
+
+  test('Saved: Favorites (anyone’s), Want to try, then Not saved', () => {
+    db.insert(householdMemberNames)
+      .values([
+        { householdId: 'home', userId: 'user-1', displayName: 'Jo Doe', joinedAt: '2026-10-01T00:00:00Z' },
+        { householdId: 'home', userId: 'user-2', displayName: 'Sam Lee', joinedAt: '2026-10-02T00:00:00Z' },
+      ])
+      .run();
+    addRecipe('home', 'Pho', 6, [], { saved: ['want-to-try'] });
+    db.insert(recipeFavorites)
+      .values([
+        { recipeId: 'tacos', userId: 'user-1', householdId: 'home' },
+        // Another member's favorite counts; a leaver's doesn't.
+        { recipeId: 'curry', userId: 'user-2', householdId: 'home' },
+        { recipeId: 'pho', userId: 'user-2', householdId: 'home' },
+        { recipeId: 'frittata', userId: 'user-9', householdId: 'home' },
+      ])
+      .run();
+    const root = render();
+    choose(root, 'A–Z');
+    choose(root, 'Saved');
+    expect(mealSections(root)).toEqual([
+      ['Favorites', 3, ['Curry', 'Pho', 'Tacos']],
+      ['Want to try', 1, ['Pho']],
+      ['Not saved', 3, ['Apple crumble', 'Banana bread', 'Frittata']],
     ]);
   });
 

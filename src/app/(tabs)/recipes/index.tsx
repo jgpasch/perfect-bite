@@ -46,7 +46,7 @@ import {
   type RecipePhotoSize,
 } from '@/features/recipes/recipe-photo-size';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
-import { setMyFavorite, useRecipeFavorites, type RecipeFavorite } from '@/features/recipes/favorites';
+import { favoriteLabel, setMyFavorite, useRecipeFavorites, type RecipeFavorite } from '@/features/recipes/favorites';
 import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
 import {
   addedRecipeWithStaplesToast,
@@ -949,7 +949,10 @@ function recipeLink({
       <Link.Trigger>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={label ?? recipeRowLabel(recipe, onList, ingredientMatch, group)}
+          accessibilityLabel={
+            label ??
+            recipeRowLabel(recipe, onList, ingredientMatch, group, favorite && favoriteLabel(favorite.mine, favorite.others))
+          }
           accessibilityActions={[{ name: 'delete', label: t('common.delete') }]}
           onAccessibilityAction={({ nativeEvent }) => nativeEvent.actionName === 'delete' && onDelete()}>
           {/* Layout lives on the children: Link's trigger replaces the Pressable's style. */}
@@ -1081,15 +1084,20 @@ function RecipeTile({
 }
 
 /**
- * After a recipe's name (spec 4.5): a small `primary` heart when it's the user's favorite, a bookmark when it's
- * Want to try. Decorative: the row's VoiceOver label says them.
+ * After a recipe's name (spec 4.5): a small filled `primary` heart when it's the user's favorite, else an outlined
+ * `inkSecondary` one when only other members have it, and a bookmark when it's Want to try. Decorative: the row's
+ * VoiceOver label says them.
  */
 function SavedMarks({ tags, favorite }: { tags: RecipeTags | null; favorite: RecipeFavorite | null }) {
   const { sizes } = useTheme();
   const marks = recipeSavedMarks(tags, favorite);
   return (
     <>
-      {marks.favorite === 'mine' ? <Icon name="heart.fill" color="primary" size={sizes.iconSmall} /> : null}
+      {marks.favorite === 'mine' ? (
+        <Icon name="heart.fill" color="primary" size={sizes.iconSmall} />
+      ) : marks.favorite === 'others' ? (
+        <Icon name="heart" color="inkSecondary" size={sizes.iconSmall} />
+      ) : null}
       {marks.wantToTry ? <Icon name="bookmark" color="inkSecondary" size={sizes.iconSmall} /> : null}
     </>
   );
