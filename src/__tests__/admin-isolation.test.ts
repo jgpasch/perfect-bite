@@ -34,7 +34,7 @@ describe('admin/ is kept apart from the app', () => {
   });
 
   it('Jest ignores admin/ for tests and modules', () => {
-    const { jest } = readJson('package.json');
+    const jest = require('../../jest.config.js');
     expect(jest.testPathIgnorePatterns).toContain('<rootDir>/admin/');
     expect(jest.modulePathIgnorePatterns).toContain('<rootDir>/admin/');
   });

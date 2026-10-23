@@ -112,34 +112,6 @@
   },
   "private": true,
   "packageManager": "yarn@4.18.0",
-  "jest": {
-    "preset": "jest-expo",
-    "maxWorkers": "50%",
-    "workerIdleMemoryLimit": "1GB",
-    "setupFiles": [
-      "<rootDir>/src/test/i18n-setup.ts"
-    ],
-    "testPathIgnorePatterns": [
-      "/node_modules/",
-      "/supabase/",
-      "<rootDir>/scripts/",
-      "/ios/",
-      "/targets/",
-      "<rootDir>/admin/"
-    ],
-    "modulePathIgnorePatterns": [
-      "<rootDir>/admin/"
-    ],
-    "moduleNameMapper": {
-      "^@/(.*)$": "<rootDir>/src/$1",
-      "^react-native-keyboard-controller$": "<rootDir>/node_modules/react-native-keyboard-controller/jest"
-    },
-    "transformIgnorePatterns": [
-      "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|standard-navigation|uuid|drizzle-orm))",
-      "/node_modules/react-native-reanimated/plugin/",
-      "/node_modules/@react-native/babel-preset/"
-    ]
-  },
   "resolutions": {
     "expo-modules-jsi@npm:~57.1.1": "patch:expo-modules-jsi@npm%3A57.1.1#~/.yarn/patches/expo-modules-jsi-npm-57.1.1-3b93696200.patch"
   }
