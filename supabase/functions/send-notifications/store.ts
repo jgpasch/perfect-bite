@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { GroupDetails, NotificationStore, QueuedEvent, Recipient, StoredReceipt } from './handler.ts';
+import type { GroupDetails, NotificationStore, QueuedEvent, RecipeImportDetails, Recipient, StoredReceipt } from './handler.ts';
 
 /** NotificationStore over the service-role client (20261105120000_send_notifications.sql). */
 export function createNotificationStore(admin: SupabaseClient): NotificationStore {
@@ -40,6 +40,38 @@ export function createNotificationStore(admin: SupabaseClient): NotificationStor
         p_household_id: householdId,
         p_actor: actor,
         p_kind: kind,
+        p_at: at.toISOString(),
+      });
+      return (rows ?? []).map((r): Recipient => ({ userId: r.user_id, token: r.token, platform: r.platform }));
+    },
+    async recipeImport(shareImportId) {
+      const data = await call<{
+        status: string;
+        recipe_id: string | null;
+        recipe_name: string | null;
+        applied_list_id: string | null;
+        list_name: string | null;
+        household_name: string | null;
+        list_gone: boolean;
+        error_code: string | null;
+        resets_at: string | null;
+      } | null>('recipe_import_notification', { p_id: shareImportId });
+      if (!data) return null;
+      return {
+        status: data.status,
+        recipeId: data.recipe_id,
+        recipeName: data.recipe_name,
+        appliedListId: data.applied_list_id,
+        listName: data.list_name,
+        householdName: data.household_name,
+        listGone: data.list_gone,
+        errorCode: data.error_code,
+        resetsAt: data.resets_at,
+      } satisfies RecipeImportDetails;
+    },
+    async recipeImportRecipients(userId, at) {
+      const rows = await call<{ user_id: string; token: string; platform: string }[] | null>('recipe_import_recipients', {
+        p_user_id: userId,
         p_at: at.toISOString(),
       });
       return (rows ?? []).map((r): Recipient => ({ userId: r.user_id, token: r.token, platform: r.platform }));

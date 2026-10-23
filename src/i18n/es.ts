@@ -951,6 +951,8 @@ export const es = {
       notifyMe: 'Avísame',
       itemsAdded: 'Artículos agregados a listas',
       shopping: 'Alguien empieza a comprar',
+      recipeImports: 'Recetas importadas',
+      recipeImportsDetail: 'Cuando una receta que compartiste está lista o no se pudo importar',
       quietHours: 'Horas de silencio',
       quietHoursDetail: 'Sin notificaciones entre estas horas.',
       from: 'Desde',
@@ -1268,6 +1270,7 @@ export const es = {
     importFailed: 'No se pudo importar la receta',
     importFailedHint: 'Vuelve a abrir el enlace para intentarlo otra vez',
     photoImportFailedHint: 'Abre Agregar receta para intentarlo otra vez',
+    opensImports: 'Abre tus recetas importadas',
   },
   pushAsk: {
     title: '¿Activar notificaciones?',

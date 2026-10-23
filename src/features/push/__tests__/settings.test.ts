@@ -94,29 +94,36 @@ describe('helpers', () => {
   });
 
   it('maps a row, and no row means the defaults', () => {
-    expect(settingsFromRow(null)).toEqual({ itemsAdded: true, shopping: true, quietHours: null });
+    expect(settingsFromRow(null)).toEqual({ itemsAdded: true, shopping: true, recipeImports: true, quietHours: null });
     expect(
-      settingsFromRow({ items_added: false, shopping: true, quiet_hours_start: '22:30:00', quiet_hours_end: '06:45:00' }),
-    ).toEqual({ itemsAdded: false, shopping: true, quietHours: { start: '22:30', end: '06:45' } });
+      settingsFromRow({
+        items_added: false,
+        shopping: true,
+        recipe_imports: false,
+        quiet_hours_start: '22:30:00',
+        quiet_hours_end: '06:45:00',
+      }),
+    ).toEqual({ itemsAdded: false, shopping: true, recipeImports: false, quietHours: { start: '22:30', end: '06:45' } });
     // A half-set pair is off.
     expect(
-      settingsFromRow({ items_added: true, shopping: false, quiet_hours_start: '22:00:00', quiet_hours_end: null }),
-    ).toEqual({ itemsAdded: true, shopping: false, quietHours: null });
+      settingsFromRow({ items_added: true, shopping: false, recipe_imports: true, quiet_hours_start: '22:00:00', quiet_hours_end: null }),
+    ).toEqual({ itemsAdded: true, shopping: false, recipeImports: true, quietHours: null });
   });
 });
 
 describe('fetchNotificationSettings', () => {
   it("reads the user's own row", async () => {
     respondTo('notification_settings', {
-      data: { items_added: true, shopping: false, quiet_hours_start: '21:00:00', quiet_hours_end: '08:00:00' },
+      data: { items_added: true, shopping: false, recipe_imports: false, quiet_hours_start: '21:00:00', quiet_hours_end: '08:00:00' },
     });
     expect(await fetchNotificationSettings()).toEqual({
       itemsAdded: true,
       shopping: false,
+      recipeImports: false,
       quietHours: { start: '21:00', end: '08:00' },
     });
     expect(queriesFor('notification_settings')[0].ops).toEqual([
-      ['select', 'items_added, shopping, quiet_hours_start, quiet_hours_end'],
+      ['select', 'items_added, shopping, recipe_imports, quiet_hours_start, quiet_hours_end'],
       ['eq', 'user_id', 'user-1'],
       ['maybeSingle'],
     ]);
@@ -137,7 +144,12 @@ describe('fetchNotificationSettings', () => {
 
 describe('saveNotificationSettings', () => {
   it('upserts the whole row with the time zone, and remembers the zone', async () => {
-    await saveNotificationSettings({ itemsAdded: false, shopping: true, quietHours: { start: '22:00', end: '07:00' } });
+    await saveNotificationSettings({
+      itemsAdded: false,
+      shopping: true,
+      recipeImports: false,
+      quietHours: { start: '22:00', end: '07:00' },
+    });
     expect(upserts()[0].ops).toEqual([
       [
         'upsert',
@@ -145,6 +157,7 @@ describe('saveNotificationSettings', () => {
           user_id: 'user-1',
           items_added: false,
           shopping: true,
+          recipe_imports: false,
           quiet_hours_start: '22:00',
           quiet_hours_end: '07:00',
           time_zone: 'America/Mexico_City',
@@ -156,13 +169,13 @@ describe('saveNotificationSettings', () => {
   });
 
   it('sends nulls for quiet hours turned off', async () => {
-    await saveNotificationSettings({ itemsAdded: true, shopping: true, quietHours: null });
+    await saveNotificationSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, quietHours: null });
     expect(upserts()[0].ops[0][1]).toMatchObject({ quiet_hours_start: null, quiet_hours_end: null });
   });
 
   it('refuses quiet hours that start when they end, sending nothing', async () => {
     await expect(
-      saveNotificationSettings({ itemsAdded: true, shopping: true, quietHours: { start: '07:00', end: '07:00' } }),
+      saveNotificationSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, quietHours: { start: '07:00', end: '07:00' } }),
     ).rejects.toBeInstanceOf(QuietHoursError);
     expect(queries).toHaveLength(0);
   });
@@ -250,12 +263,14 @@ describe('the store', () => {
     respondTo('notification_settings', { error: { message: 'offline' } });
     await loadNotificationSettings();
     expect(getNotificationSettingsState()).toEqual({ status: 'failed' });
-    respondTo('notification_settings', { data: { items_added: false, shopping: true, quiet_hours_start: null, quiet_hours_end: null } });
+    respondTo('notification_settings', {
+      data: { items_added: false, shopping: true, recipe_imports: true, quiet_hours_start: null, quiet_hours_end: null },
+    });
     await loadNotificationSettings();
     expect(getNotificationSettingsState()).toEqual({
       status: 'ready',
       saving: false,
-      settings: { itemsAdded: false, shopping: true, quietHours: null },
+      settings: { itemsAdded: false, shopping: true, recipeImports: true, quietHours: null },
     });
   });
 
@@ -272,11 +287,42 @@ describe('the store', () => {
     expect(getNotificationSettingsState()).toEqual({
       status: 'ready',
       saving: true,
-      settings: { itemsAdded: true, shopping: false, quietHours: null },
+      settings: { itemsAdded: true, shopping: false, recipeImports: true, quietHours: null },
     });
     await saving;
     expect(getNotificationSettingsState()).toMatchObject({ saving: false, settings: { shopping: false } });
-    expect(upserts()[0].ops[0][1]).toMatchObject({ shopping: false, items_added: true, time_zone: 'America/Mexico_City' });
+    expect(upserts()[0].ops[0][1]).toMatchObject({
+      shopping: false,
+      items_added: true,
+      recipe_imports: true,
+      time_zone: 'America/Mexico_City',
+    });
+  });
+
+  it('saves recipe imports turned off, keeping the other kinds', async () => {
+    await loadNotificationSettings();
+    await updateNotificationSettings({ recipeImports: false });
+    expect(getNotificationSettingsState()).toEqual({
+      status: 'ready',
+      saving: false,
+      settings: { itemsAdded: true, shopping: true, recipeImports: false, quietHours: null },
+    });
+    expect(upserts()[0].ops[0][1]).toEqual({
+      user_id: 'user-1',
+      items_added: true,
+      shopping: true,
+      recipe_imports: false,
+      quiet_hours_start: null,
+      quiet_hours_end: null,
+      time_zone: 'America/Mexico_City',
+    });
+  });
+
+  it('puts recipe imports back on when turning them off fails', async () => {
+    await loadNotificationSettings();
+    respondTo('notification_settings', { error: { message: 'Failed to fetch' } });
+    await expect(updateNotificationSettings({ recipeImports: false })).rejects.toEqual({ message: 'Failed to fetch' });
+    expect(getNotificationSettingsState()).toMatchObject({ settings: { recipeImports: true } });
   });
 
   it('puts a change back when the save fails, and rethrows', async () => {

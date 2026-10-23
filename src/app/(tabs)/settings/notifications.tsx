@@ -147,6 +147,18 @@ export default function NotificationSettingsScreen() {
                   {...switchProps(t('settings.notificationsScreen.shopping'))}
                 />
               }
+            />
+            <SettingsRow
+              label={t('settings.notificationsScreen.recipeImports')}
+              detail={t('settings.notificationsScreen.recipeImportsDetail')}
+              icon={{ name: 'fork.knife', hue: 'orange' }}
+              trailing={
+                <Switch
+                  value={settings.recipeImports}
+                  onValueChange={(on) => save({ recipeImports: on })}
+                  {...switchProps(t('settings.notificationsScreen.recipeImports'))}
+                />
+              }
               last
             />
           </SettingsSection>

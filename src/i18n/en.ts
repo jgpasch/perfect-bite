@@ -1107,6 +1107,8 @@ export const en = {
       notifyMe: 'Notify me',
       itemsAdded: 'Items added to lists',
       shopping: 'Someone starts shopping',
+      recipeImports: 'Recipe imports',
+      recipeImportsDetail: "When a recipe you shared is ready, or couldn't be imported",
       quietHours: 'Quiet hours',
       quietHoursDetail: 'No notifications between these times.',
       from: 'From',
@@ -1442,6 +1444,8 @@ export const en = {
     importFailed: "Couldn't import recipe",
     importFailedHint: 'Opens the link again to try once more',
     photoImportFailedHint: 'Opens Add recipe to try again',
+    /** A failed share's push while the app is open (spec 4.13): tapping opens the Recipes tab's imports card. */
+    opensImports: 'Opens your recipe imports',
   },
   /** The one-time offer to turn on push, once the user shares a household (spec 4.13). */
   pushAsk: {

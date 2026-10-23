@@ -16,12 +16,19 @@ export type QuietHours = { start: string; end: string };
 export type NotificationSettings = {
   itemsAdded: boolean;
   shopping: boolean;
+  /** "Recipe ready" and "Couldn't import" pushes about the user's own shares. */
+  recipeImports: boolean;
   /** Null = off. */
   quietHours: QuietHours | null;
 };
 
 /** What a user with no row gets (the table's defaults). */
-export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = { itemsAdded: true, shopping: true, quietHours: null };
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  itemsAdded: true,
+  shopping: true,
+  recipeImports: true,
+  quietHours: null,
+};
 
 /** Where quiet hours start when they're first turned on. */
 export const DEFAULT_QUIET_HOURS: QuietHours = { start: '22:00', end: '07:00' };
@@ -32,6 +39,7 @@ export const SAVED_TIME_ZONE_KEY = 'push.timeZone';
 type SettingsRow = {
   items_added: boolean;
   shopping: boolean;
+  recipe_imports: boolean;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
 };
@@ -80,6 +88,7 @@ export function settingsFromRow(row: SettingsRow | null | undefined): Notificati
   return {
     itemsAdded: row.items_added,
     shopping: row.shopping,
+    recipeImports: row.recipe_imports,
     quietHours: start && end ? { start, end } : null,
   };
 }
@@ -98,7 +107,7 @@ export async function fetchNotificationSettings(): Promise<NotificationSettings>
   if (!userId) throw new Error('not signed in');
   const { data, error } = await supabase
     .from('notification_settings')
-    .select('items_added, shopping, quiet_hours_start, quiet_hours_end')
+    .select('items_added, shopping, recipe_imports, quiet_hours_start, quiet_hours_end')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
@@ -126,6 +135,7 @@ export async function saveNotificationSettings(settings: NotificationSettings): 
       user_id: userId,
       items_added: settings.itemsAdded,
       shopping: settings.shopping,
+      recipe_imports: settings.recipeImports,
       quiet_hours_start: settings.quietHours?.start ?? null,
       quiet_hours_end: settings.quietHours?.end ?? null,
       time_zone: timeZone,

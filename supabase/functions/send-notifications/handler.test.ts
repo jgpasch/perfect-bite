@@ -2,13 +2,17 @@ import { assertEquals } from '@std/assert';
 
 import { createExpoClient, RECEIPTS_URL, SEND_URL, type ExpoMessage } from './expo.ts';
 import {
+  buildRecipeImportText,
   buildText,
   handleRequest,
+  importFailureReason,
+  parseEvent,
   runWorker,
   type EventKind,
   type GroupDetails,
   type NotificationStore,
   type QueuedEvent,
+  type RecipeImportDetails,
   type Recipient,
   type StoredReceipt,
 } from './handler.ts';
@@ -55,7 +59,19 @@ function check(opts: { item: string; ageS: number; actor?: string; list?: string
 /** A row the worker re-reads: a contribution (by its id) or a checked item (by its id). */
 type Row = { name: string; item?: string; recipeId?: string; recipeName?: string; live?: boolean };
 
-function fakeStore(events: QueuedEvent[], db: { rows?: Record<string, Row>; lastSent?: Record<string, string>; due?: StoredReceipt[] } = {}) {
+function fakeStore(
+  events: QueuedEvent[],
+  db: {
+    rows?: Record<string, Row>;
+    lastSent?: Record<string, string>;
+    due?: StoredReceipt[];
+    imports?: Record<string, RecipeImportDetails>;
+    /** Users with recipe_imports off or in quiet hours: no tokens. */
+    importsMuted?: string[];
+    /** Extra devices per user. */
+    moreTokens?: Record<string, string[]>;
+  } = {},
+) {
   const rows = db.rows ?? {};
   const lastSent: Record<string, string> = { ...db.lastSent };
   const lists: Record<string, string | null> = { [GROCERIES]: 'Groceries', [HARDWARE]: 'Hardware' };
@@ -66,6 +82,8 @@ function fakeStore(events: QueuedEvent[], db: { rows?: Record<string, Row>; last
     released: [] as number[],
     groupDetails: [] as { kind: EventKind; listId: string; actor: string; ids: string[] }[],
     recipients: [] as { householdId: string; actor: string; kind: EventKind; at: string }[],
+    recipeImports: [] as string[],
+    importRecipients: [] as { userId: string; at: string }[],
     recordSent: [] as string[],
     deletedTokens: [] as string[],
     savedReceipts: [] as StoredReceipt[],
@@ -104,6 +122,15 @@ function fakeStore(events: QueuedEvent[], db: { rows?: Record<string, Row>; last
     async recipients(householdId, actor, kind, at) {
       calls.recipients.push({ householdId, actor, kind, at: at.toISOString() });
       return [ALEX, SAM, KIM].filter((u) => u !== actor).map((u): Recipient => ({ userId: u, token: TOKENS[u], platform: 'ios' }));
+    },
+    async recipeImport(id) {
+      calls.recipeImports.push(id);
+      return db.imports?.[id] ?? null;
+    },
+    async recipeImportRecipients(userId, at) {
+      calls.importRecipients.push({ userId, at: at.toISOString() });
+      if (db.importsMuted?.includes(userId)) return [];
+      return [TOKENS[userId], ...(db.moreTokens?.[userId] ?? [])].map((token): Recipient => ({ userId, token, platform: 'ios' }));
     },
     async recordSent(householdId, actor, listId, kind) {
       calls.recordSent.push(`${householdId}|${actor}|${listId}|${kind}`);
@@ -548,4 +575,186 @@ Deno.test('a failure → 500', async () => {
   const res = await handleRequest(new Request('http://localhost/', { method: 'POST' }), () => Promise.reject(new Error('db down')));
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, 'internal');
+});
+
+// Recipe imports ----------------------------------------------------------------------------------
+
+const JOB = 'b1000000-0000-7000-8000-000000000001';
+const RECIPE = 'c1000000-0000-7000-8000-000000000001';
+
+function imported(opts: { job?: string; user?: string; status?: 'done' | 'failed'; ageS?: number } = {}): QueuedEvent {
+  return {
+    msgId: nextMsgId++,
+    message: {
+      kind: 'recipe_import',
+      share_import_id: opts.job ?? JOB,
+      user_id: opts.user ?? ALEX,
+      household_id: H,
+      status: opts.status ?? 'done',
+      at: sec(opts.ageS ?? 0),
+    },
+  };
+}
+
+const done = (more: Partial<RecipeImportDetails> = {}): RecipeImportDetails => ({
+  status: 'done',
+  recipeId: RECIPE,
+  recipeName: 'Lemon pasta',
+  appliedListId: GROCERIES,
+  listName: 'Groceries',
+  householdName: 'Smith home',
+  listGone: false,
+  errorCode: null,
+  resetsAt: null,
+  ...more,
+});
+
+const failed = (errorCode: string | null, resetsAt: string | null = null): RecipeImportDetails =>
+  done({ status: 'failed', recipeId: null, recipeName: null, appliedListId: null, listName: null, errorCode, resetsAt });
+
+Deno.test('a done import pushes "Lemon pasta is ready" to every device of the sharer only, at once', async () => {
+  const event = imported();
+  const t = setup([event], { imports: { [JOB]: done() }, moreTokens: { [ALEX]: ['ExponentPushToken[alex-ipad]'] } }, [okTickets]);
+  const result = await t.run();
+  const data = { url: `/recipe/${RECIPE}`, kind: 'recipe_import', status: 'done', shareImportId: JOB };
+  assertEquals(sent(t.fetchCalls), [
+    { to: 'ExponentPushToken[alex]', title: 'Lemon pasta is ready', body: 'Added to Groceries', data, sound: 'default' },
+    { to: 'ExponentPushToken[alex-ipad]', title: 'Lemon pasta is ready', body: 'Added to Groceries', data, sound: 'default' },
+  ]);
+  assertEquals(t.calls.importRecipients, [{ userId: ALEX, at: new Date(NOW).toISOString() }]);
+  // Not grouped, not a household push: no household recipients, nothing waits, nothing recorded.
+  assertEquals(t.calls.recipients, []);
+  assertEquals(t.calls.released, []);
+  assertEquals(t.calls.recordSent, []);
+  assertEquals(t.calls.archived, [event.msgId]);
+  assertEquals(t.calls.savedReceipts, [
+    { ticketId: 'ticket-ExponentPushToken[alex]', token: 'ExponentPushToken[alex]' },
+    { ticketId: 'ticket-ExponentPushToken[alex-ipad]', token: 'ExponentPushToken[alex-ipad]' },
+  ]);
+  assertEquals([result.sent, result.pushes, result.dropped, result.waiting], [1, 2, 0, 0]);
+});
+
+Deno.test("a failed import pushes \"Couldn't import that recipe\" with the reason, opening the Recipes tab", async () => {
+  const t = setup([imported({ status: 'failed' })], { imports: { [JOB]: failed('not_a_recipe') } }, [okTickets]);
+  await t.run();
+  const [push] = sent(t.fetchCalls);
+  assertEquals([push.to, push.title, push.body, push.data], [
+    'ExponentPushToken[alex]',
+    "Couldn't import that recipe",
+    "That page doesn't look like a recipe",
+    { url: '/recipes', kind: 'recipe_import', status: 'failed', shareImportId: JOB },
+  ]);
+});
+
+Deno.test('each import is its own push, never grouped, alongside a household group', async () => {
+  const other = 'b1000000-0000-7000-8000-000000000002';
+  const events = [imported(), imported({ job: other, user: SAM, status: 'failed' }), add({ id: 'c1', ageS: 120 })];
+  const t = setup(events, { imports: { [JOB]: done(), [other]: failed('fetch_failed') } }, [okTickets, okTickets, okTickets]);
+  const result = await t.run();
+  const pushes = sent(t.fetchCalls);
+  assertEquals(
+    pushes.map((p) => [p.to, p.title]),
+    [
+      ['ExponentPushToken[sam]', 'Groceries'],
+      ['ExponentPushToken[kim]', 'Groceries'],
+      ['ExponentPushToken[alex]', 'Lemon pasta is ready'],
+      ['ExponentPushToken[sam]', "Couldn't import that recipe"],
+    ],
+  );
+  assertEquals(pushes[3].body, "Couldn't reach that site");
+  assertEquals(result.sent, 3);
+});
+
+Deno.test('a sharer with recipe imports off or in quiet hours gets nothing; the event is archived', async () => {
+  const event = imported();
+  const t = setup([event], { imports: { [JOB]: done() }, importsMuted: [ALEX] });
+  const result = await t.run();
+  assertEquals(sent(t.fetchCalls), []);
+  assertEquals(t.calls.archived, [event.msgId]);
+  assertEquals(result.dropped, 1);
+});
+
+Deno.test('an import that has moved on (retried) or is gone is dropped unsent', async () => {
+  const gone = 'b1000000-0000-7000-8000-000000000009';
+  const events = [imported({ status: 'failed' }), imported({ job: gone })];
+  const t = setup(events, { imports: { [JOB]: done({ status: 'received' }) } });
+  const result = await t.run();
+  assertEquals(sent(t.fetchCalls), []);
+  assertEquals(t.calls.importRecipients, []);
+  assertEquals(t.calls.archived, msgIds(events));
+  assertEquals(result.dropped, 2);
+});
+
+Deno.test('a stale import event is dropped without reading the job', async () => {
+  const event = imported({ ageS: 16 * 60 });
+  const t = setup([event], { imports: { [JOB]: done() } });
+  await t.run();
+  assertEquals(t.calls.recipeImports, []);
+  assertEquals(t.calls.archived, [event.msgId]);
+});
+
+Deno.test('a send that fails leaves the import event to be tried again', async () => {
+  const t = setup([imported()], { imports: { [JOB]: done() } }, [new Response('', { status: 400 })]);
+  const result = await t.run();
+  assertEquals(t.calls.archived, []);
+  assertEquals(result.failed, 1);
+});
+
+Deno.test('a device Expo says is gone loses its token', async () => {
+  const t = setup([imported()], { imports: { [JOB]: done() } }, [
+    Response.json({ data: [{ status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } }] }),
+  ]);
+  const result = await t.run();
+  assertEquals(t.calls.deletedTokens, ['ExponentPushToken[alex]']);
+  assertEquals(result.tokensRemoved, 1);
+});
+
+Deno.test('parseEvent: a recipe import needs its ids, a done or failed status and a time', () => {
+  const ok = { kind: 'recipe_import' as const, share_import_id: JOB, user_id: ALEX, household_id: H, status: 'done' as const, at: sec(0) };
+  assertEquals(parseEvent(ok), ok);
+  assertEquals(parseEvent({ ...ok, status: 'failed' }), { ...ok, status: 'failed' as const });
+  assertEquals(parseEvent({ ...ok, status: 'received' }), null);
+  assertEquals(parseEvent({ ...ok, share_import_id: '' }), null);
+  assertEquals(parseEvent({ ...ok, user_id: undefined }), null);
+  assertEquals(parseEvent({ ...ok, household_id: 5 }), null);
+  assertEquals(parseEvent({ ...ok, at: 'yesterday' }), null);
+});
+
+Deno.test('buildRecipeImportText: ready onto a list, recipe-only, and with the list gone', () => {
+  assertEquals(buildRecipeImportText(done()), { title: 'Lemon pasta is ready', body: 'Added to Groceries', url: `/recipe/${RECIPE}` });
+  assertEquals(buildRecipeImportText(done({ appliedListId: null, listName: null })), {
+    title: 'Lemon pasta is ready',
+    body: 'Saved to Smith home',
+    url: `/recipe/${RECIPE}`,
+  });
+  assertEquals(buildRecipeImportText(done({ appliedListId: null, listName: null, listGone: true })), {
+    title: 'Lemon pasta is ready',
+    body: 'Saved Lemon pasta. Its list was gone, so nothing was added.',
+    url: `/recipe/${RECIPE}`,
+  });
+  // The list deleted since the commit: the household instead.
+  assertEquals(buildRecipeImportText(done({ listName: null }))?.body, 'Saved to Smith home');
+  assertEquals(buildRecipeImportText(done({ recipeName: '  ' }))?.title, 'Your recipe is ready');
+  // Done with no recipe, or not finished: nothing to say.
+  assertEquals(buildRecipeImportText(done({ recipeId: null })), null);
+  assertEquals(buildRecipeImportText(done({ status: 'committing' })), null);
+});
+
+Deno.test('importFailureReason: the plain words for each failure', () => {
+  assertEquals(importFailureReason('not_a_recipe', null), "That page doesn't look like a recipe");
+  assertEquals(importFailureReason('invalid_url', null), "That doesn't look like a link");
+  assertEquals(importFailureReason('not_entitled', null), "Recipe import isn't included in your plan.");
+  assertEquals(importFailureReason('not_a_member', null), "You're no longer in that household.");
+  assertEquals(importFailureReason('daily_limit', '2026-10-18T00:00:00Z'), "You've reached today's limit. Try again tomorrow.");
+  assertEquals(importFailureReason('limit_reached', '2026-11-01T00:00:00Z'), "You've used this month's recipe imports. They reset on Nov 1.");
+  assertEquals(importFailureReason('limit_reached', null), "You've used this month's recipe imports.");
+  assertEquals(importFailureReason('fetch_failed', null), "Couldn't reach that site");
+  assertEquals(importFailureReason('internal', null), 'Something went wrong.');
+  assertEquals(importFailureReason('lease_lost', null), 'Something went wrong.');
+  assertEquals(importFailureReason(null, null), 'Something went wrong.');
+  assertEquals(buildRecipeImportText(failed('limit_reached', '2027-01-01T00:00:00Z')), {
+    title: "Couldn't import that recipe",
+    body: "You've used this month's recipe imports. They reset on Jan 1.",
+    url: '/recipes',
+  });
 });

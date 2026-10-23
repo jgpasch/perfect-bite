@@ -141,7 +141,7 @@ select is(current_setting('app.actor_uid', true), '', 'the actor is cleared afte
 select is(current_setting('app.activity_action', true), '', 'and so is the suppression');
 select results_eq(
   $$ select message ->> 'kind', message ->> 'actor', message ->> 'contribution_id', message ->> 'recipe_id', message ->> 'source'
-     from pgmq.q_household_events $$,
+     from pgmq.q_household_events where message ->> 'kind' = 'items_added' $$,
   $$ values ('items_added', '11111111-1111-1111-1111-111111111111', 'a4000000-0000-7000-8000-000000000011',
              'c0000000-0000-4000-8000-000000000001', 'recipe') $$,
   'the household''s "added" push is queued, from the sharer');

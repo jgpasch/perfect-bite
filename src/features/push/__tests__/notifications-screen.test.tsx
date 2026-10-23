@@ -93,7 +93,7 @@ const upserts = () => queriesFor('notification_settings').filter((q) => q.ops[0]
 const sent = (i: number) => upserts()[i].ops[0][1] as Record<string, unknown>;
 const at = (h: number, m: number) => new Date(2026, 9, 17, h, m);
 const row = (r: Partial<Record<string, unknown>> = {}) => ({
-  data: { items_added: true, shopping: true, quiet_hours_start: null, quiet_hours_end: null, ...r },
+  data: { items_added: true, shopping: true, recipe_imports: true, quiet_hours_start: null, quiet_hours_end: null, ...r },
 });
 
 beforeEach(() => {
@@ -141,6 +141,7 @@ describe('the permission', () => {
     expect(root.findAllByType(Switch).map((s) => s.props.accessibilityLabel)).toEqual([
       'Items added to lists',
       'Someone starts shopping',
+      'Recipe imports',
       'Quiet hours',
     ]);
   });
@@ -179,7 +180,7 @@ describe('the permission', () => {
     });
     await flush();
     expect(texts(root)).not.toContain('Notifications are off');
-    expect(root.findAllByType(Switch)).toHaveLength(3);
+    expect(root.findAllByType(Switch)).toHaveLength(4);
   });
 
   it('granted: no card, the switches with the loaded values', async () => {
@@ -189,8 +190,19 @@ describe('the permission', () => {
     expect(texts(root)).not.toContain('Notifications are off');
     expect(switchNamed(root, 'Items added to lists').props.value).toBe(false);
     expect(switchNamed(root, 'Someone starts shopping').props.value).toBe(true);
+    expect(switchNamed(root, 'Recipe imports').props.value).toBe(true);
     expect(switchNamed(root, 'Quiet hours').props.value).toBe(false);
     expect(pickers(root)).toHaveLength(0);
+  });
+
+  it('Recipe imports comes after the other kinds, with its detail, as loaded', async () => {
+    respondTo('notification_settings', row({ recipe_imports: false }));
+    const root = await render();
+    expect(switchNamed(root, 'Recipe imports').props.value).toBe(false);
+    const all = texts(root);
+    expect(all).toContain("When a recipe you shared is ready, or couldn't be imported");
+    expect(all.indexOf('Recipe imports')).toBeGreaterThan(all.indexOf('Someone starts shopping'));
+    expect(all.indexOf('Recipe imports')).toBeLessThan(all.indexOf("When a recipe you shared is ready, or couldn't be imported"));
   });
 
   it('unavailable (a simulator): says so, with no button and no settings', async () => {
@@ -212,11 +224,38 @@ describe('saving', () => {
       user_id: 'user-1',
       items_added: true,
       shopping: false,
+      recipe_imports: true,
       quiet_hours_start: null,
       quiet_hours_end: null,
       time_zone: 'America/Mexico_City',
     });
     expect(switchNamed(root, 'Someone starts shopping').props.value).toBe(false);
+  });
+
+  it('turning off "Recipe imports" saves it like the others, keeping them as loaded', async () => {
+    respondTo('notification_settings', row({ shopping: false }));
+    const root = await render();
+    await act(async () => switchNamed(root, 'Recipe imports').props.onValueChange(false));
+    await flush();
+    expect(sent(0)).toEqual({
+      user_id: 'user-1',
+      items_added: true,
+      shopping: false,
+      recipe_imports: false,
+      quiet_hours_start: null,
+      quiet_hours_end: null,
+      time_zone: 'America/Mexico_City',
+    });
+    expect(switchNamed(root, 'Recipe imports').props.value).toBe(false);
+  });
+
+  it('a failed "Recipe imports" save puts the switch back and says so', async () => {
+    respondTo('notification_settings', row(), { error: { message: 'Failed to fetch' } });
+    const root = await render();
+    await act(async () => switchNamed(root, 'Recipe imports').props.onValueChange(false));
+    await flush();
+    expect(switchNamed(root, 'Recipe imports').props.value).toBe(true);
+    expect(Alert.alert).toHaveBeenCalledWith("Couldn't save your notification settings", 'Something went wrong. Try again.');
   });
 
   it('turning off "Items added to lists" keeps shopping as loaded', async () => {
@@ -307,12 +346,12 @@ describe('offline', () => {
     const root = await render();
     await act(async () => mockNetwork.listener?.({ isConnected: false, isInternetReachable: false }));
     expect(texts(root)).toContain('Needs a connection');
-    expect(root.findAllByType(Switch).map((s) => s.props.disabled)).toEqual([true, true, true]);
+    expect(root.findAllByType(Switch).map((s) => s.props.disabled)).toEqual([true, true, true, true]);
     expect(pickers(root).map((p) => p.props.modifiers[2])).toEqual([{ disabled: true }, { disabled: true }]);
 
     await act(async () => mockNetwork.listener?.({ isConnected: true, isInternetReachable: true }));
     expect(texts(root)).not.toContain('Needs a connection');
-    expect(root.findAllByType(Switch).map((s) => s.props.disabled)).toEqual([false, false, false]);
+    expect(root.findAllByType(Switch).map((s) => s.props.disabled)).toEqual([false, false, false, false]);
   });
 
   it('opened offline: the defaults, disabled, then loaded once back online', async () => {
@@ -321,6 +360,7 @@ describe('offline', () => {
     const root = await render();
     expect(texts(root)).toContain('Needs a connection');
     expect(root.findAllByType(Switch).map((s) => [s.props.value, s.props.disabled])).toEqual([
+      [true, true],
       [true, true],
       [true, true],
       [false, true],
