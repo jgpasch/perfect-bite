@@ -25,7 +25,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 /**
- * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and the gold cloche
+ * Sign-in (board 09): the app's name at the top, Google sign-in at the bottom, and the bruschetta board
  * in a warm glow in the space between, on the header green the launch screen also uses (spec 4.8). Dev builds also get
  * the email + 6-digit code stub; local Supabase delivers the code to Inbucket
  * (http://127.0.0.1:55324).
@@ -81,7 +81,7 @@ export default function SignInScreen() {
   return (
     // The screen is exactly the device's height. The safe-area insets are padding inside it, not the
     // scroll view's automatic content insets (which made the flexGrow: 1 content overflow by their
-    // height), and the keyboard shrinks the screen instead of adding a scroll inset. So the cloche
+    // height), and the keyboard shrinks the screen instead of adding a scroll inset. So the bruschetta
     // give way first, and it scrolls only when the title, field and buttons alone don't fit.
     <KeyboardAvoidingView behavior="padding" style={[styles.fill, { backgroundColor: look.ground }]}>
       {/* The header green is dark in both schemes. */}
@@ -200,16 +200,16 @@ export default function SignInScreen() {
 }
 
 /**
- * The gold cloche, centred in the space the title and the field leave. It shrinks to fit, and goes
+ * The bruschetta on its board, centred in the space the title and the field leave. It shrinks to fit, and goes
  * once it'd be under half size. Its image carries a soft warm glow and shadow that spread
- * `HERO_GLOW` times past the cloche, faintly over the text around it. Decorative.
+ * `HERO_GLOW` times past the board, faintly over the text around it. Decorative.
  */
 function Hero() {
   const { sizes } = useTheme();
   const [space, setSpace] = useState(0);
   const size = signInHeroSize(space, { max: sizes.signInHero, min: sizes.signInHero / 2 });
   return (
-    // The cloche is on an absolute layer so it never adds to the content's height: the space between
+    // The bruschetta is on an absolute layer so it never adds to the content's height: the space between
     // the title and the field sizes it, not the other way round.
     <View
       accessible={false}
@@ -220,7 +220,7 @@ function Hero() {
       {size > 0 ? (
         <View style={[StyleSheet.absoluteFill, styles.centre]}>
           <Image
-            source={CLOCHE}
+            source={HERO}
             style={{ width: size * HERO_GLOW, height: size * HERO_GLOW }}
             contentFit="contain"
             accessible={false}
@@ -231,8 +231,8 @@ function Hero() {
   );
 }
 
-const CLOCHE = require('../../assets/images/sign-in-cloche.png');
-/** sign-in-cloche.png is the 1024 pt cloche artwork drawn at 810 px on a 1296 px canvas. */
+const HERO = require('../../assets/images/sign-in-bruschetta.png');
+/** sign-in-bruschetta.png is the launch screen's 1024 px artwork drawn at 810 px on a 1296 px canvas. */
 const HERO_GLOW = 1296 / 810;
 
 const styles = StyleSheet.create({

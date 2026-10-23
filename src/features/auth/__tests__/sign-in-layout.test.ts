@@ -13,20 +13,20 @@ describe('signInHeroSize', () => {
     expect(signInHeroSize(200, sizes)).toBe(200);
   });
 
-  it('shrinks the cloche to fit a shorter space, rounding down', () => {
+  it('shrinks the bruschetta to fit a shorter space, rounding down', () => {
     expect(signInHeroSize(150.6, sizes)).toBe(150);
   });
 
-  it('keeps the cloche at exactly the minimum', () => {
+  it('keeps the bruschetta at exactly the minimum', () => {
     expect(signInHeroSize(100, sizes)).toBe(100);
   });
 
-  it('drops the cloche once it would be smaller than the minimum', () => {
+  it('drops the bruschetta once it would be smaller than the minimum', () => {
     expect(signInHeroSize(99, sizes)).toBe(0);
     expect(signInHeroSize(20, sizes)).toBe(0);
   });
 
-  it('has no cloche when there is no space, or before layout', () => {
+  it('has no bruschetta when there is no space, or before layout', () => {
     expect(signInHeroSize(0, sizes)).toBe(0);
     expect(signInHeroSize(-30, sizes)).toBe(0);
     expect(signInHeroSize(Number.NaN, sizes)).toBe(0);

@@ -58,7 +58,7 @@ export const Palette = {
     /** The list screen's forest-green header, behind the status bar. */
     header: '#1F4D33',
     onHeader: '#FFFFFF',
-    /** The cloche's gold, for "Perfect" in the sign-in title on the header green. */
+    /** Gold, for "Perfect" in the sign-in title on the header green. */
     gold: '#E9BC5A',
     /** "7 to get · As added" on the header. */
     onHeaderSecondary: '#B7D2BF',
@@ -350,7 +350,7 @@ export const Sizes = {
   presenceAvatar: 24,
   /** the pulsing dots after "Alex is adding" */
   presenceDot: 4,
-  /** the cloche on the sign-in screen, at its largest (its glow spreads past this) */
+  /** the bruschetta on the sign-in screen, at its largest (its glow spreads past this) */
   signInHero: 270,
   /** a row on the Aisle order screen (a minimum, for Dynamic Type), and its drag grip */
   aisleRow: 52,
