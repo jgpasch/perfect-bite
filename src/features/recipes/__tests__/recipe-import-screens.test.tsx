@@ -120,17 +120,12 @@ jest.mock('@/features/recipes/recipe-link', () => ({
 const mockNotify = jest.fn();
 jest.mock('@/features/notifications/notifications', () => ({ notify: (n: unknown) => mockNotify(n) }));
 
-// The share queue lives in the App Group; the tab only subscribes to its imports and removes shares.
-let mockShareListener: ((imported: ImportRecipeSuccess[]) => void) | null = null;
+// The share queue lives in the App Group and on the server; the card only removes and retries shares.
 const mockRemoveShare = jest.fn();
-jest.mock('@/features/recipes/share-drain', () => ({
-  onShareImports: (listener: (imported: ImportRecipeSuccess[]) => void) => {
-    mockShareListener = listener;
-    return () => {
-      mockShareListener = null;
-    };
-  },
+const mockRetryShare = jest.fn(async (_id: string) => true);
+jest.mock('@/features/recipes/share-reconcile', () => ({
   removeQueuedShare: (...args: unknown[]) => mockRemoveShare(...args),
+  retryShareImport: (id: string) => mockRetryShare(id),
 }));
 
 const mockParams: Record<string, string | undefined> = {};
@@ -183,6 +178,7 @@ beforeEach(() => {
   setPlanTab(true);
   for (const k of Object.keys(mockParams)) delete mockParams[k];
   for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink, mockCloseCard]) fn.mockClear();
+  mockRetryShare.mockReset().mockResolvedValue(true);
   mockImport.mockReset();
   mockPhotoImport.mockReset();
   mockClipboard.mockReset();
@@ -1444,63 +1440,6 @@ describe('RecipesScreen', () => {
     });
   });
 
-  test('a recipe shared while the tab shows: a toast with Undo and Open list, its card outlined', () => {
-    const tacos = createRecipe('Tacos');
-    const undo = jest.fn();
-    setLastOpenedList(createList('Party'));
-    const root = render(<RecipesScreen />);
-    expect(mockShareListener).not.toBeNull();
-    act(() => mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', added: 3, undo })]));
-    const name = db.select().from(lists).all().find((l) => l.id === groceries)!.name;
-    expect(texts(root).join(' ')).toContain(`on ${name}`);
-    const highlighted = root.root.findAll((n) => typeof n.type !== 'string' && n.props.highlighted === true);
-    expect(highlighted.map((n) => n.props.recipe.id)).toEqual([tacos]);
-    press(byA11y(root, 'Open list'));
-    // The List tab, showing the list the recipe went to.
-    expect(mockNavigate).toHaveBeenCalledWith('/lists');
-    expect(mockPush).not.toHaveBeenCalled();
-    expect(currentList()).toBe(groceries);
-    expect(allByA11y(root, 'Undo')).toHaveLength(0);
-
-    act(() => mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', added: 3, undo })]));
-    press(byA11y(root, 'Undo'));
-    expect(undo).toHaveBeenCalledTimes(1);
-    expect(allByA11y(root, 'Undo')).toHaveLength(0);
-  });
-
-  test('a recipe-only share: "Saved …" with Undo and View recipe, its card outlined', () => {
-    const tacos = createRecipe('Tacos');
-    const undo = jest.fn();
-    const root = render(<RecipesScreen />);
-    act(() =>
-      mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: true, added: 0, undo })]),
-    );
-    expect(texts(root).join(' ')).toContain('Saved Tacos');
-    expect(texts(root).join(' ')).not.toContain('items');
-    expect(allByA11y(root, 'Open list')).toHaveLength(0);
-    const highlighted = root.root.findAll((n) => typeof n.type !== 'string' && n.props.highlighted === true);
-    expect(highlighted.map((n) => n.props.recipe.id)).toEqual([tacos]);
-
-    press(byA11y(root, 'View recipe'));
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: tacos } });
-    expect(allByA11y(root, 'Undo')).toHaveLength(0);
-
-    act(() =>
-      mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: true, added: 0, undo })]),
-    );
-    press(byA11y(root, 'Undo'));
-    expect(undo).toHaveBeenCalledTimes(1);
-  });
-
-  test('a recipe-only share that reused a recipe: "already in your recipes", no Undo', () => {
-    const tacos = createRecipe('Tacos');
-    const root = render(<RecipesScreen />);
-    act(() => mockShareListener!([success({ recipeId: tacos, recipeName: 'Tacos', listId: null, created: false, added: 0 })]));
-    expect(texts(root).join(' ')).toContain('Tacos is already in your recipes');
-    expect(allByA11y(root, 'Undo')).toHaveLength(0);
-    expect(allByA11y(root, 'View recipe')).toHaveLength(1);
-  });
-
   test('a recipe saved from the import sheet shows on return: "Saved …", Undo, View recipe, card outlined', () => {
     const tacos = createRecipe('Tacos');
     const undo = jest.fn();
@@ -1526,19 +1465,17 @@ describe('RecipesScreen', () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: tacos } });
   });
 
-  test('several shared at once: "Added 3 recipes" without actions', () => {
+  test('a failed share from the server shows the imports card', () => {
+    act(() =>
+      setShareQueueStatus({
+        queued: [],
+        failed: [{ id: 's1', url: 'https://example.com/a', title: 'Pho', errorCode: 'not_a_recipe', resetsAt: null }],
+        offline: false,
+      }),
+    );
     const root = render(<RecipesScreen />);
-    act(() => mockShareListener!([success(), success({ recipeId: 'r2' }), success({ recipeId: 'r3' })]));
-    expect(texts(root)).toContain('Added 3 recipes');
-    expect(allByA11y(root, 'Undo')).toHaveLength(0);
-  });
-
-  test('leaving the tab stops listening for shared imports', () => {
-    render(<RecipesScreen />);
-    expect(mockShareListener).not.toBeNull();
-    act(() => tree!.unmount());
-    tree = null;
-    expect(mockShareListener).toBeNull();
+    expect(root.root.findAll((n) => n.type === ImportsCard)).toHaveLength(1);
+    expect(texts(root)).toEqual(expect.arrayContaining(["Couldn't import 1 recipe", 'No recipes yet.']));
   });
 
   test('failed imports show the imports card above the empty state', () => {
@@ -1923,7 +1860,15 @@ describe('ImportsCard', () => {
     url: `https://www.example.com/${id}`,
     title: null,
     listName: 'Groceries',
-    attempts: 0,
+    onServer: false,
+    ...over,
+  });
+  const failedShare = (id: string, over: Partial<ShareQueueStatus['failed'][number]> = {}) => ({
+    id,
+    url: `https://www.example.com/${id}`,
+    title: null,
+    errorCode: 'not_a_recipe',
+    resetsAt: null,
     ...over,
   });
   const failedRows = () => failedImportsQuery().all();
@@ -1936,43 +1881,88 @@ describe('ImportsCard', () => {
   });
 
   test('waiting shares: the heading, then a row each with Remove when opened', () => {
-    const queue: ShareQueueStatus = { queued: [share('a', { title: 'Pho', attempts: 2 }), share('b')], importing: null, waitReason: 'offline' };
+    const queue: ShareQueueStatus = { queued: [share('a', { title: 'Pho' }), share('b')], failed: [], offline: true };
     const root = render(<ImportsCard failed={[]} queue={queue} />);
     expect(texts(root)).toEqual(['2 recipes waiting', "You're offline. They'll import when you're back."]);
     expect(heading(root).props.accessibilityState).toEqual({ expanded: false });
     press(heading(root));
     expect(heading(root).props.accessibilityState).toEqual({ expanded: true });
-    expect(texts(root)).toEqual(
-      expect.arrayContaining(['Pho', 'example.com · to Groceries · tried twice', 'example.com', 'example.com · to Groceries']),
-    );
+    expect(texts(root)).toEqual(expect.arrayContaining(['Pho', 'example.com · to Groceries', 'example.com']));
     // One group only: no group labels.
     expect(texts(root)).not.toContain('Waiting');
     press(byA11y(root, 'Remove Pho'));
-    expect(mockRemoveShare).toHaveBeenCalledWith('a', USER);
+    expect(mockRemoveShare).toHaveBeenCalledWith('a');
     press(heading(root));
     expect(texts(root)).not.toContain('Pho');
   });
 
-  test('the share importing now shows a spinner instead of Remove', () => {
+  test('shares on the server: "prepare them in the background", a spinner and no Remove', () => {
     const queue: ShareQueueStatus = {
-      queued: [share('a', { title: 'Pho' }), share('b')],
-      importing: { id: 'a', position: 1, total: 2 },
-      waitReason: null,
+      queued: [share('a', { title: 'Pho', onServer: true }), share('b')],
+      failed: [],
+      offline: false,
     };
     const root = render(<ImportsCard failed={[]} queue={queue} />);
-    expect(texts(root)).toEqual(['Importing 1 of 2…', 'Pho · to Groceries']);
+    expect(texts(root)).toEqual(['2 recipes waiting', "We'll prepare them in the background."]);
     press(heading(root));
     expect(root.root.findAll((n) => n.props.accessibilityLabel === 'Importing Pho')).not.toHaveLength(0);
+    expect(allByA11y(root, 'Remove Pho')).toHaveLength(0);
     expect(allByLabel(root, 'Remove')).toHaveLength(1);
+  });
+
+  test("a failed share: its reason with the limit's reset date, and Try again with the same id, no Dismiss", async () => {
+    const queue: ShareQueueStatus = {
+      queued: [],
+      failed: [
+        failedShare('s1', { title: 'Pho', errorCode: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' }),
+        failedShare('s2', { errorCode: 'daily_limit' }),
+      ],
+      offline: false,
+    };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    expect(texts(root)[0]).toBe("Couldn't import 2 recipes");
+    press(heading(root));
+    expect(texts(root)).toEqual(
+      expect.arrayContaining([
+        'Pho',
+        "You've used this month's recipe imports. They reset on Nov 1.",
+        'example.com',
+        "You've reached today's limit. Try again tomorrow.",
+      ]),
+    );
+    expect(allByLabel(root, 'Dismiss')).toHaveLength(0);
+    const pending = deferred<boolean>();
+    mockRetryShare.mockReturnValueOnce(pending.promise);
+    act(() => {
+      void allByLabel(root, 'Try again')[0].props.onPress();
+    });
+    expect(mockRetryShare).toHaveBeenCalledWith('s1');
+    expect(allByLabel(root, 'Trying…')).toHaveLength(1);
+    // Refused (offline): it can be tried again.
+    await act(async () => pending.resolve(false));
+    expect(allByLabel(root, 'Try again')).toHaveLength(2);
   });
 
   test('failed and waiting together: grouped under "Couldn\'t import" and "Waiting"', () => {
     recordFailedImport({ url: 'https://example.com/x', title: 'Pho', reason: 'blocked' });
-    const queue: ShareQueueStatus = { queued: [share('b')], importing: null, waitReason: null };
+    const queue: ShareQueueStatus = {
+      queued: [share('b')],
+      failed: [failedShare('s1', { title: 'Ramen', errorCode: 'not_a_member' })],
+      offline: false,
+    };
     const root = render(<ImportsCard failed={failedRows()} queue={queue} />);
-    expect(texts(root)[0]).toBe("Couldn't import 1 recipe");
+    expect(texts(root).slice(0, 2)).toEqual(["Couldn't import 2 recipes", '1 more waiting']);
     press(heading(root));
-    expect(texts(root)).toEqual(expect.arrayContaining(["Couldn't import", 'Waiting', 'Pho', 'The site blocked the import']));
+    expect(texts(root)).toEqual(
+      expect.arrayContaining([
+        "Couldn't import",
+        'Waiting',
+        'Pho',
+        'The site blocked the import',
+        'Ramen',
+        "You're no longer in that household.",
+      ]),
+    );
   });
 
   test('Dismiss removes a failed import', () => {

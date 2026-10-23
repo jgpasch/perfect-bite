@@ -24,7 +24,7 @@ import {
   recordFailedImport,
   retryFailedImport,
 } from '../failed-imports';
-import { drainShareQueue } from '../share-drain';
+import { reconcileShares } from '../share-reconcile';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -129,7 +129,7 @@ describe('the failed_imports table', () => {
     expect(outboxSize()).toBe(before);
   });
 
-  test('the share drain records a not-a-recipe share in the table by default', async () => {
+  test('a share is never recorded here: reconciling submits it to the server and writes no row', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'failed-imports-'));
     try {
       fs.mkdirSync(path.join(root, SHARE_PENDING_DIR), { recursive: true });
@@ -144,12 +144,13 @@ describe('the failed_imports table', () => {
         page: { title: '  Tikka | Example ' },
       };
       fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, `${envelope.id}.json`), JSON.stringify(envelope));
-      invoke.mockResolvedValue(httpError(422, 'not_a_recipe'));
+      invoke.mockResolvedValue({ data: { id: envelope.id, status: 'received' }, error: null });
 
-      const result = await drainShareQueue(USER);
+      const result = await reconcileShares(USER);
 
-      expect(result.failed).toBe(1);
-      expect(rows().map((r) => [r.url, r.title, r.reason])).toEqual([[TIKKA_URL, 'Tikka | Example', 'not_a_recipe']]);
+      expect(result.submitted).toEqual([envelope.id]);
+      expect(invoke.mock.calls.map(([fn]) => fn)).toEqual(['share-ingest']);
+      expect(rows()).toEqual([]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -335,34 +336,15 @@ describe('retryFailedImport', () => {
       expect(itemNames(groceries)).toEqual(['garlic', 'onion']);
     });
 
-    test('a recipe-only share that fails in the drain retries recipe-only', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'failed-imports-'));
-      try {
-        fs.mkdirSync(path.join(root, SHARE_PENDING_DIR), { recursive: true });
-        setAppGroupRoot(root);
-        const envelope = {
-          id: '019a4c2e-7d3b-7a10-8f2e-3b9d1c0e5a71',
-          url: TIKKA_URL,
-          listId: null,
-          householdId: CABIN,
-          addToList: false,
-          createdAt: '2026-10-12T08:30:11.204-05:00',
-          appVersion: '1.1.0',
-          source: 'share',
-        };
-        fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, `${envelope.id}.json`), JSON.stringify(envelope));
-        invoke.mockResolvedValueOnce(httpError(422, 'not_a_recipe'));
-        expect((await drainShareQueue(USER)).failed).toBe(1);
-        const [row] = rows();
-        expect([row.householdId, row.listId, row.reason]).toEqual([CABIN, null, 'not_a_recipe']);
+    test('a recipe-only failure recorded with its household retries recipe-only', async () => {
+      const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'not_a_recipe', householdId: CABIN, listId: null });
+      const [row] = rows();
+      expect([row.id, row.householdId, row.listId, row.reason]).toEqual([id, CABIN, null, 'not_a_recipe']);
 
-        expect(await retryFailedImport(row.id, USER)).toMatchObject({ ok: true, listId: null, added: 0 });
-        expect(recipesIn(CABIN)).toEqual([{ name: 'Chicken tikka masala' }]);
-        expect(itemNames(groceries)).toEqual([]);
-        expect(itemNames(costco)).toEqual([]);
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
+      expect(await retryFailedImport(row.id, USER)).toMatchObject({ ok: true, listId: null, added: 0 });
+      expect(recipesIn(CABIN)).toEqual([{ name: 'Chicken tikka masala' }]);
+      expect(itemNames(groceries)).toEqual([]);
+      expect(itemNames(costco)).toEqual([]);
     });
   });
 

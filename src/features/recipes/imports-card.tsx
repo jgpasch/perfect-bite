@@ -12,26 +12,29 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
 import { dismissFailedImport, failedImportName, failedImportReason, retryFailedImport } from './failed-imports';
-import { removeQueuedShare } from './share-drain';
+import { removeQueuedShare, retryShareImport } from './share-reconcile';
 import {
   importName,
   importsCardHeading,
   queuedShareDetail,
+  shareFailureReason,
+  type FailedShareImport,
   type ImportsCardHeading,
   type QueuedShare,
   type ShareQueueStatus,
 } from './share-queue-status';
 
-const WELL: Record<ImportsCardHeading['tone'], { ground: ColorToken; glyph: ColorToken; icon: IconName | null }> = {
+const WELL: Record<ImportsCardHeading['tone'], { ground: ColorToken; glyph: ColorToken; icon: IconName }> = {
   failed: { ground: 'dangerSoft', glyph: 'danger', icon: 'exclamationmark.circle' },
-  importing: { ground: 'primarySoft', glyph: 'onPrimarySoft', icon: null },
   waiting: { ground: 'pendingSoft', glyph: 'pending', icon: 'clock' },
 };
 
 /**
- * The Recipes tab's imports card (spec 4.10): shares importing now, waiting in the queue, or that
- * won't import. The heading says what matters most and expands to a row per share: waiting ones
- * with **Remove**, failed ones with **Try again** (into the default list) and **Dismiss**.
+ * The Recipes tab's imports card (spec 4.10): shares waiting (on the device or on the server) and
+ * imports that failed. The heading says what matters most and expands to a row per import: waiting
+ * shares with **Remove** until the server has them (then a spinner), failed shares with **Try
+ * again** (the same operation, on the server), failed in-app imports with **Try again** and
+ * **Dismiss**.
  */
 export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: ShareQueueStatus }) {
   const t = useT();
@@ -40,7 +43,8 @@ export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: 
   const heading = importsCardHeading(failed.length, queue);
   if (!heading) return null;
   const well = WELL[heading.tone];
-  const labelled = failed.length > 0 && queue.queued.length > 0;
+  const failedCount = failed.length + queue.failed.length;
+  const labelled = failedCount > 0 && queue.queued.length > 0;
 
   return (
     <Card style={{ marginBottom: spacing.md }}>
@@ -64,11 +68,7 @@ export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: 
             styles.well,
             { width: sizes.iconWell, height: sizes.iconWell, borderRadius: rounded.md, backgroundColor: colors[well.ground] },
           ]}>
-          {well.icon ? (
-            <Icon name={well.icon} color={well.glyph} weight="semibold" />
-          ) : (
-            <ActivityIndicator size="small" color={colors[well.glyph]} />
-          )}
+          <Icon name={well.icon} color={well.glyph} weight="semibold" />
         </View>
         <View style={styles.flex}>
           <ThemedText variant="headline">{heading.title}</ThemedText>
@@ -82,18 +82,16 @@ export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: 
       </Pressable>
       {open ? (
         <>
-          {failed.length > 0 && labelled ? <GroupLabel label={t('recipes.imports.failedGroup')} color="danger" /> : null}
+          {failedCount > 0 && labelled ? <GroupLabel label={t('recipes.imports.failedGroup')} color="danger" /> : null}
+          {queue.failed.map((share, i) => (
+            <FailedShareRow key={share.id} share={share} divided={!labelled || i > 0} />
+          ))}
           {failed.map((row, i) => (
-            <FailedImportRow key={row.id} row={row} divided={!labelled || i > 0} />
+            <FailedImportRow key={row.id} row={row} divided={!labelled || queue.failed.length + i > 0} />
           ))}
           {queue.queued.length > 0 && labelled ? <GroupLabel label={t('recipes.imports.waitingGroup')} color="pending" /> : null}
           {queue.queued.map((share, i) => (
-            <QueuedShareRow
-              key={share.id}
-              share={share}
-              importing={queue.importing?.id === share.id}
-              divided={!labelled || i > 0}
-            />
+            <QueuedShareRow key={share.id} share={share} divided={!labelled || i > 0} />
           ))}
         </>
       ) : null}
@@ -120,15 +118,10 @@ function GroupLabel({ label, color }: { label: string; color: ColorToken }) {
   );
 }
 
-function QueuedShareRow({ share, importing, divided }: { share: QueuedShare; importing: boolean; divided: boolean }) {
+function QueuedShareRow({ share, divided }: { share: QueuedShare; divided: boolean }) {
   const t = useT();
   const { colors, spacing, sizes } = useTheme();
   const name = importName(share);
-
-  const remove = () => {
-    const userId = getAccount()?.userId;
-    if (userId) removeQueuedShare(share.id, userId);
-  };
 
   return (
     <View
@@ -152,7 +145,7 @@ function QueuedShareRow({ share, importing, divided }: { share: QueuedShare; imp
           {queuedShareDetail(share)}
         </ThemedText>
       </View>
-      {importing ? (
+      {share.onServer ? (
         <View style={[styles.well, { width: sizes.minTapTarget, height: sizes.minTapTarget }]}>
           <ActivityIndicator size="small" color={colors.inkSecondary} accessibilityLabel={t('recipes.imports.importing', { name })} />
         </View>
@@ -162,9 +155,49 @@ function QueuedShareRow({ share, importing, divided }: { share: QueuedShare; imp
           variant="plain"
           color="inkSecondary"
           accessibilityLabel={t('recipes.imports.removeLabel', { name })}
-          onPress={remove}
+          onPress={() => removeQueuedShare(share.id)}
         />
       )}
+    </View>
+  );
+}
+
+/** A share the server couldn't import: its reason and **Try again**, which puts it back on the server. */
+function FailedShareRow({ share, divided }: { share: FailedShareImport; divided: boolean }) {
+  const t = useT();
+  const { colors, spacing } = useTheme();
+  const [trying, setTrying] = useState(false);
+
+  const retry = async () => {
+    if (trying) return;
+    setTrying(true);
+    // Taken, the card reads it again and it moves to waiting (this row goes).
+    if (!(await retryShareImport(share.id))) setTrying(false);
+  };
+
+  return (
+    <View
+      style={{
+        borderTopWidth: divided ? StyleSheet.hairlineWidth : 0,
+        borderTopColor: colors.border,
+        paddingHorizontal: spacing.md + spacing.xxs,
+        paddingTop: spacing.sm + spacing.xxs,
+        paddingBottom: spacing.xs,
+      }}>
+      <ThemedText variant="body" numberOfLines={2}>
+        {importName(share)}
+      </ThemedText>
+      <ThemedText variant="footnote" color="inkSecondary">
+        {shareFailureReason(share.errorCode, share.resetsAt)}
+      </ThemedText>
+      <View style={styles.row}>
+        <Button
+          label={t(trying ? 'recipes.imports.trying' : 'recipes.imports.tryAgain')}
+          variant="plain"
+          disabled={trying}
+          onPress={retry}
+        />
+      </View>
     </View>
   );
 }

@@ -1,5 +1,5 @@
-// Failed imports (spec 4.10): shares that won't import, kept on the device only and shown on the
-// Recipes tab with Try again and Dismiss until one of them clears it.
+// Failed in-app imports (spec 4.10), kept on the device only and shown on the Recipes tab with Try
+// again and Dismiss until one of them clears it. Failed shares are server state (share-reconcile.ts).
 import { desc, eq } from 'drizzle-orm';
 
 import { db, failedImports, type FailedImportReason } from '@/db';
@@ -10,10 +10,19 @@ import { newId } from '@/lib/id';
 import { importRecipe, type ImportRecipeResult } from './import';
 import { importLimitMessage, NOT_ENTITLED_MESSAGE } from './import-sheet';
 import { requestedFromRecord, resolveImportTarget } from './import-target';
-import type { FailedShare } from './share-drain';
+/** An in-app import that failed (spec 4.10), and where it was going, so Try again goes there too. */
+export type FailedImportRecord = {
+  url: string;
+  /** The page title, when there was one. */
+  title: string | null;
+  reason: FailedImportReason;
+  /** A list and its household, or a household alone (recipe-only). Absent or null: the default list. */
+  householdId?: string | null;
+  listId?: string | null;
+};
 
-/** The share drain's writer: records a share that won't import, and where it was going. Returns its id. */
-export function recordFailedImport(failed: FailedShare): string {
+/** Records an import that won't go through, and where it was going. Returns its id. */
+export function recordFailedImport(failed: FailedImportRecord): string {
   const id = newId();
   db.insert(failedImports)
     .values({
@@ -41,7 +50,7 @@ const retrying = new Set<string>();
 
 /**
  * Imports a failed import again, where it was going: recipe-only into its household, or onto its
- * list, falling back as the drain does when that's gone; rows recorded before targets were kept go
+ * list, falling back to the default list when that's gone; rows recorded before targets were kept go
  * to `userId`'s default list. Success removes it; another failure keeps it with the new reason. With
  * nowhere to import into, nothing is tried. A retry already running for the same import, or one
  * already dismissed, does nothing and gives null.

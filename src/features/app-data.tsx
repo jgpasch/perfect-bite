@@ -12,7 +12,7 @@ import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { startPushRegistration } from '@/features/push/registration';
 import { startTimeZoneSync } from '@/features/push/settings';
-import { shareAttemptsKey, startShareDrain } from '@/features/recipes/share-drain';
+import { startShareReconcile } from '@/features/recipes/share-reconcile';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
 import { onMemberships, pullNow, startPull } from '@/sync/pull';
@@ -30,7 +30,7 @@ function dropStuckShare() {
     const file = new File(root, `share/pending/${STUCK_SHARE_ID}.json`);
     const existed = file.exists;
     if (existed) file.delete();
-    clearDeviceSetting(shareAttemptsKey(STUCK_SHARE_ID));
+    clearDeviceSetting(`shareImportAttempts:${STUCK_SHARE_ID}`);
     console.warn(`[TEMP] stuck share ${STUCK_SHARE_ID}: ${existed ? 'deleted' : 'not found'}`);
   } catch (e) {
     console.warn('[TEMP] stuck share cleanup failed', e);
@@ -108,8 +108,9 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   }, [userId, signedOut]);
   // Siri's queue (spec 4.9): applied on launch, foreground and sign-in; signed out, adds wait.
   useEffect(() => (userId ? startSiriDrain(userId) : undefined), [userId]);
-  // The share queue (spec 4.10): imported on launch, foreground, reconnect and sign-in; signed out, shares wait.
-  useEffect(() => (userId ? startShareDrain(userId) : undefined), [userId]);
+  // The share queue (spec 4.10): reconciled with the server on launch, foreground, reconnect and
+  // sign-in, which imports the shares; signed out, shares wait.
+  useEffect(() => (userId ? startShareReconcile(userId) : undefined), [userId]);
   // Push (spec 4.13): a token the user allowed is refreshed on sign-in, foreground and token change.
   useEffect(() => (userId ? startPushRegistration() : undefined), [userId]);
   // The share extension's device credential (spec 6.12): registered on sign-in, renewed on a

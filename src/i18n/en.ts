@@ -855,18 +855,14 @@ export const en = {
     imports: {
       recipes_one: '{{count}} recipe',
       recipes_other: '{{count}} recipes',
-      progress: 'Importing {{position}} of {{total}}…',
       couldntImport: "Couldn't import {{recipes}}",
       waiting: '{{recipes}} waiting',
       moreWaiting: '{{count}} more waiting',
       to: 'to {{name}}',
-      triedOnce: 'tried once',
-      triedTwice: 'tried twice',
-      triedTimes: 'tried {{count}} times',
+      /** Shares the server doesn't have yet, and the app can't reach it. */
       waitOffline: "You're offline. They'll import when you're back.",
-      waitBusy: "The import service is busy. They'll import next time you open the app.",
-      waitIdle: 'Waiting to import',
-      waitFailed: "Something went wrong. They'll import next time you open the app.",
+      /** Shares on their way to, or on, the server. */
+      waitBackground: "We'll prepare them in the background.",
       failedGroup: "Couldn't import",
       waitingGroup: 'Waiting',
       importing: 'Importing {{name}}',
@@ -875,13 +871,17 @@ export const en = {
       tryAgain: 'Try again',
       trying: 'Trying…',
       dismiss: 'Dismiss',
-      /** Why a share failed. */
+      /** Why an import failed. */
       reasons: {
         notARecipe: "That page doesn't look like a recipe",
         blocked: 'The site blocked the import',
         rateLimited: 'The import service was busy',
         offline: "Couldn't connect",
         failed: "Couldn't read that page",
+        /** A share whose sharer left its household before the server imported it. */
+        notAMember: "You're no longer in that household.",
+        /** A share that failed on the server for any other reason. */
+        somethingWrong: 'Something went wrong.',
       },
     },
   },

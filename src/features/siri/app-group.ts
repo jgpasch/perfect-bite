@@ -16,6 +16,9 @@ export const APP_GROUP_ID = 'group.com.jgp.perfectbite';
 // App Group layout (spec 4.9). Written by targets/_shared/SiriQueue.swift and ShareQueue.swift.
 export const PENDING_DIR = 'siri/pending';
 export const SHARE_PENDING_DIR = 'share/pending';
+/** The extension's background upload: its request body and its state, by envelope id (spec 4.10). */
+export const SHARE_UPLOAD_DIR = 'share/upload';
+export const SHARE_UPLOAD_STATE_DIR = 'share/upload-state';
 export const LISTS_FILE = 'siri/lists.json';
 export const LOG_FILE = 'logs/native.log';
 
@@ -72,6 +75,23 @@ export function readPendingShares(): PendingShare[] {
   return pendingFiles(SHARE_PENDING_DIR).map(parseShareEnvelope);
 }
 
+/**
+ * Deletes a share's envelope and its upload files (`share/pending/`, `share/upload/` and
+ * `share/upload-state/` `<id>.json`), each best effort. Does nothing without the App Group.
+ */
+export function removeShareFiles(id: string): void {
+  const root = getAppGroupContainer();
+  if (!root) return;
+  for (const dir of [SHARE_PENDING_DIR, SHARE_UPLOAD_DIR, SHARE_UPLOAD_STATE_DIR]) {
+    try {
+      const file = new File(root, `${dir}/${id}.json`);
+      if (file.exists) file.delete();
+    } catch (err) {
+      console.warn('[share] deleting a share file failed', dir, id, err);
+    }
+  }
+}
+
 /** Writes `lists.json` for the intent's list picker. Call whenever lists or memberships change. */
 export function writeListSnapshot(snapshot: ListSnapshot): void {
   const valid = ListSnapshotSchema.parse(snapshot);
@@ -91,13 +111,13 @@ export function clearListSnapshot(): void {
 }
 
 /**
- * Deletes every file in the Siri and share queues, `.tmp` writes too (account deletion, spec 4.8):
- * their envelopes are the user's words. Does nothing without the App Group.
+ * Deletes every file in the Siri and share queues and the share uploads, `.tmp` writes too (account
+ * deletion, spec 4.8): their envelopes are the user's words. Does nothing without the App Group.
  */
 export function emptyQueues(): void {
   const root = getAppGroupContainer();
   if (!root) return;
-  for (const dir of [PENDING_DIR, SHARE_PENDING_DIR]) {
+  for (const dir of [PENDING_DIR, SHARE_PENDING_DIR, SHARE_UPLOAD_DIR, SHARE_UPLOAD_STATE_DIR]) {
     const pending = new Directory(root, dir);
     if (!pending.exists) continue;
     for (const entry of pending.list()) if (entry instanceof File) entry.delete();

@@ -33,7 +33,7 @@ import { WeekPlan } from '@/features/meal-plan/week-plan';
 import { mix } from '@/domain/contrast';
 import { useAnyHouseholdFeature } from '@/features/plans/features';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
-import { importedOnRecipesToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { savedRecipeToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptRecipeName } from '@/features/recipes/prompt-recipe-name';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
@@ -105,7 +105,6 @@ import {
   type RecipeSummary,
 } from '@/features/recipes/recipes';
 import { onSavedRecipeResult, takeSavedRecipeResult } from '@/features/recipes/saved-recipe-result';
-import { onShareImports } from '@/features/recipes/share-drain';
 import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
@@ -297,51 +296,6 @@ export default function RecipesScreen() {
       show();
       return onSavedRecipeResult(show);
     }, [t]),
-  );
-
-  // Recipes shared to the extension (spec 4.10), when the drain finishes while this tab shows.
-  useFocusEffect(
-    useCallback(
-      () =>
-        onShareImports((imported) => {
-          if (imported.length > 1) {
-            setToast({ key: `shared-${Date.now()}`, ...sharedImportsToast(imported.length), actions: [] });
-            return;
-          }
-          const [result] = imported;
-          const viewRecipe = {
-            label: t('common.viewRecipe'),
-            onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
-          };
-          if (result.listId === null) {
-            // Recipe-only: saved, or already here; Undo only takes back a recipe this share created.
-            setToast({
-              key: `shared-${result.recipeId}-${Date.now()}`,
-              recipeId: result.recipeId,
-              ...savedRecipeToast(result.recipeName, result.created),
-              actions: [
-                ...(result.created ? [{ label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) }] : []),
-                viewRecipe,
-              ],
-            });
-            return;
-          }
-          const listId = result.listId;
-          setToast({
-            key: `shared-${result.recipeId}-${Date.now()}`,
-            recipeId: result.recipeId,
-            ...importedOnRecipesToast(result.recipeName, result.added, getList(listId)?.name ?? null),
-            actions: [
-              { label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) },
-              {
-                label: t('recipes.tab.openList'),
-                onPress: () => (setToast(null), openList(listId)),
-              },
-            ],
-          });
-        }),
-      [t],
-    ),
   );
 
   // Spec 4.5: household names only tell recipes apart when there's more than one household.

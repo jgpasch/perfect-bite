@@ -111,10 +111,6 @@ const mockSiriListeners = new Set<(count: number) => void>();
 jest.mock('@/features/siri/drain', () => ({
   onSiriAdds: (l: (count: number) => void) => (mockSiriListeners.add(l), () => void mockSiriListeners.delete(l)),
 }));
-const mockShareListeners = new Set<(imported: unknown[]) => void>();
-jest.mock('@/features/recipes/share-drain', () => ({
-  onShareImports: (l: (imported: unknown[]) => void) => (mockShareListeners.add(l), () => void mockShareListeners.delete(l)),
-}));
 // Host stand-ins.
 jest.mock('@/features/lists/item-row', () => {
   const { createElement } = require('react');
@@ -2060,40 +2056,6 @@ describe('toasts from elsewhere', () => {
     expect(text()).toContain('Siri added 2 items');
   });
 
-  test('shared recipes: one shows its own toast, several one summary', () => {
-    const undo = jest.fn();
-    render();
-    act(() => mockShareListeners.forEach((l) => l([{ recipeId: 'r1', recipeName: 'Dal', added: 3, undo }])));
-    expect(text()).toContain('Dal');
-    tapToast('Undo');
-    expect(undo).toHaveBeenCalled();
-    act(() =>
-      mockShareListeners.forEach((l) =>
-        l([
-          { recipeId: 'r1', recipeName: 'Dal', added: 3, undo },
-          { recipeId: 'r2', recipeName: 'Soup', added: 2, undo },
-        ]),
-      ),
-    );
-    expect(text()).toContain('Added 2 recipes');
-    expect(text()).not.toContain('Dal');
-  });
-
-  test('recipe-only shares show no list toast, and don’t count toward the summary', () => {
-    const undo = jest.fn();
-    render();
-    const recipeOnly = { recipeId: 'r3', recipeName: 'Tikka', listId: null, created: true, added: 0, undo };
-    act(() => mockShareListeners.forEach((l) => l([recipeOnly])));
-    expect(text()).not.toContain('Tikka');
-    expect(text()).not.toContain('Added');
-
-    act(() =>
-      mockShareListeners.forEach((l) => l([recipeOnly, { recipeId: 'r1', recipeName: 'Dal', listId: 'l1', added: 3, undo }])),
-    );
-    expect(text()).toContain('Dal');
-    expect(text()).not.toContain('Added 2 recipes');
-    expect(text()).not.toContain('Tikka');
-  });
 });
 
 describe('keeping the screen on (spec 4.1)', () => {

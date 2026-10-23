@@ -85,7 +85,7 @@ jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
 jest.mock('@/features/categories/categorization', () => ({ categorizePending: () => Promise.resolve() }));
-jest.mock('@/features/recipes/share-drain', () => ({ onShareImports: () => () => {}, removeQueuedShare: () => {} }));
+jest.mock('@/features/recipes/share-reconcile', () => ({ removeQueuedShare: () => false, retryShareImport: async () => true }));
 // This week's view is the week plan, tested on its own.
 jest.mock('@/features/meal-plan/week-plan', () => {
   const { createElement } = require('react');

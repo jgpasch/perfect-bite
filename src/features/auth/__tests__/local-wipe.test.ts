@@ -143,7 +143,7 @@ beforeEach(async () => {
   });
   await refreshMyInvites();
   notify({ id: 'n1', kind: 'recipeImport', icon: 'fork.knife', hue: 'green', tone: 'success', title: 'Imported Ramen' });
-  setShareQueueStatus({ queued: [{ id: 's1' } as never], importing: null, waitReason: 'offline' });
+  setShareQueueStatus({ queued: [{ id: 's1' } as never], failed: [], offline: true });
 });
 
 afterEach(() => {
@@ -255,7 +255,7 @@ describe('wipeLocalData', () => {
     expect(getHouseholdFeatures()).toBeNull();
     expect(getMyInvites()).toEqual([]);
     expect(currentNotification()).toBeNull();
-    expect(getShareQueueStatus()).toEqual({ queued: [], importing: null, waitReason: null });
+    expect(getShareQueueStatus()).toEqual({ queued: [], failed: [], offline: false });
   });
 
   test("clears expo-image's cache of recipe photos (spec 4.5)", () => {

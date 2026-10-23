@@ -57,6 +57,7 @@ import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle } from '@/features/recipes/save-
 import {
   importsCardHeading,
   queuedShareDetail,
+  shareFailureReason,
   waitReasonText,
   type QueuedShare,
 } from '@/features/recipes/share-queue-status';
@@ -90,7 +91,7 @@ function labels(root: ReactTestRenderer): string[] {
 }
 
 function share(overrides: Partial<QueuedShare> = {}): QueuedShare {
-  return { id: 's1', url: 'https://www.bonappetit.com/recipe/x', title: null, listName: null, attempts: 0, ...overrides };
+  return { id: 's1', url: 'https://www.bonappetit.com/recipe/x', title: null, listName: null, onServer: false, ...overrides };
 }
 
 describe('recipes strings in English', () => {
@@ -318,33 +319,34 @@ describe('recipes strings in Spanish', () => {
     expect(failedImportReason('offline')).toBe('No se pudo conectar');
     expect(failedImportReason('not_entitled')).toBe('Importar recetas no está incluido en tu plan.');
     expect(failedImportReason('failed')).toBe('No se pudo leer esa página');
-    expect(waitReasonText(null)).toBe('En espera para importar');
-    expect(waitReasonText('offline')).toBe('No tienes conexión. Se importarán cuando vuelvas a estar en línea.');
-    expect(queuedShareDetail(share({ listName: 'Súper', attempts: 2 }))).toBe('bonappetit.com · a Súper · se intentó dos veces');
-    expect(queuedShareDetail(share({ householdName: 'Casa', attempts: 3 }))).toBe('bonappetit.com · a Casa · se intentó 3 veces');
-    expect(queuedShareDetail(share({ attempts: 1 }))).toBe('bonappetit.com · se intentó una vez');
+    expect(shareFailureReason('not_a_member', null)).toBe('Ya no estás en ese hogar.');
+    expect(shareFailureReason('daily_limit', '2026-10-24T00:00:00Z')).toBe(i18n.t('errors.dailyLimit'));
+    expect(shareFailureReason('internal', null)).toBe('Algo salió mal.');
+    expect(shareFailureReason('fetch_failed', null)).toBe('No se pudo abrir ese sitio');
+    expect(shareFailureReason('invalid_url', null)).toBe('Eso no parece un enlace');
+    const queue = { queued: [share()], failed: [], offline: false };
+    expect(waitReasonText(queue)).toBe('Las prepararemos en segundo plano.');
+    expect(waitReasonText({ ...queue, offline: true })).toBe('No tienes conexión. Se importarán cuando vuelvas a estar en línea.');
+    expect(queuedShareDetail(share({ listName: 'Súper' }))).toBe('bonappetit.com · a Súper');
+    expect(queuedShareDetail(share({ householdName: 'Casa' }))).toBe('bonappetit.com · a Casa');
+    expect(queuedShareDetail(share())).toBe('bonappetit.com');
   });
 
   it('heads the imports card', () => {
     initI18n('es');
     const queued = [share({ id: 'a', title: 'Pozole', listName: 'Súper' }), share({ id: 'b' })];
-    expect(importsCardHeading(1, { queued: [], importing: null, waitReason: null })).toEqual({
+    expect(importsCardHeading(1, { queued: [], failed: [], offline: false })).toEqual({
       tone: 'failed',
       title: 'No se pudo importar: 1 receta',
       subtitle: null,
     });
-    expect(importsCardHeading(2, { queued, importing: null, waitReason: 'offline' })?.subtitle).toBe(
+    expect(importsCardHeading(2, { queued, failed: [], offline: true })?.subtitle).toBe(
       '2 más en espera · No tienes conexión. Se importarán cuando vuelvas a estar en línea.',
     );
-    expect(importsCardHeading(0, { queued, importing: { id: 'a', position: 1, total: 2 }, waitReason: null })).toEqual({
-      tone: 'importing',
-      title: 'Importando 1 de 2…',
-      subtitle: 'Pozole · a Súper',
-    });
-    expect(importsCardHeading(0, { queued, importing: null, waitReason: null })).toEqual({
+    expect(importsCardHeading(0, { queued, failed: [], offline: false })).toEqual({
       tone: 'waiting',
       title: '2 recetas en espera',
-      subtitle: 'En espera para importar',
+      subtitle: 'Las prepararemos en segundo plano.',
     });
   });
 

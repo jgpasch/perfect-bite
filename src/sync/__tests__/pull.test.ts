@@ -2621,3 +2621,93 @@ describe('applyRemoteDelete (per-user rows deleted on another device)', () => {
     expect(db.select().from(householdCategoryOverrides).all()).toHaveLength(1);
   });
 });
+
+describe('a share imported on the server (spec 4.10, 6.12)', () => {
+  // commit_share_import's clocks: device `srv`, its wall ahead of every clock on the rows it updates.
+  const SRV = (counter: number) => `9000000000001-${String(counter).padStart(4, '0')}-srv`;
+  const R = 'recipe-share-1';
+
+  beforeEach(async () => {
+    seedPulledList();
+    // Milk was bought (checked) earlier; this device has pulled it.
+    put('list_items', remoteItem('i1', ts(2), { checked_at: ts(1), checked_by: 'u2' }));
+    put('list_item_contributions', remoteContribution('c0', 'i1', ts(2), 1));
+    await pullNow();
+  });
+
+  test('reaches the device through the ordinary pull: recipe, reopened item, new item and contributions', async () => {
+    // Meanwhile this device edits the milk's note, not yet pushed.
+    updateRows(db, listItems, eq(listItems.id, 'i1'), { note: 'oat' });
+    const noteClock = itemRow('i1')!.fieldClock.note;
+    // The server commits the import: the recipe, milk reopened with the recipe's amount, and lemon added.
+    put('recipes', {
+      id: R,
+      household_id: H1,
+      name: 'Lemon pasta',
+      notes: null,
+      source_url: 'https://example.com/lemon-pasta',
+      tags: null,
+      tags_edited: false,
+      total_minutes: null,
+      added_by: 'u1',
+      deleted_at: null,
+      field_clock: { household_id: SRV(0), name: SRV(0), notes: SRV(0), source_url: SRV(0), deleted_at: SRV(0) },
+      created_at: ts(10),
+      updated_at: ts(10),
+    });
+    server.list_items = [
+      remoteItem('i1', ts(10), {
+        checked_at: null,
+        checked_by: null,
+        field_clock: { ...ITEM_CLOCK, checked_at: SRV(1), checked_by: SRV(1) },
+      }),
+      remoteItem('i2', ts(10), {
+        ingredient_name: 'lemon',
+        display_name: 'lemon',
+        added_by: 'u1',
+        field_clock: Object.fromEntries(Object.keys(ITEM_CLOCK).map((k) => [k, SRV(3)])),
+        created_at: ts(10),
+      }),
+    ];
+    server.list_item_contributions = [
+      { ...remoteContribution('c0', 'i1', ts(10), 1), deleted_at: ts(10), field_clock: { list_item_id: OLD, quantity: OLD, deleted_at: SRV(2) } },
+      { ...remoteContribution('c1', 'i1', ts(10), 2), source: 'recipe', recipe_id: R, added_by: 'u1', field_clock: { list_item_id: SRV(2), quantity: SRV(2) } },
+      { ...remoteContribution('c2', 'i2', ts(10), 1), source: 'recipe', recipe_id: R, added_by: 'u1', field_clock: { list_item_id: SRV(4), quantity: SRV(4) } },
+    ];
+
+    await pullNow();
+
+    expect(db.select({ name: recipes.name, addedBy: recipes.addedBy }).from(recipes).where(eq(recipes.id, R)).get()).toEqual({
+      name: 'Lemon pasta',
+      addedBy: 'u1',
+    });
+    expect(db.select().from(recipes).where(eq(recipes.id, R)).get()!.fieldClock).toMatchObject({ name: SRV(0) });
+    // Reopened by the server's newer clock; the note the server didn't touch keeps this device's edit.
+    expect(itemRow('i1')).toMatchObject({ checkedAt: null, checkedBy: null, note: 'oat' });
+    expect(itemRow('i1')!.fieldClock).toMatchObject({ checked_at: SRV(1), note: noteClock });
+    expect(contributionsOf('i1')).toEqual(['c0', 'c1']);
+    expect(db.select().from(listItemContributions).where(eq(listItemContributions.id, 'c0')).get()!.deletedAt).toEqual(new Date(ts(10)));
+    expect(db.select().from(listItemContributions).where(eq(listItemContributions.id, 'c1')).get()).toMatchObject({
+      source: 'recipe',
+      recipeId: R,
+      quantity: 2,
+    });
+    expect(itemRow('i2')).toMatchObject({ ingredientName: 'lemon', checkedAt: null });
+    expect(contributionsOf('i2')).toEqual(['c2']);
+    // Nothing pulled goes back up; only the note edit waits to be pushed.
+    expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ note: 'oat' }]);
+    // The next local write orders after the server's clocks, as after any remote change.
+    expect(compareHlc(nextHlc(), SRV(4))).toBeGreaterThan(0);
+  });
+
+  test("a pull again (Realtime's overlap) changes nothing", async () => {
+    server.list_items = [
+      remoteItem('i1', ts(10), { checked_at: null, checked_by: null, field_clock: { ...ITEM_CLOCK, checked_at: SRV(1), checked_by: SRV(1) } }),
+    ];
+    await pullNow();
+    const first = itemRow('i1');
+    await pullNow();
+    expect(itemRow('i1')).toEqual(first);
+    expect(outboxRows()).toEqual([]);
+  });
+});

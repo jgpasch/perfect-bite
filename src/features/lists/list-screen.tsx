@@ -145,10 +145,9 @@ import { takePendingListAdd, useAddButton } from '@/features/tabs/add-button';
 import { addModeEnded, type AddHintContext } from '@/features/tabs/add-hint';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
 import { dismissListPushes, markListVisible, onListUnavailable, takeListUnavailable } from '@/features/push/receiving';
-import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
+import { importedToast, savedRecipeToast } from '@/features/recipes/import-sheet';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
 import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
-import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedRecipeWithStaplesToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import {
   clearManualOrder,
@@ -713,34 +712,6 @@ export function ListScreen({ id }: { id: string }) {
       show();
       return onListUnavailable(show);
     }, [t]),
-  );
-  // Recipes shared to the extension (spec 4.10): one with Undo and View recipe, several as one toast.
-  // Recipe-only shares put nothing on a list, so they get no list toast.
-  useFocusEffect(
-    useCallback(
-      () =>
-        onShareImports((all) => {
-          const imported = all.filter((result) => result.listId !== null);
-          if (imported.length === 0) return;
-          if (imported.length > 1) {
-            setToast({ key: `shared-${Date.now()}`, ...sharedImportsToast(imported.length), actions: [] });
-            return;
-          }
-          const [result] = imported;
-          setToast({
-            key: `shared-${result.recipeId}-${Date.now()}`,
-            ...importedToast(result.recipeName, result.added),
-            actions: [
-              { label: t('common.undo'), onPress: () => (result.undo(), setToast(null)) },
-              {
-                label: t('common.viewRecipe'),
-                onPress: () => (setToast(null), router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } })),
-              },
-            ],
-          });
-        }),
-      [t],
-    ),
   );
 
   // Spec 4.6: Check all on a section (its header's swipe right, a recipe's menu), with Undo.

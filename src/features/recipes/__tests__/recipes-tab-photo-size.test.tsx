@@ -87,7 +87,7 @@ jest.mock('@/db/live-query', () => ({
   useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
 }));
 jest.mock('@/features/categories/categorization', () => ({ categorizePending: () => Promise.resolve() }));
-jest.mock('@/features/recipes/share-drain', () => ({ onShareImports: () => () => {}, removeQueuedShare: () => {} }));
+jest.mock('@/features/recipes/share-reconcile', () => ({ removeQueuedShare: () => false, retryShareImport: async () => true }));
 jest.mock('expo-router', () => {
   const { createElement, Fragment, useEffect } = require('react');
   const passThrough = () =>
