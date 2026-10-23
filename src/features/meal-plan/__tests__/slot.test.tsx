@@ -8,7 +8,15 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 
 import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
-import { createRecipe } from '@/features/recipes/recipes';
+import type { FavoritesByRecipe } from '@/features/recipes/favorites';
+import {
+  activeFilterCount,
+  noRecipeFilters,
+  toggleRecipeFilter,
+  untaggedOnlyFilters,
+  type RecipeFilters,
+} from '@/features/recipes/recipe-filters';
+import { createRecipe, recipesQuery } from '@/features/recipes/recipes';
 import { setDeviceSetting, PLAN_VIEW_KEY } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
@@ -19,7 +27,16 @@ import PlanSlotSheet from '@/app/plan-slot';
 import { i18n } from '@/i18n';
 
 import { groupWeek, weekEntriesQuery } from '../queries';
-import { openMealSheet, promptNote, type SlotToast, slotMenuActions, slotSheetRecipes } from '../slot-actions';
+import {
+  openMealSheet,
+  promptNote,
+  quickChipOn,
+  recipeAddedLabel,
+  type SlotToast,
+  slotMenuActions,
+  slotSheetRecipes,
+  toggleQuickChip,
+} from '../slot-actions';
 import type { Meal } from '../week';
 import { addRecipeToSlot, setSlot } from '../write';
 
@@ -174,38 +191,191 @@ const recipeRows = () =>
     .map((n) => n.props.accessibilityLabel as string);
 
 describe('slotSheetRecipes', () => {
+  const tags = (t: Partial<RecipeTags>): RecipeTags => ({ ...emptyRecipeTags(), ...t });
+  const at = (day: number, hour = 12) => new Date(2026, 9, day, hour);
   const all = () => [
-    { id: 't', name: 'Chicken tacos', householdId: 'h', tags: { ...emptyRecipeTags(), meal: ['dinner'] } },
-    { id: 'e', name: 'Énsalada verde', householdId: 'h', tags: { ...emptyRecipeTags(), meal: ['lunch', 'dinner'] } },
-    { id: 'a', name: 'apple crumble', householdId: 'h', tags: { ...emptyRecipeTags(), meal: ['dinner'] } },
-    { id: 'j', name: 'Jalapeño poppers', householdId: 'h', tags: null },
-    { id: 'x', name: 'Beach chili', householdId: 'other', tags: { ...emptyRecipeTags(), meal: ['dinner'] } },
+    { id: 't', name: 'Chicken tacos', householdId: 'h', tags: tags({ meal: ['dinner'] }), totalMinutes: 25, createdAt: at(10) },
+    {
+      id: 'e',
+      name: 'Énsalada verde',
+      householdId: 'h',
+      tags: tags({ meal: ['lunch', 'dinner'], saved: ['want-to-try'] }),
+      totalMinutes: null,
+      createdAt: at(14),
+    },
+    { id: 'a', name: 'apple crumble', householdId: 'h', tags: tags({ meal: ['dinner'] }), totalMinutes: 90, createdAt: at(10) },
+    { id: 'j', name: 'Jalapeño poppers', householdId: 'h', tags: null, totalMinutes: null, createdAt: at(15, 9) },
+    { id: 'x', name: 'Beach chili', householdId: 'other', tags: tags({ meal: ['dinner'] }), totalMinutes: null, createdAt: at(15, 11) },
   ];
   const ids = (r: { id: string }[]) => r.map((x) => x.id);
+  const none = noRecipeFilters();
+  const list = (opts: Partial<{ query: string; filters: RecipeFilters; sort: 'recent' | 'name' }>, favorites?: FavoritesByRecipe) =>
+    ids(slotSheetRecipes(all(), { householdId: 'h', query: '', filters: none, sort: 'recent', ...opts }, favorites, 'en'));
 
-  test("the household's recipes with the meal tag, A–Z ignoring case and accents", () => {
-    expect(ids(slotSheetRecipes(all(), { householdId: 'h', meal: 'dinner', query: '', showAll: false }, 'en'))).toEqual(['a', 't', 'e']);
-    expect(ids(slotSheetRecipes(all(), { householdId: 'h', meal: 'lunch', query: '', showAll: false }, 'en'))).toEqual(['e']);
-    expect(ids(slotSheetRecipes(all(), { householdId: 'h', meal: 'breakfast', query: '', showAll: false }, 'en'))).toEqual([]);
+  test("Newest first: every recipe of the household (tagged or not), newest added first, ties A–Z ignoring case and accents", () => {
+    expect(list({})).toEqual(['j', 'e', 'a', 't']);
   });
 
-  test('Show all drops the meal filter, but never shows another household', () => {
-    expect(ids(slotSheetRecipes(all(), { householdId: 'h', meal: 'breakfast', query: '', showAll: true }, 'en'))).toEqual([
-      'a',
-      't',
-      'e',
-      'j',
+  test('A–Z ignores case and accents, and never shows another household', () => {
+    expect(list({ sort: 'name' })).toEqual(['a', 't', 'e', 'j']);
+  });
+
+  test('A–Z breaks a tie on the name by the other names around it (stable, same name together)', () => {
+    const twins = [
+      { id: '1', name: 'Tacos', householdId: 'h', tags: null, totalMinutes: null, createdAt: at(1) },
+      { id: '2', name: 'tacos', householdId: 'h', tags: null, totalMinutes: null, createdAt: at(3) },
+      { id: '3', name: 'Apple', householdId: 'h', tags: null, totalMinutes: null, createdAt: at(2) },
+    ];
+    expect(ids(slotSheetRecipes(twins, { householdId: 'h', query: '', filters: none, sort: 'name' }, undefined, 'en'))).toEqual([
+      '3',
+      '1',
+      '2',
+    ]);
+    // Newest first with the same time: A–Z.
+    const sameTime = twins.map((r) => ({ ...r, createdAt: at(5) }));
+    expect(ids(slotSheetRecipes(sameTime, { householdId: 'h', query: '', filters: none, sort: 'recent' }, undefined, 'en'))).toEqual([
+      '3',
+      '1',
+      '2',
     ]);
   });
 
-  test('search looks through all the household’s recipes by name, ignoring case and accents', () => {
-    const search = (query: string) => ids(slotSheetRecipes(all(), { householdId: 'h', meal: 'breakfast', query, showAll: false }, 'en'));
-    expect(search('JALAPENO')).toEqual(['j']);
-    expect(search('ensalada')).toEqual(['e']);
-    expect(search('p')).toEqual(['a', 'j']);
-    expect(search('A')).toEqual(['a', 't', 'e', 'j']);
-    expect(search('chili')).toEqual([]);
-    expect(search('  ')).toEqual([]); // blank: the meal filter still applies
+  test('search looks through the household’s recipes by name, ignoring case and accents', () => {
+    expect(list({ query: 'JALAPENO' })).toEqual(['j']);
+    expect(list({ query: 'ensalada' })).toEqual(['e']);
+    expect(list({ query: 'p', sort: 'name' })).toEqual(['a', 'j']);
+    expect(list({ query: 'chili' })).toEqual([]);
+    expect(list({ query: '  ' })).toEqual(['j', 'e', 'a', 't']); // blank: everything
+  });
+
+  test('filters narrow the list and combine with search and the sort', () => {
+    const dinner = toggleQuickChip(none, 'meal', 'dinner');
+    expect(list({ filters: dinner })).toEqual(['e', 'a', 't']);
+    expect(list({ filters: dinner, sort: 'name' })).toEqual(['a', 't', 'e']);
+    expect(list({ filters: toggleQuickChip(none, 'meal', 'breakfast') })).toEqual([]);
+    expect(list({ filters: toggleQuickChip(dinner, 'want-to-try', 'dinner') })).toEqual(['e']);
+    expect(list({ filters: toggleRecipeFilter(dinner, 'time', 'under-30') })).toEqual(['t']);
+    expect(list({ filters: dinner, query: 'c' })).toEqual(['a', 't']);
+    expect(list({ filters: dinner, query: 'poppers' })).toEqual([]);
+    expect(list({ filters: untaggedOnlyFilters() })).toEqual(['j']);
+  });
+
+  test("Favorites matches anyone's favorite in the household, from the favorites data", () => {
+    const favorites: FavoritesByRecipe = new Map([
+      ['t', { mine: false, others: ['user-2'] }],
+      ['j', { mine: true, others: [] }],
+      ['x', { mine: true, others: [] }],
+    ]);
+    const fav = toggleQuickChip(none, 'favorites', 'dinner');
+    expect(list({ filters: fav }, favorites)).toEqual(['j', 't']);
+    expect(list({ filters: fav })).toEqual([]); // no favorites data: none
+    expect(list({ filters: toggleRecipeFilter(none, 'saved', 'my-favorites') }, favorites)).toEqual(['j']);
+    expect(list({ filters: toggleQuickChip(fav, 'meal', 'dinner') }, favorites)).toEqual(['t']);
+  });
+});
+
+describe('quick chips', () => {
+  const none = noRecipeFilters();
+
+  test('the meal chip is tags.meal holding the slot’s meal, on and off', () => {
+    const on = toggleQuickChip(none, 'meal', 'lunch');
+    expect(on.tags.meal).toEqual(['lunch']);
+    expect(quickChipOn(on, 'meal', 'lunch')).toBe(true);
+    expect(quickChipOn(on, 'meal', 'dinner')).toBe(false);
+    expect(on).toEqual({ ...none, tags: { ...none.tags, meal: ['lunch'] } });
+    const off = toggleQuickChip(on, 'meal', 'lunch');
+    expect(off).toEqual(none);
+    expect(quickChipOn(off, 'meal', 'lunch')).toBe(false);
+  });
+
+  test('Favorites is the Favorites filter value, not a tag, and leaves My favorites alone', () => {
+    const mine = toggleRecipeFilter(none, 'saved', 'my-favorites');
+    const on = toggleQuickChip(mine, 'favorites', 'dinner');
+    expect(on.favorites).toEqual(['my-favorites', 'favorites']);
+    expect(on.tags.saved).toEqual([]);
+    expect(quickChipOn(on, 'favorites', 'dinner')).toBe(true);
+    expect(quickChipOn(mine, 'favorites', 'dinner')).toBe(false);
+    const off = toggleQuickChip(on, 'favorites', 'dinner');
+    expect(off.favorites).toEqual(['my-favorites']);
+  });
+
+  test('Want to try is tags.saved want-to-try, and keeps the favorites values in the same facet', () => {
+    let filters = toggleRecipeFilter(none, 'saved', 'my-favorites');
+    filters = toggleRecipeFilter(filters, 'saved', 'favorites');
+    const on = toggleQuickChip(filters, 'want-to-try', 'dinner');
+    expect(on.tags.saved).toEqual(['want-to-try']);
+    expect(on.favorites).toEqual(['my-favorites', 'favorites']);
+    expect(quickChipOn(on, 'want-to-try', 'dinner')).toBe(true);
+    expect(quickChipOn(on, 'favorites', 'dinner')).toBe(true);
+    const off = toggleQuickChip(on, 'want-to-try', 'dinner');
+    expect(off.tags.saved).toEqual([]);
+    expect(off.favorites).toEqual(['my-favorites', 'favorites']);
+    expect(quickChipOn(off, 'want-to-try', 'dinner')).toBe(false);
+  });
+
+  test("recipesQuery gives each recipe's createdAt", () => {
+    const row = recipesQuery()
+      .all()
+      .find((r) => r.id === tacos)!;
+    expect(row.createdAt).toEqual(new Date(2026, 9, 15, 12, 0));
+  });
+
+  test('a chip leaves the other facets, the time and the other chips as they were, and counts in Filters', () => {
+    let filters = toggleRecipeFilter(none, 'cuisine', 'mexican');
+    filters = toggleRecipeFilter(filters, 'time', 'under-30');
+    filters = toggleRecipeFilter(filters, 'meal', 'breakfast');
+    const on = toggleQuickChip(toggleQuickChip(filters, 'meal', 'dinner'), 'want-to-try', 'dinner');
+    expect(on.tags.cuisine).toEqual(['mexican']);
+    expect(on.time).toEqual(['under-30']);
+    expect(on.tags.meal).toEqual(['breakfast', 'dinner']);
+    expect(activeFilterCount(on)).toBe(5);
+    expect(quickChipOn(on, 'favorites', 'dinner')).toBe(false);
+    expect(toggleQuickChip(toggleQuickChip(on, 'meal', 'dinner'), 'want-to-try', 'dinner')).toEqual(filters);
+  });
+
+  test('a chip turns Untagged off', () => {
+    const on = toggleQuickChip(untaggedOnlyFilters(), 'meal', 'dinner');
+    expect(on.untagged).toBe(false);
+    expect(on.tags.meal).toEqual(['dinner']);
+  });
+});
+
+describe('recipeAddedLabel', () => {
+  afterEach(() => void i18n.changeLanguage('en'));
+  const now = new Date(2026, 9, 22, 0, 5); // Thu Oct 22, just after midnight
+
+  test('today and yesterday by the local calendar day, around midnight', () => {
+    expect(recipeAddedLabel(new Date(2026, 9, 22, 0, 0), now)).toBe('Added today');
+    expect(recipeAddedLabel(new Date(2026, 9, 21, 23, 59), now)).toBe('Added yesterday');
+    expect(recipeAddedLabel(new Date(2026, 9, 21, 0, 0), now)).toBe('Added yesterday');
+    expect(recipeAddedLabel(new Date(2026, 9, 20, 23, 59), now)).toBe('Added Tue');
+    expect(recipeAddedLabel(new Date(2026, 9, 21, 23, 59), new Date(2026, 9, 21, 23, 59, 30))).toBe('Added today');
+    // A clock that's behind: today.
+    expect(recipeAddedLabel(new Date(2026, 9, 23, 8), now)).toBe('Added today');
+  });
+
+  test('the weekday for the last seven days, then the date', () => {
+    expect(recipeAddedLabel(new Date(2026, 9, 19, 9), now)).toBe('Added Mon');
+    expect(recipeAddedLabel(new Date(2026, 9, 16, 9), now)).toBe('Added Fri');
+    expect(recipeAddedLabel(new Date(2026, 9, 15, 23, 59), now)).toBe('Added Oct 15');
+    expect(recipeAddedLabel(new Date(2026, 9, 12, 9), now)).toBe('Added Oct 12');
+  });
+
+  test('the year only in another year, across the year boundary', () => {
+    const newYear = new Date(2027, 0, 1, 0, 1);
+    expect(recipeAddedLabel(new Date(2026, 11, 31, 23, 59), newYear)).toBe('Added yesterday');
+    expect(recipeAddedLabel(new Date(2026, 11, 28, 10), newYear)).toBe('Added Mon');
+    expect(recipeAddedLabel(new Date(2026, 11, 24, 10), newYear)).toBe('Added Dec 24, 2026');
+    expect(recipeAddedLabel(new Date(2025, 9, 12, 10), now)).toBe('Added Oct 12, 2025');
+  });
+
+  test('in Spanish', async () => {
+    await i18n.changeLanguage('es');
+    expect(recipeAddedLabel(new Date(2026, 9, 22, 0, 0), now)).toBe('Agregada hoy');
+    expect(recipeAddedLabel(new Date(2026, 9, 21, 23, 59), now)).toBe('Agregada ayer');
+    expect(recipeAddedLabel(new Date(2026, 9, 19, 9), now)).toBe('Agregada el lun');
+    expect(recipeAddedLabel(new Date(2026, 9, 12, 9), now)).toBe('Agregada el 12 oct');
+    expect(recipeAddedLabel(new Date(2025, 9, 12, 9), now)).toBe('Agregada el 12 oct 2025');
   });
 });
 

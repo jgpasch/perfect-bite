@@ -32,6 +32,7 @@ export function recipesQuery() {
       sourceUrl: recipes.sourceUrl,
       imageUrl: recipes.imageUrl,
       photoPath: recipes.photoPath,
+      createdAt: recipes.createdAt,
       updatedAt: recipes.updatedAt,
       tags: recipes.tags,
       totalMinutes: recipes.totalMinutes,

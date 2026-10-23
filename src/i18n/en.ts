@@ -944,6 +944,10 @@ export const en = {
     /** The slot sheet with no recipes tagged with the meal: "No recipes tagged Dinner yet". */
     noMealRecipes: 'No recipes tagged {{meal}} yet',
     noRecipes: 'No recipes yet',
+    /** A slot sheet row's added line: "Added today", "Added Mon" (the last week), "Added Oct 12". */
+    addedToday: 'Added today',
+    addedYesterday: 'Added yesterday',
+    addedOn: 'Added {{date}}',
     /** The free-text note prompt. */
     notePrompt: 'Note',
     noteMessage: 'Up to {{max}} characters',

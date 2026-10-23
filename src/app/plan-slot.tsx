@@ -11,10 +11,11 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { MealHues } from '@/constants/theme';
 import { groupWeek, weekEntriesQuery } from '@/features/meal-plan/queries';
-import { promptNote, slotSheetRecipes } from '@/features/meal-plan/slot-actions';
+import { promptNote, slotSheetRecipes, toggleQuickChip } from '@/features/meal-plan/slot-actions';
 import { type Meal, MEALS } from '@/features/meal-plan/week';
 import { mealLabel, sheetDayLabel } from '@/features/meal-plan/week-view';
 import { addRecipeToSlot, type EntryInput, setSlot } from '@/features/meal-plan/write';
+import { noRecipeFilters } from '@/features/recipes/recipe-filters';
 import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
 import { NO_RECIPES_MATCH } from '@/features/recipes/recipe-search';
 import { recipeTimeLabel } from '@/features/recipes/recipe-view';
@@ -53,7 +54,17 @@ export default function PlanSlotSheet() {
   const [showAll, setShowAll] = useState(false);
   const searching = query.trim() !== '';
   const shown = useMemo(
-    () => (isMeal(meal) ? slotSheetRecipes(recipes, { householdId, meal, query, showAll }) : []),
+    // TODO(slot sheet layout): until the chips and Not cooking? bar land, the meal tag stands in for
+    // the meal chip, and Show all and searching turn it off.
+    () =>
+      isMeal(meal)
+        ? slotSheetRecipes(recipes, {
+            householdId,
+            query,
+            filters: showAll || query.trim() !== '' ? noRecipeFilters() : toggleQuickChip(noRecipeFilters(), 'meal', meal),
+            sort: 'name',
+          })
+        : [],
     [recipes, householdId, meal, query, showAll],
   );
 

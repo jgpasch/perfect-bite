@@ -6,8 +6,15 @@ import { ActionSheetIOS, Alert } from 'react-native';
 
 import type { ToastAction } from '@/components/toast';
 import type { MealPlanEntry } from '@/db';
+import type { FavoritesByRecipe } from '@/features/recipes/favorites';
+import {
+  isFilterPicked,
+  matchesRecipeFilters,
+  toggleRecipeFilter,
+  type RecipeFilters,
+} from '@/features/recipes/recipe-filters';
 import { searchRecipes } from '@/features/recipes/recipe-search';
-import { currentLanguage, i18n, type Language } from '@/i18n';
+import { currentLanguage, formatDate, i18n, shortDate, type Language } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
 import type { PlanEntry } from './queries';
@@ -18,21 +25,58 @@ import { clearSlot, NOTE_MAX_LENGTH, restoreEntries, restoreSlot, setSlot } from
 /** A toast for the screen showing the week, or null to take it down. */
 export type SlotToast = { key: string; message: string; emphasis?: string; actions: ToastAction[] };
 
+/** The slot sheet's sort (spec 4.16): Newest first (by when the recipe was added) or A–Z. */
+export type SlotSheetSort = 'recent' | 'name';
+
 /**
- * The slot sheet's recipes: the household's recipes tagged with the meal, or all of them with Show all
- * recipes or while searching (names only, ignoring case and accents, as the Recipes tab), A–Z.
+ * The slot sheet's recipes (spec 4.16): the household's recipes matching the search (names only,
+ * ignoring case and accents, as the Recipes tab) and the filters, newest added first or A–Z, ties
+ * A–Z. `favorites`: every recipe's, as `useRecipeFavorites` gives them.
  */
-export function slotSheetRecipes<R extends { id: string; name: string; householdId: string; tags: RecipeTags | null }>(
+export function slotSheetRecipes<
+  R extends { id: string; name: string; householdId: string; tags: RecipeTags | null; totalMinutes: number | null; createdAt: Date },
+>(
   recipes: readonly R[],
-  { householdId, meal, query, showAll }: { householdId: string; meal: Meal; query: string; showAll: boolean },
+  { householdId, query, filters, sort }: { householdId: string; query: string; filters: RecipeFilters; sort: SlotSheetSort },
+  favorites: FavoritesByRecipe = new Map(),
   language: Language = currentLanguage(),
 ): R[] {
-  const own = recipes.filter((r) => r.householdId === householdId);
-  const all = showAll || query.trim() !== '';
-  const shown = all ? own : own.filter((r) => (r.tags?.meal ?? []).includes(meal));
-  return searchRecipes(shown, [], query)
+  const own = recipes.filter((r) => r.householdId === householdId && matchesRecipeFilters(r, filters, favorites));
+  const byName = (a: R, b: R) => a.name.localeCompare(b.name, language, { sensitivity: 'base' });
+  return searchRecipes(own, [], query)
     .map(({ recipe }) => recipe)
-    .sort((a, b) => a.name.localeCompare(b.name, language, { sensitivity: 'base' }));
+    .sort(sort === 'recent' ? (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || byName(a, b) : byName);
+}
+
+/** The slot sheet's quick chips: the slot's meal, Favorites (anyone's) and Want to try. */
+export type QuickChip = 'meal' | 'favorites' | 'want-to-try';
+
+/** Whether a quick chip's filter value is on: `tags.meal` holding `meal`, Favorites, `tags.saved` Want to try. */
+export function quickChipOn(filters: RecipeFilters, chip: QuickChip, meal: Meal): boolean {
+  if (chip === 'meal') return isFilterPicked(filters, 'meal', meal);
+  return isFilterPicked(filters, 'saved', chip);
+}
+
+/** Turns a quick chip's filter value on or off, leaving every other value as it is. */
+export function toggleQuickChip(filters: RecipeFilters, chip: QuickChip, meal: Meal): RecipeFilters {
+  return chip === 'meal' ? toggleRecipeFilter(filters, 'meal', meal) : toggleRecipeFilter(filters, 'saved', chip);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * A slot sheet row's added line, in local time: "Added today", "Added yesterday", "Added Mon" within
+ * the last week, else "Added Oct 12" ("Added Oct 12, 2025" in another year), in the app's language.
+ * A date ahead of `now` (a clock that's behind) reads today.
+ */
+export function recipeAddedLabel(createdAt: Date, now: Date): string {
+  // Round: a day across a daylight-saving change is 23 or 25 hours.
+  const days = Math.round((startOfDay(now) - startOfDay(createdAt)) / DAY_MS);
+  if (days <= 0) return i18n.t('mealPlan.addedToday');
+  if (days === 1) return i18n.t('mealPlan.addedYesterday');
+  if (days < 7) return i18n.t('mealPlan.addedOn', { date: formatDate(createdAt, { weekday: 'short' }) });
+  return i18n.t('mealPlan.addedOn', { date: shortDate(createdAt, now) });
 }
 
 export type SlotMenuAction = 'replace' | 'editNote' | 'clear';
