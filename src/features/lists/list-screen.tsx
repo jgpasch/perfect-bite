@@ -45,15 +45,10 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
-import { categories, db, households, lists, userCategoryOrder } from '@/db';
+import { db, households, lists } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { aisleColor } from '@/domain/aisle-color';
-import {
-  groupByCategory,
-  orderCategories,
-  sectionAccessibilityLabel,
-  SORTING_CATEGORY_ID,
-} from '@/domain/category-resolver';
+import { groupByCategory, sectionAccessibilityLabel, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
 import { getAccount } from '@/features/auth/account';
@@ -62,7 +57,8 @@ import { ListInviteCards } from '@/features/households/invite-cards';
 import { useMemberNames } from '@/features/households/member-names';
 import { useMyInvites } from '@/features/households/my-invites';
 import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/aisle-order';
-import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
+import { localFamilyKey } from '@/features/categories/categories';
+import { useAisleOrder } from '@/features/categories/use-aisle-order';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
 import { AddingDots, AddingPill } from '@/features/lists/adding-pill';
@@ -169,7 +165,6 @@ import { recordListOpened } from '@/features/siri/list-snapshot';
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
-import { withAisleNames } from '@/i18n/vocabulary';
 import { displayItemName } from '@/shared';
 
 /** `recipeId`: a By recipe row, showing only that recipe's amounts. */
@@ -266,16 +261,10 @@ export function ListScreen({ id }: { id: string }) {
   );
   // Rows are placed by `placed`, but drawn (checked or not) as the item really is.
   const itemById = useMemo(() => new Map([...unchecked, ...checked].map((item) => [item.id, item])), [unchecked, checked]);
-  // The list household's aisles (spec 4.3.2), in this user's order.
+  // The list household's aisles (spec 4.3.2) in the order this user follows there (4.3.3), system
+  // aisles named in the app's language (4.15).
   const householdId = list?.householdId ?? '';
-  const { data: storedCategoryRows } = useLiveQueryOn(
-    categoriesQuery(userId ?? '', householdId),
-    [categories, userCategoryOrder],
-    [userId, householdId],
-  );
-  // System aisles named in the app's language (spec 4.15).
-  const categoryRows = useMemo(() => withAisleNames(storedCategoryRows), [storedCategoryRows]);
-  const orderedCategories = useMemo(() => orderCategories(categoryRows), [categoryRows]);
+  const { categories: orderedCategories } = useAisleOrder(userId ?? '', householdId);
   const sections = useMemo(() => groupByCategory(orderedCategories, placed), [orderedCategories, placed]);
 
   // Spec 4.1: the screen stays on while shopping this list and something on it is still to get.
@@ -387,8 +376,8 @@ export function ListScreen({ id }: { id: string }) {
   const highlightedId = toast?.itemId ?? null;
   // Spec 4.7: a pinned invite's failed Join or Decline says why in the list's toast.
   const showInviteMessage = useCallback((message: string) => setToast({ key: `invite-${Date.now()}`, message, actions: [] }), []);
-  const slugById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.slug])), [categoryRows]);
-  const nameById = useMemo(() => new Map(categoryRows.map((c) => [c.id, c.name])), [categoryRows]);
+  const slugById = useMemo(() => new Map(orderedCategories.map((c) => [c.id, c.slug])), [orderedCategories]);
+  const nameById = useMemo(() => new Map(orderedCategories.map((c) => [c.id, c.name])), [orderedCategories]);
   // An animated ref, so a drag in As added can scroll the list from the UI thread.
   const listRef = useAnimatedRef<FlatList<Block>>();
 

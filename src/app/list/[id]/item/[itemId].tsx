@@ -73,7 +73,7 @@ export default function ItemEditSheet() {
   const [householdName] = useState(() => getItemHouseholdName(itemId));
   const [edit, setEdit] = useState<ItemEdit | null>(initial);
   const [error, setError] = useState<string | null>(null);
-  // The aisles are the list household's (spec 4.3.2), in this user's order.
+  // The aisles are the list household's (spec 4.3.2), in the order this user follows there (4.3.3).
   const [categoryList, setCategoryList] = useState(() =>
     userId && initial ? getOrderedCategories(userId, initial.householdId) : [],
   );
@@ -134,7 +134,7 @@ export default function ItemEditSheet() {
     if (!userId) return;
     Alert.prompt(t('item.newAisle'), undefined, (name) => {
       if (!name?.trim()) return;
-      const id = createCategory(userId, initial.householdId, name);
+      const id = createCategory(initial.householdId, name);
       setCategoryList(getOrderedCategories(userId, initial.householdId));
       chooseCategory(id);
     });

@@ -5,10 +5,10 @@
 //   (one household, the user's tables, or the catalog), so remote changes take the pull's path
 //   (LWW, Combine on clash) and the screens' live queries show them like local writes. Events
 //   within REALTIME_BATCH_MS of the first share one pull.
-// - The one exception is a delete of the user's category order rows: the server hard-deletes
-//   those, so there's nothing to pull, and the event's key is applied directly. (A household's
-//   custom categories and overrides are household data, on its channel; Reset to default writes a
-//   null override rather than deleting one.)
+// - The one exception is a delete of the user's own aisle orders (Use household order): the
+//   server hard-deletes those, so there's nothing to pull, and the event's key is applied
+//   directly. (A household's custom categories, overrides and aisle order are household data, on
+//   its channel; Reset to default writes a null override rather than deleting one.)
 // - Channels: one per household (each table filtered to it), one for the user's rows and
 //   memberships, one for the catalog. A membership event does a full pull, which reads the user's
 //   households again; channels follow it (added and removed). A household's channel also hears
@@ -36,6 +36,7 @@ export const HOUSEHOLD_TABLES = [
   'categories',
   'household_category_overrides',
   'household_staples',
+  'household_category_order',
   'lists',
   'recipes',
   'list_items',
@@ -48,7 +49,7 @@ export const HOUSEHOLD_TABLES = [
 
 /** The user's own tables, by the column naming the user. */
 export const USER_TABLES: Record<string, string> = {
-  user_category_order: 'user_id',
+  user_household_category_order: 'user_id',
   user_settings: 'user_id',
 };
 

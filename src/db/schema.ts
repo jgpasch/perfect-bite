@@ -37,6 +37,11 @@ export const categories = sqliteTable('categories', {
   householdId: text('household_id').references(() => households.id),
   /** Default store-walk order for system categories. */
   defaultRank: integer('default_rank'),
+  /**
+   * When it was made: the server's (pulled, or sent with a new custom aisle). Aisles missing from an
+   * aisle order go after it by this (spec 4.3.3). Null on rows from before it was kept.
+   */
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
   /** Custom categories only; system ones come from the seed and the server. */
   fieldClock: fieldClock(),
 });
@@ -66,21 +71,6 @@ export const ingredients = sqliteTable('ingredients', {
   /** Who made the `sameAs` link: `seed`, a model id or `admin`; null without a link. */
   linkedBy: text('linked_by'),
 });
-
-// --- Per-user aisle order (spec 4.3.3). Never shared with the household. --------------------
-
-export const userCategoryOrder = sqliteTable(
-  'user_category_order',
-  {
-    userId: text('user_id').notNull(),
-    categoryId: text('category_id')
-      .notNull()
-      .references(() => categories.id),
-    position: real('position').notNull(),
-    fieldClock: fieldClock(),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.categoryId] })],
-);
 
 // --- Household data (spec 5) ---------------------------------------------------------------
 // Mirrors the Postgres tables so M5 sync can push rows as they are. Ids are client-generated
@@ -366,6 +356,38 @@ export const mealPlanEntries = sqliteTable(
     ...timestamps,
   },
   (t) => [index('meal_plan_entries_household_date_idx').on(t.householdId, t.planDate)],
+);
+
+/**
+ * The household's aisle order (spec 4.3.3): the whole order, first aisle first, as category ids.
+ * Synced through `apply_mutations` with `category_ids` as one field, so the later save wins whole.
+ * Never deleted.
+ */
+export const householdCategoryOrder = sqliteTable('household_category_order', {
+  householdId: text('household_id')
+    .primaryKey()
+    .references(() => households.id),
+  categoryIds: text('category_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  /** Who saved it last; set by the server, never sent. */
+  updatedBy: text('updated_by'),
+  ...timestamps,
+});
+
+/**
+ * A member's own aisle order for one household (spec 4.3.3), used instead of the household's while
+ * it exists. Per-user: written directly, and deleted (hard) by Use household order.
+ */
+export const userHouseholdCategoryOrder = sqliteTable(
+  'user_household_category_order',
+  {
+    userId: text('user_id').notNull(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    categoryIds: text('category_ids', { mode: 'json' }).$type<string[]>().notNull(),
+    fieldClock: fieldClock(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.householdId] })],
 );
 
 /** Per-user settings (spec 5). Synced in M5. */

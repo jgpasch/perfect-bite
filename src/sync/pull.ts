@@ -34,6 +34,7 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOrder,
   householdCategoryOverrides,
   households,
   householdStaples,
@@ -47,7 +48,7 @@ import {
   outbox,
   recipeIngredients,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
   type FieldClock,
 } from '@/db';
@@ -90,6 +91,7 @@ const HOUSEHOLD_SPECS: PullSpec[] = [
   { table: categories, key: ['id'] },
   { table: householdCategoryOverrides, key: ['householdId', 'ingredientName'] },
   { table: householdStaples, key: ['householdId', 'ingredientName'] },
+  { table: householdCategoryOrder, key: ['householdId'] },
   { table: lists, key: ['id'] },
   { table: recipes, key: ['id'] },
   { table: listItems, key: ['id'] },
@@ -105,12 +107,9 @@ const HOUSEHOLD_SPECS: PullSpec[] = [
   },
 ];
 
-/**
- * The user's own tables. Their order can point at any household's custom categories, which the
- * household jobs bring first.
- */
+/** The user's own tables. Their aisle orders belong to households, which the household jobs bring first. */
 const USER_SPECS: PullSpec[] = [
-  { table: userCategoryOrder, key: ['userId', 'categoryId'] },
+  { table: userHouseholdCategoryOrder, key: ['userId', 'householdId'] },
   { table: userSettings, key: ['userId'] },
 ];
 
@@ -351,7 +350,7 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
 
 /** Per-user tables the server hard-deletes from, by server name: pull can't see those deletes. */
 const HARD_DELETE_SPECS: Record<string, PullSpec> = {
-  user_category_order: USER_SPECS[0],
+  user_household_category_order: USER_SPECS[0],
 };
 
 /**

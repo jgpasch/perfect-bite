@@ -12,8 +12,9 @@ import {
   ingredientUsage,
   ingredients,
   lists,
+  householdCategoryOrder,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
 } from '@/db';
 import { resetDb } from '@/test/db';
@@ -155,31 +156,49 @@ test('a counter-only update sends no fields and leaves field_clock alone', () =>
 });
 
 test('per-user rows have no household and hard-delete with a delete mutation', () => {
-  db.insert(categories).values({ id: 'produce', slug: 'produce', name: 'Produce' }).run();
+  addHousehold();
   upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
-  insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'produce', position: 1 });
-
-  expect(deleteRows(db, userCategoryOrder, eq(userCategoryOrder.userId, 'u1'))).toBe(1);
-
-  expect(outboxPatches()).toEqual([
-    { table: 'user_settings', key: { user_id: 'u1' }, fields: { default_list_id: null } },
-    { table: 'user_category_order', key: { user_id: 'u1', category_id: 'produce' }, fields: { position: 1 } },
-    { table: 'user_category_order', key: { user_id: 'u1', category_id: 'produce' }, fields: {}, delete: true },
+  insertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H, categoryIds: ['produce'] });
+  const key = { user_id: 'u1', household_id: H };
+  expect(outboxPatches().slice(2)).toEqual([
+    { table: 'user_household_category_order', key, fields: { category_ids: ['produce'] } },
   ]);
-  expect(outboxRows().map((r) => r.householdId)).toEqual([null, null, null]);
-  expect(db.select().from(userCategoryOrder).all()).toEqual([]);
+
+  expect(deleteRows(db, userHouseholdCategoryOrder, eq(userHouseholdCategoryOrder.userId, 'u1'))).toBe(1);
+
+  // The delete replaced the queued insert of the same order (an aisle order coalesces).
+  expect(outboxPatches().slice(1)).toEqual([
+    { table: 'user_settings', key: { user_id: 'u1' }, fields: { default_list_id: null } },
+    { table: 'user_household_category_order', key, fields: {}, delete: true },
+  ]);
+  expect(outboxRows().slice(1).map((r) => r.householdId)).toEqual([null, null]);
+  expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
+});
+
+test("the household aisle order is household data keyed by household, sending only category_ids", () => {
+  addHousehold();
+  const row = insertRow(db, householdCategoryOrder, { householdId: H, categoryIds: ['a', 'b'], updatedBy: 'u9', createdAt: AT });
+  expect(row).toMatchObject({ householdId: H, categoryIds: ['a', 'b'] });
+  updateRows(db, householdCategoryOrder, eq(householdCategoryOrder.householdId, H), { categoryIds: ['b', 'a'] });
+  // updated_by and created_at are the server's; the update replaced the queued insert.
+  expect(outboxPatches().slice(1)).toEqual([
+    { table: 'household_category_order', key: { household_id: H }, fields: { category_ids: ['b', 'a'] } },
+  ]);
+  expect(outboxRows().slice(1).map((r) => r.householdId)).toEqual([H]);
+  const [m] = outboxMutations().slice(1);
+  expect(db.select().from(householdCategoryOrder).get()).toMatchObject({ categoryIds: ['b', 'a'], fieldClock: { category_ids: m.hlc } });
 });
 
 test("a household's custom categories and overrides are household rows, keyed like the usage tables", () => {
   addHousehold();
   db.insert(categories).values({ id: 'produce', slug: 'produce', name: 'Produce', defaultRank: 0 }).run();
-  insertRow(db, categories, { id: 'bulk', name: 'Bulk', householdId: H });
+  insertRow(db, categories, { id: 'bulk', name: 'Bulk', householdId: H, createdAt: AT });
   upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: 'bulk' }, { categoryId: 'bulk' });
   upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: null }, { categoryId: null });
 
   expect(outboxPatches().slice(1)).toEqual([
-    // A custom category never sends the system-only slug and rank.
-    { table: 'categories', id: 'bulk', fields: { name: 'Bulk', household_id: H } },
+    // A custom category never sends the system-only slug and rank; it sends when it was made (spec 4.3.3).
+    { table: 'categories', id: 'bulk', fields: { name: 'Bulk', household_id: H, created_at: AT.toISOString() } },
     { table: 'household_category_overrides', key: { household_id: H, ingredient_name: 'milk' }, fields: { category_id: 'bulk' } },
     { table: 'household_category_overrides', key: { household_id: H, ingredient_name: 'milk' }, fields: { category_id: null } },
   ]);
@@ -269,7 +288,7 @@ test('the device id is stable', () => {
 });
 
 test('deleteRows only enqueues rows it removed', () => {
-  expect(deleteRows(db, userCategoryOrder, eq(userCategoryOrder.userId, 'nobody'))).toBe(0);
+  expect(deleteRows(db, userHouseholdCategoryOrder, eq(userHouseholdCategoryOrder.userId, 'nobody'))).toBe(0);
   expect(outboxRows()).toEqual([]);
 });
 

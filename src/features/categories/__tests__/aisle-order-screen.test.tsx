@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { AccessibilityInfo } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households } from '@/db';
+import { db, householdCategoryOrder, households, userHouseholdCategoryOrder } from '@/db';
 import { Sizes, Spacing } from '@/constants/theme';
 import { initI18n } from '@/i18n';
 import { SYSTEM_CATEGORIES } from '@/shared';
@@ -14,7 +14,7 @@ import { seedCatalog } from '@/test/seed';
 import CategoryOrderScreen from '@/app/category-order';
 
 import { AisleOrderList, type AisleOrderItem } from '../aisle-order-list';
-import { createCategory, getOrderedCategories } from '../categories';
+import { createCategory, getAisleOrder, getOrderedCategories } from '../categories';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -109,16 +109,19 @@ jest.mock('react-native-gesture-handler', () => {
   };
 });
 const mockBack = jest.fn();
+let mockParams: { householdId?: string } = {};
 jest.mock('expo-router', () => {
   const { createElement, Fragment } = require('react');
   const passThrough = ({ children }: { children?: unknown }) => createElement(Fragment, null, children);
   const Toolbar = Object.assign(passThrough, {
     Button: ({ children, ...props }: { children?: unknown }) => createElement('ToolbarButton', props, children),
   });
-  return { router: { back: () => mockBack() }, Stack: { Toolbar } };
+  return { router: { back: () => mockBack() }, Stack: { Toolbar }, useLocalSearchParams: () => mockParams };
 });
 
 const USER = 'user-1';
+const HOME = 'household-home';
+const CABIN = 'household-cabin';
 const SLOT = Sizes.aisleRow + Spacing.sm;
 
 let tree: ReactTestRenderer | null = null;
@@ -235,6 +238,8 @@ describe('the Aisle order screen', () => {
   beforeEach(() => {
     resetDb();
     seedCatalog();
+    mockParams = {};
+    db.insert(households).values({ id: HOME, name: 'Home', createdAt: new Date(1) }).run();
   });
 
   function render() {
@@ -243,8 +248,8 @@ describe('the Aisle order screen', () => {
     });
     return tree!;
   }
-  /** Names from the database, in the user's order. */
-  const storedOrder = (householdIds: string[] = []) => getOrderedCategories(USER, householdIds).map((c) => c.name);
+  /** Names from the database, in the user's order for Home. */
+  const storedOrder = () => getOrderedCategories(USER, HOME).map((c) => c.name);
 
   it('shows the title and every system aisle in the default order', () => {
     const root = render();
@@ -253,11 +258,17 @@ describe('the Aisle order screen', () => {
     expect(rowLabels(root).map((l) => l.split(',')[0])).toEqual(SYSTEM_CATEGORIES.map((c) => c.name));
   });
 
-  it('a VoiceOver move is saved as the user’s order and shown', () => {
+  it('a VoiceOver move is saved as the user’s own whole order for the household, and shown', () => {
     const root = render();
     const [first, second] = SYSTEM_CATEGORIES.map((c) => c.name);
     a11yAction(rows(root)[0], 'moveDown');
     expect(storedOrder().slice(0, 2)).toEqual([second, first]);
+    expect(getAisleOrder(USER, HOME).source).toBe('personal');
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([
+      expect.objectContaining({ userId: USER, householdId: HOME, categoryIds: getOrderedCategories(USER, HOME).map((c) => c.id) }),
+    ]);
+    // The household's order is left alone.
+    expect(db.select().from(householdCategoryOrder).all()).toEqual([]);
     act(() => tree!.update(<CategoryOrderScreen />));
     expect(rowLabels(root).slice(0, 2)).toEqual([
       `${second}, 1 of ${SYSTEM_CATEGORIES.length}`,
@@ -277,27 +288,36 @@ describe('the Aisle order screen', () => {
     expect(storedOrder().slice(0, 4)).toEqual([names[1], names[2], names[3], names[0]]);
   });
 
-  it('includes custom aisles of every household, naming the household when there are several', () => {
-    db.insert(households).values([
-      { id: 'h1', name: 'Home' },
-      { id: 'h2', name: 'Cabin' },
-    ]).run();
-    createCategory(USER, 'h1', 'Costco');
-    createCategory(USER, 'h2', 'Costco');
+  it("shows one household's aisles: the system ones plus its own custom ones, last", () => {
+    db.insert(households).values({ id: CABIN, name: 'Cabin', createdAt: new Date(2) }).run();
+    createCategory(HOME, 'Costco');
+    createCategory(CABIN, 'Farm stand');
+    // Without a household, the user's first one.
     const root = render();
-    const labels = rowLabels(root);
-    expect(labels).toHaveLength(SYSTEM_CATEGORIES.length + 2);
-    expect(labels.filter((l) => l.startsWith('Costco,'))).toEqual([
-      expect.stringMatching(/^Costco, Home, \d+ of/),
-      expect.stringMatching(/^Costco, Cabin, \d+ of/),
-    ]);
+    expect(rowLabels(root)).toHaveLength(SYSTEM_CATEGORIES.length + 1);
+    expect(rowLabels(root).at(-1)).toBe(`Costco, ${SYSTEM_CATEGORIES.length + 1} of ${SYSTEM_CATEGORIES.length + 1}`);
   });
 
-  it('with one household, a custom aisle has no household line', () => {
-    db.insert(households).values({ id: 'h1', name: 'Home' }).run();
-    createCategory(USER, 'h1', 'Costco');
+  it('opens on the household it is given, and saves to that household only', () => {
+    db.insert(households).values({ id: CABIN, name: 'Cabin', createdAt: new Date(2) }).run();
+    createCategory(CABIN, 'Farm stand');
+    mockParams = { householdId: CABIN };
     const root = render();
-    expect(rowLabels(root).find((l) => l.startsWith('Costco,'))).toMatch(/^Costco, \d+ of/);
+    expect(rowLabels(root).at(-1)).toMatch(/^Farm stand, \d+ of/);
+    a11yAction(rows(root)[0], 'moveDown');
+    expect(db.select().from(userHouseholdCategoryOrder).all().map((r) => r.householdId)).toEqual([CABIN]);
+    expect(storedOrder()).toEqual(SYSTEM_CATEGORIES.map((c) => c.name));
+  });
+
+  it("follows the household order when the user has none, and the user's own over it", () => {
+    const ids = SYSTEM_CATEGORIES.map((c) => c.id);
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [ids[2], ids[0], ids[1]] }).run();
+    let root = render();
+    expect(rowLabels(root)[0]).toMatch(new RegExp(`^${SYSTEM_CATEGORIES[2].name}, 1 of`));
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[1]] }).run();
+    act(() => tree!.unmount());
+    root = render();
+    expect(rowLabels(root)[0]).toMatch(new RegExp(`^${SYSTEM_CATEGORIES[1].name}, 1 of`));
   });
 
   it('is in Spanish with the app in Spanish (spec 4.15)', () => {

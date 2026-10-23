@@ -1,19 +1,28 @@
-// Categories, the ingredient catalog cache, household overrides and custom aisles, and the user's
-// aisle order (spec 4.3). Local reads and writes. Custom categories, overrides and order write
-// through the sync helpers (outbox, spec 7.1); the catalog is local here and pull fills it.
-import { and, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+// Categories, the ingredient catalog cache, household overrides and custom aisles, and the
+// household's and user's aisle orders (spec 4.3). Local reads and writes. Custom categories,
+// overrides and orders write through the sync helpers (outbox, spec 7.1); the catalog is local
+// here and pull fills it.
+import { and, eq, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
-import { categories, db, householdCategoryOverrides, households, ingredients, userCategoryOrder } from '@/db';
-import { orderCategories, type IngredientStatus } from '@/domain/category-resolver';
+import {
+  categories,
+  db,
+  householdCategoryOrder,
+  householdCategoryOverrides,
+  households,
+  ingredients,
+  userHouseholdCategoryOrder,
+} from '@/db';
+import { resolveAisleOrder, type AisleOrderSource } from '@/domain/aisle-order';
+import { type IngredientStatus } from '@/domain/category-resolver';
 import { fingerprint } from '@/domain/fingerprint';
-import { positionBetween, positionForMove } from '@/domain/position';
 import { rankCatalog } from '@/domain/suggestion-rank';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { currentLanguage, i18n } from '@/i18n';
 import { aisleName, systemAisleSlug, withAisleNames } from '@/i18n/vocabulary';
 import { newId } from '@/lib/id';
 import type { Exec } from '@/sync/clock';
-import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
+import { insertRow, upsertRow } from '@/sync/mutate';
 import {
   familyKey,
   normalizeIngredientName,
@@ -167,20 +176,10 @@ export function ensureMissingIngredients(): void {
   `);
 }
 
-// --- Categories and order ------------------------------------------------------------------
+// --- Categories and aisle order (spec 4.3.2, 4.3.3) -----------------------------------------
 
-/**
- * A household, or several: a list or recipe uses its own household's custom aisles, the aisle
- * order screen every household's the user is in.
- */
-export type Households = string | readonly string[];
-
-/**
- * System categories plus the custom ones of `households` (spec 4.3.2), each with the user's
- * position (if any). The order is the user's own (4.3.3).
- */
-export function categoriesQuery(userId: string, households: Households) {
-  const householdIds = typeof households === 'string' ? [households] : [...households];
+/** A household's aisles (spec 4.3.2): the system ones plus its own custom ones, in no order. */
+export function householdAislesQuery(householdId: string) {
   return db
     .select({
       id: categories.id,
@@ -188,89 +187,75 @@ export function categoriesQuery(userId: string, households: Households) {
       slug: categories.slug,
       defaultRank: categories.defaultRank,
       householdId: categories.householdId,
-      position: userCategoryOrder.position,
+      createdAt: categories.createdAt,
     })
     .from(categories)
-    .leftJoin(
-      userCategoryOrder,
-      and(eq(userCategoryOrder.categoryId, categories.id), eq(userCategoryOrder.userId, userId)),
-    )
-    .where(or(isNull(categories.householdId), inArray(categories.householdId, householdIds)));
+    .where(or(isNull(categories.householdId), eq(categories.householdId, householdId)));
 }
-export type CategoryRow = Awaited<ReturnType<typeof categoriesQuery>>[number];
+export type CategoryRow = Awaited<ReturnType<typeof householdAislesQuery>>[number];
 
-/**
- * The categories of `households`, in the user's order (spec 4.3.3), system aisles named in the
- * app's language (4.15).
- */
-export function getOrderedCategories(userId: string, households: Households): CategoryRow[] {
-  return orderCategories(withAisleNames(categoriesQuery(userId, households).all()));
+/** The household's saved aisle order (spec 4.3.3): one row or none. */
+export function householdAisleOrderQuery(householdId: string) {
+  return db
+    .select({ categoryIds: householdCategoryOrder.categoryIds })
+    .from(householdCategoryOrder)
+    .where(eq(householdCategoryOrder.householdId, householdId));
 }
 
+/** The user's own aisle order for the household (spec 4.3.3): one row or none. */
+export function myAisleOrderQuery(userId: string, householdId: string) {
+  return db
+    .select({ categoryIds: userHouseholdCategoryOrder.categoryIds })
+    .from(userHouseholdCategoryOrder)
+    .where(and(eq(userHouseholdCategoryOrder.userId, userId), eq(userHouseholdCategoryOrder.householdId, householdId)));
+}
+
 /**
- * Writes a position for every category the user hasn't placed yet, keeping the current order,
- * so a move only ever needs one more write. Returns the categories in order.
+ * The household's aisles in the order its lists use for the user (spec 4.3.3: their own order,
+ * else the household's, else the default), system aisles named in the app's language (4.15).
  */
-function placeAll(userId: string, households: Households): CategoryRow[] {
-  const ordered = getOrderedCategories(userId, households);
-  let last: number | null = null;
-  db.transaction((tx) => {
-    for (const c of ordered) {
-      if (c.position === null) {
-        c.position = positionBetween(last, null);
-        insertRow(tx, userCategoryOrder, { userId, categoryId: c.id, position: c.position });
-      }
-      last = c.position;
-    }
+export function resolvedAisleOrder(
+  categoryRows: readonly CategoryRow[],
+  personal: readonly { categoryIds: string[] }[],
+  household: readonly { categoryIds: string[] }[],
+): { categories: CategoryRow[]; source: AisleOrderSource } {
+  return resolveAisleOrder({
+    personal: personal[0]?.categoryIds ?? null,
+    household: household[0]?.categoryIds ?? null,
+    categories: withAisleNames(categoryRows),
   });
-  return ordered;
 }
 
-/**
- * Moves the category at `from` to `to` in the user's order. The indexes are into the categories of
- * `households`, as the aisle order screen shows them.
- */
-export function moveCategory(userId: string, households: Households, from: number, to: number): void {
-  if (from === to) return;
-  const ordered = placeAll(userId, households);
-  if (!ordered[from]) return;
-  const position = positionForMove(
-    ordered.map((c) => c.position!),
-    from,
-    to,
-  );
-  updateRows(
-    db,
-    userCategoryOrder,
-    and(eq(userCategoryOrder.userId, userId), eq(userCategoryOrder.categoryId, ordered[from].id)),
-    { position },
+/** `resolvedAisleOrder` for the user and household, read now. */
+export function getAisleOrder(userId: string, householdId: string): { categories: CategoryRow[]; source: AisleOrderSource } {
+  return resolvedAisleOrder(
+    householdAislesQuery(householdId).all(),
+    myAisleOrderQuery(userId, householdId).all(),
+    householdAisleOrderQuery(householdId).all(),
   );
 }
 
+/** The household's aisles in the user's order (`getAisleOrder`). */
+export function getOrderedCategories(userId: string, householdId: string): CategoryRow[] {
+  return getAisleOrder(userId, householdId).categories;
+}
+
 /**
- * "New aisle...": a custom category for the household (every member gets it), at the end of this
- * user's order. A name the household already has returns that one instead: a system aisle's
- * English or Spanish name ignoring case and accents (spec 4.15: `Lácteos` is Dairy & Eggs), or one
- * of its own in any case.
+ * "New aisle...": a custom category for the household (every member gets it). It writes no order:
+ * an order that doesn't hold it puts it after the aisles it places (spec 4.3.3). A name the
+ * household already has returns that one instead: a system aisle's English or Spanish name
+ * ignoring case and accents (spec 4.15: `Lácteos` is Dairy & Eggs), or one of its own in any case.
  */
-export function createCategory(userId: string, householdId: string, name: string): string {
+export function createCategory(householdId: string, name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
   if (!trimmed) throw new Error(i18n.t('errors.categoryNeedsName'));
-  const all = getOrderedCategories(userId, householdId);
+  const all = withAisleNames(householdAislesQuery(householdId).all());
   const slug = systemAisleSlug(trimmed);
   const existing =
     (slug && all.find((c) => c.slug === slug)) || all.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) return existing.id;
-  const ordered = placeAll(userId, householdId);
   const id = newId();
-  db.transaction((tx) => {
-    insertRow(tx, categories, { id, name: trimmed, householdId });
-    insertRow(tx, userCategoryOrder, {
-      userId,
-      categoryId: id,
-      position: positionBetween(ordered.at(-1)?.position ?? null, null),
-    });
-  });
+  insertRow(db, categories, { id, name: trimmed, householdId });
   return id;
 }
 

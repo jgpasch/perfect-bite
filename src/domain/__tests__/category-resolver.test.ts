@@ -6,7 +6,6 @@ import {
   categoryNameById,
   effectiveCategoryId,
   groupByCategory,
-  orderCategories,
   sectionAccessibilityLabel,
   SORTING_CATEGORY,
   SORTING_CATEGORY_ID,
@@ -38,25 +37,6 @@ describe('effectiveCategoryId', () => {
   it('sends failed ingredients, and categorized ones with no default, to Other', () => {
     expect(effectiveCategoryId(null, null, 'failed')).toBe(OTHER_CATEGORY_ID);
     expect(effectiveCategoryId(null, null, 'categorized')).toBe(OTHER_CATEGORY_ID);
-  });
-});
-
-const cat = (id: string, defaultRank: number | null, position: number | null = null) => ({
-  id,
-  name: id,
-  defaultRank,
-  position,
-});
-
-describe('orderCategories', () => {
-  it('uses store-walk order with custom categories at the end', () => {
-    const ordered = orderCategories([cat('zebra', null), cat('dairy', 5), cat('produce', 1), cat('apple', null)]);
-    expect(ordered.map((c) => c.id)).toEqual(['produce', 'dairy', 'apple', 'zebra']);
-  });
-
-  it('puts the categories the user placed first, by position', () => {
-    const ordered = orderCategories([cat('produce', 1, 2), cat('dairy', 5, 1), cat('frozen', 6), cat('mine', null)]);
-    expect(ordered.map((c) => c.id)).toEqual(['dairy', 'produce', 'frozen', 'mine']);
   });
 });
 

@@ -6,21 +6,20 @@ import { eq } from 'drizzle-orm';
 import {
   categories,
   db,
+  householdCategoryOrder,
   householdCategoryOverrides,
   households,
   householdStaples,
   listItemContributions,
   listItems,
   lists,
+  outbox,
   recipeIngredients,
   recipes,
+  userHouseholdCategoryOrder,
 } from '@/db';
-import {
-  clearCategoryOverride,
-  createCategory,
-  moveCategory,
-  setCategoryOverride,
-} from '@/features/categories/categories';
+import { saveHouseholdAisleOrder, saveMyAisleOrder, useHouseholdAisleOrder } from '@/features/categories/aisle-orders';
+import { clearCategoryOverride, createCategory, setCategoryOverride } from '@/features/categories/categories';
 import {
   addItem,
   checkItems,
@@ -66,6 +65,8 @@ import { seedCatalog } from '@/test/seed';
 import { clearOutbox, outboxMutations, outboxPatches, outboxRows } from '@/test/outbox';
 
 jest.mock('@/db/client', () => require('@/test/db'));
+let mockUserId: string | null = 'user-1';
+jest.mock('@/features/auth/account', () => ({ getAccount: () => (mockUserId ? { userId: mockUserId } : null) }));
 
 const USER = 'user-1';
 const ISO = expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
@@ -546,37 +547,21 @@ describe('usage and per-user preferences', () => {
     ]);
   });
 
-  test("a custom category enqueues the household's category and the user's order rows it needs", () => {
+  test("a custom category enqueues only the household's category, with its created_at, and no order", () => {
     seedCatalog();
-    const id = createCategory(USER, householdId, ' Bulk  bin ');
-    const patches = outboxPatches();
-    const orders = patches.filter((p) => p.table === 'user_category_order');
+    const id = createCategory(householdId, ' Bulk  bin ');
     // No slug or rank: those are system categories' and the server doesn't take them.
-    expect(patches.filter((p) => p.table === 'categories')).toEqual([
-      { table: 'categories', id, fields: { name: 'Bulk bin', household_id: householdId } },
-    ]);
-    expect(orders.at(-1)).toEqual({
-      table: 'user_category_order',
-      key: { user_id: USER, category_id: id },
-      fields: { position: expect.any(Number) },
-    });
-    // Every system category got placed too, so later moves write one row.
-    expect(orders.length).toBeGreaterThan(1);
-    // The category is household data; the order is the user's.
-    const householdOf = (table: string) => outboxRows().filter((r) => r.mutation.table === table).map((r) => r.householdId);
-    expect(householdOf('categories')).toEqual([householdId]);
-    expect(new Set(householdOf('user_category_order'))).toEqual(new Set([null]));
-
-    clearOutbox();
-    moveCategory(USER, householdId, 0, 2);
     expect(outboxPatches()).toEqual([
-      { table: 'user_category_order', key: { user_id: USER, category_id: expect.any(String) }, fields: { position: expect.any(Number) } },
+      { table: 'categories', id, fields: { name: 'Bulk bin', household_id: householdId, created_at: ISO } },
     ]);
+    expect(outboxRows().map((r) => r.householdId)).toEqual([householdId]);
+    expect(db.select().from(householdCategoryOrder).all()).toEqual([]);
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
   });
 
   test('overrides upsert; reset writes a null category rather than deleting', () => {
     seedCatalog();
-    const id = createCategory(USER, householdId, 'Bulk');
+    const id = createCategory(householdId, 'Bulk');
     clearOutbox();
     setCategoryOverride(householdId, 'rice', id);
     setCategoryOverride(householdId, 'rice', id);
@@ -623,10 +608,113 @@ describe('usage and per-user preferences', () => {
 
   test("renaming a household's custom category isn't a patchable slug", () => {
     seedCatalog();
-    const id = createCategory(USER, householdId, 'Bulk');
+    const id = createCategory(householdId, 'Bulk');
     clearOutbox();
     updateRows(db, categories, eq(categories.id, id), { name: 'Bulk bins' });
     expect(outboxPatches()).toEqual([{ table: 'categories', id, fields: { name: 'Bulk bins' } }]);
     expect(() => updateRows(db, categories, eq(categories.id, id), { slug: 'bulk' })).toThrow("categories.slug can't be patched");
+  });
+});
+
+describe('aisle orders (spec 4.3.3, 7.1)', () => {
+  const OTHER = 'household-other';
+  const householdKey = () => ({ household_id: householdId });
+  const myKey = (h = householdId) => ({ user_id: USER, household_id: h });
+
+  beforeEach(() => {
+    mockUserId = USER;
+    // A second household on the device, written straight to SQLite (no mutation).
+    db.insert(households).values({ id: OTHER, name: 'Other' }).run();
+  });
+
+  test("saving the household order sends the whole order as one field, as the household's", () => {
+    saveHouseholdAisleOrder(householdId, ['b', 'a']);
+    expect(outboxPatches()).toEqual([{ table: 'household_category_order', key: householdKey(), fields: { category_ids: ['b', 'a'] } }]);
+    expect(outboxRows().map((r) => r.householdId)).toEqual([householdId]);
+    expect(db.select().from(householdCategoryOrder).all()).toMatchObject([
+      { householdId, categoryIds: ['b', 'a'], updatedBy: null, fieldClock: { category_ids: expect.any(String) } },
+    ]);
+  });
+
+  test("saving my order sends the whole order with the user's key, as a per-user row", () => {
+    saveMyAisleOrder(householdId, ['c', 'a', 'b']);
+    expect(outboxPatches()).toEqual([
+      { table: 'user_household_category_order', key: myKey(), fields: { category_ids: ['c', 'a', 'b'] } },
+    ]);
+    expect(outboxRows().map((r) => r.householdId)).toEqual([null]);
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toMatchObject([
+      { userId: USER, householdId, categoryIds: ['c', 'a', 'b'] },
+    ]);
+  });
+
+  test('Use household order deletes my order and sends a delete; with none, it sends nothing', () => {
+    useHouseholdAisleOrder(householdId);
+    expect(outboxRows()).toEqual([]);
+    saveMyAisleOrder(householdId, ['a']);
+    saveHouseholdAisleOrder(householdId, ['b']);
+    useHouseholdAisleOrder(householdId);
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
+    // Saving the household order never touched my order, and Use household order leaves the household's.
+    expect(db.select().from(householdCategoryOrder).all()).toMatchObject([{ householdId, categoryIds: ['b'] }]);
+    expect(outboxPatches()).toEqual([
+      { table: 'household_category_order', key: householdKey(), fields: { category_ids: ['b'] } },
+      { table: 'user_household_category_order', key: myKey(), fields: {}, delete: true },
+    ]);
+  });
+
+  test('a later save of my order replaces the queued one, and a delete replaces a queued save', () => {
+    saveMyAisleOrder(householdId, ['a', 'b']);
+    saveMyAisleOrder(householdId, ['b', 'a']);
+    expect(outboxPatches()).toEqual([
+      { table: 'user_household_category_order', key: myKey(), fields: { category_ids: ['b', 'a'] } },
+    ]);
+    useHouseholdAisleOrder(householdId);
+    // The old save is gone, so it can't bring the order back after the delete.
+    expect(outboxPatches()).toEqual([{ table: 'user_household_category_order', key: myKey(), fields: {}, delete: true }]);
+    saveMyAisleOrder(householdId, ['c']);
+    expect(outboxPatches()).toEqual([
+      { table: 'user_household_category_order', key: myKey(), fields: { category_ids: ['c'] } },
+    ]);
+  });
+
+  test('a later household save replaces the queued one, and only for that household', () => {
+    saveHouseholdAisleOrder(householdId, ['a']);
+    saveHouseholdAisleOrder(OTHER, ['x']);
+    saveMyAisleOrder(OTHER, ['y']);
+    saveHouseholdAisleOrder(householdId, ['b']);
+    expect(outboxPatches()).toEqual([
+      { table: 'household_category_order', key: { household_id: OTHER }, fields: { category_ids: ['x'] } },
+      { table: 'user_household_category_order', key: myKey(OTHER), fields: { category_ids: ['y'] } },
+      { table: 'household_category_order', key: householdKey(), fields: { category_ids: ['b'] } },
+    ]);
+    // Each keeps its place in the queue as the latest write: the replaced one is gone, not moved.
+    expect(outboxRows().map((r) => r.householdId)).toEqual([OTHER, null, householdId]);
+  });
+
+  test("doesn't replace another user's queued order, or one the server rejected", () => {
+    saveMyAisleOrder(householdId, ['a']);
+    db.update(outbox).set({ rejectedAt: new Date(), error: { code: '22023', message: 'invalid aisle order' } }).run();
+    mockUserId = 'user-2';
+    saveMyAisleOrder(householdId, ['b']);
+    mockUserId = USER;
+    saveMyAisleOrder(householdId, ['c']);
+    expect(outboxPatches()).toEqual([
+      { table: 'user_household_category_order', key: myKey(), fields: { category_ids: ['a'] } },
+      { table: 'user_household_category_order', key: { user_id: 'user-2', household_id: householdId }, fields: { category_ids: ['b'] } },
+      { table: 'user_household_category_order', key: myKey(), fields: { category_ids: ['c'] } },
+    ]);
+  });
+
+  test('my order needs a signed-in user', () => {
+    mockUserId = null;
+    expect(() => saveMyAisleOrder(householdId, ['a'])).toThrow('not signed in');
+    expect(() => useHouseholdAisleOrder(householdId)).toThrow('not signed in');
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test("an order for a household this device doesn't have writes neither the row nor a mutation", () => {
+    expect(() => saveHouseholdAisleOrder('household-unknown', ['a'])).toThrow();
+    expect(() => saveMyAisleOrder('household-unknown', ['a'])).toThrow();
+    expect(outboxRows()).toEqual([]);
   });
 });

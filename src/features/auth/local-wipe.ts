@@ -9,6 +9,7 @@ import {
   db,
   deviceSettings,
   failedImports,
+  householdCategoryOrder,
   householdCategoryOverrides,
   householdMemberNames,
   households,
@@ -23,7 +24,7 @@ import {
   outbox,
   recipeIngredients,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
 } from '@/db';
 import { SEED_KEY } from '@/features/categories/categories';
@@ -67,7 +68,8 @@ export const WIPE_STEPS: WipeStep[] = [
   { table: householdCategoryOverrides },
   { table: householdStaples },
   { table: householdMemberNames },
-  { table: userCategoryOrder },
+  { table: householdCategoryOrder },
+  { table: userHouseholdCategoryOrder },
   { table: ingredientUnitUsage },
   { table: ingredientUsage },
   { table: listItemContributions },

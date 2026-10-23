@@ -8,6 +8,7 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOrder,
   householdCategoryOverrides,
   householdMemberNames,
   households,
@@ -21,7 +22,7 @@ import {
   outbox,
   recipeIngredients,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
   type OutboxRow,
 } from '@/db';
@@ -108,16 +109,24 @@ beforeEach(() => {
     unit: 'lb',
   });
   // Each household's aisles: a custom one, and an override (spec 4.3.2).
-  homeAisle = createCategory(USER, home, 'Costco');
-  cabinAisle = createCategory(USER, CABIN, 'Farm stand');
+  homeAisle = createCategory(home, 'Costco');
+  cabinAisle = createCategory(CABIN, 'Farm stand');
   setCategoryOverride(home, 'onions', PRODUCE);
   setCategoryOverride(CABIN, 'onions', cabinAisle);
+  // Each household's aisle order, and the user's own order for each (spec 4.3.3).
+  for (const [householdId, aisle] of [
+    [home, homeAisle],
+    [CABIN, cabinAisle],
+  ]) {
+    upsertRow(db, householdCategoryOrder, { householdId, categoryIds: [aisle, PRODUCE] }, { categoryIds: [aisle, PRODUCE] });
+    upsertRow(db, userHouseholdCategoryOrder, { userId: USER, householdId, categoryIds: [PRODUCE, aisle] }, { categoryIds: [PRODUCE, aisle] });
+  }
 });
 
 const overridesIn = (householdId: string) =>
   db.select().from(householdCategoryOverrides).where(eq(householdCategoryOverrides.householdId, householdId)).all();
-const isOrderFor = (categoryId: string) => (r: OutboxRow) =>
-  r.mutation.table === 'user_category_order' && r.mutation.key?.category_id === categoryId;
+const isMyOrderFor = (householdId: string) => (r: OutboxRow) =>
+  r.mutation.table === 'user_household_category_order' && r.mutation.key?.household_id === householdId;
 
 describe('purgeHousehold', () => {
   test("removes the household's members' names and keeps the other household's (spec 4.7)", () => {
@@ -184,38 +193,51 @@ describe('purgeHousehold', () => {
       .where(eq(outbox.id, rejected.id))
       .run();
     const perUser = outboxRows().filter((r) => r.householdId === null);
-    expect(perUser.map((r) => r.mutation.table)).toEqual(expect.arrayContaining(['user_settings', 'user_category_order']));
-    expect(outboxRows().filter((r) => r.householdId === CABIN).map((r) => r.mutation.table)).toEqual(
-      expect.arrayContaining(['categories', 'household_category_overrides']),
+    expect(perUser.map((r) => r.mutation.table)).toEqual(
+      expect.arrayContaining(['user_settings', 'user_household_category_order']),
     );
+    expect(outboxRows().filter((r) => r.householdId === CABIN).map((r) => r.mutation.table)).toEqual(
+      expect.arrayContaining(['categories', 'household_category_overrides', 'household_category_order']),
+    );
+    // The user's queued order for the cabin, rejected or not, goes with it.
+    const cabinOrder = perUser.find(isMyOrderFor(CABIN))!;
+    db.update(outbox)
+      .set({ rejectedAt: new Date(), error: { code: '42501', message: 'not a member' } })
+      .where(eq(outbox.id, cabinOrder.id))
+      .run();
 
     db.transaction((tx) => purgeHousehold(tx, CABIN));
 
     expect(outboxRows().filter((r) => r.householdId === CABIN)).toEqual([]);
-    // The user's own mutations stay, except the order for the cabin's aisle, which is gone.
-    expect(perUser.filter(isOrderFor(cabinAisle))).toHaveLength(1);
-    expect(outboxRows().filter((r) => r.householdId === null)).toEqual(perUser.filter((r) => !isOrderFor(cabinAisle)(r)));
+    // The user's own mutations stay, except their order for the cabin, which is gone.
+    expect(perUser.filter(isMyOrderFor(CABIN))).toHaveLength(1);
+    expect(perUser.filter(isMyOrderFor(home))).toHaveLength(1);
+    expect(outboxRows().filter((r) => r.householdId === null).map((r) => r.id)).toEqual(
+      perUser.filter((r) => !isMyOrderFor(CABIN)(r)).map((r) => r.id),
+    );
   });
 
-  test("removes the household's overrides and custom aisles, and the user's order for those aisles", () => {
+  test("removes the household's overrides, custom aisles and aisle order, and the user's own order for it", () => {
     const homeOverrides = overridesIn(home);
     expect(overridesIn(CABIN)).toHaveLength(1);
-    const orderFor = (categoryId: string) =>
-      db.select().from(userCategoryOrder).where(eq(userCategoryOrder.categoryId, categoryId)).all();
-    expect(orderFor(cabinAisle)).toHaveLength(1);
-    const orderRows = db.select().from(userCategoryOrder).all().length;
+    const householdOrder = (householdId: string) =>
+      db.select().from(householdCategoryOrder).where(eq(householdCategoryOrder.householdId, householdId)).all();
+    const myOrder = (householdId: string) =>
+      db.select().from(userHouseholdCategoryOrder).where(eq(userHouseholdCategoryOrder.householdId, householdId)).all();
+    expect(householdOrder(CABIN)).toHaveLength(1);
+    expect(myOrder(CABIN)).toHaveLength(1);
 
     db.transaction((tx) => purgeHousehold(tx, CABIN));
 
     expect(overridesIn(CABIN)).toEqual([]);
     expect(db.select().from(categories).where(eq(categories.householdId, CABIN)).all()).toEqual([]);
-    expect(orderFor(cabinAisle)).toEqual([]);
-    expect(db.select().from(userCategoryOrder).all()).toHaveLength(orderRows - 1);
-    // The other household's aisles, and the user's order for them and the system aisles, stay.
+    expect(householdOrder(CABIN)).toEqual([]);
+    expect(myOrder(CABIN)).toEqual([]);
+    // The other household's aisles and both its orders stay.
     expect(overridesIn(home)).toEqual(homeOverrides);
     expect(db.select().from(categories).where(eq(categories.id, homeAisle)).get()).toMatchObject({ householdId: home });
-    expect(orderFor(homeAisle)).toHaveLength(1);
-    expect(orderFor(PRODUCE)).toHaveLength(1);
+    expect(householdOrder(home)).toMatchObject([{ categoryIds: [homeAisle, PRODUCE] }]);
+    expect(myOrder(home)).toMatchObject([{ userId: USER, categoryIds: [PRODUCE, homeAisle] }]);
     expect(db.select().from(categories).where(eq(categories.id, PRODUCE)).get()).toBeDefined();
     expect(getDefaultListId(USER)).toBe(homeList);
   });
@@ -277,9 +299,9 @@ describe('purgeHousehold', () => {
     db.transaction((tx) => purgeHousehold(tx, CABIN));
 
     expect(db.select().from(userSettings).where(eq(userSettings.userId, USER)).get()?.defaultListId).toBeNull();
-    // The server clears it on its side (`on delete set null`); nothing new is queued (the cabin
-    // aisle's order mutation goes with the aisle).
-    expect(outboxRows().filter((r) => r.householdId === null)).toEqual(perUser.filter((r) => !isOrderFor(cabinAisle)(r)));
+    // The server clears it on its side (`on delete set null`); nothing new is queued (the user's
+    // order for the cabin goes with the cabin).
+    expect(outboxRows().filter((r) => r.householdId === null)).toEqual(perUser.filter((r) => !isMyOrderFor(CABIN)(r)));
   });
 
   test("clears the view modes and last-opened list that point into it, and the old registration flag", () => {

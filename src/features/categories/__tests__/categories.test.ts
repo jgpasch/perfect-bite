@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 
 import { eq } from 'drizzle-orm';
 
-import { categories, db, householdCategoryOverrides, households, ingredients } from '@/db';
+import { categories, db, householdCategoryOrder, householdCategoryOverrides, households, ingredients } from '@/db';
 import { categoryNameById, effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { addItem, addItemsBulk, deleteItem, groupItems, listItemsQuery, updateItem } from '@/features/lists/items';
 import { createList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
@@ -25,16 +25,19 @@ import {
   clearCategoryOverride,
   createCategory,
   ensureMissingIngredients,
+  getAisleOrder,
   getIngredientCategory,
   getOrderedCategories,
   ingredientAisles,
   loadCatalogSeed,
-  moveCategory,
   searchCatalog,
   setCategoryOverride,
 } from '../categories';
+import { saveHouseholdAisleOrder, saveMyAisleOrder, useHouseholdAisleOrder } from '../aisle-orders';
 
 jest.mock('@/db/client', () => require('@/test/db'));
+let mockUserId = 'user-a';
+jest.mock('@/features/auth/account', () => ({ getAccount: () => ({ userId: mockUserId }) }));
 
 const A = 'user-a';
 const B = 'user-b';
@@ -45,8 +48,8 @@ let listId: string;
 /** The household of A's starter list, which B shares on this device. */
 let home: string;
 let cabinListId: string;
-const names = (userId: string, households: string | string[] = home) =>
-  getOrderedCategories(userId, households).map((c) => c.name);
+const names = (userId: string, householdId: string = home) =>
+  getOrderedCategories(userId, householdId).map((c) => c.name);
 
 beforeEach(() => {
   resetDb();
@@ -383,24 +386,90 @@ describe('shared aisle across a family (spec 4.15)', () => {
   });
 });
 
-describe('category order (spec 4.3.3)', () => {
-  test('moving a category changes only that user’s order', () => {
-    const dairy = names(A).indexOf('Dairy & Eggs');
-    moveCategory(A, home, dairy, 0);
+describe('aisle order per household (spec 4.3.3)', () => {
+  const DEFAULT = SYSTEM_CATEGORIES.map((c) => c.name);
+  const as = (userId: string) => {
+    mockUserId = userId;
+  };
+  /** The system aisles' ids with `first` moved to the front. */
+  const withFirst = (...first: string[]) => [...first, ...SYSTEM_CATEGORIES.map((c) => c.id).filter((i) => !first.includes(i))];
+
+  test('with no saved order, everyone has the default store walk', () => {
+    expect(getAisleOrder(A, home)).toMatchObject({ source: 'default' });
+    expect(names(A)).toEqual(DEFAULT);
+    expect(names(B)).toEqual(DEFAULT);
+  });
+
+  test("my order changes only my lists in that household, not another member's or another household's", () => {
+    as(A);
+    saveMyAisleOrder(home, withFirst(id('dairy-eggs')));
+    expect(getAisleOrder(A, home).source).toBe('personal');
     expect(names(A).slice(0, 2)).toEqual(['Dairy & Eggs', 'Produce']);
-    expect(names(B).slice(0, 2)).toEqual(['Produce', 'Bakery']);
-    moveCategory(A, home, 1, 2);
-    expect(names(A).slice(0, 3)).toEqual(['Dairy & Eggs', 'Bakery', 'Produce']);
-    // The order is the user's, whichever household's aisles are shown.
-    expect(names(A, CABIN).slice(0, 3)).toEqual(['Dairy & Eggs', 'Bakery', 'Produce']);
+    expect(names(B)).toEqual(DEFAULT);
+    expect(names(A, CABIN)).toEqual(DEFAULT);
+  });
+
+  test('the household order is every follower’s; my own order still wins for me', () => {
+    as(A);
+    saveMyAisleOrder(home, withFirst(id('frozen')));
+    as(B);
+    saveHouseholdAisleOrder(home, withFirst(id('bakery')));
+    expect(getAisleOrder(B, home).source).toBe('household');
+    expect(names(B)[0]).toBe('Bakery');
+    expect(names(A)[0]).toBe('Frozen');
+    expect(names(A, CABIN)).toEqual(DEFAULT);
+    // Saving the household order never deletes my own.
+    as(A);
+    saveHouseholdAisleOrder(home, withFirst(id('deli')));
+    expect(getAisleOrder(A, home).source).toBe('personal');
+    expect(names(A)[0]).toBe('Frozen');
+    expect(names(B)[0]).toBe('Deli');
+  });
+
+  test('Use household order follows the household order again, including later changes', () => {
+    as(A);
+    saveHouseholdAisleOrder(home, withFirst(id('bakery')));
+    saveMyAisleOrder(home, withFirst(id('frozen')));
+    useHouseholdAisleOrder(home);
+    expect(getAisleOrder(A, home).source).toBe('household');
+    expect(names(A)[0]).toBe('Bakery');
+    as(B);
+    saveHouseholdAisleOrder(home, withFirst(id('deli')));
+    expect(names(A)[0]).toBe('Deli');
+  });
+
+  test('my order is a snapshot: later household changes don’t move it', () => {
+    as(A);
+    saveHouseholdAisleOrder(home, withFirst(id('bakery')));
+    saveMyAisleOrder(home, getOrderedCategories(A, home).map((c) => c.id));
+    saveHouseholdAisleOrder(home, withFirst(id('deli')));
+    expect(names(A)[0]).toBe('Bakery');
+  });
+
+  test('a new custom aisle goes after the aisles an order places, without writing an order', () => {
+    as(A);
+    saveHouseholdAisleOrder(home, withFirst(id('frozen')));
+    const costco = createCategory(home, 'Costco');
+    expect(getOrderedCategories(B, home).at(-1)!.id).toBe(costco);
+    expect(names(B)[0]).toBe('Frozen');
+    expect(db.select().from(householdCategoryOrder).get()!.categoryIds).not.toContain(costco);
+  });
+
+  test("aisles the order holds that are gone or another household's are skipped", () => {
+    const cabinAisle = createCategory(CABIN, 'Farm stand');
+    as(A);
+    saveMyAisleOrder(home, [cabinAisle, id('deli')]);
+    expect(names(A)[0]).toBe('Deli');
+    expect(names(A)).not.toContain('Farm stand');
+    expect(names(A)).toHaveLength(SYSTEM_CATEGORIES.length);
   });
 });
 
 describe('custom aisles (spec 4.3.2)', () => {
   test("belong to the household: every member has them, another household doesn't", () => {
-    const costco = createCategory(A, home, ' Costco  run ');
+    const costco = createCategory(home, ' Costco  run ');
     expect(names(A).at(-1)).toBe('Costco run');
-    // B is in the same household, so has it too (at the end: B hasn't placed it).
+    // B is in the same household, so has it too.
     expect(names(B)).toContain('Costco run');
     expect(names(A, CABIN)).not.toContain('Costco run');
     expect(db.select().from(categories).where(eq(categories.id, costco)).get()).toMatchObject({
@@ -412,37 +481,29 @@ describe('custom aisles (spec 4.3.2)', () => {
   });
 
   test('names are deduped within the household, in any case, system aisles included', () => {
-    const costco = createCategory(A, home, 'Costco');
-    expect(createCategory(B, home, 'costco')).toBe(costco);
-    expect(createCategory(A, home, 'PRODUCE')).toBe(id('produce'));
+    const costco = createCategory(home, 'Costco');
+    expect(createCategory(home, 'costco')).toBe(costco);
+    expect(createCategory(home, 'PRODUCE')).toBe(id('produce'));
     // Another household gets its own.
-    const cabinCostco = createCategory(A, CABIN, 'Costco');
+    const cabinCostco = createCategory(CABIN, 'Costco');
     expect(cabinCostco).not.toBe(costco);
     expect(names(A, CABIN).filter((n) => n === 'Costco')).toHaveLength(1);
-    expect(() => createCategory(A, home, ' ')).toThrow();
+    expect(() => createCategory(home, ' ')).toThrow();
   });
 
   test('a member can file an item under the household aisle another member made', () => {
-    const costco = createCategory(A, home, 'Costco');
+    const costco = createCategory(home, 'Costco');
     const item = addItem(listId, 'paper towels', B)!;
     updateItem(item.itemId, { name: 'paper towels', amount: '', note: '', categoryId: costco });
     expect(categoryOf('paper towels')).toBe(costco);
   });
 
-  test('the aisle order screen shows every household the user is in', () => {
-    createCategory(A, home, 'Costco');
-    createCategory(A, CABIN, 'Costco');
-    createCategory(A, CABIN, 'Farm stand');
-    const all = names(A, [home, CABIN]);
-    expect(all.filter((n) => n === 'Costco')).toHaveLength(2);
-    expect(all).toContain('Farm stand');
-    expect(all).toHaveLength(SYSTEM_CATEGORIES.length + 3);
-    expect(names(A, [])).toHaveLength(SYSTEM_CATEGORIES.length);
-    // Moving within that view moves the right aisle.
-    const farm = all.indexOf('Farm stand');
-    moveCategory(A, [home, CABIN], farm, 0);
-    expect(names(A, [home, CABIN])[0]).toBe('Farm stand');
-    expect(names(A, CABIN)[0]).toBe('Farm stand');
+  test('a household’s aisles are the system ones plus only its own custom ones, newest last', () => {
+    createCategory(home, 'Costco');
+    createCategory(CABIN, 'Costco');
+    createCategory(CABIN, 'Farm stand');
+    expect(names(A, CABIN)).toEqual([...SYSTEM_CATEGORIES.map((c) => c.name), 'Costco', 'Farm stand']);
+    expect(names(A)).toEqual([...SYSTEM_CATEGORIES.map((c) => c.name), 'Costco']);
   });
 });
 
@@ -450,26 +511,26 @@ describe('system aisles in either language (spec 4.15)', () => {
   afterEach(() => initI18n('en'));
 
   test('"New category…" with a system aisle’s English or Spanish name picks that aisle', () => {
-    expect(createCategory(A, home, 'Lácteos')).toBe(id('dairy-eggs'));
-    expect(createCategory(A, home, '  lacteos ')).toBe(id('dairy-eggs'));
-    expect(createCategory(A, home, 'FRUTAS Y  VERDURAS')).toBe(id('produce'));
-    expect(createCategory(A, home, 'panaderia')).toBe(id('bakery'));
-    expect(createCategory(A, home, 'dairy & eggs')).toBe(id('dairy-eggs'));
+    expect(createCategory(home, 'Lácteos')).toBe(id('dairy-eggs'));
+    expect(createCategory(home, '  lacteos ')).toBe(id('dairy-eggs'));
+    expect(createCategory(home, 'FRUTAS Y  VERDURAS')).toBe(id('produce'));
+    expect(createCategory(home, 'panaderia')).toBe(id('bakery'));
+    expect(createCategory(home, 'dairy & eggs')).toBe(id('dairy-eggs'));
     // Whatever the app's language.
     initI18n('es');
-    expect(createCategory(A, home, 'Meat & Seafood')).toBe(id('meat-seafood'));
-    expect(createCategory(A, home, 'Carnes y mariscos')).toBe(id('meat-seafood'));
+    expect(createCategory(home, 'Meat & Seafood')).toBe(id('meat-seafood'));
+    expect(createCategory(home, 'Carnes y mariscos')).toBe(id('meat-seafood'));
     expect(names(A)).toHaveLength(SYSTEM_CATEGORIES.length);
   });
 
   test('a name that is only close to a system aisle is a new custom aisle', () => {
-    const dairy = createCategory(A, home, 'Lácteos extra');
+    const dairy = createCategory(home, 'Lácteos extra');
     expect(dairy).not.toBe(id('dairy-eggs'));
     expect(db.select().from(categories).where(eq(categories.id, dairy)).get()).toMatchObject({ name: 'Lácteos extra', slug: null });
   });
 
   test('system aisles show in the app’s language; stored names and custom aisles don’t change', () => {
-    const custom = createCategory(A, home, 'Costco');
+    const custom = createCategory(home, 'Costco');
     initI18n('es');
     expect(names(A).slice(0, 3)).toEqual(['Frutas y verduras', 'Panadería', 'Salchichonería']);
     expect(names(A).at(-1)).toBe('Costco');
@@ -550,7 +611,7 @@ describe('ingredientAisles', () => {
   });
 
   test('gives a custom aisle no slug', () => {
-    const custom = createCategory(A, home, 'Asian market');
+    const custom = createCategory(home, 'Asian market');
     setCategoryOverride(home, key('milk'), custom);
     expect(ingredientAisles(home, [key('milk')]).get(key('milk'))).toEqual({ slug: null, name: 'Asian market' });
   });

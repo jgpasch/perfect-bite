@@ -57,6 +57,7 @@ const APPLY_TABLES = new Set([
   'categories',
   'household_category_overrides',
   'household_staples',
+  'household_category_order',
   'meal_plan_entries',
 ]);
 
@@ -181,6 +182,7 @@ async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number;
 /** Columns a client may write per per-user table (the server's grants). */
 const USER_TABLE_COLUMNS: Record<string, readonly string[]> = {
   user_settings: ['default_list_id'],
+  user_household_category_order: ['category_ids'],
 };
 
 /**

@@ -24,29 +24,6 @@ export function effectiveCategoryId(
   return status === 'pending' || status === null ? SORTING_CATEGORY_ID : OTHER_CATEGORY_ID;
 }
 
-export type OrderableCategory = {
-  id: string;
-  name: string;
-  /** The user's position, if they have reordered. */
-  position: number | null;
-  /** Store-walk order for system categories; null for custom ones. */
-  defaultRank: number | null;
-};
-
-/**
- * A user's category order: categories they have placed, by position; then system categories by
- * store-walk order; then custom ones by name. With no reordering this is the 6.2 order.
- */
-export function orderCategories<T extends OrderableCategory>(categories: readonly T[]): T[] {
-  const tier = (c: T) => (c.position !== null ? 0 : c.defaultRank !== null ? 1 : 2);
-  return [...categories].sort((a, b) => {
-    if (tier(a) !== tier(b)) return tier(a) - tier(b);
-    if (a.position !== null && b.position !== null) return a.position - b.position;
-    if (a.defaultRank !== null && b.defaultRank !== null) return a.defaultRank - b.defaultRank;
-    return a.name.localeCompare(b.name);
-  });
-}
-
 export type Section<C, I> = { category: C; items: I[] };
 
 /** The "Sorting..." section's category, which isn't stored. */

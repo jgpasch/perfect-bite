@@ -10,6 +10,7 @@ import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import { categories, db, deviceSettings, households, ingredients, lists } from '@/db';
 import * as schema from '@/db/schema';
+import { saveHouseholdAisleOrder } from '@/features/categories/aisle-orders';
 import { createCategory, SEED_KEY, setCategoryOverride } from '@/features/categories/categories';
 import { FOLD_ACCENTS_KEY, foldAccentKeys } from '@/features/categories/fold-accents';
 import { refreshMemberNames } from '@/features/households/member-names';
@@ -102,9 +103,11 @@ beforeEach(async () => {
   const recipe = createRecipe('Chili', home);
   addRecipeIngredient(recipe, '1 can beans');
   setSlot(home, '2026-10-15', 'dinner', { kind: 'recipe', recipeId: recipe });
-  const aisle = createCategory(USER, home, 'Farm stand');
+  const aisle = createCategory(home, 'Farm stand');
   setCategoryOverride(home, 'onions', aisle);
   setCategoryOverride(home, 'milk', PRODUCE);
+  saveHouseholdAisleOrder(home, [aisle, PRODUCE]);
+  upsertRow(db, schema.userHouseholdCategoryOrder, { userId: USER, householdId: home, categoryIds: [PRODUCE] }, {});
   upsertRow(db, schema.householdStaples, { householdId: home, ingredientName: 'salt', createdBy: USER }, {});
   respondToRpc('get_household_members', { data: [{ user_id: USER, display_name: 'Jo Doe', joined_at: '2026-10-01T00:00:00Z' }] });
   await refreshMemberNames(home);

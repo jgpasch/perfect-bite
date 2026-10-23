@@ -5,6 +5,7 @@ import {
   categories,
   db,
   deviceSettings,
+  householdCategoryOrder,
   householdCategoryOverrides,
   householdMemberNames,
   households,
@@ -18,10 +19,10 @@ import {
   mealPlanEntries,
   outbox,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
 } from '@/db';
-import { setCategoryOverride } from '@/features/categories/categories';
+import { getAisleOrder, getOrderedCategories, setCategoryOverride } from '@/features/categories/categories';
 import { categorizePending, catchUpNames } from '@/features/categories/categorization';
 import { listItemsQuery } from '@/features/lists/items';
 import { ensureStarterData } from '@/features/lists/lists';
@@ -227,6 +228,7 @@ describe('first pull of a household', () => {
       'categories',
       'household_category_overrides',
       'household_staples',
+      'household_category_order',
       'lists',
       'recipes',
       'list_items',
@@ -235,7 +237,7 @@ describe('first pull of a household', () => {
       'meal_plan_entries',
       'ingredient_usage',
       'ingredient_unit_usage',
-      'user_category_order',
+      'user_household_category_order',
       'user_settings',
       'categories',
       'ingredients',
@@ -1398,6 +1400,59 @@ describe("the household's aisles (spec 4.3.2)", () => {
     expect(outboxRows()).toEqual([]);
   });
 
+  test("a custom aisle keeps the server's created_at, which orders it among missing aisles (spec 4.3.3)", async () => {
+    await pullNow();
+    expect(db.select().from(categories).where(eq(categories.id, 'cat-bulk')).get()!.createdAt).toEqual(new Date(ts(0)));
+  });
+
+  describe('the household aisle order (spec 4.3.3)', () => {
+    const remoteOrder = (categoryIds: string[], updated: string, hlc = OLD, householdId = H1): ServerRow => ({
+      household_id: householdId,
+      category_ids: categoryIds,
+      updated_by: 'u2',
+      field_clock: { category_ids: hlc },
+      created_at: ts(0),
+      updated_at: updated,
+    });
+    const orderRow = (householdId = H1) =>
+      db.select().from(householdCategoryOrder).where(eq(householdCategoryOrder.householdId, householdId)).get();
+
+    test('comes down with the household, with its cursor, and the lists use it', async () => {
+      put('household_category_order', remoteOrder(['cat-bulk', 'cat-snacks'], ts(6)));
+
+      await pullNow();
+
+      expect(orderRow()).toMatchObject({
+        householdId: H1,
+        categoryIds: ['cat-bulk', 'cat-snacks'],
+        updatedBy: 'u2',
+        fieldClock: { category_ids: OLD },
+      });
+      expect(getPullState().cursors).toMatchObject({ [householdCursorKey(H1, 'household_category_order')]: ts(6) });
+      expect(getAisleOrder('u1', H1)).toMatchObject({ source: 'household' });
+      expect(getOrderedCategories('u1', H1).slice(0, 2).map((c) => c.id)).toEqual(['cat-bulk', 'cat-snacks']);
+      expect(outboxRows()).toEqual([]);
+    });
+
+    test('the later save wins whole by HLC, whichever arrives last', async () => {
+      put('household_category_order', remoteOrder(['cat-snacks'], ts(5)));
+      await pullNow();
+      // This device saves its order, which isn't pushed yet.
+      upsertRow(db, householdCategoryOrder, { householdId: H1, categoryIds: ['cat-bulk'] }, { categoryIds: ['cat-bulk'] });
+      const mine = orderRow()!.fieldClock.category_ids;
+
+      // An earlier save from another member arrives after: it loses.
+      server.household_category_order = [remoteOrder(['cat-snacks', 'cat-bulk'], ts(20), OLD)];
+      await pullNow();
+      expect(orderRow()).toMatchObject({ categoryIds: ['cat-bulk'], fieldClock: { category_ids: mine } });
+
+      // A later one wins, the whole array.
+      server.household_category_order = [remoteOrder(['cat-snacks', 'cat-bulk'], ts(30), NEW)];
+      await pullNow();
+      expect(orderRow()).toMatchObject({ categoryIds: ['cat-snacks', 'cat-bulk'], fieldClock: { category_ids: NEW } });
+    });
+  });
+
   test("a user in two households gets each one's own override", async () => {
     memberships = [H1, H2];
     put('households', remoteHousehold(H2, ts(1), 'Cabin'));
@@ -1648,58 +1703,62 @@ describe("the household's meal plan", () => {
 });
 
 describe("the user's own preferences", () => {
+  const myOrder = (categoryIds: string[], updated: string): ServerRow => ({
+    user_id: 'u1',
+    household_id: H1,
+    category_ids: categoryIds,
+    created_at: ts(0),
+    updated_at: updated,
+  });
+
   beforeEach(() => {
     seedPulledList();
     db.insert(categories).values({ id: 'cat-dairy', slug: 'dairy', name: 'Dairy', defaultRank: 1 }).run();
   });
 
-  test('aisle order and settings come down, with a cursor each', async () => {
-    put('user_category_order', { user_id: 'u1', category_id: 'cat-dairy', position: 3, created_at: ts(0), updated_at: ts(5) });
+  test('my aisle order and settings come down, with a cursor each', async () => {
+    put('user_household_category_order', myOrder(['cat-dairy', 'cat-x'], ts(5)));
     put('user_settings', { user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(6) });
 
     await pullNow();
 
-    expect(db.select().from(userCategoryOrder).get()).toMatchObject({ userId: 'u1', categoryId: 'cat-dairy', position: 3 });
+    expect(db.select().from(userHouseholdCategoryOrder).get()).toMatchObject({
+      userId: 'u1',
+      householdId: H1,
+      categoryIds: ['cat-dairy', 'cat-x'],
+    });
     expect(db.select().from(userSettings).get()).toMatchObject({ userId: 'u1', defaultListId: L });
     expect(getPullState().cursors).toMatchObject({
-      'user:user_category_order': ts(5),
+      'user:user_household_category_order': ts(5),
       'user:user_settings': ts(6),
     });
     expect(outboxRows()).toEqual([]);
   });
 
   test("an unpushed local change wins over the server's row; a pushed one doesn't", async () => {
-    const order = (position: number, updated: string): ServerRow => ({
-      user_id: 'u1',
-      category_id: 'cat-dairy',
-      position,
-      created_at: ts(0),
-      updated_at: updated,
-    });
-    put('user_category_order', order(3, ts(5)));
+    put('user_household_category_order', myOrder(['a'], ts(5)));
     await pullNow();
-    upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'cat-dairy', position: 7 }, { position: 7 });
-    server.user_category_order = [order(4, ts(20))];
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H1, categoryIds: ['local'] }, { categoryIds: ['local'] });
+    server.user_household_category_order = [myOrder(['b'], ts(20))];
 
     await pullNow();
-    expect(db.select().from(userCategoryOrder).get()!.position).toBe(7);
+    expect(db.select().from(userHouseholdCategoryOrder).get()!.categoryIds).toEqual(['local']);
 
     clearOutbox();
-    server.user_category_order = [order(4, ts(30))];
+    server.user_household_category_order = [myOrder(['c', 'b'], ts(30))];
     await pullNow();
-    expect(db.select().from(userCategoryOrder).get()!.position).toBe(4);
+    expect(db.select().from(userHouseholdCategoryOrder).get()!.categoryIds).toEqual(['c', 'b']);
   });
 
   test("a row removed here but not yet pushed isn't brought back", async () => {
-    const order: ServerRow = { user_id: 'u1', category_id: 'cat-dairy', position: 3, created_at: ts(0), updated_at: ts(5) };
-    put('user_category_order', order);
+    put('user_household_category_order', myOrder(['a'], ts(5)));
     await pullNow();
-    deleteRows(db, userCategoryOrder, undefined);
-    server.user_category_order = [{ ...order, updated_at: ts(20) }];
+    deleteRows(db, userHouseholdCategoryOrder, undefined);
+    server.user_household_category_order = [myOrder(['a'], ts(20))];
 
     await pullNow();
 
-    expect(db.select().from(userCategoryOrder).get()).toBeUndefined();
+    expect(db.select().from(userHouseholdCategoryOrder).get()).toBeUndefined();
   });
 
   test("a default list this device doesn't have is left out", async () => {
@@ -2225,6 +2284,7 @@ describe('scoped pulls (for Realtime)', () => {
     'categories',
     'household_category_overrides',
     'household_staples',
+    'household_category_order',
     'lists',
     'recipes',
     'list_items',
@@ -2266,7 +2326,7 @@ describe('scoped pulls (for Realtime)', () => {
 
   test("the user's tables only", async () => {
     await pullNow({ scope: { user: true } });
-    expect(queries.map((q) => q.table)).toEqual(['user_category_order', 'user_settings']);
+    expect(queries.map((q) => q.table)).toEqual(['user_household_category_order', 'user_settings']);
   });
 
   test('the catalog only', async () => {
@@ -2436,17 +2496,19 @@ describe("members' names (spec 4.7)", () => {
 
 describe('applyRemoteDelete (per-user rows deleted on another device)', () => {
   const C = 'cat-snacks';
+  const KEY = { user_id: 'u1', household_id: H1 };
 
   function seedOrder() {
     db.insert(categories).values({ id: C, slug: 'snacks', name: 'Snacks', defaultRank: 1 }).run();
-    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: C, position: 1 }).run();
+    db.insert(households).values({ id: H1, name: 'Home' }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: 'u1', householdId: H1, categoryIds: [C] }).run();
   }
-  const orderRows = () => db.select().from(userCategoryOrder).all();
+  const orderRows = () => db.select().from(userHouseholdCategoryOrder).all();
 
-  test("deletes the user's order row named by the event's key, without writing to the outbox", () => {
+  test("deletes the user's order for the household named by the event's key, without writing to the outbox", () => {
     seedOrder();
 
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
+    expect(applyRemoteDelete('user_household_category_order', KEY, 'u1')).toBe(true);
 
     expect(orderRows()).toEqual([]);
     expect(outboxRows()).toEqual([]);
@@ -2454,24 +2516,25 @@ describe('applyRemoteDelete (per-user rows deleted on another device)', () => {
 
   test('keeps a row with an unpushed local change', () => {
     seedOrder();
-    upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: C, position: 2 }, { position: 2 });
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H1, categoryIds: [C] }, { categoryIds: [C] });
 
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_household_category_order', KEY, 'u1')).toBe(false);
     expect(orderRows()).toHaveLength(1);
 
     clearOutbox();
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(true);
+    expect(applyRemoteDelete('user_household_category_order', KEY, 'u1')).toBe(true);
     expect(orderRows()).toEqual([]);
   });
 
   test("ignores another user's row, a missing row, an incomplete key and other tables", () => {
     seedOrder();
-    db.insert(households).values({ id: H1, name: 'Home' }).run();
     db.insert(householdCategoryOverrides).values({ householdId: H1, ingredientName: 'chips', categoryId: C }).run();
 
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u2', category_id: C }, 'u1')).toBe(false);
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: 'other' }, 'u1')).toBe(false);
-    expect(applyRemoteDelete('user_category_order', { user_id: 'u1' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_household_category_order', { user_id: 'u2', household_id: H1 }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_household_category_order', { user_id: 'u1', household_id: 'other' }, 'u1')).toBe(false);
+    expect(applyRemoteDelete('user_household_category_order', { user_id: 'u1' }, 'u1')).toBe(false);
+    // The old per-user order is gone (spec 4.3.3): its delete events are ignored.
+    expect(applyRemoteDelete('user_category_order', { user_id: 'u1', category_id: C }, 'u1')).toBe(false);
     expect(applyRemoteDelete('user_settings', { user_id: 'u1' }, 'u1')).toBe(false);
     expect(applyRemoteDelete('lists', { id: L, user_id: 'u1' }, 'u1')).toBe(false);
     // Overrides are household data: a reset is a null category, never a delete event to apply.

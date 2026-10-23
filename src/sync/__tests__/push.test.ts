@@ -3,7 +3,19 @@ import { eq } from 'drizzle-orm';
 import type { NetworkState } from 'expo-network';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { categories, db, householdCategoryOverrides, households, householdStaples, lists, recipes, userCategoryOrder, userSettings } from '@/db';
+import {
+  categories,
+  db,
+  householdCategoryOrder,
+  householdCategoryOverrides,
+  households,
+  householdStaples,
+  lists,
+  outbox,
+  recipes,
+  userHouseholdCategoryOrder,
+  userSettings,
+} from '@/db';
 import { setSlot } from '@/features/meal-plan/write';
 import { onQuery, onRpc, queries, resetSupabase, respondTo, respondToRpc, rpcCalls, setSupabaseConfigured, supabase } from '@/test/fake-supabase';
 import { resetDb } from '@/test/db';
@@ -148,33 +160,53 @@ describe('order', () => {
     expect(outboxRows()).toEqual([]);
   });
 
-  test('custom categories and overrides go through apply_mutations; the retired order table is refused without a request', async () => {
+  test("custom categories, overrides and the household aisle order go through apply_mutations; the user's own order is a direct write", async () => {
     applyAll();
-    insertRow(db, categories, { id: 'c1', name: 'Bakery', householdId: H });
-    upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c1', position: 2 }, { position: 2 });
+    insertRow(db, categories, { id: 'c1', name: 'Bakery', householdId: H, createdAt: T0 });
+    upsertRow(db, householdCategoryOrder, { householdId: H, categoryIds: ['c1'] }, { categoryIds: ['c1'] });
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H, categoryIds: ['c1', 'c2'] }, { categoryIds: ['c1', 'c2'] });
     upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: 'c1' }, { categoryId: 'c1' });
     upsertRow(db, householdCategoryOverrides, { householdId: H, ingredientName: 'milk', categoryId: null }, { categoryId: null });
     updateRows(db, categories, eq(categories.id, 'c1'), { name: 'Bread' });
-    deleteRows(db, userCategoryOrder, eq(userCategoryOrder.categoryId, 'c1'));
 
-    await expect(pushNow()).resolves.toEqual({ pushed: 4, rejected: 2, failed: false });
+    await expect(pushNow()).resolves.toEqual({ pushed: 6, rejected: 0, failed: false });
 
-    // Two batches around the order upsert; no direct category or override writes.
+    // Two batches around the user's order; no direct category, override or household order writes.
     expect(applyCalls()).toHaveLength(2);
     expect(sent(0).map((m) => [m.table, m.id ?? m.key, m.fields])).toEqual([
-      ['categories', 'c1', { name: 'Bakery', household_id: H }],
+      ['categories', 'c1', { name: 'Bakery', household_id: H, created_at: T0.toISOString() }],
+      ['household_category_order', { household_id: H }, { category_ids: ['c1'] }],
     ]);
     expect(sent(1).map((m) => [m.table, m.id ?? m.key, m.fields])).toEqual([
       ['household_category_overrides', { household_id: H, ingredient_name: 'milk' }, { category_id: 'c1' }],
       ['household_category_overrides', { household_id: H, ingredient_name: 'milk' }, { category_id: null }],
       ['categories', 'c1', { name: 'Bread' }],
     ]);
-    expect(queries).toEqual([]);
-    const retired = { code: 'retired', message: 'user_category_order no longer exists on the server' };
-    expect(outboxRows().map((r) => [r.mutation.table, r.mutation.delete ?? false, r.error])).toEqual([
-      ['user_category_order', false, retired],
-      ['user_category_order', true, retired],
+    expect(queries).toEqual([
+      {
+        table: 'user_household_category_order',
+        ops: [['upsert', { user_id: 'u1', household_id: H, category_ids: ['c1', 'c2'] }, { onConflict: 'user_id,household_id' }]],
+      },
     ]);
+    expect(outboxRows()).toEqual([]);
+
+    // Use household order: a direct delete of the user's row.
+    deleteRows(db, userHouseholdCategoryOrder, eq(userHouseholdCategoryOrder.userId, 'u1'));
+    await expect(pushNow()).resolves.toEqual({ pushed: 1, rejected: 0, failed: false });
+    expect(queries[1]).toEqual({
+      table: 'user_household_category_order',
+      ops: [['delete'], ['match', { user_id: 'u1', household_id: H }]],
+    });
+    expect(applyCalls()).toHaveLength(2);
+  });
+
+  test("a save and a delete of the user's order queued together push only the delete", async () => {
+    applyAll();
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H, categoryIds: ['c1'] }, { categoryIds: ['c1'] });
+    deleteRows(db, userHouseholdCategoryOrder, eq(userHouseholdCategoryOrder.userId, 'u1'));
+
+    await expect(pushNow()).resolves.toEqual({ pushed: 1, rejected: 0, failed: false });
+    expect(queries.map((q) => q.ops[0][0])).toEqual(['delete']);
   });
 
   test('staples go through apply_mutations by key, with deleted_at and never created_by', async () => {
@@ -313,8 +345,10 @@ describe('a rejected mutation does not block the rest', () => {
   });
 
   test('a queued user_category_order change is refused for good, never sent, and the queue moves on', async () => {
-    db.insert(categories).values({ id: 'c9', name: 'Local', householdId: H }).run();
-    insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c9', position: 1 });
+    // As an older app version queued it (local migration 0027 drops these; this is the fallback).
+    db.insert(outbox)
+      .values({ householdId: null, mutation: { table: 'user_category_order', key: { user_id: 'u1', category_id: 'c9' }, hlc: 'h', fields: { position: 1 } } })
+      .run();
     addList('l1');
     applyAll();
 

@@ -973,7 +973,7 @@ export function groupItems(
 
 /**
  * Items in the user's aisle order, the same order By aisle uses (spec 4.3.3): Sorting… first, then
- * by the aisle's place in `orderedCategories` (`orderCategories` output; an unknown aisle counts as
+ * by the aisle's place in `orderedCategories` (`resolveAisleOrder` output; an unknown aisle counts as
  * Other), then by when the item was added. By recipe (spec 4.6) groups these with `groupByRecipe`,
  * which keeps this order inside each card.
  */

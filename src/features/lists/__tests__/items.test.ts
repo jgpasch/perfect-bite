@@ -48,7 +48,8 @@ import {
 import { groupByCategory, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
 import { groupByRecipe } from '@/domain/recipe-grouping';
 import { usualUnitsByKey } from '@/domain/usual-unit';
-import { getOrderedCategories, moveCategory, setCategoryOverride } from '@/features/categories/categories';
+import { getOrderedCategories, setCategoryOverride } from '@/features/categories/categories';
+import { saveHouseholdAisleOrder } from '@/features/categories/aisle-orders';
 import { createRecipe, deleteRecipe } from '@/features/recipes/recipes';
 import { SYSTEM_CATEGORIES, type Unit } from '@/shared';
 
@@ -57,6 +58,7 @@ import { createList, ensureStarterData, getDefaultListId } from '../lists';
 import { listShareText } from '../share';
 
 jest.mock('@/db/client', () => require('@/test/db'));
+jest.mock('@/features/auth/account', () => ({ getAccount: () => null }));
 
 const USER = 'user-1';
 let listId: string;
@@ -1769,9 +1771,9 @@ describe('orderByAisle (spec 4.6, By recipe)', () => {
       addItem(listId, 'milk', USER);
       expect(byRecipe()).toEqual([['Other items', ['cilantro', 'milk', 'cumin']]]);
 
-      // Dairy & Eggs to the top of this user's order.
-      const dairy = getOrderedCategories(USER, listHousehold()).findIndex((c) => c.id === cat('dairy-eggs'));
-      moveCategory(USER, listHousehold(), dairy, 0);
+      // Dairy & Eggs to the top of the household's order, which this user follows.
+      const rest = getOrderedCategories(USER, listHousehold()).filter((c) => c.id !== cat('dairy-eggs'));
+      saveHouseholdAisleOrder(listHousehold(), [cat('dairy-eggs'), ...rest.map((c) => c.id)]);
       expect(byRecipe()).toEqual([['Other items', ['milk', 'cilantro', 'cumin']]]);
 
       // Cumin moved to Produce for the household: it joins cilantro, and was added first.

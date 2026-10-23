@@ -3,14 +3,19 @@
 // failure leaves none of them.
 //
 // Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage,
-// custom categories, category overrides, staples, meal plan entries) and per-user tables (order,
-// settings) go through here.
+// custom categories, category overrides, staples, meal plan entries, the household aisle order)
+// and per-user tables (the user's own aisle orders, settings) go through here.
 // The catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
-import { and, eq, getTableColumns, getTableName, SQL, sql, type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
+//
+// An aisle order (spec 4.3.3) is one row holding the whole order, so only its latest save or
+// delete matters: a new one replaces the one still queued for the same row, and an older save can
+// never bring back an order that was removed.
+import { and, eq, getTableColumns, getTableName, isNull, SQL, sql, type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
   categories,
+  householdCategoryOrder,
   householdCategoryOverrides,
   households,
   householdStaples,
@@ -23,7 +28,7 @@ import {
   outbox,
   recipeIngredients,
   recipes,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
   userSettings,
 } from '@/db';
 
@@ -40,6 +45,8 @@ type Spec = {
   household: boolean;
   /** Columns the device keeps but never sends (the server doesn't take them from clients). */
   unsent?: readonly string[];
+  /** A new mutation replaces the row's queued (not rejected) ones: each holds the whole row. */
+  coalesce?: boolean;
 };
 
 const SPECS = new Map<SQLiteTable, Spec>([
@@ -61,7 +68,13 @@ const SPECS = new Map<SQLiteTable, Spec>([
   [householdCategoryOverrides, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdAt'] }],
   // Only deleted_at is the client's to set; the server stamps created_by and created_at.
   [householdStaples, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdBy', 'createdAt'] }],
-  [userCategoryOrder, { key: ['userId', 'categoryId'], household: false }],
+  // Only the order is the client's to set; the server stamps updated_by and created_at.
+  [
+    householdCategoryOrder,
+    { key: ['householdId'], household: true, unsent: ['updatedBy', 'createdAt'], coalesce: true },
+  ],
+  // Per-user, though it names a household: its mutations aren't the household's (`apply_mutations`).
+  [userHouseholdCategoryOrder, { key: ['userId', 'householdId'], household: false, coalesce: true }],
   [userSettings, { key: ['userId'], household: false }],
 ]);
 
@@ -78,7 +91,8 @@ export type SyncedTable =
   | typeof categories
   | typeof householdCategoryOverrides
   | typeof householdStaples
-  | typeof userCategoryOrder
+  | typeof householdCategoryOrder
+  | typeof userHouseholdCategoryOrder
   | typeof userSettings;
 
 type Row = Record<string, unknown>;
@@ -114,10 +128,24 @@ function householdOf(table: SQLiteTable, spec: Spec, row: Row): string | null {
 }
 
 function enqueue(tx: Exec, table: SQLiteTable, spec: Spec, row: Row, mutation: Omit<Mutation, 'table' | 'id' | 'key'>) {
+  const ref = rowRef(table, spec, row);
+  if (spec.coalesce) {
+    tx.delete(outbox)
+      .where(
+        and(
+          isNull(outbox.rejectedAt),
+          sql`json_extract(${outbox.mutation}, '$.table') = ${getTableName(table)}`,
+          ...Object.entries(ref.key ?? { id: ref.id }).map(
+            ([column, value]) => sql`json_extract(${outbox.mutation}, ${`$.${ref.key ? 'key.' : ''}${column}`}) = ${value}`,
+          ),
+        ),
+      )
+      .run();
+  }
   tx.insert(outbox)
     .values({
       householdId: householdOf(table, spec, row),
-      mutation: { table: getTableName(table), ...rowRef(table, spec, row), ...mutation },
+      mutation: { table: getTableName(table), ...ref, ...mutation },
     })
     .run();
   notifyOutboxWrite();
@@ -265,11 +293,11 @@ export function upsertRow<T extends SyncedTable>(
 }
 
 /**
- * Hard-deletes the matching rows of the user's category order and enqueues a `delete` for each.
+ * Hard-deletes the matching rows of the user's own aisle orders and enqueues a `delete` for each.
  * Household tables soft-delete instead (`updateRows` with `deletedAt`, or a null override).
  * Returns how many rows went.
  */
-export function deleteRows(exec: Exec, table: typeof userCategoryOrder, where: SQL | undefined): number {
+export function deleteRows(exec: Exec, table: typeof userHouseholdCategoryOrder, where: SQL | undefined): number {
   const spec = specOf(table);
   return exec.transaction((tx) => {
     const rows = tx.delete(table).where(where).returning().all() as Row[];

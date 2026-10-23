@@ -7,6 +7,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import {
   categories,
   db,
+  householdCategoryOrder,
   householdCategoryOverrides,
   householdMemberNames,
   households,
@@ -14,7 +15,7 @@ import {
   listItems,
   lists,
   mealPlanEntries,
-  userCategoryOrder,
+  userHouseholdCategoryOrder,
 } from '@/db';
 import {
   emitChange,
@@ -155,7 +156,7 @@ describe('channels', () => {
     expect(openChannels().map((c) => c.name)).toEqual(['sync:user:1', 'sync:catalog:2']);
     expect(channelNamed('user')!.bindings.map(({ table, filter, event, schema }) => ({ table, filter, event, schema }))).toEqual([
       { table: 'household_members', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
-      { table: 'user_category_order', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
+      { table: 'user_household_category_order', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
       { table: 'user_settings', filter: 'user_id=eq.u-new', event: '*', schema: 'public' },
     ]);
     expect(channelNamed('catalog')!.bindings.map((b) => [b.table, b.filter])).toEqual([['ingredients', undefined]]);
@@ -179,6 +180,7 @@ describe('channels', () => {
         ['categories', `household_id=eq.${H2}`],
         ['household_category_overrides', `household_id=eq.${H2}`],
         ['household_staples', `household_id=eq.${H2}`],
+        ['household_category_order', `household_id=eq.${H2}`],
       ]),
     );
     expect(channelNamed(`household:${H1}`)).toBeDefined();
@@ -267,7 +269,7 @@ describe('events pull what they touched', () => {
   test("the user's own tables pull just those", async () => {
     emitChange({ table: 'user_settings', eventType: 'UPDATE', new: { user_id: 'u1' } });
     await settle();
-    expect(tablesQueried()).toEqual(['user_category_order', 'user_settings']);
+    expect(tablesQueried()).toEqual(['user_household_category_order', 'user_settings']);
   });
 
   test('a catalog change pulls just the catalog', async () => {
@@ -376,18 +378,37 @@ describe('events pull what they touched', () => {
     expect(db.select().from(mealPlanEntries).get()!.deletedAt).toEqual(new Date(ts(20)));
   });
 
-  test("a deleted order row is applied from the event's key, without a pull", async () => {
-    db.insert(categories).values({ id: 'cat-snacks', slug: 'snacks', name: 'Snacks', defaultRank: 1 }).run();
-    db.insert(userCategoryOrder).values({ userId: 'u1', categoryId: 'cat-snacks', position: 1 }).run();
+  test("a deleted aisle order of the user's (Use household order elsewhere) is applied from the event's key, without a pull", async () => {
+    db.insert(households).values({ id: H1, name: 'Home' }).onConflictDoNothing().run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: 'u1', householdId: H1, categoryIds: ['cat-snacks'] }).run();
 
     // Deletes can't be filtered: another user's arrives too and is ignored.
-    emitChange({ table: 'user_category_order', eventType: 'DELETE', old: { user_id: 'u2', category_id: 'cat-snacks' } });
-    expect(db.select().from(userCategoryOrder).all()).toHaveLength(1);
+    emitChange({ table: 'user_household_category_order', eventType: 'DELETE', old: { user_id: 'u2', household_id: H1 } });
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toHaveLength(1);
 
-    emitChange({ table: 'user_category_order', eventType: 'DELETE', old: { user_id: 'u1', category_id: 'cat-snacks' } });
-    expect(db.select().from(userCategoryOrder).all()).toEqual([]);
+    emitChange({ table: 'user_household_category_order', eventType: 'DELETE', old: { user_id: 'u1', household_id: H1 } });
+    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
     await settle();
     expect(queries).toEqual([]);
+  });
+
+  test("another member's household aisle order save pulls that household", async () => {
+    const order = {
+      household_id: H1,
+      category_ids: ['cat-b', 'cat-a'],
+      updated_by: 'u2',
+      field_clock: { category_ids: OLD },
+      created_at: ts(0),
+      updated_at: ts(10),
+    };
+    server.household_category_order = [order];
+
+    emitChange({ table: 'household_category_order', eventType: 'UPDATE', new: order });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(queries.find((q) => q.table === 'household_category_order')!.ops).toContainEqual(['eq', 'household_id', H1]);
+    expect(db.select().from(householdCategoryOrder).get()).toMatchObject({ householdId: H1, categoryIds: ['cat-b', 'cat-a'] });
   });
 
   test('a channel that (re)subscribes catches up on its scope', async () => {
@@ -402,7 +423,7 @@ describe('events pull what they touched', () => {
     expect(tablesQueried()).toEqual([
       ...HOUSEHOLD_TABLES,
       ...HOUSEHOLD_TABLES,
-      'user_category_order',
+      'user_household_category_order',
       'user_settings',
       'categories',
       'ingredients',
