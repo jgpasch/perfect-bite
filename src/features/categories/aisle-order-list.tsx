@@ -40,6 +40,8 @@ type Props = {
   onMove: (from: number, to: number) => void;
   /** Scrolls with the rows, above them (the title and the explanation). */
   header?: ReactNode;
+  /** Scrolls with the rows, under them (the save button). */
+  footer?: ReactNode;
 };
 
 /** How deep the auto-scroll band is at the top and bottom of the list, and its top speed per frame. */
@@ -69,7 +71,7 @@ type Drag = {
  * over a dashed slot where it will land. Dragging near the top or bottom edge scrolls. VoiceOver
  * users get Move up / Move down actions on each row.
  */
-export function AisleOrderList({ aisles, onMove, header }: Props) {
+export function AisleOrderList({ aisles, onMove, header, footer }: Props) {
   const { spacing, sizes, rounded, colors } = useTheme();
   const reduceMotion = useReducedMotion();
   const [rowHeight, setRowHeight] = useState<number>(sizes.aisleRow);
@@ -223,6 +225,7 @@ export function AisleOrderList({ aisles, onMove, header }: Props) {
           />
         ))}
       </View>
+      {footer}
     </Animated.ScrollView>
   );
 }

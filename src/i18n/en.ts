@@ -346,7 +346,22 @@ export const en = {
   /** The Aisle order screen (spec 4.3.3). */
   aisleOrder: {
     title: 'Aisle order',
-    intro: 'Drag aisles into the order you walk the store. Only you see this order.',
+    /** The source line: which order the user's lists use now. */
+    sourceHousehold: 'Following household aisle order',
+    sourcePersonal: 'Using your own aisle order',
+    /** The segmented control: which order the drags edit. */
+    sides: 'Order to edit',
+    sideHousehold: 'Household order',
+    sideMine: 'My order',
+    footnoteHousehold: 'Used by members who follow the household order.',
+    footnoteMine: 'Only you see this order.',
+    saveHousehold: 'Save household order',
+    saveMine: 'Save my order',
+    useHousehold: 'Use household order',
+    /** Leaving or switching sides with unsaved moves. */
+    discardTitle: 'Discard your changes?',
+    discard: 'Discard',
+    keepEditing: 'Keep editing',
     row: '{{name}}, {{position}} of {{count}}',
     rowHint: 'Touch and hold, then drag to move',
     moveUp: 'Move up',

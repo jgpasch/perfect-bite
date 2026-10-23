@@ -1,7 +1,8 @@
 // Aisle order (spec 4.3.3, board 12): long-press and drag, or VoiceOver's Move up / Move down,
-// reorders the aisles, and the screen saves the user's order to the database.
+// reorders the aisles in a draft; the screen saves the household's order or the user's own with
+// its button, and asks before dropping unsaved moves.
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Alert, type AlertButton } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, householdCategoryOrder, households, userHouseholdCategoryOrder } from '@/db';
@@ -109,6 +110,7 @@ jest.mock('react-native-gesture-handler', () => {
   };
 });
 const mockBack = jest.fn();
+const mockDispatch = jest.fn();
 let mockParams: { householdId?: string } = {};
 jest.mock('expo-router', () => {
   const { createElement, Fragment } = require('react');
@@ -116,8 +118,24 @@ jest.mock('expo-router', () => {
   const Toolbar = Object.assign(passThrough, {
     Button: ({ children, ...props }: { children?: unknown }) => createElement('ToolbarButton', props, children),
   });
-  return { router: { back: () => mockBack() }, Stack: { Toolbar }, useLocalSearchParams: () => mockParams };
+  return {
+    router: { back: () => mockBack() },
+    Stack: { Toolbar },
+    useLocalSearchParams: () => mockParams,
+    useNavigation: () => ({ dispatch: mockDispatch }),
+  };
 });
+// What the screen last asked `usePreventRemove` for: whether to block leaving, and what to do then.
+const mockPreventRemove: { prevent: boolean; callback: ((e: { data: { action: unknown } }) => void) | null } = {
+  prevent: false,
+  callback: null,
+};
+jest.mock('expo-router/react-navigation', () => ({
+  usePreventRemove: (prevent: boolean, callback: (e: { data: { action: unknown } }) => void) => {
+    mockPreventRemove.prevent = prevent;
+    mockPreventRemove.callback = callback;
+  },
+}));
 
 const USER = 'user-1';
 const HOME = 'household-home';
@@ -126,10 +144,15 @@ const SLOT = Sizes.aisleRow + Spacing.sm;
 
 let tree: ReactTestRenderer | null = null;
 let announce: jest.SpiedFunction<typeof AccessibilityInfo.announceForAccessibility>;
+let alert: jest.SpiedFunction<typeof Alert.alert>;
 
 beforeEach(() => {
   announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockBack.mockClear();
+  mockDispatch.mockClear();
+  mockPreventRemove.prevent = false;
+  mockPreventRemove.callback = null;
 });
 
 afterEach(() => {
@@ -137,6 +160,7 @@ afterEach(() => {
   tree = null;
   mockReactions.clear();
   announce.mockRestore();
+  alert.mockRestore();
 });
 
 /** The rows, in the order they're drawn (which is the order given), by accessibility label. */
@@ -248,42 +272,240 @@ describe('the Aisle order screen', () => {
   }
   /** Names from the database, in the user's order for Home. */
   const storedOrder = () => getOrderedCategories(USER, HOME).map((c) => c.name);
+  const names = SYSTEM_CATEGORIES.map((c) => c.name);
+  const ids = SYSTEM_CATEGORIES.map((c) => c.id);
+  /** The aisle names on screen, in order. */
+  const shownNames = (root: ReactTestRenderer) => rowLabels(root).map((l) => l.split(',')[0]);
+  const texts = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => typeof n.type === 'string' && typeof n.props.children === 'string').map((n) => n.props.children);
+  const hostByLabel = (root: ReactTestRenderer, label: string) =>
+    root.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === label);
+  const button = (root: ReactTestRenderer, label: string) => {
+    const [host] = hostByLabel(root, label);
+    if (!host) throw new Error(`no ${label}`);
+    return host;
+  };
+  const press = (host: ReactTestInstance) => act(() => host.props.onClick({ nativeEvent: {} }));
+  const isOff = (host: ReactTestInstance) => host.props.accessibilityState.disabled === true;
+  const selectedTab = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tab' && n.props.accessibilityState.selected)
+      .props.accessibilityLabel;
+  const householdRows = () => db.select().from(householdCategoryOrder).all();
+  const myRows = () => db.select().from(userHouseholdCategoryOrder).all();
+  /** Re-reads the database, as the live queries would after a write. */
+  const refresh = () => act(() => tree!.update(<CategoryOrderScreen />));
+  /** Presses a button of the last alert. */
+  const answer = (text: string) => {
+    const buttons = (alert.mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
+    const choice = buttons.find((b) => b.text === text);
+    if (!choice) throw new Error(`no ${text}`);
+    act(() => choice.onPress?.());
+  };
 
   it('shows the title and every system aisle in the default order', () => {
     const root = render();
     const header = root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'header');
     expect(header.props.children).toBe('Aisle order');
-    expect(rowLabels(root).map((l) => l.split(',')[0])).toEqual(SYSTEM_CATEGORIES.map((c) => c.name));
+    expect(shownNames(root)).toEqual(names);
   });
 
-  it('a VoiceOver move is saved as the user’s own whole order for the household, and shown', () => {
+  it('with no order of their own: following the household, on Household order, with its footnote', () => {
     const root = render();
-    const [first, second] = SYSTEM_CATEGORIES.map((c) => c.name);
-    a11yAction(rows(root)[0], 'moveDown');
-    expect(storedOrder().slice(0, 2)).toEqual([second, first]);
-    expect(getAisleOrder(USER, HOME).source).toBe('personal');
-    expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([
-      expect.objectContaining({ userId: USER, householdId: HOME, categoryIds: getOrderedCategories(USER, HOME).map((c) => c.id) }),
-    ]);
-    // The household's order is left alone.
-    expect(db.select().from(householdCategoryOrder).all()).toEqual([]);
-    act(() => tree!.update(<CategoryOrderScreen />));
-    expect(rowLabels(root).slice(0, 2)).toEqual([
-      `${second}, 1 of ${SYSTEM_CATEGORIES.length}`,
-      `${first}, 2 of ${SYSTEM_CATEGORIES.length}`,
-    ]);
+    expect(texts(root)).toEqual(
+      expect.arrayContaining(['Following household aisle order', 'Used by members who follow the household order.']),
+    );
+    expect(texts(root)).not.toContain('Only you see this order.');
+    expect(selectedTab(root)).toBe('Household order');
+    expect(isOff(button(root, 'Save household order'))).toBe(true);
+    expect(hostByLabel(root, 'Use household order')).toHaveLength(0);
   });
 
-  it('a drag is saved too', () => {
+  it('with an order of their own: using it, on My order, with its footnote and Use household order', () => {
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[3]] }).run();
+    const root = render();
+    expect(texts(root)).toEqual(expect.arrayContaining(['Using your own aisle order', 'Only you see this order.']));
+    expect(selectedTab(root)).toBe('My order');
+    expect(shownNames(root)[0]).toBe(names[3]);
+    expect(isOff(button(root, 'Save my order'))).toBe(true);
+    expect(hostByLabel(root, 'Use household order')).toHaveLength(1);
+  });
+
+  it('Household order shows the household order even while the user uses their own', () => {
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [ids[2]] }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[3]] }).run();
+    const root = render();
+    press(button(root, 'Household order'));
+    expect(selectedTab(root)).toBe('Household order');
+    expect(shownNames(root)[0]).toBe(names[2]);
+    expect(texts(root)).toContain('Used by members who follow the household order.');
+    // Still using their own: choosing a side changes nothing.
+    expect(texts(root)).toContain('Using your own aisle order');
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('Household order shows the default when the household has none', () => {
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[3]] }).run();
+    const root = render();
+    press(button(root, 'Household order'));
+    expect(shownNames(root)).toEqual(names);
+  });
+
+  it('My order without an own order starts from the order the user uses now, and creates nothing', () => {
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [ids[4], ids[1]] }).run();
+    const root = render();
+    press(button(root, 'My order'));
+    expect(selectedTab(root)).toBe('My order');
+    expect(shownNames(root).slice(0, 2)).toEqual([names[4], names[1]]);
+    expect(texts(root)).toContain('Only you see this order.');
+    expect(texts(root)).toContain('Following household aisle order');
+    expect(myRows()).toEqual([]);
+    expect(hostByLabel(root, 'Use household order')).toHaveLength(0);
+    // And back: still nothing written.
+    press(button(root, 'Household order'));
+    expect(myRows()).toEqual([]);
+    expect(householdRows()).toEqual([expect.objectContaining({ categoryIds: [ids[4], ids[1]] })]);
+  });
+
+  it('a VoiceOver move changes the draft only, and turns Save on', () => {
+    const root = render();
+    a11yAction(rows(root)[0], 'moveDown');
+    expect(shownNames(root).slice(0, 2)).toEqual([names[1], names[0]]);
+    expect(householdRows()).toEqual([]);
+    expect(myRows()).toEqual([]);
+    expect(isOff(button(root, 'Save household order'))).toBe(false);
+    expect(mockPreventRemove.prevent).toBe(true);
+  });
+
+  it('a drag changes the draft only', () => {
     const root = render();
     act(() => mockFlushReactions());
-    const names = SYSTEM_CATEGORIES.map((c) => c.name);
     const pan = gestureFor(root, 0);
     act(() => pan.onStart());
     act(() => pan.onUpdate({ translationY: SLOT * 3, absoluteY: 300 }));
     act(() => mockFlushReactions());
     act(() => pan.onFinalize());
-    expect(storedOrder().slice(0, 4)).toEqual([names[1], names[2], names[3], names[0]]);
+    expect(shownNames(root).slice(0, 4)).toEqual([names[1], names[2], names[3], names[0]]);
+    expect(householdRows()).toEqual([]);
+    expect(storedOrder()).toEqual(names);
+  });
+
+  it('moving an aisle back where it was turns Save off again', () => {
+    const root = render();
+    a11yAction(rows(root)[0], 'moveDown');
+    a11yAction(rows(root)[1], 'moveUp');
+    expect(shownNames(root)).toEqual(names);
+    expect(isOff(button(root, 'Save household order'))).toBe(true);
+    expect(mockPreventRemove.prevent).toBe(false);
+  });
+
+  it('Save household order writes the whole order, for everyone following it, and leaves the user’s side alone', () => {
+    const root = render();
+    a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'Save household order'));
+    const expected = [ids[1], ids[0], ...ids.slice(2)];
+    expect(householdRows()).toEqual([expect.objectContaining({ householdId: HOME, categoryIds: expected })]);
+    expect(myRows()).toEqual([]);
+    expect(getAisleOrder(USER, HOME).source).toBe('household');
+    expect(texts(root)).toContain('Following household aisle order');
+    expect(shownNames(root).slice(0, 2)).toEqual([names[1], names[0]]);
+    expect(isOff(button(root, 'Save household order'))).toBe(true);
+    expect(mockPreventRemove.prevent).toBe(false);
+  });
+
+  it('saving the household order never deletes the user’s own', () => {
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[3]] }).run();
+    const root = render();
+    press(button(root, 'Household order'));
+    a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'Save household order'));
+    expect(householdRows()).toEqual([expect.objectContaining({ categoryIds: [ids[1], ids[0], ...ids.slice(2)] })]);
+    expect(myRows()).toEqual([expect.objectContaining({ userId: USER, householdId: HOME, categoryIds: [ids[3]] })]);
+    expect(texts(root)).toContain('Using your own aisle order');
+    expect(getAisleOrder(USER, HOME).categories[0].id).toBe(ids[3]);
+  });
+
+  it('Save my order writes the whole order as the user’s own, and leaves the household’s alone', () => {
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [ids[2]] }).run();
+    const root = render();
+    press(button(root, 'My order'));
+    a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'Save my order'));
+    const household = getAisleOrder('someone-else', HOME).categories.map((c) => c.id);
+    expect(myRows()).toEqual([
+      expect.objectContaining({ userId: USER, householdId: HOME, categoryIds: [household[1], household[0], ...household.slice(2)] }),
+    ]);
+    expect(householdRows()).toEqual([expect.objectContaining({ categoryIds: [ids[2]] })]);
+    expect(texts(root)).toContain('Using your own aisle order');
+    expect(hostByLabel(root, 'Use household order')).toHaveLength(1);
+    expect(isOff(button(root, 'Save my order'))).toBe(true);
+  });
+
+  it('Use household order deletes the user’s own order, without asking', () => {
+    db.insert(householdCategoryOrder).values({ householdId: HOME, categoryIds: [ids[2]] }).run();
+    db.insert(userHouseholdCategoryOrder).values({ userId: USER, householdId: HOME, categoryIds: [ids[3]] }).run();
+    const root = render();
+    press(button(root, 'Use household order'));
+    refresh();
+    expect(alert).not.toHaveBeenCalled();
+    expect(myRows()).toEqual([]);
+    expect(householdRows()).toHaveLength(1);
+    expect(texts(root)).toContain('Following household aisle order');
+    expect(hostByLabel(root, 'Use household order')).toHaveLength(0);
+    // My order now starts from the household's.
+    expect(shownNames(root)[0]).toBe(names[2]);
+  });
+
+  it('switching sides with unsaved moves asks; Keep editing keeps the side and the draft', () => {
+    const root = render();
+    a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'My order'));
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(alert.mock.calls[0][0]).toBe('Discard your changes?');
+    const buttons = alert.mock.calls[0][2] as AlertButton[];
+    expect(buttons.map((b) => [b.text, b.style])).toEqual([
+      ['Keep editing', 'cancel'],
+      ['Discard', 'destructive'],
+    ]);
+    answer('Keep editing');
+    expect(selectedTab(root)).toBe('Household order');
+    expect(shownNames(root).slice(0, 2)).toEqual([names[1], names[0]]);
+    expect(isOff(button(root, 'Save household order'))).toBe(false);
+  });
+
+  it('switching sides with unsaved moves: Discard drops them and switches, saving nothing', () => {
+    const root = render();
+    a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'My order'));
+    answer('Discard');
+    expect(selectedTab(root)).toBe('My order');
+    expect(shownNames(root)).toEqual(names);
+    expect(isOff(button(root, 'Save my order'))).toBe(true);
+    expect(householdRows()).toEqual([]);
+    expect(myRows()).toEqual([]);
+    expect(mockPreventRemove.prevent).toBe(false);
+  });
+
+  it('switching sides with nothing moved asks nothing', () => {
+    const root = render();
+    press(button(root, 'My order'));
+    press(button(root, 'Household order'));
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('leaving (Done, swipe down) is blocked only while there are unsaved moves', () => {
+    const root = render();
+    expect(mockPreventRemove.prevent).toBe(false);
+    a11yAction(rows(root)[0], 'moveDown');
+    expect(mockPreventRemove.prevent).toBe(true);
+    const action = { type: 'GO_BACK' };
+    act(() => mockPreventRemove.callback!({ data: { action } }));
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Discard your changes?');
+    answer('Keep editing');
+    expect(mockDispatch).not.toHaveBeenCalled();
+    act(() => mockPreventRemove.callback!({ data: { action } }));
+    answer('Discard');
+    expect(mockDispatch).toHaveBeenCalledWith(action);
+    expect(householdRows()).toEqual([]);
   });
 
   it("shows one household's aisles: the system ones plus its own custom ones, last", () => {
@@ -309,7 +531,10 @@ describe('the Aisle order screen', () => {
     expect(rowLabels(root)).toHaveLength(SYSTEM_CATEGORIES.length);
     expect(rowLabels(root).some((l) => l.startsWith('Costco'))).toBe(false);
     a11yAction(rows(root)[0], 'moveDown');
+    expect(isOff(button(root, 'Save household order'))).toBe(true);
+    press(button(root, 'Save household order'));
     expect(db.select().from(userHouseholdCategoryOrder).all()).toEqual([]);
+    expect(householdRows()).toEqual([]);
   });
 
   it('opens on the household it is given, and saves to that household only', () => {
@@ -318,7 +543,9 @@ describe('the Aisle order screen', () => {
     mockParams = { householdId: CABIN };
     const root = render();
     expect(rowLabels(root).at(-1)).toMatch(/^Farm stand, \d+ of/);
+    press(button(root, 'My order'));
     a11yAction(rows(root)[0], 'moveDown');
+    press(button(root, 'Save my order'));
     expect(db.select().from(userHouseholdCategoryOrder).all().map((r) => r.householdId)).toEqual([CABIN]);
     expect(storedOrder()).toEqual(SYSTEM_CATEGORIES.map((c) => c.name));
   });
@@ -341,8 +568,14 @@ describe('the Aisle order screen', () => {
       const header = root.root.find((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'header');
       expect(header.props.children).toBe('Orden de pasillos');
       const texts = root.root.findAll((n) => typeof n.type === 'string' && typeof n.props.children === 'string');
-      expect(texts.map((n) => n.props.children)).toContain(
-        'Arrastra los pasillos en el orden en que recorres la tienda. Solo tú ves este orden.',
+      expect(texts.map((n) => n.props.children)).toEqual(
+        expect.arrayContaining([
+          'Sigues el orden de pasillos del hogar',
+          'Lo usan los miembros que siguen el orden del hogar.',
+          'Orden del hogar',
+          'Mi orden',
+          'Guardar orden del hogar',
+        ]),
       );
       expect(root.root.find((n) => (n.type as string) === 'ToolbarButton').props.children).toBe('Listo');
       const spanishRows = root.root.findAll(
