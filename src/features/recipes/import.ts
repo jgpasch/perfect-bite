@@ -1,26 +1,21 @@
 // Recipe import from a link or photos (spec 4.10, 6.6, 6.10): calls the `import-recipe` (or
 // `import-recipe-photo`) Edge Function, then saves the recipe and puts its ingredients on a list in
 // one local transaction.
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { File } from 'expo-file-system';
 import { v5 } from 'uuid';
 
-import { db, households, lists, recipeIngredients, recipes } from '@/db';
+import { db, households, lists, recipes } from '@/db';
 import { applyResults, type CategorizeResult } from '@/features/categories/categorization';
-import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
+import { ensureLocalIngredient } from '@/features/categories/categories';
+import { addResults, addSnapshot, undoAdds } from '@/features/lists/items';
 import { limitResetsAt } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
 import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { stepTexts } from '@/shared';
-import {
-  findReusableRecipe,
-  importedStepIngredients,
-  nameOf,
-  servingsOf,
-  type ReuseCandidate,
-} from '@/shared/domain/recipe-import';
+import { planRecipeImport } from '@/shared/domain/import-plan';
+import { findReusableRecipe, type ReuseCandidate } from '@/shared/domain/recipe-import';
 import {
   canonicalRecipeUrl,
   RecipeImportErrorSchema,
@@ -29,13 +24,13 @@ import {
   type RecipeImportResponse,
 } from '@/shared/schemas/recipe-import';
 import type { RecipePhotoImportRequest } from '@/shared/schemas/recipe-photo-import';
+import { applyWrites } from '@/sync/apply-writes';
 import type { Exec } from '@/sync/clock';
-import { insertRow, updateRows } from '@/sync/mutate';
 
 import { ensureStepMatch } from './ensure-step-match';
 import { capturePage, toRequestPage } from './page-capture';
 import { uploadRecipePages } from './photo-upload';
-import { addParsedRecipeIngredients, deleteRecipe, getRecipe, updateRecipeSourcePages } from './recipes';
+import { deleteRecipe, getRecipe, updateRecipeSourcePages } from './recipes';
 
 /** The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe id. */
 export const IMPORT_ID_NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
@@ -287,7 +282,7 @@ type SaveInput = ImportTarget & { importId?: string };
 
 function save(input: SaveInput, imported: RecipeImportResponse, userId: string): ImportRecipeSuccess {
   const listId = input.listId ?? null;
-  const { recipeId, recipeName, created, results } = db.transaction((tx) => {
+  const { recipeId, recipeName, created, added, combined, results } = db.transaction((tx) => {
     let householdId: string;
     if (listId) {
       const list = tx.select({ householdId: lists.householdId }).from(lists).where(eq(lists.id, listId)).get();
@@ -305,52 +300,42 @@ function save(input: SaveInput, imported: RecipeImportResponse, userId: string):
       sourceUrl: imported.sourceUrl,
       importRecipeId,
     });
-    let recipeId = existing?.id;
-    if (!recipeId) {
-      recipeId = createImportedRecipe(tx, householdId, imported, input.importId);
-      addParsedRecipeIngredients(
-        recipeId,
-        imported.ingredients.map((i) => ({
-          ingredientName: i.ingredientName,
-          displayName: i.displayName,
-          quantity: i.quantity,
-          unit: i.unit,
-          note: i.note.trim() || null,
-        })),
-        // The import counts its uses once, as the list add below (spec 4.10).
-        { countUsage: false },
-        tx,
-      );
-      // The import's own step match makes the recipe's match fresh, so ensureStepMatch skips it.
-      const stepIngredients = importedStepIngredients(imported, liveIngredientIds(tx, recipeId));
-      if (stepIngredients) updateRows(tx, recipes, eq(recipes.id, recipeId), { stepIngredients });
+    const names = imported.ingredients.map((i) => i.ingredientName);
+    const forList = listId ? addSnapshot(tx, { id: listId, householdId }, names) : null;
+    const plan = planRecipeImport({
+      extracted: imported,
+      target: { householdId, listId },
+      existingRecipe: existing ?? null,
+      listSnapshot: forList?.snapshot ?? null,
+      unitKnowledge: forList?.unitKnowledge ?? {},
+      ids: (purpose) => (purpose === 'recipe' ? newRecipeId(tx, input.importId) : newId()),
+      at: new Date(),
+      userId,
+    });
+    applyWrites(tx, plan.writes);
+    const { recipeId, recipeName, created, added, combined } = plan.summary;
+    if (created) {
+      // Local only: the new recipe sorts first, and its names are in this device's catalog.
+      tx.update(recipes).set({ updatedAt: new Date() }).where(eq(recipes.id, recipeId)).run();
+      for (const i of imported.ingredients) ensureLocalIngredient(tx, i.ingredientName, i.displayName);
     }
-
-    // A recipe-only import adds nothing to a list.
-    const adds: BulkAdd[] = listId
-      ? imported.ingredients.map((i) => ({
-          source: 'recipe',
-          recipeId,
-          parsed: { ingredientName: i.ingredientName, displayName: i.displayName, quantity: i.quantity, unit: i.unit },
-        }))
-      : [];
-    const results = listId ? addItemsBulk(listId, adds, userId, tx) : [];
+    // Empty for a recipe-only import, which adds nothing to a list.
+    const results = addResults(tx, plan.summary.results, imported.ingredients);
 
     // After the adds, so every name has a local row to update.
     applyResults(categorizeResults(imported), tx);
 
-    return { recipeId, recipeName: existing?.name ?? nameOf(imported), created: !existing, results };
+    return { recipeId, recipeName, created, added, combined, results };
   });
 
-  const added = results.filter((r) => r !== null);
   return {
     ok: true,
     recipeId,
     recipeName,
     listId,
     created,
-    added: added.length,
-    combined: added.filter((r) => r.kind === 'combine').length,
+    added,
+    combined,
     undo: () =>
       db.transaction((tx) => {
         undoAdds(results, tx);
@@ -394,39 +379,11 @@ function reuseCandidates(
   return [...own, ...linked];
 }
 
-function createImportedRecipe(
-  exec: Exec,
-  householdId: string,
-  imported: RecipeImportResponse,
-  importId: string | undefined,
-): string {
-  let id = importId ? recipeIdForImport(importId) : newId();
+/** The id for the recipe an import creates: its import id's, unless that's taken. */
+function newRecipeId(exec: Exec, importId: string | undefined): string {
+  const id = importId ? recipeIdForImport(importId) : newId();
   // A recipe this import created and the user has since deleted keeps its id; start a new one.
-  if (exec.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, id)).get()) id = newId();
-  insertRow(exec, recipes, {
-    id,
-    householdId,
-    name: nameOf(imported),
-    sourceUrl: imported.sourceUrl,
-    // Only a recipe this import creates; a reused one keeps its own (spec 4.14). Never `saved`.
-    tags: imported.tags && { saved: [], ...imported.tags },
-    totalMinutes: imported.totalMinutes,
-    steps: stepTexts(imported.steps).length > 0 ? imported.steps : null,
-    servings: servingsOf(imported.servings),
-    imageUrl: imported.imageUrl,
-  });
-  return id;
-}
-
-/** The recipe's live ingredient ids by position, for `importedStepIngredients`. */
-function liveIngredientIds(exec: Exec, recipeId: string): string[] {
-  return exec
-    .select({ id: recipeIngredients.id })
-    .from(recipeIngredients)
-    .where(and(eq(recipeIngredients.recipeId, recipeId), isNull(recipeIngredients.deletedAt)))
-    .orderBy(asc(recipeIngredients.position))
-    .all()
-    .map((i) => i.id);
+  return exec.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, id)).get() ? newId() : id;
 }
 
 /** The response's categories in the shape `applyResults` takes. */

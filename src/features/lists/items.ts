@@ -15,7 +15,7 @@ import {
   type ListItem,
 } from '@/db';
 import { effectiveCategoryId, SORTING_CATEGORY_ID } from '@/domain/category-resolver';
-import { detectDuplicate, planBulkAdd, type AddDecision } from '@/domain/duplicate-detector';
+import { detectDuplicate, type AddDecision } from '@/domain/duplicate-detector';
 import type { Amount } from '@/domain/quantity-display';
 import { combineAmounts, stepAmount, summarizeAmounts } from '@/domain/quantity-math';
 import { rankHistory } from '@/domain/suggestion-rank';
@@ -27,12 +27,23 @@ import {
   localFamilyKey,
   setCategoryOverride,
 } from '@/features/categories/categories';
-import { recordUsage, unrecordUsage } from '@/features/lists/usage';
+import { unrecordUsage } from '@/features/lists/usage';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
+import { displayItemName, familyKey, normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
+import {
+  planListAdds,
+  type AddMeta,
+  type AddOutcome,
+  type IdSource,
+  type ListSnapshot,
+  type ParsedAdd,
+  type PlannedAdd,
+  type UnitKnowledge,
+} from '@/shared/domain/list-plan';
+import { applyWrites } from '@/sync/apply-writes';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows } from '@/sync/mutate';
-import { displayItemName, familyKey, normalizeIngredientName, OTHER_CATEGORY_ID, parseAmount, parseQuantity, type Unit } from '@/shared';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -122,10 +133,12 @@ function liveItemsForList(tx: Tx, listId: string, combine: boolean) {
     .select({
       id: listItems.id,
       ingredientName: listItems.ingredientName,
+      displayName: listItems.displayName,
       familyKey: combine
         ? sql<string>`coalesce(${ingredients.sameAs}, ${listItems.ingredientName})`
         : listItems.ingredientName,
       checkedAt: listItems.checkedAt,
+      checkedBy: listItems.checkedBy,
     })
     .from(listItems)
     .leftJoin(ingredients, eq(ingredients.normalizedName, listItems.ingredientName))
@@ -195,98 +208,12 @@ function knownUsualUnit(tx: Tx, householdId: string, ingredientName: string): Un
   return withDefaultUnit(usualUnit(rows), catalog?.defaultUnit);
 }
 
-export type ParsedAdd = { ingredientName: string; displayName: string; quantity: number | null; unit: Unit | null };
+export type { ParsedAdd };
 
 function parseAdd(text: string): ParsedAdd | null {
   const { quantity, unit, name } = parseQuantity(text);
   const ingredientName = normalizeIngredientName(name);
   return ingredientName ? { ingredientName, displayName: name, quantity, unit } : null;
-}
-
-/**
- * Applies one add inside a transaction, following `decision`. Every add counts one use in the
- * household's ingredient history (spec 4.2), whatever the decision, plus a use of its unit if it
- * has a quantity; `undoAdd` takes them back.
- */
-function applyAdd(
-  tx: Tx,
-  list: { id: string; householdId: string },
-  add: ParsedAdd,
-  decision: AddDecision,
-  meta: { userId: string | null; source: Source; recipeId?: string | null; at?: Date; ids?: AddIds },
-): AddItemResult {
-  const at = meta.at ?? new Date();
-  const contributionId = meta.ids?.contributionId ?? newId();
-  // A recipe line with no amount of something bought by count (`red onion`) is one of it, so a
-  // second recipe makes 2 rather than a link that adds nothing (spec 4.4).
-  const countedOne =
-    meta.source === 'recipe' &&
-    add.quantity === null &&
-    knownUsualUnit(tx, list.householdId, add.ingredientName) === null;
-  const contribution = {
-    id: contributionId,
-    createdAt: at,
-    householdId: list.householdId,
-    source: meta.source,
-    recipeId: meta.recipeId ?? null,
-    quantity: countedOne ? 1 : add.quantity,
-    unit: add.unit,
-    addedBy: meta.userId,
-  };
-  recordUsage(tx, list.householdId, add.ingredientName, add.displayName, at, contribution);
-  const pendingNames = ensureLocalIngredient(tx, add.ingredientName, add.displayName) ? [add.ingredientName] : [];
-
-  if (decision.kind === 'new') {
-    const itemId = meta.ids?.itemId ?? newId();
-    insertRow(tx, listItems, {
-      id: itemId,
-      listId: list.id,
-      householdId: list.householdId,
-      ingredientName: add.ingredientName,
-      displayName: add.displayName,
-      addedBy: meta.userId,
-      createdAt: at,
-    });
-    insertRow(tx, listItemContributions, { ...contribution, listItemId: itemId });
-    return { itemId, contributionId, kind: 'new', pendingNames };
-  }
-
-  const item = getItem(tx, decision.itemId);
-  const previous = liveContributions(tx, item.id);
-  const twin = add.ingredientName !== item.ingredientName ? { ingredientName: add.ingredientName } : {};
-
-  if (decision.kind === 'combine') {
-    insertRow(tx, listItemContributions, { ...contribution, listItemId: item.id });
-    return {
-      itemId: item.id,
-      contributionId,
-      kind: 'combine',
-      existingName: item.displayName,
-      totalAmountText: itemTotal(
-        [...previous, contribution],
-        usualUnitFor(tx, list.householdId, item.ingredientName),
-      ),
-      pendingNames,
-      ...twin,
-    };
-  }
-
-  // Reopen: you bought it before and need it again, so the old amounts no longer apply.
-  if (previous.length > 0) {
-    updateRows(tx, listItemContributions, inArray(listItemContributions.id, previous.map((c) => c.id)), {
-      deletedAt: new Date(),
-    });
-  }
-  updateRows(tx, listItems, eq(listItems.id, item.id), { checkedAt: null, checkedBy: null });
-  insertRow(tx, listItemContributions, { ...contribution, listItemId: item.id });
-  return {
-    itemId: item.id,
-    contributionId,
-    kind: 'reopen',
-    reopened: { checkedAt: item.checkedAt!, checkedBy: item.checkedBy, contributionIds: previous.map((c) => c.id) },
-    pendingNames,
-    ...twin,
-  };
 }
 
 function getListForAdd(tx: Tx, listId: string) {
@@ -296,13 +223,85 @@ function getListForAdd(tx: Tx, listId: string) {
 }
 
 /**
- * Spec 4.4 for one add to `list`, matching twins by family key (4.15) only when the list's
- * household combines languages.
+ * What the planner (`planListAdds`) needs from this device to add `names` to `list`: the list's
+ * live items for those names or their families (spec 4.15, family keys only when the household
+ * combines languages) with their live amounts, and the unit history and catalog default unit of
+ * every name involved.
  */
-function decideAdd(tx: Tx, list: { id: string; householdId: string }, ingredientName: string): AddDecision {
+export function addSnapshot(
+  tx: Tx,
+  list: { id: string; householdId: string },
+  names: readonly string[],
+): { snapshot: ListSnapshot; unitKnowledge: UnitKnowledge } {
   const combine = householdCombinesLanguages(tx, list.householdId);
-  const family = combine ? localFamilyKey(tx, ingredientName) : ingredientName;
-  return detectDuplicate(ingredientName, liveItemsForList(tx, list.id, combine), family);
+  const families = Object.fromEntries(names.map((n) => [n, combine ? localFamilyKey(tx, n) : n]));
+  const keys = new Set([...names, ...Object.values(families)]);
+  const items = liveItemsForList(tx, list.id, combine)
+    .filter((i) => keys.has(i.ingredientName) || keys.has(i.familyKey))
+    .map((i) => ({
+      ...i,
+      liveContributions: liveContributions(tx, i.id).map((c) => ({
+        id: c.id,
+        source: c.source,
+        quantity: c.quantity,
+        unit: c.unit,
+      })),
+    }));
+  const unitKnowledge: UnitKnowledge = {};
+  for (const name of new Set([...names, ...items.map((i) => i.ingredientName)])) {
+    unitKnowledge[name] = {
+      unitUsage: tx
+        .select({ unitKey: ingredientUnitUsage.unitKey, useCount: ingredientUnitUsage.useCount, lastUsedAt: ingredientUnitUsage.lastUsedAt })
+        .from(ingredientUnitUsage)
+        .where(and(eq(ingredientUnitUsage.householdId, list.householdId), eq(ingredientUnitUsage.ingredientName, name)))
+        .all(),
+      defaultUnit:
+        tx.select({ defaultUnit: ingredients.defaultUnit }).from(ingredients).where(eq(ingredients.normalizedName, name)).get()
+          ?.defaultUnit ?? null,
+    };
+  }
+  return { snapshot: { list, combineLanguages: combine, families, items }, unitKnowledge };
+}
+
+/**
+ * A list plan's outcomes as results, once its writes are applied: with the toast's total, and the
+ * names this device's catalog didn't know yet (recorded as pending, for `categorizePending`).
+ */
+export function addResults(
+  tx: Tx,
+  outcomes: readonly (AddOutcome | null)[],
+  adds: readonly (ParsedAdd | null)[],
+): (AddItemResult | null)[] {
+  return outcomes.map((outcome, i) => {
+    const add = adds[i];
+    if (!outcome || !add) return null;
+    const { total, ...rest } = outcome;
+    const pendingNames = ensureLocalIngredient(tx, add.ingredientName, add.displayName) ? [add.ingredientName] : [];
+    return { ...rest, ...(total && { totalAmountText: itemTotal(total.amounts, total.usualUnit) }), pendingNames };
+  });
+}
+
+/**
+ * Plans and applies a batch of adds to one list (spec 4.4) with the shared rules. Every add counts
+ * one use in the household's ingredient history (spec 4.2), whatever it does, plus a use of its
+ * unit if it has a quantity; `undoAdd` takes them back.
+ */
+function addToList(
+  tx: Tx,
+  listId: string,
+  adds: readonly (PlannedAdd | null)[],
+  meta: AddMeta,
+  ids: IdSource = () => newId(),
+): (AddItemResult | null)[] {
+  const list = getListForAdd(tx, listId);
+  const { snapshot, unitKnowledge } = addSnapshot(
+    tx,
+    list,
+    adds.flatMap((a) => (a ? [a.ingredientName] : [])),
+  );
+  const plan = planListAdds(snapshot, adds, meta, unitKnowledge, ids);
+  applyWrites(tx, plan.writes);
+  return addResults(tx, plan.results, adds);
 }
 
 /**
@@ -318,11 +317,7 @@ export function addItem(
 ): AddItemResult | null {
   const add = parseAdd(text);
   if (!add) return null;
-  return db.transaction((tx) => {
-    const list = getListForAdd(tx, listId);
-    const decision = decideAdd(tx, list, add.ingredientName);
-    return applyAdd(tx, list, add, decision, { userId, source });
-  });
+  return db.transaction((tx) => addToList(tx, listId, [{ ...add, source }], { userId, at: new Date() })[0]);
 }
 
 /** Ids an add uses instead of new ones: the item's (if the add makes a new item) and its amount's. */
@@ -350,12 +345,12 @@ export function addSiriItem(
       .where(eq(listItemContributions.id, ids.contributionId))
       .get();
     if (contribution) return 'applied';
-    const list = getListForAdd(tx, listId);
-    const decision = decideAdd(tx, list, add.ingredientName);
     // The derived item id is taken only if an earlier add made that item, whose amount would exist.
     const taken = tx.select({ id: listItems.id }).from(listItems).where(eq(listItems.id, ids.itemId)).get();
     const itemId = taken ? newId() : ids.itemId;
-    return applyAdd(tx, list, add, decision, { userId, source: 'siri', at, ids: { ...ids, itemId } });
+    return addToList(tx, listId, [{ ...add, source: 'siri' }], { userId, at }, (purpose) =>
+      purpose === 'item' ? itemId : ids.contributionId,
+    )[0];
   });
 }
 
@@ -442,29 +437,11 @@ export function addItemsBulk(
   exec: Exec = db,
 ): (AddItemResult | null)[] {
   return exec.transaction((tx) => {
-    const list = getListForAdd(tx, listId);
-    const parsed = adds.map(parseBulkAdd);
-    // Twins (spec 4.15) fold together only when the household combines languages.
-    const combine = householdCombinesLanguages(tx, list.householdId);
-    const decisions = planBulkAdd(
-      parsed.map((p) => p?.ingredientName ?? ''),
-      liveItemsForList(tx, listId, combine),
-      parsed.map((p) => (p ? (combine ? localFamilyKey(tx, p.ingredientName) : p.ingredientName) : '')),
-    );
-    const results: (AddItemResult | null)[] = [];
-    const at = new Date();
-    parsed.forEach((add, i) => {
-      if (!add) return results.push(null);
-      const meta = { userId, source: adds[i].source ?? 'manual', recipeId: adds[i].recipeId, at };
-      const decision = decisions[i];
-      if (decision.kind === 'sameAsEarlier') {
-        const first = results[decision.index];
-        if (!first) return results.push(null);
-        return results.push(applyAdd(tx, list, add, { kind: 'combine', itemId: first.itemId }, meta));
-      }
-      results.push(applyAdd(tx, list, add, decision, meta));
+    const planned = adds.map((a): PlannedAdd | null => {
+      const parsed = parseBulkAdd(a);
+      return parsed && { ...parsed, source: a.source ?? 'manual', recipeId: a.recipeId };
     });
-    return results;
+    return addToList(tx, listId, planned, { userId, at: new Date() });
   });
 }
 

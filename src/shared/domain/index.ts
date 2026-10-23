@@ -2,6 +2,8 @@
 // Pure: only other `src/shared` modules (an ESLint rule enforces it). Explicit .ts extensions so
 // the files resolve under both Metro and Deno.
 export * from './duplicate-detector.ts';
+export * from './import-plan.ts';
+export * from './list-plan.ts';
 export * from './position.ts';
 export * from './quantity-math.ts';
 export * from './recipe-import.ts';
