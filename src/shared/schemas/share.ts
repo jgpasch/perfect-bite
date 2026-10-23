@@ -8,8 +8,15 @@ import { HttpUrlSchema, RecipeImportPageSchema } from './recipe-import.ts';
 /** One recipe shared from Safari (or any app), written to `share/pending/` by the share extension. */
 export const ShareEnvelopeSchema = z
   .object({
+    /** 2 from the extension that uploads; missing on envelopes written before it. */
+    v: z.literal(2).optional(),
     /** Also the import id, so an envelope imported twice creates one recipe. */
     id: z.uuidv7(),
+    /**
+     * Who shared it (the list snapshot's user). Missing on older envelopes, which count as the
+     * signed-in user's; `share-ingest` refuses one that isn't the authenticated user.
+     */
+    userId: z.uuid().optional(),
     url: HttpUrlSchema,
     /** The list picked in the sheet. Null: the default list, or no list when `addToList` is false. */
     listId: z.uuid().nullable(),

@@ -21,6 +21,7 @@ export const SAFETY_LIMITS = {
   recipe_import_photo: { label: "Photo import", dayUnit: "imports a day" },
   recipe_import: { label: "Recipe imports", dayUnit: "imports a day", hint: "Link and photo together" },
   recipe_photo_ai: { label: "AI photos", dayUnit: "photos a day" },
+  share_ingest: { label: "Share uploads", dayUnit: "uploads a day", hint: "Per device credential, not AI" },
 } as const satisfies Record<string, SafetyLimitInfo>;
 
 export type SafetyLimitKey = keyof typeof SAFETY_LIMITS;

@@ -41,15 +41,24 @@ export async function hashDeviceToken(token: string): Promise<string | null> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** A valid credential: whose it is, and its id (for per-credential limits and the job's record). */
+export type VerifiedDeviceCredential = { userId: string; credentialId: string };
+
 /**
- * The user id of the credential `token` belongs to, or null for an unknown, revoked, expired or
- * out-of-scope token (or one that isn't a token at all). Updates the credential's `last_used_at`.
- * A database error throws: it isn't a bad credential.
+ * The user and id of the credential `token` belongs to, or null for an unknown, revoked, expired
+ * or out-of-scope token (or one that isn't a token at all). Updates the credential's
+ * `last_used_at`. A database error throws: it isn't a bad credential.
  */
-export async function verifyDeviceCredential(admin: RpcClient, token: string, scope: DeviceCredentialScope): Promise<string | null> {
+export async function verifyDeviceCredential(
+  admin: RpcClient,
+  token: string,
+  scope: DeviceCredentialScope,
+): Promise<VerifiedDeviceCredential | null> {
   const hash = await hashDeviceToken(token);
   if (hash === null) return null;
-  const { data, error } = await admin.rpc('use_device_credential', { p_token_hash: hash, p_scope: scope });
-  if (error) throw new Error(`use_device_credential failed: ${error.message}`);
-  return typeof data === 'string' ? data : null;
+  const { data, error } = await admin.rpc('authenticate_device_credential', { p_token_hash: hash, p_scope: scope });
+  if (error) throw new Error(`authenticate_device_credential failed: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (typeof row?.user_id !== 'string' || typeof row?.credential_id !== 'string') return null;
+  return { userId: row.user_id, credentialId: row.credential_id };
 }

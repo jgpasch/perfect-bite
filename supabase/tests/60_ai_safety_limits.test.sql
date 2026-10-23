@@ -49,7 +49,7 @@ select set_eq(
   $$ select key, per_minute, per_day from public.ai_safety_limits $$,
   $$ values ('categorize', 60, 500), ('step_match', 30, 100), ('recipe_tags', 20, 50),
             ('recipe_import_link', 10, null::int), ('recipe_import_photo', 5, null),
-            ('recipe_import', null, 100), ('recipe_photo_ai', null, 40) $$,
+            ('recipe_import', null, 100), ('recipe_photo_ai', null, 40), ('share_ingest', 30, null) $$,
   'ai_safety_limits holds exactly the seeded rows');
 select col_is_pk('public', 'ai_safety_limits', array['key'], 'the key is the primary key');
 select throws_ok($$ insert into public.ai_safety_limits values ('summarize', 1, 1) $$, '23514', null,
@@ -307,7 +307,8 @@ select is(public.admin_list_safety_limits(),
     {"key": "recipe_import_link", "per_minute": 10, "per_day": null},
     {"key": "recipe_import_photo", "per_minute": 5, "per_day": null},
     {"key": "recipe_import", "per_minute": null, "per_day": 100},
-    {"key": "recipe_photo_ai", "per_minute": null, "per_day": 40}]'::jsonb,
+    {"key": "recipe_photo_ai", "per_minute": null, "per_day": 40},
+    {"key": "share_ingest", "per_minute": 30, "per_day": null}]'::jsonb,
   'admin_list_safety_limits lists every key in order');
 select throws_ok($$ select public.admin_set_safety_limit('categorize', 1, 1, '  ') $$, '22023', 'note required',
   'a blank note is refused');

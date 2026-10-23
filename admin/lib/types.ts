@@ -247,7 +247,7 @@ export type AdminPlanChange = {
 
 /** A row of `public.ai_safety_limits`: a key's per-user limits, null for none. */
 export type AdminSafetyLimit = {
-  /** `categorize`, `step_match`, `recipe_tags`, `recipe_import_link`, `recipe_import_photo`, `recipe_import` or `recipe_photo_ai`. */
+  /** `categorize`, `step_match`, `recipe_tags`, `recipe_import_link`, `recipe_import_photo`, `recipe_import`, `recipe_photo_ai` or `share_ingest`. */
   key: string;
   /** Requests a minute. */
   per_minute: number | null;

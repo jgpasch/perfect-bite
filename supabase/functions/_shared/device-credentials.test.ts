@@ -46,21 +46,25 @@ Deno.test('hashDeviceToken: null for anything but 32 bytes of base64url', async 
   assertEquals(await hashDeviceToken('A'), null); // not decodable
 });
 
-Deno.test('verifyDeviceCredential: the user id from use_device_credential, by hash and scope', async () => {
-  const { admin, calls } = fakeAdmin({ data: ann, error: null });
-  assertEquals(await verifyDeviceCredential(admin, COUNTING, 'share.ingest'), ann);
-  assertEquals(calls, [{ fn: 'use_device_credential', args: { p_token_hash: COUNTING_SHA256, p_scope: 'share.ingest' } }]);
+const credential = 'c0000000-0000-4000-8000-000000000001';
+
+Deno.test('verifyDeviceCredential: the user and credential from authenticate_device_credential, by hash and scope', async () => {
+  const { admin, calls } = fakeAdmin({ data: [{ user_id: ann, credential_id: credential }], error: null });
+  assertEquals(await verifyDeviceCredential(admin, COUNTING, 'share.ingest'), { userId: ann, credentialId: credential });
+  assertEquals(calls, [{ fn: 'authenticate_device_credential', args: { p_token_hash: COUNTING_SHA256, p_scope: 'share.ingest' } }]);
 });
 
 Deno.test('verifyDeviceCredential: null when the database finds no valid credential', async () => {
-  // Unknown, revoked, expired and out-of-scope all come back as null from the RPC.
-  const { admin, calls } = fakeAdmin({ data: null, error: null });
-  assertEquals(await verifyDeviceCredential(admin, COUNTING, 'siri.add'), null);
-  assertEquals(calls[0].args.p_scope, 'siri.add');
+  // Unknown, revoked, expired and out-of-scope all come back as no row from the RPC.
+  for (const data of [[], null, [{ user_id: ann }]]) {
+    const { admin, calls } = fakeAdmin({ data, error: null });
+    assertEquals(await verifyDeviceCredential(admin, COUNTING, 'siri.add'), null);
+    assertEquals(calls[0].args.p_scope, 'siri.add');
+  }
 });
 
 Deno.test('verifyDeviceCredential: a malformed token is null without asking the database', async () => {
-  const { admin, calls } = fakeAdmin({ data: ann, error: null });
+  const { admin, calls } = fakeAdmin({ data: [{ user_id: ann, credential_id: credential }], error: null });
   assertEquals(await verifyDeviceCredential(admin, '', 'share.ingest'), null);
   assertEquals(await verifyDeviceCredential(admin, 'Bearer abc', 'share.ingest'), null);
   assertEquals(calls, []);

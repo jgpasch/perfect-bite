@@ -23,6 +23,7 @@ describe("SAFETY_LIMIT_KEYS", () => {
       "recipe_import_photo",
       "recipe_import",
       "recipe_photo_ai",
+      "share_ingest",
     ]);
   });
 });
@@ -37,6 +38,7 @@ describe("labels and units", () => {
       "Photo import",
       "Recipe imports",
       "AI photos",
+      "Share uploads",
     ]);
     expect(safetyLimitLabel("new_key")).toBe("new_key");
     expect(safetyLimitLabel("toString")).toBe("toString");
@@ -52,6 +54,7 @@ describe("labels and units", () => {
       "imports a day",
       "imports a day",
       "photos a day",
+      "uploads a day",
     ]);
     expect(dayUnit("new_key")).toBe("requests a day");
   });
@@ -59,6 +62,7 @@ describe("labels and units", () => {
   it("explains categorize's and the shared import limit", () => {
     expect(safetyLimitHint("recipe_import")).toBe("Link and photo together");
     expect(safetyLimitHint("categorize")).toBe("Names sent to the AI");
+    expect(safetyLimitHint("share_ingest")).toBe("Per device credential, not AI");
     expect(safetyLimitHint("step_match")).toBeNull();
     expect(safetyLimitHint("new_key")).toBeNull();
   });
