@@ -88,7 +88,7 @@ select status, return_message, start_time from cron.job_run_details
 2. Find its token in the hosted SQL editor:
 
    ```sql
-   select t.token, t.platform, t.updated_at, p.display_name
+   select t.token, t.platform, t.updated_at, p.first_name, p.last_name
    from push_tokens t
    left join profiles p on p.user_id = t.user_id
    order by t.updated_at desc;

@@ -42,9 +42,9 @@ select results_eq($$ select household_id, user_id, role from public.household_me
 select is_empty($$ select 1 from public.household_members where user_id = '33333333-3333-3333-3333-333333333333' $$,
   'Alex cannot see Pat''s membership');
 
-select results_eq($$ select user_id, display_name from public.profiles order by user_id $$,
-  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, 'Alex Rivera'),
-            ('22222222-2222-2222-2222-222222222222'::uuid, 'sam') $$,
+select results_eq($$ select user_id, first_name, last_name from public.profiles order by user_id $$,
+  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, 'Alex', 'Rivera'),
+            ('22222222-2222-2222-2222-222222222222'::uuid, 'sam', null::text) $$,
   'Alex reads own and Sam''s profiles');
 select is_empty($$ select 1 from public.profiles where user_id = '33333333-3333-3333-3333-333333333333' $$,
   'Alex cannot read Pat''s profile');

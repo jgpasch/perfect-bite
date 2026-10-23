@@ -6,12 +6,12 @@ select plan(89);
 
 -- Fixtures (as postgres, no user, so nothing is logged) ------------------------------------------
 -- Alex owns Home; Sam and Pat are members. Dana has no household yet; Eve is invited later.
-insert into auth.users (id, email, aud, role) values
-  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated'),
-  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated'),
-  ('33333333-3333-3333-3333-333333333333', 'pat@test.local', 'authenticated', 'authenticated'),
-  ('44444444-4444-4444-4444-444444444444', 'dana@test.local', 'authenticated', 'authenticated'),
-  ('55555555-5555-5555-5555-555555555555', 'eve@test.local', 'authenticated', 'authenticated');
+insert into auth.users (id, email, aud, role, raw_user_meta_data) values
+  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', '{}'),
+  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', '{"given_name": "Sam", "family_name": "Lee"}'),
+  ('33333333-3333-3333-3333-333333333333', 'pat@test.local', 'authenticated', 'authenticated', '{}'),
+  ('44444444-4444-4444-4444-444444444444', 'dana@test.local', 'authenticated', 'authenticated', '{}'),
+  ('55555555-5555-5555-5555-555555555555', 'eve@test.local', 'authenticated', 'authenticated', '{}');
 insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Home');
 insert into public.household_members (household_id, user_id, role, position, joined_at) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1, now() - interval '3 days'),
@@ -458,13 +458,13 @@ select pg_temp.taken();
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select public.set_member_role('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '22222222-2222-2222-2222-222222222222', 'owner');
 select is(pg_temp.taken(), $$[{"area": "household", "action": "member.role_changed", "entity": "22222222-2222-2222-2222-222222222222",
-  "data": {"household": "Our home", "member": "sam", "member_id": "22222222-2222-2222-2222-222222222222", "role": "owner"}}]$$::jsonb,
-  'set_member_role logs member.role_changed');
+  "data": {"household": "Our home", "member": "Sam Lee", "member_id": "22222222-2222-2222-2222-222222222222", "role": "owner"}}]$$::jsonb,
+  'set_member_role logs member.role_changed, with the member''s full name');
 
 select public.remove_member('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '33333333-3333-3333-3333-333333333333');
 select is(pg_temp.taken(), $$[{"area": "household", "action": "member.removed", "entity": "33333333-3333-3333-3333-333333333333",
   "data": {"household": "Our home", "member": "pat", "member_id": "33333333-3333-3333-3333-333333333333", "role": "member"}}]$$::jsonb,
-  'remove_member logs one member.removed, not the rows it writes (Pat''s new personal household)');
+  'remove_member logs one member.removed (a member with no last name: the first name), not the rows it writes (Pat''s new personal household)');
 select ok(exists (select 1 from public.household_members where user_id = '33333333-3333-3333-3333-333333333333'),
   'Pat was rehomed');
 

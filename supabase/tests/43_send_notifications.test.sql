@@ -9,7 +9,6 @@ select plan(33);
 insert into auth.users (id, email, aud, role, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', '{"full_name":"Alex  Rivera"}'),
   ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', '{"full_name":"Sam"}');
-update public.profiles set display_name = '  Alex  Rivera' where user_id = '11111111-1111-1111-1111-111111111111';
 insert into public.households (id, name) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Home');
 insert into public.household_members (household_id, user_id, role, position) values
@@ -106,7 +105,7 @@ create temp table added on commit drop as
           'a4000000-0000-7000-8000-000000000003', 'a4000000-0000-7000-8000-000000000004']::uuid[]) as g;
 reset role;
 select is((select g ->> 'list_name' from added), 'Groceries', 'the list''s name');
-select is((select g ->> 'actor_name' from added), 'Alex', 'the actor''s first word, trimmed');
+select is((select g ->> 'actor_name' from added), 'Alex', 'the actor''s first name');
 select is(
   (select g -> 'items' from added),
   jsonb_build_array(

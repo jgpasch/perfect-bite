@@ -15,7 +15,7 @@ Changes with no rules beyond the table's own constraints (a household's plan, a 
 Authentication → Users, and search by email. Or in the SQL Editor:
 
 ```sql
-select u.id, u.email, p.display_name, u.created_at, u.last_sign_in_at
+select u.id, u.email, p.first_name, p.last_name, u.created_at, u.last_sign_in_at
 from auth.users u
 left join public.profiles p on p.user_id = u.id
 where u.email ilike '%sam%';
@@ -34,7 +34,7 @@ order by hm.position;
 ### See a household's members and lists
 
 ```sql
-select p.display_name, u.email, hm.role, hm.joined_at
+select p.first_name, p.last_name, u.email, hm.role, hm.joined_at
 from public.household_members hm
 join auth.users u on u.id = hm.user_id
 left join public.profiles p on p.user_id = hm.user_id

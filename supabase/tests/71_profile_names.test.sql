@@ -19,20 +19,18 @@ select results_eq($$ select * from private.split_name(repeat('a', 60) || ' ' || 
 select is(private.full_name('Alex', 'Rivera'), 'Alex Rivera', 'full name with a last name');
 select is(private.full_name('Alex', null), 'Alex', 'full name without one');
 
--- The backfill, as the migration ran it, on rows whose names were wiped.
+-- The backfill, as the migration ran it on display_name (since dropped), on rows whose names were wiped.
 insert into auth.users (id, email, aud, role, raw_user_meta_data) values
   ('b0000000-0000-0000-0000-000000000001', 'b1@test.local', 'authenticated', 'authenticated', '{}'),
   ('b0000000-0000-0000-0000-000000000002', 'b2@test.local', 'authenticated', 'authenticated', '{}'),
   ('b0000000-0000-0000-0000-000000000003', 'b3@test.local', 'authenticated', 'authenticated', '{}');
-update public.profiles set display_name = v.d
+update public.profiles p
+set first_name = coalesce((private.split_name(v.d)).first_name, 'Someone'),
+    last_name  = (private.split_name(v.d)).last_name
 from (values ('b0000000-0000-0000-0000-000000000001'::uuid, 'Cher'),
              ('b0000000-0000-0000-0000-000000000002'::uuid, 'Ada Lovelace'),
              ('b0000000-0000-0000-0000-000000000003'::uuid, 'Gabriel García Márquez')) v(id, d)
-where user_id = v.id;
-update public.profiles p
-set first_name = coalesce((private.split_name(p.display_name)).first_name, 'Someone'),
-    last_name  = (private.split_name(p.display_name)).last_name
-where p.user_id::text like 'b0000000-%';
+where p.user_id = v.id;
 select results_eq(
   $$ select first_name, last_name from public.profiles where user_id::text like 'b0000000-%' order by user_id $$,
   $$ values ('Cher'::text, null::text), ('Ada', 'Lovelace'), ('Gabriel', 'García Márquez') $$,
@@ -41,7 +39,8 @@ select results_eq(
 -- Sign-up ---------------------------------------------------------------------
 insert into auth.users (id, email, aud, role, raw_user_meta_data) values
   ('c0000000-0000-0000-0000-000000000001', 'given@test.local', 'authenticated', 'authenticated',
-   '{"given_name": " Mary Ann ", "family_name": "Smith", "full_name": "Someone Else", "name": "Other"}'),
+   '{"given_name": " Mary Ann ", "family_name": "Smith", "full_name": "Someone Else", "name": "Other",
+     "avatar_url": "https://example.com/mary.png"}'),
   ('c0000000-0000-0000-0000-000000000002', 'nofamily@test.local', 'authenticated', 'authenticated',
    '{"given_name": "Prince", "family_name": "  ", "full_name": "Prince Rogers"}'),
   ('c0000000-0000-0000-0000-000000000003', 'full@test.local', 'authenticated', 'authenticated',
@@ -57,8 +56,8 @@ select results_eq(
   $$ values ('Mary Ann'::text, 'Smith'::text), ('Prince', null), ('Alex', 'Rivera Diaz'), ('Madonna', null),
             ('Sam', 'Lee'), ('sam.lee', null), ('Someone', null) $$,
   'given/family name, a blank family name, only full_name (three and one words), name, only an email, nothing');
-select is((select display_name from public.profiles where user_id = 'c0000000-0000-0000-0000-000000000001'),
-  'Someone Else', 'display_name is still filled as before');
+select is((select avatar_url from public.profiles where user_id = 'c0000000-0000-0000-0000-000000000001'),
+  'https://example.com/mary.png', 'the avatar is still filled as before');
 
 -- The checks ------------------------------------------------------------------
 select throws_ok($$ update public.profiles set first_name = '' where user_id = 'c0000000-0000-0000-0000-000000000003' $$,

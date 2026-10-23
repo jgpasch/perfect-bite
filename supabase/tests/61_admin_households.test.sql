@@ -2,7 +2,7 @@
 -- admin_list_households and admin_household_detail.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(50);
+select plan(52);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Founding is the default here, as on hosted (supabase/seed.sql makes unlimited the default locally).
@@ -14,7 +14,7 @@ update public.plans set is_default = true where id = 'founding';
 insert into auth.users (id, email, aud, role, created_at, raw_user_meta_data) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@hh.test', 'authenticated', 'authenticated', now() - interval '100 days', '{}'),
   ('11111111-1111-1111-1111-111111111111', 'Ann@HH.test', 'authenticated', 'authenticated', now() - interval '10 days', '{"full_name":"Quilla Ann"}'),
-  ('22222222-2222-2222-2222-222222222222', 'bo@hh.test', 'authenticated', 'authenticated', now() - interval '60 days', '{}');
+  ('22222222-2222-2222-2222-222222222222', 'bo@hh.test', 'authenticated', 'authenticated', now() - interval '60 days', '{"given_name":"Bo","family_name":"Zimmer"}');
 insert into private.admins (user_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 insert into public.households (id, name, created_at) values
   ('d1000000-0000-0000-0000-000000000001', 'Young Kitchen', now() - interval '10 days'),
@@ -88,7 +88,11 @@ select is((select array_agg(name) from public.admin_list_households('ann@hh')), 
 select is((select array_agg(name) from public.admin_list_households('bo@hh.test')), array['Young Kitchen', 'Old Pantry'],
   'a member in two households finds both, newest first');
 select is((select array_agg(name) from public.admin_list_households('quilla')), array['Young Kitchen'],
-  'search matches a member''s display name');
+  'search matches a member''s first name');
+select is((select array_agg(name) from public.admin_list_households('ZIMMER')), array['Young Kitchen', 'Old Pantry'],
+  'search matches a member''s last name');
+select is((select array_agg(name) from public.admin_list_households('lla an')), array['Young Kitchen'],
+  'search matches a member''s full name, across the space');
 select is((select array_agg(name) from public.admin_list_households('  d2000000-0000-0000-0000-000000000002 ')),
   array['Old Pantry'], 'a uuid (trimmed) matches the household id');
 select is((select count(*)::int from public.admin_list_households('11111111-1111-1111-1111-111111111111')), 0,
@@ -127,8 +131,8 @@ select is((select d -> 'first_month' from young),
 select is(
   (select jsonb_agg(m - 'joined_at') from young, jsonb_array_elements(d -> 'members') m),
   '[{"user_id": "11111111-1111-1111-1111-111111111111", "email": "Ann@HH.test", "display_name": "Quilla Ann", "role": "owner"},
-    {"user_id": "22222222-2222-2222-2222-222222222222", "email": "bo@hh.test", "display_name": "bo", "role": "member"}]'::jsonb,
-  'members, earliest joined first, with email, name and role');
+    {"user_id": "22222222-2222-2222-2222-222222222222", "email": "bo@hh.test", "display_name": "Bo Zimmer", "role": "member"}]'::jsonb,
+  'members, earliest joined first, with email, full name and role');
 select is((select (d -> 'plan') - 'assigned_at' from young), '{"id": "founding", "name": "Founding"}'::jsonb,
   'the plan');
 select is(

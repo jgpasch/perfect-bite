@@ -51,7 +51,8 @@ insert into demo_users values
   (9,  'de300000-0000-4000-8000-000000000009', 'Hana Sato',    interval '12 days',  null,        'medium'),
   (10, 'de300000-0000-4000-8000-000000000010', 'Omar Haddad',  interval '160 days', 'founding',  'light');
 
--- Users. The profile (display name from full_name) comes from the on_auth_user_created trigger.
+-- Users. The profile (first and last name from given_name and family_name, as Google sends them)
+-- comes from the on_auth_user_created trigger.
 -- No password or identity: they're for looking at, not signing in as.
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -61,7 +62,8 @@ insert into auth.users (
 select
   '00000000-0000-0000-0000-000000000000', u.id, 'authenticated', 'authenticated',
   'demo-' || u.n || '@example.com', '', now() - u.joined,
-  '{"provider": "google", "providers": ["google"]}', jsonb_build_object('full_name', u.full_name),
+  '{"provider": "google", "providers": ["google"]}', jsonb_build_object('full_name', u.full_name,
+    'given_name', split_part(u.full_name, ' ', 1), 'family_name', split_part(u.full_name, ' ', 2)),
   now() - u.joined, now() - u.joined, now() - (u.n % 5) * interval '1 day' - u.n * interval '1 hour',
   '', '', '', ''
 from demo_users u

@@ -3,7 +3,7 @@
 -- private.first_month_ends_at (per household) behind private.monthly_limit.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(32);
+select plan(37);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Founding is the default here, as on hosted (supabase/seed.sql makes unlimited the default locally).
@@ -15,7 +15,7 @@ insert into auth.users (id, email, aud, role, created_at, raw_user_meta_data) va
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'boss@portal.test', 'authenticated', 'authenticated', now() - interval '100 days', '{}'),
   ('11111111-1111-1111-1111-111111111111', 'Zed.Young@portal.test', 'authenticated', 'authenticated', now() - interval '10 days', '{"full_name":"Quixote Young"}'),
   ('22222222-2222-2222-2222-222222222222', 'zed.mid@portal.test', 'authenticated', 'authenticated', now() - interval '20 days', '{}'),
-  ('33333333-3333-3333-3333-333333333333', 'zed.old@portal.test', 'authenticated', 'authenticated', now() - interval '60 days', '{}');
+  ('33333333-3333-3333-3333-333333333333', 'zed.old@portal.test', 'authenticated', 'authenticated', now() - interval '60 days', '{"given_name":"Olga","family_name":"Ortega"}');
 insert into private.admins (user_id) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 
 -- 205 more users, to see the 200 cap.
@@ -101,6 +101,16 @@ select is(
   'newest first');
 select is((select array_agg(email) from public.admin_list_users('quixote')), array['Zed.Young@portal.test'],
   'search matches the display name');
+select is((select array_agg(email) from public.admin_list_users('OLGA')), array['zed.old@portal.test'],
+  'search matches the first name');
+select is((select array_agg(email) from public.admin_list_users('ortega')), array['zed.old@portal.test'],
+  'search matches the last name');
+select is((select array_agg(email) from public.admin_list_users('xote you')), array['Zed.Young@portal.test'],
+  'search matches the full name, across the space');
+select is(
+  (select array_agg(display_name order by created_at desc) from public.admin_list_users('zed')),
+  array['Quixote Young', 'zed.mid', 'Olga Ortega'],
+  'display_name is the full name: first name, plus the last name when there is one');
 select is((select array_agg(email) from public.admin_list_users('  zed.mid  ')), array['zed.mid@portal.test'],
   'search is trimmed');
 select is((select array_agg(email) from public.admin_list_users('22222222-2222-2222-2222-222222222222')),
@@ -136,6 +146,7 @@ create temp table young as
   select public.admin_user_detail('11111111-1111-1111-1111-111111111111') as d;
 
 select is((select d ->> 'email' from young), 'Zed.Young@portal.test', 'detail has the email');
+select is((select d ->> 'display_name' from young), 'Quixote Young', 'detail''s display_name is the full name');
 select is(
   (select array_agg(k order by k) from young, jsonb_object_keys(d) k),
   array['ai_flags', 'ai_photo_block', 'ai_photo_refusals_30d', 'created_at', 'display_name', 'email',
