@@ -940,10 +940,16 @@ export const en = {
     moreRecipes: '+{{count}} more',
     searchRecipes: 'Search recipes',
     note: 'Note…',
-    showAll: 'Show all recipes',
-    /** The slot sheet with no recipes tagged with the meal: "No recipes tagged Dinner yet". */
-    noMealRecipes: 'No recipes tagged {{meal}} yet',
     noRecipes: 'No recipes yet',
+    /** The slot sheet's line under the chips: "All recipes" with nothing on, else "4 recipes". */
+    allRecipes: 'All recipes',
+    recipeCount_one: '{{count}} recipe',
+    recipeCount_other: '{{count}} recipes',
+    /** The slot sheet's sort menu. */
+    sort: { recent: 'Newest first', name: 'A–Z' },
+    sortHint: 'Changes the order of the recipes',
+    /** The bar pinned to the slot sheet's bottom: Leftovers, Eating out, Note…. */
+    notCooking: 'Not cooking?',
     /** A slot sheet row's added line: "Added today", "Added Mon" (the last week), "Added Oct 12". */
     addedToday: 'Added today',
     addedYesterday: 'Added yesterday',

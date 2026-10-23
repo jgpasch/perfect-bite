@@ -1,6 +1,7 @@
 // Spec 4.15: the recipes strings come from src/i18n/. English is checked by the existing recipe tests; these
 // check the Spanish, the plurals, the module-level strings and a few components rendered in Spanish.
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { NAME_IS_LINK_FOOTNOTE } from '@/features/recipes/add-recipe';
@@ -358,6 +359,23 @@ describe('recipes strings in Spanish', () => {
     expect(texts(root)).toEqual(expect.arrayContaining(['Filtros · 1', 'Menos de 30 min']));
     expect(labels(root)).toEqual(expect.arrayContaining(['Filtros, 1 activos', 'Quitar el filtro Menos de 30 min']));
     expect(root.root.findAll((n) => n.props.accessibilityHint === 'Abre los filtros.').length).toBeGreaterThan(0);
+    act(() => root.unmount());
+  });
+
+  it('the filter bar can hide chips (still counted), take trailing children and scroll in one row', () => {
+    initI18n('es');
+    const filters = { ...noRecipeFilters(), time: ['under-30' as const], tags: { ...noRecipeFilters().tags, meal: ['dinner'] } };
+    let root!: ReactTestRenderer;
+    act(() => {
+      root = create(
+        <RecipeFilterBar row filters={filters} onOpen={() => {}} onRemove={() => {}} hideChip={(chip) => chip.facet === 'meal'}>
+          <Text>Rápido</Text>
+        </RecipeFilterBar>,
+      );
+    });
+    expect(texts(root)).toEqual(expect.arrayContaining(['Filtros · 2', 'Menos de 30 min', 'Rápido']));
+    expect(labels(root)).not.toContain('Quitar el filtro Cena');
+    expect(root.root.findAll((n) => n.type === ('RCTScrollView' as never) && n.props.horizontal === true)).toHaveLength(1);
     act(() => root.unmount());
   });
 

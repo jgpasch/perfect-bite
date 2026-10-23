@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
@@ -20,25 +21,37 @@ import { useT } from '@/i18n';
  * some are on), then a chip per active filter ("Dinner ✕") that removes it. Wraps. Without `onOpen`
  * (the Recipes tab, whose Filters button is in its search field) just the chips, and nothing without any.
  * With `onClear`, a plain **Clear** ends the chips and clears every filter.
+ * The slot sheet (4.16) passes `row` for one sideways-scrolling row, `hideChip` to leave out the values
+ * its quick chips (`children`, after the chips) already show, and no `onClear`.
  */
 export function RecipeFilterBar({
   filters,
   onOpen,
   onRemove,
   onClear,
+  hideChip,
+  row = false,
+  children,
 }: {
   filters: RecipeFilters;
   onOpen?: () => void;
   onRemove: (chip: FilterChip) => void;
   onClear?: () => void;
+  /** Leaves a chip out (its value still counts in "Filters · N"). */
+  hideChip?: (chip: FilterChip) => boolean;
+  /** One row that scrolls sideways instead of wrapping. */
+  row?: boolean;
+  /** After the chips (the slot sheet's quick chips). */
+  children?: ReactNode;
 }) {
   const t = useT();
   const { spacing } = useTheme();
   const count = activeFilterCount(filters);
-  const chips = recipeFilterChips(filters);
-  if (!onOpen && chips.length === 0) return null;
-  return (
-    <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs }]}>
+  const chips = recipeFilterChips(filters).filter((chip) => !hideChip?.(chip));
+  if (!onOpen && chips.length === 0 && !children) return null;
+  const padding = { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs };
+  const items = (
+    <>
       {onOpen ? (
         <Pill
           label={filtersPillLabel(count)}
@@ -60,8 +73,21 @@ export function RecipeFilterBar({
           onPress={onClear}
         />
       ) : null}
-    </View>
+      {children}
+    </>
   );
+  if (row) {
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.line, padding]}>
+        {items}
+      </ScrollView>
+    );
+  }
+  return <View style={[styles.row, padding]}>{items}</View>;
 }
 
 function RemovableChip({ chip, onPress }: { chip: FilterChip; onPress: () => void }) {
@@ -93,6 +119,7 @@ function RemovableChip({ chip, onPress }: { chip: FilterChip; onPress: () => voi
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  line: { flexDirection: 'row', alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   // A long tag ("Olla de cocción lenta") at large Dynamic Type wraps inside its chip, keeping the ✕.
   chipLabel: { flexShrink: 1 },

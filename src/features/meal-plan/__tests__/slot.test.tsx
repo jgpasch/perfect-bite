@@ -16,6 +16,7 @@ import {
   untaggedOnlyFilters,
   type RecipeFilters,
 } from '@/features/recipes/recipe-filters';
+import { setMyFavorite } from '@/features/recipes/favorites';
 import { createRecipe, recipesQuery } from '@/features/recipes/recipes';
 import { setDeviceSetting, PLAN_VIEW_KEY } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -85,6 +86,7 @@ jest.mock('@expo/ui/swift-ui', () => {
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   accessibilityLabel: (value: string) => ({ accessibilityLabel: value }),
+  accessibilityHint: (value: string) => ({ accessibilityHint: value }),
   deleteDisabled: () => ({ deleteDisabled: true }),
   environment: (key: string, value: string) => ({ environment: [key, value] }),
   listRowBackground: (color: string) => ({ listRowBackground: color }),
@@ -433,46 +435,201 @@ describe('the slot sheet', () => {
   function open(day: string, meal: string, householdId = home) {
     Object.assign(mockParams, { householdId, day, meal });
     act(() => {
-      tree = create(<PlanSlotSheet />);
+      tree = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
     });
   }
+  const ALL = [
+    'Chicken tacos, 35 min · Added today',
+    'Énsalada verde, Added today',
+    'Jalapeño poppers, Added today',
+    'Pancakes, 20 min · Added today',
+  ];
+  /** The quick chip or panel value (a `Pill`'s Pressable) with this label. */
+  const pill = (label: string) => button(label);
+  const selected = (label: string) => pill(label).props.accessibilityState.selected as boolean;
+  const removeChips = () =>
+    tree!.root
+      .findAll((n) => typeof n.type !== 'string' && /^Remove .* filter$/.test(n.props.accessibilityLabel ?? '') && typeof n.props.onPress === 'function')
+      .map((n) => n.props.accessibilityLabel as string);
+  const showRecipes = () =>
+    act(() =>
+      tree!.root
+        .find((n) => typeof n.type !== 'string' && /^Show \d+ recipes?$/.test(n.props.label ?? '') && typeof n.props.onPress === 'function')
+        .props.onPress(),
+    );
+  const sortTo = (label: string) =>
+    act(() => tree!.root.find((n) => n.type === ('SwiftToggle' as never) && n.props.label === label).props.onIsOnChange(true));
 
-  test('titled with the day over the meal, with the pills and the meal’s recipes A–Z with their time', () => {
+  test('titled with the day over the meal; opens on every recipe, newest first, with "All recipes"', () => {
     open(THURSDAY, 'dinner');
     expect(lines().slice(0, 2)).toEqual(['Thursday 15', 'Dinner']);
-    for (const pill of ['Leftovers', 'Eating out', 'Note…', 'Show all recipes']) expect(button(pill)).toBeTruthy();
-    expect(recipeRows()).toEqual(['Chicken tacos, 35 min', 'Énsalada verde']);
+    expect(lines()).toContain('All recipes');
+    expect(lines()).toContain('Newest first');
+    expect(recipeRows()).toEqual(ALL); // all added together: A–Z
+    expect(lines()).not.toContain('Show all recipes');
+    expect(lines()).not.toContain('Clear filters');
   });
 
-  test('Show all recipes lists every recipe of the household, and goes', () => {
+  test('a new recipe without tags comes first, its second line saying when it was added', () => {
+    jest.setSystemTime(new Date(2026, 9, 15, 18, 0));
+    createRecipe('Zucchini fritters', home);
+    jest.setSystemTime(new Date(2026, 9, 16, 9, 0));
     open(THURSDAY, 'breakfast');
-    expect(recipeRows()).toEqual(['Pancakes, 20 min']);
-    press('Show all recipes');
-    expect(recipeRows()).toEqual(['Chicken tacos, 35 min', 'Énsalada verde', 'Jalapeño poppers', 'Pancakes, 20 min']);
-    expect(lines()).not.toContain('Show all recipes');
+    expect(recipeRows()).toEqual([
+      'Zucchini fritters, Added yesterday',
+      'Chicken tacos, 35 min · Added yesterday',
+      'Énsalada verde, Added yesterday',
+      'Jalapeño poppers, Added yesterday',
+      'Pancakes, 20 min · Added yesterday',
+    ]);
+    expect(lines()).toContain('20 min · Added yesterday');
+  });
+
+  test('the sort menu switches to A–Z and back to Newest first', () => {
+    jest.setSystemTime(new Date(2026, 9, 15, 13, 0));
+    createRecipe('Apple crumble', home);
+    open(THURSDAY, 'dinner');
+    expect(recipeRows()[0]).toBe('Apple crumble, Added today');
+    expect(tree!.root.find((n) => n.type === ('SwiftMenu' as never)).props.modifiers).toContainEqual({
+      accessibilityLabel: 'Sort: Newest first',
+    });
+    sortTo('A–Z');
+    expect(recipeRows().map((r) => r.split(',')[0])).toEqual(['Apple crumble', 'Chicken tacos', 'Énsalada verde', 'Jalapeño poppers', 'Pancakes']);
+    expect(lines()).toContain('A–Z');
+    sortTo('Newest first');
+    expect(recipeRows()[0]).toBe('Apple crumble, Added today');
+  });
+
+  test('the quick chips (the meal, Favorites, Want to try) narrow the list and toggle off', () => {
+    setMyFavorite(pancakes, true);
+    db.update(recipes).set({ tags: { ...emptyRecipeTags(), saved: ['want-to-try'] } }).where(eq(recipes.id, ensalada)).run();
+    open(THURSDAY, 'dinner');
+    expect(['Dinner', 'Favorites', 'Want to try'].map(selected)).toEqual([false, false, false]);
+
+    press('Dinner');
+    expect(selected('Dinner')).toBe(true);
+    expect(recipeRows()).toEqual(['Chicken tacos, 35 min · Added today']);
+    expect(lines()).toContain('1 recipe');
+    press('Dinner');
+    expect(selected('Dinner')).toBe(false);
+    expect(recipeRows()).toEqual(ALL);
+    expect(lines()).toContain('All recipes');
+
+    press('Favorites');
+    expect(recipeRows()).toEqual(['Pancakes, 20 min · Added today']);
+    press('Favorites');
+    press('Want to try');
+    expect(selected('Want to try')).toBe(true);
+    expect(recipeRows()).toEqual(['Énsalada verde, Added today']);
+    press('Want to try');
+    expect(recipeRows()).toEqual(ALL);
+    // The quick chips count in "Filters · N" but aren't repeated as ✕ chips.
+    press('Favorites');
+    expect(button('Filters, 1 active')).toBeTruthy();
+    expect(removeChips()).toEqual([]);
+  });
+
+  test('chips and search narrow together', () => {
+    open(THURSDAY, 'lunch');
+    press('Lunch');
+    const field = tree!.root.find((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === 'Search recipes');
+    act(() => field.props.onChangeText('ENSA'));
+    expect(recipeRows()).toEqual(['Énsalada verde, Added today']);
+    act(() => field.props.onChangeText('tacos'));
+    expect(recipeRows()).toEqual([]);
+    expect(lines()).toContain('No recipes match');
+    expect(lines()).toContain('0 recipes');
+  });
+
+  test('Filters opens the panel in the sheet; a picked value shows as a ✕ chip, and removing it widens the list', () => {
+    open(THURSDAY, 'dinner');
+    press('Filters');
+    expect(recipeRows()).toEqual([]); // the panel shows in place of the list
+    press('Breakfast');
+    showRecipes();
+    expect(recipeRows()).toEqual(['Pancakes, 20 min · Added today']);
+    expect(removeChips()).toEqual(['Remove Breakfast filter']);
+    expect(button('Filters, 1 active')).toBeTruthy();
+    press('Remove Breakfast filter');
+    expect(recipeRows()).toEqual(ALL);
+    expect(removeChips()).toEqual([]);
+  });
+
+  test('the meal chip and the panel’s meal value stay in step', () => {
+    open(THURSDAY, 'dinner');
+    press('Dinner');
+    press('Filters, 1 active');
+    expect(selected('Dinner')).toBe(true);
+    press('Dinner'); // off in the panel
+    showRecipes();
+    expect(selected('Dinner')).toBe(false);
+    expect(recipeRows()).toEqual(ALL);
+    press('Filters');
+    press('Dinner'); // on in the panel
+    showRecipes();
+    expect(selected('Dinner')).toBe(true);
+    expect(removeChips()).toEqual([]);
+    expect(recipeRows()).toEqual(['Chicken tacos, 35 min · Added today', 'Énsalada verde, Added today']);
+  });
+
+  test('Clear filters (with anything on) turns every chip and filter off, keeping the search', () => {
+    open(THURSDAY, 'dinner');
+    expect(lines()).not.toContain('Clear filters');
+    press('Dinner');
+    press('Filters, 1 active');
+    press('Under 1 hour');
+    showRecipes();
+    expect(recipeRows()).toEqual(['Chicken tacos, 35 min · Added today']);
+    const field = tree!.root.find((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === 'Search recipes');
+    act(() => field.props.onChangeText('ensalada'));
+    expect(lines()).toContain('No recipes match');
+    expect(lines()).toContain('Clear filters');
+    press('Clear filters');
+    expect(recipeRows()).toEqual(['Énsalada verde, Added today']);
+    act(() => field.props.onChangeText(''));
+    expect(recipeRows()).toEqual(ALL);
+    expect(selected('Dinner')).toBe(false);
+    expect(lines()).not.toContain('Clear filters');
+    expect(lines()).toContain('All recipes');
+  });
+
+  test('a household without recipes says "No recipes yet"', () => {
+    db.insert(households).values({ id: 'household-3', name: 'Cabin' }).run();
+    open(THURSDAY, 'dinner', 'household-3');
+    expect(recipeRows()).toEqual([]);
+    expect(lines()).toContain('No recipes yet');
   });
 
   test('search matches names across all recipes, ignoring case and accents', () => {
     open(THURSDAY, 'breakfast');
     const field = tree!.root.find((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === 'Search recipes');
     act(() => field.props.onChangeText('JALAPENO'));
-    expect(recipeRows()).toEqual(['Jalapeño poppers']);
+    expect(recipeRows()).toEqual(['Jalapeño poppers, Added today']);
     act(() => field.props.onChangeText('chili'));
     expect(recipeRows()).toEqual([]);
     expect(lines()).toContain('No recipes match');
   });
 
-  test('with no recipes tagged with the meal it says so, with Show all', () => {
-    tag(pancakes, []);
-    open(THURSDAY, 'breakfast');
-    expect(recipeRows()).toEqual([]);
-    expect(lines()).toContain('No recipes tagged Breakfast yet');
-    expect(button('Show all recipes')).toBeTruthy();
+  test('the Not cooking? bar is pinned outside the list, with its three buttons', () => {
+    open(THURSDAY, 'dinner');
+    const bar = tree!.root.find((n) => n.props.testID === 'not-cooking' && typeof n.type === 'string');
+    expect(bar.findAll((n) => n.type === ('Text' as never)).map(textOf)).toEqual(['Not cooking?', 'Leftovers', 'Eating out', 'Note…']);
+    expect(bar.findAll((n) => n.type === ('Icon' as never)).map((n) => n.props.name)).toEqual([
+      'takeoutbag.and.cup.and.straw',
+      'fork.knife',
+      'note.text',
+    ]);
+    const scroll = tree!.root.find((n) => n.type === ('RCTScrollView' as never) && n.props.contentInsetAdjustmentBehavior === 'automatic');
+    expect(scroll.findAll((n) => n.props.testID === 'not-cooking')).toEqual([]);
   });
 
   test('picking a recipe fills the slot and closes', () => {
     open(THURSDAY, 'dinner');
-    press('Chicken tacos, 35 min');
+    press('Chicken tacos, 35 min · Added today');
     expect(slotNow(THURSDAY, 'dinner').map((e) => [e.kind, e.recipeId, e.note])).toEqual([['recipe', tacos, null]]);
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
@@ -802,27 +959,52 @@ describe('the add sheet (board E)', () => {
   function open(meal = 'dinner') {
     Object.assign(mockParams, { householdId: home, day: THURSDAY, meal, mode: 'add' });
     act(() => {
-      tree = create(<PlanSlotSheet />);
+      tree = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
     });
   }
   const row = (id: string) =>
     tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === `slot-recipe-${id}` && typeof n.props.onPress === 'function');
 
-  test('"Add to dinner" under "Thursday 15 · Dinner", the slot’s recipes named, and no pills', () => {
+  test('"Add to dinner" under "Thursday 15 · Dinner", the slot’s recipes named, the chips, and no Not cooking? bar', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
     addRecipeToSlot(home, THURSDAY, 'dinner', pancakes);
     open();
     expect(lines().slice(0, 3)).toEqual(['Thursday 15 · Dinner', 'Add to dinner', 'With Énsalada verde, Pancakes']);
     const line = tree!.root.find((n) => n.props.testID === 'slot-with' && typeof n.type === 'string');
     expect(line.findAll((n) => n.type === ('Text' as never))[0].props.numberOfLines).toBe(1);
-    for (const pill of ['Leftovers', 'Eating out', 'Note…']) expect(lines()).not.toContain(pill);
-    expect(button('Show all recipes')).toBeTruthy();
+    for (const label of ['Not cooking?', 'Leftovers', 'Eating out', 'Note…']) expect(lines()).not.toContain(label);
+    expect(tree!.root.findAll((n) => n.props.testID === 'not-cooking')).toEqual([]);
+    for (const chip of ['Filters', 'Dinner', 'Favorites', 'Want to try']) expect(button(chip)).toBeTruthy();
+    expect(lines()).not.toContain('Show all recipes');
+  });
+
+  test('the meal chip narrows the add sheet too, keeping the slot’s recipes ticked', () => {
+    addRecipeToSlot(home, THURSDAY, 'dinner', tacos);
+    open();
+    expect(recipeRows()).toEqual([
+      'Chicken tacos, Already in dinner',
+      'Énsalada verde, Added today',
+      'Jalapeño poppers, Added today',
+      'Pancakes, 20 min · Added today',
+    ]);
+    act(() => button('Dinner').props.onPress());
+    expect(recipeRows()).toEqual(['Chicken tacos, Already in dinner', 'Énsalada verde, Added today']);
+    expect(row(tacos).props.disabled).toBe(true);
   });
 
   test('the slot’s recipes are ticked, disabled and captioned "Already in dinner"', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
     open();
-    expect(recipeRows()).toEqual(['Chicken tacos, 35 min', 'Énsalada verde, Already in dinner']);
+    expect(recipeRows()).toEqual([
+      'Chicken tacos, 35 min · Added today',
+      'Énsalada verde, Already in dinner',
+      'Jalapeño poppers, Added today',
+      'Pancakes, 20 min · Added today',
+    ]);
     expect(row(ensalada).props.disabled).toBe(true);
     expect(row(ensalada).props.accessibilityState).toEqual({ disabled: true, checked: true });
     expect(row(ensalada).findAll((n) => n.type === ('Icon' as never)).map((n) => n.props.name)).toEqual(['checkmark']);
@@ -834,17 +1016,15 @@ describe('the add sheet (board E)', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
     addRecipeToSlot(home, THURSDAY, 'dinner', pancakes);
     open();
-    press('Chicken tacos, 35 min');
+    press('Chicken tacos, 35 min · Added today');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Énsalada verde', 'Pancakes', 'Chicken tacos']);
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  test('Show all recipes there ticks the slot’s recipes too, and adds from all of them', () => {
+  test('an untagged recipe can be added from the full list', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', tacos);
     open();
-    press('Show all recipes');
-    expect(recipeRows()).toEqual(['Chicken tacos, Already in dinner', 'Énsalada verde', 'Jalapeño poppers', 'Pancakes, 20 min']);
-    press('Jalapeño poppers');
+    press('Jalapeño poppers, Added today');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Chicken tacos', 'Jalapeño poppers']);
   });
 
@@ -853,11 +1033,20 @@ describe('the add sheet (board E)', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', pancakes);
     Object.assign(mockParams, { householdId: home, day: THURSDAY, meal: 'dinner' });
     act(() => {
-      tree = create(<PlanSlotSheet />);
+      tree = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
     });
     expect(lines().slice(0, 2)).toEqual(['Thursday 15', 'Dinner']);
-    expect(recipeRows()).toEqual(['Chicken tacos, 35 min', 'Énsalada verde']);
-    press('Chicken tacos, 35 min');
+    expect(recipeRows()).toEqual([
+      'Chicken tacos, 35 min · Added today',
+      'Énsalada verde, Added today',
+      'Jalapeño poppers, Added today',
+      'Pancakes, 20 min · Added today',
+    ]);
+    press('Chicken tacos, 35 min · Added today');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Chicken tacos']);
   });
 
