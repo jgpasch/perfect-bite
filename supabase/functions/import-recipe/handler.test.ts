@@ -16,7 +16,7 @@ import {
   type IngredientRow,
   type LimitResult,
 } from '../categorize-ingredients/handler.ts';
-import { CACHE_MAX_AGE_MS, importRecipe, ImportRecipeError, type CachedImport, type ImportDeps, type RecipeImportStore } from './handler.ts';
+import { CACHE_MAX_AGE_MS, extractForImport, importRecipe, ImportRecipeError, type CachedImport, type ImportDeps, type RecipeImportStore } from './handler.ts';
 import { AI_FAILED_RETRY_AFTER, handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
@@ -1268,4 +1268,47 @@ test('importRecipe throws ImportRecipeError with the failure', async () => {
     assertEquals(err.failure, { code: 'rate_limited' });
   }
   assert(!(new CategorizeLimitError('user_limit') instanceof ImportRecipeError));
+});
+
+// --- extractForImport (share-import-worker's half, spec 6.12) -----------------------------------
+
+test('extractForImport: the extraction alone, with no plan check or limit (the worker reserves first)', async () => {
+  const { store, deps, fetched, calls } = setup();
+  store.features.clear();
+  store.limit = 'monthly_limit';
+  const response = await extractForImport({ url: PASTA_URL, page: { title: 'Garlic Pasta', jsonLd: [PASTA_JSON_LD] }, householdId: HOUSEHOLD_ID }, deps);
+  assertEquals(response, PASTA_RESPONSE);
+  assertEquals(store.featureChecks, []);
+  assertEquals(store.limitChecks, 0);
+  assertEquals(fetched, []);
+  assertEquals(calls('extractRecipe'), 1);
+  // A client-captured page is never cached by URL.
+  assertEquals(store.saves, []);
+});
+
+test('extractForImport: a server-fetched page is cached by URL, and the cached extraction answers next time', async () => {
+  const { store, deps, fetched, calls } = setup();
+  const request = { url: PASTA_URL, householdId: HOUSEHOLD_ID };
+  assertEquals(await extractForImport(request, deps), PASTA_RESPONSE);
+  assertEquals(store.saves.map((s) => s.urlKey), [PASTA_KEY]);
+  assertEquals(await extractForImport(request, deps), PASTA_RESPONSE);
+  assertEquals(fetched, [PASTA_URL]);
+  assertEquals(calls('extractRecipe'), 1);
+});
+
+test('extractForImport: its failures are ImportRecipeErrors (invalid_url, fetch_failed, not_a_recipe)', async () => {
+  const { deps } = setup();
+  const failure = async (request: { url: string; page?: { title?: string; text?: string }; householdId: string }) => {
+    try {
+      await extractForImport(request, deps);
+    } catch (err) {
+      assert(err instanceof ImportRecipeError);
+      return err.failure.code;
+    }
+    return 'ok';
+  };
+  assertEquals(await failure({ url: 'ftp://example.com/x', householdId: HOUSEHOLD_ID }), 'invalid_url');
+  assertEquals(await failure({ url: 'https://redirect.example.com/r', householdId: HOUSEHOLD_ID }), 'invalid_url');
+  assertEquals(await failure({ url: 'https://example.com/missing', householdId: HOUSEHOLD_ID }), 'fetch_failed');
+  assertEquals(await failure({ url: EMPTY_URL, page: { title: 'Nothing', text: '' }, householdId: HOUSEHOLD_ID }), 'not_a_recipe');
 });

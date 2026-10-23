@@ -168,8 +168,9 @@ async function extract(page: Page, deps: ImportDeps): Promise<ExtractedRecipe> {
 }
 
 /**
- * Imports one recipe link (spec §6.6 flow). Throws `ImportRecipeError` for every expected failure.
- * Only extractions of pages the server fetched are cached, `not_a_recipe` answers included.
+ * Imports one recipe link (spec §6.6 flow): the plan check, the URL and kill-switch checks and the
+ * limit, then `extractForImport`. Throws `ImportRecipeError` for every expected failure. Only
+ * extractions of pages the server fetched are cached, `not_a_recipe` answers included.
  */
 export async function importRecipe(request: RecipeImportRequest, deps: ImportDeps): Promise<RecipeImportResponse> {
   try {
@@ -181,10 +182,7 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
     }
     throw err;
   }
-  const caller = callerIn(deps.caller, request.householdId);
-  const now = deps.now ?? Date.now;
-  const urlKey = canonicalRecipeUrl(request.url);
-  if (!urlKey) throw new ImportRecipeError({ code: 'invalid_url' }, 'Not an http(s) URL');
+  if (!canonicalRecipeUrl(request.url)) throw new ImportRecipeError({ code: 'invalid_url' }, 'Not an http(s) URL');
   if (!isAiEnabled('extractRecipe')) {
     throw new ImportRecipeError({ code: 'unavailable', reason: 'ai_off' }, 'Recipe import is turned off');
   }
@@ -193,6 +191,23 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
   if (limit === 'user_limit') throw new ImportRecipeError({ code: 'rate_limited' }, 'Too many imports; try again later');
   if (limit === 'daily_limit') throw new ImportRecipeError({ code: 'daily_limit' }, "Today's recipe imports are used up");
   if (limit === 'monthly_limit') throw new ImportRecipeError({ code: 'limit_reached' }, "This month's recipe imports are used up");
+
+  return extractForImport(request, deps);
+}
+
+/**
+ * The extraction half of an import (spec 6.6 steps 3 to 7), after the plan check and the limit:
+ * the cached extraction for the URL, else the page from the request or `fetchPage`, `extract`, the
+ * URL cache (written for server-fetched pages only), categorize, and the response. `importRecipe`
+ * calls it for in-app links; `share-import-worker` (6.12) calls it with the share's captured page
+ * after `reserve_share_import` has checked and counted the import. Opens no database transaction:
+ * each store call is its own. Throws `ImportRecipeError` for every expected failure.
+ */
+export async function extractForImport(request: RecipeImportRequest, deps: ImportDeps): Promise<RecipeImportResponse> {
+  const caller = callerIn(deps.caller, request.householdId);
+  const now = deps.now ?? Date.now;
+  const urlKey = canonicalRecipeUrl(request.url);
+  if (!urlKey) throw new ImportRecipeError({ code: 'invalid_url' }, 'Not an http(s) URL');
 
   let recipe: ExtractedRecipe | null = null;
   const cached = await deps.store.getCached(urlKey, EXTRACT_RECIPE_PROMPT_VERSION);

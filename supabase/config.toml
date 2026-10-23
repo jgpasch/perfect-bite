@@ -430,6 +430,9 @@ verify_jwt = false
 [functions.send-notifications]
 verify_jwt = false
 
+[functions.share-import-worker]
+verify_jwt = false
+
 # Takes a device credential (not a JWT) or a session, and verifies either itself (spec 6.12).
 [functions.share-ingest]
 verify_jwt = false
