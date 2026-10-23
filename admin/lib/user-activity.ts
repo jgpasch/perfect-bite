@@ -134,6 +134,7 @@ const ADMIN_ACTIONS = [
   "view_user_activity",
   "block_ai_photos",
   "unblock_ai_photos",
+  "revoke_device_credentials",
   "set_user_plan",
   "delete_user",
   "delete_account",

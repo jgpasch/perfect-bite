@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { RevokeDeviceCredentials } from "@/components/revoke-device-credentials";
 import { UnblockAiPhotos } from "@/components/unblock-ai-photos";
 import { UserActivityFilters } from "@/components/user-activity-filters";
 import { UserActivityList } from "@/components/user-activity-list";
@@ -31,7 +32,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 // One user (spec 4.12), from admin_user_detail: who they are, whether their AI photos are blocked,
 // and their households, each with its plan and linking to its page, where the plan is changed. A
-// user has no plan of their own. Then their activity, from admin_user_activity, filtered by the
+// user has no plan of their own. Revoke device credentials for a lost phone. Then their activity, from admin_user_activity, filtered by the
 // search params (opening it is audited).
 export default function UserPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   return (
@@ -67,6 +68,7 @@ async function UserDetail({ params, searchParams }: { params: Params; searchPara
       <div className="grid gap-5 md:grid-cols-2">
         <HouseholdsCard user={user} />
         <AiPhotosCard user={user} />
+        <DevicesCard user={user} />
       </div>
       <Suspense
         fallback={
@@ -159,6 +161,20 @@ function AiPhotosCard({ user }: { user: AdminUserDetail }) {
           )}
         </>
       )}
+    </Card>
+  );
+}
+
+// Devices (spec 4.12, 6.12): a lost or stolen phone's background shares are stopped here, by revoking
+// every device credential the user has. There's no list of devices.
+function DevicesCard({ user }: { user: AdminUserDetail }) {
+  return (
+    <Card title="Devices">
+      <p className="text-[15px] text-ink-secondary">
+        Each phone they&apos;re signed in on uploads shares in the background with its own credential. Revoke them for a
+        lost or stolen phone.
+      </p>
+      <RevokeDeviceCredentials userId={user.user_id} email={user.email} />
     </Card>
   );
 }

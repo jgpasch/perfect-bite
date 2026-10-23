@@ -27,6 +27,7 @@ export const ACTION_LABELS = {
   view_user_activity: "Viewed a user's activity",
   block_ai_photos: "Blocked AI photos",
   unblock_ai_photos: "Unblocked AI photos",
+  revoke_device_credentials: "Revoked device credentials",
 } as const satisfies Record<string, string>;
 
 export type KnownAction = keyof typeof ACTION_LABELS;
@@ -271,6 +272,8 @@ export function actionSummary(row: Pick<AdminAction, "action" | "details">): str
       if (typeof details.refusals === "number") parts.push(`after ${plural(details.refusals, "refusal", "refusals")}`);
       return parts.join(" ");
     }
+    case "revoke_device_credentials":
+      return typeof details.revoked === "number" ? plural(details.revoked, "credential", "credentials") : "";
     default:
       return rawSummary(details);
   }

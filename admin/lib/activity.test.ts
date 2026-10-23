@@ -47,6 +47,7 @@ describe("actionLabel", () => {
       "Viewed a user's activity",
       "Blocked AI photos",
       "Unblocked AI photos",
+      "Revoked device credentials",
     ]);
   });
 
@@ -344,5 +345,26 @@ describe("AI photo blocks", () => {
   it("link nowhere", () => {
     expect(actionHref({ action: "block_ai_photos", details: { refusals: 3 } })).toBeNull();
     expect(actionHref({ action: "unblock_ai_photos", details: { refusals: 3 } })).toBeNull();
+  });
+});
+
+describe("revoking device credentials", () => {
+  it("is labelled and filterable", () => {
+    expect(actionLabel("revoke_device_credentials")).toBe("Revoked device credentials");
+    expect(actionOptions("").map((o) => o.value)).toContain("revoke_device_credentials");
+    expect(activityHref("revoke_device_credentials", 1)).toBe("/activity?action=revoke_device_credentials");
+  });
+
+  it("sums up by how many it revoked", () => {
+    expect(summary("revoke_device_credentials", { revoked: 2 })).toBe("2 credentials");
+    expect(summary("revoke_device_credentials", { revoked: 1 })).toBe("1 credential");
+    expect(summary("revoke_device_credentials", { revoked: 0 })).toBe("0 credentials");
+    expect(summary("revoke_device_credentials", { revoked: "2" })).toBe("");
+    expect(summary("revoke_device_credentials", {})).toBe("");
+    expect(summary("revoke_device_credentials", null)).toBe("");
+  });
+
+  it("links nowhere", () => {
+    expect(actionHref({ action: "revoke_device_credentials", details: { revoked: 2 } })).toBeNull();
   });
 });

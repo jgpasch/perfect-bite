@@ -242,6 +242,10 @@ begin
 end $$;
 ```
 
+### Revoke a lost phone's device credentials
+
+Each phone a user is signed in on uploads shares in the background with a device credential (spec 6.12), not their session. For a lost or stolen phone, open the user's page in the portal and use **Revoke device credentials** in the Devices card. It needs a note (who asked and why) and calls `admin_revoke_device_credentials`, which revokes every valid credential of the user at once (one still in its 24 h grace after a renewal too) and writes one `revoke_device_credentials` audit row (the note, your user id, and `{ revoked }`, how many), also when there were none. There's no list of devices, so it's all of their phones: their shares still import when they open the app, and each phone gets a new credential the next time they sign in. The credentials are in `public.device_credentials`, stored only as hashes.
+
 ### Add or remove an admin
 
 Admins are the users who may use the admin portal (`admin/`). In the Table Editor, open the `private` schema → `admins`. To add one, insert a row with their user id (find it under Authentication → Users, or with "Find a user" above); `added_at` fills itself in. To remove one, delete their row. Either takes effect on their next call: the portal checks on every action, so there's nothing to sign out. Deleting a user removes their row too.

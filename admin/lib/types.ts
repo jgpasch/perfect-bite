@@ -61,6 +61,13 @@ export type AiPhotoBlock = {
  */
 export type AdminUnblockAiPhotosResult = Pick<AiPhotoBlock, "refusals" | "blocked_at">;
 
+/**
+ * `admin_revoke_device_credentials(p_user_id, p_note)` returns its audit row's details: how many
+ * valid credentials it revoked, 0 with none (20261209100000_device_credentials.sql). Raises
+ * `note required` (22023).
+ */
+export type AdminRevokeDeviceCredentialsResult = { revoked: number };
+
 // --- Households: admin_list_households, admin_household_detail, admin_set_household_plan ------
 
 /** One row of `admin_list_households(p_search, p_limit, p_offset)`, which returns a table. */
@@ -265,7 +272,7 @@ export type AdminSetSafetyLimitResult = {
 
 export type AdminAction = {
   id: string;
-  /** `set_household_plan`, `set_user_plan` (older rows), a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `view_user_activity`, `block_ai_photos` or `unblock_ai_photos`. */
+  /** `set_household_plan`, `set_user_plan` (older rows), a plan edit (`create_plan`, …), `set_safety_limit`, `delete_user`, `delete_account`, `view_ai_call`, `view_user_activity`, `block_ai_photos`, `unblock_ai_photos` or `revoke_device_credentials`. */
   action: string;
   target_user_id: string | null;
   /** While that user still exists. */

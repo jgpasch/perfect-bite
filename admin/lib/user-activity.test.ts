@@ -231,6 +231,11 @@ describe("entrySentence", () => {
     );
     expect(sentenceText(unblock)).toMatch(/^Admin: Unblocked AI photos: Blocked Oct 2[01], 2026 after 3 refusals$/);
     expect(unblock.note).toBe("False alarm");
+    const revoke = entrySentence(
+      entry("admin.revoke_device_credentials", { details: { revoked: 2 }, note: "Lost phone", performed_by_email: "admin@x.com" }),
+    );
+    expect(sentenceText(revoke)).toBe("Admin: Revoked device credentials: 2 credentials (admin@x.com)");
+    expect(revoke.note).toBe("Lost phone");
     expect(sentenceText(entrySentence(entry("admin.view_user_activity", { details: {}, note: null, performed_by_email: "admin@x.com" })))).toBe(
       "Admin: Viewed a user's activity: No filters (admin@x.com)",
     );
@@ -444,6 +449,7 @@ describe("the action filter", () => {
     expect(values.slice(0, APP_ACTION_KEYS.length)).toEqual(APP_ACTION_KEYS);
     expect(values).toContain("ai.extractRecipe");
     expect(values).toContain("admin.unblock_ai_photos");
+    expect(values).toContain("admin.revoke_device_credentials");
     expect(values).toContain("admin.view_user_activity");
   });
 
