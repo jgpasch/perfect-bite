@@ -88,6 +88,14 @@ describe('summarizeAmounts with a usual unit', () => {
     expect(summarizeAmounts([a(2), a(null)], 'gal')).toBe('2 + 1 gal');
   });
 
+  it('an add with no amount stays a plain count when the usual unit is a cooking measure', () => {
+    // Pistachios usually measured by the tbsp in recipes: a bare `pistachios` isn't 1 tbsp.
+    expect(summarizeAmounts([a(null), a(2, 'tbsp')], 'tbsp')).toBe('1 + 2 tbsp');
+    expect(summarizeAmounts([a(null), a(null)], 'cup')).toBe('2');
+    expect(summarizeAmounts([a(200, 'g'), a(null)], 'g')).toBe('200 g + 1');
+    expect(summarizeAmounts([a(3), a(null)], 'tsp')).toBe('4');
+  });
+
   it('still shows nothing for a lone unspecified add, whatever the usual unit', () => {
     expect(summarizeAmounts([a(null)], 'gal')).toBe('');
     expect(summarizeAmounts([a(null)], 'lb')).toBe('');
@@ -221,6 +229,8 @@ describe('combineAmounts', () => {
     expect(combineAmounts([a(8, 'oz'), a(null)], 'lb')).toEqual(a(1.5, 'lb'));
     expect(combineAmounts([a(null)], 'gal')).toEqual(a(1, 'gal'));
     expect(combineAmounts([a(null)])).toEqual(a(1));
+    expect(combineAmounts([a(null)], 'tbsp')).toEqual(a(1, 'tbsp')); // a lone add steps from the usual unit
+    expect(combineAmounts([a(2, 'tbsp'), a(null)], 'tbsp')).toBeNull();
   });
 
   it('is one of the usual unit, or a count of one, for no amounts', () => {

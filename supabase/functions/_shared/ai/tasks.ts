@@ -31,6 +31,7 @@ import { EXTRACT_RECIPE_PROMPT_VERSION, SECTION_LINE_PREFIX, truncateText } from
 import { MATCH_RECIPE_STEPS_PROMPT_VERSION } from './prompts/match-recipe-steps.v1.ts';
 import { MAX_DESCRIPTION_WORDS, RECIPE_PHOTO_DESCRIPTION_PROMPT_VERSION } from './prompts/recipe-photo-description.v1.ts';
 import { SUGGEST_RECIPE_TAGS_PROMPT_VERSION } from './prompts/suggest-recipe-tags.v1.ts';
+import { reportError } from '../sentry.ts';
 
 /** `AI_MODEL_*=off` is the kill switch: no model call at all. */
 export const AI_OFF = 'off';
@@ -95,13 +96,14 @@ export function thinkingProviderOptions(setting: ThinkingSetting) {
 
 /**
  * `AI_THINKING_<TASK>` overrides the task's setting, e.g. for `yarn ai:categorize --thinking`.
- * An unknown value is logged and ignored.
+ * An unknown value is logged, reported and ignored.
  */
 function thinking(name: string, fallback: ThinkingSetting): ThinkingSetting {
   const value = env(name);
   if (value === null) return fallback;
   if (isThinkingSetting(value)) return value;
   console.warn(JSON.stringify({ level: 'warn', event: 'ai_thinking_unknown', env: name, value: value.slice(0, 40) }));
+  reportError('ai_tasks', new Error(`${name} has an unknown value: ${value.slice(0, 40)}`), { event: 'ai_thinking_unknown', env: name });
   return fallback;
 }
 

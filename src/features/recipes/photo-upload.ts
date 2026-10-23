@@ -12,6 +12,7 @@ import { limitResetsAt, resetDate } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { GenerateRecipePhotoErrorSchema, GenerateRecipePhotoResponseSchema } from '@/shared/schemas/generate-recipe-photo';
 
@@ -223,6 +224,7 @@ async function requestGeneratedPhoto(recipeId: string): Promise<{ ok: true; path
     const parsed = GenerateRecipePhotoResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('generate-recipe-photo: unexpected response', parsed.error);
+      reportError(parsed.error, { area: 'functions', event: 'unexpected_response', function: 'generate-recipe-photo' });
       return { ok: false, error: 'failed' };
     }
     return { ok: true, path: parsed.data.path };

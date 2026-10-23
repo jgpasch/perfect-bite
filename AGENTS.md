@@ -22,7 +22,7 @@ Turning push on for the hosted project (APNs key, development build, hosted Vaul
 
 ## Admin portal
 
-The admin portal (spec 4.12) is a Next.js App Router app in `admin/`. Run it with `yarn admin` (or `yarn --cwd admin dev`). Its env is `admin/.env.local` (copy `admin/.env.example`): `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` only, never a secret or service-role key. It's its own Yarn project (own `package.json` and `yarn.lock`), not a workspace, so run its commands from the root as `yarn --cwd admin <command>` (`install`, `add`, `lint`, `tsc --noEmit`, `test`, `build`). It isn't Expo: the Expo rules below don't apply there; follow `admin/AGENTS.md` and the Next.js docs in `admin/node_modules/next/dist/docs/`. The root's TypeScript, ESLint, Jest and Metro ignore `admin/`. Running it against local and hosted Supabase: [`admin/README.md`](admin/README.md).
+The admin portal (spec 4.12) is a Next.js App Router app in `admin/`. Run it with `yarn admin` (or `yarn --cwd admin dev`). Its env is `admin/.env.local` (copy `admin/.env.example`): `SUPABASE_TARGET` (local or hosted) plus each project's URL and publishable key, never a secret or service-role key. It's its own Yarn project (own `package.json` and `yarn.lock`), not a workspace, so run its commands from the root as `yarn --cwd admin <command>` (`install`, `add`, `lint`, `tsc --noEmit`, `test`, `build`). It isn't Expo: the Expo rules below don't apply there; follow `admin/AGENTS.md` and the Next.js docs in `admin/node_modules/next/dist/docs/`. The root's TypeScript, ESLint, Jest and Metro ignore `admin/`. Running it against local and hosted Supabase: [`admin/README.md`](admin/README.md).
 
 ## Expo has changed — do not trust your training data
 

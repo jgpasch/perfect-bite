@@ -39,7 +39,6 @@ import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
-import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
 import { FoldingSection } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
@@ -48,7 +47,7 @@ import { Toast, type ToastAction } from '@/components/toast';
 import { Motion } from '@/constants/theme';
 import { categories, db, households, lists, userCategoryOrder } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
-import { aisleColor, recipeHue } from '@/domain/aisle-color';
+import { aisleColor } from '@/domain/aisle-color';
 import {
   groupByCategory,
   orderCategories,
@@ -66,12 +65,12 @@ import { aisleRowActions, aisleRowLabel, moveId } from '@/features/categories/ai
 import { categoriesQuery, localFamilyKey } from '@/features/categories/categories';
 import { ItemAddBar } from '@/features/lists/add-bar';
 import { LIST_ADD_LABEL, LIST_ADD_PLACEHOLDER } from '@/features/lists/add-bar-copy';
-import { AddingPill } from '@/features/lists/adding-pill';
+import { AddingDots, AddingPill } from '@/features/lists/adding-pill';
 import { useArrivalAnnouncements, useListArrivals } from '@/features/lists/arrivals';
 import { ItemRow, type RowMove } from '@/features/lists/item-row';
 import { shoppingOnList, useForeground, useKeepListAwake } from '@/features/lists/keep-awake';
 import { inSight, mergeRowNews, rowBadge, useListVisitNews, useNewBadgeClocks, type RowNews } from '@/features/lists/list-news';
-import { useAddingTail, useListPresence } from '@/features/lists/presence';
+import { addingPillText, useAddingTail, useListPresence } from '@/features/lists/presence';
 import {
   addItem,
   checkItems,
@@ -80,9 +79,9 @@ import {
   deleteItems,
   groupItems,
   LIST_ITEMS_QUERY_TABLES,
-  LIST_RECIPE_LINKS_QUERY_TABLES,
+  LIST_RECIPES_QUERY_TABLES,
   listItemsQuery,
-  listRecipeLinksQuery,
+  listRecipesQuery,
   orderByAisle,
   recheckItems,
   removeRecipeFromList,
@@ -152,6 +151,7 @@ import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-l
 import { dismissListPushes, markListVisible, onListUnavailable, takeListUnavailable } from '@/features/push/receiving';
 import { importedToast, savedRecipeToast, sharedImportsToast } from '@/features/recipes/import-sheet';
 import { openRecipeLink, recipeLinkUrl } from '@/features/recipes/recipe-link';
+import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
 import { onShareImports } from '@/features/recipes/share-drain';
 import { addedRecipeToListToast, addedRecipeWithStaplesToast, addedToRecipeToast } from '@/features/recipes/recipe-view';
 import {
@@ -219,12 +219,13 @@ export function ListScreen({ id }: { id: string }) {
   const list = listRows[0];
   const { data: itemRows } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
-  const { data: recipeLinkRows } = useLiveQueryOn(listRecipeLinksQuery(id), LIST_RECIPE_LINKS_QUERY_TABLES, [id]);
+  const { data: recipeRows } = useLiveQueryOn(listRecipesQuery(id), LIST_RECIPES_QUERY_TABLES, [id]);
   // Only links that open (spec 4.5): plain text in a recipe's link field gets no Visit recipe on web.
   const recipeLinks = useMemo(
-    () => new Map(recipeLinkRows.flatMap((r) => (r.sourceUrl && recipeLinkUrl(r.sourceUrl) ? [[r.id, r.sourceUrl] as const] : []))),
-    [recipeLinkRows],
+    () => new Map(recipeRows.flatMap((r) => (r.sourceUrl && recipeLinkUrl(r.sourceUrl) ? [[r.id, r.sourceUrl] as const] : []))),
+    [recipeRows],
   );
+  const recipePhotos = useMemo(() => new Map(recipeRows.map((r) => [r.id, r] as const)), [recipeRows]);
   const usualUnits = useMemo(() => usualUnitsByKey(unitRows), [unitRows]);
   const { unchecked, checked } = useMemo(() => groupItems(itemRows, usualUnits), [itemRows, usualUnits]);
   // A row checked off by tap stays in place, struck through, for a moment before it moves to Checked,
@@ -1039,7 +1040,17 @@ export function ListScreen({ id }: { id: string }) {
         <Card>
           <FoldingSection
             title={block.title}
-            leading={block.recipeId ? <IconTile hue={recipeHue(block.recipeId)} name="fork.knife" /> : undefined}
+            // Spec 4.6: the recipe's photo at the icon tile's size, the tile itself without one.
+            leading={
+              block.recipeId ? (
+                <RecipePhotoTile
+                  recipeId={block.recipeId}
+                  imageUrl={recipePhotos.get(block.recipeId)?.imageUrl ?? null}
+                  photoPath={recipePhotos.get(block.recipeId)?.photoPath ?? null}
+                  size={sizes.iconWell}
+                />
+              ) : undefined
+            }
             onLongPress={block.recipeId ? () => recipeMenu(block) : undefined}
             actions={recipeActions(block)}
             // Spec 4.6: swipe right to check all, left to remove the recipe (not Other items).
@@ -1103,7 +1114,11 @@ export function ListScreen({ id }: { id: string }) {
       {onThisList ? <StatusBar style="light" /> : null}
       {addMode ? (
         <Stack.Title asChild>
-          <CompactTitle name={list.name} subtitle={compactHeaderSubtitle(unchecked.length, viewMode, checked.length)} />
+          <CompactTitle
+            name={list.name}
+            subtitle={compactHeaderSubtitle(unchecked.length, viewMode, checked.length)}
+            adding={addingPillText(othersAdding, memberNames, userId)}
+          />
         </Stack.Title>
       ) : null}
       {/* At rest the list's name sits in the header's left slot, on one row with ⋯; add mode swaps it for CompactTitle. */}
@@ -1387,26 +1402,40 @@ function SwitcherTitle({ name, invites, toGet, checked }: { name: string; invite
 
 /**
  * Add mode's title in the native header, beside ⋯: the list's name over
- * "8 to get · As added". Tapping it hides the keyboard, which leaves add mode.
+ * "8 to get · As added", or over "Alex is adding" and the pulsing dots while another member is adding (the
+ * header's pill is hidden in add mode). Tapping it hides the keyboard, which leaves add mode.
  */
-function CompactTitle({ name, subtitle }: { name: string; subtitle: string }) {
-  const { sizes } = useTheme();
+function CompactTitle({ name, subtitle, adding }: { name: string; subtitle: string; adding: string | null }) {
+  const { colors, sizes, spacing } = useTheme();
   const t = useT();
   const { reduceMotion } = useMotion();
   return (
     <Animated.View entering={(reduceMotion ? FadeIn : FadeInDown).duration(Motion.duration)}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={t('lists.screen.compactTitle', { name, subtitle })}
+        accessibilityLabel={t('lists.screen.compactTitle', { name, subtitle: adding ?? subtitle })}
         accessibilityHint={t('lists.screen.compactTitleHint')}
         onPress={Keyboard.dismiss}
         style={[styles.compactTitle, { minHeight: sizes.minTapTarget }]}>
         <ThemedText variant="headline" color="onHeader" numberOfLines={1}>
           {name}
         </ThemedText>
-        <ThemedText variant="footnote" color="onHeaderSecondary" numberOfLines={1}>
-          {subtitle}
-        </ThemedText>
+        {adding ? (
+          <Animated.View
+            key="adding"
+            entering={FadeIn.duration(Motion.presenceFadeMs)}
+            testID="compact-adding"
+            style={[styles.compactAdding, { gap: spacing.sm }]}>
+            <ThemedText variant="footnote" color="onHeaderSecondary" numberOfLines={1} style={styles.shrink}>
+              {adding}
+            </ThemedText>
+            <AddingDots color={colors.onHeaderSecondary} />
+          </Animated.View>
+        ) : (
+          <ThemedText variant="footnote" color="onHeaderSecondary" numberOfLines={1}>
+            {subtitle}
+          </ThemedText>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -1598,6 +1627,7 @@ const styles = StyleSheet.create({
   inviteDot: { position: 'absolute' },
   countBadge: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
   compactTitle: { alignItems: 'center', justifyContent: 'center' },
+  compactAdding: { flexDirection: 'row', alignItems: 'center' },
   // Clips the title while its height closes; the scale shrinks it toward its top.
   collapsing: { overflow: 'hidden', transformOrigin: 'top' },
   measured: { position: 'absolute', top: 0, left: 0, right: 0 },

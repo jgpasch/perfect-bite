@@ -19,6 +19,29 @@ export function readSupabaseEnv(env: {
   return { url: url!, publishableKey: publishableKey! };
 }
 
+// SUPABASE_TARGET (local or hosted) picks which pair in .env.local becomes NEXT_PUBLIC_SUPABASE_URL and
+// NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. next.config.ts calls this at startup. Unset, the plain
+// NEXT_PUBLIC_* values are used as they are.
+export const supabaseTargets = ["local", "hosted"] as const;
+export type SupabaseTarget = (typeof supabaseTargets)[number];
+
+export function targetSupabaseEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const target = env.SUPABASE_TARGET?.trim().toLowerCase();
+  if (!target) return {};
+  if (!(supabaseTargets as readonly string[]).includes(target)) {
+    throw new Error(`SUPABASE_TARGET must be ${supabaseTargets.join(" or ")}, not "${env.SUPABASE_TARGET}".`);
+  }
+  const urlName = `SUPABASE_${target.toUpperCase()}_URL`;
+  const keyName = `SUPABASE_${target.toUpperCase()}_PUBLISHABLE_KEY`;
+  const url = env[urlName]?.trim();
+  const publishableKey = env[keyName]?.trim();
+  const missing = [!url && urlName, !publishableKey && keyName].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(`SUPABASE_TARGET is ${target} but ${missing.join(" and ")} isn't set in admin/.env.local.`);
+  }
+  return { NEXT_PUBLIC_SUPABASE_URL: url!, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey! };
+}
+
 // Local Supabase (127.0.0.1 or localhost) also gets the email-and-code sign-in, as the app's dev builds do:
 // the code goes to the local mail viewer. Hosted is Google only.
 export function isLocalSupabaseUrl(url: string): boolean {

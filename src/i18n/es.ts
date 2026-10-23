@@ -193,7 +193,7 @@ export const es = {
     },
   },
   addBar: {
-    placeholder: 'Agrega un artículo',
+    placeholder: 'Agrega un artículo o receta',
     label: 'Agregar un artículo',
     button: 'Agregar',
     suggestions: 'Sugerencias',

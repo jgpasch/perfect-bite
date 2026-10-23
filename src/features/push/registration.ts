@@ -8,6 +8,7 @@ import { AppState, Platform } from 'react-native';
 
 import { getAccount } from '@/features/auth/account';
 import { cameToForeground } from '@/features/categories/catch-up';
+import { reportError } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 import { getPushRegistration, setPushRegistration, type PushRegistration } from './stored-registration';
@@ -72,6 +73,7 @@ export async function registerForPush({ prompt }: { prompt: boolean }): Promise<
     const id = projectId();
     if (!id) {
       console.warn('[push] no EAS projectId in the app config; not registering');
+      reportError(new Error('No EAS projectId in the app config; push is off'), { area: 'push', event: 'no_project_id' });
       return status;
     }
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id });
@@ -82,6 +84,8 @@ export async function registerForPush({ prompt }: { prompt: boolean }): Promise<
     const { error } = await supabase.rpc('register_push_token', { p_token: token, p_platform: Platform.OS });
     if (error) {
       console.warn('[push] registering the token failed', error);
+      // A code means the server refused it; without one it's the network, and the next run retries.
+      if (error.code) reportError(error, { area: 'push', event: 'register_failed' });
       return status;
     }
     setPushRegistration({ token, userId: account.userId, at: now.toISOString() });

@@ -67,6 +67,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   const env = deps.env ?? ((key: string) => Deno.env.get(key));
   if (!env('AI_MODEL_STEPS')?.trim() && !env('AI_MODEL_RECIPE')?.trim()) {
     console.error('match-recipe-steps: neither AI_MODEL_STEPS nor AI_MODEL_RECIPE is set');
+    reportError('match-recipe-steps', new Error('match-recipe-steps: neither AI_MODEL_STEPS nor AI_MODEL_RECIPE is set'), { event: 'not_configured' });
     return error(500, 'not_configured', 'AI_MODEL_STEPS is not set');
   }
 

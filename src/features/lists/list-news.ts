@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Motion } from '@/constants/theme';
 import { formatAmount } from '@/domain/quantity-display';
-import { combineAmounts } from '@/domain/quantity-math';
+import { combineAmounts, noAmountUnit } from '@/domain/quantity-math';
 import { countsInTotal, type ItemContribution } from '@/features/lists/items';
 import { useListSeenMarker, type MemberNews } from '@/features/lists/last-seen';
 import type { Unit } from '@/shared';
@@ -41,7 +41,7 @@ export function rowBadge(
   if (news.fresh) return { kind: 'new' };
   const added = contributions.filter((c) => news.added.has(c.id) && countsInTotal(c));
   if (added.length === 0) return null;
-  const total = combineAmounts(added, usualUnit);
+  const total = combineAmounts(added, noAmountUnit(usualUnit));
   return { kind: 'added', amount: total ? formatAmount(total) : '' };
 }
 

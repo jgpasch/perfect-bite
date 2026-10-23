@@ -8,6 +8,7 @@ import { pushBriefly } from '@/features/auth/sign-out';
 import { isOnline } from '@/features/categories/catch-up';
 import { fetchHouseholdMembers, householdsWithCountsQuery } from '@/features/households/households';
 import { i18n, onLanguageChanged } from '@/i18n';
+import { reportError } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 /** One of the user's households, for the confirm: its counts and how many members it has. */
@@ -125,6 +126,7 @@ export async function deleteAccount(options: { pushTimeoutMs?: number } = {}): P
     wipeLocalData();
   } catch (err) {
     console.error('[delete-account] wipe failed', err);
+    reportError(err, { area: 'account', event: 'delete_wipe_failed' });
   }
   deletedNotice = true;
   await signOutLocally();

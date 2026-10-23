@@ -183,13 +183,26 @@ describe('bulk add (spec 4.4)', () => {
     expect(rows(view().unchecked)).toEqual(['1¾ cup butter']);
   });
 
-  test('an incoming add with no amount counts as one; a recipe link with none adds nothing', () => {
+  test('an incoming add with no amount counts as one; so does a recipe line with none of something counted', () => {
     addItem(listId, '2 eggs', USER);
     addItemsBulk(listId, [{ text: 'eggs' }], USER);
     expect(rows(view().unchecked)).toEqual(['3 eggs']);
     const tacos = createRecipe('Tacos');
     addItemsBulk(listId, [{ text: 'eggs', source: 'recipe', recipeId: tacos }], USER);
-    expect(rows(view().unchecked)).toEqual(['3 eggs']);
+    expect(rows(view().unchecked)).toEqual(['4 eggs']);
+  });
+
+  test('two recipes with no amount of something counted make 2', () => {
+    addItem(listId, '1 red onion', USER);
+    addItemsBulk(listId, [{ text: 'red onion', source: 'recipe', recipeId: createRecipe('Salsa') }], USER);
+    expect(rows(view().unchecked)).toEqual(['2 red onion']);
+  });
+
+  test('a recipe line with no amount stays a link for something measured, or nothing known', () => {
+    addItem(listId, '2 tbsp butter', USER);
+    const tacos = createRecipe('Tacos');
+    addItemsBulk(listId, [{ text: 'butter', source: 'recipe', recipeId: tacos }, { text: 'saffron', source: 'recipe', recipeId: tacos }], USER);
+    expect(rows(view().unchecked)).toEqual(['2 tbsp butter', 'saffron']);
   });
 
   test('combines, folding repeats within the batch', () => {

@@ -2823,11 +2823,18 @@ describe('"Alex is adding" (spec 4.1)', () => {
     expect(announce).not.toHaveBeenCalled();
   });
 
-  test('hidden in add mode, when the header is collapsed', () => {
+  test('in add mode the pill goes with the header, and the compact title says it in place of "N to get"', () => {
     render();
     others(ALEX);
     onBar((bar) => bar.props.onFocusChange(true));
     expect(pills()).toHaveLength(0);
+    expect(hostByLabel('Groceries, Alex is adding')).toBeDefined();
+    expect(tree!.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'compact-adding')).toHaveLength(1);
+    // No one else adding: back to the count and view.
+    others();
+    expect(tree!.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'compact-adding')).toHaveLength(0);
+    expect(tree!.root.findAll((n) => n.props.accessibilityLabel === 'Groceries, Alex is adding')).toHaveLength(0);
+    others(ALEX);
     onBar((bar) => bar.props.onFocusChange(false));
     expect(pillText()).toBe('Alex is adding');
   });

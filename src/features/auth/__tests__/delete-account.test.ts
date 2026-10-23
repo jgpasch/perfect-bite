@@ -42,15 +42,19 @@ jest.mock('@/sync/push', () => ({
     return mockPush.impl();
   },
 }));
+const mockWipe: { error: Error | null } = { error: null };
 jest.mock('@/features/auth/local-wipe', () => {
   const actual = jest.requireActual<typeof import('@/features/auth/local-wipe')>('@/features/auth/local-wipe');
   return {
     wipeLocalData: () => {
       mockOrder.push('wipe');
+      if (mockWipe.error) throw mockWipe.error;
       actual.wipeLocalData();
     },
   };
 });
+const mockReportError = jest.fn();
+jest.mock('@/lib/sentry', () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }));
 const mockGoogleSignOut = jest.fn(async () => {
   mockOrder.push('google');
 });
@@ -63,6 +67,7 @@ beforeEach(() => {
   resetDb();
   resetSupabase();
   mockOrder.length = 0;
+  mockReportError.mockClear();
   mockNetwork.state = { isConnected: true, isInternetReachable: true };
   mockPush.impl = async () => ({ pushed: 0, rejected: 0, failed: false });
   mockGoogleSignOut.mockClear();
@@ -168,6 +173,19 @@ describe('deleteAccount', () => {
     expect(db.select().from(listItems).all()).toEqual([]);
     expect(takeAccountDeletedNotice()).toBe(true);
     expect(takeAccountDeletedNotice()).toBe(false);
+  });
+
+  it('a failed wipe is reported to Sentry, and the device still signs out', async () => {
+    onRpc(() => ({ data: { households: [] } }));
+    const error = new Error('database is locked');
+    mockWipe.error = error;
+    try {
+      await deleteAccount();
+    } finally {
+      mockWipe.error = null;
+    }
+    expect(mockReportError).toHaveBeenCalledWith(error, { area: 'account', event: 'delete_wipe_failed' });
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 
   it("doesn't fail when the server says the session is already gone on sign-out", async () => {

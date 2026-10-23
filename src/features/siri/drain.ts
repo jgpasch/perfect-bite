@@ -7,6 +7,7 @@ import { categorizePending } from '@/features/categories/categorization';
 import { cameToForeground } from '@/features/categories/catch-up';
 import { addSiriItem, type AddIds } from '@/features/lists/items';
 import { getDefaultListId, getList } from '@/features/lists/lists';
+import { reportError } from '@/lib/sentry';
 import type { SiriEnvelope } from '@/shared';
 
 import { getAppGroupContainer, readPendingSiriAdds, type PendingSiriAdd } from './app-group';
@@ -67,6 +68,7 @@ export function drainSiriQueue(userId: string, pending: () => PendingSiriAdd[] =
     for (const item of pending()) {
       if (!item.ok) {
         console.warn('[siri] dropping a bad queued add', item.fileName, item.error);
+        reportError(new Error(`Dropped a queued Siri add that couldn't be read: ${item.error.slice(0, 200)}`), { area: 'siri', event: 'bad_queued_add' });
         remove(item);
         continue;
       }
@@ -78,6 +80,7 @@ export function drainSiriQueue(userId: string, pending: () => PendingSiriAdd[] =
         added = addSiriItem(listId, envelope.text, userId, siriAddIds(envelope.id), new Date(envelope.createdAt));
       } catch (err) {
         console.warn('[siri] applying a queued add failed', envelope.id, err);
+        reportError(err, { area: 'siri', event: 'apply_failed' });
         break;
       }
       if (added === null) console.warn('[siri] dropping a queued add with nothing to add', envelope.id);
@@ -89,6 +92,7 @@ export function drainSiriQueue(userId: string, pending: () => PendingSiriAdd[] =
     }
   } catch (err) {
     console.warn('[siri] reading the queue failed', err);
+    reportError(err, { area: 'siri', event: 'drain_failed' });
   } finally {
     draining = false;
   }

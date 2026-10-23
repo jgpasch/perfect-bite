@@ -69,6 +69,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   const env = deps.env ?? ((key: string) => Deno.env.get(key));
   if (!env('AI_MODEL_TAGS')?.trim() && !env('AI_MODEL_RECIPE')?.trim()) {
     console.error('suggest-recipe-tags: neither AI_MODEL_TAGS nor AI_MODEL_RECIPE is set');
+    reportError('suggest-recipe-tags', new Error('suggest-recipe-tags: neither AI_MODEL_TAGS nor AI_MODEL_RECIPE is set'), { event: 'not_configured' });
     return error(500, 'not_configured', 'AI_MODEL_TAGS is not set');
   }
 

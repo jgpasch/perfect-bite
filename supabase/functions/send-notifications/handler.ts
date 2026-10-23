@@ -2,7 +2,7 @@
 // events per (household, actor, list, kind), sends one push per ready group to the household's
 // other members, and checks the receipts of earlier pushes.
 
-import { reportError } from '../_shared/sentry.ts';
+import { asError, reportError } from '../_shared/sentry.ts';
 import type { ExpoClient, ExpoMessage, PushTicket } from './expo.ts';
 
 export type EventKind = 'items_added' | 'shopping';
@@ -239,7 +239,8 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
       await store.recordSent(group.householdId, group.actor, group.listId, group.kind);
       result.tokensRemoved += await handleTickets(store, outcome.messages, outcome.tickets);
     } catch (err) {
-      console.error('send-notifications: recording a sent group failed:', message(err));
+      console.error('send-notifications: recording a sent group failed:', message(asError(err)));
+      reportError('send-notifications', asError(err), { event: 'record_sent_failed' });
     }
   }
 
@@ -280,14 +281,27 @@ async function sendGroup(
 async function handleTickets(store: NotificationStore, messages: ExpoMessage[], tickets: PushTicket[]): Promise<number> {
   const receipts: StoredReceipt[] = [];
   const gone = new Set<string>();
+  const reported = new Set<string>();
   tickets.forEach((ticket, i) => {
     if (ticket.status === 'ok') receipts.push({ ticketId: ticket.id, token: messages[i].to });
     else if (ticket.details?.error === 'DeviceNotRegistered') gone.add(ticket.details.expoPushToken ?? messages[i].to);
-    else console.error('send-notifications: ticket error:', ticket.details?.error ?? ticket.message ?? 'unknown');
+    else pushError('ticket', ticket.details?.error ?? ticket.message ?? 'unknown', reported);
   });
   if (receipts.length > 0) await store.saveReceipts(receipts);
   if (gone.size > 0) await store.deleteTokens([...gone]);
   return gone.size;
+}
+
+/**
+ * A push Expo or the device service refused for a reason other than an unregistered device (bad
+ * credentials, too big): logged, and sent to Sentry once per reason in `reported`, since a broken
+ * APNs key fails every push of a run the same way.
+ */
+function pushError(stage: 'ticket' | 'receipt', reason: string, reported: Set<string>) {
+  console.error(`send-notifications: ${stage} error:`, reason);
+  if (reported.has(reason)) return;
+  reported.add(reason);
+  reportError('send-notifications', new Error(`Push ${stage} error: ${reason}`), { event: `push_${stage}_error`, reason });
 }
 
 /** Receipts at least 15 minutes old: removes unregistered devices' tokens, then forgets them. */
@@ -297,13 +311,14 @@ export async function checkReceipts(store: NotificationStore, expo: ExpoClient):
   const receipts = await expo.getReceipts(due.map((r) => r.ticketId));
   const checked: string[] = [];
   const gone = new Set<string>();
+  const reported = new Set<string>();
   for (const stored of due) {
     const receipt = receipts[stored.ticketId];
     if (!receipt) continue; // not ready yet; dropped after 24 hours
     checked.push(stored.ticketId);
     if (receipt.status === 'error') {
       if (receipt.details?.error === 'DeviceNotRegistered') gone.add(stored.token);
-      else console.error('send-notifications: receipt error:', receipt.details?.error ?? receipt.message ?? 'unknown');
+      else pushError('receipt', receipt.details?.error ?? receipt.message ?? 'unknown', reported);
     }
   }
   if (gone.size > 0) await store.deleteTokens([...gone]);

@@ -7,6 +7,7 @@ import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { getList } from '@/features/lists/lists';
 import { clearDeviceSetting, getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { getAppGroupContainer, readPendingShares, type PendingShare } from '@/features/siri/app-group';
+import { reportError } from '@/lib/sentry';
 import { shareAddsToList, type ShareEnvelope } from '@/shared';
 
 import { recordFailedImport } from './failed-imports';
@@ -148,6 +149,7 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
     for (const item of items) {
       if (!item.ok) {
         console.warn('[share] dropping a bad queued share', item.fileName, item.error);
+        reportError(new Error(`Dropped a queued share that couldn't be read: ${item.error.slice(0, 200)}`), { area: 'share', event: 'bad_queued_share' });
         remove(item);
         continue;
       }
@@ -193,6 +195,7 @@ export async function drainShareQueue(userId: string, options: ShareDrainOptions
     }
   } catch (err) {
     console.warn('[share] draining the queue failed', err);
+    reportError(err, { area: 'share', event: 'drain_failed' });
   } finally {
     draining = false;
     removed.clear();

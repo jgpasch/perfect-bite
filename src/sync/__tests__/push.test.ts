@@ -15,6 +15,8 @@ import { BACKOFF_SCHEDULE_MS, backoffDelayMs, getPushState, PUSH_BATCH_SIZE, PUS
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
+const mockReportError = jest.fn();
+jest.mock('@/lib/sentry', () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }));
 
 // jest.mock is hoisted above the imports; the factories read these lazily.
 const mockAuth: { account: { userId: string } | null } = { account: { userId: 'u1' } };
@@ -44,6 +46,7 @@ let stop: (() => void) | null = null;
 beforeEach(() => {
   resetDb();
   resetSupabase();
+  mockReportError.mockClear();
   mockAuth.account = { userId: 'u1' };
   insertRow(db, households, { id: H, name: 'Home' });
   clearOutbox();
@@ -257,6 +260,14 @@ describe('a rejected mutation does not block the rest', () => {
     expect(rows[0].rejectedAt).toEqual(T0);
     expect(rows[0].error).toEqual({ code: '42501', message: 'not a member of household x' });
     expect(getPushState().attempts).toBe(0);
+    // The edit is lost, so Sentry hears about it.
+    expect(mockReportError).toHaveBeenCalledTimes(1);
+    expect(mockReportError).toHaveBeenCalledWith(new Error('Sync change to lists rejected: 42501: not a member of household x'), {
+      area: 'sync',
+      event: 'push_rejected',
+      table: 'lists',
+      code: '42501',
+    });
 
     // Never sent again; later writes go without it.
     addList('l4');

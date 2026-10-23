@@ -56,6 +56,7 @@ import { ensureMissingIngredients, householdCombinesLanguages, localFamilyKey } 
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { refreshAllMemberNames } from '@/features/households/member-names';
 import { clearPhotoCache } from '@/lib/photo-cache';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 import { reportSyncActivity } from './activity';
@@ -427,6 +428,20 @@ function fetchRows(job: Job, range: { after: string | null } | { at: string }): 
 /** Server timestamps share one format, so their text sorts like their time. */
 const later = (a: string | undefined, b: string) => (a !== undefined && a > b ? a : b);
 
+/** Times each refused row failed this session (`table|updated_at|id`). */
+const applyFailures = new Map<string, number>();
+
+/**
+ * A refused row is usually a race that the next pull settles; the same row refused a third time
+ * won't settle on its own, so that one is sent to Sentry (once).
+ */
+function reportApplyFailed(table: string, row: ServerRow, err: unknown) {
+  const key = `${table}|${row.updated_at}|${String(row.id ?? '')}`;
+  const times = (applyFailures.get(key) ?? 0) + 1;
+  applyFailures.set(key, times);
+  if (times === 3) reportError(err, { area: 'sync', event: 'pull_apply_failed', table });
+}
+
 /**
  * Applies `rows` (oldest first) and moves the cursor past them, in one transaction. A row SQLite
  * refuses (e.g. its parent changed after its table was pulled) stops the table there: the cursor
@@ -444,6 +459,7 @@ function commit(job: Job, rows: ServerRow[]): { applied: number; complete: boole
         tx.transaction((sp) => job.apply(sp, row, pending));
       } catch (err) {
         console.warn(`[pull] couldn't apply a ${job.table} row; will retry`, err);
+        reportApplyFailed(job.table, row, err);
         // Rows at earlier times are all in; rows at this row's time may not be.
         const done = rows.slice(0, i).filter((r) => r.updated_at < row.updated_at);
         if (done.length) cursor = later(cursor, done[done.length - 1].updated_at);
@@ -695,6 +711,7 @@ export function pullNow(options: { now?: () => Date; scope?: PullScope } = {}): 
     } catch (err) {
       // runPull handles network failures; this is a local bug (e.g. the database).
       console.error('[pull] crashed', err);
+      reportError(err, { area: 'sync', event: 'pull_crashed' });
       return { pulled: 0, households: [], error: err instanceof Error ? err.message : String(err) };
     } finally {
       inFlight = null;

@@ -1,5 +1,5 @@
-// The list's add field copy. The placeholder stays short so it fits on an iPhone SE and at large
-// Dynamic Type sizes without being cut off, as on the Pantry boards.
+// The list's add field copy. The placeholder says a recipe's name works too (it offers recipe chips,
+// spec 4.2) and stays short enough to fit on an iPhone SE without being cut off.
 
 import { i18n, onLanguageChanged } from '@/i18n';
 

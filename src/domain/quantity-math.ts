@@ -87,11 +87,26 @@ function formatGroup(amounts: Amount[]): string {
   return amounts.map((a) => format(a.quantity!, a.unit)).join(' + ');
 }
 
-/** Groups amounts that can be summed, counting a null quantity as one of `usualUnit`. */
+/** Units something is bought in, as opposed to cooking measures (`tbsp`, `cup`, `g`...). */
+const BUYING_UNITS: ReadonlySet<Unit> = new Set<Unit>([
+  'gal', 'qt', 'pt', 'l', 'lb', 'kg', 'dozen', 'can', 'jar', 'bag', 'box', 'bunch',
+]);
+
+/**
+ * The unit an add with no amount counts as one of (spec 4.4): the ingredient's `usualUnit` when
+ * it's a unit things are bought in (`gal` for milk), else a plain count. A usual unit from recipe
+ * measures (`tbsp` for pistachios) would turn a bare `pistachios` into `1 tbsp`.
+ */
+export function noAmountUnit(usualUnit: Unit | null): Unit | null {
+  return usualUnit !== null && BUYING_UNITS.has(usualUnit) ? usualUnit : null;
+}
+
+/** Groups amounts that can be summed, counting a null quantity as one of `noAmountUnit(usualUnit)`. */
 function groupAmounts(amounts: readonly Amount[], usualUnit: Unit | null): Amount[][] {
   const groups = new Map<string, Amount[]>();
+  const unit = noAmountUnit(usualUnit);
   for (const a of amounts) {
-    const counted = a.quantity === null ? { quantity: 1, unit: usualUnit } : a;
+    const counted = a.quantity === null ? { quantity: 1, unit } : a;
     const key = groupKey(counted);
     groups.set(key, [...(groups.get(key) ?? []), counted]);
   }
@@ -101,10 +116,11 @@ function groupAmounts(amounts: readonly Amount[], usualUnit: Unit | null): Amoun
 /**
  * How an item's amounts read on its row (spec 4.4): `2 lb + 8 oz` → `2.5 lb`;
  * `1 cup + 1 tsp` → `1 cup + 1 tsp`; `2 cans + 400 g` → `2 cans + 400 g`. Alongside other
- * amounts, an add with no amount counts as one of the ingredient's `usualUnit` (spec 4.2), or one
- * with no unit when that's null: `milk` twice → `2`, `2` and an add with no amount → `3`, `1 gal`
- * and an add with no amount → `1 gal + 1`, or `2 gal` when milk is usually bought by the gallon.
- * A single add with no amount → empty.
+ * amounts, an add with no amount counts as one of the ingredient's `usualUnit` (spec 4.2) when
+ * that's a unit things are bought in (`noAmountUnit`), else one with no unit: `milk` twice → `2`,
+ * `2` and an add with no amount → `3`, `1 gal` and an add with no amount → `1 gal + 1`, or `2 gal`
+ * when milk is usually bought by the gallon; `2 tbsp` and an add with no amount → `1 + 2 tbsp`
+ * even when tbsp is usual. A single add with no amount → empty.
  */
 export function summarizeAmounts(amounts: readonly Amount[], usualUnit: Unit | null = null): string {
   if (amounts.length === 0) return '';
@@ -114,11 +130,14 @@ export function summarizeAmounts(amounts: readonly Amount[], usualUnit: Unit | n
 
 /**
  * An item's amounts as the one amount they total, for the edit sheet's stepper: `2 lb + 8 oz` →
- * `2.5 lb`. Null when they don't make one amount (`2 cans + 400 g`, `1 cup + 1 tsp`). A null
- * quantity counts as one of `usualUnit`, so no amounts at all, or one with no quantity, is 1 of it.
+ * `2.5 lb`. Null when they don't make one amount (`2 cans + 400 g`, `1 cup + 1 tsp`). No amounts
+ * at all, or one with no quantity, is 1 of `usualUnit`; alongside others a null quantity counts as
+ * in `summarizeAmounts`.
  */
 export function combineAmounts(amounts: readonly Amount[], usualUnit: Unit | null = null): Amount | null {
-  if (amounts.length === 0) return { quantity: 1, unit: usualUnit };
+  if (amounts.length === 0 || (amounts.length === 1 && amounts[0].quantity === null)) {
+    return { quantity: 1, unit: usualUnit };
+  }
   const groups = groupAmounts(amounts, usualUnit);
   return groups.length === 1 ? combineGroup(groups[0]) : null;
 }

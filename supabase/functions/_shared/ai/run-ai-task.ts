@@ -12,6 +12,7 @@ import {
 } from 'ai';
 import type { z } from 'zod';
 
+import { asError, reportError } from '../sentry.ts';
 import { resolveModel } from './registry.ts';
 import { aiTasks, type AiTaskName } from './tasks.ts';
 
@@ -209,6 +210,16 @@ function hasOutput(result: { readonly output: unknown }): boolean {
   }
 }
 
+/**
+ * A call's `ai_calls` row couldn't be written: logged and sent to Sentry, never thrown, so the
+ * request carries on. Every call of a broken insert fails the same way, so Sentry groups them.
+ */
+export function reportAiCallLogFailed(call: Pick<AiCallRecord, 'id' | 'task'>, err: unknown): void {
+  const error = asError(err);
+  console.error(JSON.stringify({ level: 'error', event: 'ai_call_log_failed', id: call.id, task: call.task, error: error.message.slice(0, 500) }));
+  reportError('ai_calls', error, { event: 'ai_call_log_failed', task: call.task });
+}
+
 export async function runAiTask<N extends AiTaskName>(
   name: N,
   input: RunAiTaskInput,
@@ -226,7 +237,7 @@ export async function runAiTask<N extends AiTaskName>(
     try {
       await options.onCall(call);
     } catch (err) {
-      console.error(JSON.stringify({ level: 'error', event: 'ai_call_log_failed', id: call.id, error: String(err).slice(0, 200) }));
+      reportAiCallLogFailed(call, err);
     }
   };
 

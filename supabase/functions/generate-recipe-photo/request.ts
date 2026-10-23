@@ -93,6 +93,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   const missing = missingConfig(env);
   if (missing) {
     console.error(`generate-recipe-photo: ${missing}`);
+    reportError('generate-recipe-photo', new Error(`generate-recipe-photo: ${missing}`), { event: 'not_configured' });
     return error(500, 'not_configured', missing);
   }
 

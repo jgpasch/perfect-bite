@@ -5,6 +5,7 @@ import { getNetworkStateAsync } from 'expo-network';
 
 import { isOnline } from '@/features/categories/catch-up';
 import { i18n, onLanguageChanged } from '@/i18n';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { AiRecipeTags } from '@/shared/recipe-tags';
 import {
@@ -106,6 +107,7 @@ export async function suggestRecipeTags(recipeId: string): Promise<SuggestTagsRe
     const parsed = SuggestRecipeTagsResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('suggest-recipe-tags: unexpected response', parsed.error);
+      reportError(parsed.error, { area: 'functions', event: 'unexpected_response', function: 'suggest-recipe-tags' });
       return { ok: false, error: 'failed' };
     }
     return { ok: true, tags: parsed.data.tags };

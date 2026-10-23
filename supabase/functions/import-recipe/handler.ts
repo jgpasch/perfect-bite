@@ -22,6 +22,7 @@ import { runAiTask, type AiCaller, type AiCallRecord } from '../_shared/ai/run-a
 import { cleanExtractedRecipe, isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { FetchPageError, type FetchedPage } from '../_shared/fetch-page.ts';
+import { asError, reportError } from '../_shared/sentry.ts';
 import {
   CategorizeLimitError,
   isProviderFailure,
@@ -227,7 +228,9 @@ export async function importRecipe(request: RecipeImportRequest, deps: ImportDep
       try {
         await deps.store.saveCached(urlKey, EXTRACT_RECIPE_PROMPT_VERSION, recipe);
       } catch (err) {
-        console.error(JSON.stringify({ level: 'error', event: 'recipe_cache_save_failed', error: String(err).slice(0, 200) }));
+        const error = asError(err);
+        console.error(JSON.stringify({ level: 'error', event: 'recipe_cache_save_failed', error: error.message.slice(0, 200) }));
+        reportError('import-recipe', error, { event: 'recipe_cache_save_failed' });
       }
     }
   }

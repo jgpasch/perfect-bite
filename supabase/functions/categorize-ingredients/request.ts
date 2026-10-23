@@ -71,6 +71,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   const env = deps.env ?? ((key: string) => Deno.env.get(key));
   if (!env('AI_MODEL_CATEGORIZE')?.trim()) {
     console.error('categorize-ingredients: AI_MODEL_CATEGORIZE is not set');
+    reportError('categorize-ingredients', new Error('categorize-ingredients: AI_MODEL_CATEGORIZE is not set'), { event: 'not_configured' });
     return error(500, 'not_configured', 'AI_MODEL_CATEGORIZE is not set');
   }
 

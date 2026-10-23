@@ -53,12 +53,19 @@ describe('admin/ is kept apart from the app', () => {
     expect(fs.existsSync(path.join(ADMIN, 'yarn.lock'))).toBe(true);
   });
 
-  it('the portal is configured with only the URL and publishable key', () => {
+  it('the portal is configured with only URLs and publishable keys', () => {
     const keys = fs
       .readFileSync(path.join(ADMIN, '.env.example'), 'utf8')
       .split('\n')
       .filter((line) => line.trim() !== '' && !line.startsWith('#'))
       .map((line) => line.split('=')[0]);
-    expect(keys).toEqual(['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']);
+    expect(keys).toEqual([
+      'SUPABASE_TARGET',
+      'SUPABASE_LOCAL_URL',
+      'SUPABASE_LOCAL_PUBLISHABLE_KEY',
+      'SUPABASE_HOSTED_URL',
+      'SUPABASE_HOSTED_PUBLISHABLE_KEY',
+    ]);
+    expect(keys.filter((key) => /SECRET|SERVICE_ROLE/.test(key))).toEqual([]);
   });
 });

@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { useEffect } from 'react';
 
 import { db, recipes } from '@/db';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { stepIngredientsBasis, stepTexts } from '@/shared';
 import {
@@ -127,6 +128,8 @@ async function match(recipeId: string): Promise<void> {
     const parsed = MatchRecipeStepsResponseSchema.safeParse(data);
     if (!parsed.success || parsed.data.steps.length !== request.body.steps.length) {
       console.warn('match-recipe-steps: unexpected response', parsed.error);
+      const error = parsed.error ?? new Error(`${parsed.data.steps.length} steps came back for ${request.body.steps.length}`);
+      reportError(error, { area: 'functions', event: 'unexpected_response', function: 'match-recipe-steps' });
       return;
     }
     // The steps or ingredients changed during the call: this answer is for a recipe that's gone.

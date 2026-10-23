@@ -5,9 +5,10 @@ import type { LanguageModel } from 'ai';
 
 import { buildRecipePhotoImagePrompt, RECIPE_PHOTO_IMAGE_PROMPT_VERSION } from '../_shared/ai/prompts/recipe-photo-image.v1.ts';
 import { MOCK_MODEL_ID } from '../_shared/ai/registry.ts';
-import { RECIPE_PHOTO_IMAGE_TASK, RECIPE_PHOTO_MODERATION_TASK, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
+import { RECIPE_PHOTO_IMAGE_TASK, RECIPE_PHOTO_MODERATION_TASK, reportAiCallLogFailed, type AiCallRecord } from '../_shared/ai/run-ai-task.ts';
 import { isAiEnabled } from '../_shared/ai/tasks.ts';
 import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
+import { asError, reportError } from '../_shared/sentry.ts';
 import { DescribeFailedError, describeRecipePhoto, photoRecipe } from './describe.ts';
 import { generateImage as realGenerateImage, hasMockRefusalWord, ImageFailedError, ImageRefusedError, imageModel, MOCK_REFUSAL_WORD, imageModelId, isImageEnabled, safetyIdentifierFor, type GeneratedImage, type ImageOptions } from './image.ts';
 import { moderateText, ModerationFailedError, moderationModelId, type ModerationResult } from './moderation.ts';
@@ -84,12 +85,12 @@ export class GeneratePhotoError extends Error {
   }
 }
 
-/** Writes the moderation or image call's `ai_calls` row. A failure to log is logged, never thrown, as `runAiTask` does. */
+/** Writes the moderation or image call's `ai_calls` row. A failure is reported, never thrown, as `runAiTask` does. */
 async function logImageCall(store: RecipePhotoStore, call: AiCallRecord): Promise<void> {
   try {
     await store.logAiCall(call);
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', event: 'ai_call_log_failed', id: call.id, error: String(err).slice(0, 200) }));
+    reportAiCallLogFailed(call, err);
   }
 }
 
@@ -292,7 +293,8 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
   } catch (err) {
     if (err instanceof GeneratePhotoError) throw err;
     // Anything unexpected (a store error, a bug): give the slot back before failing.
-    await store.release(recipeId).catch(() => {});
+    // A failed release leaves the recipe's slot taken, so it's reported; the original error still throws.
+    await store.release(recipeId).catch((releaseErr) => reportError('generate-recipe-photo', asError(releaseErr), { event: 'release_failed' }));
     logOutcome({ outcome: 'error', description_model: descriptionModel, image_model: image, description, ms: Date.now() - started });
     throw err;
   }

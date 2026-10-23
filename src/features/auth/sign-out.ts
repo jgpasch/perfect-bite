@@ -2,6 +2,7 @@
 // on it starts from its own data, not the last user's households and lists.
 import { signOut } from '@/features/auth/account';
 import { wipeLocalData } from '@/features/auth/local-wipe';
+import { reportError } from '@/lib/sentry';
 import { getPullState } from '@/sync/pull';
 import { pushNow } from '@/sync/push';
 
@@ -44,5 +45,6 @@ export function wipeIfOtherUser(userId: string): void {
     }
   } catch (err) {
     console.error('[account] checking or wiping the last user’s data failed', err);
+    reportError(err, { area: 'account', event: 'other_user_wipe_failed' });
   }
 }

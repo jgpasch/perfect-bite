@@ -125,20 +125,20 @@ describe('item strings in Spanish', () => {
 
   it('keeps the module-level add bar strings in the app’s language', () => {
     expect([LIST_ADD_PLACEHOLDER, LIST_ADD_LABEL, ALREADY_ON_LIST_LABEL, addBarButton('').label]).toEqual([
-      'Add an item',
+      'Add an item or recipe',
       'Add an item',
       'already on list',
       'Add',
     ]);
     initI18n('es');
     expect([LIST_ADD_PLACEHOLDER, LIST_ADD_LABEL, ALREADY_ON_LIST_LABEL, addBarButton('x').label]).toEqual([
-      'Agrega un artículo',
+      'Agrega un artículo o receta',
       'Agregar un artículo',
       'en la lista',
       'Agregar',
     ]);
     initI18n('en');
-    expect(LIST_ADD_PLACEHOLDER).toBe('Add an item');
+    expect(LIST_ADD_PLACEHOLDER).toBe('Add an item or recipe');
     expect(ALREADY_ON_LIST_LABEL).toBe('already on list');
   });
 });

@@ -309,7 +309,7 @@ describe('in Spanish', () => {
 
   test('the field and the + button', () => {
     renderBar();
-    expect(input().props.placeholder).toBe('Agrega un artículo');
+    expect(input().props.placeholder).toBe('Agrega un artículo o receta');
     expect(input().props.accessibilityLabel).toBe('Agregar un artículo');
     expect(pressable('Agregar')).toBeDefined();
   });

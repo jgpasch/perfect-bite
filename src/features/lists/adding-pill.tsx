@@ -29,7 +29,8 @@ const DIM = 0.35;
  * "Alex is adding" (spec 4.1, board 2 D): under "9 to get · By aisle" on the green, a 32 pt
  * `HEADER_WASH` pill with the first adder's 24 pt avatar, the text in `onHeader` and three pulsing
  * dots (still under Reduce Motion). Fades in and out over `motion.presenceFadeMs`. A static text
- * element for VoiceOver, never announced. Nothing while no one else is adding.
+ * element for VoiceOver, never announced. Nothing while no one else is adding. In add mode it's hidden and
+ * add mode's compact title says it instead.
  */
 export function AddingPill({
   userIds,
@@ -86,12 +87,20 @@ export function AddingPill({
       <ThemedText variant="amount" numberOfLines={1} style={[styles.shrink, { color: look.text }]}>
         {text}
       </ThemedText>
-      <View style={[styles.dots, { gap: spacing.xxs }]}>
-        {DOTS.map((i) => (
-          <PulseDot key={i} index={i} color={look.text} size={sizes.presenceDot} />
-        ))}
-      </View>
+      <AddingDots color={look.text} />
     </Animated.View>
+  );
+}
+
+/** The pill's three pulsing dots, also beside "Alex is adding" in add mode's compact title. */
+export function AddingDots({ color }: { color: string }) {
+  const { spacing, sizes } = useTheme();
+  return (
+    <View style={[styles.dots, { gap: spacing.xxs }]}>
+      {DOTS.map((i) => (
+        <PulseDot key={i} index={i} color={color} size={sizes.presenceDot} />
+      ))}
+    </View>
   );
 }
 

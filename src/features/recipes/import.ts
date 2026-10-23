@@ -11,6 +11,7 @@ import { addItemsBulk, undoAdds, type BulkAdd } from '@/features/lists/items';
 import { limitResetsAt } from '@/features/plans/limits';
 import { lostFeature } from '@/features/plans/load';
 import { newId } from '@/lib/id';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { stepIngredientsBasis, stepTexts, type StepIngredients } from '@/shared';
 import {
@@ -203,6 +204,7 @@ function saveAndMatch(input: SaveInput, recipe: RecipeImportResponse, userId: st
     return saved;
   } catch (e) {
     console.warn('Saving the imported recipe failed', e);
+    reportError(e, { area: 'import', event: 'save_failed' });
     return { ok: false, error: 'failed' };
   }
 }
@@ -232,6 +234,7 @@ async function requestFunction(
   const parsed = RecipeImportResponseSchema.safeParse(data);
   if (!parsed.success) {
     console.warn(`${name}: unexpected response`, parsed.error);
+    reportError(parsed.error, { area: 'functions', event: 'unexpected_response', function: name });
     return { ok: false, error: 'failed' };
   }
   return parsed.data;

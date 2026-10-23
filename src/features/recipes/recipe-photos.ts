@@ -3,6 +3,7 @@
 // "Photo updated" toast and Undo.
 import { useSyncExternalStore } from 'react';
 
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { RecipePhotosErrorSchema, RecipePhotosResponseSchema } from '@/shared/schemas/recipe-photos';
 
@@ -31,6 +32,7 @@ export async function loadPagePhotos(url: string): Promise<PagePhotosResult> {
     const parsed = RecipePhotosResponseSchema.safeParse(data);
     if (!parsed.success) {
       console.warn('recipe-photos: unexpected response', parsed.error);
+      reportError(parsed.error, { area: 'functions', event: 'unexpected_response', function: 'recipe-photos' });
       return { ok: false, error: 'failed' };
     }
     return { ok: true, images: parsed.data.images };

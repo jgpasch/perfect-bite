@@ -20,6 +20,7 @@ import { db, outbox, type OutboxRow } from '@/db';
 import { getAccount } from '@/features/auth/account';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
+import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 import { reportSyncActivity } from './activity';
@@ -124,6 +125,17 @@ function isApplyResult(value: unknown): value is ApplyResult {
 
 type Rejection = { code: string; message: string };
 
+/** A rejected change is never sent again, so the edit is lost: logged and sent to Sentry. */
+function reportRejection(table: string, rejection: Rejection) {
+  console.warn(`[push] rejected ${table} ${rejection.code}: ${rejection.message}`);
+  reportError(new Error(`Sync change to ${table} rejected: ${rejection.code}: ${rejection.message.slice(0, 200)}`), {
+    area: 'sync',
+    event: 'push_rejected',
+    table,
+    code: rejection.code,
+  });
+}
+
 /** Removes sent rows and records rejected ones, in one transaction. */
 function settle(done: number[], rejected: { id: number; error: Rejection }[], at: Date) {
   db.transaction((tx) => {
@@ -157,7 +169,7 @@ async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number;
   results.forEach((result, i) => {
     if (result.status === 'rejected') {
       rejected.push({ id: rows[i].id, error: { code: result.code, message: result.message } });
-      console.warn(`[push] rejected ${rows[i].mutation.table} ${result.code}: ${result.message}`);
+      reportRejection(rows[i].mutation.table, { code: result.code, message: result.message });
     } else {
       done.push(rows[i].id);
     }
@@ -205,7 +217,7 @@ async function pushSingle(row: OutboxRow, at: Date): Promise<{ pushed: number; r
   } else {
     rejection = request;
   }
-  if (rejection) console.warn(`[push] rejected ${row.mutation.table} ${rejection.code}: ${rejection.message}`);
+  if (rejection) reportRejection(row.mutation.table, rejection);
   settle(rejection ? [] : [row.id], rejection ? [{ id: row.id, error: rejection }] : [], at);
   return rejection ? { pushed: 0, rejected: 1 } : { pushed: 1, rejected: 0 };
 }
@@ -278,6 +290,7 @@ export function pushNow(options: { force?: boolean; now?: () => Date } = {}): Pr
     } catch (err) {
       // runPush handles network failures; this is a local bug (e.g. the database). Keep the queue.
       console.error('[push] crashed', err);
+      reportError(err, { area: 'sync', event: 'push_crashed' });
       return { pushed: 0, rejected: 0, failed: true };
     } finally {
       inFlight = null;

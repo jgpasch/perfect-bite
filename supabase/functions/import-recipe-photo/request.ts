@@ -76,6 +76,7 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
   const env = deps.env ?? ((key: string) => Deno.env.get(key));
   if (!env('AI_MODEL_RECIPE_PHOTO')?.trim() && !env('AI_MODEL_RECIPE')?.trim()) {
     console.error('import-recipe-photo: neither AI_MODEL_RECIPE_PHOTO nor AI_MODEL_RECIPE is set');
+    reportError('import-recipe-photo', new Error('import-recipe-photo: neither AI_MODEL_RECIPE_PHOTO nor AI_MODEL_RECIPE is set'), { event: 'not_configured' });
     return error(500, 'not_configured', 'AI_MODEL_RECIPE_PHOTO is not set');
   }
 

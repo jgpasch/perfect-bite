@@ -214,7 +214,7 @@ export const en = {
   },
   /** The add bar and its chip row (spec 4.2). */
   addBar: {
-    placeholder: 'Add an item',
+    placeholder: 'Add an item or recipe',
     label: 'Add an item',
     /** The round + button. */
     button: 'Add',

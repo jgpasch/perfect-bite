@@ -39,6 +39,7 @@ import { KEEP_SCREEN_ON_KEY } from '@/features/settings/device-settings';
 import { emptyQueues } from '@/features/siri/app-group';
 import { clearSiriListSnapshot } from '@/features/siri/list-snapshot';
 import { clearPhotoCache } from '@/lib/photo-cache';
+import { reportError } from '@/lib/sentry';
 
 /**
  * Device settings that survive the wipe: preferences of this device that hold no user data, and
@@ -117,6 +118,7 @@ export function wipeLocalData(): void {
     emptyQueues();
   } catch (err) {
     console.warn('[account] emptying the App Group queues failed', err);
+    reportError(err, { area: 'account', event: 'queue_wipe_failed' });
   }
   clearFeatures();
   clearMyInvites();

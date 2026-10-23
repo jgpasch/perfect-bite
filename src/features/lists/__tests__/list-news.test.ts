@@ -84,6 +84,8 @@ describe('rowBadge', () => {
     const milk = [c('old', 1, 'gal'), c('new', null, null)];
     expect(rowBadge(added('new'), milk, 'gal')).toEqual({ kind: 'added', amount: '1 gal' });
     expect(rowBadge(added('new'), milk, null)).toEqual({ kind: 'added', amount: '1' });
+    // A cooking measure isn't one: `+1`, not `+1 tbsp`.
+    expect(rowBadge(added('new'), [c('old', 2, 'tbsp'), c('new', null, null)], 'tbsp')).toEqual({ kind: 'added', amount: '1' });
   });
 
   test("adds that aren't one amount: tint the amount instead", () => {

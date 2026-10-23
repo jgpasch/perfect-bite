@@ -217,13 +217,19 @@ function applyAdd(
 ): AddItemResult {
   const at = meta.at ?? new Date();
   const contributionId = meta.ids?.contributionId ?? newId();
+  // A recipe line with no amount of something bought by count (`red onion`) is one of it, so a
+  // second recipe makes 2 rather than a link that adds nothing (spec 4.4).
+  const countedOne =
+    meta.source === 'recipe' &&
+    add.quantity === null &&
+    knownUsualUnit(tx, list.householdId, add.ingredientName) === null;
   const contribution = {
     id: contributionId,
     createdAt: at,
     householdId: list.householdId,
     source: meta.source,
     recipeId: meta.recipeId ?? null,
-    quantity: add.quantity,
+    quantity: countedOne ? 1 : add.quantity,
     unit: add.unit,
     addedBy: meta.userId,
   };
@@ -850,20 +856,26 @@ export function listItemsQuery(listId: string) {
 }
 
 /**
- * The link of each live recipe with an amount on the list, for the By recipe view's Visit recipe on
- * web (spec 4.6). A deleted recipe has none. Kept apart from `listItemsQuery`, which reads per amount.
+ * Each live recipe with an amount on the list, with its link (the By recipe view's Visit recipe on
+ * web) and photo (its header's tile, spec 4.6). A deleted recipe has none. Kept apart from
+ * `listItemsQuery`, which reads per amount.
  */
-export function listRecipeLinksQuery(listId: string) {
+export function listRecipesQuery(listId: string) {
   return db
-    .selectDistinct({ id: recipes.id, sourceUrl: recipes.sourceUrl })
+    .selectDistinct({
+      id: recipes.id,
+      sourceUrl: recipes.sourceUrl,
+      imageUrl: recipes.imageUrl,
+      photoPath: recipes.photoPath,
+    })
     .from(listItemContributions)
     .innerJoin(listItems, and(eq(listItems.id, listItemContributions.listItemId), liveItem))
     .innerJoin(recipes, and(eq(recipes.id, listItemContributions.recipeId), isNull(recipes.deletedAt)))
-    .where(and(eq(listItems.listId, listId), liveContribution, isNotNull(recipes.sourceUrl)));
+    .where(and(eq(listItems.listId, listId), liveContribution));
 }
 
-/** Tables `listRecipeLinksQuery` reads, for `useLiveQueryOn`. */
-export const LIST_RECIPE_LINKS_QUERY_TABLES = [listItems, listItemContributions, recipes];
+/** Tables `listRecipesQuery` reads, for `useLiveQueryOn`. */
+export const LIST_RECIPES_QUERY_TABLES = [listItems, listItemContributions, recipes];
 
 /** Tables `listItemsQuery` reads, for `useLiveQueryOn`. */
 export const LIST_ITEMS_QUERY_TABLES = [listItems, listItemContributions, ingredients, householdCategoryOverrides, recipes];
