@@ -27,7 +27,7 @@ export type FavoritesByRecipe = ReadonlyMap<string, RecipeFavorite>;
 export const FAVORITES_QUERY_TABLES = [recipeFavorites, recipes, householdMemberNames];
 
 type FavoriteRow = { recipeId: string; userId: string; householdId: string };
-type MemberRow = { householdId: string; userId: string; displayName: string };
+type MemberRow = { householdId: string; userId: string; firstName: string; lastName: string | null };
 
 /** Live favorites in their recipe's household (every member's). */
 function favoriteRowsQuery() {
@@ -43,7 +43,8 @@ function membersQuery() {
     .select({
       householdId: householdMemberNames.householdId,
       userId: householdMemberNames.userId,
-      displayName: householdMemberNames.displayName,
+      firstName: householdMemberNames.firstName,
+      lastName: householdMemberNames.lastName,
     })
     .from(householdMemberNames);
 }

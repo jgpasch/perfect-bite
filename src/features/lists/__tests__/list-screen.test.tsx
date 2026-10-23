@@ -2336,12 +2336,12 @@ describe('since you looked (spec 4.1)', () => {
 
   beforeEach(() => {
     const householdId = getList(listId)!.householdId;
-    for (const [userId, displayName] of [
-      [USER, 'Me Myself'],
-      [ALEX, 'Alex Rivera'],
-      [SAM, 'Sam Lee'],
+    for (const [userId, firstName, lastName] of [
+      [USER, 'Me', 'Myself'],
+      [ALEX, 'Alex', 'Rivera'],
+      [SAM, 'Sam', 'Lee'],
     ]) {
-      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+      db.insert(householdMemberNames).values({ householdId, userId, firstName, lastName, joinedAt: '2026-01-01T00:00:00Z' }).run();
     }
     lookedAgo(120);
   });
@@ -2532,12 +2532,12 @@ describe('a row that arrives while you look (spec 4.1)', () => {
 
   beforeEach(() => {
     const householdId = getList(listId)!.householdId;
-    for (const [userId, displayName] of [
-      [USER, 'Me Myself'],
-      [ALEX, 'Alex Rivera'],
-      [SAM, 'Sam Lee'],
+    for (const [userId, firstName, lastName] of [
+      [USER, 'Me', 'Myself'],
+      [ALEX, 'Alex', 'Rivera'],
+      [SAM, 'Sam', 'Lee'],
     ]) {
-      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+      db.insert(householdMemberNames).values({ householdId, userId, firstName, lastName, joinedAt: '2026-01-01T00:00:00Z' }).run();
     }
   });
 
@@ -2788,13 +2788,13 @@ describe('"Alex is adding" (spec 4.1)', () => {
       return { remove: () => void appStateListeners.delete(listener as (state: AppStateStatus) => void) } as never;
     });
     const householdId = getList(listId)!.householdId;
-    for (const [userId, displayName] of [
-      [USER, 'Me Myself'],
-      [ALEX, 'Alex Rivera'],
-      [SAM, 'Sam Lee'],
-      [JO, 'Jo Park'],
+    for (const [userId, firstName, lastName] of [
+      [USER, 'Me', 'Myself'],
+      [ALEX, 'Alex', 'Rivera'],
+      [SAM, 'Sam', 'Lee'],
+      [JO, 'Jo', 'Park'],
     ]) {
-      db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-01-01T00:00:00Z' }).run();
+      db.insert(householdMemberNames).values({ householdId, userId, firstName, lastName, joinedAt: '2026-01-01T00:00:00Z' }).run();
     }
   });
 

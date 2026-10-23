@@ -22,6 +22,7 @@ import {
   leaveConfirmation,
   leaveHousehold,
   memberActionsSheet,
+  memberFullName,
   memberLabel,
   MEMBERS_ERROR_MESSAGE,
   removeMember,
@@ -178,12 +179,20 @@ describe('avatarInitial', () => {
 describe('fetchHouseholdMembers', () => {
   const alex = {
     user_id: 'u1',
-    display_name: 'Alex',
+    first_name: 'Alex',
+    last_name: 'Rivera',
     avatar_url: 'https://example.com/a.png',
     role: 'owner',
     joined_at: '2026-10-01T00:00:00+00:00',
   };
-  const sam = { user_id: 'u2', display_name: 'Sam', avatar_url: null, role: 'member', joined_at: '2026-10-02T00:00:00+00:00' };
+  const sam = {
+    user_id: 'u2',
+    first_name: 'Sam',
+    last_name: null,
+    avatar_url: null,
+    role: 'member',
+    joined_at: '2026-10-02T00:00:00+00:00',
+  };
 
   test('calls get_household_members with the household id', async () => {
     respondToRpc('get_household_members', { data: [alex] });
@@ -196,21 +205,36 @@ describe('fetchHouseholdMembers', () => {
     await expect(fetchHouseholdMembers('h1', 'u2')).resolves.toEqual([
       {
         userId: 'u1',
-        displayName: 'Alex',
+        firstName: 'Alex',
+        lastName: 'Rivera',
         avatarUrl: 'https://example.com/a.png',
         role: 'owner',
         joinedAt: '2026-10-01T00:00:00+00:00',
         isYou: false,
       },
-      { userId: 'u2', displayName: 'Sam', avatarUrl: null, role: 'member', joinedAt: '2026-10-02T00:00:00+00:00', isYou: true },
+      {
+        userId: 'u2',
+        firstName: 'Sam',
+        lastName: null,
+        avatarUrl: null,
+        role: 'member',
+        joinedAt: '2026-10-02T00:00:00+00:00',
+        isYou: true,
+      },
     ]);
   });
 
+  test('a null first name is blank and a blank last name is none', async () => {
+    respondToRpc('get_household_members', { data: [{ ...sam, first_name: null, last_name: '' }] });
+    const [member] = await fetchHouseholdMembers('h1', 'u1');
+    expect([member.firstName, member.lastName]).toEqual(['', null]);
+  });
+
   test("keeps the server's order rather than re-sorting", async () => {
-    const zoe = { ...alex, user_id: 'u3', display_name: 'Zoe' };
+    const zoe = { ...alex, user_id: 'u3', first_name: 'Zoe' };
     respondToRpc('get_household_members', { data: [zoe, alex, sam] });
     const members = await fetchHouseholdMembers('h1', 'u1');
-    expect(members.map((m) => m.displayName)).toEqual(['Zoe', 'Alex', 'Sam']);
+    expect(members.map((m) => m.firstName)).toEqual(['Zoe', 'Alex', 'Sam']);
     expect(members.map((m) => m.isYou)).toEqual([false, true, false]);
   });
 
@@ -249,15 +273,24 @@ describe('fetchHouseholdMembers', () => {
 });
 
 describe('member row labels', () => {
-  test('memberLabel is the display name, with "(You)" on your own row', () => {
-    expect(memberLabel({ displayName: 'Sam', isYou: false })).toBe('Sam');
-    expect(memberLabel({ displayName: 'Alex', isYou: true })).toBe('Alex (You)');
+  test('memberFullName is the first name, plus a space and the last name when there is one', () => {
+    expect(memberFullName({ firstName: 'Alex', lastName: 'Rivera' })).toBe('Alex Rivera');
+    expect(memberFullName({ firstName: 'Mary Ann', lastName: 'de la Cruz' })).toBe('Mary Ann de la Cruz');
+    expect(memberFullName({ firstName: 'Sam', lastName: null })).toBe('Sam');
+    expect(memberFullName({ firstName: ' Pat ', lastName: '  ' })).toBe('Pat');
+    expect(memberFullName({ firstName: '', lastName: null })).toBe('');
+  });
+
+  test('memberLabel is the full name, with "(You)" on your own row', () => {
+    expect(memberLabel({ firstName: 'Sam', lastName: null, isYou: false })).toBe('Sam');
+    expect(memberLabel({ firstName: 'Sam', lastName: 'Lee', isYou: false })).toBe('Sam Lee');
+    expect(memberLabel({ firstName: 'Alex', lastName: 'Rivera', isYou: true })).toBe('Alex Rivera (You)');
   });
 
   test('memberLabel trims the name and falls back to "Unnamed" for a blank one', () => {
-    expect(memberLabel({ displayName: '  Pat  ', isYou: false })).toBe('Pat');
-    expect(memberLabel({ displayName: '', isYou: false })).toBe('Unnamed');
-    expect(memberLabel({ displayName: '   ', isYou: true })).toBe('Unnamed (You)');
+    expect(memberLabel({ firstName: '  Pat  ', lastName: ' Ng ', isYou: false })).toBe('Pat Ng');
+    expect(memberLabel({ firstName: '', lastName: null, isYou: false })).toBe('Unnamed');
+    expect(memberLabel({ firstName: '   ', lastName: null, isYou: true })).toBe('Unnamed (You)');
   });
 
   test('roleLabel', () => {
@@ -268,13 +301,13 @@ describe('member row labels', () => {
   test('labels for fetched members, in server order', async () => {
     respondToRpc('get_household_members', {
       data: [
-        { user_id: 'u1', display_name: 'Alex', avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' },
-        { user_id: 'u2', display_name: 'Sam', avatar_url: null, role: 'member', joined_at: '2026-10-02T00:00:00Z' },
+        { user_id: 'u1', first_name: 'Alex', last_name: 'Rivera', avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' },
+        { user_id: 'u2', first_name: 'Sam', last_name: null, avatar_url: null, role: 'member', joined_at: '2026-10-02T00:00:00Z' },
       ],
     });
     const members = await fetchHouseholdMembers('h1', 'u2');
     expect(members.map((m) => [memberLabel(m), roleLabel(m.role)])).toEqual([
-      ['Alex', 'Owner'],
+      ['Alex Rivera', 'Owner'],
       ['Sam (You)', 'Member'],
     ]);
   });
@@ -286,7 +319,8 @@ describe('member row labels', () => {
 
 const member = (userId: string, overrides: Partial<HouseholdMember> = {}): HouseholdMember => ({
   userId,
-  displayName: userId,
+  firstName: userId,
+  lastName: null,
   avatarUrl: null,
   role: 'member',
   joinedAt: '2026-10-01T00:00:00+00:00',
@@ -299,7 +333,7 @@ describe('leaveConfirmation (spec 4.7)', () => {
   const PLAIN = "You'll lose access to its lists and recipes. They stay with the household.";
 
   test('a plain member', () => {
-    const members = [member('a', { role: 'owner', displayName: 'Alex' }), member('me', { isYou: true })];
+    const members = [member('a', { role: 'owner', firstName: 'Alex' }), member('me', { isYou: true })];
     expect(leaveConfirmation({ ...base, members })).toEqual({ title: 'Leave Cabin?', message: PLAIN, confirmLabel: 'Leave' });
   });
 
@@ -311,12 +345,12 @@ describe('leaveConfirmation (spec 4.7)', () => {
   test('the last owner with other members names the earliest-joined, who becomes the owner', () => {
     const members = [
       member('me', { role: 'owner', isYou: true, joinedAt: '2026-01-01T00:00:00Z' }),
-      member('late', { displayName: 'Sam', joinedAt: '2026-10-05T00:00:00Z' }),
-      member('early', { displayName: 'Jamie', joinedAt: '2026-10-02T00:00:00Z' }),
+      member('late', { firstName: 'Sam', joinedAt: '2026-10-05T00:00:00Z' }),
+      member('early', { firstName: 'Jamie', lastName: 'Ortiz', joinedAt: '2026-10-02T00:00:00Z' }),
     ];
     expect(leaveConfirmation({ ...base, members })).toEqual({
       title: 'Leave Cabin?',
-      message: `${PLAIN} Jamie will become the owner.`,
+      message: `${PLAIN} Jamie Ortiz will become the owner.`,
       confirmLabel: 'Leave',
     });
   });
@@ -346,7 +380,7 @@ describe('leaveConfirmation (spec 4.7)', () => {
     expect(
       leaveConfirmation({
         ...only,
-        members: [member('me', { role: 'owner', isYou: true }), member('b', { displayName: 'Bo' })],
+        members: [member('me', { role: 'owner', isYou: true }), member('b', { firstName: 'Bo' })],
       }).message,
     ).toBe(`${PLAIN} Bo will become the owner.${NEW}`);
     expect(leaveConfirmation({ ...only, members: [member('me', { role: 'owner', isYou: true })] })).toEqual({
@@ -357,7 +391,7 @@ describe('leaveConfirmation (spec 4.7)', () => {
   });
 
   test('a blank household name and a blank heir name fall back', () => {
-    const members = [member('me', { role: 'owner', isYou: true }), member('b', { displayName: '  ' })];
+    const members = [member('me', { role: 'owner', isYou: true }), member('b', { firstName: '  ' })];
     expect(leaveConfirmation({ ...base, householdName: '  ', members })).toEqual({
       title: 'Leave this household?',
       message: `${PLAIN} The earliest member will become the owner.`,
@@ -417,7 +451,8 @@ describe('remove member texts', () => {
 
 describe('member action sheets (spec 4.7)', () => {
   const m = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId'>): HouseholdMember => ({
-    displayName: over.userId,
+    firstName: over.userId,
+    lastName: null,
     avatarUrl: null,
     role: 'member',
     joinedAt: '2026-01-01T00:00:00Z',

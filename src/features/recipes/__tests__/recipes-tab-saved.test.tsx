@@ -173,10 +173,10 @@ beforeEach(() => {
   db.insert(households).values({ id: 'home', name: 'Home' }).run();
   db.insert(householdMemberNames)
     .values([
-      { householdId: 'home', userId: 'user-1', displayName: 'Jo Doe', joinedAt: '2026-10-01T00:00:00Z' },
-      { householdId: 'home', userId: 'user-2', displayName: 'Sam Lee', joinedAt: '2026-10-02T00:00:00Z' },
-      { householdId: 'home', userId: 'user-3', displayName: 'Ana Ruiz', joinedAt: '2026-10-03T00:00:00Z' },
-      { householdId: 'home', userId: 'user-4', displayName: 'Bo Chen', joinedAt: '2026-10-04T00:00:00Z' },
+      { householdId: 'home', userId: 'user-1', firstName: 'Jo', lastName: 'Doe', joinedAt: '2026-10-01T00:00:00Z' },
+      { householdId: 'home', userId: 'user-2', firstName: 'Sam', lastName: 'Lee', joinedAt: '2026-10-02T00:00:00Z' },
+      { householdId: 'home', userId: 'user-3', firstName: 'Ana', lastName: 'Ruiz', joinedAt: '2026-10-03T00:00:00Z' },
+      { householdId: 'home', userId: 'user-4', firstName: 'Bo', lastName: 'Chen', joinedAt: '2026-10-04T00:00:00Z' },
     ])
     .run();
 });

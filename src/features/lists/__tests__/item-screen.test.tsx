@@ -241,15 +241,17 @@ describe('the item sheet', () => {
   describe('who checked it (spec 4.7)', () => {
     const checkedBy = (itemId: string, userId: string) =>
       db.update(listItems).set({ checkedAt: new Date(Date.now() - 5 * 60_000), checkedBy: userId }).where(eq(listItems.id, itemId)).run();
-    const cacheNames = (rows: [string, string][]) => {
+    const cacheNames = (rows: [string, string, string][]) => {
       const householdId = db.select().from(households).get()!.id;
       db.insert(householdMemberNames)
-        .values(rows.map(([userId, displayName]) => ({ householdId, userId, displayName, joinedAt: '2026-10-01T00:00:00Z' })))
+        .values(
+          rows.map(([userId, firstName, lastName]) => ({ householdId, userId, firstName, lastName, joinedAt: '2026-10-01T00:00:00Z' })),
+        )
         .run();
     };
 
     test('you, even with your own name cached', () => {
-      cacheNames([[USER, 'Jo Doe'], ['user-2', 'Alex Rivera']]);
+      cacheNames([[USER, 'Jo', 'Doe'], ['user-2', 'Alex', 'Rivera']]);
       const { itemId } = addItem(listId, 'milk', USER)!;
       checkedBy(itemId, USER);
       open(itemId);
@@ -257,7 +259,7 @@ describe('the item sheet', () => {
     });
 
     test("another member, by the first word of their name", () => {
-      cacheNames([[USER, 'Jo Doe'], ['user-2', 'Alex Rivera']]);
+      cacheNames([[USER, 'Jo', 'Doe'], ['user-2', 'Alex', 'Rivera']]);
       const { itemId } = addItem(listId, 'milk', USER)!;
       checkedBy(itemId, 'user-2');
       open(itemId);
@@ -266,7 +268,7 @@ describe('the item sheet', () => {
     });
 
     test('a deleted or removed user, whose name is no longer on the device, is someone', () => {
-      cacheNames([['user-2', 'Alex Rivera']]);
+      cacheNames([['user-2', 'Alex', 'Rivera']]);
       const { itemId } = addItem(listId, 'milk', USER)!;
       checkedBy(itemId, 'user-deleted');
       open(itemId);
@@ -410,10 +412,11 @@ describe('the amounts added', () => {
       const householdId = db.select().from(households).get()!.id;
       db.insert(householdMemberNames)
         .values(
-          [[USER, 'Jo Doe'], [OTHER, 'Alex Rivera']].map(([userId, displayName]) => ({
+          [[USER, 'Jo', 'Doe'], [OTHER, 'Alex', 'Rivera']].map(([userId, firstName, lastName]) => ({
             householdId,
             userId,
-            displayName,
+            firstName,
+            lastName,
             joinedAt: '2026-10-01T00:00:00Z',
           })),
         )
@@ -504,10 +507,18 @@ describe('the amounts added', () => {
       const householdId = db.select().from(households).get()!.id;
       db.insert(householdMemberNames)
         .values(
-          [[USER, 'Jo Doe'], [OTHER, 'Alex Rivera'], [THIRD, 'Sam'], [FOURTH, 'Kim']].map(([userId, displayName]) => ({
+          (
+            [
+              [USER, 'Jo', 'Doe'],
+              [OTHER, 'Alex', 'Rivera'],
+              [THIRD, 'Sam', null],
+              [FOURTH, 'Kim', null],
+            ] as const
+          ).map(([userId, firstName, lastName]) => ({
             householdId,
             userId,
-            displayName,
+            firstName,
+            lastName,
             joinedAt: '2026-10-01T00:00:00Z',
           })),
         )

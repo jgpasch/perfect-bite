@@ -133,7 +133,7 @@ describe('purgeHousehold', () => {
     const names = (householdId: string, ...userIds: string[]) =>
       db
         .insert(householdMemberNames)
-        .values(userIds.map((userId) => ({ householdId, userId, displayName: userId, joinedAt: '2026-10-01T00:00:00Z' })))
+        .values(userIds.map((userId) => ({ householdId, userId, firstName: userId, joinedAt: '2026-10-01T00:00:00Z' })))
         .run();
     names(home, USER, 'u2');
     names(CABIN, USER, 'u3');

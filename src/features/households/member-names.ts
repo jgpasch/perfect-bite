@@ -13,7 +13,7 @@ import { householdMateJoined, notePushMoment } from '@/features/push/ask';
 import { i18n } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
-type MemberRow = { user_id: string; display_name: string | null; joined_at: string };
+type MemberRow = { user_id: string; first_name: string | null; last_name: string | null; joined_at: string };
 
 /**
  * Replaces `householdId`'s cached names with the server's members (`get_household_members`).
@@ -41,7 +41,13 @@ export async function refreshMemberNames(householdId: string): Promise<boolean> 
     if (rows.length) {
       tx.insert(householdMemberNames)
         .values(
-          rows.map((r) => ({ householdId, userId: r.user_id, displayName: r.display_name ?? '', joinedAt: r.joined_at })),
+          rows.map((r) => ({
+            householdId,
+            userId: r.user_id,
+            firstName: r.first_name ?? '',
+            lastName: r.last_name || null,
+            joinedAt: r.joined_at,
+          })),
         )
         .onConflictDoNothing()
         .run();
@@ -61,25 +67,25 @@ export async function refreshAllMemberNames(householdIds: string[]): Promise<voi
 /** Members' short names by user id. */
 export type MemberNames = ReadonlyMap<string, string>;
 
-const words = (name: string) => name.trim().split(/\s+/).filter(Boolean);
-
 /**
- * Each member's short name: the first word of their display name ("Alex" from "Alex Rivera"), and
- * when two members share a first word, the last word's initial too ("Alex R.", "Alex M."). A
- * blank display name gets no entry, so it reads as unknown.
+ * Each member's short name: their first name as it is ("Alex", "Mary Ann"), and when another member's
+ * first name is the same (ignoring case), their last name's initial too ("Alex R.", "Alex M."). A
+ * clash with no last name keeps the first name; a blank first name gets no entry, so it reads as
+ * unknown.
  */
-export function shortMemberNames(members: { userId: string; displayName: string }[]): MemberNames {
+export function shortMemberNames(
+  members: readonly { userId: string; firstName: string; lastName: string | null }[],
+): MemberNames {
   const firsts = new Map<string, number>();
   for (const m of members) {
-    const first = words(m.displayName)[0]?.toLocaleLowerCase();
+    const first = m.firstName.trim().toLocaleLowerCase();
     if (first) firsts.set(first, (firsts.get(first) ?? 0) + 1);
   }
   const names = new Map<string, string>();
   for (const m of members) {
-    const parts = words(m.displayName);
-    if (!parts.length) continue;
-    const first = parts[0];
-    const last = parts.length > 1 ? parts[parts.length - 1] : '';
+    const first = m.firstName.trim();
+    if (!first) continue;
+    const last = m.lastName?.trim() ?? '';
     const clash = (firsts.get(first.toLocaleLowerCase()) ?? 0) > 1;
     names.set(m.userId, clash && last ? `${first} ${[...last][0].toLocaleUpperCase()}.` : first);
   }
@@ -97,7 +103,11 @@ export function nameOf(names: MemberNames, userId: string | null | undefined, cu
 
 function namesQuery(householdId: string) {
   return db
-    .select({ userId: householdMemberNames.userId, displayName: householdMemberNames.displayName })
+    .select({
+      userId: householdMemberNames.userId,
+      firstName: householdMemberNames.firstName,
+      lastName: householdMemberNames.lastName,
+    })
     .from(householdMemberNames)
     .where(eq(householdMemberNames.householdId, householdId));
 }

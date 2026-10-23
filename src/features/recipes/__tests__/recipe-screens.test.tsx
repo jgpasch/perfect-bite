@@ -696,13 +696,14 @@ const addMembers = () =>
     .insert(householdMemberNames)
     .values(
       [
-        [USER, 'Jo Doe'],
-        ['user-2', 'Sam Lee'],
-        ['user-3', 'Ana Ruiz'],
-      ].map(([userId, displayName], i) => ({
+        [USER, 'Jo', 'Doe'],
+        ['user-2', 'Sam', 'Lee'],
+        ['user-3', 'Ana', 'Ruiz'],
+      ].map(([userId, firstName, lastName], i) => ({
         householdId: getRecipe(tacos)!.householdId,
         userId,
-        displayName,
+        firstName,
+        lastName,
         joinedAt: `2026-10-0${i + 1}T00:00:00Z`,
       })),
     )

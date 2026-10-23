@@ -62,15 +62,16 @@ jest.mock('@react-native-google-signin/google-signin', () => ({ GoogleSignin: {}
 
 afterEach(() => initI18n('en'));
 
-const member = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId' | 'displayName'>): HouseholdMember => ({
+const member = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId' | 'firstName'>): HouseholdMember => ({
+  lastName: null,
   avatarUrl: null,
   role: 'member',
   joinedAt: '2026-01-01T00:00:00Z',
   isYou: false,
   ...over,
 });
-const ME_OWNER = member({ userId: 'me', displayName: 'John', role: 'owner', isYou: true, joinedAt: '2025-01-01T00:00:00Z' });
-const SAM = member({ userId: 'sam', displayName: 'Sam' });
+const ME_OWNER = member({ userId: 'me', firstName: 'John', role: 'owner', isYou: true, joinedAt: '2025-01-01T00:00:00Z' });
+const SAM = member({ userId: 'sam', firstName: 'Sam' });
 const INVITE: MyInvite = { id: 'i1', householdId: 'h1', householdName: 'Casa Pérez', invitedBy: 'Lupita', memberCount: 1 };
 
 describe('in English', () => {
@@ -105,7 +106,7 @@ describe('households in Spanish', () => {
   it('labels members and roles', () => {
     initI18n('es');
     expect(memberLabel(ME_OWNER)).toBe('John (Tú)');
-    expect(memberLabel(member({ userId: 'x', displayName: '  ' }))).toBe('Sin nombre');
+    expect(memberLabel(member({ userId: 'x', firstName: '  ' }))).toBe('Sin nombre');
     expect(memberRowAccessibilityLabel(SAM)).toBe('Sam, Miembro');
     expect(memberRowAccessibilityLabel(ME_OWNER)).toBe('John (Tú), Dueño');
     expect(MEMBERS_ERROR_MESSAGE).toBe('No se pudieron cargar los miembros. Revisa tu conexión.');

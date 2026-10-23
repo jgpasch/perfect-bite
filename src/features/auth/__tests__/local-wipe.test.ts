@@ -110,7 +110,7 @@ beforeEach(async () => {
   upsertRow(db, schema.userHouseholdCategoryOrder, { userId: USER, householdId: home, categoryIds: [PRODUCE] }, {});
   upsertRow(db, schema.householdStaples, { householdId: home, ingredientName: 'salt', createdBy: USER }, {});
   upsertRow(db, schema.recipeFavorites, { recipeId: recipe, userId: USER, householdId: home }, {});
-  respondToRpc('get_household_members', { data: [{ user_id: USER, display_name: 'Jo Doe', joined_at: '2026-10-01T00:00:00Z' }] });
+  respondToRpc('get_household_members', { data: [{ user_id: USER, first_name: 'Jo', last_name: 'Doe', joined_at: '2026-10-01T00:00:00Z' }] });
   await refreshMemberNames(home);
   recordFailedImport({ url: 'https://example.com/ramen', title: 'Ramen', reason: 'not_a_recipe' });
 

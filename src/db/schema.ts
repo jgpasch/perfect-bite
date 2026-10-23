@@ -490,7 +490,9 @@ export const householdMemberNames = sqliteTable(
   {
     householdId: text('household_id').notNull(),
     userId: text('user_id').notNull(),
-    displayName: text('display_name').notNull(),
+    firstName: text('first_name').notNull(),
+    /** Null when they have none. */
+    lastName: text('last_name'),
     /** When they joined, as the server's ISO text. */
     joinedAt: text('joined_at').notNull(),
   },

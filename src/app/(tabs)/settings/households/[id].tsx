@@ -28,6 +28,7 @@ import {
   leaveConfirmation,
   leaveHousehold,
   memberActionsSheet,
+  memberFullName,
   memberLabel,
   memberRowAccessibilityLabel,
   removeMember,
@@ -125,7 +126,8 @@ export default function HouseholdScreen() {
     );
   }, [id, userId]);
 
-  const you = state.status === 'ready' ? state.members.find((m) => m.isYou)?.displayName : undefined;
+  const me = state.status === 'ready' ? state.members.find((m) => m.isYou) : undefined;
+  const you = me ? memberFullName(me) : undefined;
   const invite = (resend?: { email: string; link: string }) => {
     router.push({ pathname: '/household-invite', params: { household: id, ...(you ? { inviter: you } : {}), ...resend } });
   };
@@ -188,7 +190,7 @@ export default function HouseholdScreen() {
       load();
     } catch (err) {
       console.warn(`[households] couldn't remove ${member.userId} from ${id}`, err);
-      const alert = householdActionAlert('remove', err, { householdName, memberName: member.displayName });
+      const alert = householdActionAlert('remove', err, { householdName, memberName: memberFullName(member) });
       Alert.alert(alert.title, alert.message);
     } finally {
       setBusyMember(null);
@@ -209,7 +211,7 @@ export default function HouseholdScreen() {
       load();
     } catch (err) {
       console.warn(`[households] couldn't change the role of ${member.userId} in ${id}`, err);
-      const alert = householdActionAlert(change, err, { householdName, memberName: member.displayName });
+      const alert = householdActionAlert(change, err, { householdName, memberName: memberFullName(member) });
       Alert.alert(alert.title, alert.message);
     } finally {
       setBusyMember(null);
@@ -222,7 +224,7 @@ export default function HouseholdScreen() {
     if (!sheet) return;
     ActionSheetIOS.showActionSheetWithOptions(
       {
-        title: member.displayName,
+        title: memberFullName(member),
         options: sheet.options,
         destructiveButtonIndex: sheet.destructiveButtonIndex,
         cancelButtonIndex: sheet.cancelButtonIndex,
@@ -231,14 +233,14 @@ export default function HouseholdScreen() {
         const action = sheet.actions[index];
         if (!action) return;
         if (action === 'remove') {
-          const confirm = removeMemberConfirmation(member.displayName, householdName);
+          const confirm = removeMemberConfirmation(memberFullName(member), householdName);
           Alert.alert(confirm.title, confirm.message, [
             { text: t('common.cancel'), style: 'cancel' },
             { text: t('common.remove'), style: 'destructive', onPress: () => void remove(member) },
           ]);
           return;
         }
-        const confirm = roleChangeConfirmation(action, member.displayName);
+        const confirm = roleChangeConfirmation(action, memberFullName(member));
         Alert.alert(confirm.title, confirm.message, [
           { text: t('common.cancel'), style: 'cancel' },
           {
@@ -519,7 +521,7 @@ function Avatars({ members, ring }: { members: HouseholdMember[]; ring: string }
               },
             ]}>
             <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: look.text }}>
-              {avatarInitial(m.displayName)}
+              {avatarInitial(m.firstName)}
             </ThemedText>
           </View>
         );

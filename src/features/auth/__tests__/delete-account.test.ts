@@ -137,7 +137,7 @@ describe('deleteAccountConfirmation', () => {
 
 describe('householdsForDeletion', () => {
   it('reads local counts and the member count from the server', async () => {
-    const member = (id: string) => ({ user_id: id, display_name: id, avatar_url: null, role: 'member', joined_at: '' });
+    const member = (id: string) => ({ user_id: id, first_name: id, last_name: null, avatar_url: null, role: 'member', joined_at: '' });
     respondToRpc('get_household_members', { data: [member(USER), member('u2')] });
     const home = db.select().from(households).get()!;
     expect(await householdsForDeletion(USER)).toEqual([{ name: home.name, listCount: 1, recipeCount: 0, memberCount: 2 }]);

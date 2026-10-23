@@ -22,8 +22,8 @@ jest.mock('@/features/auth/account', () => ({ getAccount: () => mockAuth.account
 const HOME = 'home';
 const CABIN = 'cabin';
 
-const member = (householdId: string, userId: string, displayName: string) =>
-  db.insert(householdMemberNames).values({ householdId, userId, displayName, joinedAt: '2026-10-01T00:00:00Z' }).run();
+const member = (householdId: string, userId: string, firstName: string, lastName: string | null) =>
+  db.insert(householdMemberNames).values({ householdId, userId, firstName, lastName, joinedAt: '2026-10-01T00:00:00Z' }).run();
 const addRecipe = (id: string, householdId = HOME) => db.insert(recipes).values({ id, householdId, name: id }).run();
 /** Another member's row, as a pull brings it. */
 const theirs = (recipeId: string, userId: string, householdId = HOME, deletedAt: Date | null = null) =>
@@ -42,12 +42,12 @@ beforeEach(() => {
     { id: HOME, name: 'Home' },
     { id: CABIN, name: 'Cabin' },
   ]).run();
-  member(HOME, 'me', 'Jo Doe');
-  member(HOME, 'sam', 'Sam Lee');
-  member(HOME, 'ana', 'Ana Ruiz');
-  member(HOME, 'kim', 'Kim Park');
-  member(CABIN, 'me', 'Jo Doe');
-  member(CABIN, 'lou', 'Lou Grant');
+  member(HOME, 'me', 'Jo', 'Doe');
+  member(HOME, 'sam', 'Sam', 'Lee');
+  member(HOME, 'ana', 'Ana', 'Ruiz');
+  member(HOME, 'kim', 'Kim', 'Park');
+  member(CABIN, 'me', 'Jo', 'Doe');
+  member(CABIN, 'lou', 'Lou', 'Grant');
   addRecipe('tacos');
   addRecipe('soup');
   addRecipe('stew', CABIN);
@@ -167,7 +167,7 @@ describe('readRecipeFavorites', () => {
   });
 
   test('names as the household shows them: a shared first name gets the initial', () => {
-    member(HOME, 'sam2', 'Sam Ortiz');
+    member(HOME, 'sam2', 'Sam', 'Ortiz');
     theirs('tacos', 'sam');
     theirs('tacos', 'sam2');
     expect(readRecipeFavorites().get('tacos')!.others).toEqual(['Sam L.', 'Sam O.']);

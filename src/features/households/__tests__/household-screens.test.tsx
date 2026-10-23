@@ -262,15 +262,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const member = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId' | 'displayName'>): HouseholdMember => ({
+const member = (over: Partial<HouseholdMember> & Pick<HouseholdMember, 'userId' | 'firstName'>): HouseholdMember => ({
+  lastName: null,
   avatarUrl: null,
   role: 'member',
   joinedAt: '2026-01-01T00:00:00Z',
   isYou: false,
   ...over,
 });
-const ME_OWNER = member({ userId: USER, displayName: 'John', role: 'owner', isYou: true, joinedAt: '2025-01-01T00:00:00Z' });
-const SAM = member({ userId: 'sam', displayName: 'Sam' });
+const ME_OWNER = member({ userId: USER, firstName: 'John', role: 'owner', isYou: true, joinedAt: '2025-01-01T00:00:00Z' });
+const SAM = member({ userId: 'sam', firstName: 'Sam' });
 
 const pendingInvite = (over: Partial<HouseholdInvite> = {}): HouseholdInvite => ({
   id: 'inv-1',
@@ -450,6 +451,32 @@ describe('HouseholdScreen', () => {
       expect(texts(root)).not.toContain('Sam');
     });
 
+    test('rows, the sheet, the confirms and the inviter use the full name; the avatar the first name\'s initial', async () => {
+      const me = { ...ME_OWNER, lastName: 'Smith' };
+      const emile = member({ userId: 'emile', firstName: 'Émile', lastName: 'Zola' });
+      mockFetchMembers.mockResolvedValue([me, emile]);
+      mockRemoveMember.mockRejectedValue(new Error('boom'));
+      const sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const root = await render(<HouseholdScreen />);
+      expect(texts(root)).toEqual(expect.arrayContaining(['John Smith (You)', 'Émile Zola', 'J', 'É']));
+      expect(texts(root)).not.toContain('Z');
+
+      await pressAsync(byLabel(root, 'Émile Zola'));
+      expect(sheet.mock.calls[0][0]).toMatchObject({ title: 'Émile Zola' });
+      act(() => sheet.mock.calls[0][1](0));
+      expect(alert.mock.calls[0][0]).toBe('Make Émile Zola an owner?');
+      await pressAsync(byLabel(root, 'Émile Zola'));
+      act(() => sheet.mock.calls[1][1](1));
+      expect(alert.mock.calls[1][0]).toBe('Remove Émile Zola?');
+
+      await pressAsync(byLabel(root, 'Invite someone'));
+      expect(mockRouter.push).toHaveBeenLastCalledWith({
+        pathname: '/household-invite',
+        params: { household: HOME, inviter: 'John Smith' },
+      });
+    });
+
     test('a failed remove alerts', async () => {
       mockFetchMembers.mockResolvedValue([ME_OWNER, SAM]);
       mockRemoveMember.mockRejectedValue(new Error('boom'));
@@ -464,7 +491,7 @@ describe('HouseholdScreen', () => {
     });
 
     describe('roles', () => {
-      const ANN = member({ userId: 'ann', displayName: 'Ann', role: 'owner', joinedAt: '2025-06-01T00:00:00Z' });
+      const ANN = member({ userId: 'ann', firstName: 'Ann', role: 'owner', joinedAt: '2025-06-01T00:00:00Z' });
       const sheetSpy = () => jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
       const alertSpy = () => jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       const confirmButton = (alert: ReturnType<typeof alertSpy>, call: number, text: string) =>
@@ -601,7 +628,7 @@ describe('HouseholdScreen', () => {
       });
 
       test('a non-owner sees no member menus, even with several owners', async () => {
-        mockFetchMembers.mockResolvedValue([ANN, member({ userId: 'bo', displayName: 'Bo', role: 'owner' }), member({ userId: USER, displayName: 'John', isYou: true }), SAM]);
+        mockFetchMembers.mockResolvedValue([ANN, member({ userId: 'bo', firstName: 'Bo', role: 'owner' }), member({ userId: USER, firstName: 'John', isYou: true }), SAM]);
         const root = await render(<HouseholdScreen />);
         for (const label of ['Ann', 'Bo', 'John (You)', 'Sam']) {
           expect(byLabel(root, label).props.onPress).toBeUndefined();
@@ -612,8 +639,8 @@ describe('HouseholdScreen', () => {
 
     test("a member can't act on other members", async () => {
       mockFetchMembers.mockResolvedValue([
-        member({ userId: 'owner', displayName: 'Ann', role: 'owner' }),
-        member({ userId: USER, displayName: 'John', isYou: true }),
+        member({ userId: 'owner', firstName: 'Ann', role: 'owner' }),
+        member({ userId: USER, firstName: 'John', isYou: true }),
       ]);
       const root = await render(<HouseholdScreen />);
       expect(byLabel(root, 'Ann').props.onPress).toBeUndefined();
@@ -675,7 +702,7 @@ describe('HouseholdScreen', () => {
     });
 
     test('a plain member, and anyone before the members load, has no Delete row', async () => {
-      mockFetchMembers.mockResolvedValue([member({ userId: USER, displayName: 'John', isYou: true }), { ...SAM, role: 'owner' }]);
+      mockFetchMembers.mockResolvedValue([member({ userId: USER, firstName: 'John', isYou: true }), { ...SAM, role: 'owner' }]);
       const root = await render(<HouseholdScreen />);
       expect(deleteRows(root)).toHaveLength(0);
       expect(allByLabel(root, 'Leave household')).toHaveLength(1);
@@ -789,7 +816,7 @@ describe('HouseholdScreen', () => {
       const root = await render(<HouseholdScreen />);
       expect(pencils(root)).toHaveLength(0);
       await act(async () =>
-        members.resolve([member({ userId: USER, displayName: 'John', isYou: true }), member({ userId: 'ann', displayName: 'Ann', role: 'owner' })]),
+        members.resolve([member({ userId: USER, firstName: 'John', isYou: true }), member({ userId: 'ann', firstName: 'Ann', role: 'owner' })]),
       );
       expect(pencils(root)).toHaveLength(0);
     });

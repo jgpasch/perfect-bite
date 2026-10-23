@@ -76,7 +76,9 @@ export { avatarInitial } from '@/domain/avatar-initial';
 
 export type HouseholdMember = {
   userId: string;
-  displayName: string;
+  firstName: string;
+  /** Null when they have none. */
+  lastName: string | null;
   avatarUrl: string | null;
   role: 'owner' | 'member';
   /** When they joined, as the server's ISO text: the earliest-joined member is promoted (4.7). */
@@ -86,7 +88,8 @@ export type HouseholdMember = {
 
 type MemberRow = {
   user_id: string;
-  display_name: string;
+  first_name: string | null;
+  last_name: string | null;
   avatar_url: string | null;
   role: 'owner' | 'member';
   joined_at: string;
@@ -94,7 +97,7 @@ type MemberRow = {
 
 /**
  * Members of a household from the server (`get_household_members`), in the server's order (owners
- * first, then by name). Throws an `Error` with the server's message on failure, including when the
+ * first, then by first name, then last name). Throws an `Error` with the server's message on failure, including when the
  * caller isn't a member or the household isn't registered yet.
  */
 export async function fetchHouseholdMembers(householdId: string, currentUserId: string): Promise<HouseholdMember[]> {
@@ -105,7 +108,8 @@ export async function fetchHouseholdMembers(householdId: string, currentUserId: 
   }
   return ((data as MemberRow[] | null) ?? []).map((row) => ({
     userId: row.user_id,
-    displayName: row.display_name,
+    firstName: row.first_name ?? '',
+    lastName: row.last_name || null,
     avatarUrl: row.avatar_url,
     role: row.role,
     joinedAt: row.joined_at,
@@ -122,9 +126,14 @@ onLanguageChanged(() => {
   MEMBERS_ERROR_MESSAGE = i18n.t('households.membersError');
 });
 
-/** A member row's label: the display name, with "(You)" on the caller's own row. */
-export function memberLabel(member: Pick<HouseholdMember, 'displayName' | 'isYou'>): string {
-  const name = member.displayName.trim() || i18n.t('households.unnamed');
+/** A member's full name: the first name, plus " " and the last name when there is one ("" when both are blank). */
+export function memberFullName(member: Pick<HouseholdMember, 'firstName' | 'lastName'>): string {
+  return [member.firstName.trim(), member.lastName?.trim() ?? ''].filter(Boolean).join(' ');
+}
+
+/** A member row's label: the full name, with "(You)" on the caller's own row. */
+export function memberLabel(member: Pick<HouseholdMember, 'firstName' | 'lastName' | 'isYou'>): string {
+  const name = memberFullName(member) || i18n.t('households.unnamed');
   return member.isYou ? i18n.t('households.you', { name }) : name;
 }
 
@@ -396,7 +405,7 @@ export function leaveConfirmation({
     lines.push(i18n.t('households.leave.loseAccess'));
     const lastOwner = me?.role === 'owner' && !members.some((m) => !m.isYou && m.role === 'owner');
     if (lastOwner) {
-      lines.push(i18n.t('households.leave.heir', { name: heir.displayName.trim() || i18n.t('households.leave.earliestMember') }));
+      lines.push(i18n.t('households.leave.heir', { name: memberFullName(heir) || i18n.t('households.leave.earliestMember') }));
     }
   }
   if (onlyHousehold) lines.push(i18n.t('households.leave.newHousehold'));

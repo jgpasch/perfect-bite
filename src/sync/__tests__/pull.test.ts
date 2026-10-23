@@ -2489,16 +2489,31 @@ describe('onMemberships', () => {
 });
 
 describe("members' names (spec 4.7)", () => {
-  const member = (user_id: string, display_name: string) => ({ user_id, display_name, avatar_url: null, role: 'member', joined_at: ts(0) });
+  const member = (user_id: string, first_name: string, last_name: string | null = null) => ({
+    user_id,
+    first_name,
+    last_name,
+    avatar_url: null,
+    role: 'member',
+    joined_at: ts(0),
+  });
   const cachedNames = () =>
     db
-      .select({ householdId: householdMemberNames.householdId, userId: householdMemberNames.userId, name: householdMemberNames.displayName })
+      .select({
+        householdId: householdMemberNames.householdId,
+        userId: householdMemberNames.userId,
+        first: householdMemberNames.firstName,
+        last: householdMemberNames.lastName,
+      })
       .from(householdMemberNames)
       .orderBy(asc(householdMemberNames.householdId), asc(householdMemberNames.userId))
       .all();
   let serverMembers: Record<string, ReturnType<typeof member>[]>;
   beforeEach(() => {
-    serverMembers = { [H1]: [member('u1', 'Jo Doe'), member('u2', 'Alex Rivera')], [H2]: [member('u1', 'Jo Doe'), member('u3', 'Sam Lee')] };
+    serverMembers = {
+      [H1]: [member('u1', 'Jo', 'Doe'), member('u2', 'Alex', 'Rivera')],
+      [H2]: [member('u1', 'Jo', 'Doe'), member('u3', 'Sam')],
+    };
     onRpc((call) =>
       call.fn === 'get_household_members' ? { data: serverMembers[call.args!.p_household_id as string] ?? null } : undefined,
     );
@@ -2511,16 +2526,16 @@ describe("members' names (spec 4.7)", () => {
 
     expect(rpcCallsFor('get_household_members').map((c) => c.args)).toEqual([{ p_household_id: H1 }, { p_household_id: H2 }]);
     expect(cachedNames()).toEqual([
-      { householdId: H1, userId: 'u1', name: 'Jo Doe' },
-      { householdId: H1, userId: 'u2', name: 'Alex Rivera' },
-      { householdId: H2, userId: 'u1', name: 'Jo Doe' },
-      { householdId: H2, userId: 'u3', name: 'Sam Lee' },
+      { householdId: H1, userId: 'u1', first: 'Jo', last: 'Doe' },
+      { householdId: H1, userId: 'u2', first: 'Alex', last: 'Rivera' },
+      { householdId: H2, userId: 'u1', first: 'Jo', last: 'Doe' },
+      { householdId: H2, userId: 'u3', first: 'Sam', last: null },
     ]);
   });
 
   test("the next full pull replaces a household's names", async () => {
     await pullNow();
-    serverMembers[H1] = [member('u1', 'Jo Doe'), member('u4', 'Kim Park')];
+    serverMembers[H1] = [member('u1', 'Jo', 'Doe'), member('u4', 'Kim', 'Park')];
     await pullNow();
     expect(cachedNames().map((r) => r.userId)).toEqual(['u1', 'u4']);
   });

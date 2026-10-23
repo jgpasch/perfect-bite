@@ -534,7 +534,14 @@ describe('membership changes', () => {
   });
 
   describe("members' names (spec 4.7)", () => {
-    const member = (user_id: string, display_name: string) => ({ user_id, display_name, avatar_url: null, role: 'member', joined_at: ts(0) });
+    const member = (user_id: string, first_name: string) => ({
+      user_id,
+      first_name,
+      last_name: null,
+      avatar_url: null,
+      role: 'member',
+      joined_at: ts(0),
+    });
     const cachedNames = () =>
       db
         .select({ householdId: householdMemberNames.householdId, userId: householdMemberNames.userId })
@@ -545,9 +552,9 @@ describe('membership changes', () => {
     beforeEach(() => {
       db.insert(householdMemberNames)
         .values([
-          { householdId: H1, userId: 'u1', displayName: 'Jo', joinedAt: ts(0) },
-          { householdId: H1, userId: 'u2', displayName: 'Alex', joinedAt: ts(0) },
-          { householdId: H2, userId: 'u1', displayName: 'Jo', joinedAt: ts(0) },
+          { householdId: H1, userId: 'u1', firstName: 'Jo', joinedAt: ts(0) },
+          { householdId: H1, userId: 'u2', firstName: 'Alex', joinedAt: ts(0) },
+          { householdId: H2, userId: 'u1', firstName: 'Jo', joinedAt: ts(0) },
         ])
         .onConflictDoNothing()
         .run();

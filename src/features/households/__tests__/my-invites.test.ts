@@ -246,7 +246,7 @@ describe('joining instead of keeping your own household', () => {
     expect(rpcCallsFor('delete_household')).toEqual([]);
   });
 
-  const member = (id: string) => ({ user_id: id, display_name: id, avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' });
+  const member = (id: string) => ({ user_id: id, first_name: id, last_name: null, avatar_url: null, role: 'owner', joined_at: '2026-10-01T00:00:00Z' });
 
   test('offers your only household when you are its only member', async () => {
     db.insert(households).values({ id: 'h1', name: 'Personal' }).run();

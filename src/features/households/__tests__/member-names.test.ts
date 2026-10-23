@@ -31,9 +31,11 @@ jest.mock('@/features/auth/account', () => ({ getAccount: () => mockAuth.account
 
 const H1 = 'h1';
 const H2 = 'h2';
-const row = (user_id: string, display_name: string | null, joined_at = '2026-10-01T00:00:00+00:00') => ({
+/** A server row; "Jo Doe" is first name "Jo", last name "Doe" (none for one word). */
+const row = (user_id: string, name: string | null, joined_at = '2026-10-01T00:00:00+00:00') => ({
   user_id,
-  display_name,
+  first_name: name === null ? null : name.split(' ')[0],
+  last_name: name?.split(' ').slice(1).join(' ') || null,
   avatar_url: null,
   role: 'member',
   joined_at,
@@ -45,7 +47,8 @@ const cached = (householdId?: string) =>
     .all()
     .filter((r) => !householdId || r.householdId === householdId)
     .sort((a, b) => a.userId.localeCompare(b.userId));
-const names = (members: [string, string][]) => shortMemberNames(members.map(([userId, displayName]) => ({ userId, displayName })));
+const names = (members: [string, string, string?][]) =>
+  shortMemberNames(members.map(([userId, firstName, lastName]) => ({ userId, firstName, lastName: lastName ?? null })));
 
 beforeEach(() => {
   resetDb();
@@ -67,8 +70,22 @@ describe('refreshMemberNames', () => {
 
     expect(rpcCalls).toEqual([{ fn: 'get_household_members', args: { p_household_id: H1 } }]);
     expect(cached()).toEqual([
-      { householdId: H1, userId: 'me', displayName: 'Jo Doe', joinedAt: '2026-09-01T10:00:00+00:00' },
-      { householdId: H1, userId: 'u2', displayName: 'Alex Rivera', joinedAt: '2026-10-01T00:00:00+00:00' },
+      { householdId: H1, userId: 'me', firstName: 'Jo', lastName: 'Doe', joinedAt: '2026-09-01T10:00:00+00:00' },
+      { householdId: H1, userId: 'u2', firstName: 'Alex', lastName: 'Rivera', joinedAt: '2026-10-01T00:00:00+00:00' },
+    ]);
+  });
+
+  test('stores first and last names as the server has them: a two-word first name stays whole, no last name is null', async () => {
+    respondToRpc('get_household_members', {
+      data: [
+        { ...row('u2', null), first_name: 'Mary Ann', last_name: 'de la Cruz' },
+        { ...row('u3', null), first_name: 'Cher', last_name: null },
+      ],
+    });
+    await refreshMemberNames(H1);
+    expect(cached(H1).map((r) => [r.userId, r.firstName, r.lastName])).toEqual([
+      ['u2', 'Mary Ann', 'de la Cruz'],
+      ['u3', 'Cher', null],
     ]);
   });
 
@@ -81,7 +98,7 @@ describe('refreshMemberNames', () => {
     respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alexandra'), row('u5', 'Lee')] });
     await refreshMemberNames(H1);
 
-    expect(cached(H1).map((r) => [r.userId, r.displayName])).toEqual([
+    expect(cached(H1).map((r) => [r.userId, r.firstName])).toEqual([
       ['me', 'Jo'],
       ['u2', 'Alexandra'],
       ['u5', 'Lee'],
@@ -98,10 +115,10 @@ describe('refreshMemberNames', () => {
     expect(cached(H1).map((r) => r.userId)).toEqual(['me', 'u2']);
   });
 
-  test('a null answer empties the household; a null display name is stored blank', async () => {
-    respondToRpc('get_household_members', { data: [row('u2', null)] });
+  test('a null answer empties the household; a null first name is stored blank, a blank last name as null', async () => {
+    respondToRpc('get_household_members', { data: [{ ...row('u2', null), last_name: '' }] });
     await refreshMemberNames(H1);
-    expect(cached(H1)).toEqual([expect.objectContaining({ userId: 'u2', displayName: '' })]);
+    expect(cached(H1)).toEqual([expect.objectContaining({ userId: 'u2', firstName: '', lastName: null })]);
 
     respondToRpc('get_household_members', { data: null });
     expect(await refreshMemberNames(H1)).toBe(true);
@@ -158,43 +175,67 @@ describe('refreshMemberNames and the push moment (spec 4.13)', () => {
 });
 
 describe('shortMemberNames', () => {
-  test('the first word of the display name', () => {
+  test('a unique first name as it is, two words and all, with no initial', () => {
     const result = names([
-      ['u1', 'Alex Rivera'],
+      ['u1', 'Alex', 'Rivera'],
       ['u2', '  Sam  '],
-      ['u3', 'María José García'],
+      ['u3', 'María José', 'García'],
+      ['u4', 'Mary Ann', 'Smith'],
     ]);
     expect([...result]).toEqual([
       ['u1', 'Alex'],
       ['u2', 'Sam'],
-      ['u3', 'María'],
+      ['u3', 'María José'],
+      ['u4', 'Mary Ann'],
     ]);
   });
 
-  test("two members who share a first word get their last name's initial", () => {
+  test("members who share a first name (any case) get their last name's first letter, uppercased", () => {
     const result = names([
-      ['u1', 'Alex Rivera'],
-      ['u2', 'alex mendez'],
-      ['u3', 'Sam Lee'],
-      ['u4', 'Alex de la Óvalo'],
+      ['u1', 'Alex', 'Rivera'],
+      ['u2', 'alex', 'mendez'],
+      ['u3', 'Sam', 'Lee'],
+      ['u4', 'Alex', 'de la Óvalo'],
+      ['u5', 'Mary Ann', 'Smith'],
+      ['u6', 'mary ann', 'Jones'],
     ]);
     expect(result.get('u1')).toBe('Alex R.');
     expect(result.get('u2')).toBe('alex M.');
     expect(result.get('u3')).toBe('Sam');
-    expect(result.get('u4')).toBe('Alex Ó.');
+    expect(result.get('u4')).toBe('Alex D.');
+    expect(result.get('u5')).toBe('Mary Ann S.');
+    expect(result.get('u6')).toBe('mary ann J.');
   });
 
-  test('a clash with only a first name keeps the first name', () => {
+  test('only the whole first name clashes: "Mary Ann" and "Mary" are different', () => {
+    const result = names([
+      ['u1', 'Mary Ann', 'Smith'],
+      ['u2', 'Mary', 'Jones'],
+    ]);
+    expect(result.get('u1')).toBe('Mary Ann');
+    expect(result.get('u2')).toBe('Mary');
+  });
+
+  test('a clash with no last name (or a blank one) keeps the first name', () => {
     const result = names([
       ['u1', 'Alex'],
-      ['u2', 'Alex Rivera'],
+      ['u2', 'Alex', 'Rivera'],
+      ['u3', 'Alex', '  '],
     ]);
     expect(result.get('u1')).toBe('Alex');
     expect(result.get('u2')).toBe('Alex R.');
+    expect(result.get('u3')).toBe('Alex');
   });
 
-  test('a blank display name gets no entry', () => {
-    expect(names([['u1', '   ']]).has('u1')).toBe(false);
+  test("a blank first name gets no entry and doesn't count as a clash", () => {
+    const result = names([
+      ['u1', '   ', 'Rivera'],
+      ['u2', '', 'Lee'],
+      ['u3', 'Sam', 'Lee'],
+    ]);
+    expect(result.has('u1')).toBe(false);
+    expect(result.has('u2')).toBe(false);
+    expect(result.get('u3')).toBe('Sam');
   });
 });
 
