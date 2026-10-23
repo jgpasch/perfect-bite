@@ -1362,7 +1362,7 @@ failed ──Try again (same id)──▶ received   (attempts reset; never char
 ```
 
 Service-role functions, each one short transaction:
-- `claim_share_import(p_kinds)`: the oldest due `received` or `extracted` row (or one whose lease expired), `for update skip locked`, moved to `extracting` or `committing` with a new `lease_token`, `lease_expires_at = now() + 2 min` and `attempts + 1`.
+- `claim_share_import(p_kinds)`: the oldest due `received` or `extracted` row (or one whose lease expired), `for update skip locked`, moved to `extracting` or `committing` with a new `lease_token`, `lease_expires_at = now() + 2 min` and `attempts + 1`. `p_kinds` is the phases to claim, `{extracting, committing}` (null: both). An expired lease that has already used 8 attempts is failed with `lease_lost` instead of claimed. The worker's functions raise `lease_lost` (`55000`) under a lease that isn't the job's.
 - `reserve_share_import(p_id, p_lease)`: `ok` at once when `metered_at` is set; otherwise `check_recipe_import_limit`'s checks for the sharer and the share's household (4.12) in the same transaction, setting `metered_at` on `ok`.
 - `save_share_extraction(p_id, p_lease, p_extraction)`: only under a matching, unexpired lease; moves to `extracted`.
 - `release_share_import(p_id, p_lease, p_kind, p_code, p_next_attempt_at, p_resets_at)`: **transient** goes back to the state it was claimed from, due after 30 s, 2 min, 10 min, 1 h, then 6 h (with jitter), and fails after 8 attempts; **waiting** (`rate_limited` only) is due at the next minute without counting an attempt; **permanent** is `failed` with the code (and `resets_at` for `daily_limit` and `limit_reached`), `page` nulled. A failure queues the "Couldn't import" push (4.13).
