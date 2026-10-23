@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 
 import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
+import { useRecipeFavorites } from '@/features/recipes/favorites';
 import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import { matchesRecipeFilters } from '@/features/recipes/recipe-filters';
@@ -19,15 +20,24 @@ export default function RecipeFilterSheet() {
   const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
   const filters = useRecipeFilters();
+  const favorites = useRecipeFavorites();
 
   const count = useMemo(
-    () => searchRecipes(data, ingredientNames, q).filter(({ recipe }) => matchesRecipeFilters(recipe, filters)).length,
-    [data, ingredientNames, q, filters],
+    () =>
+      searchRecipes(data, ingredientNames, q).filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites)).length,
+    [data, ingredientNames, q, filters, favorites],
   );
 
   return (
     <Screen>
-      <RecipeFilterPanel recipes={data} filters={filters} onChange={setRecipeFilters} count={count} onDone={() => router.back()} />
+      <RecipeFilterPanel
+        recipes={data}
+        favorites={favorites}
+        filters={filters}
+        onChange={setRecipeFilters}
+        count={count}
+        onDone={() => router.back()}
+      />
     </Screen>
   );
 }

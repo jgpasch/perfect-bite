@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
 import {
   categories,
@@ -18,6 +18,7 @@ import {
   lists,
   mealPlanEntries,
   outbox,
+  recipeFavorites,
   recipes,
   userHouseholdCategoryOrder,
   userSettings,
@@ -231,6 +232,7 @@ describe('first pull of a household', () => {
       'household_category_order',
       'lists',
       'recipes',
+      'recipe_favorites',
       'list_items',
       'recipe_ingredients',
       'list_item_contributions',
@@ -1618,6 +1620,64 @@ describe("the household's staples (Always have)", () => {
   });
 });
 
+describe('favorites per person', () => {
+  /** A favorite of `userId`'s, its deleted_at set at `hlc`. */
+  const fav = (userId: string, deletedAt: string | null, updated: string, hlc = OLD): ServerRow => ({
+    recipe_id: 'r1',
+    user_id: userId,
+    household_id: H1,
+    deleted_at: deletedAt,
+    field_clock: { household_id: hlc, deleted_at: hlc },
+    created_at: ts(0),
+    updated_at: updated,
+  });
+  const favRow = (userId: string) =>
+    db
+      .select()
+      .from(recipeFavorites)
+      .where(and(eq(recipeFavorites.recipeId, 'r1'), eq(recipeFavorites.userId, userId)))
+      .get();
+  /** This device favorites (or unfavorites) r1 for u1, as `setMyFavorite` does. */
+  const favoriteHere = (deletedAt: Date | null) =>
+    upsertRow(db, recipeFavorites, { recipeId: 'r1', userId: 'u1', householdId: H1, deletedAt }, { deletedAt });
+
+  beforeEach(() => {
+    seedPulledList();
+    put('recipes', { id: 'r1', household_id: H1, name: 'Tacos', deleted_at: null, field_clock: {}, created_at: ts(0), updated_at: ts(1) });
+  });
+
+  test("every member's favorites come down with the household, after the recipes, with their own cursor", async () => {
+    put('recipe_favorites', fav('u2', null, ts(4)), fav('u3', ts(3), ts(5)));
+
+    await pullNow();
+
+    const tables = queries.map((q) => q.table);
+    expect(tables.indexOf('recipe_favorites')).toBe(tables.indexOf('recipes') + 1);
+    expect(tableQueries('recipe_favorites')[0][1]).toEqual(['eq', 'household_id', H1]);
+    expect(favRow('u2')).toMatchObject({ householdId: H1, deletedAt: null, updatedAt: new Date(ts(4)) });
+    expect(favRow('u3')!.deletedAt).toEqual(new Date(ts(3)));
+    expect(getPullState().cursors).toMatchObject({ [householdCursorKey(H1, 'recipe_favorites')]: ts(5) });
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test("an unpushed local favorite isn't overwritten by an older remote unfavorite; a newer one wins", async () => {
+    put('recipe_favorites', fav('u1', null, ts(4)));
+    await pullNow();
+    favoriteHere(new Date(ts(8)));
+    favoriteHere(null); // favorited again here, not pushed yet
+    const mine = favRow('u1')!.fieldClock.deleted_at;
+    server.recipe_favorites = [fav('u1', ts(9), ts(20), OLD)];
+
+    await pullNow();
+    expect(favRow('u1')).toMatchObject({ deletedAt: null, fieldClock: { deleted_at: mine } });
+
+    clearOutbox(); // pushed
+    server.recipe_favorites = [fav('u1', ts(30), ts(30), NEW)];
+    await pullNow();
+    expect(favRow('u1')).toMatchObject({ deletedAt: new Date(ts(30)), fieldClock: { deleted_at: NEW } });
+  });
+});
+
 describe("the household's meal plan", () => {
   const ENTRY_CLOCK = {
     household_id: OLD,
@@ -2287,6 +2347,7 @@ describe('scoped pulls (for Realtime)', () => {
     'household_category_order',
     'lists',
     'recipes',
+    'recipe_favorites',
     'list_items',
     'recipe_ingredients',
     'list_item_contributions',

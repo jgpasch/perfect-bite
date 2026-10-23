@@ -36,16 +36,12 @@ describe('recipeTagPills', () => {
     expect(pills.at(-1)).toEqual({ key: 'time:under-30', facet: 'Time', value: 'Under 30 min', accessibilityLabel: 'Time: Under 30 min' });
   });
 
-  test('saved pills come first, in the en and es labels', async () => {
+  test('saved pills come first, in the en and es labels; an old `favorite` slug isn’t one', async () => {
     const t = tags({ meal: ['dinner'], saved: ['want-to-try', 'favorite'] });
-    expect(recipeTagPills(t, null).map((p) => p.accessibilityLabel)).toEqual([
-      'Saved: Favorite',
-      'Saved: Want to try',
-      'Meal: Dinner',
-    ]);
+    expect(recipeTagPills(t, null).map((p) => p.accessibilityLabel)).toEqual(['Saved: Want to try', 'Meal: Dinner']);
     await i18n.changeLanguage('es');
     try {
-      expect(recipeTagPills(t, null).map((p) => p.value)).toEqual(['Favorita', 'Por probar', 'Cena']);
+      expect(recipeTagPills(t, null).map((p) => p.value)).toEqual(['Por probar', 'Cena']);
     } finally {
       await i18n.changeLanguage('en');
     }
@@ -77,16 +73,17 @@ describe('recipeTagLine', () => {
     });
   });
 
-  test('Favorite becomes the heart, and is still read', () => {
+  // Favorites are per person now (4.14), not a tag: an old stored `favorite` slug is neither shown nor read.
+  test('an old `favorite` slug is ignored', () => {
     expect(recipeTagLine(tags({ saved: ['want-to-try', 'favorite'], meal: ['dinner'] }), null)).toEqual({
-      favorite: true,
+      favorite: false,
       text: 'Want to try · Dinner',
-      accessibilityLabel: 'Tags: Favorite, Want to try, Dinner',
+      accessibilityLabel: 'Tags: Want to try, Dinner',
     });
   });
 
-  test('Favorite alone: the heart with no text', () => {
-    expect(recipeTagLine(tags({ saved: ['favorite'] }), null)).toEqual({ favorite: true, text: '', accessibilityLabel: 'Tags: Favorite' });
+  test('an old `favorite` slug alone is nothing to show', () => {
+    expect(recipeTagLine(tags({ saved: ['favorite'] }), null)).toBeNull();
   });
 
   test('a time alone', () => {

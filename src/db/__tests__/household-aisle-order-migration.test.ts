@@ -48,7 +48,10 @@ beforeEach(() => {
 });
 
 test('0026 and 0027 are the household aisle order migrations', () => {
-  expect(journal.entries.filter((e) => e.idx >= 26).map((e) => e.tag)).toEqual(['0026_household_aisle_order', '0027_drop_tmp']);
+  expect(journal.entries.filter((e) => e.idx === 26 || e.idx === 27).map((e) => e.tag)).toEqual([
+    '0026_household_aisle_order',
+    '0027_drop_tmp',
+  ]);
 });
 
 test('adds both order tables next to the old one, and created_at on categories (null for existing rows)', () => {

@@ -903,12 +903,12 @@ describe('RecipeScreen tags', () => {
     expect(texts(root).join(' ')).not.toContain('brunchy');
   });
 
-  test('a favorite starts with a heart, read as Favorite', () => {
+  test('an old stored `favorite` slug is neither shown nor read (favorites are per person, 4.14)', () => {
     setTags({ tags: { ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] }, tagsEdited: true });
     const root = render(<RecipeScreen />);
-    expect(rowIcons(root)).toEqual(['tag', 'heart.fill', 'chevron.right']);
+    expect(rowIcons(root)).toEqual(['tag', 'chevron.right']);
     expect(rowTexts(root)).toEqual(['Want to try · Dinner']);
-    expect(tagLine(root).props.accessibilityLabel).toBe('Tags: Favorite, Want to try, Dinner');
+    expect(tagLine(root).props.accessibilityLabel).toBe('Tags: Want to try, Dinner');
   });
 
   test('many tags stay on one line', () => {
@@ -1104,18 +1104,18 @@ describe('RecipeTagsSheet', () => {
     expect(field(root, 'Minutes').props.value).toBe('20');
   });
 
-  test('Saved comes first, both its values can be on, and Save keeps them', () => {
-    setTags({ tags: { ...emptyRecipeTags(), meal: ['dinner'] } });
+  test('Saved comes first, its tag is Want to try, and Save keeps it with an old stored `favorite`', () => {
+    setTags({ tags: { ...emptyRecipeTags(), saved: ['favorite'], meal: ['dinner'] } });
     const root = render(<RecipeTagsSheet />);
     const t = texts(root);
     expect(t.indexOf('Saved')).toBeGreaterThan(-1);
     expect(t.indexOf('Saved')).toBeLessThan(t.indexOf('Meal'));
+    // Favorites aren't a tag any more: the old slug isn't a pill.
+    expect(root.root.findAll((n) => n.props.accessibilityRole === 'togglebutton' && n.props.label === 'Favorite')).toHaveLength(0);
     press(pill(root, 'Want to try'));
-    press(pill(root, 'Favorite'));
-    expect(selected(root)).toEqual(['Favorite', 'Want to try', 'Dinner']);
-    expect(texts(root).filter((s) => s === 'Pick up to 2')).toHaveLength(1);
+    expect(selected(root)).toEqual(['Want to try', 'Dinner']);
     act(() => toolbar(root, 'Save').props.onPress());
-    expect(getRecipe(tacos)!.tags).toEqual({ ...emptyRecipeTags(), saved: ['want-to-try', 'favorite'], meal: ['dinner'] });
+    expect(getRecipe(tacos)!.tags).toEqual({ ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] });
   });
 
   test('a facet at its maximum disables its other pills and says why; deselecting frees them', () => {
@@ -1261,7 +1261,7 @@ describe('RecipeTagsSheet', () => {
       answer({ ok: true, tags: { ...emptyRecipeTags(), meal: ['dinner'], cuisine: ['mexican'], protein: ['beef'] } });
       const root = render(<RecipeTagsSheet />);
       await tap(root);
-      expect(selected(root)).toEqual(['Favorite', 'Dinner', 'Mexican', 'Beef']);
+      expect(selected(root)).toEqual(['Dinner', 'Mexican', 'Beef']);
       expect(field(root, 'Minutes').props.value).toBe('50');
       expect(texts(root)).toContain(SUGGESTED_NOTE);
       const note = root.root.find((n) => typeof n.type !== 'string' && n.props.children === SUGGESTED_NOTE);

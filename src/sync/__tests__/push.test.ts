@@ -12,6 +12,7 @@ import {
   householdStaples,
   lists,
   outbox,
+  recipeFavorites,
   recipes,
   userHouseholdCategoryOrder,
   userSettings,
@@ -225,6 +226,29 @@ describe('order', () => {
       ['household_staples', key, { deleted_at: null }],
       ['household_staples', key, { deleted_at: '2026-10-01T12:00:00.000Z' }],
       ['household_staples', key, { deleted_at: null }],
+    ]);
+    expect(queries).toEqual([]);
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('favorites go through apply_mutations by recipe and user, household_id on insert, never created_at', async () => {
+    applyAll();
+    insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Tacos' });
+    clearOutbox();
+    const favorite = (deletedAt: Date | null) =>
+      upsertRow(db, recipeFavorites, { recipeId: 'r1', userId: 'u1', householdId: H, deletedAt }, { deletedAt });
+    favorite(null);
+    favorite(new Date('2026-10-01T12:00:00.000Z'));
+    favorite(null);
+
+    await expect(pushNow()).resolves.toEqual({ pushed: 3, rejected: 0, failed: false });
+
+    expect(applyCalls()).toHaveLength(1);
+    const key = { recipe_id: 'r1', user_id: 'u1' };
+    expect(sent(0).map((m) => [m.table, m.key, m.fields])).toEqual([
+      ['recipe_favorites', key, { household_id: H, deleted_at: null }],
+      ['recipe_favorites', key, { deleted_at: '2026-10-01T12:00:00.000Z' }],
+      ['recipe_favorites', key, { deleted_at: null }],
     ]);
     expect(queries).toEqual([]);
     expect(outboxRows()).toEqual([]);

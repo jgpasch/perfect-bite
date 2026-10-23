@@ -7,11 +7,9 @@ import { z } from 'zod';
 
 /** A facet's values, in display order. */
 // A person's own marks, never the AI's: the prompts, the model's answer and its validation leave
-// this facet out (`AI_TAG_FACETS`).
-const SAVED = [
-  { slug: 'favorite', label: 'Favorite' },
-  { slug: 'want-to-try', label: 'Want to try' },
-] as const;
+// this facet out (`AI_TAG_FACETS`). Favorites are per person, not a tag (`recipe_favorites`, 4.14): a
+// `favorite` slug stored before that is unknown here, kept on save and never shown.
+const SAVED = [{ slug: 'want-to-try', label: 'Want to try' }] as const;
 
 const MEAL = [
   { slug: 'breakfast', label: 'Breakfast' },
@@ -74,7 +72,7 @@ const METHOD = [
 
 /** The facets in display order, each with its values and how many a recipe may have. */
 export const RECIPE_TAG_FACETS = [
-  { key: 'saved', label: 'Saved', max: 2, values: SAVED },
+  { key: 'saved', label: 'Saved', max: 1, values: SAVED },
   { key: 'meal', label: 'Meal', max: 2, values: MEAL },
   { key: 'cuisine', label: 'Cuisine', max: 2, values: CUISINE },
   { key: 'protein', label: 'Protein', max: 3, values: PROTEIN },

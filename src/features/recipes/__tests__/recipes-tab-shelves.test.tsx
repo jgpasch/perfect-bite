@@ -6,7 +6,7 @@ import { ScrollView, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, lists, mealPlanEntries, recipes } from '@/db';
+import { db, households, lists, mealPlanEntries, recipeFavorites, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { resetRecipesSegment } from '@/features/meal-plan/plan-tab';
 import { getRecipeSortChoice, setDeviceSetting, setPlanTab, setRecipeSortChoice } from '@/features/settings/device-settings';
@@ -132,9 +132,13 @@ function render(): ReactTestRenderer {
   return tree!;
 }
 
-/** A recipe changed `minutesAgo` minutes before now, so the smaller it is the more recent. */
-function addRecipe(name: string, minutesAgo: number, saved: string[] = [], totalMinutes: number | null = 35) {
+/**
+ * A recipe changed `minutesAgo` minutes before now, so the smaller it is the more recent. `favorite` in `marks`
+ * makes it the user's favorite (`recipe_favorites`, 4.14); the rest are its Saved tags.
+ */
+function addRecipe(name: string, minutesAgo: number, marks: string[] = [], totalMinutes: number | null = 35) {
   const id = name.toLowerCase().replace(/\W+/g, '-');
+  const saved = marks.filter((m) => m !== 'favorite');
   db.insert(recipes)
     .values({
       id,
@@ -145,6 +149,7 @@ function addRecipe(name: string, minutesAgo: number, saved: string[] = [], total
       updatedAt: new Date(NOW.getTime() - minutesAgo * 60_000),
     })
     .run();
+  if (marks.includes('favorite')) db.insert(recipeFavorites).values({ recipeId: id, userId: 'user-1', householdId: 'home' }).run();
   return id;
 }
 
@@ -444,11 +449,11 @@ describe('See all', () => {
     expect(shelfKeys(root)).toEqual(['thisWeek', 'recent', 'favorites']);
   });
 
-  test('Favorites turns on the Favorite filter, so its results take the shelves’ place', () => {
+  test('Favorites turns on the Favorites filter, so its results take the shelves’ place', () => {
     addCollection();
     const root = render();
     seeAll(root, 'favorites');
-    expect(getRecipeFilters()).toEqual(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorite'));
+    expect(getRecipeFilters()).toEqual({ ...noRecipeFilters(), favorites: ['favorites'] });
     expect(activeFilterCount(getRecipeFilters())).toBe(1);
     expect(shelfKeys(root)).toEqual([]);
     expect(allHeading(root)).toHaveLength(0);

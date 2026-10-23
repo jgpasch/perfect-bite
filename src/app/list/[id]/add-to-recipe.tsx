@@ -14,6 +14,7 @@ import { getAccount } from '@/features/auth/account';
 import { categorizePending } from '@/features/categories/categorization';
 import { listQuery } from '@/features/lists/lists';
 import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
+import { readRecipeFavorites, type FavoritesByRecipe } from '@/features/recipes/favorites';
 import { addItemsToRecipe, makeRecipeFromItems } from '@/features/recipes/from-list';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
@@ -48,6 +49,7 @@ export default function AddToRecipeSheet() {
   const [list] = useState(() => listQuery(id).get());
   const [recipes] = useState(() => (list ? recipesForPicker(list.householdId) : []));
   const [ingredientNames] = useState(() => (recipes.length > 0 ? recipeIngredientNamesQuery().all() : []));
+  const [favorites] = useState<FavoritesByRecipe>(() => (recipes.length > 0 ? readRecipeFavorites() : new Map()));
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<RecipeFilters>(noRecipeFilters);
@@ -56,8 +58,9 @@ export default function AddToRecipeSheet() {
   const filtering = activeFilterCount(filters) > 0;
   // Search and filters keep the recipes' order: most recently used first.
   const results = useMemo(
-    () => searchRecipes(recipes, ingredientNames, query).filter(({ recipe }) => matchesRecipeFilters(recipe, filters)),
-    [recipes, ingredientNames, query, filters],
+    () =>
+      searchRecipes(recipes, ingredientNames, query).filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites)),
+    [recipes, ingredientNames, query, filters, favorites],
   );
 
   if (!list || itemIds.length === 0) return <Screen />;
@@ -68,6 +71,7 @@ export default function AddToRecipeSheet() {
       <Screen>
         <RecipeFilterPanel
           recipes={recipes}
+          favorites={favorites}
           filters={filters}
           onChange={setFilters}
           count={results.length}

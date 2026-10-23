@@ -497,6 +497,17 @@ export const en = {
       removeChip: 'Remove {{label}} filter',
       untagged: 'Untagged',
       time: 'Time',
+      /** The Saved group's favorites values (not tags): anyone's, and the user's own. */
+      favorites: 'Favorites',
+      myFavorites: 'My favorites',
+    },
+    /** Who has a recipe as a favorite, as VoiceOver reads it (spec 4.5, 4.14). */
+    favorites: {
+      yours: 'Your favorite',
+      one: "{{name}}'s favorite",
+      two: 'Favorite of {{first}} and {{second}}',
+      many_one: 'Favorite of {{name}} and {{count}} other',
+      many_other: 'Favorite of {{name}} and {{count}} others',
     },
     /** A recipe's total time, as filters and tag pills show it. */
     timeBuckets: {
@@ -1479,7 +1490,6 @@ export const en = {
     /** Recipe tags, by facet and slug. */
     tags: {
       saved: {
-        favorite: 'Favorite',
         'want-to-try': 'Want to try',
       },
       meal: {

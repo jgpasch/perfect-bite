@@ -5,8 +5,9 @@ import { shortSlotName } from '@/features/meal-plan/plan-modal';
 import type { PlanEntry } from '@/features/meal-plan/queries';
 import { addDays, type Day, MEALS, weekStart } from '@/features/meal-plan/week';
 import { dayName, mealLabel } from '@/features/meal-plan/week-view';
-import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
+import type { RecipeTags } from '@/shared/recipe-tags';
 
+import type { FavoritesByRecipe } from './favorites';
 import { activeFilterCount, type RecipeFilters } from './recipe-filters';
 import { foldForSearch } from './recipe-search';
 import { sortRecipes, sortRecipesByName } from './recipe-sort';
@@ -52,23 +53,24 @@ export function shelfTileLabel(item: { recipe: { name: string }; spokenCaption: 
     .join(', ');
 }
 
-const isFavorite =(recipe: ShelfRecipe) => knownTags(recipe.tags)?.saved.includes('favorite') ?? false;
-
 /**
  * The shelves to show, in order: This week (recipes planned from `today` to the week's end, by day then meal,
- * each once at its first slot), Recently added (the 10 newest) and Favorites (A–Z, up to 10). An empty shelf
- * is left out, and there are none below `SHELVES_MIN_RECIPES` recipes. `recipes` are in `recipesQuery`'s
- * order (newest change first); `entries` are every household's plan entries, any weeks.
+ * each once at its first slot), Recently added (the 10 newest) and Favorites (A–Z, up to 10; a favorite of any
+ * current member, the user included, from `favorites`). An empty shelf is left out, and there are none below
+ * `SHELVES_MIN_RECIPES` recipes. `recipes` are in `recipesQuery`'s order (newest change first); `entries` are
+ * every household's plan entries, any weeks.
  */
 export function recipeShelves<R extends ShelfRecipe>({
   recipes,
   entries,
   today,
+  favorites = new Map(),
   language = currentLanguage(),
 }: {
   recipes: readonly R[];
   entries: readonly ShelfEntry[];
   today: Day;
+  favorites?: FavoritesByRecipe;
   language?: Language;
 }): RecipeShelf<R>[] {
   if (recipes.length < SHELVES_MIN_RECIPES) return [];
@@ -105,7 +107,7 @@ export function recipeShelves<R extends ShelfRecipe>({
     });
   }
 
-  const favorites = sortRecipesByName(recipes.filter(isFavorite));
+  const favorited = sortRecipesByName(recipes.filter((r) => favorites.has(r.id)));
   const shelves: RecipeShelf<R>[] = [
     { key: 'thisWeek', title: title('thisWeek'), count: planned.length, items: thisWeek },
     {
@@ -117,8 +119,8 @@ export function recipeShelves<R extends ShelfRecipe>({
     {
       key: 'favorites',
       title: title('favorites'),
-      count: favorites.length,
-      items: favorites.slice(0, SHELF_MAX_ITEMS).map(withTime),
+      count: favorited.length,
+      items: favorited.slice(0, SHELF_MAX_ITEMS).map(withTime),
     },
   ];
   return shelves.filter((shelf) => shelf.items.length > 0);

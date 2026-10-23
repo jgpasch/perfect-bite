@@ -39,6 +39,7 @@ export const HOUSEHOLD_TABLES = [
   'household_category_order',
   'lists',
   'recipes',
+  'recipe_favorites',
   'list_items',
   'recipe_ingredients',
   'list_item_contributions',

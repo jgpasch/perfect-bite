@@ -454,33 +454,39 @@ describe('labels', () => {
     expect(recipeRowLabel(tacos, null, null)).toBe('Chicken tacos, Dinner, 35 min');
   });
 
-  test('a row reads Favorite and Want to try after the name, in facet order, only when set (spec 4.5)', () => {
+  test('a row reads Want to try after the name, only when set; an old `favorite` slug reads as nothing (spec 4.5)', () => {
     const tacos = (saved: string[]) => ({ name: 'Tacos', tags: { ...emptyRecipeTags(), saved, meal: ['dinner'] }, totalMinutes: 35 });
-    expect(recipeRowLabel(tacos(['favorite']), 'Groceries')).toBe('Tacos, Favorite, Dinner, 35 min, on Groceries');
     expect(recipeRowLabel(tacos(['want-to-try']), 'Groceries')).toBe('Tacos, Want to try, Dinner, 35 min, on Groceries');
-    // Stored order doesn't matter.
-    expect(recipeRowLabel(tacos(['want-to-try', 'favorite']))).toBe('Tacos, Favorite, Want to try, Dinner, 35 min');
+    expect(recipeRowLabel(tacos(['favorite']), 'Groceries')).toBe('Tacos, Dinner, 35 min, on Groceries');
+    expect(recipeRowLabel(tacos(['want-to-try', 'favorite']))).toBe('Tacos, Want to try, Dinner, 35 min');
     expect(recipeRowLabel(tacos([]), 'Groceries')).toBe('Tacos, Dinner, 35 min, on Groceries');
     // An unknown saved slug reads as nothing.
     expect(recipeRowLabel(tacos(['cooked-it']))).toBe('Tacos, Dinner, 35 min');
     // Before an ingredient-only search match, and with only a mark.
-    expect(recipeRowLabel(tacos(['favorite']), null, 'limes')).toBe('Tacos, Favorite, has limes');
-    expect(recipeRowLabel({ name: 'Dal', tags: { ...emptyRecipeTags(), saved: ['favorite'] }, totalMinutes: null })).toBe(
-      'Dal, Favorite',
+    expect(recipeRowLabel(tacos(['want-to-try']), null, 'limes')).toBe('Tacos, Want to try, has limes');
+    expect(recipeRowLabel({ name: 'Dal', tags: { ...emptyRecipeTags(), saved: ['want-to-try'] }, totalMinutes: null })).toBe(
+      'Dal, Want to try',
     );
   });
 
-  test("a recipe's Saved marks: Favorite and Want to try each on their own; none when untagged", () => {
-    const marks = (saved: string[]) => recipeSavedMarks({ ...emptyRecipeTags(), saved });
-    expect(marks([])).toEqual({ favorite: false, wantToTry: false });
-    expect(marks(['favorite'])).toEqual({ favorite: true, wantToTry: false });
-    expect(marks(['want-to-try'])).toEqual({ favorite: false, wantToTry: true });
-    expect(marks(['want-to-try', 'favorite'])).toEqual({ favorite: true, wantToTry: true });
-    expect(marks(['cooked-it'])).toEqual({ favorite: false, wantToTry: false });
-    expect(recipeSavedMarks(null)).toEqual({ favorite: false, wantToTry: false });
+  test("a recipe's Saved marks: the favorite from its favorites (mine, else others'), Want to try from the tags", () => {
+    const marks = (saved: string[], favorite?: { mine: boolean; others: string[] } | null) =>
+      recipeSavedMarks({ ...emptyRecipeTags(), saved }, favorite);
+    expect(marks([])).toEqual({ favorite: null, wantToTry: false });
+    expect(marks(['want-to-try'])).toEqual({ favorite: null, wantToTry: true });
+    expect(marks([], { mine: true, others: [] })).toEqual({ favorite: 'mine', wantToTry: false });
+    // Mine wins over others'.
+    expect(marks(['want-to-try'], { mine: true, others: ['Sam'] })).toEqual({ favorite: 'mine', wantToTry: true });
+    expect(marks([], { mine: false, others: ['Sam', 'Ana'] })).toEqual({ favorite: 'others', wantToTry: false });
+    expect(marks([], { mine: false, others: [] })).toEqual({ favorite: null, wantToTry: false });
+    // An old stored `favorite` slug is ignored for display.
+    expect(marks(['favorite'])).toEqual({ favorite: null, wantToTry: false });
+    expect(marks(['cooked-it'])).toEqual({ favorite: null, wantToTry: false });
+    expect(recipeSavedMarks(null)).toEqual({ favorite: null, wantToTry: false });
+    expect(recipeSavedMarks(null, { mine: true, others: [] })).toEqual({ favorite: 'mine', wantToTry: false });
     // A value stored before Saved existed has no `saved` key.
     const { saved: _saved, ...older } = emptyRecipeTags();
-    expect(recipeSavedMarks(older as never)).toEqual({ favorite: false, wantToTry: false });
+    expect(recipeSavedMarks(older as never)).toEqual({ favorite: null, wantToTry: false });
   });
 
   test('servings use ½ for a half and × after the number', () => {

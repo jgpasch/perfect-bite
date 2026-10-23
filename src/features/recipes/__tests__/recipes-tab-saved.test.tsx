@@ -1,11 +1,12 @@
 // Favorite and Want to try on the Recipes tab (spec 4.5, 4.14): the row's heart and bookmark, its VoiceOver
 // label, and the long-press menu's Favorite / Unfavorite and Want to try / Tried it, rendered against the
-// in-memory database.
+// in-memory database. Favorites are per person (`recipe_favorites`); Want to try is a Saved tag.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { and, eq } from 'drizzle-orm';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, recipes } from '@/db';
+import { db, householdMemberNames, households, recipeFavorites, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { setDeviceSetting } from '@/features/settings/device-settings';
 import { type RecipeTags } from '@/shared/recipe-tags';
@@ -153,6 +154,16 @@ const rowNames = (root: ReactTestRenderer) =>
 
 const EMPTY = { saved: [], meal: [], cuisine: [], protein: [], diet: [], method: [] };
 
+/** `userId`'s live favorite row for the recipe, as a pull would bring it. */
+const favorite = (recipeId: string, userId = 'user-1') =>
+  db.insert(recipeFavorites).values({ recipeId, userId, householdId: 'home' }).run();
+const favoriteRow = (recipeId: string, userId = 'user-1') =>
+  db
+    .select()
+    .from(recipeFavorites)
+    .where(and(eq(recipeFavorites.recipeId, recipeId), eq(recipeFavorites.userId, userId)))
+    .get();
+
 beforeEach(() => {
   resetDb();
   ensureStarterData('user-1');
@@ -160,6 +171,12 @@ beforeEach(() => {
   setRecipeFilters(noRecipeFilters());
   setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'small');
   db.insert(households).values({ id: 'home', name: 'Home' }).run();
+  db.insert(householdMemberNames)
+    .values([
+      { householdId: 'home', userId: 'user-1', displayName: 'Jo Doe', joinedAt: '2026-10-01T00:00:00Z' },
+      { householdId: 'home', userId: 'user-2', displayName: 'Sam Lee', joinedAt: '2026-10-02T00:00:00Z' },
+    ])
+    .run();
 });
 
 afterEach(() => {
@@ -169,22 +186,26 @@ afterEach(() => {
 });
 
 describe('a row with Saved marks', () => {
-  const combos: [string[], string[][], string][] = [
-    [[], [], 'Tacos, Dinner, 35 min'],
-    [['favorite'], [['heart.fill', 'primary']], 'Tacos, Favorite, Dinner, 35 min'],
-    [['want-to-try'], [['bookmark', 'inkSecondary']], 'Tacos, Want to try, Dinner, 35 min'],
+  const combos: [string[], boolean, string[][], string][] = [
+    [[], false, [], 'Tacos, Dinner, 35 min'],
+    [[], true, [['heart.fill', 'primary']], 'Tacos, Dinner, 35 min'],
+    [['want-to-try'], false, [['bookmark', 'inkSecondary']], 'Tacos, Want to try, Dinner, 35 min'],
     [
-      ['want-to-try', 'favorite'],
+      ['want-to-try'],
+      true,
       [
         ['heart.fill', 'primary'],
         ['bookmark', 'inkSecondary'],
       ],
-      'Tacos, Favorite, Want to try, Dinner, 35 min',
+      'Tacos, Want to try, Dinner, 35 min',
     ],
+    // An old stored `favorite` slug is ignored for display.
+    [['favorite'], false, [], 'Tacos, Dinner, 35 min'],
   ];
 
-  test.each(combos)('saved %j: icons %j after the name, VoiceOver "%s"', (saved, icons, voiceOver) => {
+  test.each(combos)('saved %j, mine %j: icons %j after the name, VoiceOver "%s"', (saved, mine, icons, voiceOver) => {
     const id = addRecipe('Tacos', { ...EMPTY, saved, meal: ['dinner'] });
+    if (mine) favorite(id);
     const root = render();
     expect(marks(card(root, id))).toEqual(icons);
     expect(label(card(root, id))).toBe(voiceOver);
@@ -211,21 +232,23 @@ describe('a row with Saved marks', () => {
 
   test('a large tile shows the same marks and label', () => {
     setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'large');
-    const id = addRecipe('Tacos', { ...EMPTY, saved: ['favorite', 'want-to-try'], meal: ['dinner'] });
+    const id = addRecipe('Tacos', { ...EMPTY, saved: ['want-to-try'], meal: ['dinner'] });
+    favorite(id);
     const root = render();
     expect(root.root.findAll((n) => n.props.testID === 'recipe-grid').length).toBeGreaterThan(0);
     expect(marks(card(root, id))).toEqual([
       ['heart.fill', 'primary'],
       ['bookmark', 'inkSecondary'],
     ]);
-    expect(label(card(root, id))).toBe('Tacos, Favorite, Want to try, Dinner, 35 min');
+    expect(label(card(root, id))).toBe('Tacos, Want to try, Dinner, 35 min');
   });
 });
 
 describe('the long-press menu', () => {
   test('reads Favorite and Want to try, then Unfavorite and Tried it once set, before Rename', () => {
     const plain = addRecipe('Dal', null);
-    const both = addRecipe('Tacos', { ...EMPTY, saved: ['favorite', 'want-to-try'] }, 2);
+    const both = addRecipe('Tacos', { ...EMPTY, saved: ['want-to-try'] }, 2);
+    favorite(both);
     const root = render();
     expect(menu(root, plain).map((a) => [a.props.title, a.props.icon])).toEqual([
       ['Plan…', 'calendar'],
@@ -243,7 +266,7 @@ describe('the long-press menu', () => {
     ]);
   });
 
-  test('Favorite adds only its slug and keeps every other stored slug, unknown ones too', () => {
+  test('Favorite sets only the user’s favorite and leaves the stored tags alone', () => {
     const stored = {
       saved: ['want-to-try', 'cooked-it'],
       meal: ['dinner', 'brunch'],
@@ -254,19 +277,30 @@ describe('the long-press menu', () => {
     };
     const id = addRecipe('Tacos', stored);
     choose(render(), id, 'Favorite');
-    expect(getRecipe(id)).toMatchObject({
-      tags: { ...stored, saved: ['want-to-try', 'cooked-it', 'favorite'] },
-      tagsEdited: true,
-      totalMinutes: 35,
-    });
+    expect(favoriteRow(id)).toMatchObject({ householdId: 'home', deletedAt: null });
+    expect(getRecipe(id)).toMatchObject({ tags: stored, tagsEdited: false, totalMinutes: 35 });
   });
 
-  test('Unfavorite removes only favorite', () => {
-    const stored = { ...EMPTY, saved: ['favorite', 'want-to-try', 'cooked-it'], meal: ['brunch'] };
+  test('another member’s favorite still offers Favorite; Unfavorite leaves theirs', () => {
+    const id = addRecipe('Tacos', { ...EMPTY, meal: ['dinner'] });
+    favorite(id, 'user-2');
+    let root = render();
+    expect(action(root, id, 'Favorite').props.icon).toBe('heart');
+    choose(root, id, 'Favorite');
+    root = render();
+    choose(root, id, 'Unfavorite');
+    expect(favoriteRow(id)!.deletedAt).toBeInstanceOf(Date);
+    expect(favoriteRow(id, 'user-2')!.deletedAt).toBeNull();
+  });
+
+  test('an old stored `favorite` slug isn’t the user’s favorite, and is kept when Want to try saves', () => {
+    const stored = { ...EMPTY, saved: ['favorite'], meal: ['brunch'] };
     const id = addRecipe('Tacos', stored);
-    choose(render(), id, 'Unfavorite');
-    expect(getRecipe(id)!.tags).toEqual({ ...stored, saved: ['want-to-try', 'cooked-it'] });
-    expect(getRecipe(id)!.tagsEdited).toBe(true);
+    const root = render();
+    expect(action(root, id, 'Favorite')).toBeDefined();
+    choose(root, id, 'Want to try');
+    expect(getRecipe(id)!.tags).toEqual({ ...stored, saved: ['favorite', 'want-to-try'] });
+    expect(favoriteRow(id)).toBeUndefined();
   });
 
   test('Want to try adds only want-to-try; Tried it removes only it', () => {
@@ -279,13 +313,14 @@ describe('the long-press menu', () => {
     expect(getRecipe(id)!.tagsEdited).toBe(true);
   });
 
-  test('on an untagged recipe, each creates the tags with only saved set', () => {
+  test('on an untagged recipe, Want to try creates the tags with only saved set; Favorite leaves them untagged', () => {
     const dal = addRecipe('Dal', null);
     const soup = addRecipe('Soup', null, 2);
     const root = render();
     choose(root, dal, 'Favorite');
     choose(root, soup, 'Want to try');
-    expect(getRecipe(dal)).toMatchObject({ tags: { ...EMPTY, saved: ['favorite'] }, tagsEdited: true });
+    expect(getRecipe(dal)).toMatchObject({ tags: null, tagsEdited: false });
+    expect(favoriteRow(dal)!.deletedAt).toBeNull();
     expect(getRecipe(soup)).toMatchObject({ tags: { ...EMPTY, saved: ['want-to-try'] }, tagsEdited: true });
   });
 
@@ -296,15 +331,19 @@ describe('the long-press menu', () => {
     expect(getRecipe(id)!.tags).toEqual({ ...older, saved: ['want-to-try'] });
   });
 
-  test('once marked, the row shows it and the Favorite filter finds it', () => {
+  test('once marked, the row shows it and the Favorites and My favorites filters find it', () => {
     const tacos = addRecipe('Tacos', { ...EMPTY, meal: ['dinner'] });
-    addRecipe('Dal', null, 2);
+    const soup = addRecipe('Soup', null, 2);
+    addRecipe('Dal', null, 3);
+    favorite(soup, 'user-2');
     choose(render(), tacos, 'Favorite');
     let root = render();
     expect(marks(card(root, tacos))).toEqual([['heart.fill', 'primary']]);
-    expect(label(card(root, tacos))).toBe('Tacos, Favorite, Dinner, 35 min');
     expect(menu(root, tacos)[1].props.title).toBe('Unfavorite');
-    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorite'));
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorites'));
+    root = render();
+    expect(rowNames(root)).toEqual(['Soup', 'Tacos']);
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'my-favorites'));
     root = render();
     expect(rowNames(root)).toEqual(['Tacos']);
   });

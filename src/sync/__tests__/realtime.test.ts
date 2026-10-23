@@ -15,6 +15,7 @@ import {
   listItems,
   lists,
   mealPlanEntries,
+  recipeFavorites,
   userHouseholdCategoryOrder,
 } from '@/db';
 import {
@@ -329,6 +330,38 @@ describe('events pull what they touched', () => {
 
     expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
     expect(db.select().from(householdStaples).get()!.deletedAt).toEqual(new Date(ts(20)));
+  });
+
+  test("another member's favorite, set or unset, pulls that household", async () => {
+    server.recipes = [
+      { id: 'r1', household_id: H1, name: 'Tacos', deleted_at: null, field_clock: {}, created_at: ts(0), updated_at: ts(5) },
+    ];
+    const favorite = {
+      recipe_id: 'r1',
+      user_id: 'u2',
+      household_id: H1,
+      deleted_at: null,
+      field_clock: { household_id: OLD, deleted_at: OLD },
+      created_at: ts(0),
+      updated_at: ts(10),
+    };
+    server.recipe_favorites = [favorite];
+
+    emitChange({ table: 'recipe_favorites', eventType: 'INSERT', new: favorite });
+    await settle();
+
+    expect(tablesQueried()).toEqual([...HOUSEHOLD_TABLES]);
+    expect(queries.find((q) => q.table === 'recipe_favorites')!.ops).toContainEqual(['eq', 'household_id', H1]);
+    expect(db.select().from(recipeFavorites).get()).toMatchObject({ recipeId: 'r1', userId: 'u2', householdId: H1, deletedAt: null });
+
+    // Unfavoriting is an update (deleted_at), not a delete event.
+    queries.length = 0;
+    const unset = { ...favorite, deleted_at: ts(20), field_clock: { ...favorite.field_clock, deleted_at: NEW }, updated_at: ts(20) };
+    server.recipe_favorites = [unset];
+    emitChange({ table: 'recipe_favorites', eventType: 'UPDATE', new: unset });
+    await settle();
+
+    expect(db.select().from(recipeFavorites).get()!.deletedAt).toEqual(new Date(ts(20)));
   });
 
   test("another member's plan entry, set or cleared, pulls that household", async () => {

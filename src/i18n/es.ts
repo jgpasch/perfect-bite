@@ -430,6 +430,15 @@ export const es = {
       removeChip: 'Quitar el filtro {{label}}',
       untagged: 'Sin etiquetas',
       time: 'Tiempo',
+      favorites: 'Favoritas',
+      myFavorites: 'Mis favoritas',
+    },
+    favorites: {
+      yours: 'Tu favorita',
+      one: 'Favorita de {{name}}',
+      two: 'Favorita de {{first}} y {{second}}',
+      many_one: 'Favorita de {{name}} y {{count}} más',
+      many_other: 'Favorita de {{name}} y {{count}} más',
     },
     timeBuckets: {
       under30: 'Menos de 30 min',
@@ -1305,7 +1314,6 @@ export const es = {
     },
     tags: {
       saved: {
-        favorite: 'Favorita',
         'want-to-try': 'Por probar',
       },
       meal: {

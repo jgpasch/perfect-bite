@@ -153,7 +153,7 @@ describe('recipes strings in Spanish', () => {
 
   it('names the Time facet and its buckets in the sheet and the tag pills', () => {
     initI18n('es');
-    const facets = availableFilterFacets([{ tags: null, totalMinutes: 45 }], noRecipeFilters());
+    const facets = availableFilterFacets([{ id: 'r1', tags: null, totalMinutes: 45 }], noRecipeFilters());
     expect(facets).toEqual([{ key: 'time', label: 'Tiempo', values: [{ slug: 'under-60', label: 'Menos de 1 hora' }] }]);
     expect(recipeTagPills(null, 20)).toEqual([
       { key: 'time:under-30', facet: 'Tiempo', value: 'Menos de 30 min', accessibilityLabel: 'Tiempo: Menos de 30 min' },
@@ -171,10 +171,11 @@ describe('recipes strings in Spanish', () => {
 
   it('reads the one-line tags in Spanish', () => {
     initI18n('es');
-    expect(recipeTagLine({ ...emptyRecipeTags(), saved: ['favorite'], meal: ['dinner'] }, 90)).toEqual({
-      favorite: true,
-      text: 'Cena · Más de 1 hora',
-      accessibilityLabel: 'Etiquetas: Favorita, Cena, Más de 1 hora',
+    // An old stored `favorite` slug is unknown: not shown (4.14).
+    expect(recipeTagLine({ ...emptyRecipeTags(), saved: ['favorite', 'want-to-try'], meal: ['dinner'] }, 90)).toEqual({
+      favorite: false,
+      text: 'Por probar · Cena · Más de 1 hora',
+      accessibilityLabel: 'Etiquetas: Por probar, Cena, Más de 1 hora',
     });
   });
 
@@ -207,8 +208,9 @@ describe('recipes strings in Spanish', () => {
     expect(recipeMetaLine(tacos)).toBe('Cena · 1 h 20 min');
     expect(recipeRowLabel(tacos, 'Súper')).toBe('Tacos, Cena, 1 h 20 min, en Súper');
     expect(recipeRowLabel(tacos, null, 'pollo')).toBe('Tacos, lleva pollo');
+    // An old stored `favorite` slug isn't read: favorites are per person now (4.14).
     const saved = { ...tacos, tags: { ...tacos.tags, saved: ['favorite', 'want-to-try'] } };
-    expect(recipeRowLabel(saved, 'Súper')).toBe('Tacos, Favorita, Por probar, Cena, 1 h 20 min, en Súper');
+    expect(recipeRowLabel(saved, 'Súper')).toBe('Tacos, Por probar, Cena, 1 h 20 min, en Súper');
     expect(i18n.t('recipes.tab.switchView', { name: 'Recetas' })).toBe('Recetas, cambiar vista');
     expect(recipeSortMenuLabel('name', 'cuisine', 'small')).toBe('Ordenar: A–Z, agrupadas por cocina, fotos pequeñas');
     expect(recipeSortMenuLabel('recent', 'none', 'large')).toBe('Ordenar: Agregadas recientemente, fotos grandes');

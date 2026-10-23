@@ -127,7 +127,7 @@ describe('Spanish', () => {
       ['Proteína', 'Pollo', expect.stringContaining('Pollo')],
       [expect.any(String), expect.any(String), expect.any(String)],
     ]);
-    const facets = availableFilterFacets([{ tags, totalMinutes: null }], noRecipeFilters());
+    const facets = availableFilterFacets([{ id: 'r1', tags, totalMinutes: null }], noRecipeFilters());
     expect(facets.slice(0, 2)).toEqual([
       { key: 'meal', label: 'Comida', values: [{ slug: 'dinner', label: 'Cena' }] },
       { key: 'protein', label: 'Proteína', values: [{ slug: 'chicken', label: 'Pollo' }] },

@@ -9,6 +9,7 @@ import { initI18n } from '@/i18n';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
 
+import type { FavoritesByRecipe } from '../favorites';
 import { noRecipeFilters, toggleRecipeFilter } from '../recipe-filters';
 import { recipeShelves, SHELF_MAX_ITEMS, SHELVES_MIN_RECIPES, shelfTileLabel, shelvesShown } from '../recipe-shelves';
 import { RECIPE_GROUP_KEY, RECIPE_SORT_KEY } from '../recipe-sort';
@@ -19,12 +20,15 @@ jest.mock('@/db/client', () => require('@/test/db'));
 type TestRecipe = { id: string; name: string; tags: RecipeTags | null; totalMinutes: number | null };
 type TestEntry = Parameters<typeof recipeShelves>[0]['entries'][number];
 
-const recipe = (id: string, name: string, totalMinutes: number | null = null, saved: string[] = []): TestRecipe => ({
-  id,
-  name,
-  tags: saved.length > 0 ? { ...emptyRecipeTags(), saved } : null,
-  totalMinutes,
-});
+/** Recipes some member has as a favorite (`recipe_favorites`, 4.14): `favorite` in `marks` puts one here. */
+const FAVORED = new Set<string>();
+const recipe = (id: string, name: string, totalMinutes: number | null = null, marks: string[] = []): TestRecipe => {
+  if (marks.includes('favorite')) FAVORED.add(id);
+  const saved = marks.filter((m) => m !== 'favorite');
+  return { id, name, tags: saved.length > 0 ? { ...emptyRecipeTags(), saved } : null, totalMinutes };
+};
+const favoritesOf = (recipes: readonly TestRecipe[]): FavoritesByRecipe =>
+  new Map(recipes.filter((r) => FAVORED.has(r.id)).map((r) => [r.id, { mine: false, others: ['Sam'] }]));
 
 /** Newest change first, as `recipesQuery` gives them. */
 const RECIPES: TestRecipe[] = [
@@ -50,8 +54,11 @@ const entry = (planDate: string, meal: TestEntry['meal'], recipeId: string | nul
 // Thursday; its week runs Sun Oct 11 to Sat Oct 17.
 const TODAY = '2026-10-15';
 
-const shelves = (recipes: readonly TestRecipe[] = RECIPES, entries: readonly TestEntry[] = []) =>
-  recipeShelves({ recipes, entries, today: TODAY, language: 'en' });
+const shelves = (
+  recipes: readonly TestRecipe[] = RECIPES,
+  entries: readonly TestEntry[] = [],
+  favorites: FavoritesByRecipe = favoritesOf(recipes),
+) => recipeShelves({ recipes, entries, today: TODAY, favorites, language: 'en' });
 const view = (rs: ReturnType<typeof shelves>) =>
   rs.map((s) => [s.key, s.title, s.count, s.items.map((i) => [i.recipe.name, i.caption])]);
 
@@ -205,11 +212,23 @@ describe('recipeShelves', () => {
   });
 
   test('empty shelves are left out', () => {
-    const noFavorites = RECIPES.map((r) => ({ ...r, tags: null }));
-    expect(shelves(noFavorites).map((s) => s.key)).toEqual(['recent']);
+    const none = new Map();
+    expect(shelves(RECIPES, [], none).map((s) => s.key)).toEqual(['recent']);
     // Want to try isn't a favorite.
-    expect(shelves([...noFavorites.slice(1), recipe('w', 'Waffles', null, ['want-to-try'])]).map((s) => s.key)).toEqual(['recent']);
+    expect(shelves([...RECIPES.slice(1), recipe('w', 'Waffles', null, ['want-to-try'])], [], none).map((s) => s.key)).toEqual([
+      'recent',
+    ]);
     expect(shelves(RECIPES, [entry('2026-10-10', 'dinner', 'r1')]).map((s) => s.key)).toEqual(['recent', 'favorites']);
+  });
+
+  test('Favorites holds anyone’s favorites, the user’s and other members’; an old `favorite` tag isn’t one', () => {
+    const favorites: FavoritesByRecipe = new Map([
+      ['r3', { mine: true, others: [] }],
+      ['r7', { mine: false, others: ['Sam'] }],
+    ]);
+    const oldTag = { ...RECIPES[0], tags: { ...emptyRecipeTags(), saved: ['favorite'] } };
+    const result = shelves([oldTag, ...RECIPES.slice(1)], [], favorites);
+    expect(result.find((s) => s.key === 'favorites')!.items.map((i) => i.recipe.name)).toEqual(['Curry', 'Miso soup']);
   });
 
   test('shelves span households', () => {
@@ -233,7 +252,13 @@ describe('recipeShelves', () => {
 
   test('Spanish titles and captions', () => {
     initI18n('es');
-    const result = recipeShelves({ recipes: RECIPES, entries: [entry('2026-10-15', 'dinner', 'r1')], today: TODAY, language: 'es' });
+    const result = recipeShelves({
+      recipes: RECIPES,
+      entries: [entry('2026-10-15', 'dinner', 'r1')],
+      today: TODAY,
+      favorites: favoritesOf(RECIPES),
+      language: 'es',
+    });
     expect(result.map((s) => s.title)).toEqual(['Esta semana', 'Agregadas recientemente', 'Favoritas']);
     expect(result[0].items[0].caption).toBe('cena del jue');
     expect(result[0].items[0].spokenCaption).toBe('cena del jueves');
@@ -287,7 +312,7 @@ describe('shelvesShown', () => {
   });
 
   test('a filter hides them, Untagged too', () => {
-    expect(shelvesShown({ query: '', filters: toggleRecipeFilter(filters, 'saved', 'favorite'), recipeCount: 20 })).toBe(false);
+    expect(shelvesShown({ query: '', filters: toggleRecipeFilter(filters, 'saved', 'favorites'), recipeCount: 20 })).toBe(false);
     expect(shelvesShown({ query: '', filters: toggleRecipeFilter(filters, 'time', 'under-30'), recipeCount: 20 })).toBe(false);
     expect(shelvesShown({ query: '', filters: { ...filters, untagged: true }, recipeCount: 20 })).toBe(false);
   });

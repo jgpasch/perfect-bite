@@ -46,6 +46,7 @@ import {
   type RecipePhotoSize,
 } from '@/features/recipes/recipe-photo-size';
 import { addWholeRecipeToList, undoRecipeAdd } from '@/features/recipes/add-to-list';
+import { setMyFavorite, useRecipeFavorites, type RecipeFavorite } from '@/features/recipes/favorites';
 import { quickAddList, quickAddTitle, type QuickAddCandidate } from '@/features/recipes/quick-add';
 import {
   addedRecipeWithStaplesToast,
@@ -150,6 +151,8 @@ export default function RecipesScreen() {
   // Spec 4.14: kept for the app session, AND with the search.
   const filters = useRecipeFilters();
   const filtering = activeFilterCount(filters) > 0;
+  // Spec 4.14: every member's favorites, for the filters, the hearts and the menu.
+  const favorites = useRecipeFavorites();
   const searched = useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
   // Spec 4.5: a sort (Recently added or A–Z) and a grouping, both remembered on this device.
   const [{ sort, group: grouping }, setSortChoiceState] = useState<{ sort: RecipeSort; group: RecipeGroup }>(getRecipeSortChoice);
@@ -175,18 +178,18 @@ export default function RecipesScreen() {
     () =>
       groupRecipesByHousehold(
         searched
-          .filter(({ recipe }) => matchesRecipeFilters(recipe, filters))
+          .filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites))
           .map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
       ).map((group) => ({
         ...group,
         recipes: sortRecipes(group.recipes, sort),
-        sections: groupRecipes(group.recipes, grouping, sort),
+        sections: groupRecipes(group.recipes, grouping, sort, favorites),
       })),
-    [searched, filters, sort, grouping],
+    [searched, filters, favorites, sort, grouping],
   );
   // Recipes the search found that tag filters hide for having no tags (none with Untagged on).
   const untaggedHidden =
-    filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe)).length : 0;
+    filtering && !filters.untagged ? searched.filter(({ recipe }) => isUntaggedRecipe(recipe, favorites)).length : 0;
   const onList = useMemo(() => onListByRecipe(onLists), [onLists]);
 
   // Spec 4.5: with no search or filters, shelves over an All recipes heading (none below 8 recipes).
@@ -194,8 +197,8 @@ export default function RecipesScreen() {
   const { data: weekEntries } = useLiveQueryOn(restOfWeekEntriesQuery(today), MEAL_PLAN_QUERY_TABLES);
   const showShelves = !week && shelvesShown({ query, filters, recipeCount: data.length });
   const shelves = useMemo(
-    () => (showShelves ? recipeShelves({ recipes: data, entries: weekEntries, today }) : []),
-    [showShelves, data, weekEntries, today],
+    () => (showShelves ? recipeShelves({ recipes: data, entries: weekEntries, today, favorites }) : []),
+    [showShelves, data, weekEntries, today, favorites],
   );
   const scroll = useRef<ScrollView>(null);
   const allRecipesY = useRef(0);
@@ -211,7 +214,7 @@ export default function RecipesScreen() {
       scroll.current?.scrollTo({ y: allRecipesY.current, animated: !reduceMotion });
     } else {
       // The shelves give way to the filter's results.
-      setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorite'));
+      setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorites'));
     }
   };
 
@@ -362,6 +365,7 @@ export default function RecipesScreen() {
           group={grouping}
           ingredientMatch={r.ingredientMatch}
           onList={onList.get(r.id) ?? null}
+          favorite={favorites.get(r.id) ?? null}
           highlighted={toast?.recipeId === r.id}
           quickAddTo={quickAddList(currentList, r)}
           onQuickAdd={quickAdd}
@@ -384,6 +388,7 @@ export default function RecipesScreen() {
                 group={grouping}
                 ingredientMatch={r.ingredientMatch}
                 onList={onList.get(r.id) ?? null}
+                favorite={favorites.get(r.id) ?? null}
                 highlighted={toast?.recipeId === r.id}
                 quickAddTo={quickAddList(currentList, r)}
                 onQuickAdd={quickAdd}
@@ -407,6 +412,7 @@ export default function RecipesScreen() {
       group: grouping,
       onList: listName,
       ingredientMatch: null,
+      favorite: favorites.get(recipe.id) ?? null,
       quickAddTo: quickAddList(currentList, recipe),
       onQuickAdd: quickAdd,
       onDelete: () => confirmDeleteRecipe(recipe),
@@ -777,6 +783,7 @@ function RecipeRow({
   group,
   ingredientMatch,
   onList,
+  favorite,
   highlighted,
   quickAddTo,
   onQuickAdd,
@@ -789,6 +796,8 @@ function RecipeRow({
   /** Search matched it only through this ingredient (spec 4.14): "Has …" in place of the meta line. */
   ingredientMatch: string | null;
   onList: string | null;
+  /** Who has it as a favorite (4.14), or null. */
+  favorite: RecipeFavorite | null;
   /** Just imported: outlined in `primary` while the toast shows. */
   highlighted: boolean;
   /** The list the menu's Add to <list> adds to (`quickAddList`), or null to leave it out. */
@@ -817,6 +826,7 @@ function RecipeRow({
     group,
     onList,
     ingredientMatch,
+    favorite,
     quickAddTo,
     onQuickAdd,
     onDelete: confirmDelete,
@@ -843,7 +853,7 @@ function RecipeRow({
             <ThemedText variant="headline" numberOfLines={1} style={styles.shrink}>
               {recipe.name}
             </ThemedText>
-            <SavedMarks tags={recipe.tags} />
+            <SavedMarks tags={recipe.tags} favorite={favorite} />
           </View>
           {ingredientMatch ? (
             <ThemedText variant="footnote" color="inkSecondary">
@@ -910,6 +920,7 @@ function recipeLink({
   group,
   onList,
   ingredientMatch,
+  favorite,
   quickAddTo,
   onQuickAdd,
   onDelete,
@@ -920,6 +931,7 @@ function recipeLink({
   group: RecipeGroup;
   onList: string | null;
   ingredientMatch: string | null;
+  favorite: RecipeFavorite | null;
   quickAddTo: { id: string; name: string } | null;
   onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
   onDelete: () => void;
@@ -930,7 +942,8 @@ function recipeLink({
   const t = i18n.t.bind(i18n);
   // Only a link that opens (spec 4.5); plain text in the link field gets no Visit recipe on web.
   const link = recipeLinkUrl(recipe.sourceUrl) ? recipe.sourceUrl : null;
-  const marks = recipeSavedMarks(recipe.tags);
+  const marks = recipeSavedMarks(recipe.tags, favorite);
+  const mine = marks.favorite === 'mine';
   return (
     <Link href={{ pathname: '/recipe/[id]', params: { id: recipe.id } }} asChild>
       <Link.Trigger>
@@ -969,16 +982,16 @@ function recipeLink({
         {link ? (
           <Link.MenuAction title={t('lists.sections.visitRecipe')} icon="safari" onPress={() => void openRecipeLink(link)} />
         ) : null}
-        {/* Spec 4.5: the Saved marks, each toggling only its own slug. */}
+        {/* Spec 4.5: the user's own favorite, whatever other members have, and the Want to try slug. */}
         <Link.MenuAction
-          title={t(marks.favorite ? 'recipes.tab.unfavorite' : 'recipes.tab.favorite')}
-          icon={marks.favorite ? 'heart.slash' : 'heart'}
-          onPress={() => setRecipeSaved(recipe.id, 'favorite', !marks.favorite)}
+          title={t(mine ? 'recipes.tab.unfavorite' : 'recipes.tab.favorite')}
+          icon={mine ? 'heart.slash' : 'heart'}
+          onPress={() => setMyFavorite(recipe.id, !mine)}
         />
         <Link.MenuAction
           title={t(marks.wantToTry ? 'recipes.tab.triedIt' : 'recipes.tab.wantToTry')}
           icon={marks.wantToTry ? 'checkmark' : 'bookmark'}
-          onPress={() => setRecipeSaved(recipe.id, 'want-to-try', !marks.wantToTry)}
+          onPress={() => setRecipeSaved(recipe.id, !marks.wantToTry)}
         />
         <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={onDelete} />
@@ -997,6 +1010,7 @@ function RecipeTile({
   group,
   ingredientMatch,
   onList,
+  favorite,
   highlighted,
   quickAddTo,
   onQuickAdd,
@@ -1005,6 +1019,7 @@ function RecipeTile({
   group: RecipeGroup;
   ingredientMatch: string | null;
   onList: string | null;
+  favorite: RecipeFavorite | null;
   /** Just imported: outlined in `primary` while the toast shows. */
   highlighted: boolean;
   quickAddTo: { id: string; name: string } | null;
@@ -1018,6 +1033,7 @@ function RecipeTile({
     group,
     onList,
     ingredientMatch,
+    favorite,
     quickAddTo,
     onQuickAdd,
     onDelete: () => confirmDeleteRecipe(recipe),
@@ -1045,7 +1061,7 @@ function RecipeTile({
           <ThemedText variant="headline" numberOfLines={2} style={styles.shrink}>
             {recipe.name}
           </ThemedText>
-          <SavedMarks tags={recipe.tags} />
+          <SavedMarks tags={recipe.tags} favorite={favorite} />
         </View>
         {ingredientMatch ? (
           <ThemedText variant="footnote" color="inkSecondary">
@@ -1065,15 +1081,15 @@ function RecipeTile({
 }
 
 /**
- * After a recipe's name (spec 4.5): a small `primary` heart when it's a Favorite, a bookmark when it's Want to
- * try. Decorative: the row's VoiceOver label says them.
+ * After a recipe's name (spec 4.5): a small `primary` heart when it's the user's favorite, a bookmark when it's
+ * Want to try. Decorative: the row's VoiceOver label says them.
  */
-function SavedMarks({ tags }: { tags: RecipeTags | null }) {
+function SavedMarks({ tags, favorite }: { tags: RecipeTags | null; favorite: RecipeFavorite | null }) {
   const { sizes } = useTheme();
-  const marks = recipeSavedMarks(tags);
+  const marks = recipeSavedMarks(tags, favorite);
   return (
     <>
-      {marks.favorite ? <Icon name="heart.fill" color="primary" size={sizes.iconSmall} /> : null}
+      {marks.favorite === 'mine' ? <Icon name="heart.fill" color="primary" size={sizes.iconSmall} /> : null}
       {marks.wantToTry ? <Icon name="bookmark" color="inkSecondary" size={sizes.iconSmall} /> : null}
     </>
   );

@@ -31,6 +31,7 @@ import {
   type RecipeGroup,
 } from '../recipe-sort';
 import { recipeMetaLine, recipeMetaParts, recipeRowLabel } from '../recipe-view';
+import type { FavoritesByRecipe } from '../favorites';
 
 type TestRecipe = { id: string; name: string; tags: RecipeTags | null; totalMinutes: number | null };
 
@@ -131,7 +132,7 @@ describe('labels', () => {
     ]);
     expect(titles('method')).toEqual(['Instant Pot', 'Slow cooker', 'Sheet pan', 'One pot', 'Grill', 'Air fryer', 'No cook', 'No method']);
     expect(titles('time')).toEqual(['Under 30 min', 'Under 1 hour', 'Over 1 hour', 'No time']);
-    expect(titles('saved')).toEqual(['Favorite', 'Want to try', 'Not saved']);
+    expect(titles('saved')).toEqual(['Favorites', 'Want to try', 'Not saved']);
   });
 
   test('in Spanish', () => {
@@ -326,22 +327,32 @@ describe('groupRecipes', () => {
     expect(groupRecipes([{ id: '1', name: 'Tacos', tags: null }], 'time', 'name').map((s) => s.key)).toEqual(['none']);
   });
 
-  test('saved: Favorite, Want to try, then Not saved; both marks in both', () => {
-    expect(
-      layout(
-        [
-          tagged('1', 'Tacos', { saved: ['favorite', 'want-to-try'] }),
-          tagged('2', 'Pho', { saved: ['want-to-try'] }),
-          tagged('3', 'Curry', { saved: ['favorite'] }),
-          tagged('4', 'Soup', {}),
-          recipe('5', 'Plain'),
-        ],
-        'saved',
-      ),
-    ).toEqual([
-      ['favorite', 'Favorite', 'rose', ['Curry', 'Tacos']],
+  test('saved: Favorites (anyone’s), Want to try, then Not saved; both marks in both; an old `favorite` tag is none', () => {
+    // Favorites per person (4.14): Tacos is the user's, Curry another member's.
+    const favorites: FavoritesByRecipe = new Map([
+      ['1', { mine: true, others: [] }],
+      ['3', { mine: false, others: ['Sam'] }],
+    ]);
+    const sections = groupRecipes(
+      [
+        tagged('1', 'Tacos', { saved: ['want-to-try'] }),
+        tagged('2', 'Pho', { saved: ['want-to-try'] }),
+        tagged('3', 'Curry', {}),
+        tagged('4', 'Soup', { saved: ['favorite'] }),
+        recipe('5', 'Plain'),
+      ],
+      'saved',
+      'name',
+      favorites,
+    );
+    expect(sections.map((s) => [s.key, s.title, s.hue, names(s.recipes)])).toEqual([
+      ['favorite', 'Favorites', 'rose', ['Curry', 'Tacos']],
       ['want-to-try', 'Want to try', 'blue', ['Pho', 'Tacos']],
       ['none', 'Not saved', 'grey', ['Plain', 'Soup']],
+    ]);
+    // Without the favorites data, no recipe is a favorite.
+    expect(layout([tagged('3', 'Curry', {}), tagged('4', 'Soup', { saved: ['favorite'] })], 'saved')).toEqual([
+      ['none', 'Not saved', 'grey', ['Curry', 'Soup']],
     ]);
   });
 

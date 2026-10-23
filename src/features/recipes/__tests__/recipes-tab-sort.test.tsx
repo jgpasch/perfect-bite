@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, recipes } from '@/db';
+import { db, households, recipeFavorites, recipes } from '@/db';
 import { ensureStarterData } from '@/features/lists/lists';
 import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
@@ -494,7 +494,9 @@ describe('Group by', () => {
 
   test('Protein, Method, Time and Saved each draw their own sections', () => {
     addRecipe('home', 'Surf and turf', -1, [], { protein: ['shellfish', 'beef'], method: ['grill'], totalMinutes: 75 });
-    addRecipe('home', 'Salad', -2, [], { method: ['no-cook'], saved: ['favorite'], totalMinutes: 10 });
+    addRecipe('home', 'Salad', -2, [], { method: ['no-cook'], totalMinutes: 10 });
+    // A favorite is a `recipe_favorites` row (4.14), not a tag.
+    db.insert(recipeFavorites).values({ recipeId: 'salad', userId: 'user-1', householdId: 'home' }).run();
     const root = render();
     choose(root, 'A–Z');
     choose(root, 'Protein');
@@ -518,7 +520,7 @@ describe('Group by', () => {
     ]);
     choose(root, 'Saved');
     expect(mealSections(root).map(([title, count]) => [title, count])).toEqual([
-      ['Favorite', 1],
+      ['Favorites', 1],
       ['Not saved', 6],
     ]);
   });

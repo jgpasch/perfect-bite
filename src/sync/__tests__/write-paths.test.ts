@@ -452,14 +452,14 @@ describe('recipes', () => {
     updateRecipeTags(id, { ...emptyRecipeTags(), meal: ['dinner'] }, 30);
     clearOutbox();
 
-    setRecipeSaved(id, 'favorite', true);
+    setRecipeSaved(id, true);
 
     expect(outboxPatches()).toEqual([
       {
         table: 'recipes',
         id,
         fields: {
-          tags: { saved: ['favorite'], meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] },
+          tags: { saved: ['want-to-try'], meal: ['dinner'], cuisine: [], protein: [], diet: [], method: [] },
           tags_edited: true,
         },
       },

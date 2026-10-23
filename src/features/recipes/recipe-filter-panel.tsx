@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/button';
 import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
+import type { FavoritesByRecipe } from '@/features/recipes/favorites';
 import {
   activeFilterCount,
   availableFilterFacets,
@@ -27,12 +28,15 @@ import { useT } from '@/i18n';
  */
 export function RecipeFilterPanel({
   recipes,
+  favorites,
   filters,
   onChange,
   count,
   onDone,
 }: {
   recipes: readonly FilterableRecipe[];
+  /** Every recipe's favorites (4.14), for the Saved group's Favorites and My favorites. */
+  favorites: FavoritesByRecipe;
   filters: RecipeFilters;
   onChange: (next: RecipeFilters) => void;
   /** How many recipes the filters (and any search) leave, for Show N recipes. */
@@ -41,7 +45,7 @@ export function RecipeFilterPanel({
 }) {
   const t = useT();
   const { spacing } = useTheme();
-  const facets = useMemo(() => availableFilterFacets(recipes, filters), [recipes, filters]);
+  const facets = useMemo(() => availableFilterFacets(recipes, filters, favorites), [recipes, filters, favorites]);
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
 
   return (

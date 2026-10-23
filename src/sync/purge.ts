@@ -23,6 +23,7 @@ import {
   lists,
   mealPlanEntries,
   outbox,
+  recipeFavorites,
   recipeIngredients,
   recipes,
   userHouseholdCategoryOrder,
@@ -69,6 +70,7 @@ export function purgeHousehold(tx: Exec, householdId: string): PurgeSummary {
   tx.delete(ingredientUsage).where(eq(ingredientUsage.householdId, householdId)).run();
   tx.delete(ingredientUnitUsage).where(eq(ingredientUnitUsage.householdId, householdId)).run();
   tx.delete(householdStaples).where(eq(householdStaples.householdId, householdId)).run();
+  tx.delete(recipeFavorites).where(eq(recipeFavorites.householdId, householdId)).run();
   // Its aisles (spec 4.3.2, 4.3.3): overrides, custom categories, its aisle order, and the user's
   // own order for it with its queued mutations (per-user, so the household filter below misses them).
   tx.delete(householdCategoryOverrides).where(eq(householdCategoryOverrides.householdId, householdId)).run();

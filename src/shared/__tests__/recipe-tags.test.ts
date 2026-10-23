@@ -18,7 +18,7 @@ import {
 describe('the facets', () => {
   test('are in display order with their maximums', () => {
     expect(RECIPE_TAG_FACETS.map((f) => [f.key, f.label, f.max])).toEqual([
-      ['saved', 'Saved', 2],
+      ['saved', 'Saved', 1],
       ['meal', 'Meal', 2],
       ['cuisine', 'Cuisine', 2],
       ['protein', 'Protein', 3],
@@ -36,7 +36,8 @@ describe('the facets', () => {
   test('list their values in order', () => {
     const slugs = Object.fromEntries(RECIPE_TAG_FACETS.map((f) => [f.key, f.values.map((v) => v.slug)]));
     expect(slugs).toEqual({
-      saved: ['favorite', 'want-to-try'],
+      // Favorites are per person, not a tag (4.14).
+      saved: ['want-to-try'],
       meal: ['breakfast', 'lunch', 'dinner', 'side', 'dessert', 'snack', 'drink'],
       cuisine: [
         'american',
@@ -77,7 +78,8 @@ describe('the facets', () => {
     expect(recipeTagLabel('meal', 'brunch')).toBeNull();
     // A slug from another facet isn't this facet's.
     expect(recipeTagLabel('meal', 'chicken')).toBeNull();
-    expect(recipeTagLabel('saved', 'favorite')).toBe('Favorite');
+    // An old stored `favorite` is unknown now.
+    expect(recipeTagLabel('saved', 'favorite')).toBeNull();
     expect(recipeTagLabel('saved', 'want-to-try')).toBe('Want to try');
     expect(recipeTagLabel('saved', 'dinner')).toBeNull();
   });
@@ -97,7 +99,7 @@ describe('RecipeTagsSchema', () => {
     expect(RecipeTagsSchema.parse(tags)).toEqual(tags);
   });
 
-  test('keeps both saved values', () => {
+  test('keeps saved values, an old `favorite` too', () => {
     expect(RecipeTagsSchema.parse({ saved: ['favorite', 'want-to-try'] })).toEqual({
       ...emptyRecipeTags(),
       saved: ['favorite', 'want-to-try'],
@@ -160,7 +162,7 @@ describe('knownTags', () => {
         method: [],
       }),
     ).toEqual({
-      saved: ['favorite', 'want-to-try'],
+      saved: ['want-to-try'],
       meal: ['lunch', 'dinner'],
       cuisine: [],
       protein: ['chicken', 'pork'],

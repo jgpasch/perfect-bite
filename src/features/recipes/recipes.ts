@@ -156,11 +156,13 @@ export function updateRecipeTags(id: string, tags: RecipeTags, totalMinutes: num
 }
 
 /**
- * The Recipes tab menu's Favorite / Unfavorite and Want to try / Tried it (spec 4.5, 4.14): adds or
- * removes one Saved slug and keeps every other stored slug (unknown ones too), writing `tags` and
+ * The Recipes tab menu's Want to try / Tried it (spec 4.5, 4.14): adds or removes `want-to-try` and
+ * keeps every other stored slug (unknown ones too, such as an old `favorite`), writing `tags` and
  * `tagsEdited` in one update as the Tags sheet's Save does. An untagged recipe gets tags with only it.
+ * Favorites aren't tags: `setMyFavorite` (`favorites.ts`).
  */
-export function setRecipeSaved(id: string, slug: SavedTag, on: boolean): void {
+export function setRecipeSaved(id: string, on: boolean): void {
+  const slug: SavedTag = 'want-to-try';
   const recipe = getRecipe(id);
   if (!recipe) return;
   const tags = recipe.tags ? RecipeTagsSchema.parse(recipe.tags) : emptyRecipeTags();

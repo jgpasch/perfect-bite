@@ -3,7 +3,7 @@
 // failure leaves none of them.
 //
 // Household tables (households, lists, items, contributions, recipes, recipe ingredients, usage,
-// custom categories, category overrides, staples, meal plan entries, the household aisle order)
+// custom categories, category overrides, staples, favorites, meal plan entries, the household aisle order)
 // and per-user tables (the user's own aisle orders, settings) go through here.
 // The catalog (`ingredients`, system categories) and device settings don't sync up, so they don't.
 //
@@ -26,6 +26,7 @@ import {
   lists,
   mealPlanEntries,
   outbox,
+  recipeFavorites,
   recipeIngredients,
   recipes,
   userHouseholdCategoryOrder,
@@ -68,6 +69,8 @@ const SPECS = new Map<SQLiteTable, Spec>([
   [householdCategoryOverrides, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdAt'] }],
   // Only deleted_at is the client's to set; the server stamps created_by and created_at.
   [householdStaples, { key: ['householdId', 'ingredientName'], household: true, unsent: ['createdBy', 'createdAt'] }],
+  // Only deleted_at (and household_id, on insert) is the client's to set; the server stamps created_at.
+  [recipeFavorites, { key: ['recipeId', 'userId'], household: true, unsent: ['createdAt'] }],
   // Only the order is the client's to set; the server stamps updated_by and created_at.
   [
     householdCategoryOrder,
@@ -91,6 +94,7 @@ export type SyncedTable =
   | typeof categories
   | typeof householdCategoryOverrides
   | typeof householdStaples
+  | typeof recipeFavorites
   | typeof householdCategoryOrder
   | typeof userHouseholdCategoryOrder
   | typeof userSettings;

@@ -20,9 +20,11 @@ import {
   untaggedOnlyFilters,
   type RecipeFilters,
 } from '../recipe-filters';
+import type { FavoritesByRecipe } from '../favorites';
 
 const tags = (over: Partial<RecipeTags>): RecipeTags => ({ ...emptyRecipeTags(), ...over });
 const recipe = (name: string, t: Partial<RecipeTags> | null, totalMinutes: number | null = null) => ({
+  id: name,
   name,
   tags: t ? tags(t) : null,
   totalMinutes,
@@ -70,7 +72,7 @@ describe('matching', () => {
   });
 
   test('a stored value missing a facet (older row) is treated as empty', () => {
-    const partial = { name: 'Partial', tags: { meal: ['dinner'] } as unknown as RecipeTags, totalMinutes: null };
+    const partial = { id: 'partial', name: 'Partial', tags: { meal: ['dinner'] } as unknown as RecipeTags, totalMinutes: null };
     expect(matchesRecipeFilters(partial, pick(['cuisine', 'thai']))).toBe(false);
     expect(matchesRecipeFilters(partial, pick(['meal', 'dinner']))).toBe(true);
   });
@@ -105,58 +107,136 @@ describe('untagged', () => {
   });
 });
 
-describe('saved: Favorite and Want to try', () => {
-  const loved = recipe('Loved', { saved: ['favorite'], meal: ['dinner'] });
+describe('saved: Favorites, My favorites and Want to try', () => {
+  // Favorites per person (4.14) come from `recipe_favorites`, by recipe id; an old `favorite` slug is unknown.
+  const loved = recipe('Loved', { meal: ['dinner'] }); // mine
+  const theirs = recipe('Theirs', { meal: ['dinner'], cuisine: ['mexican'] }); // only Sam's
   const someday = recipe('Someday', { saved: ['want-to-try'] });
-  const both = recipe('Both', { saved: ['want-to-try', 'favorite'], meal: ['lunch'] });
-  const SAVED = [tacos, loved, someday, both, plain];
+  const both = recipe('Both', { saved: ['want-to-try'], meal: ['lunch'] }); // mine and Ana's
+  const oldTag = recipe('Old tag', { saved: ['favorite'] });
+  const SAVED = [tacos, loved, theirs, someday, both, oldTag, plain];
+  const FAVORITES: FavoritesByRecipe = new Map([
+    ['Loved', { mine: true, others: [] }],
+    ['Theirs', { mine: false, others: ['Sam'] }],
+    ['Both', { mine: true, others: ['Ana'] }],
+  ]);
+  const ONLY_MINE: FavoritesByRecipe = new Map([['Loved', { mine: true, others: [] }]]);
+  const filter = (f: RecipeFilters, favorites = FAVORITES) => names(filterRecipes(SAVED, f, favorites));
 
-  test('filtering by Favorite, by Want to try, and both (OR)', () => {
-    expect(names(filterRecipes(SAVED, pick(['saved', 'favorite'])))).toEqual(['Loved', 'Both']);
-    expect(names(filterRecipes(SAVED, pick(['saved', 'want-to-try'])))).toEqual(['Someday', 'Both']);
-    expect(names(filterRecipes(SAVED, pick(['saved', 'favorite'], ['saved', 'want-to-try'])))).toEqual(['Loved', 'Someday', 'Both']);
+  test('Favorites is anyone’s, My favorites the user’s own, Want to try the tag', () => {
+    expect(filter(pick(['saved', 'favorites']))).toEqual(['Loved', 'Theirs', 'Both']);
+    expect(filter(pick(['saved', 'my-favorites']))).toEqual(['Loved', 'Both']);
+    expect(filter(pick(['saved', 'want-to-try']))).toEqual(['Someday', 'Both']);
+  });
+
+  test('OR with Want to try within Saved', () => {
+    expect(filter(pick(['saved', 'favorites'], ['saved', 'want-to-try']))).toEqual(['Loved', 'Theirs', 'Someday', 'Both']);
+    expect(filter(pick(['saved', 'my-favorites'], ['saved', 'want-to-try']))).toEqual(['Loved', 'Someday', 'Both']);
+    expect(filter(pick(['saved', 'favorites'], ['saved', 'my-favorites']))).toEqual(['Loved', 'Theirs', 'Both']);
   });
 
   test('AND with the other facets', () => {
-    expect(names(filterRecipes(SAVED, pick(['saved', 'favorite'], ['meal', 'dinner'])))).toEqual(['Loved']);
-    expect(names(filterRecipes(SAVED, pick(['saved', 'want-to-try'], ['meal', 'dinner'])))).toEqual([]);
+    expect(filter(pick(['saved', 'favorites'], ['meal', 'dinner']))).toEqual(['Loved', 'Theirs']);
+    expect(filter(pick(['saved', 'my-favorites'], ['meal', 'dinner']))).toEqual(['Loved']);
+    expect(filter(pick(['saved', 'favorites'], ['cuisine', 'mexican']))).toEqual(['Theirs']);
+    expect(filter(pick(['saved', 'favorites'], ['saved', 'want-to-try'], ['meal', 'lunch']))).toEqual(['Both']);
+    expect(filter(pick(['saved', 'want-to-try'], ['meal', 'dinner']))).toEqual([]);
+  });
+
+  test('without the favorites data nothing is a favorite', () => {
+    expect(names(filterRecipes(SAVED, pick(['saved', 'favorites'])))).toEqual([]);
+    expect(filter(pick(['saved', 'favorites']), new Map())).toEqual([]);
+  });
+
+  test('an old stored `favorite` slug matches no saved filter', () => {
+    expect(matchesRecipeFilters(oldTag, pick(['saved', 'favorites']), FAVORITES)).toBe(false);
+    expect(matchesRecipeFilters(oldTag, pick(['saved', 'want-to-try']), FAVORITES)).toBe(false);
+    expect(isUntaggedRecipe(oldTag, FAVORITES)).toBe(true);
   });
 
   test('older stored tags without saved never match a saved filter', () => {
-    const older = { name: 'Older', tags: { meal: ['dinner'] } as unknown as RecipeTags, totalMinutes: null };
-    expect(matchesRecipeFilters(older, pick(['saved', 'favorite']))).toBe(false);
+    const older = { id: 'older', name: 'Older', tags: { meal: ['dinner'] } as unknown as RecipeTags, totalMinutes: null };
+    expect(matchesRecipeFilters(older, pick(['saved', 'want-to-try']), FAVORITES)).toBe(false);
+    expect(matchesRecipeFilters(older, pick(['saved', 'favorites']), FAVORITES)).toBe(false);
   });
 
-  test('only saved tags isn’t untagged', () => {
+  test('only a saved tag or only a favorite isn’t untagged', () => {
+    const lonely = recipe('Lonely', null);
     expect(isUntaggedRecipe(someday)).toBe(false);
-    expect(names(filterRecipes(SAVED, untaggedOnlyFilters()))).toEqual(['Plain']);
+    expect(isUntaggedRecipe(lonely)).toBe(true);
+    expect(isUntaggedRecipe(lonely, new Map([['Lonely', { mine: false, others: ['Sam'] }]]))).toBe(false);
+    expect(names(filterRecipes([...SAVED, lonely], untaggedOnlyFilters(), new Map([['Lonely', { mine: true, others: [] }]])))).toEqual([
+      'Old tag',
+      'Plain',
+    ]);
     expect(isUntaggedRecipe(recipe('Unknown saved', { saved: ['loved'] }))).toBe(true);
   });
 
-  test('the group comes first, shown only when some recipe has a value', () => {
-    expect(availableFilterFacets(SAVED, noRecipeFilters())[0]).toEqual({
+  test('the group comes first: Favorites, My favorites, Want to try, each only when some recipe has it', () => {
+    expect(availableFilterFacets(SAVED, noRecipeFilters(), FAVORITES)[0]).toEqual({
       key: 'saved',
       label: 'Saved',
       values: [
-        { slug: 'favorite', label: 'Favorite' },
+        { slug: 'favorites', label: 'Favorites' },
+        { slug: 'my-favorites', label: 'My favorites' },
         { slug: 'want-to-try', label: 'Want to try' },
       ],
     });
-    expect(availableFilterFacets([tacos, someday], noRecipeFilters())[0]).toEqual({
+    expect(availableFilterFacets([tacos, someday], noRecipeFilters(), FAVORITES)[0]).toEqual({
       key: 'saved',
       label: 'Saved',
       values: [{ slug: 'want-to-try', label: 'Want to try' }],
     });
-    expect(availableFilterFacets([tacos, plain], noRecipeFilters()).map((f) => f.key)).not.toContain('saved');
+    expect(availableFilterFacets([tacos, plain, oldTag], noRecipeFilters(), FAVORITES).map((f) => f.key)).not.toContain('saved');
   });
 
-  test('active chips, before the other facets', () => {
-    const f = pick(['meal', 'dinner'], ['saved', 'want-to-try'], ['saved', 'favorite']);
+  test('My favorites is hidden until another member has a favorite', () => {
+    const saved = (favorites: FavoritesByRecipe) =>
+      availableFilterFacets(SAVED, noRecipeFilters(), favorites)[0].values.map((v) => v.slug);
+    const plus = (id: string, others: string[]): FavoritesByRecipe => new Map([...ONLY_MINE, [id, { mine: false, others }]]);
+    expect(saved(ONLY_MINE)).toEqual(['favorites', 'want-to-try']);
+    expect(saved(plus('Theirs', ['Sam']))).toEqual([
+      'favorites',
+      'my-favorites',
+      'want-to-try',
+    ]);
+    // Another member's favorite on a recipe the list doesn't hold doesn't count.
+    expect(saved(plus('elsewhere', ['Sam']))).toEqual(['favorites', 'want-to-try']);
+    // Picked, it stays so it can be turned off.
+    expect(availableFilterFacets(SAVED, pick(['saved', 'my-favorites']), ONLY_MINE)[0].values.map((v) => v.slug)).toEqual([
+      'favorites',
+      'my-favorites',
+      'want-to-try',
+    ]);
+  });
+
+  test('toggling the favorites values keeps them out of the tags', () => {
+    const f = pick(['saved', 'my-favorites'], ['saved', 'want-to-try'], ['saved', 'favorites']);
+    expect(f.favorites).toEqual(['my-favorites', 'favorites']);
+    expect(f.tags.saved).toEqual(['want-to-try']);
+    expect(isFilterPicked(f, 'saved', 'favorites')).toBe(true);
+    expect(toggleRecipeFilter(toggleRecipeFilter(f, 'saved', 'favorites'), 'saved', 'my-favorites')).toEqual({
+      ...noRecipeFilters(),
+      tags: { ...emptyRecipeTags(), saved: ['want-to-try'] },
+    });
+    expect(toggleRecipeFilter(untaggedOnlyFilters(), 'saved', 'favorites')).toEqual({ ...noRecipeFilters(), favorites: ['favorites'] });
+  });
+
+  test('active chips, before the other facets, in the sheet’s order', () => {
+    const f = pick(['meal', 'dinner'], ['saved', 'want-to-try'], ['saved', 'my-favorites'], ['saved', 'favorites']);
     const chips = recipeFilterChips(f);
-    expect(chips.map((c) => c.label)).toEqual(['Favorite', 'Want to try', 'Dinner']);
-    expect(chips[0]).toMatchObject({ key: 'saved:favorite', facet: 'saved', slug: 'favorite', accessibilityLabel: 'Remove Favorite filter' });
-    expect(removeFilterChip(f, chips[0]).tags.saved).toEqual(['want-to-try']);
-    expect(activeFilterCount(f)).toBe(3);
+    expect(chips.map((c) => c.label)).toEqual(['Favorites', 'My favorites', 'Want to try', 'Dinner']);
+    expect(chips[0]).toEqual({
+      key: 'saved:favorites',
+      facet: 'saved',
+      slug: 'favorites',
+      label: 'Favorites',
+      accessibilityLabel: 'Remove Favorites filter',
+    });
+    expect(chips[1].accessibilityLabel).toBe('Remove My favorites filter');
+    expect(removeFilterChip(f, chips[0])).toMatchObject({ favorites: ['my-favorites'], tags: { saved: ['want-to-try'] } });
+    expect(removeFilterChip(f, chips[2])).toMatchObject({ favorites: ['my-favorites', 'favorites'], tags: { saved: [] } });
+    expect(activeFilterCount(f)).toBe(4);
   });
 });
 

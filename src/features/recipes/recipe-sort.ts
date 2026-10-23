@@ -15,7 +15,11 @@ import {
   type TimeBucket,
 } from '@/shared/recipe-tags';
 
+import type { FavoritesByRecipe } from './favorites';
 import { timeBucketLabel } from './recipe-filters';
+
+/** Group by Saved's first section: a favorite of any current member, the user included (4.14). */
+const FAVORITES_SECTION = 'favorite';
 
 export type RecipeSort = 'recent' | 'name';
 
@@ -164,7 +168,7 @@ export const RECIPE_GROUP_SECTIONS: Readonly<Record<Exclude<RecipeGroup, 'none'>
     { key: 'none', hue: 'grey' },
   ],
   saved: [
-    { key: 'favorite', hue: 'rose' },
+    { key: FAVORITES_SECTION, hue: 'rose' },
     { key: 'want-to-try', hue: 'blue' },
     { key: 'none', hue: 'grey' },
   ],
@@ -184,16 +188,23 @@ export function recipeGroupSectionTitle(group: Exclude<RecipeGroup, 'none'>, key
   if (key === 'none') return i18n.t(`recipes.sort.${NO_SECTION_TITLES[group]}`);
   if (group === 'cuisine') return cuisineRegionLabel(key as CuisineRegion);
   if (group === 'time') return timeBucketLabel(key as TimeBucket);
+  if (group === 'saved' && key === FAVORITES_SECTION) return i18n.t('recipes.filters.favorites');
   return tagLabel(group, key) ?? key;
 }
 
 /** The section keys a recipe belongs to in a grouping (several for several values), before "No …". */
-function sectionKeysOf(recipe: { tags: RecipeTags | null; totalMinutes?: number | null }, group: Exclude<RecipeGroup, 'none'>) {
+function sectionKeysOf(
+  recipe: { id: string; tags: RecipeTags | null; totalMinutes?: number | null },
+  group: Exclude<RecipeGroup, 'none'>,
+  favorites: FavoritesByRecipe,
+) {
   if (group === 'time') {
     const bucket = timeBucket(recipe.totalMinutes);
     return bucket ? [bucket] : [];
   }
   const values = knownTags(recipe.tags)?.[group] ?? [];
+  // Favorites aren't a tag: a favorite of any current member (4.14).
+  if (group === 'saved') return favorites.has(recipe.id) ? [FAVORITES_SECTION, ...values] : values;
   // Two cuisines in one region put the recipe in it once.
   return group === 'cuisine' ? [...new Set(values.map((c) => CUISINE_REGIONS[c as CuisineTag]))] : values;
 }
@@ -203,17 +214,18 @@ export type RecipeSection<R> = { key: string; title: string; hue: AisleHue; reci
 /**
  * One household's recipes in a grouping's sections, in its order, each in the chosen sort; a recipe with several
  * values in the facet is in each of their sections, one with none (or only unknown ones) in "No …". Empty
- * sections are left out; no grouping gives none.
+ * sections are left out; no grouping gives none. `favorites` (every recipe's) make Saved's Favorites section.
  */
 export function groupRecipes<R extends { id: string; name: string; tags: RecipeTags | null; totalMinutes?: number | null }>(
   recipes: readonly R[],
   group: RecipeGroup,
   sort: RecipeSort,
+  favorites: FavoritesByRecipe = new Map(),
 ): RecipeSection<R>[] {
   if (group === 'none') return [];
   const byKey = new Map<string, R[]>();
   for (const recipe of recipes) {
-    const keys = sectionKeysOf(recipe, group);
+    const keys = sectionKeysOf(recipe, group, favorites);
     for (const key of keys.length > 0 ? keys : ['none']) byKey.set(key, [...(byKey.get(key) ?? []), recipe]);
   }
   return RECIPE_GROUP_SECTIONS[group]

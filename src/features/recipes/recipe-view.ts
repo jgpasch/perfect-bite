@@ -16,6 +16,7 @@ import {
 } from '@/shared/recipe-steps';
 import { knownTags, type RecipeTags } from '@/shared/recipe-tags';
 
+import type { RecipeFavorite } from './favorites';
 import type { RecipeGroup } from './recipe-sort';
 
 export type RecipeHouseholdGroup<R> = { householdId: string; name: string; recipes: R[] };
@@ -99,16 +100,25 @@ export function recipeMetaLine(
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-/** Whether a recipe is a Favorite and Want to try (spec 4.5): its row's heart and bookmark, and its menu. */
-export function recipeSavedMarks(tags: RecipeTags | null): { favorite: boolean; wantToTry: boolean } {
+/**
+ * A recipe's favorite and Want to try (spec 4.5, 4.14): its row's heart and bookmark, and its menu. The
+ * favorite comes from `recipe_favorites` (`useRecipeFavorites`), not the tags: `mine` when the user has
+ * it, `others` when only other current members do, else null. A `favorite` slug stored in the tags
+ * before favorites were per person counts for nothing.
+ */
+export function recipeSavedMarks(
+  tags: RecipeTags | null,
+  favorite?: RecipeFavorite | null,
+): { favorite: 'mine' | 'others' | null; wantToTry: boolean } {
   const saved = tags?.saved ?? [];
-  return { favorite: saved.includes('favorite'), wantToTry: saved.includes('want-to-try') };
+  const mark = favorite?.mine ? 'mine' : favorite?.others.length ? 'others' : null;
+  return { favorite: mark, wantToTry: saved.includes('want-to-try') };
 }
 
 /**
- * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Favorite, Dinner, 35 min, on Groceries" (Favorite
- * and Want to try only when set). A row a search matched only through an ingredient reads that in place of the
- * meta: "Tacos, has chicken thighs".
+ * What VoiceOver reads for a Recipes tab row: "Chicken tacos, Want to try, Dinner, 35 min, on Groceries" (Want
+ * to try only when set). A row a search matched only through an ingredient reads that in place of the meta:
+ * "Tacos, has chicken thighs".
  */
 export function recipeRowLabel(
   recipe: { name: string; tags: RecipeTags | null; totalMinutes: number | null },
@@ -119,7 +129,6 @@ export function recipeRowLabel(
   const marks = recipeSavedMarks(recipe.tags);
   return [
     recipe.name,
-    marks.favorite ? tagLabel('saved', 'favorite') : null,
     marks.wantToTry ? tagLabel('saved', 'want-to-try') : null,
     ...(ingredientMatch ? [i18n.t('recipes.tab.cardHas', { name: ingredientMatch })] : recipeMetaParts(recipe, group)),
     onList ? i18n.t('recipes.tab.cardOn', { name: onList }) : null,

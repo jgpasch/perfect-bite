@@ -330,6 +330,31 @@ export const householdStaples = sqliteTable(
 );
 
 /**
+ * Favorites per person (spec 4.14): one row per recipe and member who favorited it. Every member of
+ * the recipe's household sees every member's; each writes only their own. Unfavoriting sets
+ * `deleted_at`; favoriting again clears it, so the later change wins (7.3).
+ */
+export const recipeFavorites = sqliteTable(
+  'recipe_favorites',
+  {
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id),
+    userId: text('user_id').notNull(),
+    /** The recipe's household. */
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipeId, t.userId] }),
+    index('recipe_favorites_household_idx').on(t.householdId),
+  ],
+);
+
+/**
  * The household's meal plan (spec 4.16): one row per entry in a slot (a day and a meal). Setting a
  * slot soft-deletes its live entries and inserts the new one; with two live rows (two devices
  * offline), the slot shows the one created last. `position` orders several, for a later "main and side".

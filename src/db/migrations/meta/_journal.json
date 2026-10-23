@@ -197,6 +197,13 @@
       "when": 1792725705440,
       "tag": "0027_drop_tmp",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1792728362142,
+      "tag": "0028_recipe_favorites",
+      "breakpoints": true
     }
   ]
 }
