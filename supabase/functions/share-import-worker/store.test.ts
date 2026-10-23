@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { assertEquals, assertRejects } from '@std/assert';
 
+import { CommitConflictError } from './commit.ts';
 import { LeaseLostError } from './handler.ts';
-import { createShareImportWorkerStore } from './store.ts';
+import { createShareImportCommitStore, createShareImportWorkerStore } from './store.ts';
 
 type Answer = { data: unknown; error: { code?: string; message?: string } | null };
 
@@ -58,4 +59,54 @@ Deno.test('lease_lost (55000) is a LeaseLostError; any other error is thrown as 
   const failing = client({ data: null, error: other }).store;
   const err = await assertRejects(() => failing.claim(['extracting']));
   assertEquals(err, other);
+});
+
+const TARGET = {
+  household_id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+  list_id: null,
+  list_gone: true,
+  recipe_id: 'c0000000-0000-4000-8000-000000000001',
+  items_added: 0,
+  items_combined: 0,
+};
+
+/** A commit store whose rpc answers `answer`. */
+function commitClient(answer: Answer) {
+  const calls: { fn: string; args: unknown }[] = [];
+  const admin = {
+    rpc: async (fn: string, args: unknown) => {
+      calls.push({ fn, args });
+      return answer;
+    },
+  } as unknown as SupabaseClient;
+  return { store: createShareImportCommitStore(admin), calls };
+}
+
+Deno.test('commit passes the lease and the plan and returns the receipt', async () => {
+  const receipt = { ...TARGET, applied_list_id: null, committed_at: '2026-10-23T10:00:00Z' };
+  const c = commitClient({ data: receipt, error: null });
+  const writes = [{ op: 'insert' as const, table: 'recipes' as const, id: TARGET.recipe_id, fields: { name: 'Pasta' } }];
+  const preconditions = [{ kind: 'recipeAbsent' as const, recipeId: TARGET.recipe_id }];
+  assertEquals(await c.store.commit(ID, LEASE, TARGET, writes, preconditions), receipt);
+  assertEquals(c.calls, [{
+    fn: 'commit_share_import',
+    args: { p_id: ID, p_lease: LEASE, p_target: TARGET, p_writes: writes, p_preconditions: preconditions },
+  }]);
+});
+
+Deno.test('commit: plan_conflict and destination_changed (40001) are CommitConflictErrors, lease_lost a LeaseLostError', async () => {
+  for (const code of ['plan_conflict', 'destination_changed'] as const) {
+    const err = await assertRejects(
+      () => commitClient({ data: null, error: { code: '40001', message: code } }).store.commit(ID, LEASE, TARGET, [], []),
+      CommitConflictError,
+    );
+    assertEquals(err.code, code);
+  }
+  await assertRejects(
+    () => commitClient({ data: null, error: { code: '55000', message: 'lease_lost' } }).store.commit(ID, LEASE, TARGET, [], []),
+    LeaseLostError,
+  );
+  // Another serialization failure isn't a plan conflict.
+  const other = { code: '40001', message: 'could not serialize access' };
+  assertEquals(await assertRejects(() => commitClient({ data: null, error: other }).store.commit(ID, LEASE, TARGET, [], [])), other);
 });

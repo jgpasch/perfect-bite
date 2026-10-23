@@ -9,6 +9,7 @@ import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { FetchPageError, type FetchedPage } from '../_shared/fetch-page.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import type { CachedImport, ImportDeps, RecipeImportStore } from '../import-recipe/handler.ts';
+import type { ShareImportCommitStore } from './commit.ts';
 import {
   handleRequest,
   LeaseLostError,
@@ -50,6 +51,8 @@ type Row = {
   id: string;
   user_id: string;
   household_id: string;
+  list_id: string | null;
+  add_to_list: boolean;
   url: string;
   page: unknown;
   status: 'received' | 'extracting' | 'extracted' | 'committing' | 'done' | 'failed';
@@ -79,6 +82,8 @@ class FakeJobs implements ShareImportWorkerStore {
       id,
       user_id: USER,
       household_id: HOUSEHOLD,
+      list_id: null,
+      add_to_list: true,
       url: PASTA_URL,
       page: PASTA_PAGE,
       status: 'received',
@@ -135,8 +140,11 @@ class FakeJobs implements ShareImportWorkerStore {
         id: due.id,
         user_id: due.user_id,
         household_id: due.household_id,
+        list_id: due.list_id,
+        add_to_list: due.add_to_list,
         url: due.url,
         page: due.page,
+        extraction: due.extraction,
         status: due.status as JobKind,
         lease_token: due.lease_token,
         attempts: due.attempts,
@@ -253,6 +261,11 @@ function modelDuring(during: () => void | Promise<void>): { instance: LanguageMo
   };
 }
 
+/** These tests never commit. */
+const NO_COMMITS = new Proxy({} as ShareImportCommitStore, {
+  get: () => () => Promise.reject(new Error('No commits in the extracting tests')),
+});
+
 function setup() {
   const jobs = new FakeJobs();
   const recipes = new FakeRecipeStore();
@@ -274,7 +287,9 @@ function setup() {
       now: () => jobs.now,
     };
   };
-  const run = (budgetMs?: number) => runWorker({ store: jobs, importDeps, now: () => jobs.now, budgetMs });
+  // The extracting phase only (commit.test.ts has the committing phase).
+  const run = (budgetMs?: number) =>
+    runWorker({ store: jobs, commitStore: NO_COMMITS, kinds: ['extracting'], importDeps, now: () => jobs.now, budgetMs });
   return {
     jobs,
     recipes,
@@ -307,7 +322,7 @@ async function withEnv(vars: Record<string, string | null>, fn: () => Promise<vo
 const test = (name: string, fn: () => Promise<void>) =>
   Deno.test(name, () => withEnv({ AI_MODEL_RECIPE: 'mock', AI_MODEL_CATEGORIZE: 'mock', AI_MODEL_RECIPE_FALLBACK: null }, fn));
 
-const result = (fields: Partial<RunResult>): RunResult => ({ claimed: 0, extracted: 0, transient: 0, waiting: 0, permanent: 0, leaseLost: 0, ...fields });
+const result = (fields: Partial<RunResult>): RunResult => ({ claimed: 0, extracted: 0, committed: 0, transient: 0, waiting: 0, permanent: 0, leaseLost: 0, ...fields });
 
 const JOB = 'f0000000-0000-4000-8000-000000000001';
 

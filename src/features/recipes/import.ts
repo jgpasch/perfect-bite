@@ -15,7 +15,7 @@ import { newId } from '@/lib/id';
 import { reportError } from '@/lib/sentry';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { planRecipeImport } from '@/shared/domain/import-plan';
-import { findReusableRecipe, type ReuseCandidate } from '@/shared/domain/recipe-import';
+import { findReusableRecipe, IMPORT_ID_NAMESPACE, type ReuseCandidate } from '@/shared/domain/recipe-import';
 import {
   canonicalRecipeUrl,
   RecipeImportErrorSchema,
@@ -32,8 +32,7 @@ import { capturePage, toRequestPage } from './page-capture';
 import { uploadRecipePages } from './photo-upload';
 import { deleteRecipe, getRecipe, updateRecipeSourcePages } from './recipes';
 
-/** The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe id. */
-export const IMPORT_ID_NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
+export { IMPORT_ID_NAMESPACE };
 
 /**
  * Where an import goes: onto a list (the recipe is saved to its household), or into a household

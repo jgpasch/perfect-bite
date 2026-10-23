@@ -8,7 +8,7 @@ import { categorize } from '../categorize-ingredients/handler.ts';
 import { createCategorizeStore } from '../categorize-ingredients/store.ts';
 import { createRecipeImportStore } from '../import-recipe/store.ts';
 import { handleRequest, runWorker } from './handler.ts';
-import { createShareImportWorkerStore } from './store.ts';
+import { createShareImportCommitStore, createShareImportWorkerStore } from './store.ts';
 
 export default {
   fetch: withSupabase({ auth: 'secret' }, (req, ctx) => {
@@ -16,6 +16,7 @@ export default {
     return handleRequest(req, () =>
       runWorker({
         store: createShareImportWorkerStore(admin),
+        commitStore: createShareImportCommitStore(admin),
         // Everything a job does is the sharer's: the plan check, the limits and the ai_calls rows.
         importDeps: (job) => {
           const categorizeStore = createCategorizeStore(admin, { userId: job.user_id });

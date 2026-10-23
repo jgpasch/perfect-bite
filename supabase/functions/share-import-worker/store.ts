@@ -1,6 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
+import {
+  CommitConflictError,
+  type ContributionRow,
+  type ListRow,
+  type ShareImportCommitStore,
+  type ShareImportReceipt,
+} from './commit.ts';
 import { LeaseLostError, type ShareImportJob, type ShareImportWorkerStore } from './handler.ts';
 
 /** The worker's functions raise `lease_lost` (55000) under a lease that isn't the job's. */
@@ -11,7 +18,184 @@ function leaseLost(error: { code?: string; message?: string }): boolean {
 function check(error: { code?: string; message?: string } | null): void {
   if (!error) return;
   if (leaseLost(error)) throw new LeaseLostError();
+  if (error.code === '40001' && (error.message === 'plan_conflict' || error.message === 'destination_changed')) {
+    throw new CommitConflictError(error.message);
+  }
   throw error;
+}
+
+type ListDbRow = { id: string; household_id: string; archived_at: string | null; deleted_at: string | null };
+
+const listRow = (r: ListDbRow): ListRow => ({
+  id: r.id,
+  householdId: r.household_id,
+  archivedAt: r.archived_at,
+  deletedAt: r.deleted_at,
+});
+
+/**
+ * ShareImportCommitStore over the service-role client (which reads past RLS): the reads are plain
+ * selects, each its own statement outside any transaction; the commit is one RPC.
+ */
+export function createShareImportCommitStore(admin: SupabaseClient): ShareImportCommitStore {
+  return {
+    async isMember(userId, householdId) {
+      const { data, error } = await admin
+        .from('household_members')
+        .select('user_id')
+        .eq('household_id', householdId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      check(error);
+      return data !== null;
+    },
+
+    async list(listId) {
+      const { data, error } = await admin
+        .from('lists')
+        .select('id, household_id, archived_at, deleted_at')
+        .eq('id', listId)
+        .maybeSingle();
+      check(error);
+      return data ? listRow(data as ListDbRow) : null;
+    },
+
+    async defaultListId(userId) {
+      const { data, error } = await admin.from('user_settings').select('default_list_id').eq('user_id', userId).maybeSingle();
+      check(error);
+      return (data?.default_list_id as string | null | undefined) ?? null;
+    },
+
+    async memberLists(userId) {
+      const { data: members, error } = await admin.from('household_members').select('household_id').eq('user_id', userId);
+      check(error);
+      const households = (members ?? []).map((m) => m.household_id as string);
+      if (households.length === 0) return [];
+      const { data, error: listsError } = await admin
+        .from('lists')
+        .select('id, household_id, archived_at, deleted_at')
+        .in('household_id', households)
+        .is('deleted_at', null)
+        .is('archived_at', null)
+        .order('position')
+        .order('id');
+      check(listsError);
+      return ((data ?? []) as ListDbRow[]).map(listRow);
+    },
+
+    async combineLanguages(householdId) {
+      const { data, error } = await admin.from('households').select('combine_languages').eq('id', householdId).maybeSingle();
+      check(error);
+      return data?.combine_languages === true;
+    },
+
+    async catalog(names) {
+      if (names.length === 0) return [];
+      const { data, error } = await admin
+        .from('ingredients')
+        .select('normalized_name, same_as, default_unit')
+        .in('normalized_name', names);
+      check(error);
+      return (data ?? []).map((r) => ({
+        normalizedName: r.normalized_name as string,
+        sameAs: r.same_as as string | null,
+        defaultUnit: r.default_unit as string | null,
+      }));
+    },
+
+    async liveItems(listId) {
+      const { data, error } = await admin
+        .from('list_items')
+        .select('id, ingredient_name, display_name, checked_at, checked_by')
+        .eq('list_id', listId)
+        .is('deleted_at', null)
+        .order('created_at')
+        .order('id');
+      check(error);
+      return (data ?? []).map((r) => ({
+        id: r.id as string,
+        ingredientName: r.ingredient_name as string,
+        displayName: r.display_name as string,
+        checkedAt: r.checked_at as string | null,
+        checkedBy: r.checked_by as string | null,
+      }));
+    },
+
+    async liveContributions(itemIds) {
+      if (itemIds.length === 0) return [];
+      const { data, error } = await admin
+        .from('list_item_contributions')
+        .select('id, list_item_id, source, quantity, unit')
+        .in('list_item_id', itemIds)
+        .is('deleted_at', null)
+        .order('created_at')
+        .order('id');
+      check(error);
+      return (data ?? []).map((r) => ({
+        id: r.id as string,
+        listItemId: r.list_item_id as string,
+        source: r.source as ContributionRow['source'],
+        quantity: r.quantity === null ? null : Number(r.quantity),
+        unit: r.unit as string | null,
+      }));
+    },
+
+    async unitUsage(householdId, names) {
+      if (names.length === 0) return [];
+      const { data, error } = await admin
+        .from('ingredient_unit_usage')
+        .select('ingredient_name, unit_key, use_count, last_used_at')
+        .eq('household_id', householdId)
+        .in('ingredient_name', names);
+      check(error);
+      return (data ?? []).map((r) => ({
+        ingredientName: r.ingredient_name as string,
+        unitKey: r.unit_key as string,
+        useCount: r.use_count as number,
+        lastUsedAt: r.last_used_at as string,
+      }));
+    },
+
+    async recipeExists(id) {
+      const { data, error } = await admin.from('recipes').select('id').eq('id', id).maybeSingle();
+      check(error);
+      return data !== null;
+    },
+
+    async reuseCandidates(householdId, importRecipeId) {
+      const columns = 'id, name, household_id, source_url, deleted_at';
+      const [own, linked] = await Promise.all([
+        admin.from('recipes').select(columns).eq('id', importRecipeId).is('deleted_at', null),
+        admin
+          .from('recipes')
+          .select(columns)
+          .eq('household_id', householdId)
+          .is('deleted_at', null)
+          .not('source_url', 'is', null),
+      ]);
+      check(own.error);
+      check(linked.error);
+      return [...(own.data ?? []), ...(linked.data ?? [])].map((r) => ({
+        id: r.id as string,
+        name: r.name as string,
+        householdId: r.household_id as string,
+        sourceUrl: r.source_url as string | null,
+        deletedAt: r.deleted_at as string | null,
+      }));
+    },
+
+    async commit(id, lease, target, writes, preconditions) {
+      const { data, error } = await admin.rpc('commit_share_import', {
+        p_id: id,
+        p_lease: lease,
+        p_target: target,
+        p_writes: writes,
+        p_preconditions: preconditions,
+      });
+      check(error);
+      return data as ShareImportReceipt;
+    },
+  };
 }
 
 /** ShareImportWorkerStore over the service-role client: each call is one short transaction. */

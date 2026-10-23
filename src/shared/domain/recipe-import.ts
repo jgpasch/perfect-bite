@@ -4,6 +4,12 @@ import { stepTexts } from '../recipe-steps.ts';
 import { canonicalRecipeUrl, type RecipeImportResponse } from '../schemas/recipe-import.ts';
 import { stepIngredientsBasis, type StepIngredients } from '../step-ingredients.ts';
 
+/**
+ * The namespace import ids are hashed under (UUIDv5), so an import id always gives the same recipe
+ * id: on the device, and for a share imported on the server (whose import id is the envelope id).
+ */
+export const IMPORT_ID_NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
+
 /** `recipes.servings`: a whole number from 1 to 100, else null. */
 export function servingsOf(servings: number | null): number | null {
   return servings !== null && Number.isInteger(servings) && servings >= 1 && servings <= 100 ? servings : null;
