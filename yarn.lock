@@ -7117,6 +7117,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"expo-secure-store@npm:~57.0.4":
+  version: 57.0.4
+  resolution: "expo-secure-store@npm:57.0.4"
+  peerDependencies:
+    expo: "*"
+  checksum: 10c0/8f94ff747808d6a270536171bf14eaa3e75aeae31c7a20615a76d101e167d2cf7a09db6c7f9b770a587a8852362bb69ecb15b4208db0789fcd24a61a50941c0f
+  languageName: node
+  linkType: hard
+
 "expo-server@npm:^57.0.3":
   version: 57.0.3
   resolution: "expo-server@npm:57.0.3"
@@ -10674,6 +10683,7 @@ __metadata:
     expo-network: "npm:~57.0.2"
     expo-notifications: "npm:~57.0.23"
     expo-router: "npm:~57.0.25"
+    expo-secure-store: "npm:~57.0.4"
     expo-sms: "npm:~57.0.2"
     expo-splash-screen: "npm:~57.0.9"
     expo-sqlite: "npm:~57.0.4"

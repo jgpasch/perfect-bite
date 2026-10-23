@@ -198,7 +198,10 @@ describe('share-recipe target', () => {
       displayName: 'The Perfect Bite',
       bundleIdentifier: '.share',
       frameworks: ['SwiftUI', 'UniformTypeIdentifiers'],
-      entitlements: { 'com.apple.security.application-groups': ['group.com.jgp.perfectbite'] },
+      entitlements: {
+        'com.apple.security.application-groups': ['group.com.jgp.perfectbite'],
+        'keychain-access-groups': ['$(AppIdentifierPrefix)com.jgp.perfectbite.shared'],
+      },
     });
   });
 

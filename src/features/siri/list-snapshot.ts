@@ -66,9 +66,12 @@ export function siriListChoices(snapshot: ListSnapshot): SiriListChoice[] {
   }));
 }
 
-/** The snapshot from SQLite (every household on this device is one the user belongs to). */
+/**
+ * The snapshot from SQLite (every household on this device is one the user belongs to), stamped
+ * with the signed-in user, whom the share extension copies into its envelopes (spec 4.10).
+ */
 export function currentListSnapshot(userId: string): ListSnapshot {
-  return buildListSnapshot(
+  const snapshot = buildListSnapshot(
     listsWithCountsQuery().all(),
     getDefaultListId(userId),
     getDeviceSetting<string | null>(LAST_OPENED_LIST_KEY, null),
@@ -79,6 +82,7 @@ export function currentListSnapshot(userId: string): ListSnapshot {
       .orderBy(asc(households.createdAt), asc(households.id))
       .all(),
   );
+  return { ...snapshot, userId };
 }
 
 /** Tables whose changes can change the snapshot: lists, memberships (households), the default list. */

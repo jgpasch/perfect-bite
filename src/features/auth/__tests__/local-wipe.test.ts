@@ -167,6 +167,7 @@ describe('the keep-list', () => {
       [
         'catalog.accentsFolded',
         'catalog.seedFingerprint',
+        'device.installationId',
         'importAddToList',
         'list.aisleColors',
         'list.itemRowStyle',

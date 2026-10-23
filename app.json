@@ -18,6 +18,9 @@
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.jgp.perfectbite"
+        ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)com.jgp.perfectbite.shared"
         ]
       },
       "appleTeamId": "4537GH756L",
@@ -278,7 +281,8 @@
           "organization": "john-paschal",
           "project": "perfect-bite"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -297,6 +301,9 @@
                   "entitlements": {
                     "com.apple.security.application-groups": [
                       "group.com.jgp.perfectbite"
+                    ],
+                    "keychain-access-groups": [
+                      "$(AppIdentifierPrefix)com.jgp.perfectbite.shared"
                     ]
                   }
                 },

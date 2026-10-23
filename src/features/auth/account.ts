@@ -3,6 +3,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 
+import { forgetDeviceCredential, revokeDeviceCredential } from '@/features/auth/device-credential';
 import { unregisterPush } from '@/features/push/stored-registration';
 import { getGoogleIdToken, signOutOfGoogle } from '@/lib/google-sign-in';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -107,9 +108,13 @@ export async function verifyEmailCode(email: string, token: string): Promise<voi
   if (error) throw error;
 }
 
-/** Signs out of Supabase and Google, after removing this device's push token (best effort, spec 4.13). */
+/**
+ * Signs out of Supabase and Google, after removing this device's push token (best effort, spec 4.13)
+ * and revoking its share credential (best effort; the Keychain item always goes, spec 6.12).
+ */
 export async function signOut(): Promise<void> {
   await unregisterPush();
+  await revokeDeviceCredential();
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   await signOutOfGoogle().catch(() => {});
@@ -120,6 +125,8 @@ export async function signOut(): Promise<void> {
  * already gone, so the server's answer is ignored and this never throws.
  */
 export async function signOutLocally(): Promise<void> {
+  // The server's credentials went with the account (cascade); only the Keychain item is left.
+  await forgetDeviceCredential();
   await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
   await signOutOfGoogle().catch(() => {});
 }

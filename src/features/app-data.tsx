@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAccountState } from '@/features/auth/account';
+import { startDeviceCredential } from '@/features/auth/device-credential';
 import { ensureMissingIngredients, loadCatalogSeed } from '@/features/categories/categories';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { categorizePending } from '@/features/categories/categorization';
@@ -111,6 +112,9 @@ export function AppDataGate({ children }: { children: ReactNode }) {
   useEffect(() => (userId ? startShareDrain(userId) : undefined), [userId]);
   // Push (spec 4.13): a token the user allowed is refreshed on sign-in, foreground and token change.
   useEffect(() => (userId ? startPushRegistration() : undefined), [userId]);
+  // The share extension's device credential (spec 6.12): registered on sign-in, renewed on a
+  // foreground when under 30 days remain.
+  useEffect(() => (userId ? startDeviceCredential(userId) : undefined), [userId]);
   // Quiet hours follow the phone's time zone: sent on sign-in and on a foreground after it changed.
   useEffect(() => (userId ? startTimeZoneSync() : undefined), [userId]);
   return children;

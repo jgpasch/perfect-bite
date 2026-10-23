@@ -42,6 +42,12 @@ describe('ListSnapshotSchema', () => {
     expect(ListSnapshotSchema.parse(empty)).toEqual(empty);
   });
 
+  it('carries the signed-in user id, which must be a uuid', () => {
+    const snapshot = { lastOpenedListId: null, lists: [], households: [], userId: '019a4c0f-0000-7000-8000-0000000000c1' };
+    expect(ListSnapshotSchema.parse(snapshot).userId).toBe('019a4c0f-0000-7000-8000-0000000000c1');
+    expect(() => ListSnapshotSchema.parse({ ...snapshot, userId: 'user-1' })).toThrow();
+  });
+
   it("lists every household, including one with no lists, and each list's household", () => {
     const parsed = ListSnapshotSchema.parse(snapshotFixture);
     expect(parsed.households).toEqual([

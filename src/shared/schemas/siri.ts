@@ -38,5 +38,10 @@ export const ListSnapshotSchema = z.object({
    * sheet can save a recipe to one (spec 4.10). Siri ignores it.
    */
   households: z.array(z.object({ id: z.uuid(), name: z.string() })),
+  /**
+   * The signed-in user, copied by the share extension into each envelope and matched against the
+   * device credential (spec 4.10). Siri ignores it.
+   */
+  userId: z.uuid().optional(),
 });
 export type ListSnapshot = z.infer<typeof ListSnapshotSchema>;

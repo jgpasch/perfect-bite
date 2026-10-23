@@ -217,6 +217,7 @@ describe('currentListSnapshot', () => {
         { id: personal, name: 'Personal' },
         { id: 'cabin', name: 'Lake cabin' },
       ],
+      userId: USER,
     });
   });
 
@@ -250,6 +251,7 @@ describe('currentListSnapshot', () => {
       lastOpenedListId: null,
       lists: [{ id: groceries, name: 'Groceries', householdId: personal, householdName: 'Personal' }],
       households: [{ id: personal, name: 'Personal' }],
+      userId: USER,
     });
   });
 

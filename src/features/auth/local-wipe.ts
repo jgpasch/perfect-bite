@@ -30,6 +30,7 @@ import {
 } from '@/db';
 import { SEED_KEY } from '@/features/categories/categories';
 import { FOLD_ACCENTS_KEY } from '@/features/categories/fold-accents';
+import { INSTALLATION_ID_KEY } from '@/features/auth/device-credential';
 import { clearMyInvites } from '@/features/households/my-invites';
 import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY } from '@/features/lists/list-view';
 import { BACKFILL_KEY, UNITS_BACKFILL_KEY } from '@/features/lists/usage';
@@ -56,6 +57,8 @@ export const KEPT_DEVICE_SETTINGS = [
   BACKFILL_KEY,
   UNITS_BACKFILL_KEY,
   FOLD_ACCENTS_KEY,
+  // This install's id for the device credential (spec 6.12), kept across sign-outs.
+  INSTALLATION_ID_KEY,
 ];
 
 /** One table's delete. `keep` names the rows that stay (all others go) and why; without it the table is emptied. */

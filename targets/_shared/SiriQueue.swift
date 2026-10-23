@@ -36,6 +36,8 @@ enum SiriQueue {
     /// Every household, in order, including any with no lists; the share sheet's Save to (spec 4.10).
     /// Optional so a snapshot written by an older app still decodes. Siri doesn't use it.
     var households: [Household]?
+    /// The signed-in user, for the share envelope and the device credential (spec 4.10). Siri doesn't use it.
+    var userId: String?
   }
 
   enum QueueError: Error {
