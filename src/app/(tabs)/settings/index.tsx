@@ -1,13 +1,14 @@
 import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { avatarColors } from '@/components/appearance';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { Icon } from '@/components/icon';
 import { SegmentedControl } from '@/components/segmented-control';
 import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
@@ -36,6 +37,7 @@ import {
   householdCountsLabel,
   householdsWithCountsQuery,
   HOUSEHOLD_COUNT_TABLES,
+  memberFullName,
 } from '@/features/households/households';
 import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
@@ -50,6 +52,7 @@ import {
   setKeepScreenOn,
   setPlanTab,
 } from '@/features/settings/device-settings';
+import { useMyName } from '@/features/settings/name';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
 import { useFontSet } from '@/hooks/font-set';
 import { useTheme } from '@/hooks/use-theme';
@@ -57,11 +60,13 @@ import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
 /** Settings (board 10): the account card, Households, Shopping, Aisles, Meal plan and General cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
-  const { colors, aisles, spacing, sizes, rounded } = useTheme();
+  const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const t = useT();
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : undefined;
   const email = account.status === 'ready' ? account.account.email : undefined;
+  const myName = useMyName(userId);
+  const fullName = myName ? memberFullName(myName) : '';
   const version = Constants.expoConfig?.version ?? '—';
   const { data: householdRows } = useLiveQueryOn(householdsWithCountsQuery(), HOUSEHOLD_COUNT_TABLES);
   // userSettings: so "Siri adds to" follows a list's "Default list for Siri".
@@ -99,30 +104,43 @@ export default function SettingsScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
-        <Card
-          accessible
-          accessibilityLabel={t('settings.accountLabel', { email: email ?? t('settings.unknownEmail'), status: sync.label })}
-          style={[styles.row, { padding: spacing.lg, gap: spacing.md + spacing.xxs }]}>
-          <View
-            style={[
-              styles.avatar,
-              { width: sizes.accountAvatar, height: sizes.accountAvatar, borderRadius: rounded.full, backgroundColor: avatar.fill },
+        {/* The user's name over their email once a pull has cached it; until then the email. Opens Name. */}
+        <Card>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              fullName
+                ? t('settings.accountLabelNamed', { name: fullName, email: email ?? t('settings.unknownEmail'), status: sync.label })
+                : t('settings.accountLabel', { email: email ?? t('settings.unknownEmail'), status: sync.label })
+            }
+            accessibilityHint={t('settings.accountHint')}
+            onPress={() => router.push('/settings/name')}
+            style={({ pressed }) => [
+              styles.row,
+              { padding: spacing.lg, gap: spacing.md + spacing.xxs, opacity: pressed ? opacity.pressed : 1 },
             ]}>
-            {/* One letter in a fixed circle: capped so it stays inside at the largest text sizes. */}
-            <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: avatar.text }}>
-              {avatarInitial(email)}
-            </ThemedText>
-          </View>
-          <View style={styles.flex}>
-            <ThemedText variant="headline">{email ?? '—'}</ThemedText>
-            <ThemedText variant="footnote" color="inkSecondary">
-              {t('settings.signedIn')}
-            </ThemedText>
-          </View>
-          {/* Badges align to the top of their parent; this keeps it centred beside the name. */}
-          <View>
-            <Badge label={sync.label} tone={sync.tone} />
-          </View>
+            <View
+              style={[
+                styles.avatar,
+                { width: sizes.accountAvatar, height: sizes.accountAvatar, borderRadius: rounded.full, backgroundColor: avatar.fill },
+              ]}>
+              {/* One letter in a fixed circle: capped so it stays inside at the largest text sizes. */}
+              <ThemedText variant="initial" maxFontSizeMultiplier={1.5} style={{ color: avatar.text }}>
+                {avatarInitial(myName?.firstName || email)}
+              </ThemedText>
+            </View>
+            <View style={styles.flex}>
+              <ThemedText variant="headline">{fullName || (email ?? '—')}</ThemedText>
+              <ThemedText variant="footnote" color="inkSecondary">
+                {fullName ? (email ?? '—') : t('settings.signedIn')}
+              </ThemedText>
+            </View>
+            {/* Badges align to the top of their parent; this keeps it centred beside the name. */}
+            <View>
+              <Badge label={sync.label} tone={sync.tone} />
+            </View>
+            <Icon name="chevron.right" color="inkSecondary" size={sizes.iconSmall} weight="semibold" />
+          </Pressable>
         </Card>
 
         {/* One row per household, opening its screen, where its members, invites and settings are. */}

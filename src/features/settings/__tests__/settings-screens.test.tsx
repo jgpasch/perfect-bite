@@ -6,7 +6,7 @@ import type { ReactElement } from 'react';
 import { AccessibilityInfo, Alert, Modal, StyleSheet, Switch, Text } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households } from '@/db';
+import { db, householdMemberNames, households } from '@/db';
 import type { AccountState } from '@/features/auth/account';
 import { setDeletedHousehold } from '@/features/households/deleted-household-notice';
 import { createList, ensureStarterData, getDefaultListId, setDefaultList, setListArchived } from '@/features/lists/lists';
@@ -204,6 +204,45 @@ describe('Settings', () => {
     // The avatar's initial comes first, then the email.
     expect(textOf(root)).toMatch(/^J jo@example\.com Signed in/);
     expect(textOf(root)).toMatch(/Version\s+1\.2\.3/);
+  });
+
+  it('shows the cached full name over the email, the initial from the first name, and opens Name (spec 4.7)', () => {
+    const householdId = db.select().from(households).get()!.id;
+    db.insert(householdMemberNames)
+      .values([
+        { householdId, userId: 'user-2', firstName: 'Alex', lastName: null, joinedAt: '2026-10-01T00:00:00Z' },
+        { householdId, userId: USER, firstName: 'Sam', lastName: 'Lee', joinedAt: '2026-10-01T00:00:00Z' },
+      ])
+      .run();
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).toMatch(/^S Sam Lee jo@example\.com Synced/);
+    expect(textOf(root)).not.toContain('Signed in');
+    const card = button(root, 'Signed in as Sam Lee, jo@example.com, Synced');
+    expect(card.props.accessibilityHint).toBe('Edits your name');
+    click(card);
+    expect(mockPush).toHaveBeenCalledWith('/settings/name');
+  });
+
+  it('shows a single cached name without a trailing space', () => {
+    const householdId = db.select().from(households).get()!.id;
+    db.insert(householdMemberNames)
+      .values({ householdId, userId: USER, firstName: 'Cher', lastName: null, joinedAt: '2026-10-01T00:00:00Z' })
+      .run();
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).toMatch(/^C Cher jo@example\.com/);
+    button(root, 'Signed in as Cher, jo@example.com, Synced');
+  });
+
+  it('shows the email as before while no name is cached, still opening Name', () => {
+    const householdId = db.select().from(households).get()!.id;
+    // Another member's name doesn't count as the user's.
+    db.insert(householdMemberNames)
+      .values({ householdId, userId: 'user-2', firstName: 'Alex', lastName: 'Rivera', joinedAt: '2026-10-01T00:00:00Z' })
+      .run();
+    const root = render(<SettingsScreen />);
+    expect(textOf(root)).toMatch(/^J jo@example\.com Signed in/);
+    click(button(root, 'Signed in as jo@example.com, Synced'));
+    expect(mockPush).toHaveBeenCalledWith('/settings/name');
   });
 
   it('shows the Shopping, Aisles and General rows with their current values', () => {

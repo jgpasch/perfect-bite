@@ -1035,8 +1035,22 @@ export const en = {
     title: 'Settings',
     /** The account card for VoiceOver: "Signed in as sam@example.com, Synced". */
     accountLabel: 'Signed in as {{email}}, {{status}}',
+    /** With the user's name cached: "Signed in as Sam Lee, sam@example.com, Synced". */
+    accountLabelNamed: 'Signed in as {{name}}, {{email}}, {{status}}',
+    accountHint: 'Edits your name',
     unknownEmail: 'unknown',
     signedIn: 'Signed in',
+    /** Settings > Name (tapping the account card). */
+    nameScreen: {
+      title: 'Name',
+      firstName: 'First name',
+      lastName: 'Last name',
+      optional: 'Optional',
+      save: 'Save',
+      footnote: 'People in your households see this name.',
+      offline: "You're offline. Connect to the internet to save your name.",
+      failed: "Couldn't save your name. Try again.",
+    },
     shopping: 'Shopping',
     aisles: 'Aisles',
     siriAddsTo: 'Siri adds to',

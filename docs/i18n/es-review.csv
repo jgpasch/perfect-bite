@@ -772,6 +772,16 @@ settings.title,Settings,Ajustes,
 settings.accountLabel,"Signed in as {{email}}, {{status}}","Sesión iniciada como {{email}}, {{status}}",
 settings.unknownEmail,unknown,desconocido,
 settings.signedIn,Signed in,Sesión iniciada,
+settings.accountLabelNamed,"Signed in as {{name}}, {{email}}, {{status}}","Sesión iniciada como {{name}}, {{email}}, {{status}}",VoiceOver label of the account card once the name is known.
+settings.accountHint,Edits your name,Edita tu nombre,VoiceOver hint of the account card.
+settings.nameScreen.title,Name,Nombre,Screen title.
+settings.nameScreen.firstName,First name,Nombre,Field label (given name).
+settings.nameScreen.lastName,Last name,Apellido,Field label (family name).
+settings.nameScreen.optional,Optional,Opcional,Placeholder of the Last name field.
+settings.nameScreen.save,Save,Guardar,
+settings.nameScreen.footnote,People in your households see this name.,Las personas de tus hogares ven este nombre.,
+settings.nameScreen.offline,You're offline. Connect to the internet to save your name.,No tienes conexión. Conéctate a internet para guardar tu nombre.,
+settings.nameScreen.failed,Couldn't save your name. Try again.,No se pudo guardar tu nombre. Inténtalo de nuevo.,
 settings.shopping,Shopping,Compras,
 settings.aisles,Aisles,Pasillos,
 settings.siriAddsTo,Siri adds to,Siri agrega a,
