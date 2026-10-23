@@ -83,6 +83,7 @@ export const APP_ACTIONS = {
   "aisle.renamed": { area: "aisles", label: "Renamed an aisle" },
   "aisle.deleted": { area: "aisles", label: "Deleted an aisle" },
   "aisle.assigned": { area: "aisles", label: "Changed an ingredient's aisle" },
+  "aisle_order.saved": { area: "aisles", label: "Saved the household aisle order" },
   "staple.added": { area: "aisles", label: "Added a staple" },
   "staple.removed": { area: "aisles", label: "Removed a staple" },
   "household.created": { area: "household", label: "Created a household" },
@@ -380,6 +381,8 @@ function appSentence(entry: Pick<UserActivityEntry, "action" | "data" | "househo
       return text(d.aisle) === null
         ? ["Reset ", em(d.ingredient), " to its default aisle"]
         : ["Moved ", em(d.ingredient), " to ", em(d.aisle)];
+    case "aisle_order.saved":
+      return ["Saved the household aisle order"];
     case "staple.added":
       return ["Added staple ", em(d.ingredient)];
     case "staple.removed":
@@ -417,7 +420,7 @@ function appSentence(entry: Pick<UserActivityEntry, "action" | "data" | "househo
     case "settings.default_list":
       return text(d.list) === null ? ["Cleared the default list"] : ["Made ", em(d.list), " the default list"];
     case "settings.aisle_order":
-      return ["Reordered aisles"];
+      return [d.removed === true ? "Went back to the household aisle order" : "Saved their own aisle order"];
     case "settings.notifications":
       return [`Changed notification settings${fieldsText(d.fields)}`];
     case "device.registered":

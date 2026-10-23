@@ -148,7 +148,7 @@ describe('order', () => {
     expect(outboxRows()).toEqual([]);
   });
 
-  test('custom categories and overrides go through apply_mutations; the order stays a per-user write', async () => {
+  test('custom categories and overrides go through apply_mutations; the retired order table is refused without a request', async () => {
     applyAll();
     insertRow(db, categories, { id: 'c1', name: 'Bakery', householdId: H });
     upsertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c1', position: 2 }, { position: 2 });
@@ -157,7 +157,7 @@ describe('order', () => {
     updateRows(db, categories, eq(categories.id, 'c1'), { name: 'Bread' });
     deleteRows(db, userCategoryOrder, eq(userCategoryOrder.categoryId, 'c1'));
 
-    await expect(pushNow()).resolves.toEqual({ pushed: 6, rejected: 0, failed: false });
+    await expect(pushNow()).resolves.toEqual({ pushed: 4, rejected: 2, failed: false });
 
     // Two batches around the order upsert; no direct category or override writes.
     expect(applyCalls()).toHaveLength(2);
@@ -169,11 +169,12 @@ describe('order', () => {
       ['household_category_overrides', { household_id: H, ingredient_name: 'milk' }, { category_id: null }],
       ['categories', 'c1', { name: 'Bread' }],
     ]);
-    expect(queries.map((q) => [q.table, ...q.ops])).toEqual([
-      ['user_category_order', ['upsert', { user_id: 'u1', category_id: 'c1', position: 2 }, { onConflict: 'user_id,category_id' }]],
-      ['user_category_order', ['delete'], ['match', { user_id: 'u1', category_id: 'c1' }]],
+    expect(queries).toEqual([]);
+    const retired = { code: 'retired', message: 'user_category_order no longer exists on the server' };
+    expect(outboxRows().map((r) => [r.mutation.table, r.mutation.delete ?? false, r.error])).toEqual([
+      ['user_category_order', false, retired],
+      ['user_category_order', true, retired],
     ]);
-    expect(outboxRows()).toEqual([]);
   });
 
   test('staples go through apply_mutations by key, with deleted_at and never created_by', async () => {
@@ -280,10 +281,10 @@ describe('a rejected mutation does not block the rest', () => {
 
   test('a 4xx on a per-user write is recorded and the queue moves on', async () => {
     // Only on this device (no mutation), so the server doesn't have it.
-    db.insert(categories).values({ id: 'c9', name: 'Local', householdId: H }).run();
-    insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c9', position: 1 });
+    db.insert(lists).values({ id: 'l9', householdId: H, name: 'Local', position: 1 }).run();
+    upsertRow(db, userSettings, { userId: 'u1', defaultListId: 'l9' }, { defaultListId: 'l9' });
     addList('l1');
-    respondTo('user_category_order', { error: { code: '23503', message: 'violates foreign key' }, status: 409 });
+    respondTo('user_settings', { error: { code: '23503', message: 'violates foreign key' }, status: 409 });
     applyAll();
 
     await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 1, rejected: 1, failed: false });
@@ -291,8 +292,44 @@ describe('a rejected mutation does not block the rest', () => {
     expect(sent(0).map((m) => m.id)).toEqual(['l1']);
     const rows = outboxRows();
     expect(rows.map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([
-      ['user_category_order', { code: '23503', message: 'violates foreign key' }, T0],
+      ['user_settings', { code: '23503', message: 'violates foreign key' }, T0],
     ]);
+  });
+
+  test("a 404 for a table the server doesn't have (PGRST205, an older app's dropped table) is permanent", async () => {
+    upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
+    addList('l1');
+    const missing = { code: 'PGRST205', message: "Could not find the table 'public.user_settings' in the schema cache" };
+    respondTo('user_settings', { error: missing, status: 404 });
+    applyAll();
+
+    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 1, rejected: 1, failed: false });
+
+    expect(getPushState()).toMatchObject({ attempts: 0, nextAttemptAt: null, lastError: null });
+    expect(outboxRows().map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([['user_settings', missing, T0]]);
+    // Never sent again.
+    await pushNow({ now: at(1000) });
+    expect(queries.filter((q) => q.table === 'user_settings')).toHaveLength(1);
+  });
+
+  test('a queued user_category_order change is refused for good, never sent, and the queue moves on', async () => {
+    db.insert(categories).values({ id: 'c9', name: 'Local', householdId: H }).run();
+    insertRow(db, userCategoryOrder, { userId: 'u1', categoryId: 'c9', position: 1 });
+    addList('l1');
+    applyAll();
+
+    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 1, rejected: 1, failed: false });
+
+    expect(queries).toEqual([]);
+    expect(sent(0).map((m) => m.id)).toEqual(['l1']);
+    expect(getPushState().attempts).toBe(0);
+    expect(outboxRows().map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([
+      ['user_category_order', { code: 'retired', message: 'user_category_order no longer exists on the server' }, T0],
+    ]);
+    expect(mockReportError).toHaveBeenCalledWith(
+      new Error('Sync change to user_category_order rejected: retired: user_category_order no longer exists on the server'),
+      { area: 'sync', event: 'push_rejected', table: 'user_category_order', code: 'retired' },
+    );
   });
 
   test("create_household refused with 'already in a household' (400 P0001) is recorded and the queue moves on", async () => {

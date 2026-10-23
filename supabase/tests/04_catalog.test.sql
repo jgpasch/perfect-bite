@@ -1,7 +1,7 @@
--- Catalog, system categories and per-user aisle order (spec 5, 6.2).
+-- Catalog and system categories (spec 5, 6.2). Aisle orders are in 65_household_aisle_order.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(19);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 insert into auth.users (id, email, aud, role) values
@@ -16,8 +16,6 @@ insert into public.household_members (household_id, user_id, role, position) val
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'owner', 1);
 insert into public.categories (id, name, household_id) values
   ('cccccccc-0000-7000-8000-000000000002', 'Sam''s aisle', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
-insert into public.user_category_order (user_id, category_id, position) values
-  ('22222222-2222-2222-2222-222222222222', '019a4c10-0000-7000-8000-00000000ca01', 1);
 
 -- Seed ------------------------------------------------------------------------
 select results_eq($$ select count(*)::int from public.categories where household_id is null $$,
@@ -54,12 +52,7 @@ select throws_ok($$ update public.categories set name = 'Hacked' where id = '019
 select results_eq($$ select name from public.categories where id = '019a4c10-0000-7000-8000-00000000ca01' $$,
   $$ values ('Produce') $$, 'system categories can''t be renamed');
 
-select lives_ok($$ insert into public.user_category_order (user_id, category_id, position) values ('11111111-1111-1111-1111-111111111111', '019a4c10-0000-7000-8000-00000000ca02', 1) $$,
-  'Alex orders a category');
-select results_eq($$ select count(*)::int from public.user_category_order $$,
-  $$ values (1) $$, 'Alex sees only their own order');
-select throws_ok($$ insert into public.user_category_order (user_id, category_id, position) values ('22222222-2222-2222-2222-222222222222', '019a4c10-0000-7000-8000-00000000ca03', 1) $$,
-  '42501', null, 'Alex can''t write Sam''s order');
+select is(to_regclass('public.user_category_order'), null, 'the per-user, cross-household aisle order is gone');
 select is(to_regclass('public.user_category_overrides'), null, 'per-user overrides are gone');
 
 -- Schema (as postgres) -------------------------------------------------------------

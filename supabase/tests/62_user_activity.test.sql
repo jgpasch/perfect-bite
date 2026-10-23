@@ -67,8 +67,8 @@ select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select throws_ok($$ select count(*) from private.user_activity $$, '42501', null,
   'a signed-in client can''t read user_activity');
 reset role;
-select is((select count(*)::int from pg_trigger where tgname like '%_log_user_activity'), 16,
-  'the trigger is on 16 tables');
+select is((select count(*)::int from pg_trigger where tgname like '%_log_user_activity'), 17,
+  'the trigger is on 17 tables');
 select ok(not exists (select 1 from pg_trigger where tgname like '%_log_user_activity'
   and tgrelid in ('public.ingredient_usage'::regclass, 'public.ingredient_unit_usage'::regclass)),
   'not on the usage counters');
@@ -365,12 +365,14 @@ select is(pg_temp.taken(), $$[{"area": "settings", "action": "settings.default_l
   'settings.default_list');
 select is((select household_id from private.user_activity), null, 'a per-user entry has no household');
 
-insert into public.user_category_order (user_id, category_id, position)
-select '11111111-1111-1111-1111-111111111111', c.id, row_number() over (order by c.id)
-from public.categories c where c.household_id is null limit 3;
-update public.user_category_order set position = position + 10 where user_id = '11111111-1111-1111-1111-111111111111';
-select is(pg_temp.taken(), $$[{"area": "settings", "action": "settings.aisle_order", "entity": null, "data": {}}]$$::jsonb,
-  'settings.aisle_order once per transaction, however many aisles moved');
+insert into public.user_household_category_order (user_id, household_id, category_ids)
+select '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', jsonb_agg(c.id order by c.default_rank)
+from public.categories c where c.household_id is null;
+delete from public.user_household_category_order where user_id = '11111111-1111-1111-1111-111111111111';
+select is(pg_temp.taken(), $$[
+  {"area": "settings", "action": "settings.aisle_order", "entity": null, "data": {"household": "Home", "removed": false}},
+  {"area": "settings", "action": "settings.aisle_order", "entity": null, "data": {"household": "Home", "removed": true}}
+]$$::jsonb, 'settings.aisle_order for saving and removing your own order (more in 65_household_aisle_order)');
 
 update public.notification_settings set items_added = not items_added where user_id = '11111111-1111-1111-1111-111111111111';
 select is(pg_temp.taken(), $$[{"area": "settings", "action": "settings.notifications", "entity": null, "data": {"fields": ["items_added"]}}]$$::jsonb,

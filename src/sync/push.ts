@@ -180,9 +180,15 @@ async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number;
 
 /** Columns a client may write per per-user table (the server's grants). */
 const USER_TABLE_COLUMNS: Record<string, readonly string[]> = {
-  user_category_order: ['position'],
   user_settings: ['default_list_id'],
 };
+
+/**
+ * Tables the server dropped (spec 4.3.3: aisle orders moved to the household). A queued change to
+ * one can never apply, so it's refused here for good rather than sent. (Sent anyway, as an older
+ * app does, PostgREST answers 404, which `isPermanent` also treats as a rejection.)
+ */
+const RETIRED_TABLES: ReadonlySet<string> = new Set(['user_category_order']);
 
 const pick = (fields: Mutation['fields'], columns: readonly string[]) =>
   Object.fromEntries(Object.entries(fields).filter(([k]) => columns.includes(k)));
@@ -197,6 +203,7 @@ function singleRequest(m: Mutation): PromiseLike<Response> | Rejection {
     }
     return { code: 'unsupported', message: 'Household changes other than creation are not synced yet' };
   }
+  if (RETIRED_TABLES.has(m.table)) return { code: 'retired', message: `${m.table} no longer exists on the server` };
   const columns = USER_TABLE_COLUMNS[m.table];
   if (!columns || !m.key) return { code: 'unsupported', message: `${m.table} isn't synced` };
   if (m.delete) return supabase.from(m.table).delete().match(m.key);

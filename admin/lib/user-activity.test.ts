@@ -98,6 +98,7 @@ const CATALOG: [string, Record<string, unknown>, string][] = [
   ["aisle.renamed", { aisle: "Deli counter", from: "Deli" }, "Renamed aisle *Deli* to *Deli counter*"],
   ["aisle.deleted", { aisle: "Deli" }, "Deleted aisle *Deli*"],
   ["aisle.assigned", { ingredient: "tofu", aisle: "Deli" }, "Moved *tofu* to *Deli*"],
+  ["aisle_order.saved", { household: "Home" }, "Saved the household aisle order"],
   ["staple.added", { ingredient: "salt" }, "Added staple *salt*"],
   ["staple.removed", { ingredient: "salt" }, "Removed staple *salt*"],
   ["household.created", { household: "Home" }, "Created household *Home*"],
@@ -112,7 +113,7 @@ const CATALOG: [string, Record<string, unknown>, string][] = [
   ["member.removed", { household: "Home", member: "Sam", member_id: "u2", role: "member" }, "Removed *Sam* from *Home*"],
   ["member.role_changed", { household: "Home", member: "Sam", member_id: "u2", role: "owner" }, "Made *Sam* an owner of *Home*"],
   ["settings.default_list", { list: "Groceries" }, "Made *Groceries* the default list"],
-  ["settings.aisle_order", {}, "Reordered aisles"],
+  ["settings.aisle_order", { household: "Home", removed: false }, "Saved their own aisle order"],
   ["settings.notifications", { fields: ["items_added", "quiet_start"] }, "Changed notification settings: items added, quiet start"],
   ["device.registered", { platform: "ios" }, "Registered an iOS device for notifications"],
   ["device.unregistered", { platform: "android" }, "Unregistered an Android device"],
@@ -160,6 +161,12 @@ describe("entrySentence", () => {
 
   it("says Reset to default for an aisle cleared", () => {
     expect(say("aisle.assigned", { ingredient: "tofu", aisle: null })).toBe("Reset *tofu* to its default aisle");
+  });
+
+  it("says Use household order for an own aisle order removed", () => {
+    expect(say("settings.aisle_order", { household: "Home", removed: true })).toBe("Went back to the household aisle order");
+    // Entries logged before orders were per household have no `removed`.
+    expect(say("settings.aisle_order", {})).toBe("Saved their own aisle order");
   });
 
   it("says Invited someone once the invite is gone", () => {

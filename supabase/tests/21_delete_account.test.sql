@@ -42,8 +42,8 @@ insert into public.household_invites (id, household_id, token_hash, created_by, 
   ('b5000000-0000-7000-8000-00000000000b', 'aaaaaaaa-0000-0000-0000-00000000000b', 'hash-shared', '11111111-1111-1111-1111-111111111111', now() + interval '7 days');
 insert into public.user_settings (user_id, default_list_id) values
   ('11111111-1111-1111-1111-111111111111', 'b1000000-0000-7000-8000-00000000000a');
-insert into public.user_category_order (user_id, category_id, position)
-select '11111111-1111-1111-1111-111111111111', c.id, 1
+insert into public.user_household_category_order (user_id, household_id, category_ids)
+select '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-00000000000b', jsonb_build_array(c.id)
 from public.categories c where c.household_id is null order by c.id limit 1;
 
 -- Access ------------------------------------------------------------------------
@@ -94,7 +94,7 @@ reset role;
 select is((select count(*)::int from auth.users where id = '11111111-1111-1111-1111-111111111111'), 0, 'the auth user is deleted');
 select is((select count(*)::int from public.profiles where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'their profile is deleted');
 select is((select count(*)::int from public.user_settings where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'their settings are deleted');
-select is((select count(*)::int from public.user_category_order where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'their aisle order is deleted');
+select is((select count(*)::int from public.user_household_category_order where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'their aisle order is deleted');
 select is((select count(*)::int from public.household_members where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'they are in no household');
 
 -- Sole member: the household and its data are deleted

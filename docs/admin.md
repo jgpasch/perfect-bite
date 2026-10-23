@@ -267,9 +267,9 @@ Filter with the area chips (each with its count; pick several, **All** clears th
 - **Lists**: `list.created`, `list.renamed`, `list.edited` (emoji or colour), `list.reordered`, `list.archived`, `list.unarchived`, `list.deleted`, `list.restored`; `item.added`, `item.add_undone`, `item.checked`, `item.unchecked`, `item.moved`, `item.renamed`, `item.edited` (note, or a contribution's quantity), `item.photo_added`, `item.photo_removed`, `item.merged` (Combine), `item.deleted`, `item.restored`.
 - **Recipes**: `recipe.created` (with the link's site, "a photo" or by hand), `recipe.renamed`, `recipe.edited` (the field names only), `recipe.tagged`, `recipe.photo_added`, `recipe.photo_removed`, `recipe.deleted`, `recipe.restored`; `ingredient.added`, `ingredient.removed`, `ingredient.edited`, `ingredient.reordered`.
 - **Plan**: `plan.added`, `plan.moved`, `plan.reordered`, `plan.removed`, `plan.restored`.
-- **Aisles**: `aisle.created`, `aisle.renamed`, `aisle.deleted`, `aisle.assigned` (an ingredient's aisle, or Reset to default); `staple.added`, `staple.removed`.
+- **Aisles**: `aisle.created`, `aisle.renamed`, `aisle.deleted`, `aisle.assigned` (an ingredient's aisle, or Reset to default), `aisle_order.saved` (the household's aisle order); `staple.added`, `staple.removed`.
 - **Household**: `household.created`, `household.renamed`, `household.combine_languages`, `household.left`, `household.deleted`; `invite.created`, `invite.revoked`, `invite.accepted`, `invite.declined`; `member.removed`, `member.role_changed`.
-- **Settings**: `settings.default_list`, `settings.aisle_order`, `settings.notifications`.
+- **Settings**: `settings.default_list`, `settings.aisle_order` (their own aisle order for a household saved, or removed with Use household order), `settings.notifications`.
 - **Devices**: `device.registered`, `device.unregistered` (the platform only, never the token).
 - **AI**: `ai.<task>`, one per AI call, with its status and flag.
 - **Admin**: `admin.<action>`, the `admin.admin_actions` rows about them.
