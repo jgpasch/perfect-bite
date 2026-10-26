@@ -125,6 +125,27 @@ describe('collectImportPhotos', () => {
     expect(pick).toHaveBeenCalledTimes(1);
   });
 
+  test('a limit (the review sheet, with pages already) caps the picks and stops asking at it', async () => {
+    const pick = picks({ ok: true, uris: ['p1'] }, { ok: true, uris: ['p2'] });
+    const askForAnother = jest.fn(async (_pages: number) => true);
+    expect(await collectImportPhotos('camera', { pick, askForAnother, onDenied: jest.fn(), limit: 2 })).toEqual(['p1', 'p2']);
+    expect(pick.mock.calls).toEqual([
+      ['camera', 2],
+      ['camera', 1],
+    ]);
+    expect(askForAnother.mock.calls).toEqual([[1]]);
+
+    const library = picks({ ok: true, uris: ['a', 'b', 'c'] });
+    expect(await collectImportPhotos('library', { pick: library, askForAnother, onDenied: jest.fn(), limit: 1 })).toEqual(['a']);
+    expect(library.mock.calls).toEqual([['library', 1]]);
+  });
+
+  test('no room left (a limit of 0) picks nothing', async () => {
+    const pick = picks({ ok: true, uris: ['p1'] });
+    expect(await collectImportPhotos('library', { pick, askForAnother: async () => true, onDenied: jest.fn(), limit: 0 })).toBeNull();
+    expect(pick).not.toHaveBeenCalled();
+  });
+
   test('a cancelled second shot keeps the first page', async () => {
     const pick = picks({ ok: true, uris: ['p1'] }, { ok: false, reason: 'cancelled' });
     expect(await collectImportPhotos('camera', { pick, askForAnother: async () => true, onDenied: jest.fn() })).toEqual(['p1']);

@@ -329,6 +329,10 @@ export const Sizes = {
   shelfTile: 140,
   /** a page's thumbnail (its width; 3:4) in the import sheet for a photo import */
   importPageThumb: 72,
+  /** the first page's width (3:4) in a failed photo import's page stack on the imports card */
+  importPageStack: 46,
+  /** the page stack's count badge (its height, a minimum width) */
+  importPageBadge: 20,
   /** small round remove buttons (the item sheet's "Added" rows); give them `hitSlop` up to 44 */
   removeButton: 32,
   /** who made each add on the item sheet's "Added" rows: a member's initial, or a recipe's or Siri's tile */

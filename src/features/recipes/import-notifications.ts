@@ -7,7 +7,7 @@ import type { AppNotification } from '@/features/notifications/notifications';
 import { i18n } from '@/i18n';
 import { newId } from '@/lib/id';
 
-import type { ImportRecipeError, ImportRecipeSuccess } from './import';
+import type { ImportRecipeError, ImportRecipePhotosError, ImportRecipeSuccess } from './import';
 import { importErrorMessage } from './import-sheet';
 
 type Content = Omit<AppNotification, 'onPress'>;
@@ -76,13 +76,14 @@ export function importFailedNotification(error: ImportRecipeError, url: string):
 }
 
 /**
- * A photo import's "Couldn't import recipe", with the sheet's reason for photos. Its photos are gone
- * with the sheet, so tapping it starts again from Add recipe; one id, so a retry replaces it.
+ * A photo import's "Couldn't import recipe", with the sheet's reason for photos. Tapping it opens
+ * the kept pages in the review sheet (spec 4.10); when they couldn't be kept (no `failedImportId`),
+ * it starts again from Add recipe. One id, so a retry replaces it.
  */
-export function photoImportFailedNotification(error: ImportRecipeError): Content {
+export function photoImportFailedNotification(error: ImportRecipePhotosError): Content {
   return {
     ...importFailedNotification(error, 'photo'),
     body: importErrorMessage(error, 'photo'),
-    hint: i18n.t('notifications.photoImportFailedHint'),
+    hint: i18n.t(error.failedImportId ? 'notifications.photoImportReviewHint' : 'notifications.photoImportFailedHint'),
   };
 }

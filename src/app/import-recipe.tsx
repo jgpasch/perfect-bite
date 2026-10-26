@@ -1,11 +1,11 @@
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, PrimaryButton } from '@/components/button';
+import { Button, PrimaryButton, SoftDangerButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon } from '@/components/icon';
 import { Pill } from '@/components/pill';
@@ -15,22 +15,25 @@ import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { getAccount } from '@/features/auth/account';
 import { householdsQuery } from '@/features/households/households';
-import { openList } from '@/features/lists/current-list';
 import { getDefaultListId, LAST_OPENED_LIST_KEY, listsWithCountsQuery } from '@/features/lists/lists';
-import { setRecipeAddResult } from '@/features/lists/recipe-add-result';
 import { notify } from '@/features/notifications/notifications';
-import { importRecipe, importRecipeFromPhotos } from '@/features/recipes/import';
 import {
-  importedNotification,
-  importFailedNotification,
-  importingNotification,
-  importNotificationId,
-  photoImportFailedNotification,
-  savedNotification,
-} from '@/features/recipes/import-notifications';
+  dismissFailedImport,
+  failedImportBanner,
+  failedImportEntry,
+  failedImportPageUris,
+  failedImportRetryOn,
+  getFailedImport,
+  tryAgainOnLabel,
+  updateFailedPhotoImport,
+} from '@/features/recipes/failed-imports';
+import { importRecipe, importRecipeFromPhotos } from '@/features/recipes/import';
+import { importFailedNotification, importingNotification, importNotificationId } from '@/features/recipes/import-notifications';
 import { useFeature } from '@/features/plans/features';
 import { householdImportNote, importErrorMessage, urlFromText } from '@/features/recipes/import-sheet';
-import { photosFromParam } from '@/features/recipes/photo-import';
+import { collectImportPhotos, photosFromParam } from '@/features/recipes/photo-import';
+import { askForAnother, cameraDenied, chooseSource } from '@/features/recipes/photo-import-prompts';
+import { photoImportFailure, postImportResult, retryFailedPhotoImport } from '@/features/recipes/photo-import-retry';
 import {
   defaultListIdIn,
   householdLists,
@@ -44,6 +47,7 @@ import { getDeviceSetting, setDeviceSetting } from '@/features/settings/device-s
 import { useOnline } from '@/hooks/use-online';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+import { MAX_PHOTO_IMPORT_IMAGES } from '@/shared/schemas/recipe-photo-import';
 
 /**
  * "Add recipe from link…" (spec 4.10): a **Save to** household picker (hidden with one household) and
@@ -57,8 +61,15 @@ import { useT } from '@/i18n';
  * recipe) or "Couldn't import recipe", which reopens the sheet with the same `household`, `add`, `to`
  * (list) and `url`. With `photos` (from Add recipe's From photo…), it imports those pages instead of
  * a link, showing their thumbnails where the link field would be, with a note that the pages are
- * kept with the recipe; a failed photo import's
- * notification opens Add recipe, since the photos go with the sheet.
+ * kept with the recipe; a failed photo import's notification opens its review sheet.
+ *
+ * With `failed` (a failed photo import's id: its notification, or tapping its pages on the imports
+ * card), it's that import's review sheet (spec 4.10 board D): a `dangerSoft` banner saying when and
+ * why it failed, its kept pages (or `photos`, from Use other photos) each with a remove button
+ * while there's more than one and an Add page tile under three, "Kept on this phone for 30 days…",
+ * the pickers set to where it was going, **Try again** (disabled as "Try again Nov 1" over the
+ * monthly limit) and **Dismiss and delete photos**. Try again saves the pages and target to the row
+ * first, so another failure keeps the edits; closing the sheet any other way leaves it as it was.
  */
 export default function ImportRecipeSheet() {
   const params = useLocalSearchParams<{
@@ -68,13 +79,22 @@ export default function ImportRecipeSheet() {
     to?: string;
     url?: string;
     photos?: string;
+    failed?: string;
   }>();
   const fromList = params.list;
-  const [photos] = useState(() => photosFromParam(params.photos));
   const t = useT();
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const userId = getAccount()?.userId ?? null;
+  // The failed photo import under review; gone (imported, dismissed, pruned) leaves an empty sheet that closes.
+  const [failed] = useState(() => {
+    const row = params.failed ? getFailedImport(params.failed) : undefined;
+    return row?.kind === 'photo' ? row : null;
+  });
+  const missing = params.failed !== undefined && failed === null;
+  const [photos, setPhotos] = useState(
+    () => photosFromParam(params.photos) ?? (failed ? failedImportPageUris(failed) : null),
+  );
 
   // A sheet is short-lived: read once rather than live.
   const [choices] = useState(() => ({
@@ -86,7 +106,9 @@ export default function ImportRecipeSheet() {
     households: householdsQuery().all(),
   }));
   const [entry] = useState<SheetEntry>(() =>
-    fromList
+    failed
+      ? failedImportEntry(failed, userId)
+      : fromList
       ? { from: 'list', listId: fromList }
       : params.add !== undefined
         ? { from: 'retry', householdId: params.household ?? null, addToList: params.add === '1', listId: params.to ?? null }
@@ -124,6 +146,13 @@ export default function ImportRecipeSheet() {
     setError(null);
   };
 
+  // Over the monthly limit, the same pages wait for the reset (board E).
+  const retryOn = failed ? failedImportRetryOn(failed) : null;
+
+  useEffect(() => {
+    if (missing) router.back();
+  }, [missing]);
+
   const submit = async () => {
     if (!householdId || !canImport || started.current) return;
     // What fails at once stays inline, with the sheet open.
@@ -136,6 +165,19 @@ export default function ImportRecipeSheet() {
       setError(importErrorMessage({ ok: false, error: 'offline' }));
       return;
     }
+    if (failed && photos) {
+      if (!userId || retryOn) return;
+      // Saved first, so another failure keeps the edits.
+      const saved = updateFailedPhotoImport(failed.id, { pages: photos, householdId, listId: addToList ? listId : null });
+      if (!saved) {
+        setError(importErrorMessage({ ok: false, error: 'failed' }, 'photo'));
+        return;
+      }
+      started.current = true;
+      router.back();
+      await retryFailedPhotoImport(failed.id, userId);
+      return;
+    }
     started.current = true;
     const id = importNotificationId();
     const target = addToList && listId ? { listId } : { householdId };
@@ -146,50 +188,49 @@ export default function ImportRecipeSheet() {
     notify(importingNotification(id));
     const result = await importing;
     // The result replaces the Importing banner if it's still up, and queues after it otherwise.
-    if (!result.ok) {
-      if (photos) {
-        notify({ ...photoImportFailedNotification(result), id, onPress: () => router.push('/add-recipe') });
-      } else {
-        // Reopens with the same choices: household, switch, list and link.
-        const link = url!;
-        const retry = { household: householdId, add: addToList ? '1' : '0', ...(addToList && listId ? { to: listId } : {}), url: link };
-        notify({
-          ...importFailedNotification(result, link),
-          id,
-          onPress: () => router.push({ pathname: '/import-recipe', params: retry }),
-        });
-      }
+    if (photos) {
+      postImportResult(id, result, householdName, photoImportFailure);
       return;
     }
-    const addedTo = result.listId;
-    if (addedTo === null) {
-      notify({
-        ...savedNotification(result, householdName),
-        id,
-        onPress: () => router.push({ pathname: '/recipe/[id]', params: { id: result.recipeId } }),
-      });
-      return;
-    }
-    const name = choices.lists.find((l) => l.id === addedTo)?.name ?? t('recipes.import.yourList');
-    notify({
-      ...importedNotification(result, name),
-      id,
-      // Its toast (Undo, View recipe) shows on the list, which may be the one showing already.
-      onPress: () => {
-        setRecipeAddResult({
-          kind: 'imported',
-          listId: addedTo,
-          recipeId: result.recipeId,
-          recipeName: result.recipeName,
-          count: result.added,
-          undo: result.undo,
-        });
-        openList(addedTo);
-      },
-    });
+    // A failure reopens with the same choices: household, switch, list and link.
+    const link = url!;
+    const retry = { household: householdId, add: addToList ? '1' : '0', ...(addToList && listId ? { to: listId } : {}), url: link };
+    postImportResult(id, result, householdName, (error) => ({
+      ...importFailedNotification(error, link),
+      onPress: () => router.push({ pathname: '/import-recipe', params: retry }),
+    }));
   };
 
-  if (!householdId) return <Screen />;
+  const removePage = (index: number) => setPhotos((pages) => (pages && pages.length > 1 ? pages.filter((_, i) => i !== index) : pages));
+  const addPage = () =>
+    chooseSource(async (from) => {
+      try {
+        const room = MAX_PHOTO_IMPORT_IMAGES - (photos?.length ?? 0);
+        const more = await collectImportPhotos(from, { askForAnother, onDenied: cameraDenied, limit: room });
+        if (more) setPhotos((pages) => [...(pages ?? []), ...more].slice(0, MAX_PHOTO_IMPORT_IMAGES));
+      } catch (e) {
+        console.warn('[photo import] pick failed', e);
+      }
+    });
+  const dismiss = () => {
+    if (!failed) return;
+    dismissFailedImport(failed.id);
+    router.back();
+  };
+
+  if (!householdId || missing) return <Screen />;
+
+  const pagesBlock = photos ? (
+    <>
+      {failed ? null : <Label>{t('recipes.import.pages')}</Label>}
+      <PageThumbnails
+        uris={photos}
+        onRemove={failed ? removePage : undefined}
+        onAdd={failed && photos.length < MAX_PHOTO_IMPORT_IMAGES ? addPage : undefined}
+      />
+      <PagesNote text={t(failed ? 'recipes.import.keptOnPhone' : 'recipes.import.pagesKept')} />
+    </>
+  ) : null;
 
   return (
     <Screen>
@@ -204,6 +245,13 @@ export default function ImportRecipeSheet() {
         <ThemedText variant="title" accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
           {t(photos ? 'recipes.import.photoTitle' : 'recipes.import.title')}
         </ThemedText>
+
+        {failed ? (
+          <>
+            <FailedBanner text={failedImportBanner(failed)} />
+            {pagesBlock}
+          </>
+        ) : null}
 
         {choices.households.length > 1 ? (
           <View style={{ gap: spacing.sm }}>
@@ -255,13 +303,11 @@ export default function ImportRecipeSheet() {
           </View>
         ) : null}
 
-        <Label>{t(photos ? 'recipes.import.pages' : 'recipes.import.link')}</Label>
         {photos ? (
-          <>
-            <PageThumbnails uris={photos} />
-            <PagesKeptNote />
-          </>
+          failed ? null : pagesBlock
         ) : (
+          <>
+          <Label>{t('recipes.import.link')}</Label>
           <Card>
             <View style={[styles.row, { paddingLeft: spacing.lg, paddingRight: spacing.sm, gap: spacing.sm }]}>
               <TextField
@@ -280,6 +326,7 @@ export default function ImportRecipeSheet() {
               <Button label={t('recipes.add.paste')} variant="plain" onPress={paste} />
             </View>
           </Card>
+          </>
         )}
 
         {error ? (
@@ -302,9 +349,17 @@ export default function ImportRecipeSheet() {
           gap: spacing.sm,
         }}>
         <PrimaryButton
-          label={saveButtonTitle(addToList, listName)}
-          icon={photos ? 'camera' : 'link'}
-          disabled={!canImport || (!photos && text.trim() === '')}
+          label={
+            failed
+              ? retryOn
+                ? tryAgainOnLabel(retryOn)
+                : addToList && listName
+                  ? t('recipes.import.tryAgainAndAdd', { name: listName })
+                  : t('recipes.import.tryAgain')
+              : saveButtonTitle(addToList, listName)
+          }
+          icon={failed ? 'arrow.clockwise' : photos ? 'camera' : 'link'}
+          disabled={!canImport || retryOn !== null || (!photos && text.trim() === '')}
           accessibilityHint={notEntitledNote ?? undefined}
           onPress={submit}
         />
@@ -313,6 +368,7 @@ export default function ImportRecipeSheet() {
             {notEntitledNote}
           </ThemedText>
         ) : null}
+        {failed ? <SoftDangerButton label={t('recipes.import.dismissAndDelete')} onPress={dismiss} /> : null}
       </View>
     </Screen>
   );
@@ -327,46 +383,125 @@ function Label({ children }: { children: string }) {
   );
 }
 
-/** The pages to import, in order, as 3:4 thumbnails. VoiceOver: "Page 1 of 2". */
-function PageThumbnails({ uris }: { uris: string[] }) {
+/**
+ * The pages to import, in order, as 3:4 thumbnails. VoiceOver: "Page 1 of 2". In the review sheet
+ * (`onRemove`), each has a round remove button ("Remove page 1 of 2") while there's more than one,
+ * and `onAdd` adds a dashed Add page tile.
+ */
+function PageThumbnails({ uris, onRemove, onAdd }: { uris: string[]; onRemove?: (index: number) => void; onAdd?: () => void }) {
   const t = useT();
-  const { colors, spacing, sizes, rounded } = useTheme();
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const removable = onRemove && uris.length > 1;
+  const removeSlop = (sizes.minTapTarget - sizes.removeButton) / 2;
   return (
-    <View style={[styles.row, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
-      {uris.map((uri, i) => (
-        <View
-          key={uri}
-          testID="import-page"
-          accessible
-          accessibilityRole="image"
-          accessibilityLabel={t('recipes.import.page', { index: i + 1, count: uris.length })}
-          style={[
+    <View style={[styles.row, { gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: onRemove ? spacing.sm : 0 }]}>
+      {uris.map((uri, i) => {
+        const label = t('recipes.import.page', { index: i + 1, count: uris.length });
+        return (
+          <View key={uri} style={{ width: sizes.importPageThumb }}>
+            <View
+              testID="import-page"
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel={label}
+              style={[styles.page, { borderRadius: rounded.md, backgroundColor: colors.surfaceMuted }]}>
+              <Image source={uri} contentFit="cover" accessible={false} style={StyleSheet.absoluteFill} />
+            </View>
+            {removable ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('recipes.import.removePage', { index: i + 1, count: uris.length })}
+                hitSlop={removeSlop}
+                onPress={() => onRemove(i)}
+                style={({ pressed }) => [
+                  styles.removePage,
+                  {
+                    top: -spacing.sm,
+                    right: -spacing.sm,
+                    width: sizes.removeButton,
+                    height: sizes.removeButton,
+                    borderRadius: sizes.removeButton / 2,
+                    borderWidth: sizes.focusRing,
+                    borderColor: colors.background,
+                    backgroundColor: colors.ink,
+                    opacity: pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <Icon name="xmark" tint={colors.background} size={sizes.iconSmall} weight="bold" />
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      })}
+      {onAdd ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('recipes.import.addPage')}
+          onPress={onAdd}
+          style={({ pressed }) => [
             styles.page,
-            { width: sizes.importPageThumb, borderRadius: rounded.md, backgroundColor: colors.surfaceMuted },
+            styles.addPage,
+            {
+              width: sizes.importPageThumb,
+              gap: spacing.xs,
+              borderRadius: rounded.md,
+              borderWidth: sizes.focusRing,
+              borderColor: colors.controlBorder,
+              opacity: pressed ? opacity.pressed : 1,
+            },
           ]}>
-          <Image source={uri} contentFit="cover" accessible={false} style={StyleSheet.absoluteFill} />
-        </View>
-      ))}
+          <Icon name="plus" color="inkSecondary" />
+          <ThemedText variant="caption" color="inkSecondary">
+            {t('recipes.import.addPage')}
+          </ThemedText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
-/** Under the thumbnails: the pages stay with the recipe (spec 4.10). */
-function PagesKeptNote() {
-  const t = useT();
+/** Under the thumbnails: the pages stay with the recipe, or (review sheet) on this phone for 30 days (spec 4.10). */
+function PagesNote({ text }: { text: string }) {
   const { spacing, sizes } = useTheme();
   return (
     <View style={[styles.note, { gap: spacing.sm, paddingHorizontal: spacing.lg + spacing.xs }]}>
       <Icon name="doc.text" color="inkSecondary" size={sizes.iconSmall} style={{ marginTop: spacing.xxs }} />
       <ThemedText variant="footnote" color="inkSecondary" style={styles.flex}>
-        {t('recipes.import.pagesKept')}
+        {text}
+      </ThemedText>
+    </View>
+  );
+}
+
+/** The review sheet's banner (board D): when it failed and why, in `danger` on `dangerSoft`. */
+function FailedBanner({ text }: { text: string }) {
+  const { colors, spacing, sizes, rounded } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      style={[
+        styles.note,
+        {
+          gap: spacing.sm,
+          marginHorizontal: spacing.lg,
+          padding: spacing.md,
+          borderRadius: rounded.md,
+          backgroundColor: colors.dangerSoft,
+        },
+      ]}>
+      <Icon name="exclamationmark.circle" color="danger" size={sizes.iconSmall} weight="semibold" style={{ marginTop: spacing.xxs }} />
+      <ThemedText variant="callout" color="danger" style={styles.flex}>
+        {text}
       </ThemedText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  addPage: { alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed' },
   center: { textAlign: 'center' },
+  removePage: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   note: { flexDirection: 'row', alignItems: 'flex-start' },
   page: { aspectRatio: 3 / 4, overflow: 'hidden', borderCurve: 'continuous' },

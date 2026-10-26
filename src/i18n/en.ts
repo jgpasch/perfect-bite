@@ -822,6 +822,17 @@ export const en = {
       pages: 'Pages',
       page: 'Page {{index}} of {{count}}',
       pagesKept: 'The pages are kept with the recipe, so everyone in the household can see the original.',
+      /** The review sheet of a failed photo import (spec 4.10 board D). */
+      keptOnPhone: 'Kept on this phone for 30 days, or until the recipe imports.',
+      /** Its banner: when it failed and why; `reason` is a whole sentence. */
+      failedToday: "Couldn't import this today at {{time}}. {{reason}}",
+      failedYesterday: "Couldn't import this yesterday at {{time}}. {{reason}}",
+      failedOn: "Couldn't import this on {{date}} at {{time}}. {{reason}}",
+      removePage: 'Remove page {{index}} of {{count}}',
+      addPage: 'Add page',
+      tryAgain: 'Try again',
+      tryAgainAndAdd: 'Try again & add to {{name}}',
+      dismissAndDelete: 'Dismiss and delete photos',
       saveTo: 'Save to',
       alsoAdd: 'Also add ingredients to a list',
       alsoAddHint: "Adds the recipe's ingredients to the chosen list",
@@ -873,6 +884,20 @@ export const en = {
       dismiss: 'Dismiss',
       /** A failed photo import's name, in place of a link's title. */
       fromAPhoto: 'From a photo',
+      /** A failed photo import's pages (spec 4.10 board B). */
+      pages_one: '{{count}} page',
+      pages_other: '{{count}} pages',
+      /** Its page stack, for VoiceOver. */
+      pagesFromPhoto_one: '{{count}} page from a photo',
+      pagesFromPhoto_other: '{{count}} pages from a photo',
+      /** The collapsed card's one failed photo import (board A); `reason` is a whole sentence. */
+      photosKept: '{{reason}} Your photos are kept.',
+      /** A photo import's Try again running (board C). */
+      importingOf: 'Importing {{index}} of {{count}}…',
+      /** A photo import over the monthly limit (board E): Try again, disabled until the reset. */
+      tryAgainOn: 'Try again {{date}}',
+      /** A photo that isn't a recipe (board E): pick other pages instead of trying the same ones. */
+      useOtherPhotos: 'Use other photos',
       /** Why an import failed. */
       reasons: {
         notARecipe: "That page doesn't look like a recipe",
@@ -1446,6 +1471,8 @@ export const en = {
     importFailed: "Couldn't import recipe",
     importFailedHint: 'Opens the link again to try once more',
     photoImportFailedHint: 'Opens Add recipe to try again',
+    /** A failed photo import whose pages are kept: tapping opens them in the review sheet (spec 4.10). */
+    photoImportReviewHint: 'Opens the photos to try again',
     /** A failed share's push while the app is open (spec 4.13): tapping opens the Recipes tab's imports card. */
     opensImports: 'Opens your recipe imports',
   },

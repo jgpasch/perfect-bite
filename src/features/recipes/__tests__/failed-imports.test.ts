@@ -18,11 +18,22 @@ import { makeSession, resetSupabase, storageUploads, supabase } from '@/test/fak
 
 import {
   dismissFailedImport,
+  failedImportBanner,
+  failedImportDestination,
+  failedImportEntry,
   failedImportName,
   failedImportPageUris,
   failedImportReason,
+  failedImportRetryOn,
+  failedImportRowReason,
   failedImportsQuery,
+  failedPhotoDetail,
+  getFailedImport,
+  needsOtherPhotos,
+  photosKeptReason,
   pruneFailedPhotoImports,
+  retryingPhotoDetail,
+  tryAgainOnLabel,
   recordFailedImport,
   recordFailedPhotoImport,
   retryFailedImport,
@@ -394,6 +405,123 @@ describe('copy', () => {
     expect(photo('offline')).toBe("You're offline");
     expect(photo('failed')).toBe("Couldn't import that recipe. Try again.");
     expect(photo('not_entitled')).toBe("Photo import isn't in your plan");
+  });
+});
+
+describe("the card's and review sheet's words for a photo row (spec 4.10 boards A–E)", () => {
+  // Local time, so "today" and "yesterday" are this phone's days.
+  const at = (y: number, m: number, d: number, h = 18, min = 42) => new Date(y, m - 1, d, h, min);
+  const row = (over: Partial<{ kind: 'link' | 'photo'; reason: Parameters<typeof failedImportReason>[0]; createdAt: Date }> = {}) => ({
+    kind: 'photo' as const,
+    reason: 'rate_limited' as const,
+    createdAt: at(2026, 10, 24),
+    ...over,
+  });
+  let household: string;
+
+  beforeEach(() => {
+    household = getList(groceries)!.householdId;
+  });
+
+  test('a photo row over the monthly limit resets on the 1st after it failed, not after now', () => {
+    const late = row({ reason: 'limit_reached', createdAt: new Date('2026-10-31T23:30:00Z') });
+    expect(failedImportRowReason(late, Date.parse('2026-12-15T00:00:00Z'))).toBe(
+      "You've used this month's recipe imports. They reset on Nov 1.",
+    );
+    // A link row keeps the old rule: the month after now.
+    expect(failedImportRowReason({ ...late, kind: 'link' }, Date.parse('2026-12-15T00:00:00Z'))).toBe(
+      "You've used this month's recipe imports. They reset on Jan 1.",
+    );
+    expect(failedImportRowReason(row())).toBe('Try again in a minute');
+    expect(failedImportRowReason(row({ kind: 'link' }))).toBe('The import service was busy');
+  });
+
+  test('"Your photos are kept." follows the reason as its own sentence', () => {
+    expect(photosKeptReason(row())).toBe('Try again in a minute. Your photos are kept.');
+    expect(photosKeptReason(row({ reason: 'failed' }))).toBe("Couldn't import that recipe. Try again. Your photos are kept.");
+  });
+
+  test('Try again waits for the 1st of the month after a limit_reached failure (UTC), then comes back', () => {
+    const limited = row({ reason: 'limit_reached', createdAt: new Date('2026-10-18T12:00:00Z') });
+    expect(failedImportRetryOn(limited, Date.parse('2026-10-25T00:00:00Z'))).toBe('2026-11-01T00:00:00.000Z');
+    expect(failedImportRetryOn(limited, Date.parse('2026-10-31T23:59:59Z'))).toBe('2026-11-01T00:00:00.000Z');
+    expect(failedImportRetryOn(limited, Date.parse('2026-11-01T00:00:00Z'))).toBeNull();
+    expect(tryAgainOnLabel('2026-11-01T00:00:00.000Z')).toBe('Try again Nov 1');
+    // December's failure waits for January.
+    expect(failedImportRetryOn(row({ reason: 'limit_reached', createdAt: new Date('2026-12-31T23:00:00Z') }), Date.parse('2026-12-31T23:30:00Z'))).toBe(
+      '2027-01-01T00:00:00.000Z',
+    );
+    // Other reasons, and link rows, never wait.
+    expect(failedImportRetryOn(row({ reason: 'daily_limit' }), Date.parse('2026-10-25T00:00:00Z'))).toBeNull();
+    expect(failedImportRetryOn({ ...limited, kind: 'link' }, Date.parse('2026-10-25T00:00:00Z'))).toBeNull();
+  });
+
+  test('only a photo that is not a recipe asks for other photos', () => {
+    expect(needsOtherPhotos({ kind: 'photo', reason: 'not_a_recipe' })).toBe(true);
+    expect(needsOtherPhotos({ kind: 'link', reason: 'not_a_recipe' })).toBe(false);
+    expect(needsOtherPhotos({ kind: 'photo', reason: 'rate_limited' })).toBe(false);
+    expect(needsOtherPhotos({ kind: 'photo', reason: 'limit_reached' })).toBe(false);
+  });
+
+  test('the banner says when on this phone (today, yesterday, a date) and why, as sentences', () => {
+    const now = at(2026, 10, 25, 9, 5).getTime();
+    expect(failedImportBanner(row({ createdAt: at(2026, 10, 24) }), now)).toMatch(
+      /^Couldn't import this yesterday at 6:42\sPM\. Try again in a minute\.$/,
+    );
+    expect(failedImportBanner(row({ createdAt: at(2026, 10, 25, 0, 10) }), now)).toMatch(
+      /^Couldn't import this today at 12:10\sAM\. Try again in a minute\.$/,
+    );
+    expect(failedImportBanner(row({ createdAt: at(2026, 10, 3), reason: 'not_a_recipe' }), now)).toMatch(
+      /^Couldn't import this on Oct 3 at 6:42\sPM\. That photo doesn't look like a recipe\.$/,
+    );
+    // A reason that is a sentence already gets no second full stop.
+    expect(failedImportBanner(row({ createdAt: at(2026, 10, 24), reason: 'daily_limit' }), now)).toMatch(
+      /yesterday at 6:42\sPM\. You've reached today's limit\. Try again tomorrow\.$/,
+    );
+  });
+
+  test("where Try again goes: the row's list, its household when recipe-only, with Try again's fallbacks", () => {
+    const householdName = db.select().from(households).where(eq(households.id, household)).get()!.name;
+    expect(failedImportDestination({ householdId: household, listId: costco }, USER)).toBe('Costco');
+    expect(failedImportDestination({ householdId: household, listId: null }, USER)).toBe(householdName);
+    // Gone: the default list, as Try again does.
+    expect(failedImportDestination({ householdId: household, listId: 'gone' }, USER)).toBe(getList(groceries)!.name);
+    expect(failedImportDestination({ householdId: household, listId: costco }, null)).toBeNull();
+
+    expect(failedPhotoDetail({ householdId: household, listId: costco, pages: ['1.jpg', '2.jpg'] }, USER)).toBe('2 pages · to Costco');
+    expect(failedPhotoDetail({ householdId: household, listId: null, pages: ['1.jpg'] }, USER)).toBe(`1 page · to ${householdName}`);
+    expect(failedPhotoDetail({ householdId: household, listId: costco, pages: ['1.jpg'] }, null)).toBe('1 page');
+    expect(retryingPhotoDetail({ householdId: household, listId: costco }, USER)).toBe('From a photo · to Costco');
+    expect(retryingPhotoDetail({ householdId: household, listId: costco }, null)).toBe('From a photo');
+  });
+
+  test("the review sheet starts where the row was going, or Try again's fallback", () => {
+    expect(failedImportEntry({ householdId: household, listId: costco }, USER)).toEqual({
+      from: 'retry',
+      householdId: household,
+      addToList: true,
+      listId: costco,
+    });
+    expect(failedImportEntry({ householdId: household, listId: null }, USER)).toEqual({
+      from: 'retry',
+      householdId: household,
+      addToList: false,
+      listId: null,
+    });
+    deleteList(costco);
+    expect(failedImportEntry({ householdId: household, listId: costco }, USER)).toEqual({
+      from: 'retry',
+      householdId: household,
+      addToList: true,
+      listId: groceries,
+    });
+  });
+
+  test('getFailedImport gives the row, or undefined once it has gone', () => {
+    const id = recordFailedImport({ url: TIKKA_URL, title: null, reason: 'blocked' });
+    expect(getFailedImport(id)).toMatchObject({ id, url: TIKKA_URL, reason: 'blocked', kind: 'link' });
+    dismissFailedImport(id);
+    expect(getFailedImport(id)).toBeUndefined();
   });
 });
 

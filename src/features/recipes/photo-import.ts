@@ -45,7 +45,8 @@ export async function pickImportPhotos(from: PhotoSource, limit: number = MAX_PH
 /**
  * The From photo… flow after the user chose where from: the library's pick, or camera shots one
  * at a time, asking after each (`askForAnother`) whether to add another page, until three. A
- * cancelled shot after the first keeps the pages so far. Null when nothing was picked.
+ * cancelled shot after the first keeps the pages so far. `limit` caps the pages (the review sheet's
+ * Add page, with pages already). Null when nothing was picked.
  */
 export async function collectImportPhotos(
   from: PhotoSource,
@@ -53,25 +54,29 @@ export async function collectImportPhotos(
     pick = pickImportPhotos,
     askForAnother,
     onDenied,
+    limit = MAX_PHOTO_IMPORT_IMAGES,
   }: {
     pick?: typeof pickImportPhotos;
     /** Resolves true for Add another page, false for Use photos. */
     askForAnother: (pages: number) => Promise<boolean>;
     onDenied: () => void;
+    /** At most this many pages (at most three). */
+    limit?: number;
   },
 ): Promise<string[] | null> {
+  const max = Math.min(limit, MAX_PHOTO_IMPORT_IMAGES);
   const pages: string[] = [];
-  for (;;) {
-    const picked = await pick(from, MAX_PHOTO_IMPORT_IMAGES - pages.length);
+  while (pages.length < max) {
+    const picked = await pick(from, max - pages.length);
     if (!picked.ok) {
       if (picked.reason === 'denied') onDenied();
       break;
     }
     pages.push(...picked.uris);
-    if (from === 'library' || pages.length >= MAX_PHOTO_IMPORT_IMAGES) break;
+    if (from === 'library' || pages.length >= max) break;
     if (!(await askForAnother(pages.length))) break;
   }
-  return pages.length > 0 ? pages.slice(0, MAX_PHOTO_IMPORT_IMAGES) : null;
+  return pages.length > 0 ? pages.slice(0, max) : null;
 }
 
 /** The import sheet's `photos` param: the page URIs as JSON. */

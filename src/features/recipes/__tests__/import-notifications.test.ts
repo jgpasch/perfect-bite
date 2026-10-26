@@ -134,6 +134,13 @@ describe('photoImportFailedNotification', () => {
     });
   });
 
+  test('with its pages kept (a failed_imports row), it says it opens the photos instead', () => {
+    expect(photoImportFailedNotification({ ok: false, error: 'rate_limited', failedImportId: 'f1' })).toMatchObject({
+      body: 'Try again in a minute',
+      hint: 'Opens the photos to try again',
+    });
+  });
+
   test('one id for every photo failure, so a retry replaces it; never a link failure\'s', () => {
     expect(photoImportFailedNotification({ ok: false, error: 'offline' }).id).toBe(
       photoImportFailedNotification({ ok: false, error: 'not_a_recipe' }).id,

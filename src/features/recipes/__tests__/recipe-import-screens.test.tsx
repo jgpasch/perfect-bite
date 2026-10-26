@@ -1,17 +1,24 @@
 // "Add recipe from link…" (spec 4.10), the Recipes tab (spec 4.5, board 05) and its imports card,
 // rendered against the in-memory database with the import itself and the share queue stubbed.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { eq } from 'drizzle-orm';
 import { Alert, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { db, households, lists, recipeIngredients, recipes } from '@/db';
+import { db, failedImports, households, lists, recipeIngredients, recipes, type FailedImportReason } from '@/db';
+import { setDocumentRoot } from '@/test/fake-file-system';
 import { setStaple } from '@/features/households/staples';
 import { addItemsBulk, listItemsQuery } from '@/features/lists/items';
 import {
   createList,
   ensureStarterData,
   getDefaultListId,
+  getList,
   LAST_OPENED_LIST_KEY,
   setLastOpenedList,
   setListArchived,
@@ -50,7 +57,7 @@ import {
   updateRecipe,
   updateRecipeTags,
 } from '../recipes';
-import { failedImportsQuery, recordFailedImport } from '../failed-imports';
+import { failedImportPageUris, failedImportsQuery, getFailedImport, recordFailedImport, recordFailedPhotoImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
 import { EMPTY_SHARE_QUEUE_STATUS, setShareQueueStatus, type ShareQueueStatus } from '../share-queue-status';
@@ -118,7 +125,25 @@ jest.mock('@/features/recipes/recipe-link', () => ({
   openRecipeLink: (url: string) => mockOpenLink(url),
 }));
 const mockNotify = jest.fn();
-jest.mock('@/features/notifications/notifications', () => ({ notify: (n: unknown) => mockNotify(n) }));
+const mockDismissNotification = jest.fn();
+jest.mock('@/features/notifications/notifications', () => ({
+  notify: (n: unknown) => mockNotify(n),
+  dismissNotification: (id: string) => mockDismissNotification(id),
+}));
+// A failed photo import's pages live under the document directory (spec 4.10), here a temp directory.
+jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
+// Take photo / Choose from library, and the pages picked, for Add page and Use other photos.
+const mockChooseSource = jest.fn((run: (from: 'camera' | 'library') => void) => run('library'));
+jest.mock('@/features/recipes/photo-import-prompts', () => ({
+  chooseSource: (run: (from: 'camera' | 'library') => void) => mockChooseSource(run),
+  askForAnother: () => Promise.resolve(false),
+  cameraDenied: () => {},
+}));
+const mockCollect = jest.fn<(from: string, options: { limit?: number }) => Promise<string[] | null>>();
+jest.mock('@/features/recipes/photo-import', () => ({
+  ...(jest.requireActual('@/features/recipes/photo-import') as object),
+  collectImportPhotos: (from: string, options: { limit?: number }) => mockCollect(from, options),
+}));
 
 // The share queue lives in the App Group and on the server; the card only removes and retries shares.
 const mockRemoveShare = jest.fn();
@@ -1998,5 +2023,423 @@ describe('ImportsCard', () => {
     await pressAsync(byLabel(root, 'Try again'));
     expect(failedRows()[0].reason).toBe('not_a_recipe');
     expect(byLabel(root, 'Try again').props.disabled).toBe(false);
+  });
+});
+
+describe('failed photo imports (spec 4.10 boards A–E)', () => {
+  let documents: string;
+  let cache: string;
+  let costco: string;
+  const household = () => getList(groceries)!.householdId;
+  const failedRows = () => failedImportsQuery().all();
+  const heading = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityState?.expanded !== undefined && !!n.props.onPress);
+  const stacks = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.props.testID === 'failed-page-stack' && typeof n.type !== 'string', { deep: false });
+  const pages = (root: ReactTestRenderer) => root.root.findAll((n) => n.props.testID === 'import-page' && typeof n.type === 'string');
+  const images = (root: ReactTestRenderer) => byType(root, 'ExpoImage').map((n) => n.props.source);
+  const pageNames = (root: ReactTestRenderer) => pages(root).map((n) => n.props.accessibilityLabel);
+
+  /** A downscaled page in the cache, as the photo import sheet leaves it. */
+  const cachePage = (name: string) => {
+    const file = path.join(cache, name);
+    fs.writeFileSync(file, `jpeg:${name}`);
+    return `file://${file}`;
+  };
+  /** A failed photo import with its pages kept, going to `target` (Costco by default). */
+  const recordPhoto = (
+    names: string[],
+    reason: FailedImportReason,
+    { target, createdAt }: { target?: { householdId: string | null; listId: string | null }; createdAt?: Date } = {},
+  ) => {
+    const id = recordFailedPhotoImport(names.map(cachePage), reason, target ?? { householdId: household(), listId: costco })!;
+    if (createdAt) db.update(failedImports).set({ createdAt }).where(eq(failedImports.id, id)).run();
+    return id;
+  };
+  const keptUris = (id: string) => failedImportPageUris(getFailedImport(id)!);
+  const keptFiles = (id: string) => fs.readdirSync(path.join(documents, 'failed-imports', id)).sort();
+  const notified = () =>
+    mockNotify.mock.calls.map((c) => c[0] as { id: string; title: string; body: string; hint?: string; onPress?: () => void });
+
+  beforeEach(() => {
+    documents = fs.mkdtempSync(path.join(os.tmpdir(), 'documents-'));
+    cache = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
+    setDocumentRoot(documents);
+    costco = createList('Costco');
+    mockCollect.mockReset();
+    mockChooseSource.mockClear();
+    mockDismissNotification.mockClear();
+  });
+
+  afterEach(() => {
+    fs.rmSync(documents, { recursive: true, force: true });
+    fs.rmSync(cache, { recursive: true, force: true });
+  });
+
+  describe('the imports card', () => {
+    test('one failed photo import shows directly, collapsed (board A): its page stack, the reason, "Your photos are kept." and Try again', () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      // The count badge on the pages, then the words and Try again.
+      expect(texts(root)).toEqual(['2', "Couldn't import 1 recipe", 'Try again in a minute. Your photos are kept.', 'Try again']);
+      expect(heading(root).props.accessibilityState).toEqual({ expanded: false });
+      // The stack: the second page behind, turned 6°, the first in front, and a count badge.
+      expect(stacks(root)).toHaveLength(1);
+      expect(stacks(root)[0].props).toMatchObject({ accessibilityLabel: '2 pages from a photo', accessibilityRole: 'button' });
+      expect(images(root)).toEqual([keptUris(id)[1], keptUris(id)[0]]);
+      const turned = root.root.findAll((n) => typeof n.type === 'string' && JSON.stringify(n.props.style ?? '').includes('6deg'));
+      expect(turned.length).toBeGreaterThan(0);
+      expect(allByLabel(root, 'Dismiss')).toHaveLength(0);
+      // Tapping the pages opens the review sheet.
+      press(stacks(root)[0]);
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { failed: id } });
+    });
+
+    test('one page: no turned page and no count badge', () => {
+      recordPhoto(['p1.jpg'], 'rate_limited');
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      expect(stacks(root)[0].props.accessibilityLabel).toBe('1 page from a photo');
+      expect(images(root)).toHaveLength(1);
+      expect(texts(root)).toEqual(["Couldn't import 1 recipe", 'Try again in a minute. Your photos are kept.', 'Try again']);
+    });
+
+    test('one failed link shows directly too, with its icon tile and Try again; tapping it expands for Dismiss', () => {
+      recordFailedImport({ url: 'https://example.com/x', title: 'Pho', reason: 'blocked' });
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      expect(texts(root)).toEqual(["Couldn't import 1 recipe", 'The site blocked the import', 'Try again']);
+      expect(root.root.findAll((n) => n.type === IconTile).map((n) => n.props.name)).toEqual(['link']);
+      expect(stacks(root)).toHaveLength(0);
+      press(heading(root));
+      expect(texts(root)).toEqual(expect.arrayContaining(['Pho', 'Dismiss']));
+    });
+
+    test('Try again on the collapsed card (board C): "Importing 1 of 1…", a spinner on the pages, then the result', async () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const uris = keptUris(id);
+      const pending = deferred<ImportRecipeResult>();
+      mockPhotoImport.mockReturnValue(pending.promise);
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      act(() => {
+        void byLabel(root, 'Try again').props.onPress();
+      });
+      expect(mockPhotoImport).toHaveBeenCalledWith({ listId: costco, photoUris: uris, retryOf: id });
+      expect(texts(root)).toEqual(['2', 'Importing 1 of 1…', 'From a photo · to Costco']);
+      expect(allByLabel(root, 'Try again')).toHaveLength(0);
+      expect(root.root.findAll((n) => n.props.accessibilityLabel === 'Importing your recipe')).not.toHaveLength(0);
+      expect(stacks(root)[0].props.disabled).toBe(true);
+      expect(notified().map((n) => n.title)).toEqual(['Importing your recipe']);
+      await act(async () => pending.resolve(success({ listId: costco })));
+      expect(failedRows()).toEqual([]);
+      const [importing, done] = notified();
+      expect(done).toMatchObject({ id: importing.id, title: 'Recipe added', body: 'Added Chicken tikka masala · 12 items to Costco' });
+    });
+
+    test('a Try again that fails again keeps the row with the new reason; its notification opens the review sheet', async () => {
+      const id = recordPhoto(['p1.jpg'], 'rate_limited');
+      mockPhotoImport.mockResolvedValue({ ok: false, error: 'daily_limit', failedImportId: id } as ImportRecipeResult);
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      await pressAsync(byLabel(root, 'Try again'));
+      expect(failedRows().map((r) => [r.id, r.reason])).toEqual([[id, 'daily_limit']]);
+      expect(keptFiles(id)).toEqual(['1.jpg']);
+      expect(byLabel(root, 'Try again').props.disabled).toBe(false);
+      const failure = notified()[1];
+      expect(failure).toMatchObject({
+        id: notified()[0].id,
+        title: "Couldn't import recipe",
+        body: "You've reached today's limit. Try again tomorrow.",
+        hint: 'Opens the photos to try again',
+      });
+      failure.onPress!();
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { failed: id } });
+    });
+
+    test('a row whose pages have gone: Try again deletes it quietly and takes Importing down', async () => {
+      const id = recordPhoto(['p1.jpg'], 'rate_limited');
+      fs.rmSync(path.join(documents, 'failed-imports', id), { recursive: true });
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      await pressAsync(byLabel(root, 'Try again'));
+      expect(mockPhotoImport).not.toHaveBeenCalled();
+      expect(failedRows()).toEqual([]);
+      expect(mockDismissNotification).toHaveBeenCalledWith(notified()[0].id);
+    });
+
+    test('expanded (board B): a photo row with its stack, "N pages · to <list>", the reason and Dismiss, beside a link row', () => {
+      const photo = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      recordPhoto(['q1.jpg'], 'rate_limited', { target: { householdId: household(), listId: null } });
+      recordFailedImport({ url: 'https://example.com/x', title: 'Crispy gnocchi', reason: 'rate_limited' });
+      const queue: ShareQueueStatus = {
+        queued: [{ id: 'w', url: 'https://example.com/w', title: null, listName: 'Groceries', onServer: true }],
+        failed: [],
+        offline: false,
+      };
+      const root = render(<ImportsCard failed={failedRows()} queue={queue} />);
+      expect(texts(root).slice(0, 2)).toEqual(["Couldn't import 3 recipes", '1 more waiting']);
+      expect(stacks(root)).toHaveLength(0);
+      press(heading(root));
+      expect(texts(root)).toEqual(
+        expect.arrayContaining([
+          'From a photo',
+          '2 pages · to Costco',
+          '1 page · to Personal',
+          'Try again in a minute',
+          'Crispy gnocchi',
+          'The import service was busy',
+        ]),
+      );
+      expect(stacks(root).map((s) => s.props.accessibilityLabel).sort()).toEqual(['1 page from a photo', '2 pages from a photo']);
+      expect(allByLabel(root, 'Try again')).toHaveLength(3);
+      expect(allByLabel(root, 'Dismiss')).toHaveLength(3);
+      // Dismiss deletes a photo row's pages with it.
+      press(allByLabel(root, 'Dismiss')[failedRows().findIndex((r) => r.id === photo)]);
+      expect(getFailedImport(photo)).toBeUndefined();
+      expect(fs.existsSync(path.join(documents, 'failed-imports', photo))).toBe(false);
+    });
+
+    test('over the monthly limit (board E): Try again is disabled until the 1st after the failure, then comes back', () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-25T12:00:00Z'));
+      recordPhoto(['p1.jpg'], 'limit_reached', { createdAt: new Date('2026-10-18T12:00:00Z') });
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      expect(texts(root)).toEqual([
+        "Couldn't import 1 recipe",
+        "You've used this month's recipe imports. They reset on Nov 1. Your photos are kept.",
+        'Try again Nov 1',
+      ]);
+      expect(byLabel(root, 'Try again Nov 1').props.disabled).toBe(true);
+      expect(allByLabel(root, 'Try again')).toHaveLength(0);
+      press(heading(root));
+      expect(byLabel(root, 'Try again Nov 1').props.disabled).toBe(true);
+      act(() => root.unmount());
+      tree = null;
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z'));
+      const later = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      expect(byLabel(later, 'Try again').props.disabled).toBe(false);
+      expect(allByLabel(later, 'Try again Nov 1')).toHaveLength(0);
+    });
+
+    test('not a recipe (board E): Use other photos in place of Try again, then the review sheet with the new pages', async () => {
+      const id = recordPhoto(['p1.jpg'], 'not_a_recipe');
+      mockCollect.mockResolvedValue(['file:///cache/new-1.jpg', 'file:///cache/new-2.jpg']);
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      expect(texts(root)).toEqual([
+        "Couldn't import 1 recipe",
+        "That photo doesn't look like a recipe. Your photos are kept.",
+        'Use other photos',
+      ]);
+      expect(allByLabel(root, 'Try again')).toHaveLength(0);
+      const other = byLabel(root, 'Use other photos');
+      expect(other.type).toBe(Pill);
+      expect(other.props).toMatchObject({ soft: true, icon: 'camera' });
+      await pressAsync(other);
+      expect(mockChooseSource).toHaveBeenCalledTimes(1);
+      expect(mockCollect.mock.calls[0][0]).toBe('library');
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/import-recipe',
+        params: { failed: id, photos: photosParam(['file:///cache/new-1.jpg', 'file:///cache/new-2.jpg']) },
+      });
+      // Nothing changes on the row until its Try again.
+      expect(getFailedImport(id)!.pages).toEqual(['1.jpg']);
+      // Expanded, it has Use other photos and Dismiss.
+      press(heading(root));
+      expect(allByLabel(root, 'Use other photos')).toHaveLength(1);
+      expect(allByLabel(root, 'Dismiss')).toHaveLength(1);
+    });
+
+    test('Use other photos backed out of opens nothing', async () => {
+      recordPhoto(['p1.jpg'], 'not_a_recipe');
+      mockCollect.mockResolvedValue(null);
+      const root = render(<ImportsCard failed={failedRows()} queue={EMPTY_SHARE_QUEUE_STATUS} />);
+      await pressAsync(byLabel(root, 'Use other photos'));
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the review sheet (board D)', () => {
+    const toggle = (root: ReactTestRenderer) =>
+      root.root.find(
+        (n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Also add ingredients to a list' && 'onValueChange' in n.props,
+      );
+    const selectedPills = (root: ReactTestRenderer) =>
+      root.root.findAll((n) => n.type === Pill && n.props.selected === true).map((n) => n.props.label);
+    const removeButtons = (root: ReactTestRenderer) =>
+      root.root.findAll(
+        (n) => typeof n.type !== 'string' && /^Remove page /.test(String(n.props.accessibilityLabel ?? '')) && !!n.props.onPress,
+      );
+    const addPageTile = (root: ReactTestRenderer) => allByA11y(root, 'Add page')[0];
+    const open = (id: string, photos?: string[]) => {
+      mockParams.failed = id;
+      if (photos) mockParams.photos = photosParam(photos);
+      return render(<ImportRecipeSheet />);
+    };
+
+    test('filled from the row: the banner, the kept pages with remove buttons and Add page, the 30-day note, its list and both buttons', () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(18, 42, 0, 0);
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited', { createdAt: yesterday });
+      const root = open(id);
+      const all = texts(root);
+      expect(all[0]).toBe('Add recipe from photo');
+      expect(all[1]).toMatch(/^Couldn't import this yesterday at 6:42\sPM\. Try again in a minute\.$/);
+      expect(root.root.findAll((n) => n.props.name === 'exclamationmark.circle')[0].props.color).toBe('danger');
+      expect(pageNames(root)).toEqual(['Page 1 of 2', 'Page 2 of 2']);
+      expect(images(root)).toEqual(keptUris(id));
+      expect(removeButtons(root).map((n) => n.props.accessibilityLabel)).toEqual(['Remove page 1 of 2', 'Remove page 2 of 2']);
+      expect(addPageTile(root)).toBeDefined();
+      expect(all).toContain('Kept on this phone for 30 days, or until the recipe imports.');
+      expect(all).not.toContain('The pages are kept with the recipe, so everyone in the household can see the original.');
+      expect(all).not.toContain('Pages');
+      // The banner and pages come before the pickers.
+      expect(all.indexOf('Kept on this phone for 30 days, or until the recipe imports.')).toBeLessThan(
+        all.indexOf('Also add ingredients to a list'),
+      );
+      expect(toggle(root).props.value).toBe(true);
+      expect(selectedPills(root)).toEqual(['Costco']);
+      expect(byLabel(root, 'Try again & add to Costco').props).toMatchObject({ icon: 'arrow.clockwise', disabled: false });
+      expect(byLabel(root, 'Dismiss and delete photos')).toBeDefined();
+    });
+
+    test('a recipe-only row starts with the switch off and reads Try again; one page has no remove button', () => {
+      const id = recordPhoto(['p1.jpg'], 'rate_limited', { target: { householdId: household(), listId: null } });
+      const root = open(id);
+      expect(toggle(root).props.value).toBe(false);
+      expect(byLabel(root, 'Try again').props.icon).toBe('arrow.clockwise');
+      expect(removeButtons(root)).toEqual([]);
+    });
+
+    test("a list that's gone falls back to the default list, as Try again does", () => {
+      const id = recordPhoto(['p1.jpg'], 'rate_limited', { target: { householdId: household(), listId: 'gone' } });
+      const root = open(id);
+      expect(byLabel(root, `Try again & add to ${getList(groceries)!.name}`)).toBeDefined();
+    });
+
+    test('remove and Add page edit the pages on screen only; Add page asks for what fits, and hides at three', async () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const root = open(id);
+      press(removeButtons(root)[0]);
+      expect(images(root)).toEqual([keptUris(id)[1]]);
+      expect(removeButtons(root)).toEqual([]);
+      mockCollect.mockResolvedValue(['file:///cache/new-1.jpg', 'file:///cache/new-2.jpg']);
+      await pressAsync(addPageTile(root));
+      expect(mockCollect.mock.calls[0]).toEqual(['library', expect.objectContaining({ limit: 2 })]);
+      expect(images(root)).toEqual([keptUris(id)[1], 'file:///cache/new-1.jpg', 'file:///cache/new-2.jpg']);
+      expect(pageNames(root)).toEqual(['Page 1 of 3', 'Page 2 of 3', 'Page 3 of 3']);
+      expect(addPageTile(root)).toBeUndefined();
+      // Nothing saved yet.
+      expect(getFailedImport(id)!.pages).toEqual(['1.jpg', '2.jpg']);
+    });
+
+    test('closing it any other way leaves the row as it was', () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const root = open(id);
+      press(removeButtons(root)[1]);
+      press(byType(root, 'ToolbarButton')[0]);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(getFailedImport(id)).toMatchObject({ pages: ['1.jpg', '2.jpg'], listId: costco });
+      expect(keptFiles(id)).toEqual(['1.jpg', '2.jpg']);
+      expect(mockPhotoImport).not.toHaveBeenCalled();
+    });
+
+    test('Try again saves the pages and target to the row first, closes, then imports them with Importing and the result', async () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const newPage = cachePage('new.jpg');
+      const pending = deferred<ImportRecipeResult>();
+      mockPhotoImport.mockReturnValue(pending.promise);
+      mockCollect.mockResolvedValue([newPage]);
+      const root = open(id);
+      press(removeButtons(root)[0]);
+      await pressAsync(addPageTile(root));
+      const groceriesName = getList(groceries)!.name;
+      press(byLabel(root, groceriesName));
+      act(() => {
+        void byLabel(root, `Try again & add to ${groceriesName}`).props.onPress();
+      });
+      // Saved: page 2 kept, the new one moved in as 3.jpg, page 1's file deleted, the new list.
+      expect(getFailedImport(id)).toMatchObject({ pages: ['2.jpg', '3.jpg'], listId: groceries });
+      expect(keptFiles(id)).toEqual(['2.jpg', '3.jpg']);
+      expect(fs.existsSync(newPage.slice('file://'.length))).toBe(false);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(mockPhotoImport).toHaveBeenCalledWith({ listId: groceries, photoUris: keptUris(id), retryOf: id });
+      expect(notified().map((n) => n.title)).toEqual(['Importing your recipe']);
+      await act(async () => pending.resolve(success()));
+      expect(notified().map((n) => n.title)).toEqual(['Importing your recipe', 'Recipe added']);
+      expect(getFailedImport(id)).toBeUndefined();
+    });
+
+    test('another failure keeps the edits', async () => {
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      mockPhotoImport.mockResolvedValue({ ok: false, error: 'not_a_recipe', failedImportId: id } as ImportRecipeResult);
+      const root = open(id);
+      press(removeButtons(root)[1]);
+      act(() => toggle(root).props.onValueChange(false));
+      await pressAsync(byLabel(root, 'Try again'));
+      expect(getFailedImport(id)).toMatchObject({ pages: ['1.jpg'], listId: null, householdId: household(), reason: 'not_a_recipe' });
+      expect(keptFiles(id)).toEqual(['1.jpg']);
+      expect(mockPhotoImport).toHaveBeenCalledWith({ householdId: household(), photoUris: keptUris(id), retryOf: id });
+      expect(notified()[1]).toMatchObject({ body: "That photo doesn't look like a recipe", hint: 'Opens the photos to try again' });
+    });
+
+    test("opened from Use other photos, it shows the new pages; Try again replaces the row's with them", () => {
+      const id = recordPhoto(['p1.jpg'], 'not_a_recipe');
+      const fresh = [cachePage('a.jpg'), cachePage('b.jpg')];
+      mockPhotoImport.mockReturnValue(deferred<ImportRecipeResult>().promise);
+      const root = open(id, fresh);
+      expect(images(root)).toEqual(fresh);
+      // In the sheet the new pages get a Try again, though the reason was not a recipe.
+      act(() => {
+        void byLabel(root, 'Try again & add to Costco').props.onPress();
+      });
+      expect(getFailedImport(id)!.pages).toEqual(['2.jpg', '3.jpg']);
+      expect(keptFiles(id)).toEqual(['2.jpg', '3.jpg']);
+    });
+
+    test('Dismiss and delete photos deletes the row and its files and closes', () => {
+      const id = recordPhoto(['p1.jpg'], 'rate_limited');
+      const root = open(id);
+      press(byLabel(root, 'Dismiss and delete photos'));
+      expect(getFailedImport(id)).toBeUndefined();
+      expect(fs.existsSync(path.join(documents, 'failed-imports', id))).toBe(false);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(mockPhotoImport).not.toHaveBeenCalled();
+    });
+
+    test('over the monthly limit, Try again is disabled as "Try again Nov 1"', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-25T12:00:00Z'));
+      const id = recordPhoto(['p1.jpg'], 'limit_reached', { createdAt: new Date('2026-10-18T12:00:00Z') });
+      const root = open(id);
+      const button = byLabel(root, 'Try again Nov 1');
+      expect(button.props.disabled).toBe(true);
+      await pressAsync(button);
+      expect(mockPhotoImport).not.toHaveBeenCalled();
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    test('offline: says so inline and saves nothing', async () => {
+      mockConnected = false;
+      const id = recordPhoto(['p1.jpg', 'p2.jpg'], 'rate_limited');
+      const root = open(id);
+      await act(async () => {});
+      press(removeButtons(root)[0]);
+      await pressAsync(byLabel(root, 'Try again & add to Costco'));
+      expect(texts(root)).toContain("You're offline");
+      expect(getFailedImport(id)!.pages).toEqual(['1.jpg', '2.jpg']);
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    test('a row that has gone shows nothing and closes', () => {
+      const root = open('gone');
+      expect(texts(root)).toEqual([]);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    test("a new photo import's failure notification opens the review sheet for its kept pages", async () => {
+      mockParams.photos = photosParam(['file:///cache/page-1.jpg']);
+      mockPhotoImport.mockResolvedValue({ ok: false, error: 'rate_limited', failedImportId: 'f1' } as ImportRecipeResult);
+      const root = render(<ImportRecipeSheet />);
+      await pressAsync(byLabel(root, 'Save recipe'));
+      const failure = notified()[1];
+      expect(failure).toMatchObject({ body: 'Try again in a minute', hint: 'Opens the photos to try again' });
+      failure.onPress!();
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/import-recipe', params: { failed: 'f1' } });
+    });
   });
 });
