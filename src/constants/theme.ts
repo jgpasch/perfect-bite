@@ -381,6 +381,10 @@ export const Sizes = {
   slotBarButton: 52,
   /** the Not cooking? label's column beside them; it wraps inside it */
   slotBarLabel: 64,
+  /** the tick circle at the end of a slot sheet recipe row (spec 4.16 Picking recipes) */
+  slotTick: 26,
+  /** a ticked recipe's tile in the slot sheet's add bar chips */
+  slotTrayTile: 28,
   /** a grid column's width once the grid scrolls sideways at large text sizes */
   planScrollColumn: 160,
   /** a meal's letter chip in the agenda */

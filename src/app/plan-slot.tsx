@@ -6,7 +6,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { hueHeaderBand } from '@/components/appearance';
-import { Button } from '@/components/button';
+import { Button, PrimaryButton } from '@/components/button';
 import { Card } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
 import { Pill } from '@/components/pill';
@@ -16,6 +16,10 @@ import { Screen } from '@/components/themed-view';
 import { MealHues } from '@/constants/theme';
 import { groupWeek, weekEntriesQuery } from '@/features/meal-plan/queries';
 import {
+  mealToast,
+  pickButtonLabels,
+  type PickMode,
+  pickRecipes,
   promptNote,
   type QuickChip,
   quickChipOn,
@@ -23,10 +27,11 @@ import {
   type SlotSheetSort,
   slotSheetRecipes,
   toggleQuickChip,
+  weekToast,
 } from '@/features/meal-plan/slot-actions';
-import { type Meal, MEALS } from '@/features/meal-plan/week';
+import { type Meal, MEALS, today as dayOf } from '@/features/meal-plan/week';
 import { mealLabel, sheetDayLabel } from '@/features/meal-plan/week-view';
-import { addRecipeToSlot, type EntryInput, setSlot } from '@/features/meal-plan/write';
+import { type EntryInput, setSlot } from '@/features/meal-plan/write';
 import { readRecipeFavorites, type FavoritesByRecipe } from '@/features/recipes/favorites';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
@@ -40,7 +45,7 @@ import {
 import { RecipePhotoTile } from '@/features/recipes/recipe-photo';
 import { NO_RECIPES_MATCH } from '@/features/recipes/recipe-search';
 import { recipeTimeLabel } from '@/features/recipes/recipe-view';
-import { recipesQuery } from '@/features/recipes/recipes';
+import { recipesQuery, type RecipeSummary } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 import { tagLabel } from '@/i18n/vocabulary';
@@ -59,12 +64,21 @@ const SORTS: readonly { sort: SlotSheetSort; icon: IconName }[] = [
  * chips: the meal, Favorites, Want to try), the count ("All recipes", "4 recipes") with the sort menu (Newest
  * first, A–Z), then every recipe of the household, newest first, each with its time and when it was added,
  * and Clear filters while any are on. The **Not cooking?** bar (Leftovers, Eating out, Note…) is pinned to the
- * bottom. Search, chips and filters narrow together; Filters shows the filter panel in place. The filters and
- * sort are the sheet's own and go when it closes. Picking fills the slot and closes the sheet.
+ * bottom; each fills the slot at once and closes the sheet. Search, chips and filters narrow together; Filters
+ * shows the filter panel in place. The filters and sort are the sheet's own and go when it closes.
+ *
+ * Picking recipes (board `d-multi-select`, states a–d): tapping a row ticks it (or unticks it), any number.
+ * Ticks, in the order ticked, outlast the search, chips, filters and sort, and go when the sheet closes. With
+ * any ticked, the count line starts "2 selected · " and the **add bar** takes the Not cooking? bar's place: a
+ * sideways row of the ticked recipes (✕ unticks one), Clear, and Add to dinner / Add 3 to dinner, which writes
+ * the slot once (`applyPlanChanges`, the ticked recipes last), closes, and shows the week's "Added 3 recipes to
+ * Thu dinner" with Undo. With `mode: 'replace'` (a note's Replace…, the meal sheet's Replace all…) it reads
+ * Replace dinner / Replace with 3, replaces everything there, and the toast is "Replaced Thu dinner".
  *
  * With `mode: 'add'`, the add sheet (board E), from the meal sheet: "Add to dinner" under "Tuesday 13 ·
- * Dinner", a line naming the slot's recipes, the same list, chips and filters but no Not cooking? bar, and the
- * slot's recipes ticked and disabled. Picking adds the recipe last and goes back to the meal sheet.
+ * Dinner", a line naming the slot's recipes, the same list, chips and filters but no Not cooking? bar (and no
+ * bar at all until something's ticked), and the slot's recipes ticked and disabled, never counted. Its button
+ * adds the ticked recipes last and goes back to the meal sheet, which shows "Added 2 recipes to dinner".
  */
 export default function PlanSlotSheet() {
   const { householdId, day, meal, mode } = useLocalSearchParams<{ householdId: string; day: string; meal: string; mode?: string }>();
@@ -72,6 +86,7 @@ export default function PlanSlotSheet() {
   const { colors, scheme, spacing, sizes, opacity, rounded } = useTheme();
   const insets = useSafeAreaInsets();
   const adding = mode === 'add';
+  const pickMode: PickMode = adding ? 'add' : mode === 'replace' ? 'replace' : 'fill';
   // A sheet is short-lived: read once rather than live.
   const [recipes] = useState(() => recipesQuery().all());
   const [own] = useState(() => recipes.filter((r) => r.householdId === householdId));
@@ -90,6 +105,12 @@ export default function PlanSlotSheet() {
   const [filters, setFilters] = useState<RecipeFilters>(noRecipeFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sort, setSort] = useState<SlotSheetSort>('recent');
+  // The ticked recipes' ids, in the order ticked.
+  const [ticked, setTicked] = useState<readonly string[]>([]);
+  const picked = useMemo(() => {
+    const byId = new Map(own.map((r) => [r.id, r]));
+    return ticked.map((id) => byId.get(id)).filter((r): r is RecipeSummary => r !== undefined);
+  }, [own, ticked]);
   const shown = useMemo(
     () => (householdId ? slotSheetRecipes(own, { householdId, query, filters, sort }, favorites) : []),
     [own, householdId, query, filters, sort, favorites],
@@ -114,13 +135,22 @@ export default function PlanSlotSheet() {
   }
 
   const band = hueHeaderBand(MealHues[meal], scheme);
-  const pick = (entry: EntryInput) => {
-    if (adding && entry.kind === 'recipe') addRecipeToSlot(householdId, day, meal, entry.recipeId);
-    else setSlot(householdId, day, meal, entry);
+  // Leftovers, Eating out and Note… fill the slot at once.
+  const fill = (entry: EntryInput) => {
+    setSlot(householdId, day, meal, entry);
     router.back();
   };
+  const toggle = (id: string) => setTicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const commit = () => {
+    const onToast = adding ? mealToast : weekToast;
+    const toast = pickRecipes(householdId, day, meal, picked, pickMode, dayOf(now), onToast);
+    router.back();
+    onToast(toast);
+  };
+  const buttonLabels = pickButtonLabels(meal, picked.length, pickMode);
   const filtering = activeFilterCount(filters) > 0;
   const narrowed = filtering || query.trim() !== '';
+  const countLine = narrowed ? t('mealPlan.recipeCount', { count: shown.length }) : t('mealPlan.allRecipes');
   const chipLabel = (chip: QuickChip) =>
     chip === 'meal' ? mealLabel(meal) : chip === 'favorites' ? t('recipes.filters.favorites') : tagLabel('saved', 'want-to-try')!;
   // A value a quick chip shows isn't repeated as a ✕ chip.
@@ -195,7 +225,7 @@ export default function PlanSlotSheet() {
 
         <View style={[styles.row, styles.between, { gap: spacing.md, paddingHorizontal: spacing.lg + spacing.xs }]}>
           <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.shrink}>
-            {narrowed ? t('mealPlan.recipeCount', { count: shown.length }) : t('mealPlan.allRecipes')}
+            {picked.length > 0 ? t('mealPlan.selectedCount', { count: picked.length, rest: countLine }) : countLine}
           </ThemedText>
           <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
             <Menu
@@ -230,6 +260,7 @@ export default function PlanSlotSheet() {
           <Card>
             {shown.map((r, i) => {
               const already = inSlotIds.has(r.id);
+              const on = !already && ticked.includes(r.id);
               const line = already
                 ? t(`mealPlan.alreadyIn.${meal}`)
                 : [recipeTimeLabel(r.totalMinutes), recipeAddedLabel(r.createdAt, now)].filter(Boolean).join(' · ');
@@ -238,10 +269,10 @@ export default function PlanSlotSheet() {
                   key={r.id}
                   testID={`slot-recipe-${r.id}`}
                   accessibilityRole="button"
-                  accessibilityLabel={`${r.name}, ${line}`}
+                  accessibilityLabel={`${on ? t('mealPlan.tickedRecipe', { name: r.name }) : r.name}, ${line}`}
                   accessibilityState={{ disabled: already, checked: already ? true : undefined }}
                   disabled={already}
-                  onPress={() => pick({ kind: 'recipe', recipeId: r.id })}
+                  onPress={() => toggle(r.id)}
                   style={({ pressed }) => [
                     styles.row,
                     {
@@ -251,6 +282,7 @@ export default function PlanSlotSheet() {
                       gap: spacing.md,
                       borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
                       borderTopColor: colors.border,
+                      backgroundColor: on ? colors.primarySoft : undefined,
                       opacity: already ? opacity.disabled : pressed ? opacity.pressed : 1,
                     },
                   ]}>
@@ -263,7 +295,7 @@ export default function PlanSlotSheet() {
                       {line}
                     </ThemedText>
                   </View>
-                  {already ? <Icon name="checkmark" color="primary" size={sizes.icon} weight="bold" /> : null}
+                  <TickCircle state={already ? 'already' : on ? 'on' : 'off'} />
                 </Pressable>
               );
             })}
@@ -281,7 +313,34 @@ export default function PlanSlotSheet() {
         ) : null}
       </ScrollView>
 
-      {adding ? null : (
+      {picked.length > 0 ? (
+        <View
+          testID="add-bar"
+          style={{
+            gap: spacing.md,
+            paddingTop: spacing.md,
+            paddingBottom: Math.max(insets.bottom, spacing.lg),
+            backgroundColor: colors.background,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: colors.border,
+          }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.lg }}>
+            {picked.map((r) => (
+              <PickedChip key={r.id} recipe={r} onRemove={() => toggle(r.id)} />
+            ))}
+          </ScrollView>
+          <View style={[styles.row, { gap: spacing.md, paddingHorizontal: spacing.lg }]}>
+            <Button label={t('mealPlan.clearPicked')} variant="plain" onPress={() => setTicked([])} />
+            <View style={styles.flex}>
+              <PrimaryButton label={buttonLabels.label} accessibilityLabel={buttonLabels.accessibilityLabel} onPress={commit} />
+            </View>
+          </View>
+        </View>
+      ) : adding ? null : (
         <View
           testID="not-cooking"
           style={[
@@ -299,16 +358,69 @@ export default function PlanSlotSheet() {
           <ThemedText variant="sectionLabel" color="inkSecondary" style={{ width: sizes.slotBarLabel }}>
             {t('mealPlan.notCooking')}
           </ThemedText>
-          <NotCookingButton icon="takeoutbag.and.cup.and.straw" label={t('mealPlan.leftovers')} onPress={() => pick({ kind: 'leftovers' })} />
-          <NotCookingButton icon="fork.knife" label={t('mealPlan.eatingOut')} onPress={() => pick({ kind: 'eating-out' })} />
+          <NotCookingButton icon="takeoutbag.and.cup.and.straw" label={t('mealPlan.leftovers')} onPress={() => fill({ kind: 'leftovers' })} />
+          <NotCookingButton icon="fork.knife" label={t('mealPlan.eatingOut')} onPress={() => fill({ kind: 'eating-out' })} />
           <NotCookingButton
             icon="note.text"
             label={t('mealPlan.note')}
-            onPress={() => promptNote('', (note) => pick({ kind: 'note', note }))}
+            onPress={() => promptNote('', (note) => fill({ kind: 'note', note }))}
           />
         </View>
       )}
     </Screen>
+  );
+}
+
+/**
+ * A recipe row's tick circle: a `controlBorder` ring; ticked, filled `primary` with an `onPrimary` check;
+ * already in the slot (the add sheet), filled `surfaceMuted` with an `inkSecondary` check.
+ */
+function TickCircle({ state }: { state: 'off' | 'on' | 'already' }) {
+  const { colors, sizes, rounded } = useTheme();
+  return (
+    <View
+      style={[
+        styles.center,
+        {
+          width: sizes.slotTick,
+          height: sizes.slotTick,
+          borderRadius: rounded.full,
+          borderWidth: state === 'off' ? sizes.checkBorder : 0,
+          borderColor: colors.controlBorder,
+          backgroundColor: state === 'on' ? colors.primary : state === 'already' ? colors.surfaceMuted : 'transparent',
+        },
+      ]}>
+      {state === 'off' ? null : (
+        <Icon name="checkmark" color={state === 'on' ? 'onPrimary' : 'inkSecondary'} size={sizes.iconSmall} weight="bold" />
+      )}
+    </View>
+  );
+}
+
+/** A ticked recipe in the add bar: a `surface` chip with its tile, name and a ✕ that unticks it. */
+function PickedChip({ recipe, onRemove }: { recipe: RecipeSummary; onRemove: () => void }) {
+  const t = useT();
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  return (
+    <View
+      testID={`picked-${recipe.id}`}
+      style={[styles.row, { minHeight: sizes.pill, gap: spacing.sm, paddingLeft: spacing.xs, borderRadius: rounded.md, backgroundColor: colors.surface }]}>
+      <RecipePhotoTile recipeId={recipe.id} imageUrl={recipe.imageUrl} photoPath={recipe.photoPath} size={sizes.slotTrayTile} />
+      <ThemedText variant="callout" numberOfLines={1} style={styles.strong}>
+        {recipe.name}
+      </ThemedText>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('mealPlan.removeRecipe', { name: recipe.name })}
+        hitSlop={spacing.xs}
+        onPress={onRemove}
+        style={({ pressed }) => [
+          styles.center,
+          { minWidth: sizes.removeButton, minHeight: sizes.removeButton, opacity: pressed ? opacity.pressed : 1 },
+        ]}>
+        <Icon name="xmark" color="inkSecondary" size={sizes.iconSmall} weight="bold" />
+      </Pressable>
+    </View>
   );
 }
 

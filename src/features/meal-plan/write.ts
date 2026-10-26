@@ -77,15 +77,22 @@ function setIn(tx: Exec, householdId: string, day: Day, meal: Meal, entry: Entry
   });
 }
 
-function addIn(tx: Exec, householdId: string, day: Day, meal: Meal, recipeId: string): MealPlanEntry | null {
+/** Adds the recipe last; returns the new row and the note it took out, or null when it's already there. */
+function addIn(
+  tx: Exec,
+  householdId: string,
+  day: Day,
+  meal: Meal,
+  recipeId: string,
+): { row: MealPlanEntry; removed: MealPlanEntry[] } | null {
   checkRecipe(tx, householdId, recipeId);
   const live = tx.select().from(mealPlanEntries).where(slotWhere(householdId, day, meal)).all();
   if (live.some((e) => e.kind === 'recipe' && e.recipeId === recipeId)) return null;
-  updateRows(tx, mealPlanEntries, and(slotWhere(householdId, day, meal), ne(mealPlanEntries.kind, 'recipe')), {
+  const removed = updateRows(tx, mealPlanEntries, and(slotWhere(householdId, day, meal), ne(mealPlanEntries.kind, 'recipe')), {
     deletedAt: new Date(),
   });
   const positions = live.filter((e) => e.kind === 'recipe').map((e) => e.position);
-  return insertRow(tx, mealPlanEntries, {
+  const row = insertRow(tx, mealPlanEntries, {
     id: newId(),
     householdId,
     planDate: day,
@@ -95,6 +102,7 @@ function addIn(tx: Exec, householdId: string, day: Day, meal: Meal, recipeId: st
     recipeId,
     note: null,
   });
+  return { row, removed };
 }
 
 /**
@@ -108,7 +116,7 @@ export function addRecipeToSlot(
   recipeId: string,
   exec: Exec = db,
 ): MealPlanEntry | null {
-  return exec.transaction((tx) => addIn(tx, householdId, day, meal, recipeId));
+  return exec.transaction((tx) => addIn(tx, householdId, day, meal, recipeId)?.row ?? null);
 }
 
 /**
@@ -211,15 +219,69 @@ export function restoreSlot(
   });
 }
 
-/** The plan modal's Done: every slot's change in one transaction, in order. Nothing is written if one fails. */
-export function applyPlanChanges(changes: readonly PlanChange[], exec: Exec = db): void {
-  if (changes.length === 0) return;
+/** What `applyPlanChanges` wrote: the rows it put in and the ones it took out, for `undoPlanChanges`. */
+export type AppliedPlanChanges = { added: MealPlanEntry[]; removed: MealPlanEntry[] };
+
+/**
+ * Every slot's change in one transaction, in order (the plan modal's Done, the slot sheet's Add). Nothing is
+ * written if one fails. Returns what it wrote, for Undo.
+ */
+export function applyPlanChanges(changes: readonly PlanChange[], exec: Exec = db): AppliedPlanChanges {
+  const applied: AppliedPlanChanges = { added: [], removed: [] };
+  if (changes.length === 0) return applied;
   exec.transaction((tx) => {
     for (const change of changes) {
       const { householdId, day, meal } = change;
-      if ('add' in change) addIn(tx, householdId, day, meal, change.add.recipeId);
-      else if (change.entry) setIn(tx, householdId, day, meal, change.entry);
-      else clearIn(tx, householdId, day, meal);
+      if ('add' in change) {
+        const done = addIn(tx, householdId, day, meal, change.add.recipeId);
+        if (done) {
+          applied.added.push(done.row);
+          applied.removed.push(...done.removed);
+        }
+      } else {
+        // Cleared here to keep what went; setIn's own clear then finds the slot empty.
+        applied.removed.push(...clearIn(tx, householdId, day, meal));
+        if (change.entry) applied.added.push(setIn(tx, householdId, day, meal, change.entry));
+      }
+    }
+  });
+  return applied;
+}
+
+/**
+ * Undo for `applyPlanChanges`: takes out the rows it put in and puts back the ones it took out, in one
+ * transaction, so the slots read as they did before. Anything else written since is left as it is.
+ */
+export function undoPlanChanges({ added, removed }: AppliedPlanChanges, exec: Exec = db): void {
+  if (added.length === 0 && removed.length === 0) return;
+  exec.transaction((tx) => {
+    if (added.length > 0) {
+      updateRows(
+        tx,
+        mealPlanEntries,
+        and(
+          inArray(
+            mealPlanEntries.id,
+            added.map((e) => e.id),
+          ),
+          isNull(mealPlanEntries.deletedAt),
+        ),
+        { deletedAt: new Date() },
+      );
+    }
+    // A row added and taken out again in the same batch stays out.
+    const addedIds = new Set(added.map((e) => e.id));
+    const back = removed.filter((e) => !addedIds.has(e.id));
+    if (back.length > 0) {
+      updateRows(
+        tx,
+        mealPlanEntries,
+        inArray(
+          mealPlanEntries.id,
+          back.map((e) => e.id),
+        ),
+        { deletedAt: null },
+      );
     }
   });
 }

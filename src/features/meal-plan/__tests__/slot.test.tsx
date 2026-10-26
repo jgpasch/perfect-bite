@@ -2,10 +2,11 @@
 // the note prompt, and Clear with Undo, against the in-memory database on Thursday, October 15, 2026.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
-import { ActionSheetIOS, Alert } from 'react-native';
+import { ActionSheetIOS, Alert, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
+import { Palette, Sizes } from '@/constants/theme';
 import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
 import type { FavoritesByRecipe } from '@/features/recipes/favorites';
@@ -29,7 +30,9 @@ import { i18n } from '@/i18n';
 
 import { groupWeek, weekEntriesQuery } from '../queries';
 import {
+  openAddSheet,
   openMealSheet,
+  openSlotSheet,
   promptNote,
   quickChipOn,
   recipeAddedLabel,
@@ -627,9 +630,12 @@ describe('the slot sheet', () => {
     expect(scroll.findAll((n) => n.props.testID === 'not-cooking')).toEqual([]);
   });
 
-  test('picking a recipe fills the slot and closes', () => {
+  test('ticking a recipe and Add to dinner fills the slot and closes', () => {
     open(THURSDAY, 'dinner');
     press('Chicken tacos, 35 min · Added today');
+    expect(slotNow(THURSDAY, 'dinner')).toEqual([]);
+    expect(mockBack).not.toHaveBeenCalled();
+    press('Add to dinner');
     expect(slotNow(THURSDAY, 'dinner').map((e) => [e.kind, e.recipeId, e.note])).toEqual([['recipe', tacos, null]]);
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
@@ -724,7 +730,10 @@ describe('tapping slots on the week', () => {
       cancelButtonIndex: 2,
     });
     pick(sheet, 'Replace…');
-    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/plan-slot', params: { householdId: home, day: THURSDAY, meal: 'dinner' } });
+    expect(mockPush).toHaveBeenLastCalledWith({
+      pathname: '/plan-slot',
+      params: { householdId: home, day: THURSDAY, meal: 'dinner', mode: 'replace' },
+    });
     tap(THURSDAY, 'dinner');
     pick(sheet, 'Cancel');
     expect(mockPush).toHaveBeenCalledTimes(1);
@@ -915,7 +924,10 @@ describe('the meal sheet (board D)', () => {
     fill();
     open();
     press('Replace all…');
-    expect(mockReplace).toHaveBeenCalledWith({ pathname: '/plan-slot', params: { householdId: home, day: THURSDAY, meal: 'dinner' } });
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/plan-slot',
+      params: { householdId: home, day: THURSDAY, meal: 'dinner', mode: 'replace' },
+    });
     expect(names()).toEqual(['Chicken tacos', 'Énsalada verde', 'Pancakes']);
   });
 
@@ -1012,11 +1024,12 @@ describe('the add sheet (board E)', () => {
     expect(row(tacos).findAll((n) => n.type === ('Icon' as never))).toEqual([]);
   });
 
-  test('picking adds the recipe last, keeping the others, and goes back to the meal sheet', () => {
+  test('ticking and Add to dinner adds the recipe last, keeping the others, and goes back to the meal sheet', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
     addRecipeToSlot(home, THURSDAY, 'dinner', pancakes);
     open();
     press('Chicken tacos, 35 min · Added today');
+    press('Add to dinner');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Énsalada verde', 'Pancakes', 'Chicken tacos']);
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
@@ -1025,13 +1038,14 @@ describe('the add sheet (board E)', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', tacos);
     open();
     press('Jalapeño poppers, Added today');
+    press('Add to dinner');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Chicken tacos', 'Jalapeño poppers']);
   });
 
-  test('without add mode the slot sheet still replaces (Replace all…)', () => {
+  test('in replace mode the slot sheet replaces (Replace all…)', () => {
     addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
     addRecipeToSlot(home, THURSDAY, 'dinner', pancakes);
-    Object.assign(mockParams, { householdId: home, day: THURSDAY, meal: 'dinner' });
+    Object.assign(mockParams, { householdId: home, day: THURSDAY, meal: 'dinner', mode: 'replace' });
     act(() => {
       tree = create(
         <SafeAreaProvider initialMetrics={METRICS}>
@@ -1047,6 +1061,7 @@ describe('the add sheet (board E)', () => {
       'Pancakes, 20 min · Added today',
     ]);
     press('Chicken tacos, 35 min · Added today');
+    press('Replace dinner');
     expect(slotNow(THURSDAY, 'dinner').map((e) => e.recipeName)).toEqual(['Chicken tacos']);
   });
 
@@ -1061,6 +1076,322 @@ describe('the add sheet (board E)', () => {
       tree = null;
       open('dinner');
       expect(lines()[1]).toBe('Agregar a la cena');
+    } finally {
+      act(() => void i18n.changeLanguage('en'));
+    }
+  });
+});
+
+describe('picking several recipes (spec 4.16 Picking recipes)', () => {
+  let toasts: (SlotToast | null)[];
+
+  /** The slot sheet as the week opens it (`openSlotSheet`, which takes its toasts), or the add sheet from the meal sheet. */
+  function open(meal: Meal = 'dinner', mode?: 'add' | 'replace') {
+    toasts = [];
+    if (mode === 'add') openAddSheet(home, THURSDAY, meal, (t) => toasts.push(t));
+    else openSlotSheet(home, THURSDAY, meal, (t) => toasts.push(t), { replace: mode === 'replace' });
+    Object.assign(mockParams, { householdId: home, day: THURSDAY, meal, ...(mode ? { mode } : {}) });
+    act(() => {
+      tree = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
+    });
+  }
+  const row = (id: string) =>
+    tree!.root.find((n) => typeof n.type !== 'string' && n.props.testID === `slot-recipe-${id}` && typeof n.props.onPress === 'function');
+  const tick = (id: string) => act(() => row(id).props.onPress());
+  const rowStyle = (id: string) => StyleSheet.flatten(row(id).props.style({ pressed: false }));
+  const rowIcons = (id: string) => row(id).findAll((n) => n.type === ('Icon' as never)).map((n) => n.props.name);
+  const bar = (testID: 'add-bar' | 'not-cooking') => tree!.root.findAll((n) => n.props.testID === testID && typeof n.type === 'string');
+  /** The add bar's chips, in order, by their ✕'s VoiceOver label. */
+  const chips = () =>
+    bar('add-bar')[0]
+      .findAll((n) => typeof n.type !== 'string' && /^(Remove|Quitar) /.test(n.props.accessibilityLabel ?? '') && typeof n.props.onPress === 'function')
+      .map((n) => n.props.accessibilityLabel as string);
+  /** The add bar's primary button: its label and VoiceOver label. */
+  const cta = () => {
+    const [b] = bar('add-bar')[0].findAll(
+      (n) =>
+        typeof n.type !== 'string' &&
+        typeof n.props.onPress === 'function' &&
+        n.props.accessibilityRole === 'button' &&
+        !/^(Remove|Quitar) |^(Clear|Borrar)$/.test(n.props.accessibilityLabel),
+    );
+    return [textOf(b.findAll((n) => n.type === ('Text' as never))[0]), b.props.accessibilityLabel as string];
+  };
+  const search = (text: string) =>
+    act(() => tree!.root.find((n) => n.type === ('TextInput' as never) && n.props.accessibilityLabel === 'Search recipes').props.onChangeText(text));
+  const names = () => slotNow(THURSDAY, 'dinner').map((e) => e.recipeName);
+
+  test('tapping a row ticks it (primarySoft, a filled circle, "selected") and tapping again unticks it', () => {
+    open();
+    expect(rowIcons(tacos)).toEqual([]);
+    expect(rowStyle(tacos).backgroundColor).toBeUndefined();
+    tick(tacos);
+    expect(row(tacos).props.accessibilityLabel).toBe('Chicken tacos, selected, 35 min · Added today');
+    expect(rowStyle(tacos).backgroundColor).toBe(Palette.light.primarySoft);
+    expect(rowIcons(tacos)).toEqual(['checkmark']);
+    expect(row(tacos).findAll((n) => n.type === ('Icon' as never))[0].props.color).toBe('onPrimary');
+    expect(lines()).toContain('1 selected · All recipes');
+    expect(slotNow(THURSDAY, 'dinner')).toEqual([]); // nothing written yet
+    expect(mockBack).not.toHaveBeenCalled();
+
+    tick(tacos);
+    expect(row(tacos).props.accessibilityLabel).toBe('Chicken tacos, 35 min · Added today');
+    expect(rowIcons(tacos)).toEqual([]);
+    expect(lines()).toContain('All recipes');
+    expect(lines().some((l) => l.includes('selected'))).toBe(false);
+  });
+
+  test('any number can be ticked; the add bar takes the Not cooking? bar’s place, its chips in the order ticked', () => {
+    open();
+    expect(bar('not-cooking')).toHaveLength(1);
+    expect(bar('add-bar')).toEqual([]);
+    tick(pancakes);
+    expect(bar('not-cooking')).toEqual([]);
+    expect(bar('add-bar')).toHaveLength(1);
+    tick(tacos);
+    tick(ensalada);
+    const jalapeno = recipesQuery().all().find((r) => r.name === 'Jalapeño poppers')!.id;
+    tick(jalapeno);
+    expect(chips()).toEqual(['Remove Pancakes', 'Remove Chicken tacos', 'Remove Énsalada verde', 'Remove Jalapeño poppers']);
+    expect(lines()).toContain('4 selected · All recipes');
+    expect(bar('add-bar')[0].findAll((n) => n.type === ('Text' as never)).map(textOf).slice(0, 4)).toEqual([
+      'Pancakes',
+      'Chicken tacos',
+      'Énsalada verde',
+      'Jalapeño poppers',
+    ]);
+    expect(cta()).toEqual(['Add 4 to dinner', 'Add 4 recipes to dinner']);
+  });
+
+  test('ticks survive a search, chips, the filter panel and the sort, and the count joins the narrowed line', () => {
+    open();
+    tick(tacos);
+    search('pan');
+    expect(recipeRows()).toEqual(['Pancakes, 20 min · Added today']);
+    expect(lines()).toContain('1 selected · 1 recipe');
+    tick(pancakes);
+    search('');
+    expect(row(tacos).props.accessibilityLabel).toBe('Chicken tacos, selected, 35 min · Added today');
+    expect(row(pancakes).props.accessibilityLabel).toBe('Pancakes, selected, 20 min · Added today');
+    press('Dinner');
+    expect(lines()).toContain('2 selected · 2 recipes');
+    expect(chips()).toEqual(['Remove Chicken tacos', 'Remove Pancakes']); // Pancakes is filtered away but still ticked
+    press('Filters, 1 active');
+    press('Under 1 hour');
+    act(() =>
+      tree!.root
+        .find((n) => typeof n.type !== 'string' && /^Show \d+ recipes?$/.test(n.props.label ?? '') && typeof n.props.onPress === 'function')
+        .props.onPress(),
+    );
+    act(() => tree!.root.find((n) => n.type === ('SwiftToggle' as never) && n.props.label === 'A–Z').props.onIsOnChange(true));
+    expect(chips()).toEqual(['Remove Chicken tacos', 'Remove Pancakes']);
+    press('Clear filters');
+    expect(lines()).toContain('2 selected · All recipes');
+  });
+
+  test('a chip’s ✕ unticks it; Clear unticks everything, and the Not cooking? bar comes back', () => {
+    open();
+    tick(tacos);
+    tick(ensalada);
+    tick(pancakes);
+    press('Remove Énsalada verde');
+    expect(chips()).toEqual(['Remove Chicken tacos', 'Remove Pancakes']);
+    expect(row(ensalada).props.accessibilityLabel).toBe('Énsalada verde, Added today');
+    expect(cta()).toEqual(['Add 2 to dinner', 'Add 2 recipes to dinner']);
+    press('Clear');
+    expect(bar('add-bar')).toEqual([]);
+    expect(bar('not-cooking')).toHaveLength(1);
+    expect(lines()).toContain('All recipes');
+    // Unticking the last one by hand brings it back too.
+    tick(tacos);
+    expect(cta()).toEqual(['Add to dinner', 'Add to dinner']);
+    press('Remove Chicken tacos');
+    expect(bar('not-cooking')).toHaveLength(1);
+    // Leftovers still fills the slot at once.
+    press('Leftovers');
+    expect(slotNow(THURSDAY, 'dinner').map((e) => e.kind)).toEqual(['leftovers']);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(toasts).toEqual([]);
+  });
+
+  test('Add 3 to dinner writes once, in the order ticked, closes, and toasts "Added 3 recipes to Thu dinner"; Undo empties it', () => {
+    open();
+    tick(pancakes);
+    tick(tacos);
+    tick(ensalada);
+    press('Add 3 recipes to dinner');
+    expect(names()).toEqual(['Pancakes', 'Chicken tacos', 'Énsalada verde']);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(toasts.map((t) => t?.message)).toEqual(['Added 3 recipes to Thu dinner']);
+    expect(toasts[0]!.emphasis).toBeUndefined();
+    act(() => toasts[0]!.actions.find((a) => a.label === 'Undo')!.onPress());
+    expect(slotNow(THURSDAY, 'dinner')).toEqual([]);
+    expect(toasts[1]).toBeNull();
+  });
+
+  test('one recipe: "Added Chicken tacos to Thu dinner", and Undo puts back the note it took out', () => {
+    const note = setSlot(home, THURSDAY, 'dinner', { kind: 'note', note: 'Pizza' });
+    open(); // a slot filled since the sheet opened: the button still adds
+    tick(tacos);
+    press('Add to dinner');
+    expect(slotNow(THURSDAY, 'dinner').map((e) => [e.kind, e.recipeId])).toEqual([['recipe', tacos]]);
+    expect(toasts[0]).toMatchObject({ message: 'Added Chicken tacos to Thu dinner', emphasis: 'Chicken tacos' });
+    act(() => toasts[0]!.actions[0].onPress());
+    expect(slotNow(THURSDAY, 'dinner').map((e) => [e.id, e.note])).toEqual([[note.id, 'Pizza']]);
+  });
+
+  test('opened to replace: Replace dinner / Replace with 3 replaces everything, "Replaced Thu dinner", and Undo puts it back', () => {
+    addRecipeToSlot(home, THURSDAY, 'dinner', tacos);
+    addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
+    const before = slotNow(THURSDAY, 'dinner').map((e) => e.id);
+    open('dinner', 'replace');
+    expect(lines().slice(0, 2)).toEqual(['Thursday 15', 'Dinner']);
+    tick(pancakes);
+    expect(cta()).toEqual(['Replace dinner', 'Replace dinner']);
+    tick(tacos);
+    const jalapeno = recipesQuery().all().find((r) => r.name === 'Jalapeño poppers')!.id;
+    tick(jalapeno);
+    expect(cta()).toEqual(['Replace with 3', 'Replace dinner with 3 recipes']);
+    press('Replace dinner with 3 recipes');
+    expect(names()).toEqual(['Pancakes', 'Chicken tacos', 'Jalapeño poppers']);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(toasts.map((t) => t?.message)).toEqual(['Replaced Thu dinner']);
+    act(() => toasts[0]!.actions[0].onPress());
+    expect(slotNow(THURSDAY, 'dinner').map((e) => e.id)).toEqual(before);
+    expect(names()).toEqual(['Chicken tacos', 'Énsalada verde']);
+  });
+
+  test('the add sheet: no bar until something’s ticked, its slot rows disabled and never counted', () => {
+    addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
+    open('dinner', 'add');
+    expect(bar('add-bar')).toEqual([]);
+    expect(bar('not-cooking')).toEqual([]);
+    expect(rowIcons(ensalada)).toEqual(['checkmark']);
+    const check = row(ensalada).findAll((n) => n.type === ('Icon' as never))[0];
+    expect(check.props.color).toBe('inkSecondary');
+    const circle = (id: string) =>
+      row(id).find((n) => {
+        const style = typeof n.type === 'string' ? StyleSheet.flatten(n.props.style) : undefined;
+        return style?.width === Sizes.slotTick && style.borderWidth !== undefined;
+      });
+    expect(StyleSheet.flatten(circle(ensalada).props.style)).toMatchObject({ height: 26, borderWidth: 0, backgroundColor: Palette.light.surfaceMuted });
+    expect(StyleSheet.flatten(circle(tacos).props.style)).toMatchObject({ borderWidth: 2, borderColor: Palette.light.controlBorder, backgroundColor: 'transparent' });
+    tick(pancakes);
+    expect(StyleSheet.flatten(circle(pancakes).props.style)).toMatchObject({ borderWidth: 0, backgroundColor: Palette.light.primary });
+    tick(pancakes);
+    expect(rowStyle(ensalada).opacity).toBeLessThan(1);
+    expect(row(ensalada).props.disabled).toBe(true);
+    tick(tacos);
+    tick(pancakes);
+    expect(lines()).toContain('2 selected · All recipes');
+    expect(chips()).toEqual(['Remove Chicken tacos', 'Remove Pancakes']);
+    expect(cta()).toEqual(['Add 2 to dinner', 'Add 2 recipes to dinner']);
+    press('Clear');
+    expect(bar('add-bar')).toEqual([]);
+    expect(bar('not-cooking')).toEqual([]);
+  });
+
+  test('the add sheet’s Add 2 to dinner adds them last and goes back with "Added 2 recipes to dinner"; Undo takes them out', () => {
+    const kept = addRecipeToSlot(home, THURSDAY, 'dinner', ensalada)!;
+    open('dinner', 'add');
+    tick(pancakes);
+    tick(tacos);
+    press('Add 2 recipes to dinner');
+    expect(names()).toEqual(['Énsalada verde', 'Pancakes', 'Chicken tacos']);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(toasts.map((t) => t?.message)).toEqual(['Added 2 recipes to dinner']);
+    act(() => toasts[0]!.actions[0].onPress());
+    expect(slotNow(THURSDAY, 'dinner').map((e) => e.id)).toEqual([kept.id]);
+    expect(toasts[1]).toBeNull();
+  });
+
+  test('the add sheet with one: "Added Pancakes to lunch"', () => {
+    addRecipeToSlot(home, THURSDAY, 'lunch', ensalada);
+    open('lunch', 'add');
+    tick(pancakes);
+    expect(cta()).toEqual(['Add to lunch', 'Add to lunch']);
+    press('Add to lunch');
+    expect(toasts[0]).toMatchObject({ message: 'Added Pancakes to lunch', emphasis: 'Pancakes' });
+  });
+
+  test('the meal sheet shows the add sheet’s toast, and its Undo', () => {
+    addRecipeToSlot(home, THURSDAY, 'dinner', ensalada);
+    openMealSheet(home, THURSDAY, 'dinner', () => {});
+    Object.assign(mockParams, { householdId: home, day: THURSDAY, meal: 'dinner' });
+    act(() => {
+      tree = create(<PlanMealSheet />);
+    });
+    press('Add a recipe');
+    // The add sheet in a second renderer, as it opens over the meal sheet.
+    Object.assign(mockParams, { mode: 'add' });
+    let sheet: ReactTestRenderer;
+    act(() => {
+      sheet = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
+    });
+    const sheetRow = (id: string) =>
+      sheet.root.find((n) => typeof n.type !== 'string' && n.props.testID === `slot-recipe-${id}` && typeof n.props.onPress === 'function');
+    act(() => sheetRow(tacos).props.onPress());
+    act(() => sheetRow(pancakes).props.onPress());
+    act(() =>
+      sheet.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Add 2 recipes to dinner' && typeof n.props.onPress === 'function').props.onPress(),
+    );
+    act(() => sheet.unmount());
+    expect(lines()).toContain('Added 2 recipes to dinner');
+    press('Undo');
+    expect(names()).toEqual(['Énsalada verde']);
+    expect(lines()).not.toContain('Added 2 recipes to dinner');
+  });
+
+  test('the week shows the slot sheet’s toast from an empty slot, and its Undo', () => {
+    act(() => {
+      tree = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanScreen />
+        </SafeAreaProvider>,
+      );
+    });
+    act(() =>
+      tree!.root.find((n) => n.props.testID === `slot-${THURSDAY}-dinner` && typeof n.props.onPress === 'function' && typeof n.type !== 'string').props.onPress(),
+    );
+    Object.assign(mockParams, { householdId: home, day: THURSDAY, meal: 'dinner' });
+    let sheet: ReactTestRenderer;
+    act(() => {
+      sheet = create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <PlanSlotSheet />
+        </SafeAreaProvider>,
+      );
+    });
+    act(() => sheet.root.find((n) => typeof n.type !== 'string' && n.props.testID === `slot-recipe-${tacos}` && typeof n.props.onPress === 'function').props.onPress());
+    act(() => sheet.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityLabel === 'Add to dinner' && typeof n.props.onPress === 'function').props.onPress());
+    act(() => sheet.unmount());
+    expect(names()).toEqual(['Chicken tacos']);
+    expect(lines()).toContain('Added Chicken tacos to Thu dinner');
+    press('Undo');
+    expect(slotNow(THURSDAY, 'dinner')).toEqual([]);
+  });
+
+  test('in Spanish', () => {
+    act(() => void i18n.changeLanguage('es'));
+    try {
+      open();
+      tick(tacos);
+      expect(row(tacos).props.accessibilityLabel).toBe('Chicken tacos, seleccionada, 35 min · Agregada hoy');
+      expect(cta()).toEqual(['Agregar a la cena', 'Agregar a la cena']);
+      tick(pancakes);
+      expect(lines()).toContain('2 seleccionadas · Todas las recetas');
+      expect(cta()).toEqual(['Agregar 2 a la cena', 'Agregar 2 recetas a la cena']);
+      expect(chips()).toEqual(['Quitar Chicken tacos', 'Quitar Pancakes']);
+      press('Agregar 2 recetas a la cena');
+      expect(toasts[0]!.message).toBe('Agregaste 2 recetas a cena del jue');
     } finally {
       act(() => void i18n.changeLanguage('en'));
     }

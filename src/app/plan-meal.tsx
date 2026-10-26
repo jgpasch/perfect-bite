@@ -44,7 +44,8 @@ const isMeal = (value: string | undefined): value is Meal => MEALS.includes(valu
 
 /**
  * The meal sheet (spec 4.16, board D): a slot's recipes, read live, in order. Tapping one opens it; each
- * has a remove button (Undo in a toast) and a native drag handle, and Add a recipe opens the add sheet.
+ * has a remove button (Undo in a toast) and a native drag handle, and Add a recipe opens the add sheet,
+ * whose "Added 2 recipes to dinner" toast shows here.
  * Replace all… is the slot sheet; Clear dinner, or removing the last recipe, closes the sheet with the
  * week's "Cleared Thursday dinner" toast.
  */
@@ -81,8 +82,8 @@ export default function PlanMealSheet() {
     close();
     router.push({ pathname: '/recipe/[id]', params: { id: recipeId } });
   };
-  // The slot sheet in the meal sheet's place: picking there replaces everything and closes to the week.
-  const replaceAll = () => router.replace({ pathname: '/plan-slot', params: { householdId, day, meal } });
+  // The slot sheet in the meal sheet's place: its button replaces everything and closes to the week.
+  const replaceAll = () => router.replace({ pathname: '/plan-slot', params: { householdId, day, meal, mode: 'replace' } });
   const clear = () => {
     close();
     clearSlotWithUndo(householdId, day, meal, weekToast);
@@ -151,7 +152,7 @@ export default function PlanMealSheet() {
               </List>
             </Host>
           ) : null}
-          <AddRecipeRow first={entries.length === 0} onPress={() => openAddSheet(householdId, day, meal)} />
+          <AddRecipeRow first={entries.length === 0} onPress={() => openAddSheet(householdId, day, meal, setToast)} />
         </Card>
         <ThemedText variant="footnote" color="inkSecondary" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
           {t('mealPlan.mealFootnote')}

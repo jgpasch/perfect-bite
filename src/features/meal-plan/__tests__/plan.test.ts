@@ -17,6 +17,7 @@ import {
   removeEntry,
   restoreEntries,
   setSlot,
+  undoPlanChanges,
 } from '../write';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -688,8 +689,109 @@ describe('applyPlanChanges', () => {
   });
 
   test('no changes, no write', () => {
-    applyPlanChanges([]);
+    expect(applyPlanChanges([])).toEqual({ added: [], removed: [] });
     expect(outboxMutations()).toEqual([]);
     expect(db.select().from(recipes).all()).toHaveLength(2);
+  });
+
+  test('returns the rows it put in and took out: adds over a note, skipped duplicates, sets and clears', () => {
+    const pie = createRecipe('Pie', home);
+    const kept = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    const note = setSlot(home, '2026-10-16', 'dinner', { kind: 'note', note: 'Pizza' });
+    const leftovers = setSlot(home, '2026-10-17', 'lunch', { kind: 'leftovers' });
+
+    const applied = applyPlanChanges([
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: tacos } }, // already there
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } },
+      { householdId: home, day: '2026-10-16', meal: 'dinner', add: { recipeId: pie } },
+      { householdId: home, day: '2026-10-17', meal: 'lunch', entry: { kind: 'recipe', recipeId: pie } },
+    ]);
+
+    expect(applied.added.map((e) => [e.planDate, e.meal, e.recipeId])).toEqual([
+      ['2026-10-15', 'dinner', soup],
+      ['2026-10-16', 'dinner', pie],
+      ['2026-10-17', 'lunch', pie],
+    ]);
+    expect(applied.removed.map((e) => e.id)).toEqual([note.id, leftovers.id]);
+    expect(applied.removed.every((e) => e.deletedAt !== null)).toBe(true);
+    expect(applied.removed.map((e) => e.id)).not.toContain(kept.id);
+  });
+});
+
+describe('undoPlanChanges', () => {
+  const slot = (day: string, meal: 'breakfast' | 'lunch' | 'dinner') =>
+    shown(week(), day, meal).map((e) => [e.id, e.kind, e.recipeName ?? e.note]);
+
+  test('adding several: takes them out again, leaving the recipes that were there', () => {
+    const pie = createRecipe('Pie', home);
+    const kept = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    const applied = applyPlanChanges([
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } },
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: pie } },
+    ]);
+    expect(slot('2026-10-15', 'dinner').map((e) => e[2])).toEqual(['Tacos', 'Soup', 'Pie']);
+    clearOutbox();
+
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'dinner')).toEqual([[kept.id, 'recipe', 'Tacos']]);
+    // Two soft-deletes; Tacos isn't touched.
+    expect(outboxMutations().map((m) => [m.id, Object.keys(m.fields)])).toEqual([
+      [applied.added[0].id, ['deleted_at']],
+      [applied.added[1].id, ['deleted_at']],
+    ]);
+  });
+
+  test('adding to an empty slot: empty again', () => {
+    const applied = applyPlanChanges([
+      { householdId: home, day: '2026-10-15', meal: 'lunch', add: { recipeId: soup } },
+      { householdId: home, day: '2026-10-15', meal: 'lunch', add: { recipeId: tacos } },
+    ]);
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'lunch')).toEqual([]);
+  });
+
+  test('adding over a note: the note comes back', () => {
+    const note = setSlot(home, '2026-10-15', 'dinner', { kind: 'note', note: 'Pizza' });
+    const applied = applyPlanChanges([{ householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } }]);
+    expect(slot('2026-10-15', 'dinner').map((e) => e[1])).toEqual(['recipe']);
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'dinner')).toEqual([[note.id, 'note', 'Pizza']]);
+  });
+
+  test('replacing (a clear, then adds): every recipe that was there comes back, in its order', () => {
+    const pie = createRecipe('Pie', home);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', tacos);
+    addRecipeToSlot(home, '2026-10-15', 'dinner', soup);
+    const before = slot('2026-10-15', 'dinner');
+    const applied = applyPlanChanges([
+      { householdId: home, day: '2026-10-15', meal: 'dinner', entry: null },
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: pie } },
+      { householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: tacos } },
+    ]);
+    // Tacos comes in again as a new row, after Pie.
+    expect(slot('2026-10-15', 'dinner').map((e) => e[2])).toEqual(['Pie', 'Tacos']);
+    expect(applied.removed).toHaveLength(2);
+
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'dinner')).toEqual(before);
+  });
+
+  test('leaves what was written since alone, and does nothing for an empty batch', () => {
+    const applied = applyPlanChanges([{ householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } }]);
+    const other = addRecipeToSlot(home, '2026-10-15', 'dinner', tacos)!;
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'dinner')).toEqual([[other.id, 'recipe', 'Tacos']]);
+    clearOutbox();
+    undoPlanChanges({ added: [], removed: [] });
+    expect(outboxMutations()).toEqual([]);
+  });
+
+  test('an added row taken out since stays out, and is not written again', () => {
+    const applied = applyPlanChanges([{ householdId: home, day: '2026-10-15', meal: 'dinner', add: { recipeId: soup } }]);
+    removeEntry(applied.added[0].id);
+    clearOutbox();
+    undoPlanChanges(applied);
+    expect(slot('2026-10-15', 'dinner')).toEqual([]);
+    expect(outboxMutations()).toEqual([]);
   });
 });

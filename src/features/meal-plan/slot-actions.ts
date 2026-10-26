@@ -17,10 +17,20 @@ import { searchRecipes } from '@/features/recipes/recipe-search';
 import { currentLanguage, formatDate, i18n, shortDate, type Language } from '@/i18n';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
+import { shortSlotName } from './plan-modal';
 import type { PlanEntry } from './queries';
 import type { Day, Meal } from './week';
 import { slotAccessibilityLabel, slotName } from './week-view';
-import { clearSlot, NOTE_MAX_LENGTH, restoreEntries, restoreSlot, setSlot } from './write';
+import {
+  applyPlanChanges,
+  clearSlot,
+  NOTE_MAX_LENGTH,
+  type PlanChange,
+  restoreEntries,
+  restoreSlot,
+  setSlot,
+  undoPlanChanges,
+} from './write';
 
 /** A toast for the screen showing the week, or null to take it down. */
 export type SlotToast = { key: string; message: string; emphasis?: string; actions: ToastAction[] };
@@ -120,18 +130,114 @@ export function promptNote(current: string, onSave: (note: string) => void, mess
   );
 }
 
-/** Opens the slot sheet for the slot (empty, or Replace…). */
-export function openSlotSheet(householdId: string, day: Day, meal: Meal): void {
-  router.push({ pathname: '/plan-slot', params: { householdId, day, meal } });
+/**
+ * Opens the slot sheet for the slot: empty, or, with `replace`, a note's Replace… (its button replaces
+ * everything there). Its Added and Replaced toasts show through `onToast`.
+ */
+export function openSlotSheet(
+  householdId: string,
+  day: Day,
+  meal: Meal,
+  onToast: (toast: SlotToast | null) => void,
+  { replace = false }: { replace?: boolean } = {},
+): void {
+  weekToastTarget = onToast;
+  router.push({ pathname: '/plan-slot', params: { householdId, day, meal, ...(replace ? { mode: 'replace' } : {}) } });
 }
 
-/** The add sheet (board E): the slot sheet adding a recipe beside the slot's, back to the meal sheet. */
-export function openAddSheet(householdId: string, day: Day, meal: Meal): void {
+/**
+ * The add sheet (board E): the slot sheet adding recipes beside the slot's, back to the meal sheet, whose
+ * "Added 2 recipes to dinner" toast shows through `onToast`.
+ */
+export function openAddSheet(householdId: string, day: Day, meal: Meal, onToast: (toast: SlotToast | null) => void): void {
+  mealToastTarget = onToast;
   router.push({ pathname: '/plan-slot', params: { householdId, day, meal, mode: 'add' } });
 }
 
-// The meal sheet is a route, so the week that opened it hands over where its Cleared toast goes.
+// The sheets are routes, so the screen that opened one hands over where its toasts go: the week (the slot
+// and meal sheets), or the meal sheet (the add sheet).
 let weekToastTarget: ((toast: SlotToast | null) => void) | null = null;
+let mealToastTarget: ((toast: SlotToast | null) => void) | null = null;
+
+/** Shows (or, with null, takes down) a toast on the meal sheet that opened the add sheet; nowhere if none did. */
+export function mealToast(toast: SlotToast | null): void {
+  mealToastTarget?.(toast);
+}
+
+/** How the slot sheet's button writes: beside what's there (an empty slot), replacing it, or the add sheet's. */
+export type PickMode = 'add' | 'replace' | 'fill';
+
+/**
+ * The slot sheet's button (spec 4.16 Picking recipes): the ticked recipes, in the order ticked, as one
+ * `applyPlanChanges` batch, added last beside the slot's recipes, or, with `replace`, after clearing it.
+ */
+export function pickChanges(householdId: string, day: Day, meal: Meal, recipeIds: readonly string[], mode: PickMode): PlanChange[] {
+  return [
+    ...(mode === 'replace' ? [{ householdId, day, meal, entry: null }] : []),
+    ...recipeIds.map((recipeId) => ({ householdId, day, meal, add: { recipeId } })),
+  ];
+}
+
+/** The button's label, and its VoiceOver label: "Add to dinner", "Add 3 to dinner" ("Add 3 recipes to dinner"), "Replace dinner", "Replace with 3". */
+export function pickButtonLabels(meal: Meal, count: number, mode: PickMode): { label: string; accessibilityLabel: string } {
+  if (mode === 'replace') {
+    return count === 1
+      ? { label: i18n.t(`mealPlan.replaceMeal.${meal}`), accessibilityLabel: i18n.t(`mealPlan.replaceMeal.${meal}`) }
+      : { label: i18n.t('mealPlan.replaceWith', { count }), accessibilityLabel: i18n.t(`mealPlan.replaceWithLabel.${meal}`, { count }) };
+  }
+  return count === 1
+    ? { label: i18n.t(`mealPlan.addTo.${meal}`), accessibilityLabel: i18n.t(`mealPlan.addTo.${meal}`) }
+    : { label: i18n.t(`mealPlan.addCount.${meal}`, { count }), accessibilityLabel: i18n.t(`mealPlan.addCountLabel.${meal}`, { count }) };
+}
+
+/**
+ * Writes the ticked recipes (`picked`, in the order ticked) to the slot and returns its toast with Undo,
+ * which puts the slot back as it was: "Added Caesar salad to Thu dinner", "Added 3 recipes to Thu dinner",
+ * "Replaced Thu dinner", or the add sheet's "Added 2 recipes to dinner". `today` names the slot in short.
+ */
+export function pickRecipes(
+  householdId: string,
+  day: Day,
+  meal: Meal,
+  picked: readonly { id: string; name: string }[],
+  mode: PickMode,
+  today: Day,
+  onToast: (toast: SlotToast | null) => void,
+): SlotToast {
+  const applied = applyPlanChanges(
+    pickChanges(
+      householdId,
+      day,
+      meal,
+      picked.map((r) => r.id),
+      mode,
+    ),
+  );
+  const one = picked.length === 1 ? picked[0].name : undefined;
+  const slot = shortSlotName(day, meal, today);
+  const message =
+    mode === 'replace'
+      ? i18n.t('mealPlan.replacedSlot', { slot })
+      : mode === 'add'
+        ? i18n.t(`mealPlan.addedToMeal.${meal}`, { what: one ?? i18n.t('mealPlan.recipeCount', { count: picked.length }) })
+        : one !== undefined
+          ? i18n.t('mealPlan.addedRecipeTo', { name: one, slot })
+          : i18n.t('mealPlan.addedRecipesTo', { count: picked.length, slot });
+  return {
+    key: `picked-${day}-${meal}-${Date.now()}`,
+    message,
+    emphasis: mode === 'replace' ? undefined : one,
+    actions: [
+      {
+        label: i18n.t('common.undo'),
+        onPress: () => {
+          undoPlanChanges(applied);
+          onToast(null);
+        },
+      },
+    ],
+  };
+}
 
 /** Opens the meal sheet (board D) for a slot with recipes; its Cleared toast shows through `onToast`. */
 export function openMealSheet(householdId: string, day: Day, meal: Meal, onToast: (toast: SlotToast | null) => void): void {
@@ -206,7 +312,7 @@ export function openSlot(
   entry: PlanEntry | null,
   onToast: (toast: SlotToast | null) => void,
 ): void {
-  if (!entry) return openSlotSheet(householdId, day, meal);
+  if (!entry) return openSlotSheet(householdId, day, meal, onToast);
   if (entry.kind === 'recipe') return openMealSheet(householdId, day, meal, onToast);
   const actions = slotMenuActions(entry.kind);
   const options = [...actions.map((a) => i18n.t(MENU_LABELS[a])), i18n.t('common.cancel')];
@@ -220,7 +326,7 @@ export function openSlot(
     (index) => {
       switch (actions[index]) {
         case 'replace':
-          return openSlotSheet(householdId, day, meal);
+          return openSlotSheet(householdId, day, meal, onToast, { replace: true });
         case 'editNote':
           return promptNote(entry.note ?? '', (note) => void setSlot(householdId, day, meal, { kind: 'note', note }));
         case 'clear':

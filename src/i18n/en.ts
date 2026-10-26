@@ -1016,6 +1016,33 @@ export const en = {
     withRecipes: 'With {{names}}',
     /** A recipe in the add sheet that's already in the slot. */
     alreadyIn: { breakfast: 'Already in breakfast', lunch: 'Already in lunch', dinner: 'Already in dinner' },
+    /** Picking several recipes in the slot sheet: the count line, "2 selected · All recipes". */
+    selectedCount: '{{count}} selected · {{rest}}',
+    /** A ticked row for VoiceOver: "Caesar salad, selected". */
+    tickedRecipe: '{{name}}, selected',
+    /** The add bar: Clear unticks everything; the button is "Add to dinner" (`addTo`) with one ticked. */
+    clearPicked: 'Clear',
+    addCount: { breakfast: 'Add {{count}} to breakfast', lunch: 'Add {{count}} to lunch', dinner: 'Add {{count}} to dinner' },
+    addCountLabel: {
+      breakfast: 'Add {{count}} recipes to breakfast',
+      lunch: 'Add {{count}} recipes to lunch',
+      dinner: 'Add {{count}} recipes to dinner',
+    },
+    /** Opened to replace (Replace…, Replace all…): "Replace dinner", "Replace with 3". */
+    replaceMeal: { breakfast: 'Replace breakfast', lunch: 'Replace lunch', dinner: 'Replace dinner' },
+    replaceWith: 'Replace with {{count}}',
+    replaceWithLabel: {
+      breakfast: 'Replace breakfast with {{count}} recipes',
+      lunch: 'Replace lunch with {{count}} recipes',
+      dinner: 'Replace dinner with {{count}} recipes',
+    },
+    /** The week's toast after the button: "Added Caesar salad to Thu dinner", "Added 3 recipes to Thu dinner", "Replaced Thu dinner". */
+    addedRecipeTo: 'Added {{name}} to {{slot}}',
+    addedRecipesTo_one: 'Added {{count}} recipe to {{slot}}',
+    addedRecipesTo_other: 'Added {{count}} recipes to {{slot}}',
+    replacedSlot: 'Replaced {{slot}}',
+    /** The meal sheet's toast after the add sheet: "Added 2 recipes to dinner", "Added Caesar salad to dinner". */
+    addedToMeal: { breakfast: 'Added {{what}} to breakfast', lunch: 'Added {{what}} to lunch', dinner: 'Added {{what}} to dinner' },
     /** A slot in short: "Thu dinner" this week, "Oct 21 dinner" after it (the plan modal's toast, the plan badges). */
     slotShort: '{{day}} {{meal}}',
     /** The plan modal (spec 4.16), under the recipe's name. */
