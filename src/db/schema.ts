@@ -460,10 +460,15 @@ export type FailedImportReason =
   | 'not_entitled'
   | 'failed';
 
-/** Shares that won't import, shown on the Recipes tab until retried or dismissed. Device-only, never synced. */
+/** In-app imports that failed, shown on the Recipes tab until retried or dismissed. Device-only, never synced. */
 export const failedImports = sqliteTable('failed_imports', {
   id: text('id').primaryKey(),
-  url: text('url').notNull(),
+  /** A link import, or a photo import whose pages are kept on the phone (spec 4.10). */
+  kind: text('kind', { enum: ['link', 'photo'] })
+    .notNull()
+    .default('link'),
+  /** The link; null for a photo import. */
+  url: text('url'),
   /** The page title Safari captured; null when the share had none. */
   title: text('title'),
   reason: text('reason').$type<FailedImportReason>().notNull(),
@@ -474,6 +479,11 @@ export const failedImports = sqliteTable('failed_imports', {
    */
   householdId: text('household_id'),
   listId: text('list_id'),
+  /**
+   * A photo import's pages, in page order: file names in `failed-imports/<id>/` under the document
+   * directory (`failed-photo-pages.ts`). Null for a link.
+   */
+  pages: text('pages', { mode: 'json' }).$type<string[]>(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

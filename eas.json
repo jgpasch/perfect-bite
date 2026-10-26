@@ -14,11 +14,17 @@
     },
     "preview": {
       "extends": "base",
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ardfjdorkkzymrqdihlw.supabase.co"
+      }
     },
     "production": {
       "extends": "base",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ardfjdorkkzymrqdihlw.supabase.co"
+      }
     }
   },
   "submit": {

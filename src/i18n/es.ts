@@ -763,6 +763,7 @@ export const es = {
       tryAgain: 'Reintentar',
       trying: 'Intentando…',
       dismiss: 'Descartar',
+      fromAPhoto: 'De una foto',
       reasons: {
         notARecipe: 'Esa página no parece una receta',
         blocked: 'El sitio bloqueó la importación',

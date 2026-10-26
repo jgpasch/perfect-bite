@@ -370,6 +370,7 @@ describe('share-recipe target: the share-ingest URL', () => {
   const target = require(join(TARGET_DIR, 'expo-target.config.js')) as {
     (config: unknown): unknown;
     shareIngestUrl: (env: Record<string, string | undefined>) => string | null;
+    requireShareIngestUrl: (env: Record<string, string | undefined>) => string | null;
     setShareIngestUrl: (project: unknown, url: string | null) => void;
   };
 
@@ -390,6 +391,31 @@ describe('share-recipe target: the share-ingest URL', () => {
     expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: '' })).toBeNull();
     expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'ardfjdorkkzymrqdihlw.supabase.co' })).toBeNull();
     expect(target.shareIngestUrl({ EXPO_PUBLIC_SUPABASE_URL: 'ftp://x.supabase.co' })).toBeNull();
+  });
+
+  test('fails an EAS build other than development without one', () => {
+    expect(() => target.requireShareIngestUrl({ EAS_BUILD_PROFILE: 'production' })).toThrow(/EXPO_PUBLIC_SUPABASE_URL/);
+    expect(() => target.requireShareIngestUrl({ EAS_BUILD_PROFILE: 'preview', EXPO_PUBLIC_SUPABASE_URL: '' })).toThrow(
+      /"preview"/,
+    );
+    expect(target.requireShareIngestUrl({ EAS_BUILD_PROFILE: 'development' })).toBeNull();
+    expect(target.requireShareIngestUrl({})).toBeNull();
+    expect(
+      target.requireShareIngestUrl({ EAS_BUILD_PROFILE: 'production', EXPO_PUBLIC_SUPABASE_URL: 'https://x.supabase.co' }),
+    ).toBe('https://x.supabase.co/functions/v1/share-ingest');
+  });
+
+  test("eas.json gives the preview and production builds the hosted Supabase URL", () => {
+    const eas = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', 'eas.json'), 'utf8'));
+    const hosted = readFileSync(join(__dirname, '..', '..', '..', '..', '.env.production'), 'utf8').match(
+      /^EXPO_PUBLIC_SUPABASE_URL=(.+)$/m,
+    )?.[1];
+    expect(hosted).toMatch(/^https:\/\//);
+    for (const profile of ['preview', 'production']) {
+      expect(target.requireShareIngestUrl({ ...eas.build[profile].env, EAS_BUILD_PROFILE: profile })).toBe(
+        `${hosted}/functions/v1/share-ingest`,
+      );
+    }
   });
 
   /** A target as @bacons/xcode models one: its product name and build settings. */

@@ -23,7 +23,7 @@ import { clearNotifications, currentNotification, notify } from '@/features/noti
 import { getHouseholdFeatures, setHouseholdFeatures } from '@/features/plans/features';
 import { FEATURES_KEY } from '@/features/plans/load';
 import { setSlot } from '@/features/meal-plan/write';
-import { recordFailedImport } from '@/features/recipes/failed-imports';
+import { recordFailedImport, recordFailedPhotoImport } from '@/features/recipes/failed-imports';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { IMPORT_ADD_TO_LIST_KEY } from '@/features/recipes/save-choice';
 import { getShareQueueStatus, setShareQueueStatus } from '@/features/recipes/share-queue-status';
@@ -34,7 +34,7 @@ import { upsertRow } from '@/sync/mutate';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
 import { resetDb, sqlite } from '@/test/db';
 import { seedCatalog } from '@/test/seed';
-import { setAppGroupRoot } from '@/test/fake-file-system';
+import { setAppGroupRoot, setDocumentRoot } from '@/test/fake-file-system';
 import { respondToRpc, resetSupabase } from '@/test/fake-supabase';
 
 import { KEEP_LIST, KEPT_DEVICE_SETTINGS, WIPE_STEPS, wipeLocalData } from '../local-wipe';
@@ -65,6 +65,7 @@ const deviceKeys = () =>
     .sort();
 
 let root: string;
+let documents: string;
 const appGroup = (...parts: string[]) => path.join(root, ...parts);
 const writeAppGroupFile = (relative: string, body = '{}') => {
   fs.mkdirSync(path.dirname(appGroup(relative)), { recursive: true });
@@ -113,6 +114,12 @@ beforeEach(async () => {
   respondToRpc('get_household_members', { data: [{ user_id: USER, first_name: 'Jo', last_name: 'Doe', joined_at: '2026-10-01T00:00:00Z' }] });
   await refreshMemberNames(home);
   recordFailedImport({ url: 'https://example.com/ramen', title: 'Ramen', reason: 'not_a_recipe' });
+  // A failed photo import, its page kept under the document directory (spec 4.10).
+  documents = fs.mkdtempSync(path.join(os.tmpdir(), 'wipe-documents-'));
+  setDocumentRoot(documents);
+  const page = path.join(documents, 'page.jpg');
+  fs.writeFileSync(page, 'jpeg');
+  recordFailedPhotoImport([`file://${page}`], 'rate_limited', { householdId: home, listId: homeList });
 
   // Device settings: list state and sync state (user data) next to device-only preferences.
   setDeviceSetting(viewModeKey(homeList), 'aisle');
@@ -148,6 +155,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(documents, { recursive: true, force: true });
   clearMyInvites();
   clearNotifications();
 });
@@ -243,6 +251,14 @@ describe('wipeLocalData', () => {
     expect(fs.readdirSync(appGroup(PENDING_DIR))).toEqual([]);
     expect(fs.readdirSync(appGroup(SHARE_PENDING_DIR))).toEqual([]);
     expect(fs.readFileSync(appGroup(LOG_FILE), 'utf8')).toBe('launched\n');
+  });
+
+  test("deletes failed photo imports' kept pages with their rows", () => {
+    expect(fs.readdirSync(path.join(documents, 'failed-imports'))).toHaveLength(1);
+    wipeLocalData();
+    expect(fs.existsSync(path.join(documents, 'failed-imports'))).toBe(false);
+    expect(rowCount('failed_imports')).toBe(0);
+    expect(() => wipeLocalData()).not.toThrow();
   });
 
   test('clears the plans store, invites, notifications and share queue status', () => {

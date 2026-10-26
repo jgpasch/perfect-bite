@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { and, asc, eq, isNull } from 'drizzle-orm';
+import { File as MockFile } from 'expo-file-system';
 
 import {
   db,
+  failedImports,
   households,
   ingredients,
   ingredientUsage,
@@ -53,23 +55,43 @@ jest.mock('@/features/recipes/ensure-step-match', () => ({ ensureStepMatch: () =
 const mockBase64 = jest.fn(async (uri: string) => Buffer.from(uri).toString('base64'));
 // The page files deleted from the cache, and what each upload's bytes came from.
 const mockDeleted: string[] = [];
-jest.mock('expo-file-system', () => ({
-  File: class {
-    mockUri: string;
-    constructor(mockUri: string) {
-      this.mockUri = mockUri;
-    }
-    base64() {
-      return mockBase64(this.mockUri);
-    }
-    async arrayBuffer() {
-      return new TextEncoder().encode(this.mockUri).buffer;
-    }
-    delete() {
-      mockDeleted.push(this.mockUri);
-    }
-  },
-}));
+// A failed photo import's pages moved out of the cache: [from, to] (failed-photo-pages.ts).
+const mockMoved: [string, string][] = [];
+jest.mock('expo-file-system', () => {
+  const uriOf = (parts: unknown[]) => parts.map((p) => (typeof p === 'string' ? p : (p as { mockUri: string }).mockUri)).join('/');
+  return {
+    File: class {
+      mockUri: string;
+      constructor(...parts: unknown[]) {
+        this.mockUri = uriOf(parts);
+      }
+      get uri() {
+        return this.mockUri;
+      }
+      base64() {
+        return mockBase64(this.mockUri);
+      }
+      async arrayBuffer() {
+        return new TextEncoder().encode(this.mockUri).buffer;
+      }
+      moveSync(to: { mockUri: string }) {
+        mockMoved.push([this.mockUri, to.mockUri]);
+      }
+      delete() {
+        mockDeleted.push(this.mockUri);
+      }
+    },
+    Directory: class {
+      mockUri: string;
+      constructor(...parts: unknown[]) {
+        this.mockUri = uriOf(parts);
+      }
+      exists = false;
+      create() {}
+    },
+    Paths: { document: { mockUri: 'file:///documents' } },
+  };
+});
 
 const USER = 'user-1';
 const URL_ = 'https://www.example.com/tikka/?utm_source=pin#recipe';
@@ -225,6 +247,8 @@ const useCount = (name: string) =>
   db.select().from(ingredientUsage).where(eq(ingredientUsage.ingredientName, name)).get()?.useCount ?? 0;
 
 /** Every table an import writes, so a failed one can be shown to write nothing. */
+const failedRows = () => db.select().from(failedImports).all();
+
 const snapshot = () => ({
   recipes: db.select().from(recipes).all(),
   recipeIngredients: db.select().from(recipeIngredients).all(),
@@ -1141,7 +1165,11 @@ describe('plans (spec 4.12)', () => {
   test("a photo import's not_entitled drops recipe_import too (one feature for links and photos)", async () => {
     respondWithError(403, { error: 'not_entitled', message: 'No' });
     respondToRpc('my_household_features', { data: null, error: { message: 'boom' } });
-    expect(await importRecipeFromPhotos({ listId, photoUris: ['file:///p1.jpg'] })).toEqual({ ok: false, error: 'not_entitled' });
+    expect(await importRecipeFromPhotos({ listId, photoUris: ['file:///p1.jpg'] })).toEqual({
+      ok: false,
+      error: 'not_entitled',
+      failedImportId: expect.any(String),
+    });
     await flush();
     expect(getHouseholdFeatures()).toEqual({ [home()]: ['recipe_photo_ai'], [CABIN]: ['recipe_import'] });
   });
@@ -1252,40 +1280,126 @@ describe('from photos (spec 4.10, 6.10)', () => {
     ['limit_reached', 429, { ok: false, error: 'limit_reached', resetsAt: '2026-11-01T00:00:00.000Z' }],
     ['unavailable', 503, { ok: false, error: 'rate_limited' }],
     ['invalid_request', 400, { ok: false, error: 'failed' }],
-  ])('%s (%i) comes back as %o and writes nothing', async (code, status, expected) => {
+  ])('%s (%i) comes back as %o, writes no recipe and keeps the pages', async (code, status, expected) => {
     respondWithError(status, { error: code, message: 'No', resets_at: '2026-11-01T00:00:00.000Z' });
     const before = snapshot();
-    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(expected);
+    const result = await importRecipeFromPhotos({ listId, photoUris: PAGES });
+    expect(result).toEqual({ ...expected, failedImportId: expect.any(String) });
     expect(snapshot()).toEqual(before);
+    expect(failedRows()).toEqual([expect.objectContaining({ id: (result as { failedImportId: string }).failedImportId, reason: expected.error })]);
   });
 
-  test('offline (a network failure, no session, or no config) writes nothing', async () => {
+  test('offline (a network failure, no session, or no config) writes no recipe, and each keeps its pages', async () => {
     const before = snapshot();
+    const offline = { ok: false, error: 'offline', failedImportId: expect.any(String) };
     invoke.mockResolvedValue({ data: null, error: { name: 'FunctionsFetchError', message: 'Network request failed' } });
-    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(offline);
     supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
-    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(offline);
     setSupabaseConfigured(false);
-    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual(offline);
     expect(snapshot()).toEqual(before);
     expect(invoke).toHaveBeenCalledTimes(1);
+    expect(failedRows().map((r) => r.reason)).toEqual(['offline', 'offline', 'offline']);
   });
 
   test("a page that can't be read is offline-like and sends nothing", async () => {
     mockBase64.mockRejectedValueOnce(new Error('gone'));
-    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'offline' });
+    expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({
+      ok: false,
+      error: 'offline',
+      failedImportId: expect.any(String),
+    });
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  test('no photos sends nothing', async () => {
+  test('no photos sends nothing and records nothing', async () => {
     expect(await importRecipeFromPhotos({ listId, photoUris: [] })).toEqual({ ok: false, error: 'failed' });
     expect(invoke).not.toHaveBeenCalled();
+    expect(failedRows()).toEqual([]);
   });
 
   test('a list not on the device has no household to send, so it fails before reading or sending a photo', async () => {
-    expect(await importRecipeFromPhotos({ listId: 'list-gone', photoUris: PAGES })).toEqual({ ok: false, error: 'failed' });
+    expect(await importRecipeFromPhotos({ listId: 'list-gone', photoUris: PAGES })).toEqual({
+      ok: false,
+      error: 'failed',
+      failedImportId: expect.any(String),
+    });
     expect(invoke).not.toHaveBeenCalled();
     expect(mockBase64).not.toHaveBeenCalled();
+    // Kept with the list it asked for; Try again falls back to the default list.
+    expect(failedRows()).toEqual([expect.objectContaining({ kind: 'photo', listId: 'list-gone', householdId: null })]);
+  });
+
+  describe('a failure keeps the pages on the phone (spec 4.10 Failed photo imports)', () => {
+    beforeEach(() => {
+      mockMoved.length = 0;
+      mockDeleted.length = 0;
+      respondWithError(422, { error: 'not_a_recipe', message: 'No' });
+    });
+
+    test('moves each page out of the cache into failed-imports/<id>/<n>.jpg, in order, and records a photo row', async () => {
+      const result = await importRecipeFromPhotos({ listId, photoUris: PAGES });
+      if (result.ok || !result.failedImportId) throw new Error(JSON.stringify(result));
+      const id = result.failedImportId;
+      const dir = `file:///documents/failed-imports/${id}`;
+      expect(mockMoved).toEqual([
+        [PAGES[0], `${dir}/1.jpg`],
+        [PAGES[1], `${dir}/2.jpg`],
+        [PAGES[2], `${dir}/3.jpg`],
+      ]);
+      expect(failedRows()).toEqual([
+        {
+          id,
+          kind: 'photo',
+          url: null,
+          title: null,
+          reason: 'not_a_recipe',
+          householdId: listHousehold(),
+          listId,
+          pages: ['1.jpg', '2.jpg', '3.jpg'],
+          createdAt: expect.any(Date),
+        },
+      ]);
+      // Moved, not deleted, and nothing uploaded.
+      expect(mockDeleted).toEqual([]);
+      expect(storageUploads()).toEqual([]);
+    });
+
+    test('a recipe-only import keeps its household and no list', async () => {
+      const householdId = db.select().from(households).get()!.id;
+      await importRecipeFromPhotos({ householdId, photoUris: PAGES.slice(0, 1) });
+      expect(failedRows()).toEqual([expect.objectContaining({ householdId, listId: null, pages: ['1.jpg'] })]);
+    });
+
+    test('a Try again (retryOf) moves nothing and records nothing, and gives that row', async () => {
+      expect(await importRecipeFromPhotos({ listId, photoUris: PAGES, retryOf: 'row-1' })).toEqual({
+        ok: false,
+        error: 'not_a_recipe',
+        failedImportId: 'row-1',
+      });
+      expect(mockMoved).toEqual([]);
+      expect(failedRows()).toEqual([]);
+    });
+
+    test("pages that can't be moved aren't recorded, and the failure still comes back", async () => {
+      const spy = jest.spyOn(MockFile.prototype, 'moveSync').mockImplementation(() => {
+        throw new Error('gone');
+      });
+      try {
+        expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'not_a_recipe' });
+        expect(failedRows()).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    test('a success records nothing', async () => {
+      respond(PHOTO_RECIPE);
+      expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toMatchObject({ ok: true });
+      expect(mockMoved).toEqual([]);
+      expect(failedRows()).toEqual([]);
+    });
   });
 
   describe('keeps the pages (spec 4.10)', () => {
@@ -1351,7 +1465,7 @@ describe('from photos (spec 4.10, 6.10)', () => {
 
     test('a failed import uploads nothing and keeps the page files', async () => {
       respondWithError(422, { error: 'not_a_recipe', message: 'No' });
-      expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toEqual({ ok: false, error: 'not_a_recipe' });
+      expect(await importRecipeFromPhotos({ listId, photoUris: PAGES })).toMatchObject({ ok: false, error: 'not_a_recipe' });
       expect(storageUploads()).toEqual([]);
       expect(mockDeleted).toEqual([]);
     });

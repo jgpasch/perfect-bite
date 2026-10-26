@@ -161,7 +161,8 @@ export function RecipePhotoHeader({
  * photo, while it loads and if it fails; then a `photo` glyph in `tint.strong` sits in the middle, and the
  * colour is a button opening the Choose a photo sheet (`onAddPhoto`), or a spinner while Generate with AI runs.
  * The name (`screenTitle`, a header) is on a `photoScrim` band across the bottom. `uploading`: a spinner over
- * the device's copy. No source credit: the byline under it carries the link.
+ * the device's copy. No source credit: the byline under it carries the link. `headerHeight` (the
+ * transparent header's, status bar included) keeps the glyph and spinners centred in the part below it.
  */
 export function RecipeTitlePhoto({
   name,
@@ -169,6 +170,7 @@ export function RecipeTitlePhoto({
   tint,
   uploading = false,
   generating = false,
+  headerHeight = 0,
   onError,
   onAddPhoto,
 }: {
@@ -177,6 +179,7 @@ export function RecipeTitlePhoto({
   tint: { soft: string; strong: string };
   uploading?: boolean;
   generating?: boolean;
+  headerHeight?: number;
   onError: (event?: { error?: string }) => void;
   onAddPhoto: () => void;
 }) {
@@ -227,11 +230,11 @@ export function RecipeTitlePhoto({
           onPress={onAddPhoto}
           accessibilityRole="button"
           accessibilityLabel={t('recipes.photo.add')}
-          style={({ pressed }) => [styles.flex, styles.center, { opacity: pressed ? opacity.pressed : 1 }]}>
+          style={({ pressed }) => [styles.flex, styles.center, { paddingTop: headerHeight, opacity: pressed ? opacity.pressed : 1 }]}>
           {middle}
         </Pressable>
       ) : (
-        <View style={[styles.flex, styles.center]}>{middle}</View>
+        <View style={[styles.flex, styles.center, { paddingTop: headerHeight }]}>{middle}</View>
       )}
       <View style={{ backgroundColor: photoScrim.fill, paddingHorizontal: spacing.lg + spacing.xs, paddingVertical: spacing.md }}>
         <ThemedText variant="screenTitle" accessibilityRole="header" style={{ color: photoScrim.text }}>

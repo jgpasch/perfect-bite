@@ -36,6 +36,7 @@ import { AISLE_COLORS_KEY, ITEM_ROW_STYLE_KEY } from '@/features/lists/list-view
 import { BACKFILL_KEY, UNITS_BACKFILL_KEY } from '@/features/lists/usage';
 import { clearNotifications } from '@/features/notifications/notifications';
 import { clearFeatures } from '@/features/plans/load';
+import { deleteAllFailedPages } from '@/features/recipes/failed-photo-pages';
 import { IMPORT_ADD_TO_LIST_KEY } from '@/features/recipes/save-choice';
 import { EMPTY_SHARE_QUEUE_STATUS, setShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { KEEP_SCREEN_ON_KEY } from '@/features/settings/device-settings';
@@ -108,7 +109,8 @@ export const KEEP_LIST: Record<string, string> = Object.fromEntries(
 
 /**
  * Deletes the user's data from this device (spec 4.8): every user and household row in SQLite in
- * one transaction (throws if that fails, leaving them all), then the App Group list snapshot and
+ * one transaction (throws if that fails, leaving them all), then failed photo imports' kept pages,
+ * the App Group list snapshot and
  * queues, the plans store and its cached answer, the in-memory invites and notifications, and
  * expo-image's cache of recipe photos.
  * Safe to run again.
@@ -120,6 +122,7 @@ export function wipeLocalData(): void {
       else tx.delete(table).run();
     }
   });
+  deleteAllFailedPages();
   clearSiriListSnapshot();
   try {
     emptyQueues();

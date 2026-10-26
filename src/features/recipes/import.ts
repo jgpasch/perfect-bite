@@ -28,6 +28,8 @@ import { applyWrites } from '@/sync/apply-writes';
 import type { Exec } from '@/sync/clock';
 
 import { ensureStepMatch } from './ensure-step-match';
+import { recordFailedPhotoImport } from './failed-photo-pages';
+import { recordedTarget } from './import-target';
 import { capturePage, toRequestPage } from './page-capture';
 import { uploadRecipePages } from './photo-upload';
 import { deleteRecipe, getRecipe, updateRecipeSourcePages } from './recipes';
@@ -132,24 +134,46 @@ export async function importRecipe(input: ImportRecipeInput): Promise<ImportReci
 }
 
 /** Where a photo import goes, and its photos: the pages of one recipe, in order, as JPEG files on the device. */
-export type ImportRecipePhotosInput = ImportTarget & { photoUris: readonly string[] };
+export type ImportRecipePhotosInput = ImportTarget & {
+  photoUris: readonly string[];
+  /** A Try again of this failed photo import: its pages are already kept, so a failure records nothing. */
+  retryOf?: string;
+};
+
+/** A photo import's failure, with the `failed_imports` row that keeps its pages (none when they couldn't be kept). */
+export type ImportRecipePhotosError = ImportRecipeError & { failedImportId?: string };
+
+export type ImportRecipePhotosResult<ListId extends string | null = string | null> =
+  | ImportRecipeSuccess<ListId>
+  | ImportRecipePhotosError;
 
 /**
  * Imports the recipe in the photos (spec 4.10, 6.10): reads each downscaled JPEG as base64, sends
  * them to `import-recipe-photo` and saves the answer as a link import does, onto the list or into
  * the household. A photo import always creates a new recipe, with no link and no photo. Once it's
  * saved, the pages go up to `recipe-pages` and `source_pages` points at them (best effort), and the
- * page files are deleted. Never throws: errors come back as a result, and an error writes nothing.
+ * page files are deleted. Never throws: errors come back as a result. A failure saves no recipe and
+ * uploads nothing; it moves the pages into a `failed_imports` row (spec 4.10, `failedImportId`),
+ * unless it's a Try again of one (`retryOf`), whose row keeps them already.
  */
 export async function importRecipeFromPhotos(
   input: ImportRecipePhotosInput & { listId: string },
-): Promise<ImportRecipeResult<string>>;
+): Promise<ImportRecipePhotosResult<string>>;
 export async function importRecipeFromPhotos(
   input: ImportRecipePhotosInput & { householdId: string },
-): Promise<ImportRecipeResult<null>>;
-export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipeResult>;
-export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipeResult> {
+): Promise<ImportRecipePhotosResult<null>>;
+export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipePhotosResult>;
+export async function importRecipeFromPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipePhotosResult> {
   if (input.photoUris.length === 0) return { ok: false, error: 'failed' };
+  const result = await importPhotos(input);
+  if (result.ok) return result;
+  if (input.retryOf) return { ...result, failedImportId: input.retryOf };
+  const target: ImportTarget = input.listId ? { listId: input.listId } : { householdId: input.householdId! };
+  const failedImportId = recordFailedPhotoImport(input.photoUris, result.error, recordedTarget(target));
+  return failedImportId ? { ...result, failedImportId } : result;
+}
+
+async function importPhotos(input: ImportRecipePhotosInput): Promise<ImportRecipeResult> {
   if (!isSupabaseConfigured) return { ok: false, error: 'offline' };
   let userId: string;
   let recipe: RecipeImportResponse;

@@ -406,6 +406,7 @@ export default function RecipeScreen() {
                   tint={aisles[hue]}
                   uploading={uploading}
                   generating={!hasPhoto && generation?.status === 'generating'}
+                  headerHeight={headerHeight}
                   onError={uploading ? () => {} : photo.onError}
                   onAddPhoto={openPhoto}
                 />

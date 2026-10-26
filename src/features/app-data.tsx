@@ -12,6 +12,7 @@ import { ensureStarterData } from '@/features/lists/lists';
 import { backfillUnitUsage, backfillUsage } from '@/features/lists/usage';
 import { startPushRegistration } from '@/features/push/registration';
 import { startTimeZoneSync } from '@/features/push/settings';
+import { pruneFailedPhotoImports } from '@/features/recipes/failed-photo-pages';
 import { startShareReconcile } from '@/features/recipes/share-reconcile';
 import { startSiriDrain } from '@/features/siri/drain';
 import { clearSiriListSnapshot, startListSnapshot } from '@/features/siri/list-snapshot';
@@ -55,6 +56,8 @@ export function AppDataGate({ children }: { children: ReactNode }) {
     ensureMissingIngredients();
     backfillUsage();
     backfillUnitUsage();
+    // Failed photo imports' pages are kept 30 days, and a row whose pages have gone is dropped (spec 4.10).
+    pruneFailedPhotoImports();
   }, []);
   // Plan features (spec 4.12): loaded on sign-in, foreground and reconnect, cached for offline
   // launches, cleared on sign-out.

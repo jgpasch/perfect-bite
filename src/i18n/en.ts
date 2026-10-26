@@ -871,6 +871,8 @@ export const en = {
       tryAgain: 'Try again',
       trying: 'Trying…',
       dismiss: 'Dismiss',
+      /** A failed photo import's name, in place of a link's title. */
+      fromAPhoto: 'From a photo',
       /** Why an import failed. */
       reasons: {
         notARecipe: "That page doesn't look like a recipe",

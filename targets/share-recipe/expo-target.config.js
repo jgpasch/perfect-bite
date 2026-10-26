@@ -13,6 +13,23 @@ function shareIngestUrl(env) {
   return /^https?:\/\/[^/]/i.test(base) ? `${base}/functions/v1/share-ingest` : null;
 }
 
+/**
+ * The URL, or a thrown error on an EAS build other than `development` without one: such a build's
+ * shares would wait for the app to open. EAS doesn't load `.env.production` before the config
+ * plugins run, so the URL comes from the build profile's `env` in eas.json. Local prebuilds and
+ * development builds go without it.
+ */
+function requireShareIngestUrl(env) {
+  const url = shareIngestUrl(env);
+  const profile = env.EAS_BUILD_PROFILE;
+  if (!url && profile && profile !== 'development') {
+    throw new Error(
+      `share-recipe: EXPO_PUBLIC_SUPABASE_URL isn't set for the EAS build profile "${profile}", so the share extension would have no share-ingest URL. Set it in the profile's env in eas.json.`,
+    );
+  }
+  return url;
+}
+
 /** Sets (or, with no URL, removes) `SHARE_INGEST_URL` on the share extension's target. */
 function setShareIngestUrl(project, url) {
   for (const target of project.rootObject.props.targets) {
@@ -26,7 +43,7 @@ function setShareIngestUrl(project, url) {
 module.exports = (config) => {
   // Registered before apple-targets adds this target, so it runs after the target exists.
   withXcodeProjectBeta(config, (cfg) => {
-    setShareIngestUrl(cfg.modResults, shareIngestUrl(process.env));
+    setShareIngestUrl(cfg.modResults, requireShareIngestUrl(process.env));
     return cfg;
   });
   return {
@@ -43,5 +60,6 @@ module.exports = (config) => {
   };
 };
 module.exports.shareIngestUrl = shareIngestUrl;
+module.exports.requireShareIngestUrl = requireShareIngestUrl;
 module.exports.setShareIngestUrl = setShareIngestUrl;
 module.exports.URL_SETTING = URL_SETTING;
