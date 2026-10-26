@@ -130,6 +130,15 @@ function RootLayout() {
                   name="recipe/[id]/collections"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Recipe collections board A: See all on the Collections shelf; "Collections" is in the screen. */}
+                <Stack.Screen name="collections" options={{ title: '', headerBackTitle: t('recipes.tab.title') }} />
+                {/* Board B: a collection, its name in the screen; Select mode swaps back for Cancel. */}
+                <Stack.Screen name="collection/[id]/index" options={{ title: '', headerBackTitle: t('recipes.tab.title') }} />
+                {/* Board B: a collection's Filter, the tab's filter sheet over its recipes. */}
+                <Stack.Screen
+                  name="collection/[id]/filter"
+                  options={{ title: t('recipes.filters.title'), presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 {/* Board 16: the recipe's method, one step per line; "Steps" is the large title in the sheet. */}
                 <Stack.Screen
                   name="recipe/[id]/steps"

@@ -1,5 +1,5 @@
-// The Recipes tab's shelves (spec 4.5, 4.16): This week, Recently added and Favorites, each a short sideways
-// row above All recipes. Pure, apart from reading the app's strings; shelves span households.
+// The Recipes tab's shelves (spec 4.5, 4.16): This week, Collections, Recently added and Favorites, each a
+// short sideways row above All recipes. Pure, apart from reading the app's strings; shelves span households.
 import { currentLanguage, i18n, type Language } from '@/i18n';
 import { shortSlotName } from '@/features/meal-plan/plan-modal';
 import type { PlanEntry } from '@/features/meal-plan/queries';
@@ -7,6 +7,7 @@ import { addDays, type Day, MEALS, weekStart } from '@/features/meal-plan/week';
 import { dayName, mealLabel } from '@/features/meal-plan/week-view';
 import type { RecipeTags } from '@/shared/recipe-tags';
 
+import type { CollectionSummary } from './collections';
 import type { FavoritesByRecipe } from './favorites';
 import { activeFilterCount, type RecipeFilters } from './recipe-filters';
 import { foldForSearch } from './recipe-search';
@@ -19,7 +20,7 @@ export const SHELVES_MIN_RECIPES = 8;
 /** How many tiles Recently added and Favorites show at most. */
 export const SHELF_MAX_ITEMS = 10;
 
-export type RecipeShelfKey = 'thisWeek' | 'recent' | 'favorites';
+export type RecipeShelfKey = 'thisWeek' | 'collections' | 'recent' | 'favorites';
 
 /**
  * A tile: the recipe, the line under its name ("Thu dinner", "35 min") or none, and that line as VoiceOver
@@ -27,8 +28,17 @@ export type RecipeShelfKey = 'thisWeek' | 'recent' | 'favorites';
  */
 export type RecipeShelfItem<R> = { recipe: R; caption: string | null; spokenCaption: string | null };
 
-/** A shelf: `count` is what its See all counts, which can be more than the tiles shown. */
-export type RecipeShelf<R> = { key: RecipeShelfKey; title: string; count: number; items: RecipeShelfItem<R>[] };
+/**
+ * A shelf: `count` is what its See all counts, which can be more than the tiles shown. The Collections shelf's
+ * tiles are `collections` (its `items` are empty).
+ */
+export type RecipeShelf<R> = {
+  key: RecipeShelfKey;
+  title: string;
+  count: number;
+  items: RecipeShelfItem<R>[];
+  collections?: CollectionSummary[];
+};
 
 type ShelfRecipe = { id: string; name: string; tags: RecipeTags | null; totalMinutes: number | null };
 type ShelfEntry = Pick<PlanEntry, 'planDate' | 'meal' | 'kind' | 'recipeId' | 'position'>;
@@ -55,7 +65,8 @@ export function shelfTileLabel(item: { recipe: { name: string }; spokenCaption: 
 
 /**
  * The shelves to show, in order: This week (recipes planned from `today` to the week's end, by day then meal,
- * each once at its first slot), Recently added (the 10 newest) and Favorites (A–Z, up to 10; a favorite of any
+ * each once at its first slot), Collections (every household's `collections`, in the order given: A–Z),
+ * Recently added (the 10 newest) and Favorites (A–Z, up to 10; a favorite of any
  * current member, the user included, from `favorites`). An empty shelf is left out, and there are none below
  * `SHELVES_MIN_RECIPES` recipes. `recipes` are in `recipesQuery`'s order (newest change first); `entries` are
  * every household's plan entries, any weeks.
@@ -65,12 +76,14 @@ export function recipeShelves<R extends ShelfRecipe>({
   entries,
   today,
   favorites = new Map(),
+  collections = [],
   language = currentLanguage(),
 }: {
   recipes: readonly R[];
   entries: readonly ShelfEntry[];
   today: Day;
   favorites?: FavoritesByRecipe;
+  collections?: readonly CollectionSummary[];
   language?: Language;
 }): RecipeShelf<R>[] {
   if (recipes.length < SHELVES_MIN_RECIPES) return [];
@@ -110,6 +123,7 @@ export function recipeShelves<R extends ShelfRecipe>({
   const favorited = sortRecipesByName(recipes.filter((r) => favorites.has(r.id)));
   const shelves: RecipeShelf<R>[] = [
     { key: 'thisWeek', title: title('thisWeek'), count: planned.length, items: thisWeek },
+    { key: 'collections', title: title('collections'), count: collections.length, items: [], collections: [...collections] },
     {
       key: 'recent',
       title: title('recent'),
@@ -123,5 +137,5 @@ export function recipeShelves<R extends ShelfRecipe>({
       items: favorited.slice(0, SHELF_MAX_ITEMS).map(withTime),
     },
   ];
-  return shelves.filter((shelf) => shelf.items.length > 0);
+  return shelves.filter((shelf) => shelf.items.length > 0 || (shelf.collections?.length ?? 0) > 0);
 }

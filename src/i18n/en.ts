@@ -416,6 +416,7 @@ export const en = {
     /** The shelves above All recipes (spec 4.5). */
     shelves: {
       thisWeek: 'This week',
+      collections: 'Collections',
       recent: 'Recently added',
       favorites: 'Favorites',
       seeAll: 'See all {{count}}',
@@ -755,6 +756,33 @@ export const en = {
       /** The recipe screen's line for VoiceOver: "Collections: Mom's cookbook, Kid favorites". */
       line: 'Collections: {{names}}',
       lineHint: 'Changes collections',
+      /** The Recipes tab's Collections shelf (board A): its last tile, and its prompt's household choice. */
+      newTile: 'New collection',
+      newIn: 'New collection in…',
+      /** See all: every collection. */
+      allTitle: 'Collections',
+      /** A collection's screen (board B). */
+      opensCollection: 'Opens the collection',
+      addRecipes: 'Add recipes',
+      filter: 'Filter',
+      empty: 'No recipes yet',
+      menu: 'Collection options',
+      rename: 'Rename',
+      renameTitle: 'Rename collection',
+      selectRecipes: 'Select recipes',
+      delete: 'Delete collection',
+      deleteTitle: 'Delete {{name}}?',
+      deleteMessage: 'The recipes stay.',
+      deleted: 'Deleted {{name}}',
+      /** A recipe's long-press menu on a collection's screen. */
+      removeFrom: 'Remove from {{name}}',
+      /** Select mode on a collection's screen. */
+      tapToSelect: 'Tap recipes to select them',
+      selected_one: '{{count}} selected',
+      selected_other: '{{count}} selected',
+      selectAll: 'Select All',
+      deselectAll: 'Deselect All',
+      removeSelected: 'Remove from collection',
     },
     /** The Add to a list sheet (spec 4.5, board 07). */
     addToList: {

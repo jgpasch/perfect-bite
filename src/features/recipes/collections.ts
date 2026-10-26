@@ -4,7 +4,7 @@
 // `deleted_at`, are last-writer-wins. Deleting a collection leaves its memberships (ignored while
 // it's deleted), and a deleted recipe's memberships stay, so restoring either brings them back.
 // Free on every plan, with no limit.
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { useMemo } from 'react';
 
 import { db, recipeCollectionRecipes, recipeCollections, recipes } from '@/db';
@@ -123,6 +123,27 @@ export function deleteCollection(id: string): void {
   });
 }
 
+/** Undoes `deleteCollection`: the collection and its memberships show again. Not deleted: no write. */
+export function restoreCollection(id: string): void {
+  updateRows(db, recipeCollections, and(eq(recipeCollections.id, id), isNotNull(recipeCollections.deletedAt)), {
+    deletedAt: null,
+  });
+}
+
+/** Takes recipes out of a collection in one transaction; returns how many were in it. */
+export function removeRecipesFromCollection(collectionId: string, recipeIds: readonly string[]): number {
+  if (recipeIds.length === 0) return 0;
+  return db.transaction((tx) => {
+    const householdId = householdFor(tx, collectionId, recipeIds);
+    if (!householdId) return 0;
+    let removed = 0;
+    for (const recipeId of new Set(recipeIds)) {
+      if (setMembership(tx, householdId, collectionId, recipeId, false)) removed++;
+    }
+    return removed;
+  });
+}
+
 /** The recipes' household, checked against the collection's: they're filed in their own household only. */
 function householdFor(tx: Exec, collectionId: string, recipeIds: readonly string[]): string | null {
   const collection = collectionOf(tx, collectionId);
@@ -195,15 +216,18 @@ export function applyCollectionTicks(recipeId: string, before: ReadonlySet<strin
 
 // --- Reading -----------------------------------------------------------------------------------
 
-function householdCollectionsQuery(householdId: string) {
+/** A household's live collections, or every household's without `householdId`. */
+function householdCollectionsQuery(householdId?: string) {
   return db
     .select({ id: recipeCollections.id, householdId: recipeCollections.householdId, name: recipeCollections.name })
     .from(recipeCollections)
-    .where(and(eq(recipeCollections.householdId, householdId), isNull(recipeCollections.deletedAt)));
+    .where(
+      and(householdId === undefined ? undefined : eq(recipeCollections.householdId, householdId), isNull(recipeCollections.deletedAt)),
+    );
 }
 
-/** The household's live memberships whose recipe is live, with what the cover shows. */
-function householdMembersQuery(householdId: string) {
+/** A household's live memberships whose recipe is live, with what the cover shows; every household's without one. */
+function householdMembersQuery(householdId?: string) {
   return db
     .select({
       collectionId: recipeCollectionRecipes.collectionId,
@@ -216,7 +240,7 @@ function householdMembersQuery(householdId: string) {
     .innerJoin(recipes, eq(recipes.id, recipeCollectionRecipes.recipeId))
     .where(
       and(
-        eq(recipeCollectionRecipes.householdId, householdId),
+        householdId === undefined ? undefined : eq(recipeCollectionRecipes.householdId, householdId),
         isNull(recipeCollectionRecipes.deletedAt),
         isNull(recipes.deletedAt),
       ),
@@ -250,6 +274,57 @@ export function useHouseholdCollections(householdId: string): CollectionSummary[
   const { data: collections } = useLiveQueryOn(householdCollectionsQuery(householdId), COLLECTIONS_QUERY_TABLES, [householdId]);
   const { data: members } = useLiveQueryOn(householdMembersQuery(householdId), COLLECTIONS_QUERY_TABLES, [householdId]);
   return useMemo(() => collectionSummaries(collections, members), [collections, members]);
+}
+
+/** Every household's live collections A–Z (read once): the Recipes tab's Collections shelf and its See all. */
+export function readCollections(): CollectionSummary[] {
+  return collectionSummaries(householdCollectionsQuery().all(), householdMembersQuery().all());
+}
+
+/** Every household's live collections A–Z (live). */
+export function useCollections(): CollectionSummary[] {
+  const { data: collections } = useLiveQueryOn(householdCollectionsQuery(), COLLECTIONS_QUERY_TABLES);
+  const { data: members } = useLiveQueryOn(householdMembersQuery(), COLLECTIONS_QUERY_TABLES);
+  return useMemo(() => collectionSummaries(collections, members), [collections, members]);
+}
+
+/** The collections (A–Z) split by household, in `householdRows`' order; households with none left out. */
+export function collectionsByHousehold(
+  collections: readonly CollectionSummary[],
+  householdRows: readonly { id: string; name: string }[],
+): { householdId: string; name: string; collections: CollectionSummary[] }[] {
+  return householdRows
+    .map((h) => ({ householdId: h.id, name: h.name, collections: collections.filter((c) => c.householdId === h.id) }))
+    .filter((g) => g.collections.length > 0);
+}
+
+function collectionQuery(id: string) {
+  return db
+    .select({ id: recipeCollections.id, householdId: recipeCollections.householdId, name: recipeCollections.name })
+    .from(recipeCollections)
+    .where(and(eq(recipeCollections.id, id), isNull(recipeCollections.deletedAt)));
+}
+
+function collectionRecipeIdsQuery(id: string) {
+  return db
+    .select({ recipeId: recipeCollectionRecipes.recipeId })
+    .from(recipeCollectionRecipes)
+    .innerJoin(recipes, eq(recipes.id, recipeCollectionRecipes.recipeId))
+    .where(and(eq(recipeCollectionRecipes.collectionId, id), isNull(recipeCollectionRecipes.deletedAt), isNull(recipes.deletedAt)));
+}
+
+/**
+ * A live collection and the ids of its live recipes (live), for its screen; null once it's deleted or when
+ * there's no such collection.
+ */
+export function useCollection(id: string): { collection: RecipeCollection & { householdId: string }; recipeIds: ReadonlySet<string> } | null {
+  const { data: rows } = useLiveQueryOn(collectionQuery(id), COLLECTIONS_QUERY_TABLES, [id]);
+  const { data: members } = useLiveQueryOn(collectionRecipeIdsQuery(id), COLLECTIONS_QUERY_TABLES, [id]);
+  const collection = rows[0];
+  return useMemo(
+    () => (collection ? { collection, recipeIds: new Set(members.map((m) => m.recipeId)) } : null),
+    [collection, members],
+  );
 }
 
 function recipeCollectionsQuery(recipeId: string) {

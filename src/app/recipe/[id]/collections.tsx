@@ -1,21 +1,15 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { prominentButtonTint } from '@/components/appearance';
 import { Card } from '@/components/card';
-import { CheckCircle } from '@/components/check-circle';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
 import { toggled } from '@/features/recipes/add-sheet';
-import { CollectionCover } from '@/features/recipes/collection-cover';
-import {
-  applyCollectionTicks,
-  readRecipeCollections,
-  useHouseholdCollections,
-  type CollectionSummary,
-} from '@/features/recipes/collections';
+import { CollectionRow, CollectionRowFrame } from '@/features/recipes/collection-row';
+import { applyCollectionTicks, readRecipeCollections, useHouseholdCollections } from '@/features/recipes/collections';
 import { promptNewCollection } from '@/features/recipes/prompt-collection-name';
 import { getRecipe } from '@/features/recipes/recipes';
 import { useTheme } from '@/hooks/use-theme';
@@ -71,10 +65,10 @@ export default function AddToCollectionSheet() {
         <View style={{ gap: spacing.sm }}>
           <Card>
             {collections.map((c, i) => (
-              <CollectionChoice
+              <CollectionRow
                 key={c.id}
                 collection={c}
-                on={ticked.has(c.id)}
+                ticked={ticked.has(c.id)}
                 first={i === 0}
                 onPress={() => setTicked((current) => toggled(current, c.id))}
               />
@@ -95,47 +89,12 @@ export default function AddToCollectionSheet() {
   );
 }
 
-/** A collection's row: its cover, name and "N recipes", and a round tick on the right. VoiceOver: a checkbox. */
-function CollectionChoice({
-  collection,
-  on,
-  first,
-  onPress,
-}: {
-  collection: CollectionSummary;
-  on: boolean;
-  first: boolean;
-  onPress: () => void;
-}) {
-  const t = useT();
-  const count = t('recipes.collections.count', { count: collection.recipeCount });
-  return (
-    <ChoiceRow
-      first={first}
-      onPress={onPress}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: on }}
-      accessibilityLabel={t('recipes.collections.row', { name: collection.name, count })}>
-      <CollectionCover cover={collection.cover} />
-      <View style={styles.flex}>
-        <ThemedText variant="headline" numberOfLines={1}>
-          {collection.name}
-        </ThemedText>
-        <ThemedText variant="footnote" color="inkSecondary">
-          {count}
-        </ThemedText>
-      </View>
-      <CheckCircle checked={on} />
-    </ChoiceRow>
-  );
-}
-
 /** New collection…: a plus in a `primarySoft` well, in `primary`. */
 function NewCollectionRow({ first, onPress }: { first: boolean; onPress: () => void }) {
   const t = useT();
   const { colors, sizes, rounded } = useTheme();
   return (
-    <ChoiceRow first={first} onPress={onPress} accessibilityRole="button" accessibilityLabel={t('recipes.collections.new')}>
+    <CollectionRowFrame first={first} onPress={onPress} accessibilityRole="button" accessibilityLabel={t('recipes.collections.new')}>
       <View
         style={[
           styles.well,
@@ -146,45 +105,11 @@ function NewCollectionRow({ first, onPress }: { first: boolean; onPress: () => v
       <ThemedText variant="headline" color="primary" style={styles.flex}>
         {t('recipes.collections.new')}
       </ThemedText>
-    </ChoiceRow>
-  );
-}
-
-function ChoiceRow({
-  first,
-  children,
-  ...rest
-}: {
-  first: boolean;
-  children: ReactNode;
-  onPress: () => void;
-  accessibilityRole: 'checkbox' | 'button';
-  accessibilityLabel: string;
-  accessibilityState?: { checked: boolean };
-}) {
-  const { colors, spacing, sizes, opacity } = useTheme();
-  return (
-    <Pressable
-      {...rest}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          minHeight: sizes.cardRowMin,
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.sm,
-          gap: spacing.md,
-          borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          opacity: pressed ? opacity.pressed : 1,
-        },
-      ]}>
-      {children}
-    </Pressable>
+    </CollectionRowFrame>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center' },
   well: { alignItems: 'center', justifyContent: 'center', borderCurve: 'continuous' },
 });

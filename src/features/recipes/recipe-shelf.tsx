@@ -17,6 +17,7 @@ import type { RecipeShelf as Shelf, RecipeShelfItem, RecipeShelfKey } from './re
 /** Each shelf's glyph and its colour. */
 export const SHELF_GLYPHS: Record<RecipeShelfKey, { name: IconName; color: ColorToken }> = {
   thisWeek: { name: 'calendar', color: 'inkSecondary' },
+  collections: { name: 'rectangle.stack', color: 'inkSecondary' },
   recent: { name: 'clock', color: 'inkSecondary' },
   favorites: { name: 'heart.fill', color: 'primary' },
 };
@@ -25,19 +26,22 @@ type ShelfRecipe = { id: string; name: string; imageUrl: string | null; photoPat
 
 /**
  * A shelf on the Recipes tab (spec 4.5): a header row (the glyph, the title, See all N) over a sideways row
- * of 140 pt tiles. The screen wraps each tile (`renderTile`) in its link and long-press menu. With `fold`
- * (while grouped) it's a folding row in the shelves' card: the glyph, title and count, opening to See all and
- * the tiles.
+ * of 140 pt tiles. The screen wraps each tile (`renderTile`) in its link and long-press menu, or passes the
+ * Collections shelf's tiles ready-made (`tiles`). With `fold` (while grouped) it's a folding row in the
+ * shelves' card: the glyph, title and count, opening to See all and the tiles.
  */
 export function RecipeShelf<R extends ShelfRecipe>({
   shelf,
   onSeeAll,
   renderTile,
+  tiles: given,
   fold,
 }: {
   shelf: Shelf<R>;
   onSeeAll: () => void;
   renderTile: (item: RecipeShelfItem<R>) => ReactNode;
+  /** In place of the items' tiles. */
+  tiles?: ReactNode;
   fold?: { open: boolean; onToggle: () => void };
 }) {
   const t = useT();
@@ -56,9 +60,7 @@ export function RecipeShelf<R extends ShelfRecipe>({
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
-      {shelf.items.map((item) => (
-        <View key={item.recipe.id}>{renderTile(item)}</View>
-      ))}
+      {given ?? shelf.items.map((item) => <View key={item.recipe.id}>{renderTile(item)}</View>)}
     </ScrollView>
   );
   if (fold) {

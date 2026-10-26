@@ -13,12 +13,16 @@ import {
   addRecipesToCollection,
   collectionNameProblem,
   CollectionNameError,
+  collectionsByHousehold,
   collectionSummaries,
   createCollection,
   deleteCollection,
+  readCollections,
   readHouseholdCollections,
   readRecipeCollections,
+  removeRecipesFromCollection,
   renameCollection,
+  restoreCollection,
   setRecipeInCollection,
 } from '../collections';
 
@@ -347,6 +351,92 @@ describe('readRecipeCollections', () => {
       { id: mom, name: "Mom's cookbook" },
     ]);
     expect(readRecipeCollections('soup')).toEqual([]);
+  });
+});
+
+describe('restoreCollection', () => {
+  test("brings a deleted collection back with its memberships, and queues deleted_at: null", () => {
+    const id = createCollection(HOME, "Mom's cookbook");
+    setRecipeInCollection('tacos', id, true);
+    deleteCollection(id);
+    expect(readHouseholdCollections(HOME)).toEqual([]);
+    clearOutbox();
+
+    restoreCollection(id);
+
+    expect(collectionRow(id)?.deletedAt).toBeNull();
+    expect(readHouseholdCollections(HOME).map((c) => [c.name, c.recipeCount])).toEqual([["Mom's cookbook", 1]]);
+    expect(outboxPatches()).toEqual([expect.objectContaining({ table: 'recipe_collections', id, fields: { deleted_at: null } })]);
+  });
+
+  test('a live collection, or none: no write', () => {
+    const id = createCollection(HOME, 'Soups');
+    clearOutbox();
+    restoreCollection(id);
+    restoreCollection('missing');
+    expect(outboxPatches()).toEqual([]);
+  });
+});
+
+describe('removeRecipesFromCollection', () => {
+  test("takes several out in one go, counting only the ones that were in it", () => {
+    const id = createCollection(HOME, 'Soups');
+    addRecipesToCollection(id, ['soup', 'chili', 'bread']);
+    clearOutbox();
+
+    expect(removeRecipesFromCollection(id, ['soup', 'chili', 'apple', 'soup'])).toBe(2);
+
+    expect(membership(id, 'soup')?.deletedAt).toBeInstanceOf(Date);
+    expect(membership(id, 'chili')?.deletedAt).toBeInstanceOf(Date);
+    expect(membership(id, 'bread')?.deletedAt).toBeNull();
+    expect(membership(id, 'apple')).toBeUndefined();
+    expect(outboxPatches()).toHaveLength(2);
+  });
+
+  test('nothing, or no such collection: 0 and no write', () => {
+    const id = createCollection(HOME, 'Soups');
+    clearOutbox();
+    expect(removeRecipesFromCollection(id, [])).toBe(0);
+    expect(removeRecipesFromCollection('missing', ['soup'])).toBe(0);
+    expect(outboxPatches()).toEqual([]);
+  });
+
+  test("refuses another household's recipe and writes none", () => {
+    const id = createCollection(HOME, 'Soups');
+    addRecipesToCollection(id, ['soup']);
+    clearOutbox();
+    expect(() => removeRecipesFromCollection(id, ['soup', 'stew'])).toThrow();
+    expect(membership(id, 'soup')?.deletedAt).toBeNull();
+    expect(outboxPatches()).toEqual([]);
+  });
+});
+
+describe("every household's collections", () => {
+  test('readCollections: both households, A–Z across them, deleted ones left out', () => {
+    const soups = createCollection(HOME, 'Soups');
+    createCollection(CABIN, 'Cabin meals');
+    const gone = createCollection(HOME, 'Gone');
+    deleteCollection(gone);
+    setRecipeInCollection('soup', soups, true);
+
+    expect(readCollections().map((c) => [c.name, c.householdId, c.recipeCount])).toEqual([
+      ['Cabin meals', CABIN, 0],
+      ['Soups', HOME, 1],
+    ]);
+  });
+
+  test('collectionsByHousehold: in the households\' order, ones without any left out', () => {
+    const soups = createCollection(HOME, 'Soups');
+    const cabin = createCollection(CABIN, 'Cabin meals');
+    const groups = collectionsByHousehold(readCollections(), [
+      { id: CABIN, name: 'Cabin' },
+      { id: 'empty', name: 'Empty' },
+      { id: HOME, name: 'Home' },
+    ]);
+    expect(groups.map((g) => [g.name, g.collections.map((c) => c.id)])).toEqual([
+      ['Cabin', [cabin]],
+      ['Home', [soups]],
+    ]);
   });
 });
 

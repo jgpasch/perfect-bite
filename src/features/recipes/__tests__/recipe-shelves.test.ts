@@ -1,4 +1,4 @@
-// The Recipes tab's shelves (spec 4.5, 4.16): This week, Recently added and Favorites, and when they show.
+// The Recipes tab's shelves (spec 4.5, 4.16): This week, Collections, Recently added and Favorites, and when they show.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
@@ -273,6 +273,57 @@ describe('recipeShelves', () => {
     const recent = result.find((s) => s.key === 'recent')!;
     expect(recent.items[0]).toMatchObject({ caption: '35 min', spokenCaption: '35 min' });
     expect(recent.items.find((i) => i.recipe.name === 'Frittata')).toMatchObject({ caption: null, spokenCaption: null });
+  });
+});
+
+describe('the Collections shelf', () => {
+  const collection = (id: string, name: string, householdId = 'home', recipeCount = 2) => ({
+    id,
+    householdId,
+    name,
+    recipeCount,
+    cover: [],
+  });
+  const COLLECTIONS = [collection('c1', 'Kid favorites'), collection('c2', "Mom's cookbook", 'cabin', 12)];
+  const withCollections = (
+    collections: Parameters<typeof recipeShelves>[0]['collections'],
+    recipes: readonly TestRecipe[] = RECIPES,
+    entries: readonly TestEntry[] = [entry('2026-10-15', 'dinner', 'r1')],
+  ) => recipeShelves({ recipes, entries, today: TODAY, favorites: favoritesOf(recipes), collections, language: 'en' });
+
+  test('comes after This week and before Recently added and Favorites: four shelves at most', () => {
+    const result = withCollections(COLLECTIONS);
+    expect(result.map((s) => s.key)).toEqual(['thisWeek', 'collections', 'recent', 'favorites']);
+    const shelf = result[1];
+    expect(shelf.title).toBe('Collections');
+    // See all counts every collection, of every household, in the order given (A–Z).
+    expect(shelf.count).toBe(2);
+    expect(shelf.collections?.map((c) => c.name)).toEqual(['Kid favorites', "Mom's cookbook"]);
+    expect(shelf.items).toEqual([]);
+  });
+
+  test('is first with nothing planned this week', () => {
+    expect(withCollections(COLLECTIONS, RECIPES, []).map((s) => s.key)).toEqual(['collections', 'recent', 'favorites']);
+  });
+
+  test('is left out with no collections, or without the argument', () => {
+    expect(withCollections([]).map((s) => s.key)).toEqual(['thisWeek', 'recent', 'favorites']);
+    expect(shelves(RECIPES).map((s) => s.key)).toEqual(['recent', 'favorites']);
+  });
+
+  test('an empty collection still makes the shelf', () => {
+    const result = withCollections([collection('c3', 'Someday', 'home', 0)]);
+    expect(result.find((s) => s.key === 'collections')?.collections?.map((c) => [c.name, c.recipeCount])).toEqual([['Someday', 0]]);
+  });
+
+  test('like the other shelves, none below 8 recipes', () => {
+    expect(withCollections(COLLECTIONS, RECIPES.slice(0, 7))).toEqual([]);
+  });
+
+  test('its Spanish title', () => {
+    initI18n('es');
+    const result = recipeShelves({ recipes: RECIPES, entries: [], today: TODAY, collections: COLLECTIONS, language: 'es' });
+    expect(result[0].title).toBe('Colecciones');
   });
 });
 
