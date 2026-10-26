@@ -9,6 +9,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { Palette, Sizes } from '@/constants/theme';
 import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
+import { addRecipesToCollection, createCollection } from '@/features/recipes/collections';
 import type { FavoritesByRecipe } from '@/features/recipes/favorites';
 import {
   activeFilterCount,
@@ -560,6 +561,39 @@ describe('the slot sheet', () => {
     press('Remove Breakfast filter');
     expect(recipeRows()).toEqual(ALL);
     expect(removeChips()).toEqual([]);
+  });
+
+  test("the panel's Collections group (board E): the household's collections with a recipe, after Saved; a pick narrows and chips", () => {
+    const quick = createCollection(home, 'Quick');
+    createCollection(home, 'Empty');
+    const beach = createCollection(other, 'Beach eats');
+    addRecipesToCollection(quick, [tacos, pancakes]);
+    addRecipesToCollection(beach, [db.select().from(recipes).where(eq(recipes.name, 'Beach chili')).get()!.id]);
+    open(THURSDAY, 'dinner');
+    press('Filters');
+    const headers = tree!.root.findAll((n) => n.type === ('Text' as never) && n.props.accessibilityRole === 'header').map(textOf);
+    expect(headers.slice(0, 2)).toEqual(['Collections', 'Meal']);
+    expect(lines()).not.toContain('Empty');
+    expect(lines()).not.toContain('Beach eats');
+    press('Quick');
+    expect(lines()).toContain('Show 2 recipes');
+    press('Breakfast');
+    expect(lines()).toContain('Show 1 recipe');
+    showRecipes();
+    expect(recipeRows()).toEqual(['Pancakes, 20 min · Added today']);
+    expect(removeChips()).toEqual(['Remove Quick filter', 'Remove Breakfast filter']);
+    expect(button('Filters, 2 active')).toBeTruthy();
+    press('Remove Quick filter');
+    press('Remove Breakfast filter');
+    expect(recipeRows()).toEqual(ALL);
+  });
+
+  test('without collections the panel has no Collections group', () => {
+    open(THURSDAY, 'dinner');
+    press('Filters');
+    const headers = tree!.root.findAll((n) => n.type === ('Text' as never) && n.props.accessibilityRole === 'header').map(textOf);
+    expect(headers).not.toContain('Collections');
+    expect(headers).toContain('Meal');
   });
 
   test('the meal chip and the panel’s meal value stay in step', () => {

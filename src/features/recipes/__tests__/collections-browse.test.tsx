@@ -16,10 +16,17 @@ import { resetDb } from '@/test/db';
 import CollectionScreen from '@/app/collection/[id]/index';
 import CollectionFilterSheet from '@/app/collection/[id]/filter';
 import CollectionsScreen from '@/app/collections';
+import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
 import RecipesScreen from '@/app/(tabs)/recipes/index';
 
 import { getCollectionFilters, setCollectionFilters } from '../collection-filter-store';
-import { createCollection, readCollections, readHouseholdCollections, setRecipeInCollection } from '../collections';
+import {
+  createCollection,
+  deleteCollection,
+  readCollections,
+  readHouseholdCollections,
+  setRecipeInCollection,
+} from '../collections';
 import { setDeletedCollectionResult, takeDeletedCollectionResult } from '../deleted-collection-result';
 import { resetFoldedMealSections } from '../recipe-fold-store';
 import { getRecipeFilters, setRecipeFilters } from '../recipe-filter-store';
@@ -524,5 +531,102 @@ describe("a collection's filter sheet", () => {
     expect(texts(root)).toContain('Show 2 recipes');
     expect(getCollectionFilters(moms).tags.meal).toEqual(['dessert']);
     expect(getRecipeFilters()).toEqual(noRecipeFilters());
+  });
+});
+
+describe('the Collections filters (board E)', () => {
+  const COLLECTION_NAMES = ['Kid favorites', "Mom's cookbook", 'Thanksgiving'];
+  /** The filter sheet's group headers, in order. */
+  const groups = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.type === ('Text' as never) && n.props.accessibilityRole === 'header').map(text);
+  /** The sheet's pills that are collection names, in order. */
+  const collectionPills = (root: ReactTestRenderer) =>
+    root.root
+      .findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'togglebutton' && typeof n.props.onPress === 'function')
+      .map((n) => n.props.accessibilityLabel as string)
+      .filter((label) => COLLECTION_NAMES.includes(label));
+  const pickedOn = (root: ReactTestRenderer, label: string) => pressable(root, label).props.accessibilityState.checked as boolean;
+
+  test("the Recipes tab's sheet shows the group right after Saved, one pill per collection with a recipe, A–Z", () => {
+    db.insert(recipeFavorites).values({ recipeId: 'pho', userId: 'user-1', householdId: HOME }).run();
+    createCollection(HOME, 'Thanksgiving'); // empty: no pill
+    const root = render(<RecipeFilterSheet />);
+    expect(groups(root).slice(0, 3)).toEqual(['Saved', 'Collections', 'Meal']);
+    expect(collectionPills(root)).toEqual(['Kid favorites', "Mom's cookbook"]);
+    expect(texts(root)).toContain('Show 9 recipes');
+  });
+
+  test('picking one narrows the count and the tab, counts on the Filters button, and shows a chip', () => {
+    const sheet = render(<RecipeFilterSheet />);
+    press(pressable(sheet, "Mom's cookbook"));
+    rerender(<RecipeFilterSheet />);
+    expect(pickedOn(sheet, "Mom's cookbook")).toBe(true);
+    expect(texts(sheet)).toContain('Show 3 recipes');
+    press(pressable(sheet, 'Kid favorites'));
+    rerender(<RecipeFilterSheet />);
+    expect(texts(sheet)).toContain('Show 4 recipes'); // OR within the group
+    press(pressable(sheet, 'Dessert'));
+    rerender(<RecipeFilterSheet />);
+    expect(texts(sheet)).toContain('Show 2 recipes'); // AND with Meal
+    expect(getRecipeFilters().collections).toEqual(["Mom's cookbook", 'Kid favorites']);
+
+    const tab = render(<RecipesScreen />);
+    expect(rowNames(tab)).toEqual(['Banana bread', 'Lemon bars']);
+    expect(pressable(tab, 'Filters, 3 active')).toBeDefined();
+    press(pressable(tab, 'Remove Kid favorites filter'));
+    press(pressable(tab, 'Remove Dessert filter'));
+    rerender(<RecipesScreen />);
+    expect(rowNames(tab)).toEqual(['Banana bread', 'Lemon bars', 'Pot roast']);
+    expect(pressable(tab, "Remove Mom's cookbook filter")).toBeDefined();
+  });
+
+  test('the group is left out while no collection holds a recipe, and a picked one stays to turn off', () => {
+    db.update(recipeCollections).set({ deletedAt: NOW }).run();
+    const none = render(<RecipeFilterSheet />);
+    expect(groups(none)).not.toContain('Collections');
+
+    db.update(recipeCollections).set({ deletedAt: null }).run();
+    setRecipeInCollection('tacos', kids, false);
+    setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'collections', 'Kid favorites'));
+    const root = render(<RecipeFilterSheet />);
+    expect(collectionPills(root)).toEqual(['Kid favorites', "Mom's cookbook"]);
+    expect(pickedOn(root, 'Kid favorites')).toBe(true);
+    expect(texts(root)).toContain('Show 0 recipes');
+    press(pressable(root, 'Kid favorites'));
+    rerender(<RecipeFilterSheet />);
+    expect(collectionPills(root)).toEqual(["Mom's cookbook"]);
+  });
+
+  test('with several households, two collections with the same name show once and match both', () => {
+    db.insert(households).values({ id: CABIN, name: 'Cabin', createdAt: new Date(2026, 5, 1) }).run();
+    addRecipe('chili', 'Cabin chili', [], CABIN);
+    const cabinMoms = createCollection(CABIN, "MOM'S CÓOKBOOK");
+    setRecipeInCollection('chili', cabinMoms, true);
+    const root = render(<RecipeFilterSheet />);
+    expect(collectionPills(root)).toEqual(['Kid favorites', "Mom's cookbook"]);
+    press(pressable(root, "Mom's cookbook"));
+    rerender(<RecipeFilterSheet />);
+    expect(texts(root)).toContain('Show 4 recipes');
+    const tab = render(<RecipesScreen />);
+    expect(rowNames(tab)).toEqual(['Banana bread', 'Lemon bars', 'Pot roast', 'Cabin chili']);
+  });
+
+  test('a deleted collection drops out of the picks; one that still exists stays', () => {
+    setRecipeFilters(
+      toggleRecipeFilter(toggleRecipeFilter(noRecipeFilters(), 'collections', "Mom's cookbook"), 'collections', 'Kid favorites'),
+    );
+    const tab = render(<RecipesScreen />);
+    expect(getRecipeFilters().collections).toEqual(["Mom's cookbook", 'Kid favorites']);
+    act(() => deleteCollection(moms));
+    rerender(<RecipesScreen />);
+    expect(getRecipeFilters().collections).toEqual(['Kid favorites']);
+    expect(rowNames(tab)).toEqual(['Tacos']);
+  });
+
+  test("a collection's own filter sheet has no Collections group", () => {
+    mockParams.id = moms;
+    const root = render(<CollectionFilterSheet />);
+    expect(groups(root)).not.toContain('Collections');
+    expect(groups(root)).toContain('Meal');
   });
 });

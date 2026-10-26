@@ -6,6 +6,7 @@ import { ActionSheetIOS, Alert } from 'react-native';
 
 import type { ToastAction } from '@/components/toast';
 import type { MealPlanEntry } from '@/db';
+import type { CollectionsByRecipe } from '@/features/recipes/collections';
 import type { FavoritesByRecipe } from '@/features/recipes/favorites';
 import {
   isFilterPicked,
@@ -41,17 +42,26 @@ export type SlotSheetSort = 'recent' | 'name';
 /**
  * The slot sheet's recipes (spec 4.16): the household's recipes matching the search (names only,
  * ignoring case and accents, as the Recipes tab) and the filters, newest added first or A–Z, ties
- * A–Z. `favorites`: every recipe's, as `useRecipeFavorites` gives them.
+ * A–Z. `favorites`: every recipe's, as `useRecipeFavorites` gives them; `collections`: the names of
+ * the collections each recipe is in (`readCollectionsByRecipe`), for the Collections filters.
  */
 export function slotSheetRecipes<
   R extends { id: string; name: string; householdId: string; tags: RecipeTags | null; totalMinutes: number | null; createdAt: Date },
 >(
   recipes: readonly R[],
-  { householdId, query, filters, sort }: { householdId: string; query: string; filters: RecipeFilters; sort: SlotSheetSort },
+  {
+    householdId,
+    query,
+    filters,
+    sort,
+    collections,
+  }: { householdId: string; query: string; filters: RecipeFilters; sort: SlotSheetSort; collections?: CollectionsByRecipe },
   favorites: FavoritesByRecipe = new Map(),
   language: Language = currentLanguage(),
 ): R[] {
-  const own = recipes.filter((r) => r.householdId === householdId && matchesRecipeFilters(r, filters, favorites));
+  const own = recipes.filter(
+    (r) => r.householdId === householdId && matchesRecipeFilters(r, filters, favorites, collections),
+  );
   const byName = (a: R, b: R) => a.name.localeCompare(b.name, language, { sensitivity: 'base' });
   return searchRecipes(own, [], query)
     .map(({ recipe }) => recipe)

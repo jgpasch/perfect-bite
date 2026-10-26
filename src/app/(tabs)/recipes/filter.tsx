@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 
 import { Screen } from '@/components/themed-view';
 import { useLiveQueryOn } from '@/db/live-query';
+import { useCollectionsByRecipe } from '@/features/recipes/collections';
 import { useRecipeFavorites } from '@/features/recipes/favorites';
 import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
 import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
@@ -12,7 +13,7 @@ import { recipeIngredientNamesQuery, RECIPES_TAB_TABLES, recipesQuery } from '@/
 
 /**
  * The Recipes tab's filter sheet (spec 4.14, mockup C): a group of toggle pills per facet, only the
- * values some recipe has, then Time. Picks apply at once (the tab behind updates too), so closing
+ * values some recipe has (with Collections after Saved, recipe collections board E), then Time. Picks apply at once (the tab behind updates too), so closing
  * the sheet any way keeps them; Show N recipes, counted with the tab's search, closes it.
  */
 export default function RecipeFilterSheet() {
@@ -21,11 +22,14 @@ export default function RecipeFilterSheet() {
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
   const filters = useRecipeFilters();
   const favorites = useRecipeFavorites();
+  const collections = useCollectionsByRecipe();
 
   const count = useMemo(
     () =>
-      searchRecipes(data, ingredientNames, q).filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites)).length,
-    [data, ingredientNames, q, filters, favorites],
+      searchRecipes(data, ingredientNames, q).filter(({ recipe }) =>
+        matchesRecipeFilters(recipe, filters, favorites, collections),
+      ).length,
+    [data, ingredientNames, q, filters, favorites, collections],
   );
 
   return (
@@ -33,6 +37,7 @@ export default function RecipeFilterSheet() {
       <RecipeFilterPanel
         recipes={data}
         favorites={favorites}
+        collections={collections}
         filters={filters}
         onChange={setRecipeFilters}
         count={count}

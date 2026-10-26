@@ -32,6 +32,7 @@ import {
 import { type Meal, MEALS, today as dayOf } from '@/features/meal-plan/week';
 import { mealLabel, sheetDayLabel } from '@/features/meal-plan/week-view';
 import { type EntryInput, setSlot } from '@/features/meal-plan/write';
+import { readCollectionsByRecipe, type CollectionsByRecipe } from '@/features/recipes/collections';
 import { readRecipeFavorites, type FavoritesByRecipe } from '@/features/recipes/favorites';
 import { RecipeFilterBar } from '@/features/recipes/recipe-filter-bar';
 import { RecipeFilterPanel } from '@/features/recipes/recipe-filter-panel';
@@ -91,6 +92,8 @@ export default function PlanSlotSheet() {
   const [recipes] = useState(() => recipesQuery().all());
   const [own] = useState(() => recipes.filter((r) => r.householdId === householdId));
   const [favorites] = useState<FavoritesByRecipe>(() => (own.length > 0 ? readRecipeFavorites() : new Map()));
+  // Recipe collections board E: the names of the collections each recipe is in, for the Collections filters.
+  const [collections] = useState<CollectionsByRecipe>(() => (own.length > 0 ? readCollectionsByRecipe() : new Map()));
   const [now] = useState(() => new Date());
   // The add sheet's slot recipes, in order.
   const [inSlot] = useState(() =>
@@ -112,8 +115,8 @@ export default function PlanSlotSheet() {
     return ticked.map((id) => byId.get(id)).filter((r): r is RecipeSummary => r !== undefined);
   }, [own, ticked]);
   const shown = useMemo(
-    () => (householdId ? slotSheetRecipes(own, { householdId, query, filters, sort }, favorites) : []),
-    [own, householdId, query, filters, sort, favorites],
+    () => (householdId ? slotSheetRecipes(own, { householdId, query, filters, sort, collections }, favorites) : []),
+    [own, householdId, query, filters, sort, favorites, collections],
   );
 
   if (!householdId || !day || !isMeal(meal)) return <Screen />;
@@ -125,6 +128,7 @@ export default function PlanSlotSheet() {
         <RecipeFilterPanel
           recipes={own}
           favorites={favorites}
+          collections={collections}
           filters={filters}
           onChange={setFilters}
           count={shown.length}

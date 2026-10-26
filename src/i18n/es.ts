@@ -433,6 +433,7 @@ export const es = {
       time: 'Tiempo',
       favorites: 'Favoritas',
       myFavorites: 'Mis favoritas',
+      collections: 'Colecciones',
     },
     favorites: {
       yours: 'Tu favorita',

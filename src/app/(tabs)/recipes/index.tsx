@@ -1,6 +1,6 @@
 import { router, useFocusEffect, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -26,7 +26,7 @@ import { WeekPlan } from '@/features/meal-plan/week-plan';
 import { mix } from '@/domain/contrast';
 import { useAnyHouseholdFeature } from '@/features/plans/features';
 import { CollectionShelfTile, NewCollectionTile } from '@/features/recipes/collection-shelf';
-import { useCollections } from '@/features/recipes/collections';
+import { readCollectionNames, useCollections, useCollectionsByRecipe } from '@/features/recipes/collections';
 import { useDeletedCollectionToast } from '@/features/recipes/deleted-collection-result';
 import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { savedRecipeToast } from '@/features/recipes/import-sheet';
@@ -83,7 +83,7 @@ import {
   setDeviceSetting,
   setRecipeSortChoice,
 } from '@/features/settings/device-settings';
-import { setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
+import { dropGoneCollectionFilters, setRecipeFilters, useRecipeFilters } from '@/features/recipes/recipe-filter-store';
 import {
   activeFilterCount,
   filtersPillAccessibilityLabel,
@@ -142,7 +142,9 @@ export default function RecipesScreen() {
   const filtering = activeFilterCount(filters) > 0;
   // Spec 4.14: every member's favorites, for the filters, the hearts and the menu.
   const favorites = useRecipeFavorites();
-  const searched = useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
+  // Recipe collections board E: the names of the collections each recipe is in, for the Collections filters.
+  const inCollections = useCollectionsByRecipe();
+  const searched =useMemo(() => searchRecipes(data, ingredientNames, query), [data, ingredientNames, query]);
   // Spec 4.5: a sort (Recently added or A–Z) and a grouping, both remembered on this device.
   const [{ sort, group: grouping }, setSortChoiceState] = useState<{ sort: RecipeSort; group: RecipeGroup }>(getRecipeSortChoice);
   const setSortChoice = (next: { sort: RecipeSort; group: RecipeGroup }) => {
@@ -167,14 +169,14 @@ export default function RecipesScreen() {
     () =>
       groupRecipesByHousehold(
         searched
-          .filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites))
+          .filter(({ recipe }) => matchesRecipeFilters(recipe, filters, favorites, inCollections))
           .map(({ recipe, ingredientMatch }) => ({ ...recipe, ingredientMatch })),
       ).map((group) => ({
         ...group,
         recipes: sortRecipes(group.recipes, sort),
         sections: groupRecipes(group.recipes, grouping, sort, favorites),
       })),
-    [searched, filters, favorites, sort, grouping],
+    [searched, filters, favorites, inCollections, sort, grouping],
   );
   // Recipes the search found that tag filters hide for having no tags (none with Untagged on).
   const untaggedHidden =
@@ -186,6 +188,9 @@ export default function RecipesScreen() {
   const { data: weekEntries } = useLiveQueryOn(restOfWeekEntriesQuery(today), MEAL_PLAN_QUERY_TABLES);
   // Recipe collections board A: every household's collections, the Collections shelf's tiles.
   const collections = useCollections();
+  // Board E: a picked collection that's deleted (or renamed) drops out of the filters. Read straight from
+  // the database, since the live query starts empty.
+  useEffect(() => dropGoneCollectionFilters(readCollectionNames()), [collections]);
   const { data: householdRows } = useLiveQueryOn(householdsQuery(), [households]);
   const showShelves = !week && shelvesShown({ query, filters, recipeCount: data.length });
   const shelves = useMemo(

@@ -14,10 +14,13 @@ import {
   collectionNameProblem,
   CollectionNameError,
   collectionsByHousehold,
+  collectionsByRecipe,
   collectionSummaries,
   createCollection,
   deleteCollection,
+  readCollectionNames,
   readCollections,
+  readCollectionsByRecipe,
   readHouseholdCollections,
   readRecipeCollections,
   removeRecipesFromCollection,
@@ -437,6 +440,47 @@ describe("every household's collections", () => {
       ['Cabin', [cabin]],
       ['Home', [soups]],
     ]);
+  });
+});
+
+describe('readCollectionsByRecipe and readCollectionNames (the Collections filters)', () => {
+  test("each recipe's live collections' names, across households; deleted collections and memberships left out", () => {
+    const soups = createCollection(HOME, 'Soups');
+    const quick = createCollection(HOME, 'Quick');
+    const cabin = createCollection(CABIN, 'soups');
+    const gone = createCollection(HOME, 'Gone');
+    setRecipeInCollection('soup', soups, true);
+    setRecipeInCollection('soup', quick, true);
+    setRecipeInCollection('tacos', quick, true);
+    setRecipeInCollection('tacos', gone, true);
+    setRecipeInCollection('chili', quick, true);
+    setRecipeInCollection('chili', quick, false);
+    setRecipeInCollection('stew', cabin, true);
+    deleteCollection(gone);
+
+    const byRecipe = readCollectionsByRecipe();
+    expect([...byRecipe.get('soup')!].sort()).toEqual(['Quick', 'Soups']);
+    expect(byRecipe.get('tacos')).toEqual(['Quick']);
+    expect(byRecipe.get('stew')).toEqual(['soups']);
+    expect(byRecipe.has('chili')).toBe(false);
+    expect(byRecipe.has('bread')).toBe(false);
+    expect(readCollectionNames().sort()).toEqual(['Quick', 'Soups', 'soups']);
+  });
+
+  test('collectionsByRecipe groups rows by recipe', () => {
+    expect(
+      collectionsByRecipe([
+        { recipeId: 'a', name: 'X' },
+        { recipeId: 'b', name: 'Y' },
+        { recipeId: 'a', name: 'Z' },
+      ]),
+    ).toEqual(
+      new Map([
+        ['a', ['X', 'Z']],
+        ['b', ['Y']],
+      ]),
+    );
+    expect(collectionsByRecipe([])).toEqual(new Map());
   });
 });
 

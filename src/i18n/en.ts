@@ -501,6 +501,8 @@ export const en = {
       /** The Saved group's favorites values (not tags): anyone's, and the user's own. */
       favorites: 'Favorites',
       myFavorites: 'My favorites',
+      /** The group of collection names, after Saved (recipe collections board E). */
+      collections: 'Collections',
     },
     /** Who has a recipe as a favorite, as VoiceOver reads it (spec 4.5, 4.14). */
     favorites: {

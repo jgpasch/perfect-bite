@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/button';
 import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
+import type { CollectionsByRecipe } from '@/features/recipes/collections';
 import type { FavoritesByRecipe } from '@/features/recipes/favorites';
 import {
   activeFilterCount,
@@ -29,6 +30,7 @@ import { useT } from '@/i18n';
 export function RecipeFilterPanel({
   recipes,
   favorites,
+  collections,
   filters,
   onChange,
   count,
@@ -37,6 +39,11 @@ export function RecipeFilterPanel({
   recipes: readonly FilterableRecipe[];
   /** Every recipe's favorites (4.14), for the Saved group's Favorites and My favorites. */
   favorites: FavoritesByRecipe;
+  /**
+   * The names of the collections each recipe is in, for the Collections group after Saved (recipe
+   * collections board E); left out, there's no such group (the collection screen's sheet).
+   */
+  collections?: CollectionsByRecipe;
   filters: RecipeFilters;
   onChange: (next: RecipeFilters) => void;
   /** How many recipes the filters (and any search) leave, for Show N recipes. */
@@ -45,7 +52,10 @@ export function RecipeFilterPanel({
 }) {
   const t = useT();
   const { spacing } = useTheme();
-  const facets = useMemo(() => availableFilterFacets(recipes, filters, favorites), [recipes, filters, favorites]);
+  const facets = useMemo(
+    () => availableFilterFacets(recipes, filters, favorites, collections),
+    [recipes, filters, favorites, collections],
+  );
   const inset = { paddingHorizontal: spacing.lg + spacing.xs };
 
   return (

@@ -10,10 +10,10 @@ import { useMemo } from 'react';
 import { db, recipeCollectionRecipes, recipeCollections, recipes } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { newId } from '@/lib/id';
-import { foldAccents } from '@/shared/ingredient-normalizer';
 import type { Exec } from '@/sync/clock';
 import { insertRow, updateRows, upsertRow } from '@/sync/mutate';
 
+import { collectionNameKey } from './recipe-filters';
 import { compareRecipeNames, sortRecipesByName } from './recipe-sort';
 
 /** The longest name, in characters. */
@@ -53,8 +53,8 @@ export const COLLECTIONS_QUERY_TABLES = [recipeCollections, recipeCollectionReci
 /** Trimmed, inner whitespace collapsed. */
 const cleanName = (name: string) => name.trim().replace(/\s+/g, ' ');
 
-/** How names compare for duplicates: ignoring case and accents. */
-const nameKey = (name: string) => foldAccents(name).toLocaleLowerCase();
+/** How names compare for duplicates: ignoring case and accents (as the Filters sheet's Collections group). */
+const nameKey = collectionNameKey;
 
 /** A collection, live or deleted; undefined when there's none. */
 function collectionOf(exec: Exec, id: string) {
@@ -313,6 +313,13 @@ export function readCollections(): CollectionSummary[] {
   return collectionSummaries(householdCollectionsQuery().all(), householdMembersQuery().all());
 }
 
+/** Every household's live collections' names (read once), unsorted. */
+export function readCollectionNames(): string[] {
+  return householdCollectionsQuery()
+    .all()
+    .map((c) => c.name);
+}
+
 /** Every household's live collections A–Z (live). */
 export function useCollections(): CollectionSummary[] {
   const { data: collections } = useLiveQueryOn(householdCollectionsQuery(), COLLECTIONS_QUERY_TABLES);
@@ -371,6 +378,35 @@ function recipeCollectionsQuery(recipeId: string) {
         isNull(recipeCollections.deletedAt),
       ),
     );
+}
+
+/** Every live membership in a live collection, with the collection's name (every household's). */
+function membershipNamesQuery() {
+  return db
+    .select({ recipeId: recipeCollectionRecipes.recipeId, name: recipeCollections.name })
+    .from(recipeCollectionRecipes)
+    .innerJoin(recipeCollections, eq(recipeCollections.id, recipeCollectionRecipes.collectionId))
+    .where(and(isNull(recipeCollectionRecipes.deletedAt), isNull(recipeCollections.deletedAt)));
+}
+
+/** The names of the live collections each recipe is in, by recipe id; a recipe in none has no entry. */
+export type CollectionsByRecipe = ReadonlyMap<string, readonly string[]>;
+
+export function collectionsByRecipe(rows: readonly { recipeId: string; name: string }[]): CollectionsByRecipe {
+  const out = new Map<string, string[]>();
+  for (const { recipeId, name } of rows) out.set(recipeId, [...(out.get(recipeId) ?? []), name]);
+  return out;
+}
+
+/** The names of the collections each recipe is in (read once), for filtering (the plan slot sheet). */
+export function readCollectionsByRecipe(): CollectionsByRecipe {
+  return collectionsByRecipe(membershipNamesQuery().all());
+}
+
+/** The names of the collections each recipe is in (live), for filtering (the Recipes tab and its Filters sheet). */
+export function useCollectionsByRecipe(): CollectionsByRecipe {
+  const { data } = useLiveQueryOn(membershipNamesQuery(), COLLECTIONS_QUERY_TABLES);
+  return useMemo(() => collectionsByRecipe(data), [data]);
 }
 
 /** The live collections a recipe is in, A–Z (read once). */

@@ -1,10 +1,12 @@
 import { describe, expect, test } from '@jest/globals';
 
+import { i18n } from '@/i18n';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 
 import {
   activeFilterCount,
   availableFilterFacets,
+  collectionNameKey,
   filterRecipes,
   filtersPillAccessibilityLabel,
   filtersPillLabel,
@@ -18,8 +20,10 @@ import {
   toggleRecipeFilter,
   untaggedFootnote,
   untaggedOnlyFilters,
+  withoutGoneCollections,
   type RecipeFilters,
 } from '../recipe-filters';
+import type { CollectionsByRecipe } from '../collections';
 import type { FavoritesByRecipe } from '../favorites';
 
 const tags = (over: Partial<RecipeTags>): RecipeTags => ({ ...emptyRecipeTags(), ...over });
@@ -338,5 +342,145 @@ describe('chips', () => {
       { key: 'untagged:untagged', facet: 'untagged', slug: 'untagged', label: 'Untagged', accessibilityLabel: 'Remove Untagged filter' },
     ]);
     expect(removeFilterChip(untaggedOnlyFilters(), chip)).toEqual(noRecipeFilters());
+  });
+});
+
+describe('collections (recipe collections board E)', () => {
+  // Home has Mom's cookbook and Kid favorites; the cabin has "MOM'S CÓOKBOOK", the same name ignoring case
+  // and accents.
+  const inCollections: CollectionsByRecipe = new Map([
+    ['Tacos', ["Mom's cookbook", 'Kid favorites']],
+    ['Pancakes', ['Kid favorites']],
+    ['Curry', ["Mom's cookbook"]],
+    ['Salad', ["MOM'S CÓOKBOOK"]],
+  ]);
+  const all = [tacos, pancakes, curry, salad, plain];
+  const collectionValues = (f: RecipeFilters, rs = all, c = inCollections) =>
+    availableFilterFacets(rs, f, new Map(), c).find((facet) => facet.key === 'collections')?.values.map((v) => v.label);
+
+  test('collectionNameKey ignores case and accents', () => {
+    expect(collectionNameKey("MOM'S CÓOKBOOK")).toBe("mom's cookbook");
+    expect(collectionNameKey("Mom's cookbook")).toBe("mom's cookbook");
+    expect(collectionNameKey('Kid favorites')).not.toBe(collectionNameKey("Mom's cookbook"));
+  });
+
+  test('OR within the group', () => {
+    const f = pick(['collections', "Mom's cookbook"], ['collections', 'Kid favorites']);
+    expect(names(filterRecipes(all, f, new Map(), inCollections))).toEqual(['Tacos', 'Pancakes', 'Curry', 'Salad']);
+    expect(names(filterRecipes(all, pick(['collections', 'Kid favorites']), new Map(), inCollections))).toEqual(['Tacos', 'Pancakes']);
+  });
+
+  test('AND with the other facets', () => {
+    const f = pick(['collections', 'Kid favorites'], ['meal', 'dinner']);
+    expect(names(filterRecipes(all, f, new Map(), inCollections))).toEqual(['Tacos']);
+    const slow = pick(['collections', "Mom's cookbook"], ['time', 'over-60']);
+    expect(names(filterRecipes(all, slow, new Map(), inCollections))).toEqual(['Curry']);
+    expect(names(filterRecipes(all, pick(['collections', 'Kid favorites'], ['meal', 'lunch']), new Map(), inCollections))).toEqual([]);
+  });
+
+  test('the same name in two households matches both, whichever spelling was picked', () => {
+    expect(names(filterRecipes(all, pick(['collections', "Mom's cookbook"]), new Map(), inCollections))).toEqual([
+      'Tacos',
+      'Curry',
+      'Salad',
+    ]);
+    expect(names(filterRecipes(all, pick(['collections', "MOM'S CÓOKBOOK"]), new Map(), inCollections))).toEqual([
+      'Tacos',
+      'Curry',
+      'Salad',
+    ]);
+  });
+
+  test('a recipe in no collection, or no collections data, matches no collection pick', () => {
+    const f = pick(['collections', 'Kid favorites']);
+    expect(matchesRecipeFilters(plain, f, new Map(), inCollections)).toBe(false);
+    expect(matchesRecipeFilters(tacos, f)).toBe(false);
+    expect(matchesRecipeFilters(tacos, noRecipeFilters(), new Map(), inCollections)).toBe(true);
+  });
+
+  test('the group comes right after Saved, one pill per name A–Z, the same name once', () => {
+    const favorites: FavoritesByRecipe = new Map([['Tacos', { mine: true, others: [] }]]);
+    const facets = availableFilterFacets(all, noRecipeFilters(), favorites, inCollections);
+    expect(facets.map((f) => f.key).slice(0, 3)).toEqual(['saved', 'collections', 'meal']);
+    expect(facets[1]).toEqual({
+      key: 'collections',
+      label: 'Collections',
+      values: [
+        { slug: 'Kid favorites', label: 'Kid favorites' },
+        { slug: "Mom's cookbook", label: "Mom's cookbook" },
+      ],
+    });
+  });
+
+  test('without Saved values the group comes first; with no collections data (the collection screen) there is none', () => {
+    const facets = availableFilterFacets(all, noRecipeFilters(), new Map(), inCollections);
+    expect(facets[0].key).toBe('collections');
+    expect(availableFilterFacets(all, noRecipeFilters()).some((f) => f.key === 'collections')).toBe(false);
+  });
+
+  test("only collections that hold one of the recipes show; none holding any hides the group", () => {
+    expect(collectionValues(noRecipeFilters(), [pancakes])).toEqual(['Kid favorites']);
+    expect(collectionValues(noRecipeFilters(), [plain])).toBeUndefined();
+  });
+
+  test('a picked name stays offered after its last recipe leaves, so it can be turned off', () => {
+    const f = pick(['collections', 'Thanksgiving']);
+    expect(collectionValues(f, [pancakes])).toEqual(['Kid favorites', 'Thanksgiving']);
+    expect(collectionValues(f, [plain])).toEqual(['Thanksgiving']);
+    expect(isFilterPicked(f, 'collections', 'Thanksgiving')).toBe(true);
+    expect(isFilterPicked(f, 'collections', 'THANKSGIVING')).toBe(true);
+    expect(isFilterPicked(f, 'collections', 'Kid favorites')).toBe(false);
+  });
+
+  test('toggling another spelling of a picked name turns it off; picking leaves Untagged', () => {
+    const on = toggleRecipeFilter(untaggedOnlyFilters(), 'collections', "Mom's cookbook");
+    expect(on.collections).toEqual(["Mom's cookbook"]);
+    expect(on.untagged).toBe(false);
+    expect(toggleRecipeFilter(on, 'collections', "MOM'S CÓOKBOOK").collections).toEqual([]);
+    expect(on.tags).toEqual(emptyRecipeTags());
+    expect(on.favorites).toEqual([]);
+  });
+
+  test('picks count toward the Filters number', () => {
+    const f = pick(['collections', "Mom's cookbook"], ['collections', 'Kid favorites'], ['meal', 'dinner']);
+    expect(activeFilterCount(f)).toBe(3);
+    expect(filtersPillAccessibilityLabel(activeFilterCount(f))).toBe('Filters, 3 active');
+  });
+
+  test('chips: after Saved and before the other facets, in pick order; removing one takes out only it', () => {
+    const f = pick(['meal', 'dinner'], ['collections', 'Kid favorites'], ['saved', 'favorites'], ['collections', "Mom's cookbook"]);
+    const chips = recipeFilterChips(f);
+    expect(chips.map((c) => c.label)).toEqual(['Favorites', 'Kid favorites', "Mom's cookbook", 'Dinner']);
+    expect(chips[1]).toEqual({
+      key: 'collections:Kid favorites',
+      facet: 'collections',
+      slug: 'Kid favorites',
+      label: 'Kid favorites',
+      accessibilityLabel: 'Remove Kid favorites filter',
+    });
+    const without = removeFilterChip(f, chips[1]);
+    expect(without.collections).toEqual(["Mom's cookbook"]);
+    expect(without.tags.meal).toEqual(['dinner']);
+    expect(removeFilterChip(without, chips[1])).toBe(without);
+  });
+
+  test('withoutGoneCollections drops picks no live collection is called, ignoring case and accents', () => {
+    const f = pick(['collections', "Mom's cookbook"], ['collections', 'Kid favorites'], ['meal', 'dinner']);
+    expect(withoutGoneCollections(f, ["MOM'S CÓOKBOOK", 'Kid favorites', 'Other'])).toBe(f);
+    const dropped = withoutGoneCollections(f, ["mom's cookbook"]);
+    expect(dropped.collections).toEqual(["Mom's cookbook"]);
+    expect(dropped.tags.meal).toEqual(['dinner']);
+    expect(withoutGoneCollections(f, []).collections).toEqual([]);
+    const none = noRecipeFilters();
+    expect(withoutGoneCollections(none, [])).toBe(none);
+  });
+
+  test('the group name in Spanish', async () => {
+    await i18n.changeLanguage('es');
+    try {
+      expect(availableFilterFacets(all, noRecipeFilters(), new Map(), inCollections)[0].label).toBe('Colecciones');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });
