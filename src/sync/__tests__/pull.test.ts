@@ -18,6 +18,8 @@ import {
   lists,
   mealPlanEntries,
   outbox,
+  recipeCollectionRecipes,
+  recipeCollections,
   recipeFavorites,
   recipes,
   userHouseholdCategoryOrder,
@@ -233,6 +235,8 @@ describe('first pull of a household', () => {
       'lists',
       'recipes',
       'recipe_favorites',
+      'recipe_collections',
+      'recipe_collection_recipes',
       'list_items',
       'recipe_ingredients',
       'list_item_contributions',
@@ -1678,6 +1682,86 @@ describe('favorites per person', () => {
   });
 });
 
+describe('recipe collections', () => {
+  const collection = (name: string, deletedAt: string | null, updated: string, hlc = OLD): ServerRow => ({
+    id: 'c1',
+    household_id: H1,
+    name,
+    created_by: 'u2',
+    deleted_at: deletedAt,
+    field_clock: { household_id: hlc, name: hlc, deleted_at: hlc },
+    created_at: ts(0),
+    updated_at: updated,
+  });
+  const member = (deletedAt: string | null, updated: string, hlc = OLD): ServerRow => ({
+    collection_id: 'c1',
+    recipe_id: 'r1',
+    household_id: H1,
+    added_at: ts(2),
+    deleted_at: deletedAt,
+    field_clock: { household_id: hlc, added_at: hlc, deleted_at: hlc },
+    updated_at: updated,
+  });
+  const collectionRow = () => db.select().from(recipeCollections).where(eq(recipeCollections.id, 'c1')).get();
+  const memberRow = () =>
+    db
+      .select()
+      .from(recipeCollectionRecipes)
+      .where(and(eq(recipeCollectionRecipes.collectionId, 'c1'), eq(recipeCollectionRecipes.recipeId, 'r1')))
+      .get();
+
+  beforeEach(() => {
+    seedPulledList();
+    put('recipes', { id: 'r1', household_id: H1, name: 'Tacos', deleted_at: null, field_clock: {}, created_at: ts(0), updated_at: ts(1) });
+  });
+
+  test('collections, then their recipes, come down with the household after the favorites, each with its own cursor', async () => {
+    put('recipe_collections', collection('Soups', null, ts(4)));
+    put('recipe_collection_recipes', member(null, ts(5)));
+
+    await pullNow();
+
+    const tables = queries.map((q) => q.table);
+    expect(tables.indexOf('recipe_collections')).toBe(tables.indexOf('recipe_favorites') + 1);
+    expect(tables.indexOf('recipe_collection_recipes')).toBe(tables.indexOf('recipe_collections') + 1);
+    expect(tableQueries('recipe_collections')[0][1]).toEqual(['eq', 'household_id', H1]);
+    expect(tableQueries('recipe_collection_recipes')[0][1]).toEqual(['eq', 'household_id', H1]);
+    expect(collectionRow()).toMatchObject({ householdId: H1, name: 'Soups', createdBy: 'u2', deletedAt: null, createdAt: new Date(ts(0)) });
+    expect(memberRow()).toMatchObject({ householdId: H1, addedAt: new Date(ts(2)), deletedAt: null, updatedAt: new Date(ts(5)) });
+    expect(getPullState().cursors).toMatchObject({
+      [householdCursorKey(H1, 'recipe_collections')]: ts(4),
+      [householdCursorKey(H1, 'recipe_collection_recipes')]: ts(5),
+    });
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test("an unpushed local rename and removal aren't overwritten by older remote ones; newer ones win", async () => {
+    put('recipe_collections', collection('Soups', null, ts(4)));
+    put('recipe_collection_recipes', member(null, ts(4)));
+    await pullNow();
+    updateRows(db, recipeCollections, eq(recipeCollections.id, 'c1'), { name: 'Soups & stews' });
+    updateRows(
+      db,
+      recipeCollectionRecipes,
+      and(eq(recipeCollectionRecipes.collectionId, 'c1'), eq(recipeCollectionRecipes.recipeId, 'r1')),
+      { deletedAt: new Date(ts(8)) },
+    );
+    server.recipe_collections = [collection('Old name', null, ts(20), OLD)];
+    server.recipe_collection_recipes = [member(null, ts(20), OLD)];
+
+    await pullNow();
+    expect(collectionRow()!.name).toBe('Soups & stews');
+    expect(memberRow()!.deletedAt).toEqual(new Date(ts(8)));
+
+    clearOutbox(); // pushed
+    server.recipe_collections = [collection('Broths', ts(30), ts(30), NEW)];
+    server.recipe_collection_recipes = [member(null, ts(30), NEW)];
+    await pullNow();
+    expect(collectionRow()).toMatchObject({ name: 'Broths', deletedAt: new Date(ts(30)), fieldClock: { name: NEW } });
+    expect(memberRow()).toMatchObject({ deletedAt: null, fieldClock: { deleted_at: NEW } });
+  });
+});
+
 describe("the household's meal plan", () => {
   const ENTRY_CLOCK = {
     household_id: OLD,
@@ -2348,6 +2432,8 @@ describe('scoped pulls (for Realtime)', () => {
     'lists',
     'recipes',
     'recipe_favorites',
+    'recipe_collections',
+    'recipe_collection_recipes',
     'list_items',
     'recipe_ingredients',
     'list_item_contributions',

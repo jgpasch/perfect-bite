@@ -12,6 +12,8 @@ import {
   householdStaples,
   lists,
   outbox,
+  recipeCollectionRecipes,
+  recipeCollections,
   recipeFavorites,
   recipes,
   userHouseholdCategoryOrder,
@@ -251,6 +253,40 @@ describe('order', () => {
       ['recipe_favorites', key, { deleted_at: null }],
     ]);
     expect(queries).toEqual([]);
+    expect(outboxRows()).toEqual([]);
+  });
+
+  test('collections go by id without created_by, and their recipes by collection and recipe', async () => {
+    applyAll();
+    insertRow(db, recipes, { id: 'r1', householdId: H, name: 'Tacos' });
+    clearOutbox();
+    const created = new Date('2026-10-01T10:00:00.000Z');
+    insertRow(db, recipeCollections, { id: 'c1', householdId: H, name: 'Soups', createdBy: 'u1', createdAt: created });
+    updateRows(db, recipeCollections, eq(recipeCollections.id, 'c1'), { name: 'Soups & stews' });
+    const inIt = (deletedAt: Date | null) =>
+      upsertRow(
+        db,
+        recipeCollectionRecipes,
+        { collectionId: 'c1', recipeId: 'r1', householdId: H, addedAt: created, deletedAt },
+        { deletedAt },
+      );
+    inIt(null);
+    inIt(new Date('2026-10-01T12:00:00.000Z'));
+
+    await expect(pushNow()).resolves.toEqual({ pushed: 4, rejected: 0, failed: false });
+
+    expect(applyCalls()).toHaveLength(1);
+    const key = { collection_id: 'c1', recipe_id: 'r1' };
+    expect(sent(0).map((m) => [m.table, m.id ?? m.key, m.fields])).toEqual([
+      [
+        'recipe_collections',
+        'c1',
+        { household_id: H, name: 'Soups', deleted_at: null, created_at: '2026-10-01T10:00:00.000Z' },
+      ],
+      ['recipe_collections', 'c1', { name: 'Soups & stews' }],
+      ['recipe_collection_recipes', key, { household_id: H, added_at: '2026-10-01T10:00:00.000Z', deleted_at: null }],
+      ['recipe_collection_recipes', key, { deleted_at: '2026-10-01T12:00:00.000Z' }],
+    ]);
     expect(outboxRows()).toEqual([]);
   });
 

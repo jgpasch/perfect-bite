@@ -29,6 +29,8 @@ const TABLES = [
   schema.householdCategoryOverrides,
   schema.householdStaples,
   schema.recipeFavorites,
+  schema.recipeCollectionRecipes,
+  schema.recipeCollections,
   schema.householdMemberNames,
   schema.householdCategoryOrder,
   schema.userHouseholdCategoryOrder,

@@ -661,6 +661,7 @@ export const en = {
     cook: {
       markDone: 'Mark step done',
       markDoneLabel: 'Mark step {{number}} done',
+      now: 'NOW',
       progress_one: '{{done}} of {{count}} step done',
       progress_other: '{{done}} of {{count}} steps done',
       withServings: '{{servings}} · {{progress}}',

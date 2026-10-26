@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add to collection</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #C9D3C7; font-family: Figtree, sans-serif; color: #1D2A22">
+<div style="position: absolute; left: 0; right: 0; top: 0; height: 120px; padding: 60px 20px 0; box-sizing: border-box; font-family: 'Bricolage Grotesque', sans-serif; font-size: 28px; font-weight: 700; color: #7C877F">Pot roast</div>
+<div style="position: absolute; left: 0; right: 0; top: 96px; bottom: 0; background: #EEF3EC; border-radius: 22px 22px 0 0; padding: 8px 16px 0; display: flex; flex-direction: column">
+<div style="align-self: center; width: 36px; height: 5px; border-radius: 3px; background: #B9C4BC"></div>
+<div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px">
+<button style="min-height: 44px; padding: 0 4px; border: none; background: transparent; color: #2E6B45; font-size: 17px">Cancel</button>
+<button style="min-height: 44px; padding: 0 4px; border: none; background: transparent; color: #2E6B45; font-size: 17px; font-weight: 700">Done</button>
+</div>
+<h1 style="margin: 4px 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 30px; letter-spacing: -0.02em; line-height: 1.1">Add to collection</h1>
+<div style="margin-top: 4px; font-size: 15px; color: #55635A">Pot roast</div>
+<div style="margin-top: 18px; background: #FFFFFF; border-radius: 18px; overflow: hidden">
+<sc-for list="{{cols}}" as="c" hint-placeholder-count="4">
+<button aria-pressed="{{c.on}}" style="width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 64px; box-sizing: border-box; border: none; border-bottom: 1px solid #EEF1EC; background: transparent; text-align: left; color: #1D2A22">
+<span style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; overflow: hidden; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; background: #FFFFFF"><span style="background: {{c.a}}"></span><span style="background: {{c.b}}"></span><span style="background: {{c.c}}"></span><span style="background: {{c.d}}"></span></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 17px; font-weight: 600">{{c.name}}</span><span style="font-size: 13px; color: #55635A">{{c.count}}</span></span>
+<sc-if value="{{c.on}}" hint-placeholder-val="{{ false }}"><span style="width: 26px; height: 26px; border-radius: 13px; background: #2E6B45; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></span></sc-if>
+<sc-if value="{{c.off}}" hint-placeholder-val="{{ true }}"><span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 13px; border: 2px solid #B9C4BC"></span></sc-if>
+</button>
+</sc-for>
+<button style="width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 64px; box-sizing: border-box; border: none; background: transparent; text-align: left; color: #2E6B45; font-size: 17px; font-weight: 600">
+<span style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; background: #DDEFE2; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>New collection…</button>
+</div>
+<div style="margin: 10px 4px 0; font-size: 13px; color: #55635A; line-height: 1.4">Collections are shared with everyone in the household.</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+const S = { green: '#DDEFE2', teal: '#DCEFEC', blue: '#DFEAF6', plum: '#ECE3F5', rose: '#F7E1E6', orange: '#FAE4D6', amber: '#F6EBD4' };
+const c = (name, count, on, hs) => ({ name, count, on, off: !on, a: S[hs[0]], b: S[hs[1]], c: S[hs[2]], d: S[hs[3]] });
+return {
+cols: [
+c("Mom's cookbook", '12 recipes', true, ['orange', 'amber', 'rose', 'green']),
+c('Kid favorites', '9 recipes', true, ['blue', 'amber', 'teal', 'plum']),
+c('Weeknight dinners', '17 recipes', false, ['green', 'teal', 'blue', 'rose']),
+c('Thanksgiving', '6 recipes', false, ['orange', 'rose', 'amber', 'green'])
+]
+};
+}
+}
+</script>
+</body>
+</html>

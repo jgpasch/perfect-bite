@@ -225,6 +225,13 @@
       "when": 1792977075702,
       "tag": "0031_failed_photo_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1792981949243,
+      "tag": "0032_recipe_collections",
+      "breakpoints": true
     }
   ]
 }

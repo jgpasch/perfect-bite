@@ -573,6 +573,7 @@ export const es = {
     cook: {
       markDone: 'Marcar paso como listo',
       markDoneLabel: 'Marcar el paso {{number}} como listo',
+      now: 'AHORA',
       progress_one: '{{done}} de {{count}} paso listo',
       progress_other: '{{done}} de {{count}} pasos listos',
       withServings: '{{servings}} · {{progress}}',

@@ -33,6 +33,7 @@ import m0028 from './0028_recipe_favorites.sql';
 import m0029 from './0029_tmp_drop.sql';
 import m0030 from './0030_household_member_first_last_names.sql';
 import m0031 from './0031_failed_photo_imports.sql';
+import m0032 from './0032_recipe_collections.sql';
 
   export default {
     journal,
@@ -68,7 +69,8 @@ m0027,
 m0028,
 m0029,
 m0030,
-m0031
+m0031,
+m0032
     }
   }
   

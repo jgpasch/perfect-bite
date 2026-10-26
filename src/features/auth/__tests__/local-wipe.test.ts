@@ -23,6 +23,7 @@ import { clearNotifications, currentNotification, notify } from '@/features/noti
 import { getHouseholdFeatures, setHouseholdFeatures } from '@/features/plans/features';
 import { FEATURES_KEY } from '@/features/plans/load';
 import { setSlot } from '@/features/meal-plan/write';
+import { createCollection, setRecipeInCollection } from '@/features/recipes/collections';
 import { recordFailedImport, recordFailedPhotoImport } from '@/features/recipes/failed-imports';
 import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { IMPORT_ADD_TO_LIST_KEY } from '@/features/recipes/save-choice';
@@ -111,6 +112,7 @@ beforeEach(async () => {
   upsertRow(db, schema.userHouseholdCategoryOrder, { userId: USER, householdId: home, categoryIds: [PRODUCE] }, {});
   upsertRow(db, schema.householdStaples, { householdId: home, ingredientName: 'salt', createdBy: USER }, {});
   upsertRow(db, schema.recipeFavorites, { recipeId: recipe, userId: USER, householdId: home }, {});
+  setRecipeInCollection(recipe, createCollection(home, 'Weeknights'), true);
   respondToRpc('get_household_members', { data: [{ user_id: USER, first_name: 'Jo', last_name: 'Doe', joined_at: '2026-10-01T00:00:00Z' }] });
   await refreshMemberNames(home);
   recordFailedImport({ url: 'https://example.com/ramen', title: 'Ramen', reason: 'not_a_recipe' });

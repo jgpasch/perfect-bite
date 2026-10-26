@@ -200,28 +200,35 @@ const circleStyle = (node: ReactTestInstance) => {
   return StyleSheet.flatten(n!.props.style);
 };
 const progress = (root: ReactTestRenderer) => hostTexts(root).find((t) => /steps? done$/.test(t));
-/** The `Card` a step's checkbox row sits in. */
-const stepCard = (row: ReactTestInstance) => {
+/** The timeline row a step's checkbox (its number) sits in: the nearest View around it that reports its layout. */
+const stepBlock = (row: ReactTestInstance) => {
   let n = row.parent;
-  while (n && n.type !== Card) n = n.parent;
+  while (n && !(String(n.type) === 'View' && typeof n.props.onLayout === 'function')) n = n.parent;
   return n!;
 };
-const stepCards = (root: ReactTestRenderer) => stepRows(root).map(stepCard);
-/** The View the step cards are laid out in: the nearest one around a card with a gap. */
-const stepColumn = (card: ReactTestInstance) => {
-  let n = card.parent;
-  while (n && StyleSheet.flatten(n.props.style)?.gap === undefined) n = n.parent;
+const stepBlocks = (root: ReactTestRenderer) => stepRows(root).map(stepBlock);
+/** The View the step rows are laid out in: the nearest one around a row with a gap (past the row's own wrapper). */
+const stepColumn = (block: ReactTestInstance) => {
+  let n = block.parent;
+  while (n && (n.props.onLayout === block.props.onLayout || StyleSheet.flatten(n.props.style)?.gap === undefined)) n = n.parent;
   return n!;
 };
 const cardStyle = (card: ReactTestInstance) => StyleSheet.flatten(card.props.style) ?? {};
-/** The step cards with the current step's 2 pt border. */
-const currentCards = (root: ReactTestRenderer) => stepCards(root).filter((card) => cardStyle(card).borderWidth === 2);
+/** The current step's row: the one labelled NOW. */
+const currentBlocks = (root: ReactTestRenderer) => stepBlocks(root).filter((block) => textsIn(block).includes('NOW'));
 const markDoneButtons = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === PrimaryButton && n.props.label === 'Mark step done');
-/** An upcoming card's ingredient line: its footnote Text outside the checkbox row. */
-const lineOf = (card: ReactTestInstance) =>
-  card
-    .findAll((n) => String(n.type) === 'Text' && StyleSheet.flatten(n.props.style)?.fontSize === Typography.footnote.fontSize)
-    .map((n) => [n.props.children].flat().join(''));
+/** A ticked step's folded line: the button that reopens it, labelled with its text. */
+const foldLine = (block: ReactTestInstance) =>
+  block.findAll((n) => typeof n.type !== 'string' && n.props.accessibilityRole === 'button' && typeof n.props.onPress === 'function')[0];
+/** A step row's ingredient pills. */
+const pillsIn = (block: ReactTestInstance) =>
+  block.findAll(
+    (n) =>
+      typeof n.type !== 'string' &&
+      n.props.accessibilityRole === 'checkbox' &&
+      typeof n.props.onPress === 'function' &&
+      / for step \d+$/.test(n.props.accessibilityLabel),
+  );
 /** The recipe screen's floating action dock: the pill. */
 const dock = (root: ReactTestRenderer) => root.root.find((n) => String(n.type) === 'View' && n.props.testID === 'recipe-dock');
 const byA11y = (root: ReactTestRenderer, label: string) =>
@@ -487,7 +494,7 @@ describe('the cook screen', () => {
     expect(progress(root)).toBe('For 4 · 0 of 3 steps done');
   });
 
-  test('each step is its own card, 12 pt apart, its badge and text a checkbox read as "Step N of M, …"', () => {
+  test('every step is open on the timeline, 12 pt apart, its number a 44 pt checkbox read as "Step N of M, …"', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
     const rows = stepRows(root);
@@ -497,17 +504,31 @@ describe('the cook screen', () => {
       'Step 3 of 3, Grill the thighs.',
     ]);
     expect(rows.map(isChecked)).toEqual([false, false, false]);
-    const cards = stepCards(root);
-    expect(new Set(cards).size).toBe(3);
-    expect(cards.every((card) => stepColumn(card) === stepColumn(cards[0]))).toBe(true);
-    expect(StyleSheet.flatten(stepColumn(cards[0]).props.style).gap).toBe(Spacing.md);
+    expect(rowStyle(rows[0])).toMatchObject({ width: Sizes.minTapTarget, height: Sizes.minTapTarget });
+    const blocks = stepBlocks(root);
+    expect(new Set(blocks).size).toBe(3);
+    expect(blocks.every((block) => stepColumn(block) === stepColumn(blocks[0]))).toBe(true);
+    expect(StyleSheet.flatten(stepColumn(blocks[0]).props.style).gap).toBe(Spacing.md);
+    // No step is in a card, and every step's whole text shows.
+    expect(blocks.every((block) => block.findAll((n) => n.type === Card).length === 0)).toBe(true);
+    expect(hostTexts(root)).toEqual(expect.arrayContaining(STEPS));
+    // The rail joins each circle to the next: none after the last step.
+    const rails = (block: ReactTestInstance) =>
+      block.findAll((n) => String(n.type) === 'View' && StyleSheet.flatten(n.props.style)?.width === Sizes.cookRail);
+    expect(blocks.map((block) => rails(block).length)).toEqual([1, 1, 0]);
+    expect(StyleSheet.flatten(rails(blocks[0])[0].props.style)).toMatchObject({
+      backgroundColor: Palette.light.controlBorder,
+      marginBottom: -Spacing.md,
+    });
+    tap(rows[0]);
+    expect(StyleSheet.flatten(rails(stepBlocks(root)[0])[0].props.style).backgroundColor).toBe(Palette.light.primary);
     // No Method card or header, and no "Up next" caption.
     expect(hostTexts(root)).not.toContain('Method');
     expect(hostTexts(root)).not.toContain('3 steps');
     expect(hostTexts(root)).not.toContain('Up next');
   });
 
-  test('an upcoming step: an outlined controlBorder badge with its number, and the text in body', () => {
+  test('an upcoming step: an outlined controlBorder circle with its number, and the text in body, not a target', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
     const row = stepRows(root)[1];
@@ -520,19 +541,22 @@ describe('the cook screen', () => {
       borderColor: Palette.light.controlBorder,
       backgroundColor: Palette.light.surface,
     });
-    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+    const block = stepBlock(row);
+    const text = textIn(block, STEPS[1]);
+    expect(StyleSheet.flatten(text.props.style)).toMatchObject({
       fontSize: Typography.body.fontSize,
       fontWeight: Typography.body.fontWeight,
       color: Palette.light.ink,
     });
-    const card = stepCard(row);
-    expect(cardStyle(card).borderWidth).toBeUndefined();
-    expect(card.findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
-    // Without a match there's no ingredient line.
-    expect(lineOf(card)).toEqual([]);
+    // VoiceOver reads it in the checkbox's label, so the text itself is hidden.
+    expect(text.props.accessibilityElementsHidden).toBe(true);
+    expect(textsIn(block)).not.toContain('NOW');
+    expect(block.findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
+    // The number is the only target: tapping the text can't tick it.
+    expect(block.findAll((n) => typeof n.type !== 'string' && typeof n.props.onPress === 'function')).toEqual([row]);
   });
 
-  test('tapping a step marks it done (a primarySoft check, callout inkSecondary), and again unticks it', () => {
+  test('ticking a step folds it to one line (a filled primary check, callout inkSecondary); a tap reopens it', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
     tap(stepRows(root)[1]);
@@ -540,51 +564,91 @@ describe('the cook screen', () => {
     expect(isChecked(row)).toBe(true);
     expect(textsIn(row)).not.toContain('2');
     const check = row.find((n) => String(n.type) === 'Icon');
-    expect(check.props).toMatchObject({ name: 'checkmark', color: 'primary' });
-    expect(circleStyle(check)).toMatchObject({ width: 30, backgroundColor: Palette.light.primarySoft });
-    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+    expect(check.props).toMatchObject({ name: 'checkmark', color: 'onPrimary' });
+    expect(circleStyle(check)).toMatchObject({ width: 30, backgroundColor: Palette.light.primary });
+    // Folded: the text on one line, a chevron, read as a collapsed button.
+    let line = foldLine(stepBlock(row));
+    expect(line.props).toMatchObject({ accessibilityLabel: STEPS[1], accessibilityState: { expanded: false } });
+    const folded = textIn(line, STEPS[1]);
+    expect(folded.props.numberOfLines).toBe(1);
+    expect(StyleSheet.flatten(folded.props.style)).toMatchObject({
       fontSize: Typography.callout.fontSize,
       color: Palette.light.inkSecondary,
     });
-    expect(stepCard(row).findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
+    expect(line.find((n) => String(n.type) === 'Icon').props.name).toBe('chevron.down');
+    expect(stepBlock(row).findAll((n) => n.type === PrimaryButton)).toHaveLength(0);
     // The others are untouched.
     expect(stepRows(root).map(isChecked)).toEqual([false, true, false]);
 
-    tap(row);
+    // Tapping the line reopens it: the whole text in body, still ticked; again folds it.
+    tap(line);
+    line = foldLine(stepBlock(stepRows(root)[1]));
+    expect(line.props.accessibilityState).toEqual({ expanded: true });
+    expect(textIn(line, STEPS[1]).props.numberOfLines).toBeUndefined();
+    expect(StyleSheet.flatten(textIn(line, STEPS[1]).props.style)).toMatchObject({
+      fontSize: Typography.body.fontSize,
+      color: Palette.light.inkSecondary,
+    });
+    expect(line.find((n) => String(n.type) === 'Icon').props.name).toBe('chevron.up');
+    expect(isChecked(stepRows(root)[1])).toBe(true);
+    tap(line);
+    expect(foldLine(stepBlock(stepRows(root)[1])).props.accessibilityState).toEqual({ expanded: false });
+
+    // The number unticks it, open again with no fold line.
+    tap(stepRows(root)[1]);
     row = stepRows(root)[1];
     expect(isChecked(row)).toBe(false);
     expect(textsIn(row)).toContain('2');
     expect(row.findAll((n) => String(n.type) === 'Icon')).toHaveLength(0);
-    expect(StyleSheet.flatten(textIn(row, STEPS[1]).props.style)).toMatchObject({
+    expect(foldLine(stepBlock(row))).toBeUndefined();
+    expect(StyleSheet.flatten(textIn(stepBlock(row), STEPS[1]).props.style)).toMatchObject({
       fontSize: Typography.body.fontSize,
       color: Palette.light.ink,
     });
   });
 
-  test('the current step is the first unticked: a primary border, a filled badge, cookStep 600 and Mark step done', () => {
+  test('a reopened step folds again once ticked anew', () => {
     setSteps(STEPS);
     const root = render(<CookScreen />);
-    const current = () =>
-      stepRows(root)
-        .filter((row) => currentCards(root).includes(stepCard(row)))
-        .map((row) => row.props.accessibilityLabel);
+    tap(stepRows(root)[0]);
+    tap(foldLine(stepBlock(stepRows(root)[0])));
+    // Unticked and ticked again, it rests folded.
+    tap(stepRows(root)[0]);
+    tap(stepRows(root)[0]);
+    expect(foldLine(stepBlock(stepRows(root)[0])).props.accessibilityState).toEqual({ expanded: false });
+  });
+
+  test('the current step is the first unticked: NOW in a surface panel, a primary ring, cookStep 600 and Mark step done', () => {
+    setSteps(STEPS);
+    const root = render(<CookScreen />);
+    const current = () => currentBlocks(root).map((block) => stepRows(root).find((row) => stepBlock(row) === block)!.props.accessibilityLabel);
     expect(current()).toEqual(['Step 1 of 3, Blend the chipotles into a paste.']);
-    const card = currentCards(root)[0];
-    expect(cardStyle(card)).toMatchObject({ borderWidth: Sizes.cookCurrentBorder, borderColor: Palette.light.primary });
+    const block = currentBlocks(root)[0];
     const row = stepRows(root)[0];
     const digit = textIn(row, '1');
-    expect(StyleSheet.flatten(digit.props.style).color).toBe(Palette.light.onPrimary);
-    expect(circleStyle(digit)).toMatchObject({ backgroundColor: Palette.light.primary, borderColor: Palette.light.primary });
-    expect(StyleSheet.flatten(textIn(row, STEPS[0]).props.style)).toMatchObject({
+    expect(StyleSheet.flatten(digit.props.style).color).toBe(Palette.light.primary);
+    expect(circleStyle(digit)).toMatchObject({
+      borderWidth: Sizes.cookCurrentRing,
+      borderColor: Palette.light.primary,
+      backgroundColor: Palette.light.surface,
+    });
+    const text = textIn(block, STEPS[0]);
+    expect(StyleSheet.flatten(text.props.style)).toMatchObject({
       fontFamily: Typography.cookStep.fontFamily,
       fontSize: 20,
       fontWeight: '600',
       lineHeight: 28,
       color: Palette.light.ink,
     });
-    // One full-width Mark step done, in the current card, read with the step's number.
+    // NOW (caption primary) over the text, in a surface panel with the card radius.
+    const now = textIn(block, 'NOW');
+    expect(StyleSheet.flatten(now.props.style)).toMatchObject({ fontSize: Typography.caption.fontSize, color: Palette.light.primary });
+    let panel = text.parent;
+    while (panel && StyleSheet.flatten(panel.props.style)?.backgroundColor === undefined) panel = panel.parent;
+    expect(cardStyle(panel!)).toMatchObject({ backgroundColor: Palette.light.surface, borderRadius: Rounded.card });
+    // One full-width Mark step done, in the current step, read with the step's number.
     expect(markDoneButtons(root)).toHaveLength(1);
-    expect(stepCard(markDoneButtons(root)[0])).toBe(card);
+    expect(stepBlock(markDoneButtons(root)[0])).toBe(block);
     expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 1 done');
     expect(
       root.root.findAll((n) => String(n.type) === 'View' && n.props.accessibilityLabel === 'Mark step 1 done')[0].props
@@ -612,6 +676,10 @@ describe('the cook screen', () => {
     act(() => byA11y(root, 'Mark step 1 done').props.onPress());
     expect(stepRows(root).map(isChecked)).toEqual([true, false, false]);
     expect(progress(root)).toBe('For 4 · 1 of 3 steps done');
+    // The step it ticked folds to its line, which reopens it.
+    expect(foldLine(stepBlocks(root)[0]).props.accessibilityState).toEqual({ expanded: false });
+    tap(foldLine(stepBlocks(root)[0]));
+    expect(foldLine(stepBlocks(root)[0]).props.accessibilityState).toEqual({ expanded: true });
     act(() => byA11y(root, 'Mark step 2 done').props.onPress());
     act(() => byA11y(root, 'Mark step 3 done').props.onPress());
     expect(stepRows(root).map(isChecked)).toEqual([true, true, true]);
@@ -627,24 +695,24 @@ describe('the cook screen', () => {
       root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
       const layout = (node: ReactTestInstance, y: number) =>
         act(() => node.props.onLayout({ nativeEvent: { layout: { x: 0, y, width: 358, height: 100 } } }));
-      layout(stepColumn(stepCards(root)[0]), 200);
+      layout(stepColumn(stepBlocks(root)[0]), 200);
       // Laying out before any Mark step done doesn't scroll.
-      layout(stepCards(root)[1], 90);
+      layout(stepBlocks(root)[1], 90);
       expect(scrollTo).not.toHaveBeenCalled();
 
       act(() => byA11y(root, 'Mark step 1 done').props.onPress());
-      // Another card laying out doesn't; the new current one does, once.
-      layout(stepCards(root)[2], 300);
+      // Another step laying out doesn't; the new current one does, once.
+      layout(stepBlocks(root)[2], 300);
       expect(scrollTo).not.toHaveBeenCalled();
-      layout(stepCards(root)[1], 70);
-      layout(stepCards(root)[1], 70);
+      layout(stepBlocks(root)[1], 70);
+      layout(stepBlocks(root)[1], 70);
       expect(scrollTo).toHaveBeenCalledTimes(1);
       const call = scrollTo.mock.calls[0][0];
-      // Tapping a step (not the button) doesn't scroll, nor does the last Mark step done.
+      // Ticking a step by its number (not the button) doesn't scroll, nor does the last Mark step done.
       tap(stepRows(root)[1]);
-      layout(stepCards(root)[2], 120);
+      layout(stepBlocks(root)[2], 120);
       act(() => byA11y(root, 'Mark step 3 done').props.onPress());
-      layout(stepCards(root)[2], 120);
+      layout(stepBlocks(root)[2], 120);
       expect(scrollTo).toHaveBeenCalledTimes(1);
       close();
       return call;
@@ -836,7 +904,7 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     expect(ingredientRows(root).map((r) => r.props.accessibilityLabel)).not.toContain('Chicken thighs, 2 lb');
   });
 
-  test('the current step lists its ingredients with shares and "part"; done and upcoming steps list none', () => {
+  test('every open step lists its ingredients with shares and "part"; a folded step lists none until reopened', () => {
     const root = render(<CookScreen />);
     expect(stepRows(root).map((r) => r.props.accessibilityLabel)).toEqual([
       `Step 1 of 3, ${MATCH_STEPS[0]}, uses chicken thighs, garlic, limes`,
@@ -847,46 +915,46 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       'Chicken thighs, 2 lb, part, for step 1',
       'Garlic, 4 clove, for step 1',
       'Limes, 1 of 3 limes, for step 1',
+      'Chicken thighs, 2 lb, part, for step 3',
+      'Limes, 2 of 3 limes, for step 3',
     ]);
     const limes = checkbox(root, 'Limes, 1 of 3 limes, for step 1');
-    expect(stepCard(limes)).toBe(currentCards(root)[0]);
+    expect(stepBlock(limes)).toBe(currentBlocks(root)[0]);
     expect(textsIn(limes)).toEqual(['1 of 3 limes']);
     expect(textsIn(checkbox(root, 'Chicken thighs, 2 lb, part, for step 1'))).toEqual(['2 lb chicken thighs, part']);
     // A 44 pt pill.
     expect(rowStyle(limes).minHeight).toBe(44);
     // The pills come before Mark step done.
-    const texts = textsIn(currentCards(root)[0]);
+    const texts = textsIn(currentBlocks(root)[0]);
     expect(texts.indexOf('Mark step done')).toBeGreaterThan(texts.indexOf('1 of 3 limes'));
+    // Step 2 has none.
+    expect(pillsIn(stepBlocks(root)[1])).toHaveLength(0);
 
-    // Step 1 done hides its rows; step 2 (no ingredients) is current with none; then step 3's.
+    // Step 1 ticked folds and hides its pills; step 2 (no ingredients) is current.
     tap(stepRows(root)[0]);
-    expect(stepIngredientLabels(root)).toEqual([]);
-    expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 2 done');
-    tap(stepRows(root)[1]);
     expect(stepIngredientLabels(root)).toEqual(['Chicken thighs, 2 lb, part, for step 3', 'Limes, 2 of 3 limes, for step 3']);
+    expect(markDoneButtons(root)[0].props.accessibilityLabel).toBe('Mark step 2 done');
+    // Reopened, they're back, ticked with the step.
+    tap(foldLine(stepBlocks(root)[0]));
+    expect(pillsIn(stepBlocks(root)[0]).map(isChecked)).toEqual([true, true, true]);
   });
 
-  test('an upcoming step names its ingredients on one footnote line, hidden from VoiceOver', () => {
+  test('an upcoming step lists its ingredients as surface pills under its text', () => {
     const root = render(<CookScreen />);
-    const cards = stepCards(root);
-    expect(lineOf(cards[2])).toEqual(['2 lb chicken thighs, part · 2 of 3 limes']);
-    // No ingredients, no line; the current card shows rows, not a line.
-    expect(lineOf(cards[1])).toEqual([]);
-    expect(lineOf(cards[0])).toEqual([]);
-    const line = cards[2].find((n) => String(n.type) === 'Text' && n.props.children === '2 lb chicken thighs, part · 2 of 3 limes');
-    expect(StyleSheet.flatten(line.props.style)).toMatchObject({
-      fontSize: Typography.footnote.fontSize,
-      color: Palette.light.inkSecondary,
-    });
-    expect(line.props.accessibilityElementsHidden).toBe(true);
-    // Lined up with the step's text: past the badge and the gap.
-    expect(StyleSheet.flatten(line.props.style).marginLeft).toBe(Spacing.lg + Sizes.cookStepCheck + Spacing.md);
-    // A done step shows no line either.
-    tap(stepRows(root)[2]);
-    expect(lineOf(stepCards(root)[2])).toEqual([]);
+    const upcoming = pillsIn(stepBlocks(root)[2]);
+    expect(upcoming.map((p) => textsIn(p))).toEqual([['2 lb chicken thighs, part'], ['2 of 3 limes']]);
+    expect(rowStyle(upcoming[0])).toMatchObject({ backgroundColor: Palette.light.surface, minHeight: Sizes.minTapTarget });
+    const texts = textsIn(stepBlocks(root)[2]);
+    expect(texts.indexOf('2 of 3 limes')).toBeGreaterThan(texts.indexOf(MATCH_STEPS[2]));
+    // No footnote line any more.
+    expect(hostTexts(root)).not.toContain('2 lb chicken thighs, part · 2 of 3 limes');
+    // Ticking one ticks that use, without ticking the step.
+    tap(upcoming[1]);
+    expect(isChecked(checkbox(root, 'Limes, 2 of 3 limes, for step 3'))).toBe(true);
+    expect(progress(root)).toBe('0 of 3 steps done');
   });
 
-  test('split amounts scale with the servings, in the rows and the upcoming line', () => {
+  test('split amounts scale with the servings, in every step\'s pills', () => {
     setServings(4);
     mockParams.servings = '8';
     const root = render(<CookScreen />);
@@ -894,11 +962,10 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       'Chicken thighs, 4 lb, part, for step 1',
       'Garlic, 8 clove, for step 1',
       'Limes, 2 of 6 limes, for step 1',
+      'Chicken thighs, 4 lb, part, for step 3',
+      'Limes, 4 of 6 limes, for step 3',
     ]);
-    expect(lineOf(stepCards(root)[2])).toEqual(['4 lb chicken thighs, part · 4 of 6 limes']);
-    tap(stepRows(root)[0]);
-    tap(stepRows(root)[1]);
-    expect(stepIngredientLabels(root)).toEqual(['Chicken thighs, 4 lb, part, for step 3', 'Limes, 4 of 6 limes, for step 3']);
+    expect(pillsIn(stepBlocks(root)[2]).map((p) => textsIn(p))).toEqual([['4 lb chicken thighs, part'], ['4 of 6 limes']]);
   });
 
   test('Mark step done ticks the step\'s ingredients too', () => {
@@ -911,15 +978,8 @@ describe('the cook screen with a step match (spec 4.5)', () => {
   });
 
   describe('the current step\'s ingredient pills', () => {
-    /** The current card's pills: its checkboxes other than the step's own row. */
-    const pills = (root: ReactTestRenderer) =>
-      currentCards(root)[0].findAll(
-        (n) =>
-          typeof n.type !== 'string' &&
-          n.props.accessibilityRole === 'checkbox' &&
-          typeof n.props.onPress === 'function' &&
-          / for step \d+$/.test(n.props.accessibilityLabel),
-      );
+    /** The current step's pills. */
+    const pills = (root: ReactTestRenderer) => pillsIn(currentBlocks(root)[0]);
     /** The View the pills sit in. */
     const pillBox = (pill: ReactTestInstance) => pill.parent!.parent!;
     const pillText = (pill: ReactTestInstance) =>
@@ -962,7 +1022,7 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       ]);
     });
 
-    test('a surfaceMuted full-round pill at least 44 pt tall with a 22 pt check, wrapping under the text', () => {
+    test('a surfaceMuted full-round pill at least 44 pt tall with a 22 pt check, wrapping under the text in the panel', () => {
       const root = render(<CookScreen />);
       const [chicken] = pills(root);
       expect(rowStyle(chicken)).toMatchObject({
@@ -973,14 +1033,10 @@ describe('the cook screen with a step match (spec 4.5)', () => {
       });
       expect(chicken.findByType(CheckCircle).props).toMatchObject({ checked: false, size: Sizes.cookIngredientCheck });
       expect(StyleSheet.flatten(pillText(chicken).props.style).color).toBe(Palette.light.ink);
-      // A wrapping row, indented to line up with the step's text.
-      expect(StyleSheet.flatten(pillBox(chicken).props.style)).toMatchObject({
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        marginLeft: Spacing.lg + Sizes.cookStepCheck + Spacing.md,
-      });
+      // A wrapping row under the step's text.
+      expect(StyleSheet.flatten(pillBox(chicken).props.style)).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm });
       // No more inset rows with a name and an amount.
-      expect(currentCards(root)[0].findAll((n) => String(n.type) === 'Text' && n.props.children === 'Chicken thighs')).toHaveLength(0);
+      expect(currentBlocks(root)[0].findAll((n) => String(n.type) === 'Text' && n.props.children === 'Chicken thighs')).toHaveLength(0);
     });
 
     test('tapping a pill ticks and unticks that use; All ingredients follows', () => {
@@ -1031,23 +1087,23 @@ describe('the cook screen with a step match (spec 4.5)', () => {
     });
   });
 
-  test('with no match, upcoming cards have no line and the current card no ingredients', () => {
+  test('with no match, no step has pills', () => {
     db.update(recipes).set({ stepIngredients: null }).where(eq(recipes.id, tacos)).run();
     const root = render(<CookScreen />);
-    expect(stepCards(root).map(lineOf)).toEqual([[], [], []]);
-    const current = currentCards(root)[0];
-    expect(current.findAll((n) => n.props.accessibilityRole === 'checkbox' && typeof n.props.onPress === 'function')).toHaveLength(1);
+    for (const block of stepBlocks(root)) {
+      expect(block.findAll((n) => n.props.accessibilityRole === 'checkbox' && typeof n.props.onPress === 'function')).toHaveLength(1);
+    }
     expect(markDoneButtons(root)).toHaveLength(1);
   });
 
-  test('the source credit sits on the ground under the last card, lined up with its text', () => {
+  test('the source credit sits on the ground under the last step', () => {
     db.update(recipes).set({ sourceUrl: 'https://www.seriouseats.com/tacos' }).where(eq(recipes.id, tacos)).run();
     const root = render(<CookScreen />);
     const credit = root.root.find((n) => n.props.testID === 'recipe-credit' && typeof n.props.onPress === 'function');
-    const cards = stepCards(root);
-    // In the steps' column, in no card, after the last step's text.
-    expect(stepColumn(cards[0]).findAll((n) => n === credit)).toHaveLength(1);
-    expect(cards.some((card) => card.findAll((n) => n === credit).length > 0)).toBe(false);
+    const blocks = stepBlocks(root);
+    // In the steps' column, in no step, after the last step's text.
+    expect(stepColumn(blocks[0]).findAll((n) => n === credit)).toHaveLength(1);
+    expect(blocks.some((block) => block.findAll((n) => n === credit).length > 0)).toBe(false);
     const texts = hostTexts(root);
     expect(texts.indexOf('From seriouseats.com')).toBeGreaterThan(texts.indexOf(MATCH_STEPS[2]));
     expect(texts.indexOf('From seriouseats.com')).toBeLessThan(texts.indexOf('Also needed'));
@@ -1205,7 +1261,7 @@ describe('the cook screen with step sections (spec 4.5 "Step sections")', () => 
     expect(hasPicker(root)).toBe(false);
     expect(root.root.findAll((n) => n.type === Button && n.props.label === 'Change method')).toHaveLength(0);
     expect(root.root.findAll((n) => String(n.type) === 'Text' && n.props.accessibilityRole === 'header').map((n) => n.props.children)).toEqual(['Tacos']);
-    expect(currentCards(root)).toHaveLength(1);
+    expect(currentBlocks(root)).toHaveLength(1);
     expect(topLine(root)).toBe('0 of 3 steps done');
   });
 
@@ -1227,7 +1283,7 @@ describe('the cook screen with step sections (spec 4.5 "Step sections")', () => 
 
     markThrough(root, [1, 2, 3]);
     expect(cardStyle(pickerCard(root))).toMatchObject({ borderWidth: Sizes.cookCurrentBorder, borderColor: Palette.light.primary });
-    expect(currentCards(root)).toHaveLength(0);
+    expect(currentBlocks(root)).toHaveLength(0);
     expect(markDoneButtons(root)).toHaveLength(0);
     expect(topLine(root)).toBe('For 4 · 3 steps done · pick a method');
     // With the picker current, the marinate steps stay open (board B).
@@ -1310,9 +1366,9 @@ describe('the cook screen with step sections (spec 4.5 "Step sections")', () => 
       root.root.findByType(ScrollView).instance.scrollTo = scrollTo;
       const layout = (node: ReactTestInstance, y: number) =>
         act(() => node.props.onLayout({ nativeEvent: { layout: { x: 0, y, width: 358, height: 100 } } }));
-      layout(stepColumn(stepCards(root)[0]), 100);
+      layout(stepColumn(stepBlocks(root)[0]), 100);
       markThrough(root, [1, 2]);
-      layout(stepCards(root)[2], 150);
+      layout(stepBlocks(root)[2], 150);
       scrollTo.mockClear();
       markThrough(root, [3]);
       layout(pickerCard(root), 260);

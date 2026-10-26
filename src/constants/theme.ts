@@ -363,9 +363,13 @@ export const Sizes = {
   stepNumber: 26,
   /** the numbered circle before each step on the cook screen, which fills with a check when ticked */
   cookStepCheck: 30,
+  /** the `primary` ring around the cook screen's current step number */
+  cookCurrentRing: 3,
+  /** the cook screen's timeline rail, from one step's circle to the next */
+  cookRail: 2,
   /** the check on an ingredient row under a step on the cook screen */
   cookIngredientCheck: 22,
-  /** the `primary` border around the cook screen's current step card */
+  /** the `primary` border around the cook screen's How are you cooking it? card once it's current */
   cookCurrentBorder: 2,
   /** The week grid (spec 4.16): the day column (a minimum, for Dynamic Type) */
   planDayColumn: 52,

@@ -40,6 +40,8 @@ export const HOUSEHOLD_TABLES = [
   'lists',
   'recipes',
   'recipe_favorites',
+  'recipe_collections',
+  'recipe_collection_recipes',
   'list_items',
   'recipe_ingredients',
   'list_item_contributions',

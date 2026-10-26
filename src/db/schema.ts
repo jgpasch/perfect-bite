@@ -355,6 +355,58 @@ export const recipeFavorites = sqliteTable(
 );
 
 /**
+ * Recipe collections: named sets of recipes the household shares, beside tags and favorites. Name
+ * and `deleted_at` are LWW fields (7.3); deleting one leaves its memberships, ignored while it's deleted.
+ */
+export const recipeCollections = sqliteTable(
+  'recipe_collections',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** 1–40 characters, trimmed. Unique per household among live ones, ignoring case and accents (the app checks). */
+    name: text('name').notNull(),
+    /** Who made it; set by the server, never sent. */
+    createdBy: text('created_by'),
+    deletedAt,
+    ...timestamps,
+  },
+  (t) => [index('recipe_collections_household_idx').on(t.householdId)],
+);
+
+/**
+ * A recipe in a collection, both of the row's household. Removing sets `deleted_at`; adding again
+ * clears it (7.3). A deleted recipe's rows stay, so restoring it brings them back.
+ */
+export const recipeCollectionRecipes = sqliteTable(
+  'recipe_collection_recipes',
+  {
+    collectionId: text('collection_id')
+      .notNull()
+      .references(() => recipeCollections.id),
+    recipeId: text('recipe_id')
+      .notNull()
+      .references(() => recipes.id),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => households.id),
+    /** When it was first added; the server keeps the insert's. */
+    addedAt: integer('added_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt,
+    updatedAt: timestamps.updatedAt,
+    fieldClock: fieldClock(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.recipeId] }),
+    index('recipe_collection_recipes_recipe_idx').on(t.recipeId),
+    index('recipe_collection_recipes_household_idx').on(t.householdId),
+  ],
+);
+
+/**
  * The household's meal plan (spec 4.16): one row per entry in a slot (a day and a meal). Setting a
  * slot soft-deletes its live entries and inserts the new one; with two live rows (two devices
  * offline), the slot shows the one created last. `position` orders several, for a later "main and side".

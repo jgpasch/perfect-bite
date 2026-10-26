@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Select recipes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #1F4D33; font-family: Figtree, sans-serif; color: #1D2A22">
+<div style="padding: 56px 16px 0; display: flex; flex-direction: column; gap: 10px; color: #FFFFFF">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button style="min-height: 44px; padding: 0; border: none; background: transparent; color: #FFFFFF; font-size: 17px; font-weight: 600">Cancel</button>
+<button style="min-height: 44px; padding: 0; border: none; background: transparent; color: #FFFFFF; font-size: 17px; font-weight: 600">Select All</button>
+</div>
+<h1 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 40px; letter-spacing: -0.025em; line-height: 1.1">4 selected</h1>
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-radius: 14px; background: rgba(255,255,255,0.14); color: #B7D2BF; font-size: 17px; font-weight: 500">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B7D2BF" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<span style="flex: 1">Search 52 recipes</span>
+</div>
+</div>
+<div style="position: absolute; left: 0; right: 0; top: 236px; bottom: 0; background: #EEF3EC; border-radius: 22px 22px 0 0; padding: 14px 16px 0">
+<div style="margin: 0 4px 8px; font-size: 13px; font-weight: 700; color: #55635A">Recently added</div>
+<div style="background: #FFFFFF; border-radius: 18px; overflow: hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<button aria-pressed="{{r.on}}" style="width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 64px; box-sizing: border-box; border: none; border-bottom: 1px solid #EEF1EC; background: transparent; text-align: left; color: #1D2A22">
+<sc-if value="{{r.on}}" hint-placeholder-val="{{ true }}"><span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 13px; background: #2E6B45; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></span></sc-if>
+<sc-if value="{{r.off}}" hint-placeholder-val="{{ false }}"><span style="width: 26px; height: 26px; flex-shrink: 0; box-sizing: border-box; border-radius: 13px; border: 2px solid #B9C4BC"></span></sc-if>
+<span style="width: 48px; height: 48px; flex-shrink: 0; border-radius: 12px; background: {{r.soft}}; color: {{r.dot}}; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v7a2 2 0 0 0 4 0V3M9 12v9M17 3c-2 2-2.5 5-2.5 8H17v10"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span><span style="font-size: 13px; color: #55635A">{{r.meta}}</span></span>
+</button>
+</sc-for>
+</div>
+</div>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px 34px; background: #FFFFFF; border-top: 1px solid #EEF1EC; display: flex; gap: 10px">
+<button style="flex: 1; min-height: 52px; border-radius: 999px; border: none; background: #2E6B45; color: #FFFFFF; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="9" width="18" height="12" rx="2"></rect><path d="M6 6h12M9 3h6"></path></svg>Add to collection</button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+const H = { green: ['#2E6B45', '#DDEFE2'], teal: ['#2A8C84', '#DCEFEC'], blue: ['#3E7BB8', '#DFEAF6'], rose: ['#C2556B', '#F7E1E6'], orange: ['#D0703A', '#FAE4D6'], amber: ['#C98A1E', '#F6EBD4'] };
+const r = (name, meta, h, on) => ({ name, meta, on, off: !on, dot: H[h][0], soft: H[h][1] });
+return {
+rows: [
+r('Pot roast', 'Dinner · Over 1 hour', 'orange', true),
+r('Lemon bars', 'Dessert · Under 1 hour', 'amber', true),
+r('Chicken and dumplings', 'Dinner · Over 1 hour', 'orange', true),
+r('Bang bang shrimp', 'Dinner · 35 min', 'rose', false),
+r('Sunday meatloaf', 'Dinner · Over 1 hour', 'rose', true),
+r('Shakshuka', 'Breakfast · Under 30 min', 'green', false)
+]
+};
+}
+}
+</script>
+</body>
+</html>

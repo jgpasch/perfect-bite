@@ -58,6 +58,8 @@ const APPLY_TABLES = new Set([
   'household_category_overrides',
   'household_staples',
   'recipe_favorites',
+  'recipe_collections',
+  'recipe_collection_recipes',
   'household_category_order',
   'meal_plan_entries',
 ]);
