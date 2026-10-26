@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { AccessibilityInfo, AppState, Platform, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
+  Easing,
   FadeIn,
   FadeOut,
   SlideInUp,
@@ -10,7 +11,6 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +29,8 @@ import { dismissNotification, useCurrentNotification, type AppNotification } fro
 /** How far up a swipe has to go, or how fast, to dismiss the banner. */
 const SWIPE_DISTANCE = -24;
 const SWIPE_VELOCITY = -500;
+/** Like the system's banners: a quick glide that settles without overshoot. */
+const EASE_OUT = Easing.out(Easing.cubic);
 
 /**
  * Shows in-app notifications (spec 4.11) one at a time at the top of the screen. On iOS it draws in a
@@ -99,7 +101,7 @@ function Banner({ notification }: { notification: AppNotification }) {
       if (e.translationY < SWIPE_DISTANCE || e.velocityY < SWIPE_VELOCITY) {
         offset.set(withTiming(-200, { duration: Motion.duration }, () => scheduleOnRN(dismissNotification, id)));
       } else {
-        offset.set(withSpring(0, Motion.spring));
+        offset.set(withTiming(0, { duration: Motion.duration, easing: EASE_OUT }));
       }
     });
   const slide = useAnimatedStyle(() => ({ transform: [{ translateY: offset.get() }] }));
@@ -112,7 +114,7 @@ function Banner({ notification }: { notification: AppNotification }) {
         entering={
           reduceMotion
             ? FadeIn.duration(Motion.duration)
-            : SlideInUp.springify().damping(Motion.spring.damping).stiffness(Motion.spring.stiffness)
+            : SlideInUp.duration(Motion.duration).easing(EASE_OUT)
         }
         exiting={reduceMotion ? FadeOut.duration(Motion.duration) : SlideOutUp.duration(Motion.duration)}
         accessible
