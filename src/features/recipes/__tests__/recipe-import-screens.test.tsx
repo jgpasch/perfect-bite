@@ -1232,14 +1232,14 @@ describe('RecipesScreen', () => {
     test('no link: Rename and Delete only', () => {
       const tacos = createRecipe('Tacos');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     test('plain text in the link field: no Visit', () => {
       const tacos = createRecipe('Tacos');
       updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'from the back of the box' });
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     test('a link: Visit after Plan…, with the Safari symbol, and it opens the link', () => {
@@ -1247,9 +1247,9 @@ describe('RecipesScreen', () => {
       const soup = createRecipe('Soup');
       updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://www.example.com/tacos#step-2' });
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Visit recipe on web', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Visit recipe on web', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
       // Only the card with a link has it.
-      expect(titles(root, soup)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, soup)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
       const visit = menuOf(root, tacos)[1];
       expect(visit.props.icon).toBe('safari');
       expect(visit.props.destructive).toBeUndefined();
@@ -1270,7 +1270,7 @@ describe('RecipesScreen', () => {
     test('no ingredients: no Add to a list', () => {
       const tacos = createRecipe('Tacos');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     // The current list (Groceries) is in the recipe's household, so its quick add comes first.
@@ -1279,9 +1279,9 @@ describe('RecipesScreen', () => {
       addRecipeIngredient(tacos, '8 tortillas');
       const soup = createRecipe('Soup');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
       // Only the recipe with ingredients has it.
-      expect(titles(root, soup)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, soup)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
       const add = menuOf(root, tacos)[1];
       expect(add.props.icon).toBe('cart');
       expect(add.props.destructive).toBeUndefined();
@@ -1292,7 +1292,7 @@ describe('RecipesScreen', () => {
       addRecipeIngredient(tacos, 'salsa');
       updateRecipe(tacos, { name: 'Tacos', notes: '', sourceUrl: 'https://example.com/tacos' });
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Plan…', 'Visit recipe on web', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to Groceries', 'Add to a list', 'Plan…', 'Visit recipe on web', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     test("choosing it pushes the add-to-list sheet with the recipe's id, and nothing else", () => {
@@ -1311,7 +1311,7 @@ describe('RecipesScreen', () => {
       const ingredient = addRecipeIngredient(tacos, 'salsa')!;
       deleteRecipeIngredient(ingredient.id);
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
   });
 
@@ -1382,7 +1382,7 @@ describe('RecipesScreen', () => {
       const tacos = tacosWith('8 tortillas');
       setListArchived(groceries, true);
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     test('left out when the current list was archived (falls back to an open one in the household)', () => {
@@ -1403,7 +1403,7 @@ describe('RecipesScreen', () => {
       db.insert(recipes).values({ id: 'chili', householdId: 'lake', name: 'Campfire chili' }).run();
       addRecipeIngredient('chili', 'beans');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Add to a list', 'Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
       // The Lake house recipe does get it.
       expect(titles(root, 'chili')[0]).toBe('Add to Cabin');
     });
@@ -1411,7 +1411,7 @@ describe('RecipesScreen', () => {
     test('left out with no ingredients', () => {
       const tacos = createRecipe('Tacos');
       const root = render(<RecipesScreen />);
-      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+      expect(titles(root, tacos)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     });
 
     test('adds every ingredient at 1× and stays here, with "Added Tacos to Groceries · 2 items"', () => {

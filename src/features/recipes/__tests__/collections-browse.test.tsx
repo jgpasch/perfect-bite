@@ -180,9 +180,14 @@ const title = (root: ReactTestRenderer) => text(root.root.find((n) => n.props.te
 const selectRows = (root: ReactTestRenderer) =>
   root.root
     .findAll((n) => n.props.testID === 'recipe-select-row' && typeof n.props.onPress === 'function')
-    .map((n) => `${n.props.accessibilityLabel}: ${n.props.accessibilityState.checked}`);
+    .map((n) => `${(n.props.accessibilityLabel as string).replace(/, selected$/, '')}: ${n.props.accessibilityState.selected}`);
 const selectRow = (root: ReactTestRenderer, name: string) =>
-  root.root.find((n) => n.props.testID === 'recipe-select-row' && typeof n.props.onPress === 'function' && n.props.accessibilityLabel === name);
+  root.root.find(
+    (n) =>
+      n.props.testID === 'recipe-select-row' &&
+      typeof n.props.onPress === 'function' &&
+      (n.props.accessibilityLabel === name || n.props.accessibilityLabel === `${name}, selected`),
+  );
 /** The toast's message, or null with none. */
 const toastMessage = (root: ReactTestRenderer) =>
   (root.root.findAll((n) => typeof n.props.message === 'string' && Array.isArray(n.props.actions))[0]?.props.message as string) ?? null;

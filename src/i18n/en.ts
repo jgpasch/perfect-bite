@@ -783,6 +783,21 @@ export const en = {
       selectAll: 'Select All',
       deselectAll: 'Deselect All',
       removeSelected: 'Remove from collection',
+      /** Select mode on the Recipes tab (board D): the card menu's Select, a ticked row for VoiceOver, its bar. */
+      select: 'Select',
+      selectedRecipe: '{{name}}, selected',
+      oneHousehold: 'Pick recipes from one household at a time.',
+      addSelected: 'Add to collection',
+      /** The toast after Done; `recipes` is "4 recipes". */
+      addedTo: 'Added {{recipes}} to {{name}}',
+      addedToMany: 'Added {{recipes}} to {{count}} collections',
+      removedFrom: 'Removed {{recipes}} from {{name}}',
+      removedFromMany: 'Removed {{recipes}} from {{count}} collections',
+      /** The collection screen's Add recipes sheet. */
+      searchRecipes: 'Search recipes',
+      alreadyIn: 'Already in {{name}}',
+      addCount: 'Add {{count}} to {{name}}',
+      noHouseholdRecipes: 'This household has no recipes yet',
     },
     /** The Add to a list sheet (spec 4.5, board 07). */
     addToList: {

@@ -284,6 +284,7 @@ describe('the long-press menu', () => {
       ['Favorite', 'heart'],
       ['Want to try', 'bookmark'],
       ['Add to collection…', 'rectangle.stack'],
+      ['Select', 'checkmark.circle'],
       ['Rename', 'pencil'],
       ['Delete', 'trash'],
     ]);
@@ -292,6 +293,7 @@ describe('the long-press menu', () => {
       ['Unfavorite', 'heart.slash'],
       ['Tried it', 'checkmark'],
       ['Add to collection…', 'rectangle.stack'],
+      ['Select', 'checkmark.circle'],
       ['Rename', 'pencil'],
       ['Delete', 'trash'],
     ]);

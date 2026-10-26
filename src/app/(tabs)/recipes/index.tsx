@@ -32,6 +32,12 @@ import { failedImportsQuery } from '@/features/recipes/failed-imports';
 import { savedRecipeToast } from '@/features/recipes/import-sheet';
 import { ImportsCard } from '@/features/recipes/imports-card';
 import { promptNewCollectionIn } from '@/features/recipes/prompt-collection-name';
+import { toggled } from '@/features/recipes/add-sheet';
+import {
+  collectionTicksToast,
+  onCollectionTicksResult,
+  takeCollectionTicksResult,
+} from '@/features/recipes/collection-ticks-result';
 import {
   confirmDeleteRecipe,
   RecipeRow,
@@ -106,7 +112,8 @@ import { useT } from '@/i18n';
 /**
  * Recipes tab (spec 4.5): the List tab's green header (the title, the sort button and +, then the search field
  * holding Filters) over a card of recipe rows per household; with no search or filters, shelves (This week,
- * Collections, Recently added, Favorites) and an All recipes heading come first.
+ * Collections, Recently added, Favorites) and an All recipes heading come first. A card's Select enters Select
+ * mode (recipe collections board D), whose bar adds the ticked recipes to collections.
  */
 export default function RecipesScreen() {
   const t = useT();
@@ -211,6 +218,59 @@ export default function RecipesScreen() {
   // Spec 4.5: one card's Delete open at a time; opening another or scrolling closes it.
   const { cardOpened, cardClosed, closeOpenCard } = useOneOpenCard();
 
+  // Recipe collections board D: Select mode, null when off, else the ticked recipes' ids. Ticks outlast the
+  // search and filters; they must share one household.
+  const [selected, setSelected] = useState<ReadonlySet<string> | null>(null);
+  const selecting = selected !== null && !week;
+  const byId = useMemo(() => new Map(data.map((r) => [r.id, r])), [data]);
+  const picked = selecting ? [...selected].filter((id) => byId.has(id)) : [];
+  const pickedHousehold = picked.length > 0 ? byId.get(picked[0])!.householdId : null;
+  // Select All: every recipe shown (after search and filters) of the selection's household, or of the first
+  // household shown while nothing's ticked.
+  const selectable = groups
+    .filter((g) => g.householdId === (pickedHousehold ?? groups[0]?.householdId))
+    .flatMap((g) => g.recipes.map((r) => r.id));
+  const allSelected = selecting && selectable.length > 0 && selectable.every((id) => selected.has(id));
+  const startSelecting = (recipeId: string) => {
+    closeOpenCard();
+    setToast(null);
+    setSelected(new Set([recipeId]));
+  };
+  const toggleSelected = (recipe: RecipeSummary) => {
+    if (!selected) return;
+    if (!selected.has(recipe.id) && pickedHousehold !== null && recipe.householdId !== pickedHousehold) {
+      setToast({ key: `one-household-${recipe.id}`, message: t('recipes.collections.oneHousehold'), actions: [] });
+      return;
+    }
+    setSelected(toggled(selected, recipe.id));
+  };
+  const selectAll = () => {
+    if (!selected) return;
+    const next = new Set(selected);
+    for (const id of selectable) {
+      if (allSelected) next.delete(id);
+      else next.add(id);
+    }
+    setSelected(next);
+  };
+  const addSelectedToCollection = () =>
+    router.push({ pathname: '/add-to-collection', params: { ids: picked.join(',') } });
+  // Done in the Add to collection sheet: leave Select mode, saying what it did.
+  useFocusEffect(
+    useCallback(() => {
+      const show = () => {
+        const result = takeCollectionTicksResult();
+        if (!result) return;
+        setSelected(null);
+        const done = collectionTicksToast(result);
+        setToast(done ? { key: `collection-ticks-${Date.now()}`, ...done, actions: [] } : null);
+      };
+      show();
+      return onCollectionTicksResult(show);
+    }, []),
+  );
+  const [barHeight, setBarHeight] = useState(0);
+
   // Spec 4.5: one Add recipe sheet, its one field taking a name or (with import) a link.
   const addRecipe = () => router.push('/add-recipe');
   const importFromLink = addRecipe;
@@ -283,6 +343,8 @@ export default function RecipesScreen() {
           onQuickAdd={quickAdd}
           onSwipeOpen={cardOpened}
           onSwipeClose={cardClosed}
+          onSelect={() => startSelecting(r.id)}
+          select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
         />
       </View>
     ));
@@ -304,6 +366,8 @@ export default function RecipesScreen() {
                 highlighted={toast?.recipeId === r.id}
                 quickAddTo={quickAddList(currentList, r)}
                 onQuickAdd={quickAdd}
+                onSelect={() => startSelecting(r.id)}
+                select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
               />
             </View>
           ))}
@@ -328,6 +392,7 @@ export default function RecipesScreen() {
       quickAddTo: quickAddList(currentList, recipe),
       onQuickAdd: quickAdd,
       onDelete: () => confirmDeleteRecipe(recipe),
+      onSelect: () => startSelecting(recipe.id),
       label: shelfTileLabel(item, listName),
       children: <RecipeShelfTile recipe={recipe} caption={item.caption} onList={listName} />,
     });
@@ -359,6 +424,30 @@ export default function RecipesScreen() {
           {/* Pulling down past the top shows more green, not the tab's ground. */}
           <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
           <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
+            {selecting ? (
+              // Board D: Cancel and Select All over "4 selected" (or "Tap recipes to select them").
+              <View style={{ gap: spacing.xs }}>
+                <View style={[styles.titleRow, styles.between]}>
+                  <HeaderTextButton testID="recipes-select-cancel" label={t('common.cancel')} onPress={() => setSelected(null)} />
+                  <HeaderTextButton
+                    testID="recipes-select-all"
+                    label={allSelected ? t('recipes.collections.deselectAll') : t('recipes.collections.selectAll')}
+                    disabled={selectable.length === 0}
+                    onPress={selectAll}
+                  />
+                </View>
+                <ThemedText
+                  testID="recipes-select-title"
+                  variant={picked.length > 0 ? 'largeTitle' : 'title'}
+                  color="onHeader"
+                  accessibilityRole="header"
+                  style={{ paddingHorizontal: spacing.xs }}>
+                  {picked.length > 0
+                    ? t('recipes.collections.selected', { count: picked.length })
+                    : t('recipes.collections.tapToSelect')}
+                </ThemedText>
+              </View>
+            ) : (
             <View style={[styles.titleRow, { gap: spacing.sm }]}>
               {planTab ? (
                 <ThemedText
@@ -401,6 +490,7 @@ export default function RecipesScreen() {
                 <Icon name="plus" tint={colors.header} size={sizes.icon} weight="semibold" />
               </Pressable>
             </View>
+            )}
             {!week && data.length > 0 ? (
               <RecipeSearchField
                 count={data.length}
@@ -429,7 +519,7 @@ export default function RecipesScreen() {
         {/* Spec 4.16: This week is the week alone, its toolbar the sheet's first row. */}
         {week ? <WeekPlan onToast={setToast} /> : null}
         {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
-        {!week && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
+        {!week && !selecting && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
         {!week && data.length === 0 ? empty : null}
         {!week && data.length > 0 ? (
           <RecipeFilterBar
@@ -438,7 +528,8 @@ export default function RecipesScreen() {
             onClear={() => setRecipeFilters(noRecipeFilters())}
           />
         ) : null}
-        {showShelves && shelves.length > 0 && grouping !== 'none' ? (
+        {/* Select mode ticks the recipes below, so the shelves and their heading give way. */}
+        {selecting ? null : showShelves && shelves.length > 0 && grouping !== 'none' ? (
           <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs }}>
             <Card>
               {shelves.map((shelf, i) => (
@@ -472,7 +563,7 @@ export default function RecipesScreen() {
             ))}
           </View>
         ) : null}
-        {showShelves ? (
+        {showShelves && !selecting ? (
           // A direct child of the scroll view, so its y is where Recently added's See all scrolls to.
           <View
             testID="recipes-all-heading"
@@ -552,9 +643,33 @@ export default function RecipesScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      {selecting ? (
+        // Board D: the bar over the tab bar.
+        <View
+          testID="recipes-select-bar"
+          onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+          style={{
+            paddingHorizontal: spacing.lg,
+            paddingVertical: spacing.md,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: colors.border,
+            backgroundColor: colors.surface,
+          }}>
+          <PrimaryButton
+            testID="recipes-add-to-collection"
+            label={t('recipes.collections.addSelected')}
+            icon="rectangle.stack"
+            disabled={picked.length === 0}
+            onPress={addSelectedToCollection}
+          />
+        </View>
+      ) : null}
       {toast ? (
-        // Above the tab bar: the screen ends there.
-        <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={[styles.toast, { paddingBottom: spacing.sm }]}>
+        // Above the tab bar (the screen ends there), and above Select mode's bar.
+        <SafeAreaView
+          edges={selecting ? [] : ['bottom']}
+          pointerEvents="box-none"
+          style={[styles.toast, { bottom: selecting ? barHeight : 0, paddingBottom: spacing.sm }]}>
           <Toast key={toast.key} message={toast.message} emphasis={toast.emphasis} actions={toast.actions} onDismiss={dismissToast} />
         </SafeAreaView>
       ) : null}
@@ -703,8 +818,46 @@ function RecipeSearchField({
   );
 }
 
+/** Select mode's Cancel and Select All on the green header: plain `onHeader` text, 44 pt tall. */
+function HeaderTextButton({
+  label,
+  disabled,
+  onPress,
+  testID,
+}: {
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const { sizes, spacing, opacity } = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      hitSlop={spacing.xs}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.action,
+        {
+          minHeight: sizes.minTapTarget,
+          paddingHorizontal: spacing.xs,
+          opacity: disabled ? opacity.disabled : pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      <ThemedText variant="itemName" color="onHeader">
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  between: { justifyContent: 'space-between' },
   shrink: { flexShrink: 1 },
   center: { textAlign: 'center' },
   grow: { flexGrow: 1 },

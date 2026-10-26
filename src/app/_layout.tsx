@@ -130,6 +130,16 @@ function RootLayout() {
                   name="recipe/[id]/collections"
                   options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Board D: Add to collection for the Recipes tab's selected recipes. */}
+                <Stack.Screen
+                  name="add-to-collection"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
+                {/* Board D: a collection's Add recipes; its title is in the sheet. */}
+                <Stack.Screen
+                  name="collection/[id]/add-recipes"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 {/* Recipe collections board A: See all on the Collections shelf; "Collections" is in the screen. */}
                 <Stack.Screen name="collections" options={{ title: '', headerBackTitle: t('recipes.tab.title') }} />
                 {/* Board B: a collection, its name in the screen; Select mode swaps back for Cancel. */}

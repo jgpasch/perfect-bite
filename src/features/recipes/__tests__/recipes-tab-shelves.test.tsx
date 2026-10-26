@@ -300,6 +300,7 @@ describe('with 8 or more recipes', () => {
       'Favorite',
       'Want to try',
       'Add to collection…',
+      'Select',
       'Rename',
       'Delete',
     ]);

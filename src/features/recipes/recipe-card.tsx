@@ -38,6 +38,14 @@ export type RecipeToast = { key: string; message: string; emphasis?: string; act
 /** A collection screen's "Remove from Mom's cookbook" in a recipe's long-press menu. */
 export type RemoveFromCollection = { name: string; onPress: () => void };
 
+/** Select mode (board D): whether a row or tile is ticked, and the tap that ticks or unticks it. */
+export type RecipeSelect = { on: boolean; onToggle: () => void };
+
+/** A row or tile in Select mode, for VoiceOver: "Pot roast", or "Pot roast, selected". */
+export function selectLabel(name: string, on: boolean): string {
+  return on ? i18n.t('recipes.collections.selectedRecipe', { name }) : name;
+}
+
 /**
  * The current list (the List tab's) the card menu's quick add goes to, re-resolved as lists change, and the add
  * itself: at 1× as the add bar does (staples left out), staying on the screen with a toast holding Undo and
@@ -103,6 +111,7 @@ export function RecipeRow({
   onSwipeOpen,
   onSwipeClose,
   removeFrom,
+  onSelect,
   select,
 }: {
   recipe: RecipeSummary;
@@ -124,8 +133,10 @@ export function RecipeRow({
   onSwipeClose: (card: SwipeableMethods) => void;
   /** On a collection's screen: the menu's Remove from <collection>. */
   removeFrom?: RemoveFromCollection;
+  /** On the Recipes tab: the menu's Select, entering Select mode with this recipe ticked. */
+  onSelect?: () => void;
   /** Select mode: whether it's ticked, and the tap that ticks or unticks it. */
-  select?: { on: boolean; onToggle: () => void };
+  select?: RecipeSelect;
 }) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
@@ -192,9 +203,9 @@ export function RecipeRow({
     return (
       <Pressable
         testID="recipe-select-row"
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: select.on }}
-        accessibilityLabel={recipe.name}
+        accessibilityRole="button"
+        accessibilityState={{ selected: select.on }}
+        accessibilityLabel={selectLabel(recipe.name, select.on)}
         onPress={select.onToggle}>
         {({ pressed }) => row(pressed)}
       </Pressable>
@@ -212,6 +223,7 @@ export function RecipeRow({
     onQuickAdd,
     onDelete: confirmDelete,
     removeFrom,
+    onSelect,
     children: row(),
   });
 
@@ -250,7 +262,7 @@ export function confirmDeleteRecipe(recipe: { id: string; name: string }, onCanc
 /**
  * A recipe's row or tile as a link to the recipe (spec 4.5): its VoiceOver label and Delete action, and the
  * long-press menu (Add to <list>, Add to a list, Plan…, Visit recipe, Favorite, Want to try, Add to collection…,
- * Remove from <collection> on a collection's screen, Rename, Delete). A plain function, so a row's swipeable
+ * Remove from <collection> on a collection's screen, Select on the Recipes tab, Rename, Delete). A plain function, so a row's swipeable
  * wraps the Link itself. Callers re-render on a language change through `useT`.
  */
 export function recipeLink({
@@ -263,6 +275,7 @@ export function recipeLink({
   onQuickAdd,
   onDelete,
   removeFrom,
+  onSelect,
   label,
   children,
 }: {
@@ -275,6 +288,8 @@ export function recipeLink({
   onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
   onDelete: () => void;
   removeFrom?: RemoveFromCollection;
+  /** The Recipes tab's Select (board D). */
+  onSelect?: () => void;
   /** VoiceOver's label in place of the row's, e.g. a shelf tile's "Tacos, Thursday dinner". */
   label?: string;
   children: ReactNode;
@@ -350,6 +365,8 @@ export function recipeLink({
             onPress={removeFrom.onPress}
           />
         ) : null}
+        {/* Recipe collections board D: the Recipes tab's Select mode, starting with this recipe ticked. */}
+        {onSelect ? <Link.MenuAction title={t('recipes.collections.select')} icon="checkmark.circle" onPress={onSelect} /> : null}
         <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={onDelete} />
       </Link.Menu>
@@ -360,7 +377,8 @@ export function recipeLink({
 /**
  * A recipe's tile with large photos (spec 4.5): a small card holding the photo at 4:3 with the "On <list>" badge over its top
  * corner, the name on up to two lines, and the time (or "Has …" when a search matched only an ingredient).
- * No swipe: Delete is in the menu and a VoiceOver action.
+ * No swipe: Delete is in the menu and a VoiceOver action. With `select` (Select mode) it ticks instead of
+ * opening: a round tick over the photo's top corner, the tile in `primarySoft` outlined in `primary` while ticked.
  */
 export function RecipeTile({
   recipe,
@@ -371,6 +389,8 @@ export function RecipeTile({
   highlighted,
   quickAddTo,
   onQuickAdd,
+  onSelect,
+  select,
 }: {
   recipe: RecipeSummary;
   group: RecipeGroup;
@@ -381,33 +401,33 @@ export function RecipeTile({
   highlighted: boolean;
   quickAddTo: { id: string; name: string } | null;
   onQuickAdd: (recipeId: string, list: { id: string; name: string }) => void;
+  /** On the Recipes tab: the menu's Select. */
+  onSelect?: () => void;
+  select?: RecipeSelect;
 }) {
   const t = useT();
-  const { colors, spacing, sizes, rounded } = useTheme();
+  const { colors, spacing, sizes, rounded, opacity } = useTheme();
   const time = recipeTimeLabel(recipe.totalMinutes);
-  return recipeLink({
-    recipe,
-    group,
-    onList,
-    ingredientMatch,
-    favorite,
-    quickAddTo,
-    onQuickAdd,
-    onDelete: () => confirmDeleteRecipe(recipe),
-    children: (
+  const tile = (pressed = false) => (
       <View
         style={{
           gap: spacing.xxs,
           padding: spacing.sm - sizes.focusRing,
-          backgroundColor: colors.surface,
+          backgroundColor: select?.on ? colors.primarySoft : colors.surface,
           borderWidth: sizes.focusRing,
           // Concentric with the photo's corners, 8 pt in.
           borderRadius: rounded.md + spacing.sm,
-          borderColor: highlighted ? colors.primary : 'transparent',
+          borderColor: highlighted || select?.on ? colors.primary : 'transparent',
           borderCurve: 'continuous',
+          opacity: pressed ? opacity.pressed : 1,
         }}>
         <View style={{ marginBottom: spacing.xs }}>
           <RecipePhotoCover recipeId={recipe.id} imageUrl={recipe.imageUrl} photoPath={recipe.photoPath} />
+          {select ? (
+            <View style={[styles.tileTick, { top: spacing.xs, start: spacing.xs }]}>
+              <CheckCircle checked={select.on} fill={colors.surface} />
+            </View>
+          ) : null}
           {onList ? (
             <View style={[styles.tileBadge, { top: spacing.xs, end: spacing.xs }]}>
               <Badge label={t('recipes.tab.onList', { name: onList })} />
@@ -433,7 +453,31 @@ export function RecipeTile({
           </ThemedText>
         ) : null}
       </View>
-    ),
+  );
+
+  if (select) {
+    return (
+      <Pressable
+        testID="recipe-select-tile"
+        accessibilityRole="button"
+        accessibilityState={{ selected: select.on }}
+        accessibilityLabel={selectLabel(recipe.name, select.on)}
+        onPress={select.onToggle}>
+        {({ pressed }) => tile(pressed)}
+      </Pressable>
+    );
+  }
+  return recipeLink({
+    recipe,
+    group,
+    onList,
+    ingredientMatch,
+    favorite,
+    quickAddTo,
+    onQuickAdd,
+    onDelete: () => confirmDeleteRecipe(recipe),
+    onSelect,
+    children: tile(),
   });
 }
 
@@ -504,6 +548,7 @@ const styles = StyleSheet.create({
   match: { fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', borderCurve: 'continuous' },
   tileBadge: { position: 'absolute', maxWidth: '80%' },
+  tileTick: { position: 'absolute' },
   action: { alignItems: 'center', justifyContent: 'center' },
   fill: { position: 'absolute', top: 0, bottom: 0, right: 0 },
 });

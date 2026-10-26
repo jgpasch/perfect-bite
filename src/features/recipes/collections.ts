@@ -214,6 +214,38 @@ export function applyCollectionTicks(recipeId: string, before: ReadonlySet<strin
   for (const id of before) if (!after.has(id)) setRecipeInCollection(recipeId, id, false);
 }
 
+/**
+ * The collections holding every one of the recipes (board D: ticked in the Add to collection sheet when
+ * several are selected); none for no recipes.
+ */
+export function readCollectionsHoldingAll(recipeIds: readonly string[]): Set<string> {
+  const ids = [...new Set(recipeIds)];
+  if (ids.length === 0) return new Set();
+  const counts = new Map<string, number>();
+  for (const id of ids) {
+    for (const c of recipeCollectionsQuery(id).all()) counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, n]) => n === ids.length).map(([id]) => id));
+}
+
+/**
+ * The Add to collection sheet's Done with several recipes (board D): puts all of them in each collection
+ * ticked now but not when it opened, and takes all of them out of each one unticked since (a collection
+ * holding only some of them starts unticked, so leaving it so changes nothing). Returns the collections
+ * changed each way.
+ */
+export function applyCollectionTicksToAll(
+  recipeIds: readonly string[],
+  before: ReadonlySet<string>,
+  after: ReadonlySet<string>,
+): { added: string[]; removed: string[] } {
+  const added = [...after].filter((id) => !before.has(id));
+  const removed = [...before].filter((id) => !after.has(id));
+  for (const id of added) addRecipesToCollection(id, recipeIds);
+  for (const id of removed) removeRecipesFromCollection(id, recipeIds);
+  return { added, removed };
+}
+
 // --- Reading -----------------------------------------------------------------------------------
 
 /** A household's live collections, or every household's without `householdId`. */

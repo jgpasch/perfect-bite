@@ -347,7 +347,7 @@ describe('a large tile', () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     const root = render();
     const menu = tile(root, 'Curry').findAll((n) => n.type === ('LinkMenuAction' as never));
-    expect(menu.map((a) => a.props.title)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Rename', 'Delete']);
+    expect(menu.map((a) => a.props.title)).toEqual(['Plan…', 'Favorite', 'Want to try', 'Add to collection…', 'Select', 'Rename', 'Delete']);
     act(() => menu.find((a) => a.props.title === 'Delete')!.props.onPress());
     expect(alert).toHaveBeenCalledTimes(1);
     expect(alert.mock.calls[0][0]).toBe('Delete “Curry”?');

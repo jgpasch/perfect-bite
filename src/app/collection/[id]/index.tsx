@@ -71,9 +71,7 @@ export default function CollectionScreen() {
   if (!found) return <Screen />;
   const { collection } = found;
 
-  const addRecipes = () => {
-    // TODO(recipe collections, adding many at once): opens the Add recipes sheet.
-  };
+  const addRecipes = () => router.push({ pathname: '/collection/[id]/add-recipes', params: { id } });
   const openFilters = () => router.push({ pathname: '/collection/[id]/filter', params: { id } });
   const confirmDelete = () =>
     Alert.alert(t('recipes.collections.deleteTitle', { name: collection.name }), t('recipes.collections.deleteMessage'), [
