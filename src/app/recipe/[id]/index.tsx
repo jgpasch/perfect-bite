@@ -73,6 +73,7 @@ import { RecipePhotoHeader, RecipeTitlePhoto } from '@/features/recipes/recipe-p
 import { useRecipePhoto } from '@/features/recipes/recipe-photo-source';
 import { dismissPhotoChange, undoPhotoChange, usePhotoChange } from '@/features/recipes/recipe-photos';
 import { dismissPagesDeleted, usePagesDeleted } from '@/features/recipes/recipe-pages';
+import { RecipeCollectionsRow } from '@/features/recipes/recipe-collections-row';
 import { RecipeTagRow } from '@/features/recipes/recipe-tag-row';
 import { RecipeActionDock } from '@/features/recipes/recipe-action-dock';
 import {
@@ -344,6 +345,9 @@ export default function RecipeScreen() {
         <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel={t('recipes.screen.actions')}>
           <Stack.Toolbar.MenuAction icon="pencil" onPress={() => promptRecipeName(id, recipe.name)}>
             {t('recipes.screen.rename')}
+          </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.MenuAction icon="rectangle.stack" onPress={() => openCollections(id)}>
+            {t('recipes.collections.addTo')}
           </Stack.Toolbar.MenuAction>
           {/* The band no longer shows "Serves 4", so the recipe's own servings are edited from here. */}
           {base !== null ? (
@@ -652,8 +656,8 @@ export default function RecipeScreen() {
 }
 
 /**
- * The header band in the recipe's soft tint: its name, source link, one line of tags (RecipeTagRow) and
- * notes. The notes show as two lines of text, or a small "+ Add notes", and a tap turns them into the field,
+ * The header band in the recipe's soft tint: its name, source link, one line of tags (RecipeTagRow), the
+ * collections it's in (RecipeCollectionsRow, left out in none) and notes. The notes show as two lines of text, or a small "+ Add notes", and a tap turns them into the field,
  * saved when it loses focus; the link row is RecipeLinkRow. Without servings, a dashed "Add servings" beside
  * the link opens the servings prompt (`onEditServings`). Under the name, the
  * recipe's upcoming plan badges open the plan modal (`onPlan`). Without a photo (`showAddPhoto`), a
@@ -729,6 +733,7 @@ function RecipeBand({
             : undefined
         }
       />
+      <RecipeCollectionsRow recipeId={recipe.id} onEdit={() => openCollections(recipe.id)} />
       {editingNotes ? (
         <TextInput
           value={notes}
@@ -835,6 +840,7 @@ function RecipeByline({
           />
         </View>
       </View>
+      <RecipeCollectionsRow recipeId={recipe.id} onEdit={() => openCollections(recipe.id)} />
       <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
         {editingNotes ? (
           <TextInput
@@ -882,6 +888,9 @@ function RecipeByline({
     </View>
   );
 }
+
+/** The Add to collection sheet (recipe collections board C), from the ⋯ menu and the collections line. */
+const openCollections = (id: string) => router.push({ pathname: '/recipe/[id]/collections', params: { id } });
 
 /** The band's Add photo tile (spec 4.5): a 2 pt dashed `controlBorder` outline, radius `md`. VoiceOver: "Add photo, button". */
 function AddPhotoTile({ onPress }: { onPress: () => void }) {

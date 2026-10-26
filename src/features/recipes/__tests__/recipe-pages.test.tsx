@@ -210,13 +210,13 @@ describe('See original pages in the recipe menu', () => {
     updateRecipeSourcePages(lemon, pages);
     db.update(recipes).set({ servings: 4, imageUrl: 'https://example.com/bars.jpg' }).where(eq(recipes.id, lemon)).run();
     const root = render(<RecipeScreen />);
-    expect(menuTitles(root)).toEqual(['Rename', 'Edit servings', 'See original pages', 'Change photo…', 'Delete recipe']);
+    expect(menuTitles(root)).toEqual(['Rename', 'Add to collection…','Edit servings', 'See original pages', 'Change photo…', 'Delete recipe']);
     expect(menuAction(root, 'See original pages').props.icon).toBe('doc.text');
   });
 
   test('a recipe without pages has no such item', () => {
     const root = render(<RecipeScreen />);
-    expect(menuTitles(root)).toEqual(['Rename', 'Delete recipe']);
+    expect(menuTitles(root)).toEqual(['Rename', 'Add to collection…','Delete recipe']);
   });
 
   test('the item opens the pages screen', () => {

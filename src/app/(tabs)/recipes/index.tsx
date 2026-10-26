@@ -866,7 +866,7 @@ function confirmDeleteRecipe(recipe: { id: string; name: string }, onCancel?: ()
 
 /**
  * A recipe's row or tile as a link to the recipe (spec 4.5): its VoiceOver label and Delete action, and the
- * long-press menu (Add to <list>, Add to a list, Plan…, Visit recipe, Favorite, Want to try, Rename, Delete). A plain function, so a row's
+ * long-press menu (Add to <list>, Add to a list, Plan…, Visit recipe, Favorite, Want to try, Add to collection…, Rename, Delete). A plain function, so a row's
  * swipeable wraps the Link itself. Callers re-render on a language change through `useT`.
  */
 function recipeLink({
@@ -949,6 +949,12 @@ function recipeLink({
           title={t(marks.wantToTry ? 'recipes.tab.triedIt' : 'recipes.tab.wantToTry')}
           icon={marks.wantToTry ? 'checkmark' : 'bookmark'}
           onPress={() => setRecipeSaved(recipe.id, !marks.wantToTry)}
+        />
+        {/* Recipe collections board C: the recipe screen's Add to collection sheet. */}
+        <Link.MenuAction
+          title={t('recipes.collections.addTo')}
+          icon="rectangle.stack"
+          onPress={() => router.push({ pathname: '/recipe/[id]/collections', params: { id: recipe.id } })}
         />
         <Link.MenuAction title={t('recipes.tab.rename')} icon="pencil" onPress={() => promptRecipeName(recipe.id, recipe.name)} />
         <Link.MenuAction title={t('common.delete')} icon="trash" destructive onPress={onDelete} />

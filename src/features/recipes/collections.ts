@@ -184,6 +184,15 @@ export function addRecipesToCollection(collectionId: string, recipeIds: readonly
   });
 }
 
+/**
+ * The Add to collection sheet's Done: puts the recipe in each collection ticked now but not when the sheet
+ * opened (`before`), and takes it out of each one unticked since. Unchanged ticks: no write.
+ */
+export function applyCollectionTicks(recipeId: string, before: ReadonlySet<string>, after: ReadonlySet<string>): void {
+  for (const id of after) if (!before.has(id)) setRecipeInCollection(recipeId, id, true);
+  for (const id of before) if (!after.has(id)) setRecipeInCollection(recipeId, id, false);
+}
+
 // --- Reading -----------------------------------------------------------------------------------
 
 function householdCollectionsQuery(householdId: string) {

@@ -247,14 +247,14 @@ describe('the recipe screen', () => {
     press(tile);
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/photo', params: { id: bread } });
     // No photo, so no Change photo… in the menu.
-    expect(menuTitles(root)).toEqual(['Rename', 'Delete recipe']);
+    expect(menuTitles(root)).toEqual(['Rename', 'Add to collection…','Delete recipe']);
   });
 
   test('with a photo: no Add photo tile, and Change photo… sits between Rename and Delete', () => {
     setPhoto(A);
     const root = render(<RecipeScreen />);
     expect(byTestId(root, 'add-photo')).toHaveLength(0);
-    expect(menuTitles(root)).toEqual(['Rename', 'Change photo…', 'Delete recipe']);
+    expect(menuTitles(root)).toEqual(['Rename', 'Add to collection…','Change photo…', 'Delete recipe']);
     press(byType(root, 'ToolbarMenuAction').find((n) => n.props.children === 'Change photo…')!);
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/photo', params: { id: bread } });
   });

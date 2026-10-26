@@ -125,6 +125,11 @@ function RootLayout() {
                   name="recipe/[id]/tags"
                   options={{ title: t('recipes.tags.title'), presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
                 />
+                {/* Recipe collections board C: Add to collection; its title is in the sheet. */}
+                <Stack.Screen
+                  name="recipe/[id]/collections"
+                  options={{ title: '', presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true }}
+                />
                 {/* Board 16: the recipe's method, one step per line; "Steps" is the large title in the sheet. */}
                 <Stack.Screen
                   name="recipe/[id]/steps"

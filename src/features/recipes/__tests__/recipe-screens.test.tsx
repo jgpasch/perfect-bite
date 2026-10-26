@@ -30,6 +30,7 @@ import RecipeScreen from '@/app/recipe/[id]/index';
 import RecipeTagsSheet from '@/app/recipe/[id]/tags';
 
 import { addRecipeToList, addWholeRecipeToList, buildRecipeAdds } from '../add-to-list';
+import { createCollection, setRecipeInCollection } from '../collections';
 import { RecipeIngredientRow } from '../recipe-ingredient-row';
 import { RecipeTagRow } from '../recipe-tag-row';
 import { NOTHING_SUGGESTED_NOTE, SUGGESTED_NOTE, type SuggestTagsResult } from '../suggest-tags';
@@ -954,9 +955,34 @@ describe('RecipeScreen servings', () => {
     expect(outboxRecipeUpdates().at(-1)?.fields).toEqual(expect.objectContaining({ servings: 3 }));
   });
 
+  test('Add to collection… in the menu opens the Add to collection sheet', () => {
+    const root = render(<RecipeScreen />);
+    expect(menuAction(root, 'Add to collection…').props.icon).toBe('rectangle.stack');
+    act(() => menuAction(root, 'Add to collection…').props.onPress());
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/collections', params: { id: tacos } });
+  });
+
+  test('in no collection, the band has no collections line', () => {
+    const root = render(<RecipeScreen />);
+    expect(root.root.findAll((n) => n.props.testID === 'recipe-collections-line')).toHaveLength(0);
+    expect(queryA11y(root, 'Collections: Kid favorites')).toHaveLength(0);
+  });
+
+  test("the band's collections line names them A–Z and opens the Add to collection sheet", () => {
+    const householdId = getRecipe(tacos)!.householdId;
+    setRecipeInCollection(tacos, createCollection(householdId, "Mom's cookbook"), true);
+    setRecipeInCollection(tacos, createCollection(householdId, 'Kid favorites'), true);
+    const root = render(<RecipeScreen />);
+    expect(texts(root)).toContain("Kid favorites · Mom's cookbook");
+    const line = byA11y(root, "Collections: Kid favorites, Mom's cookbook");
+    expect(line.props.accessibilityHint).toBe('Changes collections');
+    press(line);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]/collections', params: { id: tacos } });
+  });
+
   test('without servings the menu has no Edit servings', () => {
     const root = render(<RecipeScreen />);
-    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Delete recipe']);
+    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Add to collection…','Delete recipe']);
   });
 
   test('Edit servings in the menu edits them: a new number saves and the stepper starts at it', () => {
@@ -964,7 +990,7 @@ describe('RecipeScreen servings', () => {
     updateRecipeServings(tacos, 4);
     const { prompt, submit } = servingsPrompt();
     const root = render(<RecipeScreen />);
-    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Edit servings', 'Delete recipe']);
+    expect(byType(root, 'ToolbarMenuAction').map((n) => n.props.children)).toEqual(['Rename', 'Add to collection…','Edit servings', 'Delete recipe']);
     expect(menuAction(root, 'Edit servings').props.icon).toBe('person.2');
     step(root, 'More');
     act(() => menuAction(root, 'Edit servings').props.onPress());

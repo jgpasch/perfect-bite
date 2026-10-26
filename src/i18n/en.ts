@@ -737,6 +737,25 @@ export const en = {
         unavailable: "Couldn't suggest tags right now. Try again later.",
       },
     },
+    /** Recipe collections: the Add to collection sheet and the recipe screen's line (boards C and F). */
+    collections: {
+      /** The recipe screen's ⋯ menu and the Recipes tab card's long-press menu. */
+      addTo: 'Add to collection…',
+      title: 'Add to collection',
+      count_one: '{{count}} recipe',
+      count_other: '{{count}} recipes',
+      /** A sheet row for VoiceOver: "Mom's cookbook, 12 recipes". */
+      row: '{{name}}, {{count}}',
+      new: 'New collection…',
+      footnote: 'Collections are shared with everyone in the household.',
+      prompt: 'New collection',
+      create: 'Create',
+      duplicate: "There's already a collection called {{name}}.",
+      tooLong: 'Use {{max}} characters or fewer.',
+      /** The recipe screen's line for VoiceOver: "Collections: Mom's cookbook, Kid favorites". */
+      line: 'Collections: {{names}}',
+      lineHint: 'Changes collections',
+    },
     /** The Add to a list sheet (spec 4.5, board 07). */
     addToList: {
       title: 'Add {{name}}',
