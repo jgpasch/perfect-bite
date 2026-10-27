@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 import type * as AccountModule from '../account';
 import type * as GoogleSignIn from '@/lib/google-sign-in';
@@ -188,25 +188,54 @@ describe('email code sign-in', () => {
 });
 
 describe('dev password sign-in', () => {
-  const DEV_EMAIL = 'jgpasch@gmail.com';
-  const creds = { email: DEV_EMAIL, password: 'perfect-bite-dev' };
+  const DEV_EMAIL = 'dev@example.test';
+  const creds = { email: DEV_EMAIL, password: 'local-dev-password' };
+  const env = process.env;
 
-  it('recognises the dev email in dev builds, ignoring case and spaces', () => {
+  beforeEach(() => {
+    env.EXPO_PUBLIC_DEV_PASSWORD_EMAIL = ' Dev@Example.test ';
+    env.EXPO_PUBLIC_DEV_PASSWORD = creds.password;
+  });
+
+  afterEach(() => {
+    delete env.EXPO_PUBLIC_DEV_PASSWORD_EMAIL;
+    delete env.EXPO_PUBLIC_DEV_PASSWORD;
+  });
+
+  it('recognises the configured email in dev builds, ignoring case and spaces', () => {
     expect(mod.isDevPasswordEmail(DEV_EMAIL)).toBe(true);
-    expect(mod.isDevPasswordEmail('  JGPasch@Gmail.com ')).toBe(true);
+    expect(mod.isDevPasswordEmail('  DEV@example.TEST ')).toBe(true);
     expect(mod.isDevPasswordEmail('alex@example.com')).toBe(false);
     expect(mod.isDevPasswordEmail('')).toBe(false);
   });
 
-  it('is off in release builds', () => {
+  it('is off in release builds', async () => {
     const g = globalThis as { __DEV__?: boolean };
     const dev = g.__DEV__;
     g.__DEV__ = false;
     try {
       expect(mod.isDevPasswordEmail(DEV_EMAIL)).toBe(false);
+      await expect(mod.devPasswordSignIn(DEV_EMAIL)).rejects.toThrow('not available');
+      expect(auth.signInWithPassword).not.toHaveBeenCalled();
     } finally {
       g.__DEV__ = dev;
     }
+  });
+
+  it.each([
+    ['the email is unset', 'EXPO_PUBLIC_DEV_PASSWORD_EMAIL', undefined],
+    ['the email is empty', 'EXPO_PUBLIC_DEV_PASSWORD_EMAIL', ''],
+    ['the email is blank', 'EXPO_PUBLIC_DEV_PASSWORD_EMAIL', '   '],
+    ['the password is unset', 'EXPO_PUBLIC_DEV_PASSWORD', undefined],
+    ['the password is empty', 'EXPO_PUBLIC_DEV_PASSWORD', ''],
+  ])('is off when %s', async (_, name, value) => {
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+    expect(mod.isDevPasswordEmail(DEV_EMAIL)).toBe(false);
+    expect(mod.isDevPasswordEmail('')).toBe(false);
+    await expect(mod.devPasswordSignIn(DEV_EMAIL)).rejects.toThrow('not available');
+    expect(auth.signInWithPassword).not.toHaveBeenCalled();
+    expect(auth.signUp).not.toHaveBeenCalled();
   });
 
   it('refuses any other email without calling Supabase', async () => {
@@ -215,8 +244,8 @@ describe('dev password sign-in', () => {
     expect(auth.signUp).not.toHaveBeenCalled();
   });
 
-  it('signs in with the fixed password, using the canonical email', async () => {
-    await mod.devPasswordSignIn(' JGPASCH@gmail.com');
+  it('signs in with the configured password, using the canonical email', async () => {
+    await mod.devPasswordSignIn(' DEV@example.test');
     expect(auth.signInWithPassword).toHaveBeenCalledWith(creds);
     expect(auth.signUp).not.toHaveBeenCalled();
   });

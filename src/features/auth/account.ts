@@ -85,20 +85,28 @@ export async function sendEmailCode(email: string): Promise<void> {
   if (error) throw error;
 }
 
-// Dev builds only: this email skips the code step and signs in with a fixed password, creating
-// the user on first use. `__DEV__` is false in release builds, so this path is stripped there.
-const DEV_PASSWORD_EMAIL = 'jgpasch@gmail.com';
-const DEV_PASSWORD = 'perfect-bite-dev';
+// Dev builds only: EXPO_PUBLIC_DEV_PASSWORD_EMAIL skips the code step and signs in with
+// EXPO_PUBLIC_DEV_PASSWORD, creating the user on first use. Both come from .env.local; with either
+// unset there's no dev password sign-in. The `__DEV__` check comes first so release builds drop
+// the env reads, and with them the inlined values.
+function devPasswordCredentials(): { email: string; password: string } | null {
+  if (!__DEV__) return null;
+  const email = process.env.EXPO_PUBLIC_DEV_PASSWORD_EMAIL?.trim().toLowerCase();
+  const password = process.env.EXPO_PUBLIC_DEV_PASSWORD;
+  return email && password ? { email, password } : null;
+}
 
 export function isDevPasswordEmail(email: string): boolean {
-  return __DEV__ && email.trim().toLowerCase() === DEV_PASSWORD_EMAIL;
+  const creds = devPasswordCredentials();
+  return creds !== null && email.trim().toLowerCase() === creds.email;
 }
 
 export async function devPasswordSignIn(email: string): Promise<void> {
-  if (!isDevPasswordEmail(email)) throw new Error('Dev password sign-in is not available.');
-  const signIn = await supabase.auth.signInWithPassword({ email: DEV_PASSWORD_EMAIL, password: DEV_PASSWORD });
+  const creds = devPasswordCredentials();
+  if (!creds || email.trim().toLowerCase() !== creds.email) throw new Error('Dev password sign-in is not available.');
+  const signIn = await supabase.auth.signInWithPassword(creds);
   if (!signIn.error) return;
-  const signUp = await supabase.auth.signUp({ email: DEV_PASSWORD_EMAIL, password: DEV_PASSWORD });
+  const signUp = await supabase.auth.signUp(creds);
   // "Already registered" means the user exists without this password: report the sign-in error.
   if (signUp.error) throw signUp.error.code === 'user_already_exists' ? signIn.error : signUp.error;
 }
