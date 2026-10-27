@@ -339,9 +339,18 @@ export function ingredientAisles(
   const byId = new Map(
     db.select({ id: categories.id, slug: categories.slug, name: categories.name }).from(categories).all().map((c) => [c.id, c]),
   );
-  for (const name of ingredientNames) {
-    const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(householdId, name);
-    const category = byId.get(overrideCategoryId ?? defaultCategoryId ?? '');
+  // One query for the whole set: each name, its catalog row (if any), and the override for its family.
+  const rows = db.all<{ name: string; categoryId: string | null }>(sql`
+    select n.value as name,
+      coalesce(${householdCategoryOverrides.categoryId}, ${ingredients.defaultCategoryId}) as categoryId
+    from json_each(${JSON.stringify(ingredientNames)}) n
+    left join ${ingredients} on ${ingredients.normalizedName} = n.value
+    left join ${householdCategoryOverrides}
+      on ${householdCategoryOverrides.householdId} = ${householdId}
+      and ${householdCategoryOverrides.ingredientName} = coalesce(${ingredients.sameAs}, n.value)
+  `);
+  for (const { name, categoryId } of rows) {
+    const category = byId.get(categoryId ?? '');
     if (category) out.set(name, { slug: category.slug, name: aisleName(category) });
   }
   return out;

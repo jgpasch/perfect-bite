@@ -149,6 +149,7 @@ export const listItems = sqliteTable(
   },
   (t) => [
     index('list_items_list_idx').on(t.listId),
+    index('list_items_household_idx').on(t.householdId),
     // At most one live unchecked item per ingredient per list (spec 5, 4.4).
     uniqueIndex('one_open_item_per_ingredient')
       .on(t.listId, t.ingredientName)
@@ -217,7 +218,10 @@ export const recipeIngredients = sqliteTable(
     deletedAt,
     ...timestamps,
   },
-  (t) => [index('recipe_ingredients_recipe_idx').on(t.recipeId)],
+  (t) => [
+    index('recipe_ingredients_recipe_idx').on(t.recipeId),
+    index('recipe_ingredients_household_idx').on(t.householdId),
+  ],
 );
 
 /** An item's amounts: one row per add (spec 4.4). Quantity lives here, not on the item. */
@@ -243,7 +247,10 @@ export const listItemContributions = sqliteTable(
     deletedAt,
     ...timestamps,
   },
-  (t) => [index('list_item_contributions_item_idx').on(t.listItemId)],
+  (t) => [
+    index('list_item_contributions_item_idx').on(t.listItemId),
+    index('list_item_contributions_household_idx').on(t.householdId),
+  ],
 );
 
 /**

@@ -625,6 +625,41 @@ describe('ingredientAisles', () => {
   test('is empty for no names', () => {
     expect(ingredientAisles(home, []).size).toBe(0);
   });
+
+  test("matches each ingredient's own category lookup across a mixed set", () => {
+    addItem(listId, 'gochujang paste from h mart', A); // pending
+    setCategoryOverride(home, key('milk'), id('beverages')); // leche is in milk's family
+    setCategoryOverride(home, key('chickpeas'), createCategory(home, 'Bulk bin'));
+    setCategoryOverride(CABIN, key('chicken thighs'), id('frozen')); // another household's
+    const set = [key('chicken thighs'), key('chickpeas'), key('milk'), key('leche'), key('gochujang paste from h mart'), 'not an ingredient'];
+
+    const one = (name: string) => {
+      const { defaultCategoryId, overrideCategoryId } = getIngredientCategory(home, name);
+      return overrideCategoryId ?? defaultCategoryId;
+    };
+    const expected = set.filter((n) => one(n) !== null).map((n) => [n, one(n)]);
+    const aisles = ingredientAisles(home, set);
+    expect([...aisles.keys()].map((n) => [n, one(n)])).toEqual(expected);
+    expect(Object.fromEntries(aisles)).toEqual({
+      [key('chicken thighs')]: { slug: 'meat-seafood', name: 'Meat & Seafood' },
+      [key('chickpeas')]: { slug: null, name: 'Bulk bin' },
+      [key('milk')]: { slug: 'beverages', name: 'Beverages' },
+      [key('leche')]: { slug: 'beverages', name: 'Beverages' },
+    });
+  });
+
+  test('keeps an override on a name the catalog lacks, and repeats collapse to one entry', () => {
+    setCategoryOverride(home, 'not an ingredient', id('snacks'));
+    const aisles = ingredientAisles(home, ['not an ingredient', key('milk'), key('milk')]);
+    expect(Object.fromEntries(aisles)).toEqual({
+      'not an ingredient': { slug: 'snacks', name: 'Snacks' },
+      [key('milk')]: { slug: 'dairy-eggs', name: 'Dairy & Eggs' },
+    });
+  });
+
+  test('reads a name with quotes and accents safely', () => {
+    expect(ingredientAisles(home, ["o'brien \"x\"", 'jalapeño']).has("o'brien \"x\"")).toBe(false);
+  });
 });
 
 describe('pending ingredients (spec 4.3.1, 6.3)', () => {

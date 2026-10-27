@@ -102,6 +102,61 @@ describe('useLiveQueryOn', () => {
     expect(seen.current.data).toEqual([]);
   });
 
+  /** A query that counts how often it runs. */
+  const counted = () => {
+    const runs = { n: 0 };
+    const query: PromiseLike<{ name: string }[]> = {
+      then: (ok, fail) => {
+        runs.n += 1;
+        return db.select({ name: lists.name }).from(lists).then(ok, fail);
+      },
+    };
+    return { runs, query };
+  };
+
+  test('coalesces a burst of change events into one re-run', async () => {
+    const { runs, query } = counted();
+    const { seen, mount } = render(() => useLiveQueryOn(query, [lists, listItems]));
+    await mount();
+    expect(runs.n).toBe(1);
+
+    // A 500-row pull commit: one event per row, across both watched tables.
+    for (let i = 0; i < 500; i++) addList(`l${i}`, `List ${i}`, i);
+    await act(async () => {
+      for (let i = 0; i < 500; i++) mockChangeListeners.forEach((l) => l({ tableName: i % 2 ? 'lists' : 'list_items' }));
+    });
+    expect(runs.n).toBe(2);
+    expect(seen.current.data).toHaveLength(500);
+
+    // A later change still re-runs.
+    addList('late', 'Late', 999);
+    await changed('lists');
+    expect(runs.n).toBe(3);
+    expect(seen.current.data).toHaveLength(501);
+  });
+
+  test('a burst of unwatched changes does not re-run', async () => {
+    const { runs, query } = counted();
+    const { mount } = render(() => useLiveQueryOn(query, [lists]));
+    await mount();
+    await act(async () => {
+      for (let i = 0; i < 100; i++) mockChangeListeners.forEach((l) => l({ tableName: 'recipes' }));
+    });
+    expect(runs.n).toBe(1);
+  });
+
+  test('a burst queued just before unmount does not run', async () => {
+    const { runs, query } = counted();
+    const { mount } = render(() => useLiveQueryOn(query, [lists]));
+    const tree = await mount();
+    act(() => {
+      mockChangeListeners.forEach((l) => l({ tableName: 'lists' }));
+      tree.unmount();
+    });
+    await act(async () => {});
+    expect(runs.n).toBe(1);
+  });
+
   test('reports a failing query as an error', async () => {
     const failing: PromiseLike<never[]> = { then: (_ok, fail) => Promise.reject(new Error('no such table')).then(_ok, fail) };
     const { seen, mount } = render(() => useLiveQueryOn(failing, [lists]));

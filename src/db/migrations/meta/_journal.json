@@ -232,6 +232,13 @@
       "when": 1792981949243,
       "tag": "0032_recipe_collections",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1793072325351,
+      "tag": "0033_household_id_indexes",
+      "breakpoints": true
     }
   ]
 }

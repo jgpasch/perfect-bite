@@ -24,8 +24,16 @@ export function useLiveQueryOn<T>(
       );
     run();
     const names = new Set(tables.map((t) => getTableConfig(t).name));
+    // expo-sqlite fires once per changed row, so a bulk write (a pull commit, a purge) is hundreds
+    // of events: coalesce them into one re-run per microtask.
+    let queued = false;
     const listener = addDatabaseChangeListener(({ tableName }) => {
-      if (names.has(tableName)) run();
+      if (!names.has(tableName) || queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (active) run();
+      });
     });
     return () => {
       active = false;
