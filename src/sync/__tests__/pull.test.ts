@@ -55,6 +55,7 @@ import {
   householdCursorKey,
   mergeScopes,
   onMemberships,
+  PULL_KEYS_CHUNK,
   PULL_OVERLAP_MS,
   PULL_PAGE_SIZE,
   pullNow,
@@ -105,6 +106,7 @@ function serve(query: RecordedQuery) {
   for (const [op, column, value] of query.ops) {
     if (op === 'eq') rows = rows.filter((r) => String(r[column as string]) === value);
     if (op === 'is' && value === null) rows = rows.filter((r) => r[column as string] == null);
+    if (op === 'in') rows = rows.filter((r) => (value as string[]).includes(String(r[column as string])));
     if (op === 'gt') rows = rows.filter((r) => compareValues(column as string, r[column as string], value as string) > 0);
     if (op === 'or') {
       const tree = parseOr(column as string);
@@ -553,6 +555,13 @@ describe('paging', () => {
 
   test('a catalog seed of 3500 ingredients stamped by one transaction all arrive', async () => {
     db.insert(categories).values({ id: 'cat-pantry', slug: 'pantry', name: 'Pantry', defaultRank: 1 }).run();
+    // Pulled before, so the whole table is read from the cursor (a first pull asks by name).
+    db.insert(deviceSettings)
+      .values({
+        key: 'sync.pull',
+        value: { userId: 'u1', cursors: { 'catalog:ingredients': ts(1) }, memberships: null, lastSuccessAt: null, lastError: null },
+      })
+      .run();
     const names = Array.from({ length: 3500 }, (_, i) => `ingredient ${pad(i)}`);
     db.transaction((tx) => {
       for (const name of names) tx.insert(ingredients).values({ normalizedName: name, displayName: name, status: 'pending' }).run();
@@ -835,6 +844,23 @@ describe('Combine on clash (4.4)', () => {
     expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
   });
 
+  test('an item a row before it in the same page closed is read again, not taken from the batch', async () => {
+    // `mine` was pulled open; then both devices touched milk: `theirs` is new and `mine` is checked.
+    put('list_items', remoteItem('mine', ts(5)));
+    await pullNow();
+    server.list_items = [
+      remoteItem('theirs', ts(20)),
+      remoteItem('mine', ts(21), { checked_at: ts(21), field_clock: { ...ITEM_CLOCK, checked_at: NEW } }),
+    ];
+
+    await pullNow();
+
+    // Closed by `theirs`, then read again after that write: the server's (not deleted, checked)
+    // wins. A copy read before the write would have looked unchanged there and left it deleted.
+    expect(itemRow('mine')).toMatchObject({ checkedAt: new Date(ts(21)), deletedAt: null });
+    expect(itemRow('theirs')!.deletedAt).toBeNull();
+  });
+
   test("items for other ingredients or lists, and checked ones, aren't touched", async () => {
     insertRow(db, listItems, { id: 'eggs', listId: L, householdId: H1, ingredientName: 'eggs', displayName: 'eggs' });
     insertRow(db, listItems, {
@@ -883,6 +909,30 @@ describe('Combine on clash (4.4)', () => {
       expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
       expect(contributionsOf('theirs')).toEqual(['c-mine']);
       expect(outboxRows()).toEqual(queued);
+    });
+
+    test("a remote item read again unchanged (the overlap) doesn't look for clashes", async () => {
+      put('list_items', remoteItem('theirs', ts(20)));
+      await pullNow();
+      mine('leche');
+
+      await pullNow();
+
+      // The overlap read `theirs` again, the same as here: the unpushed leche stays.
+      expect(tableQueries('list_items').at(-1)).toContainEqual([
+        'gt',
+        'updated_at',
+        new Date(Date.parse(ts(20)) - PULL_OVERLAP_MS).toISOString(),
+      ]);
+      expect(itemRow('mine')!.deletedAt).toBeNull();
+      expect(itemRow('theirs')!.deletedAt).toBeNull();
+
+      // Changed, it takes the leche in.
+      server.list_items = [remoteItem('theirs', ts(30), { note: 'whole', field_clock: { ...ITEM_CLOCK, note: NEW } })];
+      await pullNow();
+
+      expect(itemRow('theirs')).toMatchObject({ note: 'whole', deletedAt: null });
+      expect(itemRow('mine')!.deletedAt).toBeInstanceOf(Date);
     });
 
     test("a remote open leche takes in this device's unpushed milk", async () => {
@@ -2180,7 +2230,73 @@ describe('ingredient catalog', () => {
       linkedBy: null,
     });
     expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'natto')).get()).toBeUndefined();
-    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(8));
+    // A first pull reads only names this device has: the newest of those.
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(7));
+
+    put('ingredients', ingredient('milk', ts(9), { default_unit: 'gal' }));
+    await pullNow();
+
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'milk')).get()?.defaultUnit).toBe('gal');
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'natto')).get()).toBeUndefined();
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(9));
+  });
+
+  test("a first pull asks only for the names this device has, a chunk at a time, and saves the cursor once they're in", async () => {
+    // 'kefir' and 'milk' from beforeEach, plus 448: three chunks.
+    const names = Array.from({ length: 2 * PULL_KEYS_CHUNK + 48 }, (_, i) => `name ${String(i).padStart(3, '0')}`);
+    db.transaction((tx) => {
+      for (const name of names) tx.insert(ingredients).values({ normalizedName: name, displayName: name, status: 'pending' }).run();
+    });
+    put('ingredients', ingredient('name 000', ts(5)), ingredient('name 399', ts(3)), ingredient('natto', ts(9)));
+
+    await expect(pullNow({ scope: { catalog: true } })).resolves.toEqual({ pulled: 2, households: [], error: null });
+
+    const ins = tableQueries('ingredients').map((ops) => ops.find(([op]) => op === 'in'));
+    const held = [...names, 'kefir', 'milk'].sort();
+    expect(ins).toEqual([
+      ['in', 'normalized_name', held.slice(0, PULL_KEYS_CHUNK)],
+      ['in', 'normalized_name', held.slice(PULL_KEYS_CHUNK, 2 * PULL_KEYS_CHUNK)],
+      ['in', 'normalized_name', held.slice(2 * PULL_KEYS_CHUNK)],
+    ]);
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'name 399')).get()?.status).toBe('categorized');
+    // The newest row of any chunk, not the last chunk's.
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(5));
+
+    // Then everything after the cursor, unfiltered.
+    await pullNow({ scope: { catalog: true } });
+    const next = tableQueries('ingredients')[3];
+    expect(next.some(([op]) => op === 'in')).toBe(false);
+    expect(next).toContainEqual(['gt', 'updated_at', new Date(Date.parse(ts(5)) - PULL_OVERLAP_MS).toISOString()]);
+  });
+
+  test('a first pull cut short saves no cursor, so the next one asks by name again', async () => {
+    const names = Array.from({ length: PULL_KEYS_CHUNK }, (_, i) => `name ${String(i).padStart(3, '0')}`);
+    db.transaction((tx) => {
+      for (const name of names) tx.insert(ingredients).values({ normalizedName: name, displayName: name, status: 'pending' }).run();
+    });
+    put('ingredients', ingredient('kefir', ts(5)));
+    let calls = 0;
+    onQuery((query) => (query.table === 'ingredients' && ++calls === 2 ? { data: null, error: { message: 'Network request failed' }, status: 0 } : serve(query)));
+
+    await expect(pullNow({ scope: { catalog: true } })).resolves.toMatchObject({ error: 'ingredients: Network request failed' });
+    expect(getPullState().cursors['catalog:ingredients']).toBeUndefined();
+    // The first chunk's row is in all the same.
+    expect(db.select().from(ingredients).where(eq(ingredients.normalizedName, 'kefir')).get()?.status).toBe('categorized');
+
+    await expect(pullNow({ scope: { catalog: true } })).resolves.toMatchObject({ error: null });
+    expect(tableQueries('ingredients').slice(2).every((ops) => ops.some(([op]) => op === 'in'))).toBe(true);
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(5));
+  });
+
+  test('a device with no names reads the whole table', async () => {
+    db.delete(ingredients).run();
+    put('ingredients', ingredient('kefir', ts(7)));
+
+    await pullNow({ scope: { catalog: true } });
+
+    expect(tableQueries('ingredients')).toHaveLength(1);
+    expect(tableQueries('ingredients')[0].some(([op]) => op === 'in')).toBe(false);
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(7));
   });
 
   const linkOf = (name: string) =>

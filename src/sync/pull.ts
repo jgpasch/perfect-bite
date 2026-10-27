@@ -22,6 +22,8 @@
 //   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
 //   will do when the local one is pushed (7.3). So does an unpushed local add of another name of
 //   its family (4.15).
+// - A page's local rows are read up front, a chunk of keys per query. Each row of a table with
+//   foreign keys is applied in its own savepoint. A row that changes nothing writes nothing.
 // - A row SQLite refuses stops its table until the next pull; refused a third time, it's skipped
 //   and quarantined (`sync.quarantine`, counted in Sync status) so the rest of its table goes on.
 // - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
@@ -34,7 +36,7 @@
 // - After a full pull, each household's members' names are cached again (`get_household_members`,
 //   `refreshMemberNames`), so the app can say who checked or added something.
 import { and, eq, getTableColumns, getTableName, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
-import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { getTableConfig, type SQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
   categories,
@@ -142,7 +144,19 @@ type Job = {
   key: readonly string[];
   /** Filters, as [column, value]: equality, or `is null` for a null value. */
   filters: [string, string | null][];
-  apply: (tx: Exec, row: ServerRow, pending: PendingIndex) => void;
+  /**
+   * Whether each row is applied in its own savepoint, so a row SQLite refuses leaves nothing of
+   * itself behind: for tables with foreign keys, the rows it may refuse.
+   */
+  savepoint: boolean;
+  /** Reads the local copies of a page's rows up front, a chunk of them per query. */
+  readLocal: (tx: Exec, rows: ServerRow[]) => LocalRows;
+  apply: (tx: Exec, row: ServerRow, pending: PendingIndex, locals: LocalRows) => void;
+  /**
+   * The only keys (of the job's one key column) worth fetching on a first pull, when there are
+   * any; the job reads every row otherwise.
+   */
+  firstPullKeys?: (exec: Exec) => string[];
 };
 
 // --- State ---------------------------------------------------------------------------------
@@ -270,6 +284,59 @@ export function remoteFieldWins(remoteHlc: string | undefined, localHlc: string 
 
 const LOCAL_ONLY = new Set(['fieldClock', 'createdAt', 'updatedAt']);
 
+/** Rows per local read: well under SQLite's bound-parameter limit with up to three key columns. */
+const LOCAL_READ_CHUNK = 250;
+
+/** A row's key values as text, in key order: how `LocalRows` finds it. */
+const localKey = (values: unknown[]) => JSON.stringify(values.map(String));
+
+/**
+ * The local copies of a page's rows, read up front (absent ones as `undefined`). Each is handed
+ * out once, and one a write may have changed is forgotten, so reading it again goes to SQLite.
+ */
+class LocalRows {
+  private readonly rows = new Map<string, Row | undefined>();
+
+  has(key: string): boolean {
+    return this.rows.has(key);
+  }
+
+  set(key: string, row: Row | undefined): void {
+    this.rows.set(key, row);
+  }
+
+  /** The row read up front for `key`, or `read()` when there's none (or it was handed out). */
+  take(key: string, read: () => Row | undefined): Row | undefined {
+    if (!this.rows.has(key)) return read();
+    const row = this.rows.get(key);
+    this.rows.delete(key);
+    return row;
+  }
+
+  forget(key: string): void {
+    this.rows.delete(key);
+  }
+}
+
+/** The local rows of `table` whose `key` columns (properties) match one of `rows`' (server rows). */
+function readLocalRows(tx: Exec, table: SQLiteTable, key: readonly string[], rows: ServerRow[]): LocalRows {
+  const columns = columnsOf(table);
+  const local = new LocalRows();
+  for (let i = 0; i < rows.length; i += LOCAL_READ_CHUNK) {
+    const values = rows.slice(i, i + LOCAL_READ_CHUNK).map((row) => key.map((k) => fromWire(columns[k], row[columns[k].name])));
+    for (const v of values) local.set(localKey(v), undefined);
+    // Each key column against the chunk's values: with several, a superset of the chunk's rows.
+    const where = and(...key.map((k, j) => inArray(columns[k], [...new Set(values.map((v) => v[j]))])));
+    for (const row of tx.select().from(table).where(where).all() as Row[]) {
+      const found = localKey(key.map((k) => row[k]));
+      if (local.has(found)) local.set(found, row);
+    }
+  }
+  return local;
+}
+
+const hasForeignKeys = (table: SQLiteTable) => getTableConfig(table).foreignKeys.length > 0;
+
 /**
  * Merges every other local open item for `item`'s ingredient on its list into it (a silent
  * Combine, 4.4). So is one for another name of its family (4.15) that this device opened and hasn't
@@ -309,7 +376,7 @@ function closeClashingItems(tx: Exec, item: Row, pending: PendingIndex): string[
 }
 
 /** Applies one server row of a household or per-user table. Throws if SQLite refuses it. */
-function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: PendingIndex): void {
+function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: PendingIndex, locals: LocalRows): void {
   const { table } = spec;
   const tableName = getTableName(table);
   const columns = columnsOf(table);
@@ -325,7 +392,7 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
   // Removed here and not yet pushed: the delete goes up and the server row with it.
   if (mine?.deleted) return;
 
-  const local = tx.select().from(table).where(where).get() as Row | undefined;
+  const local = locals.take(localKey(spec.key.map((k) => keyValues[k])), () => tx.select().from(table).where(where).get() as Row | undefined);
   const remoteClock = (remote.field_clock ?? {}) as FieldClock;
   const localClock = (local?.fieldClock ?? {}) as FieldClock;
   const clock: FieldClock = { ...localClock };
@@ -363,14 +430,19 @@ function applySyncedRow(spec: PullSpec, tx: Exec, remote: ServerRow, pending: Pe
   }
 
   const remoteUpdatedAt = new Date(remote.updated_at);
-  const merged = table === listItems ? closeClashingItems(tx, { ...local, ...keyValues, ...set }, pending) : [];
+  const changed: Row = {};
   if (local) {
-    const changed: Row = {};
     for (const [prop, value] of Object.entries(set)) {
       if (comparable(local[prop]) !== comparable(value)) changed[prop] = value;
     }
     const clockChanged = JSON.stringify(clock) !== JSON.stringify(localClock);
+    // Nothing new (e.g. the overlap read again): nothing to write, and no clash it could open.
     if (Object.keys(changed).length === 0 && !clockChanged) return;
+  }
+  const merged = table === listItems ? closeClashingItems(tx, { ...local, ...keyValues, ...set }, pending) : [];
+  // Rows of this page it closed: their local copies changed.
+  for (const id of merged) locals.forget(localKey([id]));
+  if (local) {
     if ('updatedAt' in columns) {
       const localUpdatedAt = local.updatedAt as Date;
       changed.updatedAt = localUpdatedAt > remoteUpdatedAt ? localUpdatedAt : remoteUpdatedAt;
@@ -426,9 +498,11 @@ export function applyRemoteDelete(table: string, old: Record<string, unknown>, u
  * adds names: the device keeps the seed plus what it has seen. A server answer that isn't final
  * doesn't replace a categorized one. Language and link (`lang`, `same_as`, `linked_by`) come with it.
  */
-function applyIngredient(tx: Exec, remote: ServerRow): void {
+function applyIngredient(tx: Exec, remote: ServerRow, locals: LocalRows): void {
   const name = remote.normalized_name as string;
-  const local = tx.select().from(ingredients).where(eq(ingredients.normalizedName, name)).get();
+  const local = locals.take(localKey([name]), () => tx.select().from(ingredients).where(eq(ingredients.normalizedName, name)).get()) as
+    | typeof ingredients.$inferSelect
+    | undefined;
   if (!local) return;
   if (remote.status !== 'categorized' && local.status === 'categorized') return;
   const next = {
@@ -484,10 +558,14 @@ export function afterPositionFilter(columns: readonly string[], at: string, key:
   return terms.join(',');
 }
 
-/** A page of rows changed after `from`, oldest first and by key within a time. */
-function fetchRows(job: Job, from: Position | null): Promise<ServerRow[]> {
+/**
+ * A page of rows changed after `from`, oldest first and by key within a time; with `keys`, only
+ * the rows whose (single-column) key is one of them.
+ */
+function fetchRows(job: Job, from: Position | null, keys?: string[]): Promise<ServerRow[]> {
   let query = supabase.from(job.table).select('*');
   for (const [column, value] of job.filters) query = value === null ? query.is(column, null) : query.eq(column, value);
+  if (keys) query = query.in(job.key[0], keys);
   if (from?.key) query = query.or(afterPositionFilter(job.key, from.at, from.key));
   else if (from) query = query.gt('updated_at', from.at);
   query = query.order('updated_at', { ascending: true });
@@ -563,18 +641,20 @@ const quarantineKey = (job: Job, row: ServerRow) =>
  * of its table. A quarantined row that applies later (fetched again) leaves the quarantine. Writes
  * nothing (and throws `UserChanged`) if `userId` is no longer signed in: the rows are theirs, and
  * the device may have been wiped since they were fetched. `fetchedWith` is the outbox as it was
- * before the fetch.
+ * before the fetch. With `saveCursor` false the cursor is left alone (the caller saves it).
  */
 function commit(
   userId: string,
   job: Job,
   rows: ServerRow[],
   fetchedWith: PendingMutations,
+  saveCursor = true,
 ): { applied: number; complete: boolean } {
   assertSameUser(userId);
   return db.transaction((tx) => {
     const pending = pendingIndex(tx, pendingSince(tx, fetchedWith));
-    let cursor = readState(tx).cursors[job.cursor];
+    const locals = job.readLocal(tx, rows);
+    let cursor = saveCursor ? readState(tx).cursors[job.cursor] : undefined;
     let latestHlc: string | null = null;
     let applied = 0;
     const quarantine = readQuarantine(tx);
@@ -582,7 +662,9 @@ function commit(
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        tx.transaction((sp) => job.apply(sp, row, pending));
+        // Without foreign keys, SQLite refuses only a statement, which it undoes itself.
+        if (job.savepoint) tx.transaction((sp) => job.apply(sp, row, pending, locals));
+        else job.apply(tx, row, pending, locals);
       } catch (err) {
         const key = quarantineKey(job, row);
         if (quarantine.rows.some((r) => r.key === key)) continue;
@@ -601,7 +683,7 @@ function commit(
         writeQuarantine(tx, quarantine);
         // Rows at earlier times are all in; rows at this row's time may not be.
         const done = rows.slice(0, i).filter((r) => r.updated_at < row.updated_at);
-        if (done.length) cursor = later(cursor, done[done.length - 1].updated_at);
+        if (done.length && saveCursor) cursor = later(cursor, done[done.length - 1].updated_at);
         if (cursor !== undefined) writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: cursor } });
         if (latestHlc) observeHlc(latestHlc, tx);
         return { applied, complete: false };
@@ -620,7 +702,7 @@ function commit(
       }
     }
     if (quarantineChanged) writeQuarantine(tx, quarantine);
-    if (rows.length) cursor = later(cursor, rows[rows.length - 1].updated_at);
+    if (rows.length && saveCursor) cursor = later(cursor, rows[rows.length - 1].updated_at);
     if (cursor !== undefined) writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: cursor } });
     // Later local writes must beat what we just saw (7.1).
     if (latestHlc) observeHlc(latestHlc, tx);
@@ -631,6 +713,10 @@ function commit(
 /** Pulls one table from its cursor to now. Returns how many rows were applied. */
 async function pullTable(userId: string, job: Job): Promise<number> {
   const cursor = readState().cursors[job.cursor];
+  if (!cursor && job.firstPullKeys) {
+    const keys = job.firstPullKeys(db);
+    if (keys.length) return pullKeys(userId, job, keys);
+  }
   let from: Position | null = cursor ? { at: new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString(), key: null } : null;
   let total = 0;
   for (;;) {
@@ -647,8 +733,47 @@ async function pullTable(userId: string, job: Job): Promise<number> {
   }
 }
 
+/** Keys per request on a first pull by key: one page each, and a URL of a few kB. */
+export const PULL_KEYS_CHUNK = 200;
+
+/**
+ * A first pull of only the rows whose key is one of `keys`, `PULL_KEYS_CHUNK` keys per request.
+ * The cursor is saved, at the newest row read, once all are in: a run cut short (or a row SQLite
+ * refuses) leaves none, so the next pull does it again. Returns how many rows were applied.
+ */
+async function pullKeys(userId: string, job: Job, keys: string[]): Promise<number> {
+  let newest: string | undefined;
+  let total = 0;
+  for (let i = 0; i < keys.length; i += PULL_KEYS_CHUNK) {
+    const fetchedWith = pendingMutations(db);
+    // A key matches at most one row, so a chunk is one page.
+    const page = await fetchRows(job, null, keys.slice(i, i + PULL_KEYS_CHUNK));
+    if (page.length === 0) continue;
+    const result = commit(userId, job, page, fetchedWith, false);
+    total += result.applied;
+    if (!result.complete) return total;
+    newest = later(newest, page[page.length - 1].updated_at);
+  }
+  assertSameUser(userId);
+  if (newest !== undefined) {
+    const at = newest;
+    db.transaction((tx) => writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: at } }));
+  }
+  return total;
+}
+
 /** A spec's key columns, as the server names them. */
 const serverKey = (spec: PullSpec) => spec.key.map((k) => columnsOf(spec.table)[k].name);
+
+/** The job parts every household, user and system-category table shares. */
+function syncedJob(spec: PullSpec): Pick<Job, 'key' | 'savepoint' | 'readLocal' | 'apply'> {
+  return {
+    key: serverKey(spec),
+    savepoint: hasForeignKeys(spec.table),
+    readLocal: (tx, rows) => readLocalRows(tx, spec.table, spec.key, rows),
+    apply: (tx, row, pending, locals) => applySyncedRow(spec, tx, row, pending, locals),
+  };
+}
 
 function householdJobs(householdId: string): Job[] {
   return HOUSEHOLD_SPECS.map((spec) => {
@@ -656,9 +781,8 @@ function householdJobs(householdId: string): Job[] {
     return {
       cursor: householdCursorKey(householdId, table),
       table,
-      key: serverKey(spec),
       filters: [[spec.table === households ? 'id' : 'household_id', householdId]],
-      apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
+      ...syncedJob(spec),
     };
   });
 }
@@ -666,31 +790,32 @@ function householdJobs(householdId: string): Job[] {
 function userJobs(userId: string): Job[] {
   return USER_SPECS.map((spec) => {
     const table = getTableName(spec.table);
-    return {
-      cursor: `user:${table}`,
-      table,
-      key: serverKey(spec),
-      filters: [['user_id', userId]],
-      apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
-    };
+    return { cursor: `user:${table}`, table, filters: [['user_id', userId]], ...syncedJob(spec) };
   });
 }
 
-/** System categories first: ingredients point at them. Custom ones come with their household. */
+/**
+ * System categories first: ingredients point at them. Custom ones come with their household. A
+ * first pull of the ingredients reads only the names this device has (the seed and what it has
+ * seen), the only ones `applyIngredient` keeps; later ones read every change since.
+ */
 const CATALOG_JOBS: Job[] = [
-  {
-    cursor: 'catalog:categories',
-    table: 'categories',
-    key: serverKey(SYSTEM_CATEGORIES_SPEC),
-    filters: [['household_id', null]],
-    apply: (tx, row, pending) => applySyncedRow(SYSTEM_CATEGORIES_SPEC, tx, row, pending),
-  },
+  { cursor: 'catalog:categories', table: 'categories', filters: [['household_id', null]], ...syncedJob(SYSTEM_CATEGORIES_SPEC) },
   {
     cursor: 'catalog:ingredients',
     table: 'ingredients',
     key: ['normalized_name'],
     filters: [],
-    apply: (tx, row) => applyIngredient(tx, row),
+    savepoint: hasForeignKeys(ingredients),
+    readLocal: (tx, rows) => readLocalRows(tx, ingredients, ['normalizedName'], rows),
+    apply: (tx, row, _pending, locals) => applyIngredient(tx, row, locals),
+    firstPullKeys: (exec) =>
+      exec
+        .select({ name: ingredients.normalizedName })
+        .from(ingredients)
+        .orderBy(ingredients.normalizedName)
+        .all()
+        .map((r) => r.name),
   },
 ];
 
