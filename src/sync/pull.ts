@@ -15,7 +15,9 @@
 // - Rows are applied with the push's LWW rule (7.3): a remote field wins unless the local
 //   `field_clock` has a newer HLC for it, i.e. a local edit the server hasn't seen. Fields the
 //   server keeps no clock for (per-user tables, households) win unless an unpushed outbox mutation
-//   sets them. Counters are the server's total plus this device's unpushed deltas.
+//   sets them. Counters are the server's total plus this device's unpushed deltas. "Unpushed" is
+//   as of the fetch too: a push that settles while a page is in flight may have reached the server
+//   after the page was read.
 // - A remote open item that clashes with a different local open item for the same ingredient on
 //   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
 //   will do when the local one is pushed (7.3). So does an unpushed local add of another name of
@@ -189,11 +191,39 @@ function refKey(table: string, id: unknown, key: Record<string, unknown> | undef
   return `${table}:${JSON.stringify(entries)}`;
 }
 
+/** Unsent outbox mutations, by outbox id. */
+type PendingMutations = Map<number, Mutation>;
+
+function pendingMutations(exec: Exec): PendingMutations {
+  const rows = exec.select({ id: outbox.id, mutation: outbox.mutation }).from(outbox).where(isNull(outbox.rejectedAt)).all();
+  return new Map(rows.map((r) => [r.id, r.mutation as Mutation]));
+}
+
+/**
+ * What the outbox has to send now, plus what it had to send when the rows being applied were
+ * fetched (`before`): a push that settled meanwhile may have reached the server after them, so
+ * those rows don't have it. Mutations rejected since are left out: the server never took them.
+ */
+function pendingSince(exec: Exec, before: PendingMutations): PendingMutations {
+  const now = pendingMutations(exec);
+  const gone = [...before.keys()].filter((id) => !now.has(id));
+  if (!gone.length) return now;
+  const rejected = new Set(
+    exec
+      .select({ id: outbox.id })
+      .from(outbox)
+      .where(and(inArray(outbox.id, gone), isNotNull(outbox.rejectedAt)))
+      .all()
+      .map((r) => r.id),
+  );
+  for (const id of gone) if (!rejected.has(id)) now.set(id, before.get(id)!);
+  return now;
+}
+
 /** What the outbox still has to send, by row. */
-function pendingIndex(exec: Exec): PendingIndex {
+function pendingIndex(exec: Exec, mutations: PendingMutations = pendingMutations(exec)): PendingIndex {
   const index: PendingIndex = new Map();
-  const rows = exec.select({ mutation: outbox.mutation }).from(outbox).where(isNull(outbox.rejectedAt)).all();
-  for (const { mutation: m } of rows as { mutation: Mutation }[]) {
+  for (const m of mutations.values()) {
     const ref = refKey(m.table, m.id, m.key);
     const entry = index.get(ref) ?? { fields: new Set<string>(), counters: {}, deleted: false };
     for (const field of Object.keys(m.fields)) entry.fields.add(field);
@@ -493,12 +523,17 @@ function reportApplyFailed(table: string, row: ServerRow, err: unknown) {
  * refuses (e.g. its parent changed after its table was pulled) stops the table there: the cursor
  * stays before it so the next pull tries again (`complete` false). Writes nothing (and throws
  * `UserChanged`) if `userId` is no longer signed in: the rows are theirs, and the device may have
- * been wiped since they were fetched.
+ * been wiped since they were fetched. `fetchedWith` is the outbox as it was before the fetch.
  */
-function commit(userId: string, job: Job, rows: ServerRow[]): { applied: number; complete: boolean } {
+function commit(
+  userId: string,
+  job: Job,
+  rows: ServerRow[],
+  fetchedWith: PendingMutations,
+): { applied: number; complete: boolean } {
   assertSameUser(userId);
   return db.transaction((tx) => {
-    const pending = pendingIndex(tx);
+    const pending = pendingIndex(tx, pendingSince(tx, fetchedWith));
     let cursor = readState(tx).cursors[job.cursor];
     let latestHlc: string | null = null;
     let applied = 0;
@@ -535,9 +570,11 @@ async function pullTable(userId: string, job: Job): Promise<number> {
   let from: Position | null = cursor ? { at: new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString(), key: null } : null;
   let total = 0;
   for (;;) {
+    // Before the fetch: a push that settles during it doesn't let its rows overwrite the edit.
+    const fetchedWith = pendingMutations(db);
     const page = await fetchRows(job, from);
     if (page.length === 0) return total;
-    const result = commit(userId, job, page);
+    const result = commit(userId, job, page, fetchedWith);
     total += result.applied;
     // A short page is the last one; a full one (even one PostgREST cut at `max_rows`) may not be.
     if (!result.complete || page.length < Math.min(PULL_PAGE_SIZE, POSTGREST_MAX_ROWS)) return total;

@@ -2233,6 +2233,136 @@ describe('ingredient catalog', () => {
   });
 });
 
+describe('a push that settles while a page is being fetched', () => {
+  /**
+   * Serves `table`'s stale rows after running `during` first, as a push's `settle()` that lands
+   * between the fetch and its commit would.
+   */
+  const duringFetchOf = (table: string, during: () => void) =>
+    onQuery((query) => {
+      if (query.table === table) during();
+      return serve(query);
+    });
+  const rejectAll = () => db.update(outbox).set({ rejectedAt: new Date(), error: { code: 'x', message: 'no' } }).run();
+  const myOrder = (categoryIds: string[], updated: string): ServerRow => ({
+    user_id: 'u1',
+    household_id: H1,
+    category_ids: categoryIds,
+    created_at: ts(0),
+    updated_at: updated,
+  });
+  const usage = (count: number, updated: string): ServerRow => ({
+    household_id: H1,
+    ingredient_name: 'milk',
+    display_name: 'milk',
+    use_count: count,
+    last_used_at: ts(5),
+    hidden_at: null,
+    field_clock: { display_name: OLD, last_used_at: OLD, hidden_at: OLD },
+    created_at: ts(0),
+    updated_at: updated,
+  });
+
+  beforeEach(async () => {
+    seedPulledList();
+    put('lists', remoteList('list-2', ts(1)));
+    put('user_settings', { user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(2) });
+    put('user_household_category_order', myOrder(['a'], ts(2)));
+    await pullNow();
+  });
+
+  test('a stale default list fetched before the settle keeps the local one', async () => {
+    upsertRow(db, userSettings, { userId: 'u1', defaultListId: 'list-2' }, { defaultListId: 'list-2' });
+    server.user_settings = [{ user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(20) }];
+    duringFetchOf('user_settings', clearOutbox);
+
+    await pullNow();
+
+    expect(outboxRows()).toEqual([]);
+    expect(db.select().from(userSettings).get()!.defaultListId).toBe('list-2');
+  });
+
+  test('a stale aisle order fetched before the settle keeps the local one', async () => {
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H1, categoryIds: ['local'] }, { categoryIds: ['local'] });
+    server.user_household_category_order = [myOrder(['b'], ts(20))];
+    duringFetchOf('user_household_category_order', clearOutbox);
+
+    await pullNow();
+
+    expect(db.select().from(userHouseholdCategoryOrder).get()!.categoryIds).toEqual(['local']);
+  });
+
+  test('a stale household name fetched before the settle keeps the local rename', async () => {
+    updateRows(db, households, eq(households.id, H1), { name: 'Cabin' });
+    server.households = [remoteHousehold(H1, ts(20), 'Home')];
+    duringFetchOf('households', clearOutbox);
+
+    await pullNow();
+
+    expect(db.select().from(households).get()!.name).toBe('Cabin');
+  });
+
+  test('a stale counter fetched before the settle keeps the delta', async () => {
+    put('ingredient_usage', usage(5, ts(10)));
+    await pullNow();
+    expect(db.select().from(ingredientUsage).get()!.useCount).toBe(5);
+    updateRows(db, ingredientUsage, undefined, {}, { useCount: 1 });
+    server.ingredient_usage = [usage(5, ts(20))];
+    duringFetchOf('ingredient_usage', clearOutbox);
+
+    await pullNow();
+
+    expect(db.select().from(ingredientUsage).get()!.useCount).toBe(6);
+  });
+
+  test('an edit made during the fetch counts too, along with the settled one', async () => {
+    put('ingredient_usage', usage(5, ts(10)));
+    await pullNow();
+    updateRows(db, ingredientUsage, undefined, {}, { useCount: 1 });
+    server.ingredient_usage = [usage(5, ts(20))];
+    duringFetchOf('ingredient_usage', () => {
+      clearOutbox();
+      updateRows(db, ingredientUsage, undefined, {}, { useCount: 2 });
+    });
+
+    await pullNow();
+
+    expect(db.select().from(ingredientUsage).get()!.useCount).toBe(5 + 1 + 2);
+  });
+
+  test("the next pull's rows win: the settled edit no longer counts as unpushed", async () => {
+    upsertRow(db, userSettings, { userId: 'u1', defaultListId: 'list-2' }, { defaultListId: 'list-2' });
+    server.user_settings = [{ user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(20) }];
+    duringFetchOf('user_settings', clearOutbox);
+    await pullNow();
+
+    // Another device sets it back after this one's push landed.
+    onQuery(serve);
+    server.user_settings = [{ user_id: 'u1', default_list_id: L, created_at: ts(0), updated_at: ts(30) }];
+    await pullNow();
+
+    expect(db.select().from(userSettings).get()!.defaultListId).toBe(L);
+  });
+
+  test('a mutation the server rejected during the fetch lets the server row win', async () => {
+    upsertRow(db, userHouseholdCategoryOrder, { userId: 'u1', householdId: H1, categoryIds: ['local'] }, { categoryIds: ['local'] });
+    server.user_household_category_order = [myOrder(['b'], ts(20))];
+    duringFetchOf('user_household_category_order', rejectAll);
+
+    await pullNow();
+
+    expect(db.select().from(userHouseholdCategoryOrder).get()!.categoryIds).toEqual(['b']);
+  });
+
+  test('without a settle, the server row wins as usual', async () => {
+    server.user_settings = [{ user_id: 'u1', default_list_id: 'list-2', created_at: ts(0), updated_at: ts(20) }];
+
+    await pullNow();
+
+    expect(db.select().from(userSettings).get()!.defaultListId).toBe('list-2');
+  });
+});
+
 describe('failures', () => {
   test("a row whose parent isn't here yet stops its table and is retried next time", async () => {
     seedPulledList();
