@@ -18,12 +18,27 @@ jest.mock('expo-file-system', () => require('@/test/fake-file-system'));
 jest.mock('@/lib/google-sign-in', () => ({ getGoogleIdToken: jest.fn(), signOutOfGoogle: async () => {} }));
 
 const mockOrder: string[] = [];
+/** What the sync `whenIdle`s wait on; resolved by default. */
+const mockIdle: { push: Promise<void>; pull: Promise<void> } = { push: Promise.resolve(), pull: Promise.resolve() };
 jest.mock('@/sync/push', () => ({
   pushNow: async () => {
     mockOrder.push('push');
     return { pushed: 0, rejected: 0, failed: false };
   },
+  whenIdle: () => mockIdle.push.then(() => void mockOrder.push('push idle')),
 }));
+jest.mock('@/sync/pull', () => ({
+  ...jest.requireActual<object>('@/sync/pull'),
+  whenIdle: () => mockIdle.pull.then(() => void mockOrder.push('pull idle')),
+}));
+jest.mock('@/sync/realtime', () => ({ stopRealtime: () => void mockOrder.push('stopRealtime') }));
+
+/** A promise with its `resolve`, for holding a push or pull in flight. */
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
 
 const USER = 'u1';
 const signOut = supabase.auth.signOut as jest.Mock<(...args: unknown[]) => Promise<unknown>>;
@@ -39,6 +54,8 @@ beforeEach(() => {
   resetDb();
   resetSupabase();
   mockOrder.length = 0;
+  mockIdle.push = Promise.resolve();
+  mockIdle.pull = Promise.resolve();
   signOut.mockReset();
   signOut.mockImplementation(async () => {
     mockOrder.push('signOut');
@@ -52,15 +69,42 @@ beforeEach(() => {
 describe('signOutAndWipe', () => {
   it('pushes, signs out, then removes the households and lists from the device', async () => {
     await signOutAndWipe({ pushTimeoutMs: 10 });
-    expect(mockOrder).toEqual(['push', 'signOut']);
+    expect(mockOrder).toEqual(['push', 'signOut', 'stopRealtime', 'push idle', 'pull idle']);
     expect(db.select().from(households).all()).toEqual([]);
     expect(db.select().from(lists).all()).toEqual([]);
   });
 
-  it('keeps everything when the sign-out fails', async () => {
+  it('waits for an in-flight push before wiping, even past the push timeout', async () => {
+    const push = deferred();
+    mockIdle.push = push.promise;
+    const done = signOutAndWipe({ pushTimeoutMs: 10 });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(mockOrder).toEqual(['push', 'signOut', 'stopRealtime', 'pull idle']);
+    expect(db.select().from(households).all()).toHaveLength(1);
+
+    push.resolve();
+    await done;
+    expect(mockOrder).toEqual(['push', 'signOut', 'stopRealtime', 'pull idle', 'push idle']);
+    expect(db.select().from(households).all()).toEqual([]);
+  });
+
+  it('waits for an in-flight pull before wiping', async () => {
+    const pull = deferred();
+    mockIdle.pull = pull.promise;
+    const done = signOutAndWipe({ pushTimeoutMs: 10 });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(db.select().from(lists).all()).toHaveLength(1);
+
+    pull.resolve();
+    await done;
+    expect(db.select().from(lists).all()).toEqual([]);
+  });
+
+  it('keeps everything when the sign-out fails, and leaves sync running', async () => {
     signOut.mockImplementation(async () => ({ error: new Error('network') }));
     await expect(signOutAndWipe({ pushTimeoutMs: 10 })).rejects.toThrow('network');
     expect(db.select().from(households).all()).toHaveLength(1);
+    expect(mockOrder).toEqual(['push']);
   });
 
   it("unregisters the device's push token before signing out, and forgets it (spec 4.13)", async () => {
@@ -70,7 +114,7 @@ describe('signOutAndWipe', () => {
       return undefined;
     });
     await signOutAndWipe({ pushTimeoutMs: 10 });
-    expect(mockOrder).toEqual(['push', 'unregister_push_token', 'signOut']);
+    expect(mockOrder).toEqual(['push', 'unregister_push_token', 'signOut', 'stopRealtime', 'push idle', 'pull idle']);
     expect(rpcCallsFor('unregister_push_token')).toEqual([{ fn: 'unregister_push_token', args: { p_token: 'ExponentPushToken[abc]' } }]);
     expect(getPushRegistration()).toBeNull();
   });
@@ -80,7 +124,7 @@ describe('signOutAndWipe', () => {
     setPushRegistration({ token: 'ExponentPushToken[abc]', userId: USER, at: '2026-10-17T12:00:00.000Z' });
     respondToRpc('unregister_push_token', { error: { message: 'network' } });
     await signOutAndWipe({ pushTimeoutMs: 10 });
-    expect(mockOrder).toEqual(['push', 'signOut']);
+    expect(mockOrder).toEqual(['push', 'signOut', 'stopRealtime', 'push idle', 'pull idle']);
     expect(getPushRegistration()).toBeNull();
     expect(db.select().from(households).all()).toEqual([]);
   });

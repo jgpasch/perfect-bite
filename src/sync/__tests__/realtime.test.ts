@@ -36,7 +36,7 @@ import {
 import { resetDb } from '@/test/db';
 
 import { pullNow, type ServerRow } from '../pull';
-import { HOUSEHOLD_TABLES, REALTIME_BATCH_MS, startRealtime } from '../realtime';
+import { HOUSEHOLD_TABLES, REALTIME_BATCH_MS, startRealtime, stopRealtime } from '../realtime';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -213,6 +213,30 @@ describe('channels', () => {
     expect(openChannels()).toEqual([]);
     expect(supabase.removeChannel).toHaveBeenCalledTimes(3);
     expect(queries).toEqual([]);
+  });
+
+  test('stopRealtime (sign-out) closes every channel and cancels a scheduled pull; the cleanup is then a no-op', async () => {
+    await pullNow();
+    start();
+    emitChange({ table: 'list_items', eventType: 'UPDATE', new: item() });
+    queries.length = 0;
+
+    stopRealtime();
+    await settle();
+
+    expect(openChannels()).toEqual([]);
+    expect(supabase.removeChannel).toHaveBeenCalledTimes(3);
+    expect(queries).toEqual([]);
+
+    // The app's effect cleanup still runs later, and closes nothing twice.
+    stop!();
+    stop = null;
+    expect(supabase.removeChannel).toHaveBeenCalledTimes(3);
+  });
+
+  test('stopRealtime with nothing running does nothing', () => {
+    expect(() => stopRealtime()).not.toThrow();
+    expect(realtimeChannels).toEqual([]);
   });
 });
 

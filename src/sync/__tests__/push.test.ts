@@ -26,7 +26,7 @@ import { clearOutbox, outboxMutations, outboxRows } from '@/test/outbox';
 
 import { deleteRows, insertRow, updateRows, upsertRow } from '../mutate';
 import type { Mutation } from '../mutation';
-import { BACKOFF_SCHEDULE_MS, backoffDelayMs, getPushState, PUSH_BATCH_SIZE, PUSH_DEBOUNCE_MS, pushNow, startPush } from '../push';
+import { BACKOFF_SCHEDULE_MS, backoffDelayMs, getPushState, PUSH_BATCH_SIZE, PUSH_DEBOUNCE_MS, pushNow, startPush, whenIdle } from '../push';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -578,6 +578,70 @@ describe('offline holds', () => {
     await expect(pushNow({ force: true })).resolves.toEqual({ skipped: 'no-session' });
     expect(rpcCalls).toEqual([]);
     expect(outboxRows()).toHaveLength(1);
+  });
+});
+
+describe('signing out during a push', () => {
+  test("an answer that arrives after the sign-out leaves the outbox and the push state alone", async () => {
+    addList('l1');
+    const before = getPushState();
+    onRpc((call) => {
+      mockAuth.account = null;
+      return { data: (call.args as { mutations: Mutation[] }).mutations.map(() => ({ status: 'applied' })), status: 200 };
+    });
+
+    await expect(pushNow({ force: true })).resolves.toEqual({ skipped: 'no-session' });
+
+    expect(applyCalls()).toHaveLength(1);
+    expect(outboxRows()).toHaveLength(1);
+    expect(getPushState()).toEqual(before);
+  });
+
+  test('a per-user write answered for another user is dropped too, and the rest of the queue waits', async () => {
+    upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
+    addList('l1');
+    onQuery(() => {
+      mockAuth.account = { userId: 'u2' };
+      return { status: 201 };
+    });
+
+    await expect(pushNow({ force: true })).resolves.toEqual({ skipped: 'no-session' });
+
+    expect(outboxRows()).toHaveLength(2);
+    expect(applyCalls()).toEqual([]);
+  });
+
+  test('a failure answered after the sign-out records no backoff', async () => {
+    addList('l1');
+    onRpc(() => {
+      mockAuth.account = null;
+      return { error: { message: 'Bad gateway' }, status: 502 };
+    });
+
+    await pushNow({ force: true });
+
+    expect(getPushState()).toMatchObject({ attempts: 0, nextAttemptAt: null, lastError: null });
+    expect(outboxRows()).toHaveLength(1);
+  });
+});
+
+describe('whenIdle', () => {
+  test('resolves right away when no push is running', async () => {
+    await expect(whenIdle()).resolves.toBeUndefined();
+    expect(rpcCalls).toEqual([]);
+  });
+
+  test('waits for the running push, and for the one queued during it', async () => {
+    applyAll();
+    addList('l1');
+    void pushNow({ force: true });
+    addList('l2');
+    void pushNow({ force: true });
+
+    await whenIdle();
+
+    expect(applyCalls()).toHaveLength(2);
+    expect(outboxRows()).toEqual([]);
   });
 });
 

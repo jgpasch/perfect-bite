@@ -4,7 +4,7 @@ import { getNetworkStateAsync, type NetworkState } from 'expo-network';
 
 import { signOutLocally } from '@/features/auth/account';
 import { wipeLocalData } from '@/features/auth/local-wipe';
-import { pushBriefly } from '@/features/auth/sign-out';
+import { pushBriefly, stopSync } from '@/features/auth/sign-out';
 import { isOnline } from '@/features/categories/catch-up';
 import { fetchHouseholdMembers, householdsWithCountsQuery } from '@/features/households/households';
 import { i18n, onLanguageChanged } from '@/i18n';
@@ -123,6 +123,7 @@ export async function deleteAccount(options: { pushTimeoutMs?: number } = {}): P
   }
   // The account is gone on the server: whatever happens here, the device must end up signed out.
   try {
+    await stopSync();
     wipeLocalData();
   } catch (err) {
     console.error('[delete-account] wipe failed', err);

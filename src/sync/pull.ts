@@ -466,6 +466,14 @@ function fetchRows(job: Job, from: Position | null): Promise<ServerRow[]> {
 /** Server timestamps share one format, so their text sorts like their time. */
 const later = (a: string | undefined, b: string) => (a !== undefined && a > b ? a : b);
 
+/** Thrown when the signed-in user changed during a run (sign-out): the rest of it is dropped. */
+class UserChanged extends Error {}
+
+/** Throws `UserChanged` unless `userId` is still the signed-in user. */
+function assertSameUser(userId: string): void {
+  if (getAccount()?.userId !== userId) throw new UserChanged();
+}
+
 /** Times each refused row failed this session (`table|updated_at|id`). */
 const applyFailures = new Map<string, number>();
 
@@ -483,9 +491,12 @@ function reportApplyFailed(table: string, row: ServerRow, err: unknown) {
 /**
  * Applies `rows` (oldest first) and moves the cursor past them, in one transaction. A row SQLite
  * refuses (e.g. its parent changed after its table was pulled) stops the table there: the cursor
- * stays before it so the next pull tries again (`complete` false).
+ * stays before it so the next pull tries again (`complete` false). Writes nothing (and throws
+ * `UserChanged`) if `userId` is no longer signed in: the rows are theirs, and the device may have
+ * been wiped since they were fetched.
  */
-function commit(job: Job, rows: ServerRow[]): { applied: number; complete: boolean } {
+function commit(userId: string, job: Job, rows: ServerRow[]): { applied: number; complete: boolean } {
+  assertSameUser(userId);
   return db.transaction((tx) => {
     const pending = pendingIndex(tx);
     let cursor = readState(tx).cursors[job.cursor];
@@ -519,14 +530,14 @@ function commit(job: Job, rows: ServerRow[]): { applied: number; complete: boole
 }
 
 /** Pulls one table from its cursor to now. Returns how many rows were applied. */
-async function pullTable(job: Job): Promise<number> {
+async function pullTable(userId: string, job: Job): Promise<number> {
   const cursor = readState().cursors[job.cursor];
   let from: Position | null = cursor ? { at: new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString(), key: null } : null;
   let total = 0;
   for (;;) {
     const page = await fetchRows(job, from);
     if (page.length === 0) return total;
-    const result = commit(job, page);
+    const result = commit(userId, job, page);
     total += result.applied;
     // A short page is the last one; a full one (even one PostgREST cut at `max_rows`) may not be.
     if (!result.complete || page.length < Math.min(PULL_PAGE_SIZE, POSTGREST_MAX_ROWS)) return total;
@@ -680,8 +691,9 @@ async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullS
   const account = getAccount();
   if (!isSupabaseConfigured || !account) return { skipped: 'no-session' };
   if (online === false) return { skipped: 'offline' };
-  if (readState().userId !== account.userId) {
-    db.transaction((tx) => writeState(tx, { userId: account.userId, cursors: {}, memberships: null }));
+  const { userId } = account;
+  if (readState().userId !== userId) {
+    db.transaction((tx) => writeState(tx, { userId, cursors: {}, memberships: null }));
   }
   const all = scope === 'all';
 
@@ -690,28 +702,36 @@ async function runPull(now: () => Date, scope: PullScope | 'all'): Promise<PullS
   try {
     if (all) {
       const members = await call(
-        supabase.from('household_members').select('household_id').eq('user_id', account.userId),
+        supabase.from('household_members').select('household_id').eq('user_id', userId),
         'household_members',
       );
+      assertSameUser(userId);
       memberships = [...new Set(members.map((m) => (m as { household_id: string }).household_id))];
-      lastMemberships = { userId: account.userId, households: memberships };
+      lastMemberships = { userId, households: memberships };
       for (const listener of [...membershipListeners]) listener(memberships);
     }
     for (const householdId of memberships) {
-      for (const job of householdJobs(householdId)) pulled += await pullTable(job);
+      for (const job of householdJobs(householdId)) pulled += await pullTable(userId, job);
     }
+    assertSameUser(userId);
     if (all) purgeLostHouseholds(memberships);
     if (all || scope.user) {
-      for (const job of userJobs(account.userId)) pulled += await pullTable(job);
+      for (const job of userJobs(userId)) pulled += await pullTable(userId, job);
     }
+    assertSameUser(userId);
     // Names pulled in are cached as pending until the catalog (or categorization) knows them.
     if (all || memberships.length || scope.user) ensureMissingIngredients();
     if (all || scope.catalog) {
-      for (const job of CATALOG_JOBS) pulled += await pullTable(job);
+      for (const job of CATALOG_JOBS) pulled += await pullTable(userId, job);
     }
     // Never throws: a household whose names don't load keeps the ones it had.
     if (all) await refreshAllMemberNames(memberships);
+    assertSameUser(userId);
   } catch (err) {
+    if (err instanceof UserChanged) {
+      console.info('[pull] the user signed out during the pull; dropped the rest of it');
+      return { skipped: 'no-session' };
+    }
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[pull] failed: ${message}`);
     db.transaction((tx) => writeState(tx, { lastError: message }));
@@ -760,6 +780,11 @@ export function pullNow(options: { now?: () => Date; scope?: PullScope } = {}): 
     }
   })();
   return inFlight;
+}
+
+/** Resolves once no pull is running (including the reruns queued during one). Never rejects. */
+export async function whenIdle(): Promise<void> {
+  while (inFlight) await inFlight;
 }
 
 // --- Triggers ------------------------------------------------------------------------------

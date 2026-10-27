@@ -36,12 +36,20 @@ jest.mock('expo-network', () => ({
 }));
 
 const mockPush: { impl: () => Promise<unknown> } = { impl: async () => ({ pushed: 0, rejected: 0, failed: false }) };
+/** What the sync `whenIdle`s wait on; resolved by default. */
+const mockIdle: { push: Promise<void>; pull: Promise<void> } = { push: Promise.resolve(), pull: Promise.resolve() };
 jest.mock('@/sync/push', () => ({
   pushNow: () => {
     mockOrder.push('push');
     return mockPush.impl();
   },
+  whenIdle: () => mockIdle.push.then(() => void mockOrder.push('push idle')),
 }));
+jest.mock('@/sync/pull', () => ({
+  ...jest.requireActual<object>('@/sync/pull'),
+  whenIdle: () => mockIdle.pull.then(() => void mockOrder.push('pull idle')),
+}));
+jest.mock('@/sync/realtime', () => ({ stopRealtime: () => void mockOrder.push('stopRealtime') }));
 const mockWipe: { error: Error | null } = { error: null };
 jest.mock('@/features/auth/local-wipe', () => {
   const actual = jest.requireActual<typeof import('@/features/auth/local-wipe')>('@/features/auth/local-wipe');
@@ -70,6 +78,8 @@ beforeEach(() => {
   mockReportError.mockClear();
   mockNetwork.state = { isConnected: true, isInternetReachable: true };
   mockPush.impl = async () => ({ pushed: 0, rejected: 0, failed: false });
+  mockIdle.push = Promise.resolve();
+  mockIdle.pull = Promise.resolve();
   mockGoogleSignOut.mockClear();
   signOut.mockReset();
   signOut.mockImplementation(async () => {
@@ -160,19 +170,40 @@ describe('deleteAccount', () => {
     expect(takeAccountDeletedNotice()).toBe(false);
   });
 
-  it('pushes, calls delete_account, wipes, then signs out locally and of Google, in that order', async () => {
+  it('pushes, calls delete_account, stops sync, wipes, then signs out locally and of Google, in that order', async () => {
     onRpc((call) => {
       mockOrder.push(call.fn);
       return { data: { households: [] } };
     });
     await deleteAccount();
-    expect(mockOrder).toEqual(['push', 'delete_account', 'wipe', 'signOut', 'google']);
+    expect(mockOrder).toEqual(['push', 'delete_account', 'stopRealtime', 'push idle', 'pull idle', 'wipe', 'signOut', 'google']);
     expect(rpcCallsFor('delete_account')[0].args).toBeUndefined();
     expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(db.select().from(households).all()).toEqual([]);
     expect(db.select().from(listItems).all()).toEqual([]);
     expect(takeAccountDeletedNotice()).toBe(true);
     expect(takeAccountDeletedNotice()).toBe(false);
+  });
+
+  it('waits for an in-flight push and pull before wiping', async () => {
+    onRpc(() => ({ data: { households: [] } }));
+    let finishPush!: () => void;
+    let finishPull!: () => void;
+    mockIdle.push = new Promise((r) => (finishPush = r));
+    mockIdle.pull = new Promise((r) => (finishPull = r));
+    const done = deleteAccount({ pushTimeoutMs: 10 });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(mockOrder).toEqual(['push', 'stopRealtime']);
+    expect(db.select().from(households).all()).toHaveLength(1);
+
+    finishPull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(db.select().from(households).all()).toHaveLength(1);
+
+    finishPush();
+    await done;
+    expect(mockOrder).toEqual(['push', 'stopRealtime', 'pull idle', 'push idle', 'wipe', 'signOut', 'google']);
+    expect(db.select().from(households).all()).toEqual([]);
   });
 
   it('a failed wipe is reported to Sentry, and the device still signs out', async () => {

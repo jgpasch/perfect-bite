@@ -58,6 +58,7 @@ import {
   pullNow,
   remoteFieldWins,
   type ServerRow,
+  whenIdle,
 } from '../pull';
 
 jest.mock('@/db/client', () => require('@/test/db'));
@@ -2305,6 +2306,82 @@ describe('failures', () => {
     put('lists', remoteList('list-2', ts(30)));
 
     await Promise.all([first, second]);
+
+    expect(queriesFor('household_members')).toHaveLength(2);
+    expect(db.select().from(lists).all()).toHaveLength(2);
+  });
+});
+
+describe('signing out during a pull', () => {
+  /** Serves like the server, but signs `next` in (null: out) just before `table`'s answer arrives. */
+  const switchUserBefore = (table: string, next: { userId: string } | null) =>
+    onQuery((query) => {
+      if (query.table === table) mockAuth.account = next;
+      return serve(query);
+    });
+
+  test("a fetch that resolves after the sign-out writes none of the user's rows or cursors", async () => {
+    seedPulledList();
+    put('list_items', remoteItem('i1', ts(2)));
+    switchUserBefore('households', null);
+
+    await expect(pullNow()).resolves.toEqual({ skipped: 'no-session' });
+
+    expect(db.select().from(households).all()).toEqual([]);
+    expect(db.select().from(lists).all()).toEqual([]);
+    expect(getPullState()).toEqual({ userId: 'u1', cursors: {}, memberships: null, lastSuccessAt: null, lastError: null });
+    // The run stopped there: nothing more was asked of the server.
+    expect(queries.map((q) => q.table)).toEqual(['household_members', 'households']);
+  });
+
+  test('a sign-out while memberships load tells no one the old households', async () => {
+    seedPulledList();
+    const heard: string[][] = [];
+    const stop = onMemberships('u1', (households) => heard.push(households));
+    // Only what this pull reads, not the last pull's answer replayed on subscribe.
+    heard.length = 0;
+    switchUserBefore('household_members', null);
+
+    await expect(pullNow()).resolves.toEqual({ skipped: 'no-session' });
+
+    stop();
+    expect(heard).toEqual([]);
+    expect(db.select().from(households).all()).toEqual([]);
+  });
+
+  test("a later page that arrives for another user is dropped, and earlier pages stay", async () => {
+    seedPulledList();
+    switchUserBefore('lists', { userId: 'u2' });
+
+    await expect(pullNow()).resolves.toEqual({ skipped: 'no-session' });
+
+    expect(db.select({ id: households.id }).from(households).all()).toEqual([{ id: H1 }]);
+    expect(db.select().from(lists).all()).toEqual([]);
+    expect(getPullState().cursors).toEqual({ [householdCursorKey(H1, 'households')]: ts(1) });
+    expect(getPullState().lastError).toBeNull();
+  });
+
+  test('the same user throughout: the pull completes as usual', async () => {
+    seedPulledList();
+    switchUserBefore('households', { userId: 'u1' });
+
+    await expect(pullNow()).resolves.toEqual({ pulled: 2, households: [H1], error: null });
+  });
+});
+
+describe('whenIdle', () => {
+  test('resolves right away when no pull is running', async () => {
+    await expect(whenIdle()).resolves.toBeUndefined();
+    expect(queries).toEqual([]);
+  });
+
+  test('waits for the running pull, and for the one queued during it', async () => {
+    seedPulledList();
+    void pullNow();
+    void pullNow();
+    put('lists', remoteList('list-2', ts(30)));
+
+    await whenIdle();
 
     expect(queriesFor('household_members')).toHaveLength(2);
     expect(db.select().from(lists).all()).toHaveLength(2);

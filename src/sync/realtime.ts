@@ -59,7 +59,7 @@ export const USER_TABLES: Record<string, string> = {
 type Payload = RealtimePostgresChangesPayload<Record<string, unknown>>;
 type Binding = { table: string; filter?: string };
 
-/** Starts Realtime for `userId`. Returns a cleanup that closes every channel. */
+/** Starts Realtime for `userId`. Returns a cleanup that closes every channel (also `stopRealtime`). */
 export function startRealtime(userId: string): () => void {
   if (!isSupabaseConfigured) return () => {};
 
@@ -186,7 +186,11 @@ export function startRealtime(userId: string): () => void {
   });
   sync();
 
-  return () => {
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    running.delete(stop);
     app.remove();
     network.remove();
     stopMemberships();
@@ -195,4 +199,17 @@ export function startRealtime(userId: string): () => void {
     scheduled = null;
     for (const key of [...channels.keys()]) close(key);
   };
+  running.add(stop);
+  return stop;
+}
+
+/** The cleanups of the Realtime sessions still running. */
+const running = new Set<() => void>();
+
+/**
+ * Stops every Realtime session now, so no change comes in and no pull is scheduled (sign-out and
+ * account deletion, before the device is wiped). Their cleanups become no-ops.
+ */
+export function stopRealtime(): void {
+  for (const stop of [...running]) stop();
 }

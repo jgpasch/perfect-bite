@@ -3,8 +3,9 @@
 import { signOut } from '@/features/auth/account';
 import { wipeLocalData } from '@/features/auth/local-wipe';
 import { reportError } from '@/lib/sentry';
-import { getPullState } from '@/sync/pull';
-import { pushNow } from '@/sync/push';
+import { getPullState, whenIdle as pullIdle } from '@/sync/pull';
+import { pushNow, whenIdle as pushIdle } from '@/sync/push';
+import { stopRealtime } from '@/sync/realtime';
 
 /** How long the pending outbox gets to go up before signing out (or deleting the account) anyway. */
 export const PUSH_BEFORE_SIGN_OUT_MS = 3000;
@@ -23,12 +24,23 @@ export async function pushBriefly(ms: number): Promise<void> {
 }
 
 /**
+ * Stops Realtime and waits for any push or pull still running, so none of them writes the user's
+ * rows or cursors after the wipe that follows (they drop their work once the user has changed).
+ */
+export async function stopSync(): Promise<void> {
+  stopRealtime();
+  await Promise.all([pushIdle(), pullIdle()]);
+}
+
+/**
  * Settings > Sign out: pushes pending changes (best effort), signs out of Supabase and Google, then
- * wipes the device. Throws if Supabase refuses the sign-out; then nothing local has changed.
+ * waits for sync to stop and wipes the device. Throws if Supabase refuses the sign-out; then
+ * nothing local has changed.
  */
 export async function signOutAndWipe(options: { pushTimeoutMs?: number } = {}): Promise<void> {
   await pushBriefly(options.pushTimeoutMs ?? PUSH_BEFORE_SIGN_OUT_MS);
   await signOut();
+  await stopSync();
   wipeLocalData();
 }
 

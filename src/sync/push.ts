@@ -81,7 +81,9 @@ export function getPushState(): PushState {
   return getDeviceSetting<PushState>(STATE_KEY, INITIAL_STATE);
 }
 
-function setPushState(patch: Partial<PushState>) {
+/** Records the run's outcome, unless the signed-in user changed since `userId`'s run started. */
+function setPushState(userId: string, patch: Partial<PushState>) {
+  if (getAccount()?.userId !== userId) return;
   setDeviceSetting<PushState>(STATE_KEY, { ...getPushState(), ...patch });
 }
 
@@ -107,6 +109,9 @@ type Response = { data?: unknown; error?: { message?: string; code?: string } | 
 
 /** Thrown for failures that should stop the run and retry later. */
 class RetryLater extends Error {}
+
+/** Thrown when the signed-in user changed during a run (sign-out): the rest of it is dropped. */
+class UserChanged extends Error {}
 
 /** True for an HTTP status that means "this request is wrong" rather than "try again". */
 function isPermanent(status: number | undefined): boolean {
@@ -140,8 +145,12 @@ function reportRejection(table: string, rejection: Rejection) {
   });
 }
 
-/** Removes sent rows and records rejected ones, in one transaction. */
-function settle(done: number[], rejected: { id: number; error: Rejection }[], at: Date) {
+/**
+ * Removes sent rows and records rejected ones, in one transaction. Writes nothing (and throws
+ * `UserChanged`) if `userId` is no longer signed in: the device may have been wiped meanwhile.
+ */
+function settle(userId: string, done: number[], rejected: { id: number; error: Rejection }[], at: Date) {
+  if (getAccount()?.userId !== userId) throw new UserChanged();
   db.transaction((tx) => {
     if (done.length) tx.delete(outbox).where(inArray(outbox.id, done)).run();
     for (const r of rejected) {
@@ -160,7 +169,7 @@ async function call(request: PromiseLike<Response>): Promise<Response> {
 }
 
 /** Sends consecutive household mutations as one `apply_mutations` call. */
-async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number; rejected: number }> {
+async function pushBatch(userId: string, rows: OutboxRow[], at: Date): Promise<{ pushed: number; rejected: number }> {
   const res = await call(supabase.rpc('apply_mutations', { mutations: rows.map((r) => r.mutation) }));
   // The function handles every mutation on its own, so a failed call is never one mutation's fault.
   if (res.error) throw new RetryLater(describe(res));
@@ -178,7 +187,7 @@ async function pushBatch(rows: OutboxRow[], at: Date): Promise<{ pushed: number;
       done.push(rows[i].id);
     }
   });
-  settle(done, rejected, at);
+  settle(userId, done, rejected, at);
   return { pushed: done.length, rejected: rejected.length };
 }
 
@@ -217,7 +226,7 @@ function singleRequest(m: Mutation): PromiseLike<Response> | Rejection {
 }
 
 /** Sends one per-user or household mutation. */
-async function pushSingle(row: OutboxRow, at: Date): Promise<{ pushed: number; rejected: number }> {
+async function pushSingle(userId: string, row: OutboxRow, at: Date): Promise<{ pushed: number; rejected: number }> {
   const request = singleRequest(row.mutation);
   let rejection: Rejection | null = null;
   if ('then' in request) {
@@ -230,7 +239,7 @@ async function pushSingle(row: OutboxRow, at: Date): Promise<{ pushed: number; r
     rejection = request;
   }
   if (rejection) reportRejection(row.mutation.table, rejection);
-  settle(rejection ? [] : [row.id], rejection ? [{ id: row.id, error: rejection }] : [], at);
+  settle(userId, rejection ? [] : [row.id], rejection ? [{ id: row.id, error: rejection }] : [], at);
   return rejection ? { pushed: 0, rejected: 1 } : { pushed: 1, rejected: 0 };
 }
 
@@ -239,7 +248,9 @@ async function pushSingle(row: OutboxRow, at: Date): Promise<{ pushed: number; r
  * Waits while backing off unless `force` (Sync now, foreground, reconnect). Never throws.
  */
 async function runPush(now: () => Date, force: boolean): Promise<PushSummary> {
-  if (!isSupabaseConfigured || !getAccount()) return { skipped: 'no-session' };
+  const account = getAccount();
+  if (!isSupabaseConfigured || !account) return { skipped: 'no-session' };
+  const { userId } = account;
   if (online === false) return { skipped: 'offline' };
   const state = getPushState();
   if (!force && state.nextAttemptAt && Date.parse(state.nextAttemptAt) > now().getTime()) {
@@ -252,15 +263,21 @@ async function runPush(now: () => Date, force: boolean): Promise<PushSummary> {
       // The leading run of household mutations goes as one batch; anything else goes alone.
       const run = rows.findIndex((r) => !APPLY_TABLES.has(r.mutation.table));
       const result =
-        run === 0 ? await pushSingle(rows[0], now()) : await pushBatch(run === -1 ? rows : rows.slice(0, run), now());
+        run === 0
+          ? await pushSingle(userId, rows[0], now())
+          : await pushBatch(userId, run === -1 ? rows : rows.slice(0, run), now());
       summary.pushed += result.pushed;
       summary.rejected += result.rejected;
     }
   } catch (err) {
+    if (err instanceof UserChanged) {
+      console.info('[push] the user signed out during the push; dropped the rest of it');
+      return { skipped: 'no-session' };
+    }
     const attempts = state.attempts + 1;
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[push] failed (attempt ${attempts}): ${message}`);
-    setPushState({
+    setPushState(userId, {
       attempts,
       nextAttemptAt: new Date(now().getTime() + backoffDelayMs(attempts)).toISOString(),
       lastError: message,
@@ -269,7 +286,7 @@ async function runPush(now: () => Date, force: boolean): Promise<PushSummary> {
     scheduleRetry(backoffDelayMs(attempts));
     return summary;
   }
-  setPushState({ attempts: 0, nextAttemptAt: null, lastError: null, lastSuccessAt: now().toISOString() });
+  setPushState(userId, { attempts: 0, nextAttemptAt: null, lastError: null, lastSuccessAt: now().toISOString() });
   return summary;
 }
 
@@ -311,6 +328,11 @@ export function pushNow(options: { force?: boolean; now?: () => Date } = {}): Pr
     }
   })();
   return inFlight;
+}
+
+/** Resolves once no push is running (including the reruns queued during one). Never rejects. */
+export async function whenIdle(): Promise<void> {
+  while (inFlight) await inFlight;
 }
 
 // --- Triggers ------------------------------------------------------------------------------
