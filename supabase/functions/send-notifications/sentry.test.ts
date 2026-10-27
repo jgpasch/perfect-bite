@@ -42,7 +42,6 @@ function run(store: Partial<NotificationStore>, responses: FakeResponse[]) {
       ]),
     recipeImport: () => Promise.resolve(null),
     recipeImportRecipients: () => Promise.resolve([]),
-    recordSent: async () => {},
     deleteTokens: async () => {},
     saveReceipts: async () => {},
     dueReceipts: () => Promise.resolve([]),
@@ -50,19 +49,19 @@ function run(store: Partial<NotificationStore>, responses: FakeResponse[]) {
     ...store,
   };
   const expo = createExpoClient({ fetch: fakeFetch(responses).fn, sleep: async () => {} });
-  return runWorker({ store: full, expo, now: () => new Date(NOW) });
+  return runWorker({ store: full, expo, now: () => new Date(NOW), sleep: async () => {} });
 }
 
 const opts = { sanitizeOps: false, sanitizeResources: false };
 
 Deno.test({
   ...opts,
-  name: 'a failed recordSent after a send is reported with its full message, and the run still counts it sent',
+  name: 'a failed saveReceipts after a send is reported with its full message, and the run still counts it sent',
   fn: async () => {
     sentry.events.length = 0;
     const result = await run(
       // What supabase-js returns: a plain object, not an Error.
-      { recordSent: () => Promise.reject({ message: 'permission denied for table notification_sends', code: '42501', details: null, hint: null }) },
+      { saveReceipts: () => Promise.reject({ message: 'permission denied for table notification_sends', code: '42501', details: null, hint: null }) },
       [Response.json({ data: [{ status: 'ok', id: 't1' }, { status: 'ok', id: 't2' }] })],
     );
     assertEquals(result.sent, 1);
@@ -71,6 +70,32 @@ Deno.test({
     const [event] = sentry.events;
     assertEquals(event.exception, 'permission denied for table notification_sends (42501)');
     assertEquals([event.tags.function, event.tags.event], ['send-notifications', 'record_sent_failed']);
+  },
+});
+
+Deno.test({
+  ...opts,
+  name: 'archiving a sent group failing every try is reported once; the run still counts it sent',
+  fn: async () => {
+    sentry.events.length = 0;
+    let tries = 0;
+    const result = await run(
+      {
+        archive: () => {
+          tries += 1;
+          return Promise.reject({ message: 'connection reset', code: '08006', details: null, hint: null });
+        },
+      },
+      [Response.json({ data: [{ status: 'ok', id: 't1' }, { status: 'ok', id: 't2' }] })],
+    );
+    assertEquals([result.sent, result.failed, tries], [1, 0, 3]);
+    await sentry.waitFor(1);
+    // Give a wrongly sent second report time to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assertEquals(sentry.events.length, 1);
+    const [event] = sentry.events;
+    assertEquals(event.exception, 'connection reset (08006)');
+    assertEquals([event.tags.function, event.tags.event], ['send-notifications', 'archive_sent_failed']);
   },
 });
 

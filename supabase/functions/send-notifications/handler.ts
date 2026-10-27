@@ -58,11 +58,14 @@ export type GroupDetails = {
 
 export type Recipient = { userId: string; token: string; platform: string };
 export type StoredReceipt = { ticketId: string; token: string };
+/** A sent group, for the shopping window. */
+export type SentGroup = { householdId: string; actor: string; listId: string; kind: EventKind };
 
 /** The database, over the service-role client in store.ts and fakes in tests. */
 export type NotificationStore = {
   readEvents(qty: number, vtSeconds: number): Promise<QueuedEvent[]>;
-  archive(msgIds: number[]): Promise<void>;
+  /** With `sent`, also records the group as sent (the shopping window), in the same transaction. */
+  archive(msgIds: number[], sent?: SentGroup): Promise<void>;
   /** Makes events visible again for the next run. */
   release(msgIds: number[]): Promise<void>;
   groupDetails(kind: EventKind, listId: string, actor: string, ids: string[]): Promise<GroupDetails>;
@@ -71,7 +74,6 @@ export type NotificationStore = {
   recipeImport(shareImportId: string): Promise<RecipeImportDetails | null>;
   /** The sharer's own tokens, with `recipe_imports` on and outside their quiet hours at `at`. */
   recipeImportRecipients(userId: string, at: Date): Promise<Recipient[]>;
-  recordSent(householdId: string, actor: string, listId: string, kind: EventKind): Promise<void>;
   deleteTokens(tokens: string[]): Promise<void>;
   saveReceipts(receipts: StoredReceipt[]): Promise<void>;
   /** Drops receipts older than 24 hours, then returns those at least minAgeSeconds old. */
@@ -80,7 +82,13 @@ export type NotificationStore = {
 };
 
 export const READ_LIMIT = 500;
-export const VISIBILITY_SECONDS = 120;
+/**
+ * How long a run hides the events it read. Above the Edge runtime's longest run (400 s wall clock on
+ * paid plans), so the next cron run can't read a group this run is still sending. A group whose send
+ * fails reappears after it; its oldest event is then at most 5 + 7 minutes old, inside STALE_MS, so
+ * it's tried once more.
+ */
+export const VISIBILITY_SECONDS = 420;
 /** A group sends once its newest event is this old… */
 export const QUIET_MS = 60_000;
 /** …or its oldest is this old, whichever is first. */
@@ -91,6 +99,9 @@ export const STALE_MS = 15 * 60_000;
 export const SHOPPING_WINDOW_MS = 2 * 60 * 60_000;
 export const RECEIPT_MIN_AGE_SECONDS = 15 * 60;
 export const RECEIPTS_LIMIT = 1000;
+/** Tries to archive events once their push went out; waits 1 s, then 2 s between them. */
+export const ARCHIVE_TRIES = 3;
+export const ARCHIVE_DELAY_MS = 1000;
 
 const KINDS: readonly string[] = ['items_added', 'shopping'];
 
@@ -311,12 +322,22 @@ export type RunResult = {
   tokensRemoved: number;
 };
 
-export type RunDeps = { store: NotificationStore; expo: ExpoClient; now?: () => Date };
+export type RunDeps = {
+  store: NotificationStore;
+  expo: ExpoClient;
+  now?: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+};
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** One run: the queue, then the receipts. Logs no names, tokens or message text. */
-export async function runWorker({ store, expo, now = () => new Date() }: RunDeps): Promise<RunResult> {
+export async function runWorker({
+  store,
+  expo,
+  now = () => new Date(),
+  sleep = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+}: RunDeps): Promise<RunResult> {
   const result: RunResult = { read: 0, sent: 0, pushes: 0, dropped: 0, waiting: 0, failed: 0, receiptsChecked: 0, tokensRemoved: 0 };
 
   const queued = await store.readEvents(READ_LIMIT, VISIBILITY_SECONDS);
@@ -339,10 +360,10 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     let outcome: Awaited<ReturnType<typeof sendGroup>>;
     try {
       outcome = await sendGroup(group, store, expo, clock);
-      await store.archive(msgIds);
+      if (outcome === 'dropped') await store.archive(msgIds);
     } catch (err) {
-      // Left as read: the events reappear after the visibility timeout and are tried again until
-      // they go stale.
+      // Nothing sent, left as read: the events reappear after the visibility timeout and are tried
+      // again until they go stale.
       result.failed += 1;
       console.error(`send-notifications: a ${group.kind} group failed:`, message(err));
       reportError('send-notifications', err);
@@ -354,9 +375,11 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     }
     result.sent += 1;
     result.pushes += outcome.messages.length;
-    // Sent and archived: a failure from here on mustn't send the group again.
+    // Sent: a failure from here on mustn't send the group again, so archiving is tried on its own
+    // and never counts as a failed send.
+    const { householdId, actor, listId, kind } = group;
+    await archiveSent(store, sleep, msgIds, { householdId, actor, listId, kind });
     try {
-      await store.recordSent(group.householdId, group.actor, group.listId, group.kind);
       result.tokensRemoved += await handleTickets(store, outcome.messages, outcome.tickets);
     } catch (err) {
       console.error('send-notifications: recording a sent group failed:', message(asError(err)));
@@ -368,7 +391,7 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     let outcome: Awaited<ReturnType<typeof sendRecipeImport>>;
     try {
       outcome = await sendRecipeImport(event, store, expo, clock);
-      await store.archive([msgId]);
+      if (outcome === 'dropped') await store.archive([msgId]);
     } catch (err) {
       // Left as read, like a group: tried again until it goes stale.
       result.failed += 1;
@@ -382,6 +405,7 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     }
     result.sent += 1;
     result.pushes += outcome.messages.length;
+    await archiveSent(store, sleep, [msgId]);
     try {
       result.tokensRemoved += await handleTickets(store, outcome.messages, outcome.tickets);
     } catch (err) {
@@ -399,6 +423,32 @@ export async function runWorker({ store, expo, now = () => new Date() }: RunDeps
     reportError('send-notifications', err);
   }
   return result;
+}
+
+/**
+ * Archives events whose push went out (with a group, recording its window in the same call), trying
+ * ARCHIVE_TRIES times. Never throws and never releases: if every try fails the events reappear only
+ * after the visibility timeout, and the failure goes to Sentry.
+ */
+async function archiveSent(
+  store: NotificationStore,
+  sleep: (ms: number) => Promise<void>,
+  msgIds: number[],
+  sent?: SentGroup,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await store.archive(msgIds, sent);
+      return;
+    } catch (err) {
+      if (attempt >= ARCHIVE_TRIES) {
+        console.error('send-notifications: archiving sent events failed:', message(asError(err)));
+        reportError('send-notifications', asError(err), { event: 'archive_sent_failed' });
+        return;
+      }
+      await sleep(ARCHIVE_DELAY_MS * 2 ** (attempt - 1));
+    }
+  }
 }
 
 async function sendGroup(

@@ -15,8 +15,18 @@ export function createNotificationStore(admin: SupabaseClient): NotificationStor
       const rows = await call<{ msg_id: number; message: unknown }[] | null>('read_household_events', { p_qty: qty, p_vt: vtSeconds });
       return (rows ?? []).map((r): QueuedEvent => ({ msgId: Number(r.msg_id), message: r.message }));
     },
-    async archive(msgIds) {
-      await call('archive_household_events', { p_msg_ids: msgIds });
+    async archive(msgIds, sent) {
+      if (!sent) {
+        await call('archive_household_events', { p_msg_ids: msgIds });
+        return;
+      }
+      await call('archive_sent_household_events', {
+        p_msg_ids: msgIds,
+        p_household_id: sent.householdId,
+        p_actor: sent.actor,
+        p_list_id: sent.listId,
+        p_kind: sent.kind,
+      });
     },
     async release(msgIds) {
       await call('release_household_events', { p_msg_ids: msgIds });
@@ -75,9 +85,6 @@ export function createNotificationStore(admin: SupabaseClient): NotificationStor
         p_at: at.toISOString(),
       });
       return (rows ?? []).map((r): Recipient => ({ userId: r.user_id, token: r.token, platform: r.platform }));
-    },
-    async recordSent(householdId, actor, listId, kind) {
-      await call('record_push_sent', { p_household_id: householdId, p_actor: actor, p_list_id: listId, p_kind: kind });
     },
     async deleteTokens(tokens) {
       await call('delete_push_tokens', { p_tokens: tokens });

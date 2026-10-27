@@ -70,8 +70,11 @@ function fakeStore(
     importsMuted?: string[];
     /** Extra devices per user. */
     moreTokens?: Record<string, string[]>;
+    /** How many archive calls fail (each throwing, archiving nothing) before they work again. */
+    archiveFailures?: number;
   } = {},
 ) {
+  let archiveFailures = db.archiveFailures ?? 0;
   const rows = db.rows ?? {};
   const lastSent: Record<string, string> = { ...db.lastSent };
   const lists: Record<string, string | null> = { [GROCERIES]: 'Groceries', [HARDWARE]: 'Hardware' };
@@ -79,6 +82,8 @@ function fakeStore(
   const calls = {
     read: [] as [number, number][],
     archived: [] as number[],
+    /** Every archive call, failed ones included. */
+    archiveCalls: 0,
     released: [] as number[],
     groupDetails: [] as { kind: EventKind; listId: string; actor: string; ids: string[] }[],
     recipients: [] as { householdId: string; actor: string; kind: EventKind; at: string }[],
@@ -90,19 +95,33 @@ function fakeStore(
     dueReceipts: [] as [number, number][],
     deletedReceipts: [] as string[],
   };
-  let queue = [...events];
+  // Like pgmq: a read hides events for vt seconds; unarchived ones are read again once it ends.
+  const queue = [...events];
+  const hiddenUntil = new Map<number, number>();
+  let clock = NOW;
   const store: NotificationStore = {
     async readEvents(qty, vt) {
       calls.read.push([qty, vt]);
-      const read = queue.slice(0, qty);
-      queue = queue.slice(qty);
+      const read = queue.filter((e) => (hiddenUntil.get(e.msgId) ?? 0) <= clock).slice(0, qty);
+      for (const e of read) hiddenUntil.set(e.msgId, clock + vt * 1000);
       return read;
     },
-    async archive(ids) {
+    async archive(ids, sent) {
+      calls.archiveCalls += 1;
+      if (archiveFailures > 0) {
+        archiveFailures -= 1;
+        throw new Error('archive failed');
+      }
       calls.archived.push(...ids);
+      queue.splice(0, queue.length, ...queue.filter((e) => !ids.includes(e.msgId)));
+      if (sent) {
+        calls.recordSent.push(`${sent.householdId}|${sent.actor}|${sent.listId}|${sent.kind}`);
+        lastSent[`${sent.actor}|${sent.listId}|${sent.kind}`] = new Date(clock).toISOString();
+      }
     },
     async release(ids) {
       calls.released.push(...ids);
+      for (const id of ids) hiddenUntil.delete(id);
     },
     async groupDetails(kind, listId, actor, ids) {
       calls.groupDetails.push({ kind, listId, actor, ids });
@@ -132,10 +151,6 @@ function fakeStore(
       if (db.importsMuted?.includes(userId)) return [];
       return [TOKENS[userId], ...(db.moreTokens?.[userId] ?? [])].map((token): Recipient => ({ userId, token, platform: 'ios' }));
     },
-    async recordSent(householdId, actor, listId, kind) {
-      calls.recordSent.push(`${householdId}|${actor}|${listId}|${kind}`);
-      lastSent[`${actor}|${listId}|${kind}`] = new Date(NOW).toISOString();
-    },
     async deleteTokens(tokens) {
       calls.deletedTokens.push(...tokens);
     },
@@ -150,16 +165,25 @@ function fakeStore(
       calls.deletedReceipts.push(...ids);
     },
   };
-  return { store, calls, push: (...more: QueuedEvent[]) => queue.push(...more) };
+  return {
+    store,
+    calls,
+    push: (...more: QueuedEvent[]) => queue.push(...more),
+    setClock: (at: number) => void (clock = at),
+  };
 }
 
 function setup(events: QueuedEvent[], db: Parameters<typeof fakeStore>[1] = {}, responses: FakeResponse[] = []) {
   const s = fakeStore(events, db);
   const f = fakeFetch(responses);
   const sleeps: number[] = [];
+  const archiveSleeps: number[] = [];
   const expo = createExpoClient({ fetch: f.fn, sleep: async (ms) => void sleeps.push(ms) });
-  const run = (at = NOW) => runWorker({ store: s.store, expo, now: () => new Date(at) });
-  return { ...s, fetchCalls: f.calls, sleeps, run };
+  const run = (at = NOW) => {
+    s.setClock(at);
+    return runWorker({ store: s.store, expo, now: () => new Date(at), sleep: async (ms) => void archiveSleeps.push(ms) });
+  };
+  return { ...s, fetchCalls: f.calls, sleeps, archiveSleeps, run };
 }
 
 const sent = (calls: { url: string; body: unknown }[]) =>
@@ -169,10 +193,10 @@ const msgIds = (events: QueuedEvent[]) => events.map((e) => e.msgId);
 
 // Grouping ----------------------------------------------------------------------------------------
 
-Deno.test('reads up to 500 events with a 2-minute visibility timeout', async () => {
+Deno.test('reads up to 500 events with a 7-minute visibility timeout', async () => {
   const t = setup([]);
   await t.run();
-  assertEquals(t.calls.read, [[500, 120]]);
+  assertEquals(t.calls.read, [[500, 420]]);
 });
 
 Deno.test('a group quiet for less than 60 s waits: released, not sent, not archived', async () => {
@@ -482,6 +506,75 @@ Deno.test('a send still failing after 3 tries leaves the group to reappear; othe
   assertEquals(t.calls.recordSent, [`${H}|${ALEX}|${HARDWARE}|shopping`]);
 });
 
+Deno.test('a failed send is tried again once its events reappear, even a group sent at the 5-minute cap', async () => {
+  const events = [add({ id: 'c1', ageS: 300 }), add({ id: 'c2', ageS: 10 })];
+  const err = () => new Response('', { status: 502 });
+  const t = setup(events, { rows: { c1: { name: 'Milk' }, c2: { name: 'Eggs' } } }, [err(), err(), err(), okTickets]);
+  assertEquals((await t.run()).failed, 1);
+  // Hidden until the visibility timeout ends, then read again, still inside the 15-minute limit.
+  assertEquals((await t.run(NOW + 419_000)).read, 0);
+  const retry = await t.run(NOW + 420_000);
+  assertEquals([retry.read, retry.sent, retry.dropped], [2, 1, 0]);
+  // Three refused tries, then the one that went through.
+  assertEquals(t.fetchCalls.filter((c) => c.url === SEND_URL).length, 4);
+  assertEquals(t.calls.archived, msgIds(events));
+});
+
+// Never twice -------------------------------------------------------------------------------------
+
+Deno.test('archive rejecting once after a successful send is tried again: no second send', async () => {
+  const events = [add({ id: 'c1', ageS: 70 })];
+  const t = setup(events, { rows: { c1: { name: 'Milk' } }, archiveFailures: 1 }, [okTickets, okTickets]);
+  const result = await t.run();
+  assertEquals(t.calls.archiveCalls, 2);
+  assertEquals(t.archiveSleeps, [1000]);
+  assertEquals(t.calls.archived, msgIds(events));
+  assertEquals(t.calls.released, []);
+  assertEquals([result.sent, result.failed], [1, 0]);
+  // Past the visibility timeout: nothing comes back, nothing is sent again.
+  const later = await t.run(NOW + 421_000);
+  assertEquals(later.read, 0);
+  assertEquals(sent(t.fetchCalls).length, 2);
+});
+
+Deno.test('archive failing every try after a send is never released or counted failed', async () => {
+  const events = [check({ item: 'i1', ageS: 70 })];
+  const t = setup(events, { archiveFailures: 3 }, [okTickets]);
+  const result = await t.run();
+  assertEquals(t.calls.archiveCalls, 3);
+  assertEquals(t.archiveSleeps, [1000, 2000]);
+  assertEquals(t.calls.released, []);
+  assertEquals(t.calls.archived, []);
+  assertEquals([result.sent, result.failed, result.pushes], [1, 0, 2]);
+  // The tickets are still stored.
+  assertEquals(t.calls.savedReceipts.length, 2);
+  // A run within the visibility timeout doesn't see them.
+  assertEquals((await t.run(NOW + 60_000)).read, 0);
+  assertEquals(sent(t.fetchCalls).length, 2);
+});
+
+Deno.test('the shopping window is recorded with the archive: a failed first try still blocks the next shopping push', async () => {
+  const t = setup([check({ item: 'i1', ageS: 70 })], { archiveFailures: 1 }, [okTickets, okTickets]);
+  await t.run();
+  assertEquals(t.calls.recordSent, [`${H}|${ALEX}|${GROCERIES}|shopping`]);
+  t.push(check({ item: 'i2', ageS: 61 }));
+  const next = await t.run(NOW + 60_000);
+  assertEquals([next.sent, next.dropped], [0, 1]);
+  assertEquals(sent(t.fetchCalls).length, 2);
+});
+
+Deno.test('a group dropped unsent whose archive fails is left to reappear (nothing was pushed)', async () => {
+  const events = [add({ id: 'c1', ageS: 70 })];
+  const t = setup(events, { rows: { c1: { name: 'Milk', live: false } }, archiveFailures: 1 });
+  const result = await t.run();
+  assertEquals([result.failed, result.dropped], [1, 0]);
+  assertEquals(t.calls.archiveCalls, 1);
+  const retry = await t.run(NOW + 420_000);
+  assertEquals(retry.dropped, 1);
+  assertEquals(t.calls.archived, msgIds(events));
+  assertEquals(t.fetchCalls, []);
+});
+
 Deno.test('ok tickets are stored with their tokens; DeviceNotRegistered deletes that token', async () => {
   const t = setup([check({ item: 'i1', ageS: 70 })], {}, [
     Response.json({
@@ -698,6 +791,18 @@ Deno.test('a send that fails leaves the import event to be tried again', async (
   const result = await t.run();
   assertEquals(t.calls.archived, []);
   assertEquals(result.failed, 1);
+});
+
+Deno.test('an import whose archive rejects once after its push is archived on the next try and never pushed again', async () => {
+  const event = imported();
+  const t = setup([event], { imports: { [JOB]: done() }, archiveFailures: 1 }, [okTickets, okTickets]);
+  const result = await t.run();
+  assertEquals([result.sent, result.failed], [1, 0]);
+  assertEquals(t.calls.archiveCalls, 2);
+  assertEquals(t.calls.archived, [event.msgId]);
+  assertEquals(t.calls.recordSent, []);
+  await t.run(NOW + 421_000);
+  assertEquals(sent(t.fetchCalls).length, 1);
 });
 
 Deno.test('a device Expo says is gone loses its token', async () => {
