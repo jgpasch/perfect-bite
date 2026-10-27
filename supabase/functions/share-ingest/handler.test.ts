@@ -52,13 +52,21 @@ function memoryStore(options: { limit?: number } = {}) {
   const lists: Record<string, string> = { [groceries]: home, [awayList]: away };
   const used = new Map<string, number>();
   const limitCalls: string[] = [];
+  const userLimitCalls: string[] = [];
+  const count = (key: string) => {
+    const n = used.get(key) ?? 0;
+    if (n >= (options.limit ?? 30)) return Promise.resolve('user_limit' as const);
+    used.set(key, n + 1);
+    return Promise.resolve('ok' as const);
+  };
   const store: ShareIngestStore = {
     checkLimit(credentialId) {
       limitCalls.push(credentialId);
-      const n = used.get(credentialId) ?? 0;
-      if (n >= (options.limit ?? 30)) return Promise.resolve('user_limit');
-      used.set(credentialId, n + 1);
-      return Promise.resolve('ok');
+      return count(`credential:${credentialId}`);
+    },
+    checkUserLimit(userId) {
+      userLimitCalls.push(userId);
+      return count(`user:${userId}`);
     },
     ingest(row): Promise<ShareIngestOutcome> {
       const existing = rows.get(row.id);
@@ -77,7 +85,7 @@ function memoryStore(options: { limit?: number } = {}) {
       return Promise.resolve({ outcome: 'accepted', status: 'received' });
     },
   };
-  return { store, rows, limitCalls };
+  return { store, rows, limitCalls, userLimitCalls };
 }
 
 const users: Record<string, ShareIngestAuth> = {
@@ -124,7 +132,7 @@ async function answer(res: Response) {
 // --- Accepted -------------------------------------------------------------------------------------
 
 Deno.test('a new share with a session: 202 { id, status }, recorded for the session user, and the worker started', async () => {
-  const { store, rows, limitCalls } = memoryStore();
+  const { store, rows, limitCalls, userLimitCalls } = memoryStore();
   const server = serve(store);
   const res = await server.call(post(envelope()));
 
@@ -146,16 +154,18 @@ Deno.test('a new share with a session: 202 { id, status }, recorded for the sess
   assertEquals(row.payloadHash, await sharePayloadHash(envelope() as ShareEnvelope));
   assertEquals(server.authenticated, [SESSION]);
   assertEquals(limitCalls, [], 'a session has no per-credential limit');
+  assertEquals(userLimitCalls, [alex], "a session counts against the user's limit");
   assertEquals(server.workerStarts(), 1);
 });
 
 Deno.test('a new share with a device credential: recorded with the credential, counted against its limit', async () => {
-  const { store, rows, limitCalls } = memoryStore();
+  const { store, rows, limitCalls, userLimitCalls } = memoryStore();
   const res = await serve(store).call(post(envelope(), { authorization: `Bearer ${DEVICE}` }));
   assertEquals(await answer(res), { status: 202, body: { id: opId, status: 'received' } });
   assertEquals(rows.get(opId)!.credentialId, credential);
   assertEquals(rows.get(opId)!.userId, alex);
   assertEquals(limitCalls, [credential]);
+  assertEquals(userLimitCalls, []);
 });
 
 Deno.test('an envelope from an older extension (no v, userId, householdId or addToList) is the authenticated user\'s', async () => {
@@ -339,7 +349,7 @@ Deno.test('a body over 2.5 MB is 413, declared or streamed', async () => {
   assertEquals(MAX_BODY_BYTES, 2_621_440);
 });
 
-Deno.test('a credential over its per-minute limit is 429 rate_limited, nothing recorded; a session is not limited', async () => {
+Deno.test('a credential over its per-minute limit is 429 rate_limited, nothing recorded; a session has its own count', async () => {
   const { store, rows } = memoryStore({ limit: 2 });
   const server = serve(store);
   const device = { authorization: `Bearer ${DEVICE}` };
@@ -351,6 +361,44 @@ Deno.test('a credential over its per-minute limit is 429 rate_limited, nothing r
   assertEquals(rows.size, 1);
   const session = await server.call(post(envelope({ id: '0192f0c4-7b1a-7c3d-8e4f-000000000003' }), { 'idempotency-key': '0192f0c4-7b1a-7c3d-8e4f-000000000003' }));
   assertEquals(session.status, 202);
+});
+
+Deno.test('a session over the user\'s per-minute limit is 429 rate_limited, nothing recorded', async () => {
+  const { store, rows, limitCalls, userLimitCalls } = memoryStore({ limit: 2 });
+  const server = serve(store);
+  const share = (n: number) => {
+    const id = `0192f0c4-7b1a-7c3d-8e4f-00000000000${n}`;
+    return server.call(post(envelope({ id }), { 'idempotency-key': id }));
+  };
+  assertEquals((await share(1)).status, 202);
+  assertEquals((await share(2)).status, 202);
+  const third = await share(3);
+  assertEquals(await answer(third), { status: 429, body: { error: 'rate_limited', message: 'Too many shares; try again in a minute' } });
+  assertEquals([...rows.keys()].sort(), ['0192f0c4-7b1a-7c3d-8e4f-000000000001', '0192f0c4-7b1a-7c3d-8e4f-000000000002']);
+  assertEquals(userLimitCalls, [alex, alex, alex]);
+  assertEquals(limitCalls, []);
+  // The device credential's allowance is separate.
+  const device = await server.call(post(envelope({ id: '0192f0c4-7b1a-7c3d-8e4f-000000000004' }), {
+    authorization: `Bearer ${DEVICE}`,
+    'idempotency-key': '0192f0c4-7b1a-7c3d-8e4f-000000000004',
+  }));
+  assertEquals(device.status, 202);
+});
+
+Deno.test('the session limit is counted per user', async () => {
+  const { store, userLimitCalls } = memoryStore({ limit: 1 });
+  const samSession = 'sam-session';
+  const server = serve(store, {
+    authenticate: (token) => Promise.resolve(token === samSession ? { userId: sam, credentialId: null } : users[token] ?? null),
+  });
+  assertEquals((await server.call(post(envelope()))).status, 202);
+  const id = '0192f0c4-7b1a-7c3d-8e4f-000000000005';
+  const second = await server.call(post(envelope({ id, userId: sam, householdId: away, listId: awayList }), {
+    authorization: `Bearer ${samSession}`,
+    'idempotency-key': id,
+  }));
+  assertEquals(second.status, 202);
+  assertEquals(userLimitCalls, [alex, sam]);
 });
 
 Deno.test('SHARE_IMPORT=off is 503 unavailable with Retry-After, before authenticating', async () => {
@@ -375,6 +423,7 @@ Deno.test('only POST', async () => {
 Deno.test('a database error is 500, and the log holds neither the page nor the token', async () => {
   const failing: ShareIngestStore = {
     checkLimit: () => Promise.resolve('ok'),
+    checkUserLimit: () => Promise.resolve('ok'),
     ingest: () => Promise.reject(new Error('ingest_share_import failed: connection reset')),
   };
   const logged: string[] = [];
@@ -497,4 +546,16 @@ Deno.test('createShareIngestStore: checkLimit by credential', async () => {
   await assertRejects(() => createShareIngestStore(admin).checkLimit(credential), Error, 'answered daily_limit');
   const failing = fakeAdmin({ check_share_ingest_limit: { data: null, error: { message: 'boom' } } });
   await assertRejects(() => createShareIngestStore(failing.admin).checkLimit(credential), Error, 'check_share_ingest_limit failed');
+});
+
+Deno.test('createShareIngestStore: checkUserLimit by user', async () => {
+  for (const data of ['ok', 'user_limit'] as const) {
+    const { admin, calls } = fakeAdmin({ check_share_ingest_user_limit: { data, error: null } });
+    assertEquals(await createShareIngestStore(admin).checkUserLimit(alex), data);
+    assertEquals(calls, [{ fn: 'check_share_ingest_user_limit', args: { p_user_id: alex } }]);
+  }
+  const { admin } = fakeAdmin({ check_share_ingest_user_limit: { data: null, error: null } });
+  await assertRejects(() => createShareIngestStore(admin).checkUserLimit(alex), Error, 'check_share_ingest_user_limit answered null');
+  const failing = fakeAdmin({ check_share_ingest_user_limit: { data: null, error: { message: 'boom' } } });
+  await assertRejects(() => createShareIngestStore(failing.admin).checkUserLimit(alex), Error, 'check_share_ingest_user_limit failed: boom');
 });

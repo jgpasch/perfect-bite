@@ -89,9 +89,10 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
       return error(403, 'account_mismatch', 'The share belongs to another account');
     }
 
-    if (auth.credentialId !== null && (await deps.store.checkLimit(auth.credentialId)) !== 'ok') {
-      return error(429, 'rate_limited', 'Too many shares from this device; try again in a minute');
-    }
+    // A device credential has its own limit; a session's uploads count against the user's.
+    const limit =
+      auth.credentialId === null ? await deps.store.checkUserLimit(auth.userId) : await deps.store.checkLimit(auth.credentialId);
+    if (limit !== 'ok') return error(429, 'rate_limited', 'Too many shares; try again in a minute');
 
     const row = await shareIngestRow(envelope, auth);
     const result = await deps.store.ingest(row);

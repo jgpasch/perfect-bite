@@ -38,6 +38,8 @@ export type ShareIngestOutcome =
 export type ShareIngestStore = {
   /** The credential's `share_ingest` limit, counting one upload: 'ok' or 'user_limit'. */
   checkLimit(credentialId: string): Promise<'ok' | 'user_limit'>;
+  /** The user's `share_ingest` limit for uploads with a session, counting one: 'ok' or 'user_limit'. */
+  checkUserLimit(userId: string): Promise<'ok' | 'user_limit'>;
   /** Records the operation, or answers the one already under its id. */
   ingest(row: ShareIngestRow): Promise<ShareIngestOutcome>;
 };
@@ -105,6 +107,12 @@ export function createShareIngestStore(admin: RpcClient): ShareIngestStore {
       const { data, error } = await admin.rpc('check_share_ingest_limit', { p_credential_id: credentialId });
       if (error) throw new Error(`check_share_ingest_limit failed: ${error.message}`);
       if (data !== 'ok' && data !== 'user_limit') throw new Error(`check_share_ingest_limit answered ${String(data)}`);
+      return data;
+    },
+    async checkUserLimit(userId) {
+      const { data, error } = await admin.rpc('check_share_ingest_user_limit', { p_user_id: userId });
+      if (error) throw new Error(`check_share_ingest_user_limit failed: ${error.message}`);
+      if (data !== 'ok' && data !== 'user_limit') throw new Error(`check_share_ingest_user_limit answered ${String(data)}`);
       return data;
     },
     async ingest(row) {
