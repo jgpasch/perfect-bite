@@ -1,10 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/button';
-import { Card } from '@/components/card';
+import { CardSlice } from '@/components/card';
 import { CheckCircle } from '@/components/check-circle';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -54,83 +54,88 @@ export default function AddRecipesSheet() {
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
-      <ScrollView
+      {/* Only the rows in sight are mounted, so the search stays quick: each row is its slice of the card. */}
+      <FlatList
         style={styles.flex}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-        <View style={{ gap: spacing.xs, paddingHorizontal: spacing.lg + spacing.xs }}>
-          <ThemedText variant="title" accessibilityRole="header">
-            {t('recipes.collections.addRecipes')}
-          </ThemedText>
-          <ThemedText variant="subhead" color="inkSecondary" numberOfLines={1}>
-            {collection.name}
-          </ThemedText>
-        </View>
-        {own.length > 0 ? (
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <TextField
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('recipes.collections.searchRecipes')}
-              accessibilityLabel={t('recipes.collections.searchRecipes')}
-              returnKeyType="search"
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-            />
+        contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.lg }}
+        data={shown}
+        keyExtractor={({ recipe }) => recipe.id}
+        ListHeaderComponent={
+          <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+            <View style={{ gap: spacing.xs, paddingHorizontal: spacing.lg + spacing.xs }}>
+              <ThemedText variant="title" accessibilityRole="header">
+                {t('recipes.collections.addRecipes')}
+              </ThemedText>
+              <ThemedText variant="subhead" color="inkSecondary" numberOfLines={1}>
+                {collection.name}
+              </ThemedText>
+            </View>
+            {own.length > 0 ? (
+              <View style={{ paddingHorizontal: spacing.lg }}>
+                <TextField
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={t('recipes.collections.searchRecipes')}
+                  accessibilityLabel={t('recipes.collections.searchRecipes')}
+                  returnKeyType="search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  clearButtonMode="while-editing"
+                />
+              </View>
+            ) : null}
           </View>
-        ) : null}
-        {shown.length > 0 ? (
-          <Card>
-            {shown.map(({ recipe: r }, i) => {
-              const already = inIt.has(r.id);
-              const on = already || ticked.has(r.id);
-              const line = already ? t('recipes.collections.alreadyIn', { name: collection.name }) : recipeMetaLine(r);
-              return (
-                <Pressable
-                  key={r.id}
-                  testID="add-recipes-row"
-                  accessibilityRole="button"
-                  accessibilityLabel={[selectLabel(r.name, on && !already), line].filter(Boolean).join(', ')}
-                  accessibilityState={{ selected: on, disabled: already }}
-                  disabled={already}
-                  onPress={() => setTicked((current) => toggled(current, r.id))}
-                  style={({ pressed }) => [
-                    styles.row,
-                    {
-                      minHeight: sizes.recipeTile + spacing.md * 2,
-                      paddingHorizontal: spacing.lg,
-                      paddingVertical: spacing.md,
-                      gap: spacing.md,
-                      borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                      borderTopColor: colors.border,
-                      backgroundColor: on && !already ? colors.primarySoft : undefined,
-                      opacity: already ? opacity.disabled : pressed ? opacity.pressed : 1,
-                    },
-                  ]}>
-                  <CheckCircle checked={on} />
-                  <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} photoPath={r.photoPath} />
-                  <View style={styles.flex}>
-                    <ThemedText variant="headline" numberOfLines={1}>
-                      {r.name}
-                    </ThemedText>
-                    {line ? (
-                      <ThemedText variant="footnote" color="inkSecondary">
-                        {line}
-                      </ThemedText>
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </Card>
-        ) : (
+        }
+        ListEmptyComponent={
           <ThemedText variant="callout" color="inkSecondary" style={[styles.center, { paddingHorizontal: spacing.lg }]}>
             {own.length === 0 ? t('recipes.collections.noHouseholdRecipes') : NO_RECIPES_MATCH}
           </ThemedText>
-        )}
-      </ScrollView>
+        }
+        renderItem={({ item: { recipe: r }, index: i }) => {
+          const already = inIt.has(r.id);
+          const on = already || ticked.has(r.id);
+          const line = already ? t('recipes.collections.alreadyIn', { name: collection.name }) : recipeMetaLine(r);
+          return (
+            <CardSlice top={i === 0} bottom={i === shown.length - 1}>
+              <Pressable
+                testID="add-recipes-row"
+                accessibilityRole="button"
+                accessibilityLabel={[selectLabel(r.name, on && !already), line].filter(Boolean).join(', ')}
+                accessibilityState={{ selected: on, disabled: already }}
+                disabled={already}
+                onPress={() => setTicked((current) => toggled(current, r.id))}
+                style={({ pressed }) => [
+                  styles.row,
+                  {
+                    minHeight: sizes.recipeTile + spacing.md * 2,
+                    paddingHorizontal: spacing.lg,
+                    paddingVertical: spacing.md,
+                    gap: spacing.md,
+                    borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                    borderTopColor: colors.border,
+                    backgroundColor: on && !already ? colors.primarySoft : undefined,
+                    opacity: already ? opacity.disabled : pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <CheckCircle checked={on} />
+                <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} photoPath={r.photoPath} />
+                <View style={styles.flex}>
+                  <ThemedText variant="headline" numberOfLines={1}>
+                    {r.name}
+                  </ThemedText>
+                  {line ? (
+                    <ThemedText variant="footnote" color="inkSecondary">
+                      {line}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </Pressable>
+            </CardSlice>
+          );
+        }}
+      />
       {adding.length > 0 ? (
         <View
           testID="add-recipes-bar"

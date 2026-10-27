@@ -2,12 +2,12 @@ import { Host, Menu, RNHostView, Toggle } from '@expo/ui/swift-ui';
 import { accessibilityHint, accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { hueHeaderBand } from '@/components/appearance';
 import { Button, PrimaryButton } from '@/components/button';
-import { Card } from '@/components/card';
+import { CardSlice } from '@/components/card';
 import { Icon, type IconName } from '@/components/icon';
 import { Pill } from '@/components/pill';
 import { TextField } from '@/components/text-field';
@@ -166,156 +166,161 @@ export default function PlanSlotSheet() {
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.Button onPress={() => router.back()}>{t('common.cancel')}</Stack.Toolbar.Button>
       </Stack.Toolbar>
-      <ScrollView
+      {/* Only the rows in sight are mounted, so the search stays quick: each row is its slice of the card. */}
+      <FlatList
         style={styles.flex}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.lg }}>
-        <View accessible accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
-          <ThemedText variant="headline" style={{ color: band.text }}>
-            {adding ? t('mealPlan.addDayLine', { day: sheetDayLabel(day), meal: mealLabel(meal) }) : sheetDayLabel(day)}
-          </ThemedText>
-          <ThemedText variant="sheetTitle">{adding ? t(`mealPlan.addTo.${meal}`) : mealLabel(meal)}</ThemedText>
-        </View>
+        contentContainerStyle={{ paddingTop: spacing.xs, paddingBottom: spacing.lg }}
+        data={shown}
+        keyExtractor={(r) => r.id}
+        ListHeaderComponent={
+          <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+            <View accessible accessibilityRole="header" style={{ paddingHorizontal: spacing.lg + spacing.xs }}>
+              <ThemedText variant="headline" style={{ color: band.text }}>
+                {adding ? t('mealPlan.addDayLine', { day: sheetDayLabel(day), meal: mealLabel(meal) }) : sheetDayLabel(day)}
+              </ThemedText>
+              <ThemedText variant="sheetTitle">{adding ? t(`mealPlan.addTo.${meal}`) : mealLabel(meal)}</ThemedText>
+            </View>
 
-        {adding && inSlot.length > 0 ? (
-          <View
-            testID="slot-with"
-            style={[
-              styles.row,
-              {
-                marginHorizontal: spacing.lg,
-                paddingHorizontal: spacing.md,
-                paddingVertical: spacing.sm,
-                borderRadius: rounded.md,
-                backgroundColor: colors.primarySoft,
-              },
-            ]}>
-            <ThemedText variant="footnote" color="onPrimarySoft" numberOfLines={1} style={[styles.flex, styles.strong]}>
-              {t('mealPlan.withRecipes', { names: inSlot.map((e) => e.recipeName ?? '').join(', ') })}
-            </ThemedText>
-          </View>
-        ) : null}
+            {adding && inSlot.length > 0 ? (
+              <View
+                testID="slot-with"
+                style={[
+                  styles.row,
+                  {
+                    marginHorizontal: spacing.lg,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.sm,
+                    borderRadius: rounded.md,
+                    backgroundColor: colors.primarySoft,
+                  },
+                ]}>
+                <ThemedText variant="footnote" color="onPrimarySoft" numberOfLines={1} style={[styles.flex, styles.strong]}>
+                  {t('mealPlan.withRecipes', { names: inSlot.map((e) => e.recipeName ?? '').join(', ') })}
+                </ThemedText>
+              </View>
+            ) : null}
 
-        <View style={{ gap: spacing.xs }}>
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <TextField
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('mealPlan.searchRecipes')}
-              accessibilityLabel={t('mealPlan.searchRecipes')}
-              returnKeyType="search"
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-            />
-          </View>
-          <RecipeFilterBar
-            row
-            filters={filters}
-            onOpen={() => setFiltersOpen(true)}
-            onRemove={(chip) => setFilters(removeFilterChip(filters, chip))}
-            hideChip={quickChipShows}>
-            {QUICK_CHIPS.map((chip) => (
-              <Pill
-                key={chip}
-                label={chipLabel(chip)}
-                selected={quickChipOn(filters, chip, meal)}
-                onPress={() => setFilters(toggleQuickChip(filters, chip, meal))}
-              />
-            ))}
-          </RecipeFilterBar>
-        </View>
-
-        <View style={[styles.row, styles.between, { gap: spacing.md, paddingHorizontal: spacing.lg + spacing.xs }]}>
-          <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.shrink}>
-            {picked.length > 0 ? t('mealPlan.selectedCount', { count: picked.length, rest: countLine }) : countLine}
-          </ThemedText>
-          <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
-            <Menu
-              label={
-                <RNHostView matchContents>
-                  <View testID="slot-sort" style={[styles.row, { minHeight: sizes.minTapTarget, gap: spacing.xs }]}>
-                    <ThemedText variant="amount" color="primary" style={styles.strong}>
-                      {t(`mealPlan.sort.${sort}`)}
-                    </ThemedText>
-                    <Icon name="chevron.down" color="primary" size={sizes.iconSmall} weight="bold" />
-                  </View>
-                </RNHostView>
-              }
-              modifiers={[
-                accessibilityLabel(t('recipes.sort.button', { choice: t(`mealPlan.sort.${sort}`) })),
-                accessibilityHint(t('mealPlan.sortHint')),
-              ]}>
-              {SORTS.map((item) => (
-                <Toggle
-                  key={item.sort}
-                  label={t(`mealPlan.sort.${item.sort}`)}
-                  systemImage={item.icon}
-                  isOn={item.sort === sort}
-                  onIsOnChange={() => setSort(item.sort)}
+            <View style={{ gap: spacing.xs }}>
+              <View style={{ paddingHorizontal: spacing.lg }}>
+                <TextField
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={t('mealPlan.searchRecipes')}
+                  accessibilityLabel={t('mealPlan.searchRecipes')}
+                  returnKeyType="search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  clearButtonMode="while-editing"
                 />
-              ))}
-            </Menu>
-          </Host>
-        </View>
+              </View>
+              <RecipeFilterBar
+                row
+                filters={filters}
+                onOpen={() => setFiltersOpen(true)}
+                onRemove={(chip) => setFilters(removeFilterChip(filters, chip))}
+                hideChip={quickChipShows}>
+                {QUICK_CHIPS.map((chip) => (
+                  <Pill
+                    key={chip}
+                    label={chipLabel(chip)}
+                    selected={quickChipOn(filters, chip, meal)}
+                    onPress={() => setFilters(toggleQuickChip(filters, chip, meal))}
+                  />
+                ))}
+              </RecipeFilterBar>
+            </View>
 
-        {shown.length > 0 ? (
-          <Card>
-            {shown.map((r, i) => {
-              const already = inSlotIds.has(r.id);
-              const on = !already && ticked.includes(r.id);
-              const line = already
-                ? t(`mealPlan.alreadyIn.${meal}`)
-                : [recipeTimeLabel(r.totalMinutes), recipeAddedLabel(r.createdAt, now)].filter(Boolean).join(' · ');
-              return (
-                <Pressable
-                  key={r.id}
-                  testID={`slot-recipe-${r.id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${on ? t('mealPlan.tickedRecipe', { name: r.name }) : r.name}, ${line}`}
-                  accessibilityState={{ disabled: already, checked: already ? true : undefined }}
-                  disabled={already}
-                  onPress={() => toggle(r.id)}
-                  style={({ pressed }) => [
-                    styles.row,
-                    {
-                      minHeight: sizes.cardRowMin,
-                      paddingHorizontal: spacing.lg,
-                      paddingVertical: spacing.sm,
-                      gap: spacing.md,
-                      borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                      borderTopColor: colors.border,
-                      backgroundColor: on ? colors.primarySoft : undefined,
-                      opacity: already ? opacity.disabled : pressed ? opacity.pressed : 1,
-                    },
+            <View style={[styles.row, styles.between, { gap: spacing.md, paddingHorizontal: spacing.lg + spacing.xs }]}>
+              <ThemedText variant="sectionLabel" color="inkSecondary" style={styles.shrink}>
+                {picked.length > 0 ? t('mealPlan.selectedCount', { count: picked.length, rest: countLine }) : countLine}
+              </ThemedText>
+              <Host matchContents colorScheme={scheme} seedColor={colors.primary}>
+                <Menu
+                  label={
+                    <RNHostView matchContents>
+                      <View testID="slot-sort" style={[styles.row, { minHeight: sizes.minTapTarget, gap: spacing.xs }]}>
+                        <ThemedText variant="amount" color="primary" style={styles.strong}>
+                          {t(`mealPlan.sort.${sort}`)}
+                        </ThemedText>
+                        <Icon name="chevron.down" color="primary" size={sizes.iconSmall} weight="bold" />
+                      </View>
+                    </RNHostView>
+                  }
+                  modifiers={[
+                    accessibilityLabel(t('recipes.sort.button', { choice: t(`mealPlan.sort.${sort}`) })),
+                    accessibilityHint(t('mealPlan.sortHint')),
                   ]}>
-                  <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} photoPath={r.photoPath} />
-                  <View style={styles.flex}>
-                    <ThemedText variant="body" numberOfLines={2}>
-                      {r.name}
-                    </ThemedText>
-                    <ThemedText variant="footnote" color="inkSecondary">
-                      {line}
-                    </ThemedText>
-                  </View>
-                  <TickCircle state={already ? 'already' : on ? 'on' : 'off'} />
-                </Pressable>
-              );
-            })}
-          </Card>
-        ) : (
+                  {SORTS.map((item) => (
+                    <Toggle
+                      key={item.sort}
+                      label={t(`mealPlan.sort.${item.sort}`)}
+                      systemImage={item.icon}
+                      isOn={item.sort === sort}
+                      onIsOnChange={() => setSort(item.sort)}
+                    />
+                  ))}
+                </Menu>
+              </Host>
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
           <ThemedText variant="callout" color="inkSecondary" style={[styles.centerText, { paddingHorizontal: spacing.lg }]}>
             {own.length === 0 ? t('mealPlan.noRecipes') : NO_RECIPES_MATCH}
           </ThemedText>
-        )}
-
-        {filtering ? (
-          <View style={[styles.row, styles.center]}>
-            <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setFilters(noRecipeFilters())} />
-          </View>
-        ) : null}
-      </ScrollView>
+        }
+        renderItem={({ item: r, index: i }) => {
+          const already = inSlotIds.has(r.id);
+          const on = !already && ticked.includes(r.id);
+          const line = already
+            ? t(`mealPlan.alreadyIn.${meal}`)
+            : [recipeTimeLabel(r.totalMinutes), recipeAddedLabel(r.createdAt, now)].filter(Boolean).join(' · ');
+          return (
+            <CardSlice top={i === 0} bottom={i === shown.length - 1}>
+              <Pressable
+                testID={`slot-recipe-${r.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${on ? t('mealPlan.tickedRecipe', { name: r.name }) : r.name}, ${line}`}
+                accessibilityState={{ disabled: already, checked: already ? true : undefined }}
+                disabled={already}
+                onPress={() => toggle(r.id)}
+                style={({ pressed }) => [
+                  styles.row,
+                  {
+                    minHeight: sizes.cardRowMin,
+                    paddingHorizontal: spacing.lg,
+                    paddingVertical: spacing.sm,
+                    gap: spacing.md,
+                    borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                    borderTopColor: colors.border,
+                    backgroundColor: on ? colors.primarySoft : undefined,
+                    opacity: already ? opacity.disabled : pressed ? opacity.pressed : 1,
+                  },
+                ]}>
+                <RecipePhotoTile recipeId={r.id} imageUrl={r.imageUrl} photoPath={r.photoPath} />
+                <View style={styles.flex}>
+                  <ThemedText variant="body" numberOfLines={2}>
+                    {r.name}
+                  </ThemedText>
+                  <ThemedText variant="footnote" color="inkSecondary">
+                    {line}
+                  </ThemedText>
+                </View>
+                <TickCircle state={already ? 'already' : on ? 'on' : 'off'} />
+              </Pressable>
+            </CardSlice>
+          );
+        }}
+        ListFooterComponent={
+          filtering ? (
+            <View style={[styles.row, styles.center, { paddingTop: spacing.md }]}>
+              <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setFilters(noRecipeFilters())} />
+            </View>
+          ) : null
+        }
+      />
 
       {picked.length > 0 ? (
         <View

@@ -2,10 +2,11 @@
 // the note prompt, and Clear with Undo, against the in-memory database on Thursday, October 15, 2026.
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
-import { ActionSheetIOS, Alert, StyleSheet } from 'react-native';
+import { ActionSheetIOS, Alert, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
+import { CardSlice } from '@/components/card';
 import { Palette, Sizes } from '@/constants/theme';
 import { db, households, recipes } from '@/db';
 import { ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
@@ -476,6 +477,25 @@ describe('the slot sheet', () => {
     expect(recipeRows()).toEqual(ALL); // all added together: A–Z
     expect(lines()).not.toContain('Show all recipes');
     expect(lines()).not.toContain('Clear filters');
+  });
+
+  test('a long list mounts only the rows in sight, each its slice of the card; the search reaches the rest', () => {
+    const stews = Array.from({ length: 40 }, (_, i) => `Stew ${String(i).padStart(2, '0')}`);
+    stews.forEach((name) => createRecipe(name, home));
+    open(THURSDAY, 'dinner');
+    expect(tree!.root.findByType(FlatList).props.data).toHaveLength(44);
+    expect(recipeRows().slice(0, 4)).toEqual(ALL);
+    expect(recipeRows().length).toBeLessThan(20);
+    expect(recipeRows()).not.toContain('Stew 39, Added today');
+    const slices = tree!.root.findAllByType(CardSlice);
+    expect(slices.map((s) => !!s.props.top)).toEqual([true, ...Array(slices.length - 1).fill(false)]);
+    act(() => tree!.root.find((n) => n.props.placeholder === 'Search recipes' && typeof n.props.onChangeText === 'function').props.onChangeText('stew 39'));
+    expect(recipeRows()).toEqual(['Stew 39, Added today']);
+    expect(lines()).toContain('1 recipe');
+    // The one row left is the whole card.
+    expect(tree!.root.findAllByType(CardSlice).map((s) => [s.props.top, s.props.bottom])).toEqual([[true, true]]);
+    press('Stew 39, Added today');
+    expect(recipeRows()).toEqual(['Stew 39, selected, Added today']);
   });
 
   test('a new recipe without tags comes first, its second line saying when it was added', () => {

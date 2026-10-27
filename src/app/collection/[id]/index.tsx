@@ -1,10 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, PrimaryButton } from '@/components/button';
-import { Card } from '@/components/card';
+import { CardSlice } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
@@ -141,94 +141,100 @@ export default function CollectionScreen() {
           </Stack.Toolbar>
         </>
       )}
-      <ScrollView
+      {/* Only the rows in sight are mounted, so a long collection stays quick: each row is its slice of the card. */}
+      <FlatList
         style={styles.flex}
         contentInsetAdjustmentBehavior="automatic"
         onScrollBeginDrag={closeOpenCard}
-        contentContainerStyle={[styles.grow, { paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md }]}>
-        <View style={{ gap: spacing.xs, paddingHorizontal: spacing.lg }}>
-          <ThemedText testID="collection-title" variant="screenTitle" accessibilityRole="header">
-            {title}
-          </ThemedText>
-          {selected === null ? (
-            <ThemedText variant="subhead" color="inkSecondary">
-              {t('recipes.collections.count', { count: inIt.length })}
-            </ThemedText>
-          ) : null}
-        </View>
-        {selected === null && inIt.length > 0 ? (
-          <View style={[styles.buttons, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
-            <Pill testID="collection-add-recipes" label={t('recipes.collections.addRecipes')} icon="plus" soft onPress={addRecipes} />
-            <Pill
-              testID="collection-filter"
-              label={
-                filtering ? `${t('recipes.collections.filter')} · ${activeFilterCount(filters)}` : t('recipes.collections.filter')
-              }
-              accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
-              icon="line.3.horizontal.decrease"
-              selected={filtering}
-              primary
-              onPress={openFilters}
-            />
+        contentContainerStyle={[styles.grow, { paddingTop: spacing.xs, paddingBottom: spacing.xxl }]}
+        data={shown}
+        keyExtractor={(r) => r.id}
+        ListHeaderComponent={
+          <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+            <View style={{ gap: spacing.xs, paddingHorizontal: spacing.lg }}>
+              <ThemedText testID="collection-title" variant="screenTitle" accessibilityRole="header">
+                {title}
+              </ThemedText>
+              {selected === null ? (
+                <ThemedText variant="subhead" color="inkSecondary">
+                  {t('recipes.collections.count', { count: inIt.length })}
+                </ThemedText>
+              ) : null}
+            </View>
+            {selected === null && inIt.length > 0 ? (
+              <View style={[styles.buttons, { gap: spacing.sm, paddingHorizontal: spacing.lg }]}>
+                <Pill testID="collection-add-recipes" label={t('recipes.collections.addRecipes')} icon="plus" soft onPress={addRecipes} />
+                <Pill
+                  testID="collection-filter"
+                  label={
+                    filtering ? `${t('recipes.collections.filter')} · ${activeFilterCount(filters)}` : t('recipes.collections.filter')
+                  }
+                  accessibilityLabel={filtersPillAccessibilityLabel(activeFilterCount(filters))}
+                  icon="line.3.horizontal.decrease"
+                  selected={filtering}
+                  primary
+                  onPress={openFilters}
+                />
+              </View>
+            ) : null}
+            {filtering && selected === null ? (
+              <RecipeFilterBar
+                filters={filters}
+                onRemove={(chip) => setCollectionFilters(id, removeFilterChip(filters, chip))}
+                onClear={() => setCollectionFilters(id, noRecipeFilters())}
+              />
+            ) : null}
           </View>
-        ) : null}
-        {filtering && selected === null ? (
-          <RecipeFilterBar
-            filters={filters}
-            onRemove={(chip) => setCollectionFilters(id, removeFilterChip(filters, chip))}
-            onClear={() => setCollectionFilters(id, noRecipeFilters())}
-          />
-        ) : null}
-        {inIt.length === 0 ? (
-          <EmptyState
-            message={t('recipes.collections.empty')}
-            action={<PrimaryButton testID="collection-empty-add" label={t('recipes.collections.addRecipes')} onPress={addRecipes} />}
-          />
-        ) : shown.length === 0 ? (
-          <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
-            <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
-              {NO_RECIPES_MATCH}
-            </ThemedText>
-            <Button
-              label={t('recipes.filters.clearFilters')}
-              variant="plain"
-              onPress={() => setCollectionFilters(id, noRecipeFilters())}
+        }
+        ListEmptyComponent={
+          inIt.length === 0 ? (
+            <EmptyState
+              message={t('recipes.collections.empty')}
+              action={<PrimaryButton testID="collection-empty-add" label={t('recipes.collections.addRecipes')} onPress={addRecipes} />}
             />
-          </View>
-        ) : (
+          ) : (
+            <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
+              <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
+                {NO_RECIPES_MATCH}
+              </ThemedText>
+              <Button
+                label={t('recipes.filters.clearFilters')}
+                variant="plain"
+                onPress={() => setCollectionFilters(id, noRecipeFilters())}
+              />
+            </View>
+          )
+        }
+        renderItem={({ item: r, index: j }) => (
           <View style={{ paddingHorizontal: spacing.lg }}>
-            <Card>
-              {shown.map((r, j) => (
-                <View key={r.id}>
-                  {j > 0 ? (
-                    <View
-                      style={{
-                        height: StyleSheet.hairlineWidth,
-                        marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
-                        backgroundColor: colors.border,
-                      }}
-                    />
-                  ) : null}
-                  <RecipeRow
-                    recipe={r}
-                    group="none"
-                    ingredientMatch={null}
-                    onList={onList.get(r.id) ?? null}
-                    favorite={favorites.get(r.id) ?? null}
-                    highlighted={toast?.recipeId === r.id}
-                    quickAddTo={quickAddList(currentList, r)}
-                    onQuickAdd={quickAdd}
-                    onSwipeOpen={cardOpened}
-                    onSwipeClose={cardClosed}
-                    removeFrom={{ name: collection.name, onPress: () => setRecipeInCollection(r.id, collection.id, false) }}
-                    select={selected !== null ? { on: selected.has(r.id), onToggle: () => toggle(r.id) } : undefined}
-                  />
-                </View>
-              ))}
-            </Card>
+            <CardSlice top={j === 0} bottom={j === shown.length - 1}>
+              {j > 0 ? (
+                <View
+                  style={{
+                    height: StyleSheet.hairlineWidth,
+                    marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
+                    backgroundColor: colors.border,
+                  }}
+                />
+              ) : null}
+              <RecipeRow
+                recipe={r}
+                group="none"
+                ingredientMatch={null}
+                onList={onList.get(r.id) ?? null}
+                favorite={favorites.get(r.id) ?? null}
+                highlighted={toast?.recipeId === r.id}
+                quickAddTo={quickAddList(currentList, r)}
+                onQuickAdd={quickAdd}
+                onSwipeOpen={cardOpened}
+                onSwipeClose={cardClosed}
+                removeFrom={{ name: collection.name, onPress: () => setRecipeInCollection(r.id, collection.id, false) }}
+                select={selected !== null ? { on: selected.has(r.id), onToggle: () => toggle(r.id) } : undefined}
+              />
+            </CardSlice>
           </View>
         )}
-      </ScrollView>
+      />
       {selected !== null ? (
         <SafeAreaView
           edges={['bottom']}

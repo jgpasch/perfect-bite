@@ -254,7 +254,7 @@ describe('a row with Saved marks', () => {
     const id = addRecipe('Tacos', { ...EMPTY, saved: ['want-to-try'], meal: ['dinner'] });
     favorite(id);
     const root = render();
-    expect(root.root.findAll((n) => n.props.testID === 'recipe-grid').length).toBeGreaterThan(0);
+    expect(root.root.findAll((n) => n.props.testID === 'recipe-grid-row').length).toBeGreaterThan(0);
     expect(marks(card(root, id))).toEqual([
       ['heart.fill', 'primary'],
       ['bookmark', 'inkSecondary'],

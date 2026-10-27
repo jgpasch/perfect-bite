@@ -13,6 +13,7 @@ import { Palette } from '@/constants/theme';
 import { resetDb } from '@/test/db';
 
 import RecipesScreen from '@/app/(tabs)/recipes/index';
+import { Card, CardSlice } from '@/components/card';
 import { FoldingSection } from '@/components/section-header';
 
 import { resetFoldedMealSections } from '../recipe-fold-store';
@@ -233,19 +234,20 @@ describe('the photo size, in the sort button’s menu', () => {
     choose(root, 'Large photos');
     expect(segments(root).map((s) => s.props.isOn)).toEqual([false, true]);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('large');
-    const [grid] = grids(root.root);
-    expect(grids(root.root)).toHaveLength(1);
+    // Each row of tiles is its own item of the virtualized list, so there's no one grid around them.
+    expect(grids(root.root)).toHaveLength(0);
     // A–Z order, two per row; the short last row keeps an empty cell so its tile stays a column wide.
-    expect(gridLayout(grid)).toEqual([
+    expect(gridLayout(root.root)).toEqual([
       ['Apple crumble', 'Banana bread'],
       ['Curry', 'Frittata'],
       ['Tacos', null],
     ]);
-    // No household card around the tiles; 12 between rows and columns.
-    expect(flat(grid.props.style)).toMatchObject({ paddingTop: 0, gap: 12 });
-    expect(flat(gridRowsOf(grid)[0].props.style)).toMatchObject({ flexDirection: 'row', gap: 12 });
+    // No household card around the tiles; 12 between rows (above each but the first) and columns.
+    expect(root.root.findAll((n) => n.type === Card || n.type === CardSlice)).toHaveLength(0);
+    expect(byTestID(root.root, 'recipe-grid-item').map((item) => flat(item.props.style).paddingTop)).toEqual([0, 12, 12]);
+    expect(flat(gridRowsOf(root.root)[0].props.style)).toMatchObject({ flexDirection: 'row', gap: 12 });
     // Each cell takes an equal share of the row.
-    expect(byTestID(grid, 'recipe-grid-cell').map((c) => flat(c.props.style).flex)).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(byTestID(root.root, 'recipe-grid-cell').map((c) => flat(c.props.style).flex)).toEqual([1, 1, 1, 1, 1, 1]);
     // Tiles don't swipe: no row is left.
     expect(swipeables(root)).toHaveLength(0);
     expect(covers(root.root)).toHaveLength(5);
@@ -265,7 +267,7 @@ describe('the photo size, in the sort button’s menu', () => {
     choose(root, 'Large photos');
     root = remount();
     expect(segment(root, 'Large photos').props.isOn).toBe(true);
-    expect(grids(root.root)).toHaveLength(1);
+    expect(gridRowsOf(root.root)).toHaveLength(3);
   });
 
   test('a stored choice the app doesn’t know reads as Small photos', () => {
@@ -279,7 +281,7 @@ describe('the photo size, in the sort button’s menu', () => {
     setDeviceSetting(RECIPE_SORT_KEY, 'name');
     setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'large');
     const root = render();
-    expect(gridLayout(grids(root.root)[0])).toEqual([
+    expect(gridLayout(root.root)).toEqual([
       ['Apple crumble', 'Banana bread'],
       ['Curry', 'Frittata'],
       ['Tacos', null],
@@ -307,7 +309,7 @@ describe('the photo size, in the sort button’s menu', () => {
     setDeviceSetting(RECIPE_PHOTO_SIZE_KEY, 'large');
     mockWindow.fontScale = 2.35;
     const root = render();
-    expect(gridLayout(grids(root.root)[0])).toEqual([['Apple crumble'], ['Banana bread'], ['Curry'], ['Frittata'], ['Tacos']]);
+    expect(gridLayout(root.root)).toEqual([['Apple crumble'], ['Banana bread'], ['Curry'], ['Frittata'], ['Tacos']]);
   });
 });
 

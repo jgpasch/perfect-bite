@@ -273,13 +273,14 @@ describe('the sort button', () => {
 
   test('Large photos switches the layout to the grid and is saved; Small photos goes back to rows', () => {
     const root = render();
-    expect(hostByTestID(root, 'recipe-grid')).toHaveLength(0);
+    // Ungrouped, each row of tiles is its own item of the virtualized list.
+    expect(hostByTestID(root, 'recipe-grid-row')).toHaveLength(0);
     pick(sortMenu(root)[0], 'Large photos');
-    expect(hostByTestID(root, 'recipe-grid')).toHaveLength(1);
+    expect(hostByTestID(root, 'recipe-grid-row').length).toBeGreaterThan(0);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('large');
     expect(sortMenu(root)[0].props.modifiers[0]).toEqual({ accessibilityLabel: 'Sort: A–Z, large photos' });
     pick(sortMenu(root)[0], 'Small photos');
-    expect(hostByTestID(root, 'recipe-grid')).toHaveLength(0);
+    expect(hostByTestID(root, 'recipe-grid-row')).toHaveLength(0);
     expect(getDeviceSetting(RECIPE_PHOTO_SIZE_KEY, null)).toBe('small');
   });
 

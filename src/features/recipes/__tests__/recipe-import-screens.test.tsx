@@ -36,7 +36,7 @@ import { Sizes } from '@/constants/theme';
 import { recipeHue } from '@/domain/aisle-color';
 
 import ImportRecipeSheet from '@/app/import-recipe';
-import { Card } from '@/components/card';
+import { Card, CardSlice } from '@/components/card';
 import { IconTile } from '@/components/icon-tile';
 import { Pill } from '@/components/pill';
 import RecipeFilterSheet from '@/app/(tabs)/recipes/filter';
@@ -1008,8 +1008,11 @@ describe('RecipesScreen', () => {
     expect(cards(root).sort()).toEqual(['Campfire chili, 1 hr 20 min', 'Soup', `Tacos, Dinner, 35 min, on ${name}`]);
     const links = byType(root, 'Link').map((l) => l.props.href.params.id);
     expect(links).toEqual(expect.arrayContaining([tacos, 'chili']));
-    // Recipes in each household share one card.
-    expect(root.root.findAll((n) => n.type === Card)).toHaveLength(2);
+    // Recipes in each household share one card, drawn a slice per row: each card starts and ends once.
+    const slices = root.root.findAll((n) => n.type === CardSlice);
+    expect(slices.filter((s) => s.props.top)).toHaveLength(2);
+    expect(slices.filter((s) => s.props.bottom)).toHaveLength(2);
+    expect(root.root.findAll((n) => n.type === Card)).toHaveLength(0);
   });
 
   test('one household: no household name above its card, and every row in one card', () => {
@@ -1018,8 +1021,13 @@ describe('RecipesScreen', () => {
     const root = render(<RecipesScreen />);
     expect(headers(root)).toEqual(['Recipes']);
     expect(texts(root)).not.toContain('Personal');
-    const [card] = root.root.findAll((n) => n.type === Card);
-    expect(card.findAll((n) => String(n.type) === 'Link')).toHaveLength(2);
+    // One card, drawn a slice per row: rounded at the top of the first and the bottom of the last.
+    const slices = root.root.findAll((n) => n.type === CardSlice);
+    expect(slices.map((s) => [!!s.props.top, !!s.props.bottom])).toEqual([
+      [true, false],
+      [false, true],
+    ]);
+    expect(slices.map((s) => s.findAll((n) => String(n.type) === 'Link').length)).toEqual([1, 1]);
   });
 
   test('the meta line: the first meal in facet order, the time, either alone, or nothing', () => {

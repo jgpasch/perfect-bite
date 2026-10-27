@@ -12,7 +12,7 @@ import { resetDb } from '@/test/db';
 
 import RecipesScreen from '@/app/(tabs)/recipes/index';
 import { AisleColors } from '@/constants/theme';
-import { Card } from '@/components/card';
+import { Card, CardSlice } from '@/components/card';
 import { FoldingSection } from '@/components/section-header';
 
 import { getFoldedMealSections, resetFoldedMealSections } from '../recipe-fold-store';
@@ -486,9 +486,17 @@ describe('Group by', () => {
     expect(sections(root)).toHaveLength(1);
     choose(root, 'None');
     expect(sections(root)).toHaveLength(0);
-    const cards = root.root.findAllByType(Card).filter((c) => rowNames(c).length > 0);
-    expect(cards).toHaveLength(1);
-    expect(rowNames(cards[0])).toEqual(['Apple crumble', 'Banana bread', 'Curry', 'Frittata', 'Tacos']);
+    // The household's card, drawn a slice per row.
+    expect(root.root.findAllByType(Card).filter((c) => rowNames(c).length > 0)).toHaveLength(0);
+    const slices = root.root.findAllByType(CardSlice);
+    expect(slices.map((s) => rowNames(s))).toEqual([['Apple crumble'], ['Banana bread'], ['Curry'], ['Frittata'], ['Tacos']]);
+    expect(slices.map((s) => [!!s.props.top, !!s.props.bottom])).toEqual([
+      [true, false],
+      [false, false],
+      [false, false],
+      [false, false],
+      [false, true],
+    ]);
     expect(ticked(root)).toEqual(['A–Z', 'None', 'Small photos']);
   });
 

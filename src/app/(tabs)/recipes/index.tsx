@@ -1,7 +1,7 @@
 import { router, useFocusEffect, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Host, Menu, RNHostView, Toggle } from '@expo/ui/swift-ui';
@@ -9,7 +9,7 @@ import { accessibilityLabel } from '@expo/ui/swift-ui/modifiers';
 
 import { HEADER_WASH, hueHeaderBand, listHeaderColors } from '@/components/appearance';
 import { Button, PrimaryButton } from '@/components/button';
-import { Card } from '@/components/card';
+import { Card, CardSlice } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Icon, type IconName } from '@/components/icon';
 import { FoldingSection, SectionHeader } from '@/components/section-header';
@@ -58,6 +58,7 @@ import { useRecipeFavorites } from '@/features/recipes/favorites';
 import { quickAddList } from '@/features/recipes/quick-add';
 import { groupRecipesByHousehold, onListByRecipe } from '@/features/recipes/recipe-view';
 import { toggleMealSection, toggleShelf, useFoldedMealSections, useOpenShelves } from '@/features/recipes/recipe-fold-store';
+import { recipeListItems, type RecipeListItem } from '@/features/recipes/recipe-list-items';
 import { RecipeShelf, RecipeShelfTile } from '@/features/recipes/recipe-shelf';
 import {
   recipeShelves,
@@ -108,6 +109,9 @@ import { importsCardHeading, useShareQueueStatus } from '@/features/recipes/shar
 import { useMotion } from '@/hooks/use-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
+
+/** A recipe the search and filters left, with the ingredient that matched the search, if any. */
+type ShownRecipe = RecipeSummary & { ingredientMatch: string | null };
 
 /**
  * Recipes tab (spec 4.5): the List tab's green header (the title, the sort button and +, then the search field
@@ -197,7 +201,7 @@ export default function RecipesScreen() {
     () => (showShelves ? recipeShelves({ recipes: data, entries: weekEntries, today, favorites, collections }) : []),
     [showShelves, data, weekEntries, today, favorites, collections],
   );
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<FlatList<RecipeListItem<ShownRecipe>>>(null);
   const allRecipesY = useRef(0);
   const { reduceMotion } = useMotion();
   // Spec 4.5: while grouped, each shelf folds to its header so the sections show; a tap opens it in place.
@@ -210,7 +214,7 @@ export default function RecipesScreen() {
       router.push('/collections');
     } else if (key === 'recent') {
       setSortChoice({ sort: 'recent', group: grouping });
-      scroll.current?.scrollTo({ y: allRecipesY.current, animated: !reduceMotion });
+      scroll.current?.scrollToOffset({ offset: allRecipesY.current, animated: !reduceMotion });
     } else {
       // The shelves give way to the filter's results.
       setRecipeFilters(toggleRecipeFilter(noRecipeFilters(), 'saved', 'favorites'));
@@ -325,63 +329,65 @@ export default function RecipesScreen() {
   const labelHouseholds = new Set(data.map((r) => r.householdId)).size > 1;
 
   // A card's recipe rows, separated by hairlines.
-  const renderRows = (rows: readonly (RecipeSummary & { ingredientMatch: string | null })[]) =>
-    rows.map((r, j) => (
-      <View key={r.id}>
-        {j > 0 ? (
-          <View
-            style={{
-              height: StyleSheet.hairlineWidth,
-              marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
-              backgroundColor: colors.border,
-            }}
-          />
-        ) : null}
-        <RecipeRow
-          recipe={r}
-          group={grouping}
-          ingredientMatch={r.ingredientMatch}
-          onList={onList.get(r.id) ?? null}
-          favorite={favorites.get(r.id) ?? null}
-          highlighted={toast?.recipeId === r.id}
-          quickAddTo={quickAddList(currentList, r)}
-          onQuickAdd={quickAdd}
-          onSwipeOpen={cardOpened}
-          onSwipeClose={cardClosed}
-          onSelect={() => startSelecting(r.id)}
-          select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
+  const renderRows = (rows: readonly ShownRecipe[]) =>
+    rows.map((r, j) => renderRow(r, j === 0));
+  const renderRow = (r: ShownRecipe, first: boolean) => (
+    <View key={r.id}>
+      {!first ? (
+        <View
+          style={{
+            height: StyleSheet.hairlineWidth,
+            marginLeft: spacing.lg + sizes.recipeTile + spacing.md,
+            backgroundColor: colors.border,
+          }}
         />
-      </View>
-    ));
+      ) : null}
+      <RecipeRow
+        recipe={r}
+        group={grouping}
+        ingredientMatch={r.ingredientMatch}
+        onList={onList.get(r.id) ?? null}
+        favorite={favorites.get(r.id) ?? null}
+        highlighted={toast?.recipeId === r.id}
+        quickAddTo={quickAddList(currentList, r)}
+        onQuickAdd={quickAdd}
+        onSwipeOpen={cardOpened}
+        onSwipeClose={cardClosed}
+        onSelect={() => startSelecting(r.id)}
+        select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
+      />
+    </View>
+  );
 
   // Large photos: the same recipes as tiles, each its own card on the screen's ground, two per row (one at the
   // largest text sizes) and 12 apart. Under a section's header band they start 12 below it.
-  const renderGrid = (tiles: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) => (
-    <View testID="recipe-grid" style={{ paddingTop: underHeader ? spacing.md : 0, gap: spacing.md }}>
-      {gridRows(tiles, columns).map((row) => (
-        <View key={row[0].id} testID="recipe-grid-row" style={[styles.gridRow, { gap: spacing.md }]}>
-          {row.map((r) => (
-            <View key={r.id} testID="recipe-grid-cell" style={styles.flex}>
-              <RecipeTile
-                recipe={r}
-                group={grouping}
-                ingredientMatch={r.ingredientMatch}
-                onList={onList.get(r.id) ?? null}
-                favorite={favorites.get(r.id) ?? null}
-                highlighted={toast?.recipeId === r.id}
-                quickAddTo={quickAddList(currentList, r)}
-                onQuickAdd={quickAdd}
-                onSelect={() => startSelecting(r.id)}
-                select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
-              />
-            </View>
-          ))}
-          {/* A short last row keeps its tiles at the column width. */}
-          {Array.from({ length: columns - row.length }, (_, k) => (
-            <View key={`gap-${k}`} testID="recipe-grid-cell" style={styles.flex} />
-          ))}
+  const renderGridRow = (row: readonly ShownRecipe[]) => (
+    <View key={row[0].id} testID="recipe-grid-row" style={[styles.gridRow, { gap: spacing.md }]}>
+      {row.map((r) => (
+        <View key={r.id} testID="recipe-grid-cell" style={styles.flex}>
+          <RecipeTile
+            recipe={r}
+            group={grouping}
+            ingredientMatch={r.ingredientMatch}
+            onList={onList.get(r.id) ?? null}
+            favorite={favorites.get(r.id) ?? null}
+            highlighted={toast?.recipeId === r.id}
+            quickAddTo={quickAddList(currentList, r)}
+            onQuickAdd={quickAdd}
+            onSelect={() => startSelecting(r.id)}
+            select={selecting ? { on: selected.has(r.id), onToggle: () => toggleSelected(r) } : undefined}
+          />
         </View>
       ))}
+      {/* A short last row keeps its tiles at the column width. */}
+      {Array.from({ length: columns - row.length }, (_, k) => (
+        <View key={`gap-${k}`} testID="recipe-grid-cell" style={styles.flex} />
+      ))}
+    </View>
+  );
+  const renderGrid = (tiles: readonly ShownRecipe[], underHeader = false) => (
+    <View testID="recipe-grid" style={{ paddingTop: underHeader ? spacing.md : 0, gap: spacing.md }}>
+      {gridRows(tiles, columns).map(renderGridRow)}
     </View>
   );
   // A shelf's tile: the card's link, long-press menu and badge, read as "Tacos, Thursday dinner".
@@ -413,242 +419,271 @@ export default function RecipesScreen() {
         ]
       : undefined;
 
-  const renderRecipes = (recipes: readonly (RecipeSummary & { ingredientMatch: string | null })[], underHeader = false) =>
-    photoSize === 'large' ? renderGrid(recipes, underHeader) : renderRows(recipes);
+  const items = useMemo(
+    () =>
+      week
+        ? []
+        : recipeListItems({ groups, grouped: grouping !== 'none', large: photoSize === 'large', columns, labelHouseholds }),
+    [week, groups, grouping, photoSize, columns, labelHouseholds],
+  );
+  // A household's first item: the gap above the household, and its name when there's more than one.
+  const renderItem = (item: RecipeListItem<ShownRecipe>) =>
+    item.household ? (
+      <View style={{ paddingTop: item.household.first ? spacing.xs : spacing.lg + spacing.xxs }}>
+        {item.household.label ? (
+          <ThemedText
+            variant="sectionLabel"
+            color="inkSecondary"
+            accessibilityRole="header"
+            style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.sm }}>
+            {item.household.name}
+          </ThemedText>
+        ) : null}
+        {renderRecipes(item)}
+      </View>
+    ) : (
+      renderRecipes(item)
+    );
+  const renderRecipes = (item: RecipeListItem<ShownRecipe>) => {
+    if (item.kind === 'section') {
+      // Spec 4.5: a folding card per section, its header tinted in the section's hue. With large photos the
+      // tiles are their own cards, so the section's ground is the screen's.
+      const { section } = item;
+      const key = recipeSectionKey(item.householdId, grouping, section.key);
+      return (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: item.household ? 0 : spacing.md }}>
+          <Card background={photoSize === 'large' ? 'background' : 'surface'}>
+            <FoldingSection
+              title={section.title}
+              band={hueHeaderBand(section.hue, scheme)}
+              count={section.recipes.length}
+              countUnit={recipeSectionUnit()}
+              collapsed={folded.has(key)}
+              onToggle={() => toggleMealSection(key)}>
+              {photoSize === 'large' ? renderGrid(section.recipes, true) : renderRows(section.recipes)}
+            </FoldingSection>
+          </Card>
+        </View>
+      );
+    }
+    if (item.kind === 'tiles') {
+      // The tiles are their own cards, so there's no household card around them; their rows are 12 apart.
+      return (
+        <View testID="recipe-grid-item" style={{ paddingHorizontal: spacing.lg, paddingTop: item.first ? 0 : spacing.md }}>
+          <View style={{ marginHorizontal: spacing.lg }}>{renderGridRow(item.recipes)}</View>
+        </View>
+      );
+    }
+    // The household's card, a slice per row.
+    return (
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <CardSlice top={item.first} bottom={item.last}>
+          {renderRow(item.recipe, item.first)}
+        </CardSlice>
+      </View>
+    );
+  };
 
   return (
     <Screen>
       {onRecipes ? <StatusBar style="light" /> : null}
-      <ScrollView
+      {/* Only the rows in sight are mounted, so a search keystroke stays quick with hundreds of recipes. */}
+      <FlatList
         ref={scroll}
         contentInsetAdjustmentBehavior="automatic"
         onScrollBeginDrag={closeOpenCard}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}>
-        <View style={{ backgroundColor: header.ground }}>
-          {/* Pulling down past the top shows more green, not the tab's ground. */}
-          <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
-          <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
-            {selecting ? (
-              // Board D: Cancel and Select All over "4 selected" (or "Tap recipes to select them").
-              <View style={{ gap: spacing.xs }}>
-                <View style={[styles.titleRow, styles.between]}>
-                  <HeaderTextButton testID="recipes-select-cancel" label={t('common.cancel')} onPress={() => setSelected(null)} />
-                  <HeaderTextButton
-                    testID="recipes-select-all"
-                    label={allSelected ? t('recipes.collections.deselectAll') : t('recipes.collections.selectAll')}
-                    disabled={selectable.length === 0}
-                    onPress={selectAll}
+        contentContainerStyle={[styles.grow, { paddingBottom: spacing.xl }]}
+        data={items}
+        keyExtractor={(item) => item.key}
+        renderItem={({ item }) => renderItem(item)}
+        // Not while the first read is in flight, or every mount flashes "No recipes yet".
+        ListEmptyComponent={!week && !loading && data.length === 0 ? empty : null}
+        ListFooterComponent={
+          !week && untaggedHidden > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint={t('recipes.tab.untaggedHint')}
+              onPress={() => setRecipeFilters(untaggedOnlyFilters())}
+              style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+              <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
+                {untaggedFootnote(untaggedHidden)}
+              </ThemedText>
+            </Pressable>
+          ) : null
+        }
+        ListHeaderComponent={
+          <View>
+            <View style={{ backgroundColor: header.ground }}>
+              {/* Pulling down past the top shows more green, not the tab's ground. */}
+              <View style={[styles.overscroll, { backgroundColor: header.ground }]} />
+              <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md }}>
+                {selecting ? (
+                  // Board D: Cancel and Select All over "4 selected" (or "Tap recipes to select them").
+                  <View style={{ gap: spacing.xs }}>
+                    <View style={[styles.titleRow, styles.between]}>
+                      <HeaderTextButton testID="recipes-select-cancel" label={t('common.cancel')} onPress={() => setSelected(null)} />
+                      <HeaderTextButton
+                        testID="recipes-select-all"
+                        label={allSelected ? t('recipes.collections.deselectAll') : t('recipes.collections.selectAll')}
+                        disabled={selectable.length === 0}
+                        onPress={selectAll}
+                      />
+                    </View>
+                    <ThemedText
+                      testID="recipes-select-title"
+                      variant={picked.length > 0 ? 'largeTitle' : 'title'}
+                      color="onHeader"
+                      accessibilityRole="header"
+                      style={{ paddingHorizontal: spacing.xs }}>
+                      {picked.length > 0
+                        ? t('recipes.collections.selected', { count: picked.length })
+                        : t('recipes.collections.tapToSelect')}
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <View style={[styles.titleRow, { gap: spacing.sm }]}>
+                    {planTab ? (
+                      <ThemedText
+                        variant="largeTitle"
+                        color="onHeader"
+                        accessibilityRole="header"
+                        style={[styles.flex, { paddingHorizontal: spacing.xs }]}>
+                        {t('recipes.tab.title')}
+                      </ThemedText>
+                    ) : (
+                      // Spec 4.16: with the Plan tab off, the title switches between All recipes and This week.
+                      <RecipesViewTitle week={week} />
+                    )}
+                    {!week && data.length > 0 ? (
+                      <RecipeSortButton
+                        sort={sort}
+                        group={grouping}
+                        photoSize={photoSize}
+                        onSortChange={(next) => setSortChoice({ sort: next, group: grouping })}
+                        onGroupChange={(next) => setSortChoice({ sort, group: next })}
+                        onPhotoSizeChange={setPhotoSize}
+                      />
+                    ) : null}
+                    {/* Spec 4.1: the tab bar's + adds items, so adding a recipe has its own button here. */}
+                    <Pressable
+                      testID="recipes-add"
+                      accessibilityRole="button"
+                      accessibilityLabel={t('recipes.tab.addRecipe')}
+                      onPress={addRecipe}
+                      style={({ pressed }) => [
+                        styles.action,
+                        {
+                          width: sizes.minTapTarget,
+                          height: sizes.minTapTarget,
+                          borderRadius: rounded.full,
+                          backgroundColor: colors.onHeader,
+                          opacity: pressed ? opacity.pressed : 1,
+                        },
+                      ]}>
+                      <Icon name="plus" tint={colors.header} size={sizes.icon} weight="semibold" />
+                    </Pressable>
+                  </View>
+                )}
+                {!week && data.length > 0 ? (
+                  <RecipeSearchField
+                    count={data.length}
+                    query={query}
+                    onChange={setQuery}
+                    filterCount={activeFilterCount(filters)}
+                    onOpenFilters={openFilters}
                   />
-                </View>
-                <ThemedText
-                  testID="recipes-select-title"
-                  variant={picked.length > 0 ? 'largeTitle' : 'title'}
-                  color="onHeader"
-                  accessibilityRole="header"
-                  style={{ paddingHorizontal: spacing.xs }}>
-                  {picked.length > 0
-                    ? t('recipes.collections.selected', { count: picked.length })
-                    : t('recipes.collections.tapToSelect')}
-                </ThemedText>
+                ) : null}
               </View>
-            ) : (
-            <View style={[styles.titleRow, { gap: spacing.sm }]}>
-              {planTab ? (
-                <ThemedText
-                  variant="largeTitle"
-                  color="onHeader"
-                  accessibilityRole="header"
-                  style={[styles.flex, { paddingHorizontal: spacing.xs }]}>
-                  {t('recipes.tab.title')}
-                </ThemedText>
-              ) : (
-                // Spec 4.16: with the Plan tab off, the title switches between All recipes and This week.
-                <RecipesViewTitle week={week} />
-              )}
-              {!week && data.length > 0 ? (
-                <RecipeSortButton
-                  sort={sort}
-                  group={grouping}
-                  photoSize={photoSize}
-                  onSortChange={(next) => setSortChoice({ sort: next, group: grouping })}
-                  onGroupChange={(next) => setSortChoice({ sort, group: next })}
-                  onPhotoSizeChange={setPhotoSize}
-                />
-              ) : null}
-              {/* Spec 4.1: the tab bar's + adds items, so adding a recipe has its own button here. */}
-              <Pressable
-                testID="recipes-add"
-                accessibilityRole="button"
-                accessibilityLabel={t('recipes.tab.addRecipe')}
-                onPress={addRecipe}
-                style={({ pressed }) => [
-                  styles.action,
-                  {
-                    width: sizes.minTapTarget,
-                    height: sizes.minTapTarget,
-                    borderRadius: rounded.full,
-                    backgroundColor: colors.onHeader,
-                    opacity: pressed ? opacity.pressed : 1,
-                  },
-                ]}>
-                <Icon name="plus" tint={colors.header} size={sizes.icon} weight="semibold" />
-              </Pressable>
+              <View style={{ height: rounded.card }} />
             </View>
-            )}
+            {/* The tab's ground: rounded top corners over the bottom of the green. */}
+            <View
+              style={[
+                styles.sheetTop,
+                {
+                  height: rounded.card,
+                  marginTop: -rounded.card,
+                  borderTopLeftRadius: rounded.card,
+                  borderTopRightRadius: rounded.card,
+                  backgroundColor: colors.background,
+                },
+              ]}
+            />
+            {/* Spec 4.16: This week is the week alone, its toolbar the sheet's first row. */}
+            {week ? <WeekPlan onToast={setToast} /> : null}
+            {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
+            {!week && !selecting && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
             {!week && data.length > 0 ? (
-              <RecipeSearchField
-                count={data.length}
-                query={query}
-                onChange={setQuery}
-                filterCount={activeFilterCount(filters)}
-                onOpenFilters={openFilters}
+              <RecipeFilterBar
+                filters={filters}
+                onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
+                onClear={() => setRecipeFilters(noRecipeFilters())}
               />
             ) : null}
-          </View>
-          <View style={{ height: rounded.card }} />
-        </View>
-        {/* The tab's ground: rounded top corners over the bottom of the green. */}
-        <View
-          style={[
-            styles.sheetTop,
-            {
-              height: rounded.card,
-              marginTop: -rounded.card,
-              borderTopLeftRadius: rounded.card,
-              borderTopRightRadius: rounded.card,
-              backgroundColor: colors.background,
-            },
-          ]}
-        />
-        {/* Spec 4.16: This week is the week alone, its toolbar the sheet's first row. */}
-        {week ? <WeekPlan onToast={setToast} /> : null}
-        {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
-        {!week && !selecting && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
-        {/* Not while the first read is in flight, or every mount flashes "No recipes yet". */}
-        {!week && !loading && data.length === 0 ? empty : null}
-        {!week && data.length > 0 ? (
-          <RecipeFilterBar
-            filters={filters}
-            onRemove={(chip) => setRecipeFilters(removeFilterChip(filters, chip))}
-            onClear={() => setRecipeFilters(noRecipeFilters())}
-          />
-        ) : null}
-        {/* Select mode ticks the recipes below, so the shelves and their heading give way. */}
-        {selecting ? null : showShelves && shelves.length > 0 && grouping !== 'none' ? (
-          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs }}>
-            <Card>
-              {shelves.map((shelf, i) => (
-                <View key={shelf.key}>
-                  {i > 0 ? (
-                    <View
-                      style={{ height: StyleSheet.hairlineWidth, marginLeft: spacing.lg, backgroundColor: colors.border }}
-                    />
-                  ) : null}
+            {/* Select mode ticks the recipes below, so the shelves and their heading give way. */}
+            {selecting ? null : showShelves && shelves.length > 0 && grouping !== 'none' ? (
+              <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.xs }}>
+                <Card>
+                  {shelves.map((shelf, i) => (
+                    <View key={shelf.key}>
+                      {i > 0 ? (
+                        <View
+                          style={{ height: StyleSheet.hairlineWidth, marginLeft: spacing.lg, backgroundColor: colors.border }}
+                        />
+                      ) : null}
+                      <RecipeShelf
+                        shelf={shelf}
+                        onSeeAll={() => seeAll(shelf.key)}
+                        renderTile={renderShelfTile}
+                        tiles={collectionTiles(shelf)}
+                        fold={{ open: openShelves.has(shelf.key), onToggle: () => toggleShelf(shelf.key) }}
+                      />
+                    </View>
+                  ))}
+                </Card>
+              </View>
+            ) : showShelves && shelves.length > 0 ? (
+              <View style={{ gap: spacing.xl - spacing.xxs, paddingTop: spacing.xs }}>
+                {shelves.map((shelf) => (
                   <RecipeShelf
+                    key={shelf.key}
                     shelf={shelf}
                     onSeeAll={() => seeAll(shelf.key)}
                     renderTile={renderShelfTile}
                     tiles={collectionTiles(shelf)}
-                    fold={{ open: openShelves.has(shelf.key), onToggle: () => toggleShelf(shelf.key) }}
                   />
-                </View>
-              ))}
-            </Card>
-          </View>
-        ) : showShelves && shelves.length > 0 ? (
-          <View style={{ gap: spacing.xl - spacing.xxs, paddingTop: spacing.xs }}>
-            {shelves.map((shelf) => (
-              <RecipeShelf
-                key={shelf.key}
-                shelf={shelf}
-                onSeeAll={() => seeAll(shelf.key)}
-                renderTile={renderShelfTile}
-                tiles={collectionTiles(shelf)}
-              />
-            ))}
-          </View>
-        ) : null}
-        {showShelves && !selecting ? (
-          // A direct child of the scroll view, so its y is where Recently added's See all scrolls to.
-          <View
-            testID="recipes-all-heading"
-            onLayout={(e) => (allRecipesY.current = e.nativeEvent.layout.y)}
-            style={{ paddingTop: shelves.length > 0 ? spacing.sm : 0 }}>
-            <SectionHeader
-              title={t('recipes.shelves.allRecipes')}
-              count={data.length}
-              countPlacement="title"
-              countUnit={recipeSectionUnit()}
-            />
-          </View>
-        ) : null}
-        {!week && data.length > 0 && (searching || filtering) && groups.length === 0 ? (
-          <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
-            <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
-              {NO_RECIPES_MATCH}
-            </ThemedText>
-            {filtering ? (
-              <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
+                ))}
+              </View>
+            ) : null}
+            {showShelves && !selecting ? (
+              // A direct child of the list's header, which starts the content, so its y is where Recently
+              // added's See all scrolls to.
+              <View
+                testID="recipes-all-heading"
+                onLayout={(e) => (allRecipesY.current = e.nativeEvent.layout.y)}
+                style={{ paddingTop: shelves.length > 0 ? spacing.sm : 0 }}>
+                <SectionHeader
+                  title={t('recipes.shelves.allRecipes')}
+                  count={data.length}
+                  countPlacement="title"
+                  countUnit={recipeSectionUnit()}
+                />
+              </View>
+            ) : null}
+            {!week && data.length > 0 && (searching || filtering) && groups.length === 0 ? (
+              <View style={{ alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.xl }}>
+                <ThemedText variant="callout" color="inkSecondary" style={styles.center}>
+                  {NO_RECIPES_MATCH}
+                </ThemedText>
+                {filtering ? (
+                  <Button label={t('recipes.filters.clearFilters')} variant="plain" onPress={() => setRecipeFilters(noRecipeFilters())} />
+                ) : null}
+              </View>
             ) : null}
           </View>
-        ) : null}
-        {(week ? [] : groups).map((group, i) => (
-          <View key={group.householdId} style={{ paddingTop: i === 0 ? spacing.xs : spacing.lg + spacing.xxs }}>
-            {labelHouseholds ? (
-              <ThemedText
-                variant="sectionLabel"
-                color="inkSecondary"
-                accessibilityRole="header"
-                style={{ paddingHorizontal: spacing.lg + spacing.xs, paddingBottom: spacing.sm }}>
-                {group.name}
-              </ThemedText>
-            ) : null}
-            {grouping !== 'none' ? (
-              // Spec 4.5: a folding card per section, its header tinted in the section's hue. With large photos
-              // the tiles are their own cards, so the section's ground is the screen's.
-              <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg }}>
-                {group.sections.map((section) => {
-                  const key = recipeSectionKey(group.householdId, grouping, section.key);
-                  return (
-                    <Card key={key} background={photoSize === 'large' ? 'background' : 'surface'}>
-                      <FoldingSection
-                        title={section.title}
-                        band={hueHeaderBand(section.hue, scheme)}
-                        count={section.recipes.length}
-                        countUnit={recipeSectionUnit()}
-                        collapsed={folded.has(key)}
-                        onToggle={() => toggleMealSection(key)}>
-                        {renderRecipes(section.recipes, true)}
-                      </FoldingSection>
-                    </Card>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={{ paddingHorizontal: spacing.lg }}>
-                {photoSize === 'large' ? (
-                  // The tiles are their own cards, so there's no household card around them.
-                  <View style={{ marginHorizontal: spacing.lg }}>{renderRecipes(group.recipes)}</View>
-                ) : (
-                  <Card>{renderRecipes(group.recipes)}</Card>
-                )}
-              </View>
-            )}
-          </View>
-        ))}
-        {!week && untaggedHidden > 0 ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityHint={t('recipes.tab.untaggedHint')}
-            onPress={() => setRecipeFilters(untaggedOnlyFilters())}
-            style={{ justifyContent: 'center', minHeight: sizes.minTapTarget, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
-            <ThemedText variant="footnote" color="inkSecondary" style={styles.center}>
-              {untaggedFootnote(untaggedHidden)}
-            </ThemedText>
-          </Pressable>
-        ) : null}
-      </ScrollView>
+        }
+      />
       {selecting ? (
         // Board D: the bar over the tab bar.
         <View

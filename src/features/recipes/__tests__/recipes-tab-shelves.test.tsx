@@ -353,7 +353,7 @@ describe('with 8 or more recipes', () => {
     const root = render();
     expect(shelfKeys(root)).toEqual(['thisWeek', 'recent', 'favorites']);
     expect(byTestId(root, 'recipe-shelf-tile')).toHaveLength(1 + 9 + 2);
-    expect(byTestId(root, 'recipe-grid').length).toBeGreaterThan(0);
+    expect(byTestId(root, 'recipe-grid-row').length).toBeGreaterThan(0);
   });
 });
 

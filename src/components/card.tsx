@@ -24,6 +24,35 @@ export function Card({ background = 'surface', style, ...rest }: Props) {
   );
 }
 
+type SliceProps = Props & {
+  /** The card's first slice: its top corners are rounded. */
+  top?: boolean;
+  /** The card's last slice: its bottom corners are rounded. */
+  bottom?: boolean;
+};
+
+/**
+ * One row's piece of a `Card`, for a virtualized list whose rows are its items: the card's ground and inset,
+ * with the top corners rounded on the first slice and the bottom ones on the last, so the slices stacked read
+ * as one card.
+ */
+export function CardSlice({ background = 'surface', top = false, bottom = false, style, ...rest }: SliceProps) {
+  const { colors } = useTheme();
+  const { borderRadius, ...look } = cardLook(background, colors);
+  return (
+    <View
+      style={[
+        styles.card,
+        look,
+        top ? { borderTopLeftRadius: borderRadius, borderTopRightRadius: borderRadius } : null,
+        bottom ? { borderBottomLeftRadius: borderRadius, borderBottomRightRadius: borderRadius } : null,
+        style,
+      ]}
+      {...rest}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   card: { overflow: 'hidden', borderCurve: 'continuous' },
 });

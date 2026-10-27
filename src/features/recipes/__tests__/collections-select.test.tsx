@@ -4,6 +4,7 @@
 // against the in-memory database.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { eq } from 'drizzle-orm';
+import { FlatList } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -12,6 +13,7 @@ import { resetRecipesSegment } from '@/features/meal-plan/plan-tab';
 import { setDeviceSetting, setPlanTab, setRecipeSortChoice } from '@/features/settings/device-settings';
 import { emptyRecipeTags, type RecipeTags } from '@/shared/recipe-tags';
 import { resetDb } from '@/test/db';
+import { CardSlice } from '@/components/card';
 
 import AddRecipesToCollectionSheet from '@/app/add-to-collection';
 import AddRecipesSheet from '@/app/collection/[id]/add-recipes';
@@ -563,5 +565,71 @@ describe("a collection's Add recipes sheet", () => {
     rerender(<AddRecipesSheet />);
     expect(row(root, 'Tacos').props.disabled).toBe(true);
     expect(byTestId(root, 'add-recipes-add')).toHaveLength(0);
+  });
+});
+
+describe('a long recipe list mounts only the rows in sight', () => {
+  // 60 more recipes, all in Mom's cookbook, after the nine others A–Z: 69 in Home.
+  const MANY = Array.from({ length: 60 }, (_, i) => `Zucchini ${String(i).padStart(2, '0')}`);
+  const links = (root: ReactTestRenderer) => root.root.findAll((n) => n.type === ('Link' as never));
+  const listData = (root: ReactTestRenderer) => root.root.findByType(FlatList).props.data as unknown[];
+  const addRows = (root: ReactTestRenderer) =>
+    byTestId(root, 'add-recipes-row').map((n) => `${n.props.accessibilityLabel}${n.props.disabled ? ' (disabled)' : ''}`);
+
+  beforeEach(() => {
+    MANY.forEach((name, i) => {
+      addRecipe(`many-${i}`, name);
+      setRecipeInCollection(`many-${i}`, moms, true);
+    });
+  });
+
+  test('the Recipes tab: a list item per row, only the first few mounted; the search reaches the rest', () => {
+    const root = render(<RecipesScreen />);
+    // The rows (the shelves above them have links too).
+    const rowNames = () =>
+      root.root.findAllByType(CardSlice).map((s) => linkLabel(s.findAll((n) => n.type === ('Link' as never))[0]).split(',')[0]);
+    expect(listData(root)).toHaveLength(69);
+    expect(rowNames().slice(0, 3)).toEqual(['Banana bread', 'Curry', 'Dal']);
+    expect(rowNames().length).toBeLessThan(20);
+    expect(rowNames()).not.toContain('Zucchini 59');
+    search(root, 'zucchini 59');
+    expect(listData(root)).toHaveLength(1);
+    expect(rowNames()).toEqual(['Zucchini 59']);
+    // The one row left is the whole card: rounded at the top and the bottom.
+    expect(root.root.findAllByType(CardSlice).map((s) => [s.props.top, s.props.bottom])).toEqual([[true, true]]);
+  });
+
+  test("the Recipes tab's Select All ticks rows that aren't mounted too", () => {
+    const root = selecting();
+    press(one(root, 'recipes-select-all'));
+    expect(selectTitle(root)).toBe('69 selected');
+    search(root, 'zucchini 5');
+    expect(ticked(root)).toEqual(MANY.slice(50));
+  });
+
+  test("a collection's screen: only the first few of its 62 recipes mounted, each its slice of the card", () => {
+    mockParams.id = moms;
+    const root = render(<CollectionScreen />);
+    expect(texts(root)).toContain('62 recipes');
+    expect(listData(root)).toHaveLength(62);
+    const mounted = links(root).length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(20);
+    const slices = root.root.findAllByType(CardSlice);
+    expect(slices).toHaveLength(mounted);
+    expect(slices.map((s) => !!s.props.top)).toEqual([true, ...Array(mounted - 1).fill(false)]);
+    // The last row isn't in sight, so no slice closes the card yet.
+    expect(slices.some((s) => s.props.bottom)).toBe(false);
+  });
+
+  test("a collection's Add recipes: only the first few rows mounted; the search reaches the rest", () => {
+    mockParams.id = moms;
+    const root = render(<AddRecipesSheet />);
+    expect(listData(root)).toHaveLength(69);
+    expect(addRows(root).length).toBeGreaterThan(0);
+    expect(addRows(root).length).toBeLessThan(20);
+    const field = root.root.find((n) => n.props.accessibilityLabel === 'Search recipes' && typeof n.props.onChangeText === 'function');
+    act(() => field.props.onChangeText('zucchini 59'));
+    expect(addRows(root)).toEqual(["Zucchini 59, Already in Mom's cookbook (disabled)"]);
   });
 });
