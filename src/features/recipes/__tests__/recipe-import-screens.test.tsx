@@ -105,8 +105,13 @@ jest.mock('expo-network', () => ({
   addNetworkStateListener: () => ({ remove: () => {} }),
   getNetworkStateAsync: () => Promise.resolve({ isConnected: mockConnected, isInternetReachable: mockConnected }),
 }));
+const mockLoadingTables = new Set<unknown>();
 jest.mock('@/db/live-query', () => ({
-  useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
+  // A query on a table in mockLoadingTables hasn't had its first result yet.
+  useLiveQueryOn: (query: { all: () => unknown[] }, tables: unknown[]) =>
+    tables.some((t) => mockLoadingTables.has(t))
+      ? { data: [], error: undefined, loading: true }
+      : { data: query.all(), error: undefined, loading: false },
 }));
 jest.mock('@/features/categories/categorization', () => ({ categorizePending: () => Promise.resolve() }));
 
@@ -208,6 +213,7 @@ beforeEach(() => {
   mockPhotoImport.mockReset();
   mockClipboard.mockReset();
   mockConnected = true;
+  mockLoadingTables.clear();
   setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   setHouseholdFeatures(null);
   takeRecipeAddResult(groceries);
@@ -928,6 +934,29 @@ describe('RecipesScreen', () => {
     press(byLabel(root, 'New recipe'));
     expect(mockPush.mock.calls).toEqual([['/add-recipe']]);
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  test('no "No recipes yet." while the recipes are still loading, then the empty state once they have', () => {
+    mockLoadingTables.add(recipes);
+    const root = render(<RecipesScreen />);
+    expect(texts(root)).not.toContain('No recipes yet.');
+    expect(texts(root)).not.toContain('New recipe');
+
+    mockLoadingTables.clear();
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipesScreen /></SafeAreaProvider>));
+    expect(texts(root)).toContain('No recipes yet.');
+  });
+
+  test('a household with recipes never shows "No recipes yet." while they load', () => {
+    createRecipe('Tacos');
+    mockLoadingTables.add(recipes);
+    const root = render(<RecipesScreen />);
+    expect(texts(root)).not.toContain('No recipes yet.');
+
+    mockLoadingTables.clear();
+    act(() => root.update(<SafeAreaProvider initialMetrics={METRICS}><RecipesScreen /></SafeAreaProvider>));
+    expect(texts(root)).toContain('Tacos');
+    expect(texts(root)).not.toContain('No recipes yet.');
   });
 
   test("the header's round + opens the sheet too, not a prompt", () => {

@@ -26,12 +26,12 @@ async function changed(tableName: string) {
   });
 }
 
-type Result<T> = { data: T[]; error: Error | undefined };
+type Result<T> = { data: T[]; error: Error | undefined; loading: boolean };
 
 const mounted: ReactTestRenderer[] = [];
 
 function render<T>(useIt: () => Result<T>) {
-  const seen: { current: Result<T> } = { current: { data: [], error: undefined } };
+  const seen: { current: Result<T> } = { current: { data: [], error: undefined, loading: true } };
   function Probe() {
     seen.current = useIt();
     return null;
@@ -74,7 +74,7 @@ describe('useLiveQueryOn', () => {
     addList('l1', 'Groceries', 1);
     const { seen, mount } = render(() => useLiveQueryOn(db.select({ name: lists.name }).from(lists), [lists]));
     await mount();
-    expect(seen.current).toEqual({ data: [{ name: 'Groceries' }], error: undefined });
+    expect(seen.current).toEqual({ data: [{ name: 'Groceries' }], error: undefined, loading: false });
   });
 
   test('re-runs when any watched table changes, not just the FROM table', async () => {
@@ -183,10 +183,82 @@ describe('useLiveQueryOn', () => {
     errors.mockRestore();
   });
 
+  /** A query that waits for `resolve` (or `reject`) on each run. */
+  const deferred = <T,>() => {
+    const pending: { resolve: (rows: T[]) => void; reject: (err: Error) => void }[] = [];
+    const query: PromiseLike<T[]> = {
+      then: (ok, fail) => new Promise<T[]>((resolve, reject) => pending.push({ resolve, reject })).then(ok, fail),
+    };
+    return { pending, query };
+  };
+
+  test('is loading until the first result lands, then not', async () => {
+    const { pending, query } = deferred<string>();
+    const { seen, mount } = render(() => useLiveQueryOn(query, [lists]));
+    await mount();
+    expect(seen.current).toEqual({ data: [], error: undefined, loading: true });
+
+    await act(async () => pending[0].resolve([]));
+    // An empty result is a result: no longer loading.
+    expect(seen.current).toEqual({ data: [], error: undefined, loading: false });
+  });
+
+  test('a re-run after a change does not go back to loading', async () => {
+    const { pending, query } = deferred<string>();
+    const loadings: boolean[] = [];
+    const { mount } = render(() => {
+      const r = useLiveQueryOn(query, [lists]);
+      loadings.push(r.loading);
+      return r;
+    });
+    await mount();
+    await act(async () => pending[0].resolve(['a']));
+    loadings.length = 0;
+    await changed('lists');
+    await act(async () => pending[1].resolve(['a', 'b']));
+    expect(loadings.length).toBeGreaterThan(0);
+    expect(loadings.every((l) => !l)).toBe(true);
+  });
+
+  test('a failing query stops loading', async () => {
+    const { pending, query } = deferred<string>();
+    const { seen, mount } = render(() => useLiveQueryOn(query, [lists]));
+    await mount();
+    await act(async () => pending[0].reject(new Error('no such table')));
+    expect(seen.current.loading).toBe(false);
+    expect(seen.current.error?.message).toBe('no such table');
+  });
+
+  test('is loading again from the very render its deps change until the new result lands', async () => {
+    const { pending, query } = deferred<string>();
+    const renders: { id: string; data: string[]; loading: boolean }[] = [];
+    function Named({ id }: { id: string }) {
+      const { data, loading } = useLiveQueryOn(query, [lists], [id]);
+      renders.push({ id, data, loading });
+      return null;
+    }
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<Named id="l1" />);
+    });
+    mounted.push(tree);
+    await act(async () => pending[0].resolve(['Groceries']));
+    expect(renders.at(-1)).toEqual({ id: 'l1', data: ['Groceries'], loading: false });
+
+    renders.length = 0;
+    await act(async () => tree.update(<Named id="l2" />));
+    // The first render with the new id is already loading: the old rows never pass as its result.
+    expect(renders[0]).toEqual({ id: 'l2', data: ['Groceries'], loading: true });
+    expect(renders.at(-1)?.loading).toBe(true);
+
+    await act(async () => pending[1].resolve([]));
+    expect(renders.at(-1)).toEqual({ id: 'l2', data: [], loading: false });
+  });
+
   test('re-runs with the new query when deps change, and keeps one listener', async () => {
     addList('l1', 'Groceries', 1);
     addList('l2', 'Costco', 2);
-    const seen: { current: Result<{ name: string }> } = { current: { data: [], error: undefined } };
+    const seen: { current: Result<{ name: string }> } = { current: { data: [], error: undefined, loading: true } };
     function Named({ id }: { id: string }) {
       seen.current = useLiveQueryOn(db.select({ name: lists.name }).from(lists).where(eq(lists.id, id)), [lists], [id]);
       return null;

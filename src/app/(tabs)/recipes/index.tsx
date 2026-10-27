@@ -126,7 +126,7 @@ export default function RecipesScreen() {
   const planTab = usePlanTabSetting();
   const segment = useRecipesSegment();
   const week = !planTab && segment === 'week';
-  const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
+  const { data, loading } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const { data: ingredientNames } = useLiveQueryOn(recipeIngredientNamesQuery(), RECIPES_TAB_TABLES);
   const { data: failed } = useLiveQueryOn(failedImportsQuery(), [failedImports]);
@@ -525,7 +525,8 @@ export default function RecipesScreen() {
         {week ? <WeekPlan onToast={setToast} /> : null}
         {/* Spec 4.10: shares importing, waiting or that won't import, at the top. */}
         {!week && !selecting && showImports ? <ImportsCard failed={failed} queue={queue} /> : null}
-        {!week && data.length === 0 ? empty : null}
+        {/* Not while the first read is in flight, or every mount flashes "No recipes yet". */}
+        {!week && !loading && data.length === 0 ? empty : null}
         {!week && data.length > 0 ? (
           <RecipeFilterBar
             filters={filters}

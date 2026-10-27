@@ -211,7 +211,7 @@ export function ListScreen({ id }: { id: string }) {
 
   const { data: listRows } = useLiveQueryOn(listQuery(id), [lists], [id]);
   const list = listRows[0];
-  const { data: itemRows } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
+  const { data: itemRows, loading: itemsLoading } = useLiveQueryOn(listItemsQuery(id), LIST_ITEMS_QUERY_TABLES, [id]);
   const { data: unitRows } = useLiveQueryOn(usualUnitsQuery(id), USUAL_UNITS_QUERY_TABLES, [id]);
   const { data: recipeRows } = useLiveQueryOn(listRecipesQuery(id), LIST_RECIPES_QUERY_TABLES, [id]);
   // Only links that open (spec 4.5): plain text in a recipe's link field gets no Visit recipe on web.
@@ -1062,8 +1062,9 @@ export function ListScreen({ id }: { id: string }) {
     );
   };
 
-  // Spec 4.1: nothing on the list at all; a list with only checked items isn't empty.
-  const empty = unchecked.length === 0 && checked.length === 0;
+  // Spec 4.1: nothing on the list at all; a list with only checked items isn't empty. Not while the items'
+  // first read is in flight, or every mount flashes the empty state and hides the view menu.
+  const empty = !itemsLoading && unchecked.length === 0 && checked.length === 0;
 
   // Loading (a few ms), or just deleted on the way back.
   if (!list) return <Screen />;
@@ -1218,22 +1219,24 @@ export function ListScreen({ id }: { id: string }) {
             scrollEventThrottle={16}
             contentContainerStyle={blocks.length === 0 ? styles.grow : { paddingBottom: spacing.lg }}
             ListEmptyComponent={
-              <EmptyState
-                icon="cart"
-                title={t('lists.screen.emptyTitle')}
-                message={t('lists.screen.empty')}
-                actions={[
-                  <Pill key="add" soft icon="plus" label={t('lists.screen.emptyAddItem')} onPress={openAdd} />,
-                  // Spec 4.1: the recipe path, the Recipes tab.
-                  <Button
-                    key="recipe"
-                    variant="plain"
-                    icon="fork.knife"
-                    label={t('lists.screen.emptyAddFromRecipe')}
-                    onPress={() => router.navigate('/recipes')}
-                  />,
-                ]}
-              />
+              itemsLoading ? null : (
+                <EmptyState
+                  icon="cart"
+                  title={t('lists.screen.emptyTitle')}
+                  message={t('lists.screen.empty')}
+                  actions={[
+                    <Pill key="add" soft icon="plus" label={t('lists.screen.emptyAddItem')} onPress={openAdd} />,
+                    // Spec 4.1: the recipe path, the Recipes tab.
+                    <Button
+                      key="recipe"
+                      variant="plain"
+                      icon="fork.knife"
+                      label={t('lists.screen.emptyAddFromRecipe')}
+                      onPress={() => router.navigate('/recipes')}
+                    />,
+                  ]}
+                />
+              )
             }
             renderItem={({ item: block }) => renderBlock(block)}
             onScrollToIndexFailed={({ index, averageItemLength }) =>

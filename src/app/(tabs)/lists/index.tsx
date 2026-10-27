@@ -24,7 +24,7 @@ import { useT } from '@/i18n';
  */
 export default function ListTab() {
   // userSettings: the default list falls back to the first one when it's archived or deleted.
-  const { data } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
+  const { data, loading } = useLiveQueryOn(listsWithCountsQuery(), [lists, listItems, households, userSettings]);
   const userId = getAccount()?.userId ?? null;
   const version = useCurrentListVersion();
   // Re-resolved whenever lists or settings change (`data` is a new array then), so a new default list
@@ -36,6 +36,8 @@ export default function ListTab() {
   );
 
   if (currentId) return <ListScreen key={currentId} id={currentId} />;
+  // Not while the first read is in flight, or every mount flashes "make a list".
+  if (loading) return <Screen />;
   return <NoLists hasOthers={data.length > 0} />;
 }
 

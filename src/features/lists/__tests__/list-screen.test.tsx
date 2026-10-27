@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
-import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions } from '@/db';
+import { categories, db, deviceSettings, householdMemberNames, households, ingredients, listItemContributions, listItems } from '@/db';
 import { categorizePending } from '@/features/categories/categorization';
 import { setHouseholdFeatures } from '@/features/plans/features';
 import { pressAddButton, takePendingListAdd } from '@/features/tabs/add-button';
@@ -92,9 +92,14 @@ jest.mock('expo-keep-awake', () => ({
   activateKeepAwakeAsync: jest.fn((tag: string) => (mockAwake.add(tag), Promise.resolve())),
   deactivateKeepAwake: jest.fn((tag: string) => (mockAwake.delete(tag), Promise.resolve())),
 }));
-// Live queries read once per render from the test database.
+// Live queries read once per render from the test database; one on a table in mockLoadingTables hasn't had its
+// first result yet.
+const mockLoadingTables = new Set<unknown>();
 jest.mock('@/db/live-query', () => ({
-  useLiveQueryOn: (query: { all: () => unknown[] }) => ({ data: query.all(), error: undefined }),
+  useLiveQueryOn: (query: { all: () => unknown[] }, tables: unknown[]) =>
+    tables.some((t) => mockLoadingTables.has(t))
+      ? { data: [], error: undefined, loading: true }
+      : { data: query.all(), error: undefined, loading: false },
 }));
 jest.mock('@/features/categories/categorization', () => ({
   ...jest.requireActual<object>('@/features/categories/categorization'),
@@ -219,6 +224,7 @@ beforeEach(() => {
   shownId = listId;
   mockPath.current = '/lists';
   mockInvites.current = [];
+  mockLoadingTables.clear();
   mockPush.mockClear();
   mockBack.mockClear();
   mockNavigate.mockClear();
@@ -408,6 +414,32 @@ describe('the list', () => {
       expect(emptyStates()).toHaveLength(0);
       expect(lines()).not.toContain('Your list is empty');
       expect(viewMenuNode().props.hidden).toBe(false);
+    });
+
+    test('no empty state and the view menu stays while the items are still loading, even on a list with items', () => {
+      put('milk');
+      mockLoadingTables.add(listItems);
+      render();
+      expect(emptyStates()).toHaveLength(0);
+      expect(lines()).not.toContain('Your list is empty');
+      expect(viewMenuNode().props.hidden).toBe(false);
+
+      // The first result lands: its rows, still no empty state.
+      mockLoadingTables.clear();
+      refresh();
+      expect(rowNames()).toEqual(['milk']);
+      expect(emptyStates()).toHaveLength(0);
+    });
+
+    test('an empty list shows its empty state only once the items have loaded', () => {
+      mockLoadingTables.add(listItems);
+      render();
+      expect(lines()).toContain('Groceries');
+      expect(emptyStates()).toHaveLength(0);
+      mockLoadingTables.clear();
+      refresh();
+      expect(emptyStates()).toHaveLength(1);
+      expect(viewMenuNode().props.hidden).toBe(true);
     });
 
     test('Select mode still hides the view menu once there are items', () => {

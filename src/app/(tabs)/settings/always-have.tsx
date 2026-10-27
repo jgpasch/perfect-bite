@@ -40,7 +40,7 @@ export default function AlwaysHaveScreen() {
   const { spacing } = useTheme();
   const t = useT();
   const { household = '' } = useLocalSearchParams<{ household: string }>();
-  const { data: staples } = useLiveQueryOn(staplesQuery(household), STAPLES_QUERY_TABLES, [household]);
+  const { data: staples, loading } = useLiveQueryOn(staplesQuery(household), STAPLES_QUERY_TABLES, [household]);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
   const [removed, setRemoved] = useState<Staple | null>(null);
@@ -120,7 +120,7 @@ export default function AlwaysHaveScreen() {
             />
           ) : null}
         </View>
-        {staples.length === 0 ? (
+        {loading ? null : staples.length === 0 ? (
           <EmptyState message={t('settings.alwaysHaveScreen.empty')} />
         ) : (
           <Card style={{ marginTop: spacing.lg }}>

@@ -18,7 +18,7 @@ export default function SiriDefaultListScreen() {
   const account = useAccountState();
   const userId = account.status === 'ready' ? account.account.userId : undefined;
   // userSettings: so the tick follows a new default.
-  const { data: rows } = useLiveQueryOn(listsWithCountsQuery(), [lists, households, userSettings]);
+  const { data: rows, loading } = useLiveQueryOn(listsWithCountsQuery(), [lists, households, userSettings]);
   const choices = useMemo(
     () => siriListChoices(buildListSnapshot(rows, userId && rows.length > 0 ? getDefaultListId(userId) : null)),
     [userId, rows],
@@ -27,7 +27,7 @@ export default function SiriDefaultListScreen() {
   return (
     <Screen scroll contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: spacing.xl }}>
       <SettingsSection title={t('settings.siriAddsTo')}>
-        {choices.length === 0 ? (
+        {loading ? null : choices.length === 0 ? (
           <SettingsRow label={t('settings.siriList.noLists')} last />
         ) : (
           choices.map((c, i) => (

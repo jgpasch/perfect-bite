@@ -358,8 +358,9 @@ function collectionRecipeIdsQuery(id: string) {
  */
 export function useCollection(id: string): { collection: RecipeCollection & { householdId: string }; recipeIds: ReadonlySet<string> } | null {
   const { data: rows } = useLiveQueryOn(collectionQuery(id), COLLECTIONS_QUERY_TABLES, [id]);
-  const { data: members } = useLiveQueryOn(collectionRecipeIdsQuery(id), COLLECTIONS_QUERY_TABLES, [id]);
-  const collection = rows[0];
+  const { data: members, loading } = useLiveQueryOn(collectionRecipeIdsQuery(id), COLLECTIONS_QUERY_TABLES, [id]);
+  // Not until its recipe ids are read too, or its screen flashes "No recipes yet".
+  const collection = loading ? undefined : rows[0];
   return useMemo(
     () => (collection ? { collection, recipeIds: new Set(members.map((m) => m.recipeId)) } : null),
     [collection, members],

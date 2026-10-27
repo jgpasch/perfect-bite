@@ -46,7 +46,7 @@ export default function CollectionScreen() {
   const t = useT();
   const { colors, spacing, sizes } = useTheme();
   const found = useCollection(id);
-  const { data } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
+  const { data, loading } = useLiveQueryOn(recipesQuery(), RECIPES_TAB_TABLES);
   const { data: onLists } = useLiveQueryOn(recipesOnListsQuery(), RECIPES_TAB_TABLES);
   const favorites = useRecipeFavorites();
   const filters = useCollectionFilters(id);
@@ -68,7 +68,8 @@ export default function CollectionScreen() {
   );
   const shown = useMemo(() => inIt.filter((r) => matchesRecipeFilters(r, filters, favorites)), [inIt, filters, favorites]);
 
-  if (!found) return <Screen />;
+  // Not while the recipes' first read is in flight, or every mount flashes "No recipes yet".
+  if (!found || loading) return <Screen />;
   const { collection } = found;
 
   const addRecipes = () => router.push({ pathname: '/collection/[id]/add-recipes', params: { id } });

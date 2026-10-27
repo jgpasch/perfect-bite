@@ -115,7 +115,7 @@ export default function RecipeScreen() {
   const { data: recipeRows } = useLiveQueryOn(recipeQuery(id), [recipes], [id]);
   const recipe = recipeRows[0];
   // ingredients and overrides: re-read when an ingredient gets its aisle, so its dot follows.
-  const { data: ingredients } = useLiveQueryOn(
+  const { data: ingredients, loading: ingredientsLoading } = useLiveQueryOn(
     recipeIngredientsQuery(id),
     [recipeIngredients, ingredientsTable, householdCategoryOverrides],
     [id],
@@ -482,7 +482,7 @@ export default function RecipeScreen() {
                     ) : undefined
                   }
                 />
-                {ingredients.length === 0 ? (
+                {ingredientsLoading ? null : ingredients.length === 0 ? (
                   <ThemedText
                     variant="callout"
                     color="inkSecondary"
