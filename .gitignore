@@ -61,3 +61,6 @@ exports/
 
 # yarn ai:image output
 /generated-images/
+
+# yarn review:tasks output
+/review/

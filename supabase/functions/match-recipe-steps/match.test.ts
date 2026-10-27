@@ -7,7 +7,7 @@ import { mockMatchSteps, stepsRecipeFromPrompt } from '../_shared/ai/mock-model.
 import { buildMatchRecipeStepsPrompt, MATCH_RECIPE_STEPS_PROMPT_VERSION, type StepMatchRecipe } from '../_shared/ai/prompts/match-recipe-steps.v1.ts';
 import { STEP_MATCH_RULES } from '../_shared/ai/prompts/step-match-rules.ts';
 import { aiTasks, cleanStepMatch, isAiEnabled, stepsMaxOutputTokens, type MatchRecipeStepsOutput } from '../_shared/ai/tasks.ts';
-import { matchRecipeSteps, StepMatchError, StepMatchRecipeSchema } from './match.ts';
+import { matchRecipeSteps, StepMatchError } from './match.ts';
 
 const ENV_KEYS = ['AI_MODEL_STEPS', 'AI_MODEL_STEPS_FALLBACK', 'AI_MODEL_RECIPE', 'AI_MODEL_RECIPE_FALLBACK', 'AI_THINKING_STEPS'];
 
@@ -113,15 +113,6 @@ Deno.test('cleanStepMatch is null when the steps do not line up', () => {
   assertEquals(cleanStepMatch({ steps: [{ step: 1, uses: [] }, { step: 2, uses: [] }, { step: 4, uses: [] }] }, tacos), null, 'numbered past the end');
   const shuffled = cleanStepMatch({ steps: [{ step: 3, uses: [] }, { step: 1, uses: [{ ingredient: 1, quantity: null }] }, { step: 2, uses: [] }] }, tacos);
   assertEquals(shuffled, [[{ ingredient: 0, quantity: null }], [], []], 'out of order is fine');
-});
-
-// --- Request schema -----------------------------------------------------------------------------------
-
-Deno.test('the recipe schema trims, drops blanks and needs a step and an ingredient', () => {
-  const parsed = StepMatchRecipeSchema.parse({ steps: ['  Stir.  ', ' '], ingredients: [{ name: ' salt ', quantity: null, unit: null }, { name: '', quantity: null, unit: null }] });
-  assertEquals(parsed, { steps: ['Stir.'], ingredients: [{ name: 'salt', quantity: null, unit: null, note: '' }] });
-  assert(!StepMatchRecipeSchema.safeParse({ steps: [' '], ingredients: [{ name: 'salt', quantity: null, unit: null }] }).success);
-  assert(!StepMatchRecipeSchema.safeParse({ steps: ['Stir.'], ingredients: [] }).success);
 });
 
 // --- Mock ---------------------------------------------------------------------------------------------

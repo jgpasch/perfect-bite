@@ -1,5 +1,5 @@
 -- Device credentials (spec 6.12, 4.12): the table and its privileges, register_device_credential's
--- replacement with a 24 h grace, use_device_credential's checks, revoke_my_device_credential,
+-- replacement with a 24 h grace, authenticate_device_credential's checks, revoke_my_device_credential,
 -- admin_revoke_device_credentials with its audit row, and the cascade when the user is deleted.
 -- now() is fixed within the transaction, so "now" and "now + 24 h" are exact.
 begin;
@@ -38,9 +38,9 @@ select ok(
   and not has_function_privilege('anon', 'public.register_device_credential(uuid, uuid, text)', 'execute'),
   'only the service role registers');
 select ok(
-  has_function_privilege('service_role', 'public.use_device_credential(text, text)', 'execute')
-  and not has_function_privilege('authenticated', 'public.use_device_credential(text, text)', 'execute')
-  and not has_function_privilege('anon', 'public.use_device_credential(text, text)', 'execute'),
+  has_function_privilege('service_role', 'public.authenticate_device_credential(text, text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.authenticate_device_credential(text, text)', 'execute')
+  and not has_function_privilege('anon', 'public.authenticate_device_credential(text, text)', 'execute'),
   'only the service role verifies');
 select ok(
   has_function_privilege('authenticated', 'public.revoke_my_device_credential(uuid)', 'execute')
@@ -135,14 +135,14 @@ insert into public.device_credentials (user_id, installation_id, token_hash, cre
    now() - interval '10 days', now() + interval '80 days', now() - interval '1 hour', 'sign_out');
 
 set local role service_role;
-select is(public.use_device_credential(repeat('a2', 32), 'share.ingest'), '11111111-1111-1111-1111-111111111111'::uuid,
+select is((select user_id from public.authenticate_device_credential(repeat('a2', 32), 'share.ingest')), '11111111-1111-1111-1111-111111111111'::uuid,
   'a live credential gives its user');
-select is(public.use_device_credential(repeat('a1', 32), 'share.ingest'), '11111111-1111-1111-1111-111111111111'::uuid,
+select is((select user_id from public.authenticate_device_credential(repeat('a1', 32), 'share.ingest')), '11111111-1111-1111-1111-111111111111'::uuid,
   'one in its grace still works');
-select is(public.use_device_credential(repeat('a2', 32), 'siri.add'), null, 'out of scope is null');
-select is(public.use_device_credential(repeat('ff', 32), 'share.ingest'), null, 'unknown is null');
-select is(public.use_device_credential(repeat('9e', 32), 'share.ingest'), null, 'expired is null');
-select is(public.use_device_credential(repeat('9f', 32), 'share.ingest'), null, 'revoked is null');
+select is((select user_id from public.authenticate_device_credential(repeat('a2', 32), 'siri.add')), null, 'out of scope is null');
+select is((select user_id from public.authenticate_device_credential(repeat('ff', 32), 'share.ingest')), null, 'unknown is null');
+select is((select user_id from public.authenticate_device_credential(repeat('9e', 32), 'share.ingest')), null, 'expired is null');
+select is((select user_id from public.authenticate_device_credential(repeat('9f', 32), 'share.ingest')), null, 'revoked is null');
 reset role;
 
 select results_eq(
@@ -153,7 +153,7 @@ select results_eq(
 
 update public.device_credentials set scopes = '{share.ingest,siri.add}' where token_hash = decode(repeat('a2', 32), 'hex');
 set local role service_role;
-select is(public.use_device_credential(repeat('a2', 32), 'siri.add'), '11111111-1111-1111-1111-111111111111'::uuid,
+select is((select user_id from public.authenticate_device_credential(repeat('a2', 32), 'siri.add')), '11111111-1111-1111-1111-111111111111'::uuid,
   'a credential with the scope is accepted for it');
 reset role;
 
@@ -161,7 +161,7 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 select throws_ok($$ select * from public.device_credentials $$, '42501', null, 'a user can''t read credentials');
-select throws_ok($$ select public.use_device_credential(repeat('a2', 32), 'share.ingest') $$, '42501', null,
+select throws_ok($$ select * from public.authenticate_device_credential(repeat('a2', 32), 'share.ingest') $$, '42501', null,
   'nor verify a token');
 select throws_ok(
   $$ select public.register_device_credential('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000001', repeat('a7', 32)) $$,
@@ -197,8 +197,8 @@ select results_eq(
   'her other installation is untouched');
 
 set local role service_role;
-select is(public.use_device_credential(repeat('a2', 32), 'share.ingest'), null, 'a signed-out credential is refused');
-select is(public.use_device_credential(repeat('a1', 32), 'share.ingest'), null, 'and so is its predecessor');
+select is((select user_id from public.authenticate_device_credential(repeat('a2', 32), 'share.ingest')), null, 'a signed-out credential is refused');
+select is((select user_id from public.authenticate_device_credential(repeat('a1', 32), 'share.ingest')), null, 'and so is its predecessor');
 reset role;
 
 -- Signing in again on that installation registers a new one; the revoked ones don't count.

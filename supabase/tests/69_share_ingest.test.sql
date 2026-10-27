@@ -3,7 +3,7 @@
 -- operation again, conflicts, the household and list checks and fallbacks).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(42);
+select plan(40);
 
 -- Fixtures (as postgres) ---------------------------------------------------------------------------
 -- Alex is in Home (lists Groceries, archived Old) and, later joined, Cabin; Sam is in Away (list
@@ -91,9 +91,6 @@ update public.device_credentials set revoked_at = now() - interval '1 second', r
 where id = 'd0000000-0000-4000-8000-000000000002';
 select is((select count(*)::int from public.authenticate_device_credential(repeat('a2', 32), 'share.ingest')), 0,
   'a revoked one answers no row');
-select is(public.use_device_credential(repeat('a1', 32), 'share.ingest'), '11111111-1111-4111-8111-111111111111'::uuid,
-  'use_device_credential still answers the user id');
-select is(public.use_device_credential(repeat('a2', 32), 'share.ingest'), null, 'and null for a revoked one');
 update public.device_credentials set revoked_at = null, revoked_reason = null where id = 'd0000000-0000-4000-8000-000000000002';
 
 -- The share_ingest limit ---------------------------------------------------------------------------

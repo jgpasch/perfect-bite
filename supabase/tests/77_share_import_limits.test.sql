@@ -167,10 +167,10 @@ select is(
   array['e0000000-0000-4000-8000-000000000001 true'],
   'the oldest live credential is revoked now, revoked_reason limit');
 set local role service_role;
-select is(public.use_device_credential(repeat('01', 32), 'share.ingest'), null, 'its token no longer works');
-select is(public.use_device_credential(repeat('06', 32), 'share.ingest'), '11111111-1111-4111-8111-111111111111'::uuid,
+select is((select user_id from public.authenticate_device_credential(repeat('01', 32), 'share.ingest')), null, 'its token no longer works');
+select is((select user_id from public.authenticate_device_credential(repeat('06', 32), 'share.ingest')), '11111111-1111-4111-8111-111111111111'::uuid,
   'the new one does');
-select is(public.use_device_credential(repeat('03', 32), 'share.ingest'), '11111111-1111-4111-8111-111111111111'::uuid,
+select is((select user_id from public.authenticate_device_credential(repeat('03', 32), 'share.ingest')), '11111111-1111-4111-8111-111111111111'::uuid,
   'and a replaced one is still in its grace');
 reset role;
 
