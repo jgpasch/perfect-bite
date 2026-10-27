@@ -787,8 +787,8 @@ create table list_items (
   display_name    text not null,                         -- what the user typed or said
   note            text,
   checked_at      timestamptz,
-  checked_by      uuid references auth.users,
-  added_by        uuid references auth.users,
+  checked_by      uuid references auth.users,            -- the server sets it with checked_at (7.1)
+  added_by        uuid references auth.users,            -- the server sets it on insert
   deleted_at      timestamptz,
   merged_into     uuid references list_items,            -- set by apply_mutations when merged (7.3)
   photo_path      text,                                  -- the item's photo in item-photos, null = none
@@ -816,7 +816,7 @@ create table list_item_contributions (
   recipe_id    uuid references recipes,        -- set when source = 'recipe'
   quantity     numeric,                        -- null = unspecified
   unit         text,
-  added_by     uuid references auth.users,
+  added_by     uuid references auth.users,     -- the server sets it on insert
   deleted_at   timestamptz,
   field_clock  jsonb not null default '{}'
 );
@@ -1418,7 +1418,7 @@ This is the hardest part of the project. Stash only syncs append-only captures p
   - Wire format: `'<wall clock ms, 13 digits>-<counter, 4 hex digits>-<device id>'` (device id: letters, digits, `_` or `-`, up to 64), e.g. `1760000000000-0000-3f9a…`. Fixed widths make plain text comparison order it by time, then counter, then device.
 - The usage tables and `household_category_overrides` have composite keys, so their mutations name the row with `key` (`{ household_id, ingredient_name[, unit_key] }`) instead of `id`; the usage tables and send `use_count` changes as `counters: { use_count: <delta> }`, which add up across devices instead of last-writer-wins. `ingredient_unit_usage.last_used_at` merges as the later of both sides.
 - `fields` may not include the row key, `updated_at`, `field_clock` or `merged_into` (server-owned). `household_id` and `created_at` take effect on insert only; a row can't move to another household.
-- `recipes.added_by` is the server's: `apply_mutations` sets it to the caller on insert (with no field clock) and ignores a client value on insert and update, so the app never sends it. `tags`, `tags_edited` and `total_minutes` are last-writer-wins like the other recipe fields, the whole `tags` value as one field (4.14), and so is `step_ingredients` (4.5). `jsonb` values such as `tags` go over the wire as JSON, and pull compares them by content, not key order, since Postgres reorders `jsonb` keys.
+- `recipes.added_by` is the server's: `apply_mutations` sets it to the caller on insert (with no field clock) and ignores a client value on insert and update, so the app never sends it. So are `list_items.added_by` and `list_item_contributions.added_by` (the caller, on insert) and `list_items.checked_by`, which follows `checked_at`: the caller when `checked_at` goes from null to set (an insert that's already checked included), null when it goes back to null, unchanged when a later check time replaces an earlier one, and clocked with `checked_at` whenever it changes, so a pull replaces the checker the device wrote (an Undo that re-checks with the member who had checked it shows that member until then). The app still writes and sends them; the server ignores the sent values, so the household's pushes (8) always name the member who did it. `tags`, `tags_edited` and `total_minutes` are last-writer-wins like the other recipe fields, the whole `tags` value as one field (4.14), and so is `step_ingredients` (4.5). `jsonb` values such as `tags` go over the wire as JSON, and pull compares them by content, not key order, since Postgres reorders `jsonb` keys.
 - **Client side** (`src/sync/`): `hlc.ts` is the pure clock; `clock.ts` keeps the device id and last HLC in device settings, written in the same transaction as each write, so the clock stays monotonic across launches. Every write to household data (households, lists, items, contributions, recipes, recipe ingredients, usage, custom categories, category overrides) and to the per-user tables (category order, settings) goes through `mutate.ts` (`insertRow`, `updateRows`, `upsertRow`, `deleteRows`), which writes the row, its local `field_clock` (each field's HLC from its last write) and one outbox mutation per row in one transaction. An insert sends every column but the key, counters, server-owned ones and ones the server doesn't take from clients (a custom category's `slug` and `default_rank`, an override's `created_at`); an update sends exactly the fields it set. The local `outbox` table keeps each mutation in wire shape plus its `household_id` (null for per-user rows), so a lost membership can drop its mutations (7.2).
   - Custom categories (`categories` with a `household_id`: insert with `household_id`, `name` and `created_at`, then renames) and `household_category_overrides` (`category_id` only; Reset to default sends `category_id: null` rather than deleting) are household data and go through `apply_mutations` with field-level LWW, like lists.
   - `recipe_favorites` (4.14) is household data keyed by `{ recipe_id, user_id }`, sent with `household_id` on insert and `deleted_at` as its one field, like `household_staples`; pulled per household, so every member's device gets everyone's favorites.

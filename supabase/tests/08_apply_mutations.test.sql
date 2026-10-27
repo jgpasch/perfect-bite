@@ -1,7 +1,7 @@
 -- apply_mutations: field-level LWW by HLC, delete wins, idempotency, merges (spec 7.3).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(35);
+select plan(47);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Alex owns household A; Sam owns household S, which has one list.
@@ -147,6 +147,68 @@ select is(
   'reopening the merged item merges it again rather than failing');
 select is((select count(*)::int from public.list_items where deleted_at is null and checked_at is null), 1,
   'there is still one open banana');
+
+-- Who added and checked an item is the caller, whatever the client sends
+select is(
+  public.apply_mutations($$ [
+    { "table": "list_items", "id": "a2000000-0000-7000-8000-000000000003", "hlc": "1760000000072-0000-alex",
+      "fields": { "list_id": "a1000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "ingredient_name": "apple", "display_name": "Apples",
+                  "added_by": "22222222-2222-2222-2222-222222222222", "checked_by": "22222222-2222-2222-2222-222222222222" } },
+    { "table": "list_item_contributions", "id": "a3000000-0000-7000-8000-000000000002", "hlc": "1760000000072-0001-alex",
+      "fields": { "list_item_id": "a2000000-0000-7000-8000-000000000003", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "added_by": "22222222-2222-2222-2222-222222222222" } }
+  ] $$),
+  '[{"status": "applied"}, {"status": "applied"}]'::jsonb, 'an item and an amount sent with another user as adder still apply');
+select results_eq(
+  $$ select added_by, checked_by, field_clock ? 'added_by', field_clock ? 'checked_by'
+     from public.list_items where id = 'a2000000-0000-7000-8000-000000000003' $$,
+  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, null::uuid, false, false) $$,
+  'the new item was added by the caller, and an open one has no checker');
+select is((select added_by from public.list_item_contributions where id = 'a3000000-0000-7000-8000-000000000002'),
+  '11111111-1111-1111-1111-111111111111'::uuid, 'the new amount was added by the caller');
+select is(
+  public.apply_mutations($$ [{ "table": "list_items", "id": "a2000000-0000-7000-8000-000000000003", "hlc": "1760000000073-0000-alex",
+    "fields": { "added_by": "22222222-2222-2222-2222-222222222222", "checked_by": "22222222-2222-2222-2222-222222222222" } }] $$),
+  '[{"status": "unchanged"}]'::jsonb, 'a write of only who added or checked it changes nothing');
+select is(
+  public.apply_mutations($$ [{ "table": "list_items", "id": "a2000000-0000-7000-8000-000000000003", "hlc": "1760000000074-0000-alex",
+    "fields": { "checked_at": "2026-10-10T13:00:00Z", "checked_by": "22222222-2222-2222-2222-222222222222" } }] $$),
+  '[{"status": "applied"}]'::jsonb, 'a check sent with another user as checker applies');
+select results_eq(
+  $$ select checked_at, checked_by, added_by, field_clock ->> 'checked_by'
+     from public.list_items where id = 'a2000000-0000-7000-8000-000000000003' $$,
+  $$ values ('2026-10-10T13:00:00Z'::timestamptz, '11111111-1111-1111-1111-111111111111'::uuid,
+             '11111111-1111-1111-1111-111111111111'::uuid, '1760000000074-0000-alex') $$,
+  'the caller checked it, at the check''s clock, and the adder is unchanged');
+-- Whoever checked it first (here set by hand) keeps it when a later check time wins.
+reset role;
+update public.list_items set checked_by = '22222222-2222-2222-2222-222222222222' where id = 'a2000000-0000-7000-8000-000000000003';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
+select is(
+  public.apply_mutations($$ [{ "table": "list_items", "id": "a2000000-0000-7000-8000-000000000003", "hlc": "1760000000075-0000-alex",
+    "fields": { "checked_at": "2026-10-10T13:05:00Z", "checked_by": "11111111-1111-1111-1111-111111111111" } }] $$),
+  '[{"status": "applied"}]'::jsonb, 'a later check time over a check applies');
+select results_eq(
+  $$ select checked_at, checked_by, field_clock ->> 'checked_by' from public.list_items where id = 'a2000000-0000-7000-8000-000000000003' $$,
+  $$ values ('2026-10-10T13:05:00Z'::timestamptz, '22222222-2222-2222-2222-222222222222'::uuid, '1760000000075-0000-alex') $$,
+  'a re-check keeps the checker, with checked_at''s clock');
+select is(
+  public.apply_mutations($$ [{ "table": "list_items", "id": "a2000000-0000-7000-8000-000000000003", "hlc": "1760000000076-0000-alex",
+    "fields": { "checked_at": null, "checked_by": "22222222-2222-2222-2222-222222222222" } }] $$),
+  '[{"status": "applied"}]'::jsonb, 'an uncheck applies');
+select results_eq(
+  $$ select checked_at, checked_by, field_clock ->> 'checked_by' from public.list_items where id = 'a2000000-0000-7000-8000-000000000003' $$,
+  $$ values (null::timestamptz, null::uuid, '1760000000076-0000-alex') $$,
+  'an unchecked item has no checker, whatever the client sends');
+select is(
+  public.apply_mutations($$ [{ "table": "list_items", "id": "a2000000-0000-7000-8000-000000000004", "hlc": "1760000000077-0000-alex",
+    "fields": { "list_id": "a1000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "ingredient_name": "pear", "display_name": "Pears",
+                "checked_at": "2026-10-10T13:10:00Z", "checked_by": "22222222-2222-2222-2222-222222222222", "added_by": null } }] $$),
+  '[{"status": "applied"}]'::jsonb, 'an item inserted checked applies');
+select results_eq(
+  $$ select added_by, checked_by from public.list_items where id = 'a2000000-0000-7000-8000-000000000004' $$,
+  $$ values ('11111111-1111-1111-1111-111111111111'::uuid, '11111111-1111-1111-1111-111111111111'::uuid) $$,
+  'an item inserted checked was added and checked by the caller');
 
 -- Non-member rejected, without blocking the rest of the batch
 select is(

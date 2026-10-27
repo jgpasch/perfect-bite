@@ -501,6 +501,26 @@ describe('LWW on pull', () => {
     expect(outboxRows().map((r) => r.mutation.fields)).toEqual([{ note: 'the oat one' }]);
   });
 
+  test('the checker the server sets with the check replaces the one the device wrote', async () => {
+    // An Undo re-checks with the member who had checked it; the server records whoever pushed it.
+    updateRows(db, listItems, eq(listItems.id, 'i1'), { checkedAt: new Date(ts(9)), checkedBy: 'u2' });
+    const checkClock = itemRow('i1')!.fieldClock.checked_at;
+    expect(itemRow('i1')!.fieldClock.checked_by).toBe(checkClock);
+    clearOutbox();
+    server.list_items = [
+      remoteItem('i1', ts(10), {
+        checked_at: ts(9),
+        checked_by: 'u1',
+        field_clock: { ...ITEM_CLOCK, checked_at: checkClock, checked_by: checkClock },
+      }),
+    ];
+
+    await pullNow();
+
+    expect(itemRow('i1')).toMatchObject({ checkedAt: new Date(ts(9)), checkedBy: 'u1' });
+    expect(itemRow('i1')!.fieldClock).toMatchObject({ checked_at: checkClock, checked_by: checkClock });
+  });
+
   test('a remote field older than the local clock is ignored even once pushed', async () => {
     updateRows(db, listItems, eq(listItems.id, 'i1'), { displayName: 'oat milk' });
     clearOutbox();

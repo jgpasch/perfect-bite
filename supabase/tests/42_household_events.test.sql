@@ -38,12 +38,12 @@ select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-1111111
 select is(
   public.apply_mutations($$ [
     { "table": "list_items", "id": "a2000000-0000-7000-8000-000000000001", "hlc": "1760000000000-0000-alex",
-      "fields": { "list_id": "a1000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "ingredient_name": "banana", "display_name": "Bananas", "added_by": "11111111-1111-1111-1111-111111111111" } },
+      "fields": { "list_id": "a1000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "ingredient_name": "banana", "display_name": "Bananas", "added_by": "22222222-2222-2222-2222-222222222222" } },
     { "table": "list_item_contributions", "id": "a4000000-0000-7000-8000-000000000001", "hlc": "1760000000000-0001-alex",
-      "fields": { "list_item_id": "a2000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "added_by": "11111111-1111-1111-1111-111111111111", "created_at": "2026-10-10T10:00:00Z" } }
+      "fields": { "list_item_id": "a2000000-0000-7000-8000-000000000001", "household_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "added_by": "22222222-2222-2222-2222-222222222222", "created_at": "2026-10-10T10:00:00Z" } }
   ] $$),
   '[{"status": "applied"}, {"status": "applied"}]'::jsonb,
-  'an add syncs');
+  'an add syncs (sent naming Sam as the adder)');
 reset role;
 select results_eq(
   $$ select message from pgmq.q_household_events order by msg_id $$,
@@ -197,14 +197,14 @@ set local role authenticated;
 select is(
   public.apply_mutations($$ [
     { "table": "list_items", "id": "a2000000-0000-7000-8000-000000000004", "hlc": "1760000000400-0000-alex",
-      "fields": { "checked_at": "2026-10-10T12:00:00Z", "checked_by": "11111111-1111-1111-1111-111111111111" } }
+      "fields": { "checked_at": "2026-10-10T12:00:00Z", "checked_by": "22222222-2222-2222-2222-222222222222" } }
   ] $$),
-  '[{"status": "applied"}]'::jsonb, 'a check syncs');
+  '[{"status": "applied"}]'::jsonb, 'a check syncs (sent naming Sam as the checker)');
 reset role;
 select results_eq(
   $$ select message ->> 'kind', message ->> 'actor', message ->> 'list_item_id' from pgmq.q_household_events $$,
   $$ values ('shopping', '11111111-1111-1111-1111-111111111111', 'a2000000-0000-7000-8000-000000000004') $$,
-  'a synced check queues a shopping event');
+  'a synced check queues a shopping event with the caller as the shopper');
 
 -- A queue failure never fails the write ---------------------------------------------
 select pgmq.drop_queue('household_events');
