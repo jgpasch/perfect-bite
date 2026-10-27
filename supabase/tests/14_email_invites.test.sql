@@ -2,17 +2,19 @@
 -- accept_invite_by_id and decline_invite (spec 4.7, 5).
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(62);
+select plan(74);
 
 -- Fixtures (as postgres) ------------------------------------------------------
 -- Test home: Sam (owner) and Alex. Sam's place: Sam. Pat's flat: Alex. Kim's household: Kim.
 -- Lee and Max belong to nothing.
-insert into auth.users (id, email, aud, role, raw_user_meta_data) values
-  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', '{"full_name":"Alex"}'),
-  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', '{"full_name":"Sam"}'),
-  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', '{"full_name":"Kim"}'),
-  ('44444444-4444-4444-4444-444444444444', 'lee@test.local', 'authenticated', 'authenticated', '{"full_name":"Lee"}'),
-  ('55555555-5555-5555-5555-555555555555', 'max@test.local', 'authenticated', 'authenticated', '{"full_name":"Max"}');
+-- Pat signed up with a password and hasn't confirmed their email.
+insert into auth.users (id, email, aud, role, raw_user_meta_data, email_confirmed_at) values
+  ('11111111-1111-1111-1111-111111111111', 'alex@test.local', 'authenticated', 'authenticated', '{"full_name":"Alex"}', now()),
+  ('22222222-2222-2222-2222-222222222222', 'sam@test.local', 'authenticated', 'authenticated', '{"full_name":"Sam"}', now()),
+  ('33333333-3333-3333-3333-333333333333', 'kim@test.local', 'authenticated', 'authenticated', '{"full_name":"Kim"}', now()),
+  ('44444444-4444-4444-4444-444444444444', 'lee@test.local', 'authenticated', 'authenticated', '{"full_name":"Lee"}', now()),
+  ('55555555-5555-5555-5555-555555555555', 'max@test.local', 'authenticated', 'authenticated', '{"full_name":"Max"}', now()),
+  ('66666666-6666-6666-6666-666666666666', 'pat@test.local', 'authenticated', 'authenticated', '{"full_name":"Pat"}', null);
 
 insert into public.households (id, name, created_by) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Test home', '22222222-2222-2222-2222-222222222222'),
@@ -226,6 +228,48 @@ select throws_ok($$ select * from public.accept_invite((select token from tokens
 select is_empty($$ select 1 from public.household_members
   where household_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and user_id = '55555555-5555-5555-5555-555555555555' $$,
   'so Max did not join Test home');
+
+-- Unconfirmed email -----------------------------------------------------------
+-- Invites match the caller's confirmed email in auth.users, not the email in their token.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated","email":"sam@test.local"}', true);
+select lives_ok($$ insert into tokens select 'patA', public.create_invite('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pat@test.local') $$,
+  'Sam invites pat@test.local to Test home');
+select lives_ok($$ insert into tokens select 'patB', public.create_invite('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'pat@test.local') $$,
+  'and to Sam''s place');
+reset role;
+insert into ids select t.name, i.id from public.household_invites i
+  join tokens t on i.token_hash = encode(extensions.digest(t.token, 'sha256'), 'hex') where t.name in ('patA', 'patB');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated","email":"pat@test.local"}', true);
+select is_empty($$ select * from public.my_invites() $$, 'an unconfirmed email sees no invites');
+select throws_ok($$ select * from public.accept_invite_by_id((select id from ids where name = 'patA')) $$,
+  'P0002', 'invite not found', 'nor can it accept one by id');
+select throws_ok($$ select public.decline_invite((select id from ids where name = 'patB')) $$,
+  'P0002', 'invite not found', 'nor decline one');
+reset role;
+select ok((select bool_and(used_at is null and declined_at is null) from public.household_invites
+  where id in (select id from ids where name in ('patA', 'patB'))), 'both invites are still open');
+select is_empty($$ select 1 from public.household_members where user_id = '66666666-6666-6666-6666-666666666666' $$,
+  'and Pat joined nothing');
+
+-- An unconfirmed account can't borrow a confirmed address through its token's email claim.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated","email":"kim@test.local"}', true);
+select is_empty($$ select * from public.my_invites() $$, 'a token claiming another email sees no invites');
+
+reset role;
+update auth.users set email_confirmed_at = now() where id = '66666666-6666-6666-6666-666666666666';
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated","email":"pat@test.local"}', true);
+select set_eq($$ select id from public.my_invites() $$, $$ select id from ids where name in ('patA', 'patB') $$,
+  'once confirmed, Pat sees both invites');
+select lives_ok($$ select public.decline_invite((select id from ids where name = 'patB')) $$, 'and declines one');
+select results_eq($$ select household_name, already_member from public.accept_invite_by_id((select id from ids where name = 'patA')) $$,
+  $$ values ('Test home', false) $$, 'and accepts the other');
+select is_empty($$ select * from public.my_invites() $$, 'leaving none');
 
 -- Signed out ------------------------------------------------------------------
 reset role;

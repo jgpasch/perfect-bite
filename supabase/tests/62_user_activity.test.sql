@@ -12,6 +12,8 @@ insert into auth.users (id, email, aud, role, raw_user_meta_data) values
   ('33333333-3333-3333-3333-333333333333', 'pat@test.local', 'authenticated', 'authenticated', '{}'),
   ('44444444-4444-4444-4444-444444444444', 'dana@test.local', 'authenticated', 'authenticated', '{}'),
   ('55555555-5555-5555-5555-555555555555', 'eve@test.local', 'authenticated', 'authenticated', '{}');
+-- Eve's invites are matched on their email, which has to be confirmed.
+update auth.users set email_confirmed_at = now() where id = '55555555-5555-5555-5555-555555555555';
 insert into public.households (id, name) values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Home');
 insert into public.household_members (household_id, user_id, role, position, joined_at) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'owner', 1, now() - interval '3 days'),

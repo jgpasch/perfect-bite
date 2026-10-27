@@ -151,6 +151,8 @@ insert into public.household_invites (household_id, token_hash, created_by, expi
   ('dddddddd-0000-0000-0000-000000000002', private.invite_token_hash('tok-alex2'),
    'd0000000-0000-0000-0000-000000000003', now() + interval '7 days', null);
 update public.profiles set last_name = null where user_id = 'd0000000-0000-0000-0000-000000000003';
+-- my_invites only matches a confirmed email.
+update auth.users set email_confirmed_at = now() where id = 'd0000000-0000-0000-0000-000000000004';
 
 set local role authenticated;
 select set_config('request.jwt.claims',
