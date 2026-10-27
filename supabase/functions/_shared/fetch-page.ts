@@ -4,11 +4,12 @@
 // it's the comments after the recipe that run long. Returns the page's title, JSON-LD blocks,
 // readable text and photo candidates. DNS and fetch are injected so tests need no network.
 //
-// Caveat: fetch resolves the host again after the check, so a DNS server that answers differently
-// a moment later (rebinding) isn't fully stopped. Pinning the checked address needs a custom client.
+// Each hop connects to the addresses its check passed (`pinned-fetch.ts`), never resolving the host
+// again, so a DNS server that answers differently a moment later (rebinding) can't reach a private one.
 //
 // Relative import, not `@shared/`: this file is tested from `_shared/`, which has no import map.
 import { cleanImageUrl, decodeHtmlEntities, jsonLdImageCandidates } from '../../../src/shared/recipe-jsonld.ts';
+import { type Connect, createPinnedFetch, type PinnedFetch } from './pinned-fetch.ts';
 
 export const FETCH_TIMEOUT_MS = 10_000;
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -40,7 +41,10 @@ export type ResolveHost = (hostname: string) => Promise<string[]>;
 
 export type FetchPageDeps = {
   resolve?: ResolveHost;
-  fetch?: typeof fetch;
+  /** Must connect only to `init.addresses`. Defaults to `createPinnedFetch(connect)`. */
+  fetch?: PinnedFetch;
+  /** The pinned fetch's connection opener; tests inject one to see where it connects. */
+  connect?: Connect;
   timeoutMs?: number;
 };
 
@@ -152,7 +156,8 @@ export function isBlockedAddress(address: string): boolean {
   return v6 === null || isBlockedIPv6(v6);
 }
 
-async function assertPublicHost(hostname: string, resolve: ResolveHost): Promise<void> {
+/** The host's addresses, all public, for the fetch to connect to. Throws if any isn't. */
+async function assertPublicHost(hostname: string, resolve: ResolveHost): Promise<string[]> {
   const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   let addresses: string[];
   if (parseIPv4(host) !== null || host.includes(':')) {
@@ -171,6 +176,7 @@ async function assertPublicHost(hostname: string, resolve: ResolveHost): Promise
   if (addresses.some(isBlockedAddress)) {
     throw new FetchPageError('blocked_address', `${hostname} resolves to a non-public address`);
   }
+  return addresses;
 }
 
 // --- Fetching ---
@@ -243,11 +249,12 @@ function decodeBody({ bytes, truncated }: Body, contentType: string): string {
   return decoder.decode(bytes, { stream: true }).replace(/<[^>]*$/, '');
 }
 
-async function load(url: string, resolve: ResolveHost, fetchFn: typeof fetch, signal: AbortSignal) {
+async function load(url: string, resolve: ResolveHost, fetchFn: PinnedFetch, signal: AbortSignal) {
   let current = parseHttpUrl(url);
   for (let redirects = 0; ; redirects++) {
-    await assertPublicHost(current.hostname, resolve);
+    const addresses = await assertPublicHost(current.hostname, resolve);
     const response = await fetchFn(current.href, {
+      addresses,
       redirect: 'manual',
       signal,
       headers: { accept: 'text/html', 'user-agent': USER_AGENT },
@@ -289,7 +296,7 @@ export async function fetchPage(url: string, deps: FetchPageDeps = {}): Promise<
   });
   try {
     return await Promise.race([
-      load(url, deps.resolve ?? resolveHostDns, deps.fetch ?? fetch, controller.signal),
+      load(url, deps.resolve ?? resolveHostDns, deps.fetch ?? createPinnedFetch(deps.connect), controller.signal),
       timedOut,
     ]);
   } finally {

@@ -16,6 +16,7 @@ import {
   type FetchPageFailure,
   type ResolveHost,
 } from './fetch-page.ts';
+import type { Connect, PinnedRequestInit } from './pinned-fetch.ts';
 
 const PUBLIC_IP = '93.184.216.34';
 
@@ -192,6 +193,70 @@ Deno.test('fetchPage re-checks DNS on every redirect hop', async () => {
   const page = await fetchPage('https://a.example/', { fetch: fetch.fn, resolve: resolve.fn });
   assertEquals(page.finalUrl, 'https://b.example/y');
   assertEquals(resolve.lookups, ['a.example', 'b.example', 'b.example']);
+});
+
+/** A resolver that answers `answers` in turn (rebinding: public first, then private). */
+function rebindingResolve(answers: string[][]) {
+  const lookups: string[] = [];
+  const fn: ResolveHost = (hostname) => {
+    lookups.push(hostname);
+    return Promise.resolve(answers[Math.min(lookups.length - 1, answers.length - 1)]);
+  };
+  return { fn, lookups };
+}
+
+/** A connection opener recording where it dials, each connection answering with `answer`. */
+function fakeConnect(answer: (address: string) => string) {
+  const dials: { address: string; port: number; tlsHostname: string | null }[] = [];
+  const fn: Connect = (dial) => {
+    dials.push(dial);
+    const bytes = new TextEncoder().encode(answer(dial.address));
+    return Promise.resolve({
+      readable: new Blob([bytes]).stream(),
+      writable: new WritableStream<Uint8Array>(),
+      close() {},
+    });
+  };
+  return { fn, dials };
+}
+
+const HTTP_PAGE = `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ${PAGE.length}\r\n\r\n${PAGE}`;
+
+Deno.test('fetchPage hands the fetch only the addresses it checked, not a later DNS answer', async () => {
+  const fetch = fakeFetch({ 'https://rebind.example/': () => html(PAGE) });
+  const resolve = rebindingResolve([[PUBLIC_IP], ['169.254.169.254']]);
+  await fetchPage('https://rebind.example/', { fetch: fetch.fn, resolve: resolve.fn });
+  assertEquals(resolve.lookups, ['rebind.example']);
+  assertEquals((fetch.calls[0].init as PinnedRequestInit).addresses, [PUBLIC_IP]);
+
+  const literal = fakeFetch({ 'https://[2606:4700::1111]/': () => html(PAGE) });
+  await fetchPage('https://[2606:4700::1111]/', { fetch: literal.fn, resolve: fakeResolve().fn });
+  assertEquals((literal.calls[0].init as PinnedRequestInit).addresses, ['2606:4700::1111']);
+});
+
+Deno.test('fetchPage never connects to a private address when DNS answers public, then private', async () => {
+  const connect = fakeConnect(() => HTTP_PAGE);
+  const resolve = rebindingResolve([[PUBLIC_IP], ['127.0.0.1']]);
+  const page = await fetchPage('https://rebind.example/soup', { connect: connect.fn, resolve: resolve.fn });
+  assertEquals(page.title, 'Soup');
+  assertEquals(connect.dials, [{ address: PUBLIC_IP, port: 443, tlsHostname: 'rebind.example' }]);
+});
+
+Deno.test('fetchPage pins each redirect hop to its own check, and a hop that rebinds private is refused', async () => {
+  // Same host twice: the first check passes, the second (after the redirect) answers private.
+  const connect = fakeConnect(() => 'HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\n\r\n');
+  const resolve = rebindingResolve([[PUBLIC_IP], ['10.0.0.7']]);
+  await assertFails(fetchPage('http://rebind.example/', { connect: connect.fn, resolve: resolve.fn }), 'blocked_address');
+  assertEquals(resolve.lookups, ['rebind.example', 'rebind.example']);
+  assertEquals(connect.dials.map((d) => d.address), [PUBLIC_IP]);
+
+  const hops = fakeConnect((address) => (address === PUBLIC_IP ? 'HTTP/1.1 301 Moved\r\nLocation: https://b.example/\r\n\r\n' : HTTP_PAGE));
+  const page = await fetchPage('http://a.example/', { connect: hops.fn, resolve: fakeResolve({ 'b.example': ['8.8.8.8'] }).fn });
+  assertEquals(page.finalUrl, 'https://b.example/');
+  assertEquals(hops.dials, [
+    { address: PUBLIC_IP, port: 80, tlsHostname: null },
+    { address: '8.8.8.8', port: 443, tlsHostname: 'b.example' },
+  ]);
 });
 
 Deno.test('fetchPage resolves a relative og:image against the final URL, after redirects', async () => {

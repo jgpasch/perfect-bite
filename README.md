@@ -238,7 +238,7 @@ deno test --allow-env --allow-read --allow-sys    # or: yarn dlx deno test ...
 
 `supabase/functions/import-recipe`, `supabase/functions/suggest-recipe-tags` and `supabase/functions/match-recipe-steps` run the same way from their own folders.
 
-`supabase/functions/_shared/fetch-page.test.ts` has no import map, so run it from `_shared/`: `deno test --allow-read fetch-page.test.ts`.
+`supabase/functions/_shared/fetch-page.test.ts` and `pinned-fetch.test.ts` have no import map, so run them from `_shared/`: `deno test --allow-read fetch-page.test.ts pinned-fetch.test.ts`.
 
 To try the categorize LLM call by hand, run the CLI from the repo root. It runs the function's own `categorize()`, with the same prompt and validation, against an in-memory store where every name starts unknown, so nothing is written to any database. It ignores the rate limits. It reads `supabase/functions/.env`, so set `AI_MODEL_CATEGORIZE` (and the provider key) there, or pass `--model`:
 
