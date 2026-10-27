@@ -39,7 +39,7 @@ Manual checks (simulators, two signed-in users, real devices) never block a task
 
 ## Architecture: tests
 
-- [ ] Tests for untested sync and meal-plan modules (architecture review). Add `src/sync/__tests__/apply-writes.test.ts` (the share/import write planner's bridge to the outbox), `clock.test.ts` (clock persistence in device settings, `observeHlc` through a rolled-back transaction, `getDeviceId` stability), and tests for `src/sync/activity.ts` and `outbox-signal.ts`; then `src/features/meal-plan/__tests__/slot-actions.test.ts` and `write.test.ts` (undo, moves, clears). Tests only; if one finds a bug, fix it in the same task and say so in progress.md.
+- [x] Tests for untested sync and meal-plan modules (architecture review). Add `src/sync/__tests__/apply-writes.test.ts` (the share/import write planner's bridge to the outbox), `clock.test.ts` (clock persistence in device settings, `observeHlc` through a rolled-back transaction, `getDeviceId` stability), and tests for `src/sync/activity.ts` and `outbox-signal.ts`; then `src/features/meal-plan/__tests__/slot-actions.test.ts` and `write.test.ts` (undo, moves, clears). Tests only; if one finds a bug, fix it in the same task and say so in progress.md.
 
 ## Architecture: repo hygiene
 

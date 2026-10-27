@@ -160,7 +160,8 @@ export function restoreEntries(entries: readonly Pick<MealPlanEntry, 'id'>[], ex
 
 /**
  * Moves one of the slot's shown recipes to `toIndex` among them, writing only its `position`: halfway
- * between its new neighbours', or one less than the first or one more than the last. Returns the moved
+ * between its new neighbours', or one less than the first or one more than the last. When its neighbours
+ * share a position, it numbers the shown recipes 0, 1, 2… in the new order instead. Returns the moved
  * row (unchanged, with nothing written, when it's already there), or null when it isn't one of them.
  */
 export function moveEntry(
@@ -189,7 +190,19 @@ export function moveEntry(
     const before = others[to - 1];
     const after = others[to];
     const position = !before ? after.position - 1 : !after ? before.position + 1 : (before.position + after.position) / 2;
-    return updateRows(tx, mealPlanEntries, eq(mealPlanEntries.id, entryId), { position })[0];
+    if (!before || !after || (before.position < position && position < after.position)) {
+      return updateRows(tx, mealPlanEntries, eq(mealPlanEntries.id, entryId), { position })[0];
+    }
+    // No room between them (two devices put recipes at one position, or the gap halved away): number
+    // the shown recipes 0, 1, 2… in their new order, writing the ones that change.
+    const order = [...others.slice(0, to), shown[from], ...others.slice(to)];
+    let moved = shown[from];
+    order.forEach((e, i) => {
+      if (e.position === i) return;
+      const [row] = updateRows(tx, mealPlanEntries, eq(mealPlanEntries.id, e.id), { position: i });
+      if (e.id === entryId) moved = row;
+    });
+    return moved;
   });
 }
 
