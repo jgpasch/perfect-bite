@@ -388,20 +388,27 @@ describe('a rejected mutation does not block the rest', () => {
     ]);
   });
 
-  test("a 404 for a table the server doesn't have (PGRST205, an older app's dropped table) is permanent", async () => {
+  test('a 404 from a stale schema cache (PGRST205, right after a db push) retries, then the write goes', async () => {
     upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
     addList('l1');
     const missing = { code: 'PGRST205', message: "Could not find the table 'public.user_settings' in the schema cache" };
-    respondTo('user_settings', { error: missing, status: 404 });
+    respondTo('user_settings', { error: missing, status: 404 }, { data: null, error: null, status: 201 });
     applyAll();
 
-    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 1, rejected: 1, failed: false });
+    await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 0, failed: true });
 
-    expect(getPushState()).toMatchObject({ attempts: 0, nextAttemptAt: null, lastError: null });
-    expect(outboxRows().map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([['user_settings', missing, T0]]);
-    // Never sent again.
-    await pushNow({ now: at(1000) });
-    expect(queries.filter((q) => q.table === 'user_settings')).toHaveLength(1);
+    expect(getPushState()).toMatchObject({ attempts: 1, nextAttemptAt: new Date(T0.getTime() + 5_000).toISOString(), lastError: missing.message });
+    expect(applyCalls()).toEqual([]);
+    expect(outboxRows().map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([
+      ['user_settings', null, null],
+      ['lists', null, null],
+    ]);
+    expect(mockReportError).not.toHaveBeenCalled();
+
+    // Once the cache reloads, it goes, and the queue behind it too.
+    await expect(pushNow({ now: at(5_000) })).resolves.toEqual({ pushed: 2, rejected: 0, failed: false });
+    expect(queries.filter((q) => q.table === 'user_settings')).toHaveLength(2);
+    expect(outboxRows()).toEqual([]);
   });
 
   test('a queued user_category_order change is refused for good, never sent, and the queue moves on', async () => {
@@ -528,6 +535,71 @@ describe('retry with backoff', () => {
       ['user_settings', null],
       ['lists', null],
     ]);
+  });
+
+  describe('a failed per-user write, by status', () => {
+    const queueUserSettings = () => upsertRow(db, userSettings, { userId: 'u1', defaultListId: null }, { defaultListId: null });
+
+    test.each([
+      [400, { code: 'PGRST102', message: 'Invalid body' }],
+      [403, { code: '42501', message: 'permission denied for table user_settings' }],
+      [409, { code: '23505', message: 'duplicate key value violates unique constraint' }],
+      [409, { code: '23503', message: 'violates foreign key' }],
+      [422, { code: 'PGRST301', message: 'Unprocessable' }],
+    ])('%i %o is permanent: recorded and skipped', async (status, error) => {
+      queueUserSettings();
+      respondTo('user_settings', { error, status });
+
+      await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 1, failed: false });
+      expect(outboxRows().map((r) => [r.error, r.rejectedAt])).toEqual([[error, T0]]);
+      expect(getPushState()).toMatchObject({ attempts: 0, lastError: null });
+    });
+
+    test.each([
+      [404, { code: 'PGRST205', message: 'Could not find the table in the schema cache' }],
+      [404, { message: 'Not Found' }],
+      [409, { message: 'Conflict' }],
+      [409, { code: '', message: 'Conflict' }],
+      [409, { code: 'PGRST116', message: 'Conflict' }],
+      [401, { code: 'PGRST303', message: 'JWT expired' }],
+      [408, { message: 'Request Timeout' }],
+      [429, { message: 'Too Many Requests' }],
+      [500, { code: 'XX000', message: 'internal error' }],
+    ])('%i %o retries later: the queue is kept', async (status, error) => {
+      queueUserSettings();
+      respondTo('user_settings', { error, status });
+
+      await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 0, failed: true });
+      expect(outboxRows().map((r) => [r.mutation.table, r.error, r.rejectedAt])).toEqual([['user_settings', null, null]]);
+      expect(getPushState()).toMatchObject({ attempts: 1, lastError: error.message });
+      expect(mockReportError).not.toHaveBeenCalled();
+    });
+
+    test('create_household answered 404 (function not in the schema cache yet) retries', async () => {
+      resetDb();
+      insertRow(db, households, { id: H, name: 'Home' });
+      respondToRpc('create_household', { data: null, error: { code: 'PGRST202', message: 'Could not find the function' }, status: 404 });
+
+      await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 0, failed: true });
+      expect(outboxRows().map((r) => [r.mutation.table, r.rejectedAt])).toEqual([['households', null]]);
+    });
+
+    test('apply_mutations rejected results stay permanent whatever their code', async () => {
+      addList('l1');
+      addList('l2');
+      respondToRpc('apply_mutations', {
+        data: [
+          { status: 'rejected', code: '23505', message: 'duplicate' },
+          { status: 'rejected', code: 'conflict', message: 'no sqlstate' },
+        ],
+      });
+
+      await expect(pushNow({ now: at(0) })).resolves.toEqual({ pushed: 0, rejected: 2, failed: false });
+      expect(outboxRows().map((r) => [r.mutation.id, r.rejectedAt])).toEqual([
+        ['l1', T0],
+        ['l2', T0],
+      ]);
+    });
   });
 
   test('the retry timer pushes again when the delay is up', async () => {

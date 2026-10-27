@@ -8,7 +8,8 @@
 // - `apply_mutations` doesn't take the per-user tables (aisle order, settings) or `households`
 //   (spec 7.1), so those are sent one at a time, in their place in the queue: per-user rows as
 //   direct writes (RLS limits them to the user's own rows), a new household through
-//   `create_household`. A 4xx for one of them is recorded and skipped the same way.
+//   `create_household`. A 4xx for one of them is recorded and skipped the same way, except the
+//   transient ones (`isPermanent`).
 // - Anything else that fails (offline, timeout, 5xx, an expired token) stops the run with the
 //   queue untouched and retries on the backoff schedule.
 //
@@ -113,10 +114,20 @@ class RetryLater extends Error {}
 /** Thrown when the signed-in user changed during a run (sign-out): the rest of it is dropped. */
 class UserChanged extends Error {}
 
-/** True for an HTTP status that means "this request is wrong" rather than "try again". */
-function isPermanent(status: number | undefined): boolean {
-  if (status === undefined) return false;
-  return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
+/** A Postgres error code (SQLSTATE): five digits or capitals, e.g. `23503`. PostgREST's own are `PGRST…`. */
+const isSqlState = (code: string | undefined) => /^[0-9A-Z]{5}$/.test(code ?? '');
+
+/**
+ * True for a failed single request that means "this request is wrong" rather than "try again".
+ * A 404 is transient: PostgREST answers it for a stale schema cache (PGRST205, right after a
+ * hosted `db push`). So is a 409 that isn't a Postgres constraint (no SQLSTATE).
+ */
+function isPermanent(res: Response): boolean {
+  const { status } = res;
+  if (status === undefined || status < 400 || status >= 500) return false;
+  if (status === 401 || status === 404 || status === 408 || status === 429) return false;
+  if (status === 409) return isSqlState(res.error?.code);
+  return true;
 }
 
 const describe = (res: Response) => res.error?.message || `HTTP ${res.status ?? 0}`;
@@ -199,8 +210,8 @@ const USER_TABLE_COLUMNS: Record<string, readonly string[]> = {
 
 /**
  * Tables the server dropped (spec 4.3.3: aisle orders moved to the household). A queued change to
- * one can never apply, so it's refused here for good rather than sent. (Sent anyway, as an older
- * app does, PostgREST answers 404, which `isPermanent` also treats as a rejection.)
+ * one can never apply, so it's refused here for good rather than sent: PostgREST would answer 404,
+ * which `isPermanent` treats as a stale schema cache and retries.
  */
 const RETIRED_TABLES: ReadonlySet<string> = new Set(['user_category_order']);
 
@@ -232,7 +243,7 @@ async function pushSingle(userId: string, row: OutboxRow, at: Date): Promise<{ p
   if ('then' in request) {
     const res = await call(request);
     if (res.error) {
-      if (!isPermanent(res.status)) throw new RetryLater(describe(res));
+      if (!isPermanent(res)) throw new RetryLater(describe(res));
       rejection = { code: res.error.code || String(res.status), message: describe(res) };
     }
   } else {
