@@ -230,6 +230,34 @@ describe('the byline', () => {
     expect(getRecipe(tikka)?.notes).toBe('Use thighs.');
   });
 
+  test("a household-mate's notes show live while not editing; saving ours leaves their link", () => {
+    setRecipe({ notes: 'Double the garlic.' });
+    const root = render();
+    // The live query is mocked to read on render, so re-rendering stands in for its update.
+    setRecipe({ notes: 'Use thighs.' });
+    act(() => tree!.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
+    const notes = button(root, 'Notes: Use thighs.');
+    act(() => notes.props.onPress());
+    const field = root.root.find((n) => String(n.type) === 'TextInput' && n.props.accessibilityLabel === 'Notes');
+    expect(field.props.value).toBe('Use thighs.');
+    setRecipe({ sourceUrl: LINK });
+    act(() => field.props.onChangeText('Use thighs, 25 min.'));
+    act(() => field.props.onEndEditing());
+    expect(getRecipe(tikka)).toMatchObject({ notes: 'Use thighs, 25 min.', sourceUrl: LINK });
+  });
+
+  test("the ⋯ menu's link leaves a household-mate's notes", () => {
+    const prompt = jest.spyOn(Alert, 'prompt').mockImplementation(() => {});
+    setRecipe({ notes: 'Double the garlic.' });
+    const root = render();
+    const action = menuActions(root).find((n) => [n.props.children].flat().join('') === 'Add link')!;
+    act(() => action.props.onPress());
+    setRecipe({ notes: 'Use thighs.' });
+    const save = prompt.mock.calls[0][2] as unknown as (text: string) => void;
+    act(() => save('nytimes.com/tikka-masala'));
+    expect(getRecipe(tikka)).toMatchObject({ notes: 'Use thighs.', sourceUrl: 'https://nytimes.com/tikka-masala' });
+  });
+
   test('no notes: + Add notes', () => {
     const root = render();
     act(() => button(root, 'Add notes').props.onPress());

@@ -139,6 +139,16 @@ export function updateRecipe(id: string, edit: RecipeEdit): void {
   });
 }
 
+/** Saves the notes alone (empty clears them), so a household-mate's edit to the name or link isn't written back. */
+export function updateRecipeNotes(id: string, notes: string): void {
+  updateRows(db, recipes, eq(recipes.id, id), { notes: notes.trim() || null });
+}
+
+/** Saves the link alone (empty removes it), so a household-mate's edit to the name or notes isn't written back. */
+export function updateRecipeLink(id: string, sourceUrl: string): void {
+  updateRows(db, recipes, eq(recipes.id, id), { sourceUrl: sourceUrl.trim() || null });
+}
+
 /** Sets how many the recipe serves (1–100), or clears it with null. */
 export function updateRecipeServings(id: string, servings: number | null): void {
   updateRows(db, recipes, eq(recipes.id, id), { servings });

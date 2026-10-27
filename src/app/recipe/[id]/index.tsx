@@ -93,8 +93,9 @@ import {
   recipeIngredientsQuery,
   recipeQuery,
   undeleteRecipeIngredient,
-  updateRecipe,
   updateRecipeIngredient,
+  updateRecipeLink,
+  updateRecipeNotes,
   updateRecipeServings,
 } from '@/features/recipes/recipes';
 import { useRecipeViewStyle } from '@/features/recipes/view-style';
@@ -237,7 +238,7 @@ export default function RecipeScreen() {
     Alert.prompt(
       t('recipes.link.label'),
       undefined,
-      (text) => updateRecipe(recipe.id, { name: recipe.name, notes: recipe.notes ?? '', sourceUrl: normalizeRecipeLink(text ?? '') }),
+      (text) => updateRecipeLink(recipe.id, normalizeRecipeLink(text ?? '')),
       'plain-text',
       recipe.sourceUrl ?? '',
       'url',
@@ -687,15 +688,13 @@ function RecipeBand({
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
   // Suggest tags is on every plan (spec 4.12); it needs ingredients.
   const canSuggest = hasIngredients;
-  const [notes, setNotes] = useState(recipe.notes ?? '');
   // The notes show as text (or "+ Add notes") until tapped, then as the field, focused.
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState(recipe.sourceUrl ?? '');
-  const save = () => updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl });
+  const { notes, setNotes, editingNotes, startNotes, endNotes } = useNotesEditor(recipe);
+  const [sourceUrl, showSavedLink] = useSavedValue(recipe.sourceUrl ?? '');
   const saveLink = (text: string) => {
     const link = normalizeRecipeLink(text);
-    setSourceUrl(link);
-    updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl: link });
+    updateRecipeLink(recipe.id, link);
+    showSavedLink(link.trim());
   };
   const tint = aisles[hue];
 
@@ -738,10 +737,7 @@ function RecipeBand({
         <TextInput
           value={notes}
           onChangeText={setNotes}
-          onEndEditing={() => {
-            save();
-            setEditingNotes(false);
-          }}
+          onEndEditing={endNotes}
           autoFocus
           placeholder={t('recipes.screen.addNotes')}
           placeholderTextColor={colors.inkSecondary}
@@ -752,7 +748,7 @@ function RecipeBand({
         />
       ) : notes.trim() ? (
         <Pressable
-          onPress={() => setEditingNotes(true)}
+          onPress={startNotes}
           accessibilityRole="button"
           accessibilityLabel={t('recipes.screen.notesLabel', { notes: notes.trim() })}
           style={({ pressed }) => [styles.center, { minHeight: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 }]}>
@@ -762,7 +758,7 @@ function RecipeBand({
         </Pressable>
       ) : (
         <Pressable
-          onPress={() => setEditingNotes(true)}
+          onPress={startNotes}
           accessibilityRole="button"
           accessibilityLabel={t('recipes.screen.addNotes')}
           style={({ pressed }) => [
@@ -778,6 +774,40 @@ function RecipeBand({
       )}
     </View>
   );
+}
+
+/**
+ * The notes field's state for the band and the byline. Outside editing, `notes` is the live query's, so a
+ * household-mate's edit shows; a tap copies it into the draft, and ending the edit writes only the notes
+ * column, and only when the draft changed, so leaving the field untouched doesn't write back a stale copy.
+ */
+function useNotesEditor(recipe: Recipe) {
+  const [shown, showSaved] = useSavedValue(recipe.notes ?? '');
+  const [draft, setDraft] = useState('');
+  const [started, setStarted] = useState<string | null>(null);
+  const editingNotes = started !== null;
+  const startNotes = () => {
+    setDraft(shown);
+    setStarted(shown);
+  };
+  const endNotes = () => {
+    if (started !== null && draft !== started) {
+      updateRecipeNotes(recipe.id, draft);
+      showSaved(draft.trim());
+    }
+    setStarted(null);
+  };
+  return { notes: editingNotes ? draft : shown, setNotes: setDraft, editingNotes, startNotes, endNotes };
+}
+
+/**
+ * A stored value as shown: `stored` (the live query's), except that a value just saved shows until the
+ * query catches up, and goes as soon as the stored value changes (our save, or someone else's edit).
+ */
+function useSavedValue(stored: string): [string, (value: string) => void] {
+  const [saved, setSaved] = useState<{ before: string; value: string } | null>(null);
+  const shown = saved && saved.before === stored ? saved.value : stored;
+  return [shown, (value) => setSaved({ before: stored, value })];
 }
 
 /**
@@ -800,8 +830,7 @@ function RecipeByline({
   const t = useT();
   const { colors, aisles, spacing, typography, sizes, opacity } = useTheme();
   const canSuggest = hasIngredients;
-  const [notes, setNotes] = useState(recipe.notes ?? '');
-  const [editingNotes, setEditingNotes] = useState(false);
+  const { notes, setNotes, editingNotes, startNotes, endNotes } = useNotesEditor(recipe);
   const tint = aisles[hue];
   const link = recipeLinkParts(recipe.sourceUrl);
 
@@ -846,10 +875,7 @@ function RecipeByline({
           <TextInput
             value={notes}
             onChangeText={setNotes}
-            onEndEditing={() => {
-              updateRecipe(recipe.id, { name: recipe.name, notes, sourceUrl: recipe.sourceUrl ?? '' });
-              setEditingNotes(false);
-            }}
+            onEndEditing={endNotes}
             autoFocus
             placeholder={t('recipes.screen.addNotes')}
             placeholderTextColor={colors.inkSecondary}
@@ -860,7 +886,7 @@ function RecipeByline({
           />
         ) : (
           <Pressable
-            onPress={() => setEditingNotes(true)}
+            onPress={startNotes}
             accessibilityRole="button"
             accessibilityLabel={notes.trim() ? t('recipes.screen.notesLabel', { notes: notes.trim() }) : t('recipes.screen.addNotes')}
             style={({ pressed }) => [

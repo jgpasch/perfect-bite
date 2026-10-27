@@ -40,6 +40,8 @@ import {
   getRecipe,
   recipeIngredientsQuery,
   updateRecipe,
+  updateRecipeLink,
+  updateRecipeNotes,
   updateRecipeServings,
 } from '../recipes';
 
@@ -1258,6 +1260,69 @@ describe('RecipeScreen notes', () => {
     expect(getRecipe(tacos)!.notes).toBe('Triple the salsa');
     expect(notesField(root)).toBeUndefined();
     expect(queryA11y(root, 'Notes: Triple the salsa')).toHaveLength(1);
+  });
+
+  describe("a household-mate's edit", () => {
+    // The live query is mocked to read on render, so re-rendering stands in for its update.
+    const rerender = () => act(() => tree!.update(<SafeAreaProvider initialMetrics={METRICS}><RecipeScreen /></SafeAreaProvider>));
+
+    test('a live update to the notes while not editing shows the new text', () => {
+      withNotes('Double the salsa');
+      const root = render(<RecipeScreen />);
+      updateRecipeNotes(tacos, 'No cilantro');
+      rerender();
+      expect(queryA11y(root, 'Notes: No cilantro')).toHaveLength(1);
+      expect(queryA11y(root, 'Notes: Double the salsa')).toHaveLength(0);
+      press(byA11y(root, 'Notes: No cilantro'));
+      expect(notesField(root).props.value).toBe('No cilantro');
+    });
+
+    test('a live update while editing keeps the draft, and ending the edit saves it', () => {
+      withNotes('Double the salsa');
+      const root = render(<RecipeScreen />);
+      press(byA11y(root, 'Notes: Double the salsa'));
+      act(() => notesField(root).props.onChangeText('Triple the salsa'));
+      updateRecipeNotes(tacos, 'No cilantro');
+      rerender();
+      expect(notesField(root).props.value).toBe('Triple the salsa');
+      act(() => notesField(root).props.onEndEditing());
+      expect(getRecipe(tacos)!.notes).toBe('Triple the salsa');
+    });
+
+    test('ending an untouched edit writes nothing back', () => {
+      withNotes('Double the salsa');
+      const root = render(<RecipeScreen />);
+      press(byA11y(root, 'Notes: Double the salsa'));
+      updateRecipeNotes(tacos, 'No cilantro');
+      act(() => notesField(root).props.onEndEditing());
+      expect(getRecipe(tacos)!.notes).toBe('No cilantro');
+    });
+
+    test('saving the notes leaves a link they changed', () => {
+      const root = render(<RecipeScreen />);
+      updateRecipeLink(tacos, 'https://example.com/tacos');
+      press(byA11y(root, 'Add notes'));
+      act(() => notesField(root).props.onChangeText('Double the salsa'));
+      act(() => notesField(root).props.onEndEditing());
+      expect(getRecipe(tacos)).toMatchObject({ notes: 'Double the salsa', sourceUrl: 'https://example.com/tacos', name: 'Tacos' });
+    });
+
+    test('saving the link leaves the notes untouched', () => {
+      withNotes('Double the salsa');
+      const root = render(<RecipeScreen />);
+      updateRecipeNotes(tacos, 'No cilantro');
+      act(() => linkField(root)!.props.onChangeText('example.com/tacos'));
+      act(() => linkField(root)!.props.onEndEditing());
+      expect(getRecipe(tacos)).toMatchObject({ notes: 'No cilantro', sourceUrl: 'https://example.com/tacos', name: 'Tacos' });
+    });
+
+    test('a live update to the link shows it', () => {
+      const root = render(<RecipeScreen />);
+      expect(linkButton(root)).toBeUndefined();
+      updateRecipeLink(tacos, 'https://www.seriouseats.com/tacos');
+      rerender();
+      expect(linkButton(root)!.props.accessibilityLabel).toBe('Recipe link, seriouseats.com');
+    });
   });
 });
 
