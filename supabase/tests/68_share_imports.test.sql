@@ -20,8 +20,10 @@ select dblink_connect('share_a', pg_temp.conninfo());
 select dblink_connect('share_b', pg_temp.conninfo());
 select dblink_exec('share_a', $$
   delete from auth.users where id = '5ca1ab1e-0000-4000-8000-000000000001';
+  delete from public.households where id = '5ca1ab1e-0000-4000-8000-0000000000ff';
   insert into auth.users (id, email, aud, role)
   values ('5ca1ab1e-0000-4000-8000-000000000001', 'claimers@test.local', 'authenticated', 'authenticated');
+  insert into public.households (id, name) values ('5ca1ab1e-0000-4000-8000-0000000000ff', 'Claimers');
   insert into public.share_imports (id, user_id, household_id, add_to_list, url, url_key, payload_hash, created_at, next_attempt_at)
   values
     ('5ca1ab1e-0000-4000-8000-0000000000a1', '5ca1ab1e-0000-4000-8000-000000000001', '5ca1ab1e-0000-4000-8000-0000000000ff',
@@ -49,6 +51,12 @@ select is(
   '5ca1ab1e-0000-4000-8000-0000000000a1'::uuid,
   'once the first claimer rolls back, its job is due again');
 select dblink_exec('share_b', $$ delete from auth.users where id = '5ca1ab1e-0000-4000-8000-000000000001' $$);
+select dblink_exec('share_b', $$
+  delete from public.households where id = '5ca1ab1e-0000-4000-8000-0000000000ff';
+  delete from private.recipe_photo_deletions where path = '5ca1ab1e-0000-4000-8000-0000000000ff/';
+  delete from private.item_photo_deletions where path = '5ca1ab1e-0000-4000-8000-0000000000ff/';
+  delete from private.recipe_page_deletions where path = '5ca1ab1e-0000-4000-8000-0000000000ff/';
+$$);
 select dblink_disconnect('share_a');
 select dblink_disconnect('share_b');
 select is((select count(*)::int from public.share_imports where id::text like '5ca1ab1e-%'), 0,

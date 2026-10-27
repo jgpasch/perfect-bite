@@ -15,12 +15,13 @@ select ok(
   and not has_function_privilege('authenticated', 'private.share_import_due()', 'execute'),
   'nobody but the owner can call them');
 
--- Fixtures: the secrets, a user, and no share imports yet.
+-- Fixtures: the secrets, a user, their household, and no share imports yet.
 delete from vault.secrets where name in ('project_url', 'share_import_worker_key');
 select vault.create_secret('http://host.docker.internal:55321/', 'project_url');
 select vault.create_secret('sb_secret_test', 'share_import_worker_key');
 insert into auth.users (id, email, aud, role)
 values ('7a7a7a7a-0000-4000-8000-000000000001', 'worker@test.local', 'authenticated', 'authenticated');
+insert into public.households (id, name) values ('7a7a7a7a-0000-4000-8000-0000000000ff', 'Worker');
 delete from public.share_imports;
 
 create function pg_temp.share(p_id text, p_status text, p_next timestamptz, p_lease timestamptz) returns void language sql as $$

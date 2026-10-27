@@ -7,7 +7,10 @@ import { reportError } from '../_shared/sentry.ts';
 
 /** One bucket's queue and the bucket, over the service-role client in index.ts and fakes in tests. */
 export type CleanupStore = {
-  /** Due queue entries with the object names each stands for (a household prefix: several). */
+  /**
+   * Due queue entries with the object names each stands for (a household prefix: several), leased
+   * for 10 minutes so an overlapping run doesn't claim them too.
+   */
   claim(limit: number): Promise<{ queue_id: number; name: string }[]>;
   /** Removes objects from the bucket. Names that are already gone are fine. */
   remove(names: string[]): Promise<void>;
@@ -57,7 +60,8 @@ export type CleanupResult = { removed: number; completed: number };
 
 /**
  * One sweep: claims what's due, removes its objects in batches, and completes the entries only when
- * every batch succeeded. A failure throws and leaves the entries queued; removing again is harmless.
+ * every batch succeeded. A failure throws and leaves the entries queued, claimed again once their lease
+ * is up; removing again is harmless.
  */
 export async function cleanUpPhotos(store: CleanupStore, limit = CLAIM_LIMIT): Promise<CleanupResult> {
   const rows = await store.claim(limit);
