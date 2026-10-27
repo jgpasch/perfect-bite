@@ -1276,6 +1276,8 @@ export const en = {
       statusLabel: 'Status, {{status}}',
       waiting: 'Waiting to send',
       rejected: 'Not accepted',
+      quarantined_one: "{{count}} change couldn't be applied",
+      quarantined_other: "{{count}} changes couldn't be applied",
       lastSynced: 'Last synced',
       lastError: 'Last error',
       lastErrorLabel: 'Last error: {{error}}',

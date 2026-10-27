@@ -1088,6 +1088,8 @@ export const es = {
       statusLabel: 'Estado, {{status}}',
       waiting: 'Por enviar',
       rejected: 'No aceptados',
+      quarantined_one: 'No se pudo aplicar {{count}} cambio',
+      quarantined_other: 'No se pudieron aplicar {{count}} cambios',
       lastSynced: 'Última sincronización',
       lastError: 'Último error',
       lastErrorLabel: 'Último error: {{error}}',

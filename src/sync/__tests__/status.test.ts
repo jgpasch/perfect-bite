@@ -56,10 +56,16 @@ describe('syncStatus', () => {
       tone: 'positive',
       pending: 0,
       rejected: 0,
+      quarantined: 0,
       lastSuccessAt: T2,
       lastError: null,
       canSyncNow: true,
     });
+  });
+
+  test("skipped server changes are counted but don't change the state", () => {
+    expect(syncStatus(inputs({ quarantined: 2 }))).toMatchObject({ state: 'synced', tone: 'positive', quarantined: 2 });
+    expect(syncStatus(inputs({ quarantined: -1 })).quarantined).toBe(0);
   });
 
   test('connectivity not reported yet still counts as online', () => {
@@ -251,11 +257,18 @@ describe('reading the inputs', () => {
       signedIn: true,
       pending: 0,
       rejected: 0,
+      quarantined: 0,
       push: { attempts: 2, nextAttemptAt: T2, lastError: 'HTTP 503', lastSuccessAt: T1 },
       pull: expect.objectContaining({ lastSuccessAt: T2, lastError: null }),
       activity: { pushing: false, pulling: false, online: false },
     });
     expect(syncStatus(read).state).toBe('offline');
+  });
+
+  test('readSyncInputs counts the quarantined rows', () => {
+    const row = { table: 'list_items', cursor: 'household:h:list_items', updatedAt: T1, error: 'FOREIGN KEY constraint failed', at: T2 };
+    setDeviceSetting('sync.quarantine', { failures: { x: 1 }, rows: [{ ...row, key: 'a' }, { ...row, key: 'b' }] });
+    expect(readSyncInputs(true).quarantined).toBe(2);
   });
 
   test('a fresh device has never synced', () => {

@@ -7,7 +7,7 @@ import { db, outbox } from '@/db';
 import { formatDate, i18n } from '@/i18n';
 
 import { getSyncActivity, type SyncActivity } from './activity';
-import { getPullState, pullNow, type PullState, type PullSummary } from './pull';
+import { getPullState, getQuarantinedRows, pullNow, type PullState, type PullSummary } from './pull';
 import { getPushState, pushNow, type PushState, type PushSummary } from './push';
 
 // --- The reducer ---------------------------------------------------------------------------
@@ -19,6 +19,8 @@ export type SyncInputs = {
   pending: number;
   /** Outbox mutations the server refused; they stay for the record and never go. */
   rejected: number;
+  /** Server changes pull skipped because they couldn't be applied here (`sync.quarantine`). */
+  quarantined?: number;
   push: Pick<PushState, 'lastSuccessAt' | 'lastError'>;
   pull: Pick<PullState, 'lastSuccessAt' | 'lastError'>;
   activity: SyncActivity;
@@ -41,6 +43,8 @@ export type SyncStatus = {
   tone: SyncBadgeTone;
   pending: number;
   rejected: number;
+  /** Server changes that couldn't be applied on this device and were skipped. */
+  quarantined: number;
   /** The later of the last successful push and pull (ISO), or null if neither ever got through. */
   lastSuccessAt: string | null;
   /** The last push or pull failure still standing, or null. */
@@ -91,6 +95,7 @@ export function syncStatus(inputs: SyncInputs): SyncStatus {
     tone: TONES[state],
     pending: Math.max(0, inputs.pending),
     rejected: Math.max(0, inputs.rejected),
+    quarantined: Math.max(0, inputs.quarantined ?? 0),
     lastSuccessAt,
     lastError,
     canSyncNow: inputs.signedIn && inputs.activity.online !== false && !running,
@@ -127,7 +132,14 @@ export function outboxCounts(): { pending: number; rejected: number } {
 
 /** The reducer's inputs as they are now. */
 export function readSyncInputs(signedIn: boolean): SyncInputs {
-  return { signedIn, ...outboxCounts(), push: getPushState(), pull: getPullState(), activity: getSyncActivity() };
+  return {
+    signedIn,
+    ...outboxCounts(),
+    quarantined: getQuarantinedRows().length,
+    push: getPushState(),
+    pull: getPullState(),
+    activity: getSyncActivity(),
+  };
 }
 
 /** Sync now: sends the outbox (ignoring the backoff), then pulls everything. Never throws. */

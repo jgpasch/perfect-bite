@@ -109,6 +109,7 @@ const synced: SyncStatus = {
   tone: 'positive',
   pending: 0,
   rejected: 0,
+  quarantined: 0,
   lastSuccessAt: null,
   lastError: null,
   canSyncNow: true,
@@ -926,6 +927,15 @@ describe('Sync status', () => {
     expect(labelled(root, 'Not accepted, 2')).toHaveLength(1);
     expect(labelled(root, 'Last error: Sending: boom')).toHaveLength(1);
     expect(labelled(root, 'Last synced, Never')).toHaveLength(1);
+    expect(labelled(root, "1 change couldn't be applied")).toHaveLength(0);
+  });
+
+  it("counts server changes that couldn't be applied", () => {
+    mockSync.status = { ...synced, quarantined: 1 };
+    expect(labelled(render(<SyncStatusScreen />), "1 change couldn't be applied")).toHaveLength(1);
+    act(() => tree?.unmount());
+    mockSync.status = { ...synced, quarantined: 4 };
+    expect(labelled(render(<SyncStatusScreen />), "4 changes couldn't be applied")).toHaveLength(1);
   });
 
   it('Sync now syncs', async () => {

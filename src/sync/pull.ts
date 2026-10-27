@@ -22,6 +22,8 @@
 //   the same list Combines silently (4.4): the local one is merged into it, as `apply_mutations`
 //   will do when the local one is pushed (7.3). So does an unpushed local add of another name of
 //   its family (4.15).
+// - A row SQLite refuses stops its table until the next pull; refused a third time, it's skipped
+//   and quarantined (`sync.quarantine`, counted in Sync status) so the rest of its table goes on.
 // - Pull writes go straight to SQLite, never to the outbox: they are already on the server.
 // - A full pull also notices lost memberships (4.7): a household the server listed for the user
 //   last time and doesn't now is purged from this device with its queued mutations (`purge.ts`),
@@ -504,26 +506,64 @@ function assertSameUser(userId: string): void {
   if (getAccount()?.userId !== userId) throw new UserChanged();
 }
 
-/** Times each refused row failed this session (`table|updated_at|id`). */
-const applyFailures = new Map<string, number>();
+// --- Quarantine ----------------------------------------------------------------------------
 
-/**
- * A refused row is usually a race that the next pull settles; the same row refused a third time
- * won't settle on its own, so that one is sent to Sentry (once).
- */
-function reportApplyFailed(table: string, row: ServerRow, err: unknown) {
-  const key = `${table}|${row.updated_at}|${String(row.id ?? '')}`;
-  const times = (applyFailures.get(key) ?? 0) + 1;
-  applyFailures.set(key, times);
-  if (times === 3) reportError(err, { area: 'sync', event: 'pull_apply_failed', table });
+/** A server row this device skipped after SQLite refused it `QUARANTINE_AFTER` times. */
+export type QuarantinedRow = {
+  /** `table|updated_at|key`, the key being the job's key columns' values joined by commas. */
+  key: string;
+  table: string;
+  /** The job's cursor key, e.g. `household:<id>:list_items`. */
+  cursor: string;
+  updatedAt: string;
+  error: string;
+  /** When it was skipped (ISO). */
+  at: string;
+};
+
+type Quarantine = {
+  /** Times each refused row (by `QuarantinedRow.key`) has failed so far, below `QUARANTINE_AFTER`. */
+  failures: Record<string, number>;
+  rows: QuarantinedRow[];
+};
+
+/** A refused row this many times in a row is skipped: it won't settle on its own. */
+export const QUARANTINE_AFTER = 3;
+const QUARANTINE_KEY = 'sync.quarantine';
+
+function readQuarantine(exec: Exec): Quarantine {
+  const row = exec.select().from(deviceSettings).where(eq(deviceSettings.key, QUARANTINE_KEY)).get();
+  const value = row?.value as Partial<Quarantine> | undefined;
+  return { failures: { ...value?.failures }, rows: [...(value?.rows ?? [])] };
 }
+
+function writeQuarantine(exec: Exec, value: Quarantine): void {
+  exec
+    .insert(deviceSettings)
+    .values({ key: QUARANTINE_KEY, value })
+    .onConflictDoUpdate({ target: deviceSettings.key, set: { value } })
+    .run();
+}
+
+/** The rows pull skipped because they couldn't be applied, oldest first. */
+export function getQuarantinedRows(exec: Exec = db): QuarantinedRow[] {
+  return readQuarantine(exec).rows;
+}
+
+const quarantineKey = (job: Job, row: ServerRow) =>
+  `${job.table}|${row.updated_at}|${job.key.map((column) => String(row[column] ?? '')).join(',')}`;
 
 /**
  * Applies `rows` (oldest first) and moves the cursor past them, in one transaction. A row SQLite
- * refuses (e.g. its parent changed after its table was pulled) stops the table there: the cursor
- * stays before it so the next pull tries again (`complete` false). Writes nothing (and throws
- * `UserChanged`) if `userId` is no longer signed in: the rows are theirs, and the device may have
- * been wiped since they were fetched. `fetchedWith` is the outbox as it was before the fetch.
+ * refuses (e.g. its parent changed after its table was pulled) is usually a race the next pull
+ * settles, so it stops the table there: the cursor stays before it so the next pull tries again
+ * (`complete` false). The same row refused a `QUARANTINE_AFTER`th time won't settle on its own
+ * (schema drift, a parent this device will never get): it's skipped and recorded in
+ * `sync.quarantine` (Sync status counts them), and sent to Sentry, so it doesn't hold back the rest
+ * of its table. A quarantined row that applies later (fetched again) leaves the quarantine. Writes
+ * nothing (and throws `UserChanged`) if `userId` is no longer signed in: the rows are theirs, and
+ * the device may have been wiped since they were fetched. `fetchedWith` is the outbox as it was
+ * before the fetch.
  */
 function commit(
   userId: string,
@@ -537,13 +577,28 @@ function commit(
     let cursor = readState(tx).cursors[job.cursor];
     let latestHlc: string | null = null;
     let applied = 0;
+    const quarantine = readQuarantine(tx);
+    let quarantineChanged = false;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
         tx.transaction((sp) => job.apply(sp, row, pending));
       } catch (err) {
+        const key = quarantineKey(job, row);
+        if (quarantine.rows.some((r) => r.key === key)) continue;
+        const times = (quarantine.failures[key] ?? 0) + 1;
+        quarantineChanged = true;
+        if (times >= QUARANTINE_AFTER) {
+          console.warn(`[pull] couldn't apply a ${job.table} row ${times} times; skipping it`, err);
+          reportError(err, { area: 'sync', event: 'pull_apply_failed', table: job.table });
+          delete quarantine.failures[key];
+          const error = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+          quarantine.rows.push({ key, table: job.table, cursor: job.cursor, updatedAt: row.updated_at, error, at: new Date().toISOString() });
+          continue;
+        }
         console.warn(`[pull] couldn't apply a ${job.table} row; will retry`, err);
-        reportApplyFailed(job.table, row, err);
+        quarantine.failures[key] = times;
+        writeQuarantine(tx, quarantine);
         // Rows at earlier times are all in; rows at this row's time may not be.
         const done = rows.slice(0, i).filter((r) => r.updated_at < row.updated_at);
         if (done.length) cursor = later(cursor, done[done.length - 1].updated_at);
@@ -551,11 +606,20 @@ function commit(
         if (latestHlc) observeHlc(latestHlc, tx);
         return { applied, complete: false };
       }
+      if (Object.keys(quarantine.failures).length || quarantine.rows.length) {
+        const key = quarantineKey(job, row);
+        if (key in quarantine.failures || quarantine.rows.some((r) => r.key === key)) {
+          delete quarantine.failures[key];
+          quarantine.rows = quarantine.rows.filter((r) => r.key !== key);
+          quarantineChanged = true;
+        }
+      }
       applied++;
       for (const hlc of Object.values((row.field_clock ?? {}) as FieldClock)) {
         if (typeof hlc === 'string' && (latestHlc === null || hlc > latestHlc)) latestHlc = hlc;
       }
     }
+    if (quarantineChanged) writeQuarantine(tx, quarantine);
     if (rows.length) cursor = later(cursor, rows[rows.length - 1].updated_at);
     if (cursor !== undefined) writeState(tx, { cursors: { ...readState(tx).cursors, [job.cursor]: cursor } });
     // Later local writes must beat what we just saw (7.1).

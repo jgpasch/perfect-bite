@@ -17,7 +17,7 @@ const CLOCK_TICK_MS = 30_000;
 
 /**
  * Settings > Sync status (spec 7.5, as stash): the status, changes waiting to send (and any the
- * server refused), the last successful sync, the last error, and Sync now.
+ * server refused, and server changes that couldn't be applied here), the last successful sync, the last error, and Sync now.
  */
 export default function SyncStatusScreen() {
   const { spacing } = useTheme();
@@ -50,6 +50,7 @@ export default function SyncStatusScreen() {
         />
         <SettingsRow label={t('settings.sync.waiting')} value={String(status.pending)} />
         {status.rejected > 0 ? <SettingsRow label={t('settings.sync.rejected')} value={String(status.rejected)} /> : null}
+        {status.quarantined > 0 ? <SettingsRow label={t('settings.sync.quarantined', { count: status.quarantined })} /> : null}
         <SettingsRow label={t('settings.sync.lastSynced')} value={formatLastSync(status.lastSuccessAt, now)} last />
       </SettingsSection>
 

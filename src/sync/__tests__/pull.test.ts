@@ -28,6 +28,7 @@ import {
 import { getAisleOrder, getOrderedCategories, setCategoryOverride } from '@/features/categories/categories';
 import { categorizePending, catchUpNames } from '@/features/categories/categorization';
 import { listItemsQuery } from '@/features/lists/items';
+import { getDeviceSetting } from '@/features/settings/device-settings';
 import { ensureStarterData } from '@/features/lists/lists';
 import {
   makeSession,
@@ -50,12 +51,14 @@ import {
   afterPositionFilter,
   applyRemoteDelete,
   getPullState,
+  getQuarantinedRows,
   householdCursorKey,
   mergeScopes,
   onMemberships,
   PULL_OVERLAP_MS,
   PULL_PAGE_SIZE,
   pullNow,
+  type QuarantinedRow,
   remoteFieldWins,
   type ServerRow,
   whenIdle,
@@ -68,6 +71,9 @@ const mockAuth: { account: { userId: string } | null } = { account: { userId: 'u
 jest.mock('@/features/auth/account', () => ({ getAccount: () => mockAuth.account }));
 
 jest.mock('expo-network', () => ({ addNetworkStateListener: () => ({ remove: () => {} }) }));
+
+const mockReportError = jest.fn();
+jest.mock('@/lib/sentry', () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }));
 
 const mockClearPhotoCache = jest.fn(async () => {});
 jest.mock('@/lib/photo-cache', () => ({ clearPhotoCache: () => mockClearPhotoCache() }));
@@ -2397,6 +2403,96 @@ describe('failures', () => {
 
     expect(contributionsOf('i0')).toEqual(['c1']);
     expect(getPullState().cursors[householdCursorKey(H1, 'list_item_contributions')]).toBe(ts(3));
+  });
+
+  describe('a row that never applies', () => {
+    const CURSOR = householdCursorKey(H1, 'list_item_contributions');
+    const C1_KEY = `list_item_contributions|${ts(3)}|c1`;
+    const quarantine = () => getDeviceSetting<{ failures: Record<string, number>; rows: QuarantinedRow[] } | null>('sync.quarantine', null);
+
+    beforeEach(() => {
+      mockReportError.mockClear();
+      seedPulledList();
+      put('list_items', remoteItem('i0', ts(2)));
+      // c1's item never reaches this device; c2 (later) is fine.
+      put('list_item_contributions', remoteContribution('c1', 'missing', ts(3)), remoteContribution('c2', 'i0', ts(4)));
+    });
+
+    test('a transient failure still retries and stops its table', async () => {
+      await pullNow();
+      await pullNow();
+
+      expect(contributionsOf('i0')).toEqual([]);
+      expect(getPullState().cursors[CURSOR]).toBeUndefined();
+      expect(quarantine()).toEqual({ failures: { [C1_KEY]: 2 }, rows: [] });
+      expect(getQuarantinedRows()).toEqual([]);
+      expect(mockReportError).not.toHaveBeenCalled();
+
+      // Its parent arrives: the row goes in, with the rest, and its failures are forgotten.
+      put('list_items', remoteItem('missing', ts(10)));
+      await pullNow();
+
+      expect(contributionsOf('i0')).toEqual(['c2']);
+      expect(contributionsOf('missing')).toEqual(['c1']);
+      expect(getPullState().cursors[CURSOR]).toBe(ts(4));
+      expect(quarantine()).toEqual({ failures: {}, rows: [] });
+    });
+
+    test('a third failure skips it, and the rows after it apply', async () => {
+      await pullNow();
+      await pullNow();
+      await expect(pullNow()).resolves.toMatchObject({ error: null });
+
+      expect(contributionsOf('i0')).toEqual(['c2']);
+      expect(contributionsOf('missing')).toEqual([]);
+      expect(getPullState().cursors[CURSOR]).toBe(ts(4));
+      expect(quarantine()).toEqual({
+        failures: {},
+        rows: [
+          {
+            key: C1_KEY,
+            table: 'list_item_contributions',
+            cursor: CURSOR,
+            updatedAt: ts(3),
+            error: expect.stringContaining('FOREIGN KEY'),
+            at: expect.any(String),
+          },
+        ],
+      });
+      expect(mockReportError).toHaveBeenCalledTimes(1);
+      expect(mockReportError).toHaveBeenCalledWith(expect.anything(), {
+        area: 'sync',
+        event: 'pull_apply_failed',
+        table: 'list_item_contributions',
+      });
+
+      // Later rows of the table keep coming.
+      put('list_item_contributions', remoteContribution('c3', 'i0', ts(20)));
+      await pullNow();
+      expect(contributionsOf('i0')).toEqual(['c2', 'c3']);
+      expect(getPullState().cursors[CURSOR]).toBe(ts(20));
+    });
+
+    test('a quarantined row fetched again is skipped at once, and recorded once', async () => {
+      for (let i = 0; i < 3; i++) await pullNow();
+      // Within the overlap window c1 comes back with the next page; it doesn't stop the table again.
+      put('list_item_contributions', remoteContribution('c3', 'i0', ts(5)));
+      await pullNow();
+
+      expect(contributionsOf('i0')).toEqual(['c2', 'c3']);
+      expect(getPullState().cursors[CURSOR]).toBe(ts(5));
+      expect(getQuarantinedRows().map((r) => r.key)).toEqual([C1_KEY]);
+      expect(mockReportError).toHaveBeenCalledTimes(1);
+    });
+
+    test('a quarantined row that applies later leaves the quarantine', async () => {
+      for (let i = 0; i < 3; i++) await pullNow();
+      put('list_items', remoteItem('missing', ts(6)));
+      await pullNow();
+
+      expect(contributionsOf('missing')).toEqual(['c1']);
+      expect(getQuarantinedRows()).toEqual([]);
+    });
   });
 
   test('a network failure stops the run, records the error and keeps the cursors already saved', async () => {

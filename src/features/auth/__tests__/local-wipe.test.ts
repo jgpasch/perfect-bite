@@ -130,6 +130,10 @@ beforeEach(async () => {
   setDeviceSetting(FEATURES_KEY, { userId: USER, households: { [home]: ['recipe_import'] } });
   setDeviceSetting('sync.pull', { userId: USER, cursors: { [`household:${home}:lists`]: '2026-10-01' } });
   setDeviceSetting('sync.push', { attempts: 2, nextAttemptAt: null, lastError: 'offline', lastSuccessAt: null });
+  setDeviceSetting('sync.quarantine', {
+    failures: { 'lists|2026-10-02|l9': 1 },
+    rows: [{ key: 'lists|2026-10-01|l8', table: 'lists', cursor: `household:${home}:lists`, updatedAt: '2026-10-01', error: 'x', at: '2026-10-03' }],
+  });
   setDeviceSetting('shareImportAttempts:abc', 2);
   setAisleColorStyle('header');
   setDeviceSetting(ITEM_ROW_STYLE_KEY, 'card');
@@ -242,7 +246,7 @@ describe('wipeLocalData', () => {
     expect(getDeviceSetting(ITEM_ROW_STYLE_KEY, null)).toBe('card');
     expect(getDeviceSetting(IMPORT_ADD_TO_LIST_KEY, false)).toBe(true);
     // Sync cursors, the HLC clock, push backoff, list state and the cached plan are gone.
-    for (const key of ['sync.pull', 'sync.push', 'sync.clock', 'lastOpenedListId', viewModeKey(homeList), manualOrderKey(homeList), FEATURES_KEY]) {
+    for (const key of ['sync.pull', 'sync.push', 'sync.quarantine', 'sync.clock', 'lastOpenedListId', viewModeKey(homeList), manualOrderKey(homeList), FEATURES_KEY]) {
       expect(getDeviceSetting(key, null)).toBeNull();
     }
   });
