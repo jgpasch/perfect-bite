@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useRef } from 'react';
+import { memo, useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated from 'react-native-reanimated';
@@ -67,11 +67,12 @@ type Props = {
   aisle?: { name: string };
   /** Select mode (spec 4.5): defined while selecting; taps then toggle selection. */
   selected?: boolean;
-  onToggle: () => void;
-  onDelete: () => void;
-  onEdit: () => void;
+  /** Each handler is called with the item's id, so the list can pass the same ones to every row. */
+  onToggle: (itemId: string) => void;
+  onDelete: (itemId: string) => void;
+  onEdit: (itemId: string) => void;
   /** Long-press (or the "Select" action) when not selecting: enter Select mode with this item (spec 4.5). */
-  onSelect?: () => void;
+  onSelect?: (itemId: string) => void;
   /**
    * As added (spec 4.6): the row's long-press belongs to the drag around it (`ReorderableRows`), which
    * enters Select mode itself when let go without moving.
@@ -87,12 +88,35 @@ export type RowMove = { name: 'moveUp' | 'moveDown'; label: string; onPress: () 
 const noop = () => {};
 
 /**
+ * Whether a row's props would draw the same row: each the same value, except `look`, `alreadyOnList` and
+ * `aisle`, which the list builds afresh each render and are compared by what's in them.
+ */
+export function sameRowProps(prev: Props, next: Props): boolean {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)] as (keyof Props)[]);
+  for (const key of keys) {
+    if (key === 'look' || key === 'alreadyOnList' || key === 'aisle') continue;
+    if (!Object.is(prev[key], next[key])) return false;
+  }
+  return (
+    sameFields(prev.look, next.look) &&
+    prev.alreadyOnList?.query === next.alreadyOnList?.query &&
+    prev.aisle?.name === next.aisle?.name
+  );
+}
+
+function sameFields<T extends object>(a: T | undefined, b: T | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  const keys = Object.keys(a) as (keyof T)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.is(a[key], b[key]));
+}
+
+/**
  * A list item in a card (spec 4.2): tap the check to check it off, tap the rest of the row to open its
  * details, long-press to start selecting with it, swipe right to check it off (or uncheck it) and left to
  * delete. While selecting, a tap
- * anywhere on the row selects it.
+ * anywhere on the row selects it. Memoized: a row redraws only when its own props change.
  */
-export function ItemRow({
+export const ItemRow = memo(function ItemRow({
   item,
   background,
   tint,
@@ -147,6 +171,9 @@ export function ItemRow({
   const match = alreadyOnList ? alreadyOnListParts(name, alreadyOnList.query) : null;
   const newLook = badgeColors('new', colors, aisles);
   const tinted = added === '';
+  const toggle = () => onToggle(item.id);
+  const remove = () => onDelete(item.id);
+  const edit = () => onEdit(item.id);
 
   const rowStyle = [
     styles.row,
@@ -254,9 +281,9 @@ export function ItemRow({
         overshootLeft={false}
         overshootRight={false}
         onSwipeableOpen={(direction) => {
-          if (direction === SwipeDirection.LEFT) return onDelete();
+          if (direction === SwipeDirection.LEFT) return remove();
           swipeable.current?.close();
-          onToggle();
+          toggle();
         }}
         renderLeftActions={() => (
           <View style={[styles.action, styles.leading, { backgroundColor: colors.primary, paddingHorizontal: spacing.xl }]}>
@@ -272,7 +299,7 @@ export function ItemRow({
           <Pressable
             ref={newRef}
             onLayout={onNewLayout}
-            onPress={onToggle}
+            onPress={toggle}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: on }}
             accessibilityLabel={label}
@@ -286,16 +313,16 @@ export function ItemRow({
           </Pressable>
         ) : (
           <View ref={newRef} onLayout={onNewLayout} style={rowStyle}>
-            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} fill={look?.checkFill} onPress={onToggle} accessibilityLabel={checkOffLabel(name)} />
+            <CheckCircle checked={checked} pending={sorting} ring={look?.ring} fill={look?.checkFill} onPress={toggle} accessibilityLabel={checkOffLabel(name)} />
             <Pressable
-              onPress={onEdit}
+              onPress={edit}
               onLongPress={
                 reorderable
                   ? noop
                   : onSelect
                   ? () => {
                       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onSelect();
+                      onSelect(item.id);
                     }
                   : undefined
               }
@@ -311,10 +338,10 @@ export function ItemRow({
               ]}
               onAccessibilityAction={({ nativeEvent }) => {
                 moves.find((m) => m.name === nativeEvent.actionName)?.onPress();
-                if (nativeEvent.actionName === 'edit') onEdit();
-                if (nativeEvent.actionName === 'delete') onDelete();
-                if (nativeEvent.actionName === 'toggle') onToggle();
-                if (nativeEvent.actionName === 'select') onSelect?.();
+                if (nativeEvent.actionName === 'edit') edit();
+                if (nativeEvent.actionName === 'delete') remove();
+                if (nativeEvent.actionName === 'toggle') toggle();
+                if (nativeEvent.actionName === 'select') onSelect?.(item.id);
               }}
               style={({ pressed }) => [
                 styles.body,
@@ -334,7 +361,7 @@ export function ItemRow({
       </ReanimatedSwipeable>
     </Animated.View>
   );
-}
+}, sameRowProps);
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },

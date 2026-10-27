@@ -8,7 +8,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { growIn } from '@/hooks/use-motion';
 import { initI18n } from '@/i18n';
 
-import { ItemRow } from '../item-row';
+import { ItemRow, sameRowProps } from '../item-row';
 import type { ItemView } from '../items';
 
 jest.mock('@/global.css', () => ({}));
@@ -274,6 +274,26 @@ describe('ItemRow', () => {
     expect(h.onSelect).toHaveBeenCalledTimes(1);
   });
 
+  test("every handler gets the row's item id, so the list can share one handler across rows", () => {
+    const tree = render({ item: item({ id: 'i7' }) });
+    act(() => byLabel(tree, 'Check off Limes').props.onClick());
+    act(() => byLabel(tree, 'Limes, 3').props.onClick());
+    act(() => pressable(tree, 'Limes, 3').props.onLongPress());
+    act(() => swipeable(tree).props.onSwipeableOpen('right'));
+    act(() => swipeable(tree).props.onSwipeableOpen('left'));
+    for (const actionName of ['edit', 'delete', 'toggle', 'select']) {
+      act(() => byLabel(tree, 'Limes, 3').props.onAccessibilityAction({ nativeEvent: { actionName } }));
+    }
+    expect(h.onToggle.mock.calls).toEqual([['i7'], ['i7'], ['i7']]);
+    expect(h.onEdit.mock.calls).toEqual([['i7'], ['i7']]);
+    expect(h.onDelete.mock.calls).toEqual([['i7'], ['i7']]);
+    expect(h.onSelect.mock.calls).toEqual([['i7'], ['i7']]);
+    // Selecting: a tap anywhere toggles with the id too.
+    const selecting = render({ item: item({ id: 'i8' }), selected: false });
+    act(() => byLabel(selecting, 'Limes, 3').props.onClick());
+    expect(h.onToggle).toHaveBeenLastCalledWith('i8');
+  });
+
   test('As added: the drag owns the long-press, so holding still neither selects nor opens', () => {
     jest.mocked(Haptics.impactAsync).mockClear();
     const tree = render({ reorderable: true });
@@ -438,5 +458,47 @@ describe('an arrival and its NEW badge (spec 4.1)', () => {
     expect(laidOut).toHaveLength(1);
     act(() => laidOut[0].props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 50 } } }));
     expect(onNewLayout).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sameRowProps', () => {
+  const look = { ring: '#a', checkFill: '#b', tint: '#c', text: '#d' };
+  const base = () => ({ item: item(), background: '#fff', ...h });
+
+  test('ItemRow is memoized with it', () => {
+    expect((ItemRow as unknown as { compare: unknown }).compare).toBe(sameRowProps);
+  });
+
+  test('the same values, or fresh look, alreadyOnList and aisle objects with the same contents, are the same row', () => {
+    const props = base();
+    expect(sameRowProps(props, { ...props })).toBe(true);
+    expect(
+      sameRowProps(
+        { ...props, look, alreadyOnList: { query: 'milk' }, aisle: { name: 'Dairy' } },
+        { ...props, look: { ...look }, alreadyOnList: { query: 'milk' }, aisle: { name: 'Dairy' } },
+      ),
+    ).toBe(true);
+  });
+
+  test('any changed value is a different row', () => {
+    const props = base();
+    expect(sameRowProps(props, { ...props, item: item() })).toBe(false);
+    expect(sameRowProps(props, { ...props, onToggle: jest.fn() })).toBe(false);
+    expect(sameRowProps({ ...props, selected: false }, { ...props, selected: true })).toBe(false);
+    expect(sameRowProps(props, { ...props, isNew: true })).toBe(false);
+    // A prop there on one side only.
+    expect(sameRowProps(props, { ...props, hint: 'Also in Tacos' })).toBe(false);
+    expect(sameRowProps({ ...props, moves: [] }, { ...props, moves: [] })).toBe(false);
+  });
+
+  test('look, alreadyOnList and aisle differ by contents, or by being there on one side only', () => {
+    const props = base();
+    expect(sameRowProps({ ...props, look }, { ...props, look: { ...look, tint: '#e' } })).toBe(false);
+    expect(sameRowProps({ ...props, look }, props)).toBe(false);
+    expect(sameRowProps(props, { ...props, look })).toBe(false);
+    expect(sameRowProps({ ...props, alreadyOnList: { query: 'milk' } }, { ...props, alreadyOnList: { query: 'mil' } })).toBe(false);
+    expect(sameRowProps({ ...props, alreadyOnList: { query: 'milk' } }, props)).toBe(false);
+    expect(sameRowProps({ ...props, aisle: { name: 'Dairy' } }, { ...props, aisle: { name: 'Produce' } })).toBe(false);
+    expect(sameRowProps(props, { ...props, aisle: { name: 'Dairy' } })).toBe(false);
   });
 });

@@ -95,11 +95,20 @@ jest.mock('expo-keep-awake', () => ({
 // Live queries read once per render from the test database; one on a table in mockLoadingTables hasn't had its
 // first result yet.
 const mockLoadingTables = new Set<unknown>();
+// `on`: each query keeps returning the same rows while they read the same, as the real live queries do between
+// writes. Otherwise every render reads afresh.
+const mockStableRows = { on: false, last: new Map<string, unknown[]>() };
 jest.mock('@/db/live-query', () => ({
-  useLiveQueryOn: (query: { all: () => unknown[] }, tables: unknown[]) =>
-    tables.some((t) => mockLoadingTables.has(t))
-      ? { data: [], error: undefined, loading: true }
-      : { data: query.all(), error: undefined, loading: false },
+  useLiveQueryOn: (query: { all: () => unknown[]; toSQL?: () => unknown }, tables: unknown[]) => {
+    if (tables.some((t) => mockLoadingTables.has(t))) return { data: [], error: undefined, loading: true };
+    const data = query.all();
+    if (!mockStableRows.on || !query.toSQL) return { data, error: undefined, loading: false };
+    const key = JSON.stringify(query.toSQL());
+    const last = mockStableRows.last.get(key);
+    if (last && JSON.stringify(last) === JSON.stringify(data)) return { data: last, error: undefined, loading: false };
+    mockStableRows.last.set(key, data);
+    return { data, error: undefined, loading: false };
+  },
 }));
 jest.mock('@/features/categories/categorization', () => ({
   ...jest.requireActual<object>('@/features/categories/categorization'),
@@ -116,10 +125,28 @@ const mockSiriListeners = new Set<(count: number) => void>();
 jest.mock('@/features/siri/drain', () => ({
   onSiriAdds: (l: (count: number) => void) => (mockSiriListeners.add(l), () => void mockSiriListeners.delete(l)),
 }));
-// Host stand-ins.
+// How many times each item's row has drawn, by item id.
+const mockRowRenders = new Map<string, number>();
+type MockRowHandler = (itemId: string) => void;
+type MockRowProps = { item: { id: string }; onToggle: MockRowHandler; onDelete: MockRowHandler; onEdit: MockRowHandler; onSelect?: MockRowHandler };
+// Host stand-ins. The row is memoized as ItemRow is, and calls its handlers with its item's id as ItemRow does;
+// `handlers` are the ones the list passed.
 jest.mock('@/features/lists/item-row', () => {
-  const { createElement } = require('react');
-  return { ItemRow: (props: object) => createElement('ItemRow', props) };
+  const { createElement, memo } = require('react');
+  const { sameRowProps } = jest.requireActual<typeof import('../item-row')>('../item-row');
+  const Row = (props: MockRowProps) => {
+    const { item, onToggle, onDelete, onEdit, onSelect } = props;
+    mockRowRenders.set(item.id, (mockRowRenders.get(item.id) ?? 0) + 1);
+    return createElement('ItemRow', {
+      ...props,
+      onToggle: () => onToggle(item.id),
+      onDelete: () => onDelete(item.id),
+      onEdit: () => onEdit(item.id),
+      onSelect: onSelect && (() => onSelect(item.id)),
+      handlers: { onToggle, onDelete, onEdit, onSelect },
+    });
+  };
+  return { ItemRow: memo(Row, sameRowProps) };
 });
 jest.mock('@/features/lists/add-bar', () => {
   const { createElement } = require('react');
@@ -1205,6 +1232,89 @@ describe('Select mode', () => {
     expect(text()).toContain('Added 1 item to Pancakes');
     tapToast('View recipe');
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/recipe/[id]', params: { id: 'r1' } });
+  });
+});
+
+describe('row redraws', () => {
+  const idOf = (name: string) => row(name).props.item.id as string;
+  beforeEach(() => {
+    mockStableRows.on = true;
+  });
+  afterEach(() => {
+    mockStableRows.on = false;
+    mockStableRows.last.clear();
+  });
+
+  test('an add-bar keystroke redraws only the rows it changes, and every row keeps the same handlers', () => {
+    put('milk');
+    put('eggs');
+    render();
+    onBar((bar) => bar.props.onFocusChange(true));
+    const handlers = row('milk').props.handlers;
+    expect(row('eggs').props.handlers).toEqual(handlers);
+    mockRowRenders.clear();
+    // Nothing matches yet: no row redraws.
+    onBar((bar) => bar.props.onTextChange('2 mil'));
+    expect(mockRowRenders.size).toBe(0);
+    // Milk now says "already on list"; eggs doesn't change.
+    onBar((bar) => bar.props.onTextChange('2 milk'));
+    expect(mockRowRenders.get(idOf('milk'))).toBe(1);
+    expect(mockRowRenders.has(idOf('eggs'))).toBe(false);
+    for (const name of ['milk', 'eggs']) {
+      expect(row(name).props.handlers.onToggle).toBe(handlers.onToggle);
+      expect(row(name).props.handlers.onDelete).toBe(handlers.onDelete);
+      expect(row(name).props.handlers.onEdit).toBe(handlers.onEdit);
+      expect(row(name).props.handlers.onSelect).toBe(handlers.onSelect);
+    }
+    // Back to no match: only milk redraws.
+    onBar((bar) => bar.props.onTextChange('2 mi'));
+    expect(mockRowRenders.get(idOf('milk'))).toBe(2);
+    expect(mockRowRenders.has(idOf('eggs'))).toBe(false);
+  });
+
+  test('the shared handlers act on the item whose id they get', () => {
+    put('milk');
+    put('eggs');
+    render();
+    const { onToggle, onEdit, onDelete, onSelect } = row('milk').props.handlers;
+    act(() => onToggle(idOf('eggs')));
+    expect(row('eggs').props.item.checkedAt).not.toBeNull();
+    expect(row('milk').props.item.checkedAt).toBeNull();
+    act(() => onEdit(idOf('eggs')));
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/list/[id]/item/[itemId]', params: { id: listId, itemId: idOf('eggs') } });
+    // An id that isn't on the list does nothing.
+    act(() => onDelete('gone'));
+    act(() => onToggle('gone'));
+    expect(rowNames().sort()).toEqual(['eggs', 'milk']);
+    expect(row('milk').props.item.checkedAt).toBeNull();
+    act(() => onDelete(idOf('milk')));
+    expect(rowNames()).toEqual(['eggs']);
+    // Selecting: the same toggle selects the row it's given instead.
+    act(() => onSelect(idOf('eggs')));
+    expect(row('eggs').props.selected).toBe(true);
+    act(() => row('eggs').props.handlers.onToggle(idOf('eggs')));
+    expect(row('eggs').props.selected).toBe(false);
+  });
+
+  test("a row's moves stay the same array until what they offer changes", () => {
+    put('milk');
+    put('eggs');
+    put('bananas');
+    render();
+    expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
+    const before = row('eggs').props.moves as RowMove[];
+    expect(before.map((m) => m.name)).toEqual(['moveUp', 'moveDown']);
+    // Checking milk off leaves it in place for now; eggs still offers both moves.
+    act(() => row('milk').props.onToggle());
+    expect(row('eggs').props.moves).toBe(before);
+    act(() => (row('bananas').props.moves as RowMove[]).find((m) => m.name === 'moveDown')!.onPress());
+    expect(rowNames()).toEqual(['eggs', 'bananas', 'milk']);
+    // Top of the card now: only Move down, a new array whose move works from where eggs is now.
+    const after = row('eggs').props.moves as RowMove[];
+    expect(after).not.toBe(before);
+    expect(after.map((m) => m.name)).toEqual(['moveDown']);
+    act(() => after[0].onPress());
+    expect(rowNames()).toEqual(['bananas', 'eggs', 'milk']);
   });
 });
 

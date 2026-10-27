@@ -287,10 +287,14 @@ export function ListScreen({ id }: { id: string }) {
   useArrivalAnnouncements(arrivals.latest, watching, memberNames, userId);
   // Spec 4.1: each badge (NEW, or "+1 box") goes 10 s after its row is first in sight, for the rest of the visit.
   const badgeClocks = useNewBadgeClocks(id, watching);
-  const rowNews = (itemId: string): RowNews | undefined => {
-    const cue = arrivals.cues.get(itemId);
-    return mergeRowNews(newOnOpen.get(itemId), cue && { fresh: cue.grow, added: new Set(cue.contributionIds) });
-  };
+  const arrivalCues = arrivals.cues;
+  const rowNews = useCallback(
+    (itemId: string): RowNews | undefined => {
+      const cue = arrivalCues.get(itemId);
+      return mergeRowNews(newOnOpen.get(itemId), cue && { fresh: cue.grow, added: new Set(cue.contributionIds) });
+    },
+    [arrivalCues, newOnOpen],
+  );
   const newIds = unchecked
     .filter((item) => {
       const news = rowNews(item.id);
@@ -298,6 +302,7 @@ export function ListScreen({ id }: { id: string }) {
     })
     .map((item) => item.id);
   const newIdsKey = newIds.join(',');
+  const newIdSet = useMemo(() => new Set(newIdsKey ? newIdsKey.split(',') : []), [newIdsKey]);
 
   // Spec 4.1: the next cold launch opens the list that last gained focus; 4.10: so does the share sheet.
   useFocusEffect(useCallback(() => recordListOpened(id, userId), [id, userId]));
@@ -351,10 +356,13 @@ export function ListScreen({ id }: { id: string }) {
     },
     [id],
   );
-  const toggleSection = (mode: SectionedViewMode, key: string) => {
-    const saved = readCollapsed(mode);
-    saveCollapsed(mode, toggleCollapsedSection(saved, key));
-  };
+  const toggleSection = useCallback(
+    (mode: SectionedViewMode, key: string) => {
+      const saved = readCollapsed(mode);
+      saveCollapsed(mode, toggleCollapsedSection(saved, key));
+    },
+    [readCollapsed, saveCollapsed],
+  );
   const openSection = useCallback(
     (mode: SectionedViewMode, key: string) => {
       const saved = readCollapsed(mode);
@@ -442,11 +450,11 @@ export function ListScreen({ id }: { id: string }) {
     void addModeEnded(() => hintContext.current);
   };
   // Select mode swaps the add bar out, and it comes back empty.
-  const startSelecting = (ids: string[]) => {
+  const startSelecting = useCallback((ids: string[]) => {
     setAdding(false);
     setAddText('');
     setSelection(new Set(ids));
-  };
+  }, []);
 
   const blocks = useMemo<Block[]>(() => {
     const out: Block[] =
@@ -546,14 +554,14 @@ export function ListScreen({ id }: { id: string }) {
   const viewportRef = useRef<View>(null);
   const newNodes = useRef(new Map<string, View>());
   const newRefs = useRef(new Map<string, (node: View | null) => void>());
-  const newRefFor = (itemId: string) => {
+  const newRefFor = useCallback((itemId: string) => {
     let ref = newRefs.current.get(itemId);
     if (!ref) {
       ref = (node) => (node ? newNodes.current.set(itemId, node) : newNodes.current.delete(itemId));
       newRefs.current.set(itemId, ref);
     }
     return ref;
-  };
+  }, []);
   const newIdsRef = useRef<string[]>([]);
   const { seen: badgeSeen, started: badgeStarted } = badgeClocks;
   const checkNewInSight = useCallback(() => {
@@ -715,56 +723,66 @@ export function ListScreen({ id }: { id: string }) {
   );
 
   // Spec 4.6: Check all on a section (its header's swipe right, a recipe's menu), with Undo.
-  const checkAll = (itemIds: string[]) => {
-    const checked = checkItems(itemIds, userId);
-    if (checked.ids.length === 0) return;
-    checkHaptic();
-    setToast({
-      key: `checked-${checked.checkedAt.getTime()}`,
-      ...checkedAllToast(checked.ids.length),
-      actions: [{ label: t('common.undo'), onPress: () => (uncheckItems(checked), setToast(null)) }],
-    });
-  };
+  const checkAll = useCallback(
+    (itemIds: string[]) => {
+      const checked = checkItems(itemIds, userId);
+      if (checked.ids.length === 0) return;
+      checkHaptic();
+      setToast({
+        key: `checked-${checked.checkedAt.getTime()}`,
+        ...checkedAllToast(checked.ids.length),
+        actions: [{ label: t('common.undo'), onPress: () => (uncheckItems(checked), setToast(null)) }],
+      });
+    },
+    [userId, t],
+  );
 
   // Spec 4.6: Remove recipe from list (its header's swipe left, its menu), with Undo.
-  const removeRecipe = (recipeId: string, recipeName: string) => {
-    const removed = removeRecipeFromList(id, recipeId);
-    if (removed.contributionIds.length === 0) return;
-    setToast({
-      key: `removed-${recipeId}-${removed.deletedAt.getTime()}`,
-      ...removedRecipeToast(recipeName),
-      actions: [{ label: t('common.undo'), onPress: () => (restoreRecipeOnList(removed), setToast(null)) }],
-    });
-  };
+  const removeRecipe = useCallback(
+    (recipeId: string, recipeName: string) => {
+      const removed = removeRecipeFromList(id, recipeId);
+      if (removed.contributionIds.length === 0) return;
+      setToast({
+        key: `removed-${recipeId}-${removed.deletedAt.getTime()}`,
+        ...removedRecipeToast(recipeName),
+        actions: [{ label: t('common.undo'), onPress: () => (restoreRecipeOnList(removed), setToast(null)) }],
+      });
+    },
+    [id, t],
+  );
 
   // Spec 4.6: long-pressing a recipe's header (light haptic) opens its menu; VoiceOver gets the same as actions.
-  const recipeActions = (
-    block: Extract<Block, { kind: 'recipe' }>,
-  ): { label: string; onPress: () => void; destructive?: boolean }[] => {
-    const recipeId = block.recipeId;
-    if (!recipeId) return [];
-    const link = recipeLinks.get(recipeId);
-    return [
-      { label: t('lists.sections.checkAll'), onPress: () => checkAll(block.itemIds) },
-      ...(link ? [{ label: t('lists.sections.visitRecipe'), onPress: () => void openRecipeLink(link) }] : []),
-      { label: t('lists.sections.removeRecipe'), destructive: true, onPress: () => removeRecipe(recipeId, block.title) },
-    ];
-  };
+  const recipeActions = useCallback(
+    (block: Extract<Block, { kind: 'recipe' }>): { label: string; onPress: () => void; destructive?: boolean }[] => {
+      const recipeId = block.recipeId;
+      if (!recipeId) return [];
+      const link = recipeLinks.get(recipeId);
+      return [
+        { label: t('lists.sections.checkAll'), onPress: () => checkAll(block.itemIds) },
+        ...(link ? [{ label: t('lists.sections.visitRecipe'), onPress: () => void openRecipeLink(link) }] : []),
+        { label: t('lists.sections.removeRecipe'), destructive: true, onPress: () => removeRecipe(recipeId, block.title) },
+      ];
+    },
+    [recipeLinks, t, checkAll, removeRecipe],
+  );
 
-  const recipeMenu = (block: Extract<Block, { kind: 'recipe' }>) => {
-    const actions = recipeActions(block);
-    if (actions.length === 0) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title: block.title,
-        options: [...actions.map((a) => a.label), t('common.cancel')],
-        destructiveButtonIndex: actions.findIndex((a) => a.destructive),
-        cancelButtonIndex: actions.length,
-      },
-      (index) => actions[index]?.onPress(),
-    );
-  };
+  const recipeMenu = useCallback(
+    (block: Extract<Block, { kind: 'recipe' }>) => {
+      const actions = recipeActions(block);
+      if (actions.length === 0) return;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: block.title,
+          options: [...actions.map((a) => a.label), t('common.cancel')],
+          destructiveButtonIndex: actions.findIndex((a) => a.destructive),
+          cancelButtonIndex: actions.length,
+        },
+        (index) => actions[index]?.onPress(),
+      );
+    },
+    [recipeActions, t],
+  );
 
   const add = (value: string) => {
     const result = addItem(id, value, userId);
@@ -844,34 +862,81 @@ export function ListScreen({ id }: { id: string }) {
     });
   }, [id, t]);
 
-  const checkedMenu = (count: number) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    ActionSheetIOS.showActionSheetWithOptions(
-      { options: [clearCheckedLabel(count), t('lists.checked.uncheckAll'), t('common.cancel')], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
-      (index) => {
-        if (index === 0) clear();
-        if (index === 1) uncheck();
-      },
-    );
-  };
+  const checkedMenu = useCallback(
+    (count: number) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [clearCheckedLabel(count), t('lists.checked.uncheckAll'), t('common.cancel')], destructiveButtonIndex: 0, cancelButtonIndex: 2 },
+        (index) => {
+          if (index === 0) clear();
+          if (index === 1) uncheck();
+        },
+      );
+    },
+    [clear, uncheck, t],
+  );
 
   const dismissToast = useCallback(() => setToast(null), []);
 
   // Spec 4.6: rows move by drag (and VoiceOver's Move up / Move down) in As added only, outside Select mode
   // and add mode. Each move saves the whole order on screen.
   const canReorder = viewMode === 'newest' && !selection && !addMode;
-  const moveInAsAdded = (ids: readonly string[], from: number, to: number) => {
-    setManualOrder(saveManualOrder(id, moveId(ids, from, to), [...unchecked, ...checked]));
-  };
-  const moveActions = (ids: readonly string[], index: number, item: ItemView): RowMove[] =>
-    aisleRowActions(index, ids.length).map((action) => ({
-      ...action,
-      onPress: () => {
-        const to = action.name === 'moveUp' ? index - 1 : index + 1;
-        moveInAsAdded(ids, index, to);
-        AccessibilityInfo.announceForAccessibility(aisleRowLabel(displayItemName(item.displayName), to, ids.length));
-      },
-    }));
+  const moveInAsAdded = useCallback(
+    (ids: readonly string[], from: number, to: number) => {
+      setManualOrder(saveManualOrder(id, moveId(ids, from, to), allItems));
+    },
+    [id, allItems],
+  );
+
+  // The row handlers take the item's id and stay the same across renders, so a row redraws only when its own
+  // props change, not on every add-bar keystroke or presence update. They act on the last commit's state.
+  const rowContext = useRef({ selection, itemById, toggleChecked, moveInAsAdded });
+  useEffect(() => {
+    rowContext.current = { selection, itemById, toggleChecked, moveInAsAdded };
+  });
+  const toggleRow = useCallback((itemId: string) => {
+    const { selection, itemById, toggleChecked } = rowContext.current;
+    if (selection) return setSelection(toggleIn(selection, itemId));
+    const item = itemById.get(itemId);
+    if (item) toggleChecked(item);
+  }, []);
+  const deleteRow = useCallback(
+    (itemId: string) => {
+      const item = rowContext.current.itemById.get(itemId);
+      if (item) remove(item);
+    },
+    [remove],
+  );
+  const editRow = useCallback(
+    (itemId: string) => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId } }),
+    [id],
+  );
+  const selectRow = useCallback((itemId: string) => startSelecting([itemId]), [startSelecting]);
+  // VoiceOver's Move up / Move down on an As added row, from where it is in the card now.
+  const moveRow = useCallback((itemId: string, name: RowMove['name']) => {
+    const block = blocksRef.current.find((b) => b.kind === 'newest');
+    const index = block ? block.entries.findIndex((e) => e.item.id === itemId) : -1;
+    if (!block || index === -1) return;
+    const ids = block.entries.map((e) => e.item.id);
+    const to = name === 'moveUp' ? index - 1 : index + 1;
+    rowContext.current.moveInAsAdded(ids, index, to);
+    AccessibilityInfo.announceForAccessibility(aisleRowLabel(displayItemName(block.entries[index].item.displayName), to, ids.length));
+  }, []);
+  // Each row's moves, kept while they offer the same, so the row doesn't redraw.
+  const rowMoves = useRef(new Map<string, RowMove[]>());
+  const movesFor = useCallback(
+    (itemId: string, index: number, count: number): RowMove[] => {
+      const actions = aisleRowActions(index, count);
+      const kept = rowMoves.current.get(itemId);
+      if (kept && kept.length === actions.length && kept.every((m, i) => m.name === actions[i].name && m.label === actions[i].label)) {
+        return kept;
+      }
+      const moves = actions.map((action) => ({ ...action, onPress: () => moveRow(itemId, action.name) }));
+      rowMoves.current.set(itemId, moves);
+      return moves;
+    },
+    [moveRow],
+  );
   // Back to plain As added, no confirm; Undo puts the saved order back.
   const resetOrder = () => {
     const previous = getManualOrder(id);
@@ -889,63 +954,88 @@ export function ListScreen({ id }: { id: string }) {
     });
   };
 
-  const renderEntry = (
-    entry: Entry,
-    index: number,
-    background: string,
-    sorting = false,
-    aisle?: { name: string },
-    plain = false,
-    moves?: RowMove[],
-  ) => {
-    const item = itemById.get(entry.item.id) ?? entry.item;
-    const match = alreadyOnListMatch(item, query, queryFamily);
-    // Spec 4.1: another member's add, since the list was last seen or during this visit, until its badge goes:
-    // NEW, or what they added to an item that was there ("+1 box"), counting only this row's amounts.
-    const cue = item.checkedAt === null ? arrivals.cues.get(item.id) : undefined;
-    const news = item.checkedAt === null && newIds.includes(item.id) ? rowNews(item.id) : undefined;
-    const contributions = entry.recipeId ? item.contributions.filter((c) => c.recipeId === entry.recipeId) : item.contributions;
-    const badge = news ? rowBadge(news, contributions, item.usualUnit) : null;
-    const isNew = badge?.kind === 'new';
-    return (
-      <ItemRow
-        key={entry.key}
-        item={item}
-        background={background}
-        tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
-        // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
-        // as do rows under a coloured aisle header.
-        look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
-        alreadyOnList={match === null ? undefined : { query: match }}
-        first={index === 0}
-        sorting={sorting}
-        amountText={entry.amountText}
-        hint={entry.hint}
-        isNew={isNew}
-        added={badge?.kind === 'added' ? badge.amount : undefined}
-        grow={cue?.grow}
-        newRef={badge ? newRefFor(item.id) : undefined}
-        onNewLayout={badge ? checkNewInSight : undefined}
-        aisle={aisle}
-        selected={selection ? selection.has(entry.item.id) : undefined}
-        onToggle={() => (selection ? setSelection(toggleIn(selection, entry.item.id)) : toggleChecked(item))}
-        onDelete={() => remove(entry.item)}
-        onEdit={() => router.push({ pathname: '/list/[id]/item/[itemId]', params: { id, itemId: entry.item.id } })}
-        onSelect={selection ? undefined : () => startSelecting([entry.item.id])}
-        reorderable={moves !== undefined}
-        moves={moves}
-      />
-    );
-  };
+  const renderEntry = useCallback(
+    (
+      entry: Entry,
+      index: number,
+      background: string,
+      sorting = false,
+      aisle?: { name: string },
+      plain = false,
+      moves?: RowMove[],
+    ) => {
+      const item = itemById.get(entry.item.id) ?? entry.item;
+      const match = alreadyOnListMatch(item, query, queryFamily);
+      // Spec 4.1: another member's add, since the list was last seen or during this visit, until its badge goes:
+      // NEW, or what they added to an item that was there ("+1 box"), counting only this row's amounts.
+      const cue = item.checkedAt === null ? arrivalCues.get(item.id) : undefined;
+      const news = item.checkedAt === null && newIdSet.has(item.id) ? rowNews(item.id) : undefined;
+      const contributions = entry.recipeId ? item.contributions.filter((c) => c.recipeId === entry.recipeId) : item.contributions;
+      const badge = news ? rowBadge(news, contributions, item.usualUnit) : null;
+      const isNew = badge?.kind === 'new';
+      return (
+        <ItemRow
+          key={entry.key}
+          item={item}
+          background={background}
+          tint={entry.item.id === highlightedId ? aisles[aisleColor(slugById.get(entry.item.categoryId))].soft : undefined}
+          // Unchecked rows take their aisle's tint (grey while Sorting…); checked ones stay plain so they recede,
+          // as do rows under a coloured aisle header.
+          look={item.checkedAt === null && !plain ? categoryColors(slugById.get(entry.item.categoryId), scheme, rowStyle) : undefined}
+          alreadyOnList={match === null ? undefined : { query: match }}
+          first={index === 0}
+          sorting={sorting}
+          amountText={entry.amountText}
+          hint={entry.hint}
+          isNew={isNew}
+          added={badge?.kind === 'added' ? badge.amount : undefined}
+          grow={cue?.grow}
+          newRef={badge ? newRefFor(item.id) : undefined}
+          onNewLayout={badge ? checkNewInSight : undefined}
+          aisle={aisle}
+          selected={selection ? selection.has(entry.item.id) : undefined}
+          onToggle={toggleRow}
+          onDelete={deleteRow}
+          onEdit={editRow}
+          onSelect={selection ? undefined : selectRow}
+          reorderable={moves !== undefined}
+          moves={moves}
+        />
+      );
+    },
+    [
+      itemById,
+      query,
+      queryFamily,
+      arrivalCues,
+      newIdSet,
+      rowNews,
+      highlightedId,
+      aisles,
+      slugById,
+      scheme,
+      rowStyle,
+      newRefFor,
+      checkNewInSight,
+      selection,
+      toggleRow,
+      deleteRow,
+      editRow,
+      selectRow,
+    ],
+  );
 
   // As added and By recipe mix aisles in one card: each row's tint shows its aisle, and VoiceOver reads its name.
   // `moves`: an As added row that can be dragged.
-  const renderEntryWithAisle = (e: Entry, i: number, moves?: RowMove[]) => {
-    const categoryId = e.item.categoryId;
-    return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' }, false, moves);
-  };
+  const renderEntryWithAisle = useCallback(
+    (e: Entry, i: number, moves?: RowMove[]) => {
+      const categoryId = e.item.categoryId;
+      return renderEntry(e, i, colors.surface, categoryId === SORTING_CATEGORY_ID, { name: nameById.get(categoryId) ?? '' }, false, moves);
+    },
+    [renderEntry, colors.surface, nameById],
+  );
 
-  const renderBlock = (block: Block) => {
+  const renderBlock = useCallback(({ item: block }: { item: Block }) => {
     if (block.kind === 'newest') {
       const ids = block.entries.map((e) => e.item.id);
       // A checked row lingering in place doesn't move.
@@ -957,10 +1047,10 @@ export function ListScreen({ id }: { id: string }) {
             rows={block.entries.map((e, i) => ({
               id: e.item.id,
               draggable: movable(e),
-              node: renderEntryWithAisle(e, i, movable(e) ? moveActions(ids, i, e.item) : undefined),
+              node: renderEntryWithAisle(e, i, movable(e) ? movesFor(e.item.id, i, ids.length) : undefined),
             }))}
             onMove={(from, to) => moveInAsAdded(ids, from, to)}
-            onSelect={(itemId) => startSelecting([itemId])}
+            onSelect={selectRow}
             onDragChange={setDragging}
           />
         </Card>
@@ -1060,7 +1150,35 @@ export function ListScreen({ id }: { id: string }) {
         ) : null}
       </View>
     );
-  };
+  }, [
+    canReorder,
+    itemById,
+    listRef,
+    renderEntry,
+    renderEntryWithAisle,
+    movesFor,
+    moveInAsAdded,
+    selectRow,
+    colors.surface,
+    aisleColors,
+    aisles,
+    scheme,
+    selection,
+    toggleSection,
+    checkAll,
+    t,
+    recipePhotos,
+    sizes,
+    recipeMenu,
+    recipeActions,
+    removeRecipe,
+    spacing,
+    opacity,
+    showChecked,
+    checkedMenu,
+    uncheck,
+    clear,
+  ]);
 
   // Spec 4.1: nothing on the list at all; a list with only checked items isn't empty. Not while the items'
   // first read is in flight, or every mount flashes the empty state and hides the view menu.
@@ -1208,7 +1326,7 @@ export function ListScreen({ id }: { id: string }) {
                 <ListInviteCards householdId={list.householdId} onMessage={showInviteMessage} />
               </View>
             }
-            ItemSeparatorComponent={() => <View style={{ height: spacing.sm + spacing.xxs }} />}
+            ItemSeparatorComponent={BlockSeparator}
             // Add mode: scrolling or checking off rows keeps the keyboard up.
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="none"
@@ -1238,7 +1356,9 @@ export function ListScreen({ id }: { id: string }) {
                 />
               )
             }
-            renderItem={({ item: block }) => renderBlock(block)}
+            renderItem={renderBlock}
+            // Everything a block draws from besides `blocks` is in renderBlock's dependencies.
+            extraData={renderBlock}
             onScrollToIndexFailed={({ index, averageItemLength }) =>
               listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true })
             }
@@ -1284,6 +1404,12 @@ export function ListScreen({ id }: { id: string }) {
       </KeyboardAvoidingView>
     </Screen>
   );
+}
+
+/** The gap between the list's cards; a module-level type, so FlatList doesn't remount it each render. */
+function BlockSeparator() {
+  const { spacing } = useTheme();
+  return <View style={{ height: spacing.sm + spacing.xxs }} />;
 }
 
 /**
