@@ -23,3 +23,4 @@ When a feature is fully moved into `tasks.md`, delete its file here. When you pa
 | [i18n-es-mx-tasks.md](i18n-es-mx-tasks.md) | ready | 4.15 |
 | [units-tasks.md](units-tasks.md) | ready | 4.2, 11.4 |
 | [admin-portal-tasks.md](admin-portal-tasks.md) | ideas | 4.12, 5 |
+| [architecture-tasks.md](architecture-tasks.md) | ideas | various |
