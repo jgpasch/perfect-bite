@@ -3025,16 +3025,23 @@ describe("members' names (spec 4.7)", () => {
       [H2]: [member('u1', 'Jo', 'Doe'), member('u3', 'Sam')],
     };
     onRpc((call) =>
-      call.fn === 'get_household_members' ? { data: serverMembers[call.args!.p_household_id as string] ?? null } : undefined,
+      call.fn === 'get_households_members'
+        ? {
+            data: (call.args!.p_household_ids as string[]).flatMap((id) =>
+              (serverMembers[id] ?? []).map((m) => ({ household_id: id, ...m })),
+            ),
+          }
+        : undefined,
     );
   });
 
-  test('a full pull fills the cache for each household from get_household_members', async () => {
+  test('a full pull fills the cache for every household from one get_households_members call', async () => {
     memberships = [H1, H2];
     put('households', remoteHousehold(H2, ts(1)));
     await pullNow();
 
-    expect(rpcCallsFor('get_household_members').map((c) => c.args)).toEqual([{ p_household_id: H1 }, { p_household_id: H2 }]);
+    expect(rpcCallsFor('get_households_members').map((c) => c.args)).toEqual([{ p_household_ids: [H1, H2] }]);
+    expect(rpcCallsFor('get_household_members')).toEqual([]);
     expect(cachedNames()).toEqual([
       { householdId: H1, userId: 'u1', first: 'Jo', last: 'Doe' },
       { householdId: H1, userId: 'u2', first: 'Alex', last: 'Rivera' },
@@ -3052,7 +3059,7 @@ describe("members' names (spec 4.7)", () => {
 
   test("a scoped pull doesn't load names", async () => {
     await pullNow({ scope: { households: [H1] } });
-    expect(rpcCallsFor('get_household_members')).toEqual([]);
+    expect(rpcCallsFor('get_households_members')).toEqual([]);
     expect(cachedNames()).toEqual([]);
   });
 

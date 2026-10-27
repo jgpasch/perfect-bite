@@ -125,11 +125,70 @@ describe('refreshMemberNames', () => {
     expect(cached(H1)).toEqual([]);
   });
 
-  test('refreshAllMemberNames loads each household in turn and goes on past a failure', async () => {
-    respondToRpc('get_household_members', { error: { message: 'Failed to fetch' } }, { data: [row('u4', 'Kim')] });
+});
+
+describe('refreshAllMemberNames', () => {
+  const inHousehold = (household_id: string, r: ReturnType<typeof row>) => ({ household_id, ...r });
+
+  test('loads every household in one get_households_members call and fills each one', async () => {
+    respondToRpc('get_households_members', {
+      data: [inHousehold(H1, row('me', 'Jo Doe')), inHousehold(H1, row('u2', 'Alex')), inHousehold(H2, row('u4', 'Kim'))],
+    });
     await refreshAllMemberNames([H1, H2]);
-    expect(rpcCalls.map((c) => c.args)).toEqual([{ p_household_id: H1 }, { p_household_id: H2 }]);
-    expect(cached().map((r) => [r.householdId, r.userId])).toEqual([[H2, 'u4']]);
+
+    expect(rpcCalls).toEqual([{ fn: 'get_households_members', args: { p_household_ids: [H1, H2] } }]);
+    expect(cached().map((r) => [r.householdId, r.userId, r.firstName, r.lastName])).toEqual([
+      [H1, 'me', 'Jo', 'Doe'],
+      [H1, 'u2', 'Alex', null],
+      [H2, 'u4', 'Kim', null],
+    ]);
+  });
+
+  test("replaces each household's rows; one with no members in the answer (no longer yours) keeps its rows", async () => {
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex')] }, { data: [row('me', 'Jo'), row('u3', 'Sam')] });
+    await refreshMemberNames(H1);
+    await refreshMemberNames(H2);
+
+    respondToRpc('get_households_members', { data: [inHousehold(H1, row('me', 'Jo')), inHousehold(H1, row('u5', 'Lee'))] });
+    await refreshAllMemberNames([H1, H2]);
+
+    expect(cached(H1).map((r) => r.userId)).toEqual(['me', 'u5']);
+    expect(cached(H2).map((r) => r.userId)).toEqual(['me', 'u3']);
+  });
+
+  test('a failed call keeps every household it had, and never throws', async () => {
+    respondToRpc('get_household_members', { data: [row('me', 'Jo'), row('u2', 'Alex')] });
+    await refreshMemberNames(H1);
+
+    respondToRpc('get_households_members', { error: { message: 'Failed to fetch' } });
+    await expect(refreshAllMemberNames([H1, H2])).resolves.toBeUndefined();
+    expect(cached().map((r) => [r.householdId, r.userId])).toEqual([
+      [H1, 'me'],
+      [H1, 'u2'],
+    ]);
+  });
+
+  test('no households makes no call; a null answer changes nothing', async () => {
+    await refreshAllMemberNames([]);
+    expect(rpcCalls).toEqual([]);
+
+    respondToRpc('get_household_members', { data: [row('me', 'Jo')] });
+    await refreshMemberNames(H1);
+    respondToRpc('get_households_members', { data: null });
+    await refreshAllMemberNames([H1]);
+    expect(cached(H1).map((r) => r.userId)).toEqual(['me']);
+  });
+
+  test('a household-mate joining is the push moment, as with one household', async () => {
+    clearPushMoment();
+    respondToRpc('get_households_members', { data: [inHousehold(H1, row('me', 'Jo'))] });
+    await refreshAllMemberNames([H1]);
+    expect(pushMomentPending()).toBe(false);
+
+    respondToRpc('get_households_members', { data: [inHousehold(H1, row('me', 'Jo')), inHousehold(H1, row('u2', 'Alex'))] });
+    await refreshAllMemberNames([H1]);
+    expect(pushMomentPending()).toBe(true);
+    clearPushMoment();
   });
 });
 

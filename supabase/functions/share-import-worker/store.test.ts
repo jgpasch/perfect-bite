@@ -3,7 +3,7 @@ import { assertEquals, assertRejects } from '@std/assert';
 
 import { CommitConflictError } from './commit.ts';
 import { LeaseLostError } from './handler.ts';
-import { createShareImportCommitStore, createShareImportWorkerStore } from './store.ts';
+import { createShareImportCommitStore, createShareImportWorkerStore, recipeUrlLookupKey } from './store.ts';
 
 type Answer = { data: unknown; error: { code?: string; message?: string } | null };
 
@@ -109,4 +109,33 @@ Deno.test('commit: plan_conflict and destination_changed (40001) are CommitConfl
   // Another serialization failure isn't a plan conflict.
   const other = { code: '40001', message: 'could not serialize access' };
   assertEquals(await assertRejects(() => commitClient({ data: null, error: other }).store.commit(ID, LEASE, TARGET, [], [])), other);
+});
+
+Deno.test('recipeUrlLookupKey: the canonical URL host and path, trailing slashes dropped; null when it does not parse', () => {
+  assertEquals(recipeUrlLookupKey('https://example.com/garlic-pasta'), 'example.com/garlic-pasta');
+  assertEquals(recipeUrlLookupKey('https://example.com:8443/a/b?id=3'), 'example.com/a/b');
+  assertEquals(recipeUrlLookupKey('http://example.com'), 'example.com');
+  // A canonical URL has had one `www.` dropped already: a second one stays.
+  assertEquals(recipeUrlLookupKey('https://www.example.com/x'), 'www.example.com/x');
+  assertEquals(recipeUrlLookupKey('not a url'), null);
+});
+
+Deno.test('reuseCandidates asks share_import_reuse_candidates for the URL key and maps the rows', async () => {
+  const row = { id: TARGET.recipe_id, name: 'Pasta', household_id: TARGET.household_id, source_url: 'https://Example.com/pasta/', deleted_at: null };
+  const c = commitClient({ data: [row], error: null });
+  assertEquals(await c.store.reuseCandidates(TARGET.household_id, ID, 'https://example.com/pasta'), [
+    { id: TARGET.recipe_id, name: 'Pasta', householdId: TARGET.household_id, sourceUrl: 'https://Example.com/pasta/', deletedAt: null },
+  ]);
+  assertEquals(c.calls, [{
+    fn: 'share_import_reuse_candidates',
+    args: { p_household_id: TARGET.household_id, p_import_recipe_id: ID, p_url_key: 'example.com/pasta' },
+  }]);
+
+  // A photo import has no URL: only its own earlier run.
+  const photo = commitClient({ data: null, error: null });
+  assertEquals(await photo.store.reuseCandidates(TARGET.household_id, ID, null), []);
+  assertEquals((photo.calls[0].args as { p_url_key: unknown }).p_url_key, null);
+
+  const other = { code: '42501', message: 'permission denied' };
+  assertEquals(await assertRejects(() => commitClient({ data: null, error: other }).store.reuseCandidates(TARGET.household_id, ID, null)), other);
 });

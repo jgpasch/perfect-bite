@@ -1,4 +1,3 @@
-import { OTHER_CATEGORY_ID } from '@shared/index.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CategorizedAnswer, CategorizeStore, IngredientRow, LimitResult } from './handler.ts';
@@ -53,21 +52,10 @@ export function createCategorizeStore(admin: SupabaseClient, limits: { userId: s
     },
 
     async saveFailed(names) {
-      // PostgREST can't express `attempts + 1`, so read and write back. The `attempts` match makes
-      // a concurrent increment win instead of being counted twice.
-      const { data, error } = await ingredients()
-        .select('normalized_name, attempts')
-        .in('normalized_name', names)
-        .neq('status', 'categorized');
+      // `public.fail_ingredients`: one statement, as PostgREST can't express `attempts + 1`.
+      if (names.length === 0) return;
+      const { error } = await admin.rpc('fail_ingredients', { p_names: names });
       if (error) throw error;
-      for (const row of data as { normalized_name: string; attempts: number }[]) {
-        const { error: updateError } = await ingredients()
-          .update({ status: 'failed', default_category_id: OTHER_CATEGORY_ID, attempts: row.attempts + 1 })
-          .eq('normalized_name', row.normalized_name)
-          .eq('attempts', row.attempts)
-          .neq('status', 'categorized');
-        if (updateError) throw updateError;
-      }
     },
 
     async insertTwins(rows, categorizedBy) {

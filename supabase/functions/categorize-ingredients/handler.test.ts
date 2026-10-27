@@ -735,6 +735,49 @@ test('two Spanish names with one new English twin: it is created once and both l
   assertEquals([store.rows.get('potato')!.display_name, store.rows.get('potato')!.default_unit], ['potato', 'lb']);
 });
 
+test("twins' reads are one batch: one read of every name and translation, one of the link sources", async () => {
+  const store = new FakeStore();
+  store.seed('cucumber', { lang: 'en' });
+  store.seed('tomato', { lang: 'en' });
+  store.seed('crema agria', { lang: 'es' });
+  const reads: string[][] = [];
+  const targetReads: string[][] = [];
+  const getIngredients = store.getIngredients.bind(store);
+  const getLinkTargets = store.getLinkTargets.bind(store);
+  store.getIngredients = (names) => (reads.push([...names]), getIngredients(names));
+  store.getLinkTargets = (names) => (targetReads.push([...names]), getLinkTargets(names));
+  // The fake's link checks targets itself (the database's one-level rule): not a handler read.
+  const link = store.link.bind(store);
+  store.link = async (name, target, by) => {
+    const before = targetReads.length;
+    const linked = await link(name, target, by);
+    targetReads.length = before;
+    return linked;
+  };
+  const { model } = fakeModel(answering({ pepino: es('cucumber'), jitomate: es('tomato'), 'sour cream': en('crema agria') }));
+  const res = await categorize(['pepino', 'jitomate', 'sour cream'], store, model);
+
+  assertEquals([res.results.pepino.same_as, res.results.jitomate.same_as], ['cucumber', 'tomato']);
+  assertEquals(store.rows.get('crema agria')!.same_as, 'sour cream');
+  // One read of the batch's names and translations; no read of one name at a time. (Every twin
+  // existed, so none is read again after an insert.)
+  assertEquals(reads.filter((r) => r.includes('pepino') && r.includes('cucumber')), [['pepino', 'cucumber', 'jitomate', 'tomato', 'sour cream', 'crema agria']]);
+  assertEquals(reads.filter((r) => r.length === 1), []);
+  assertEquals(targetReads, [['pepino', 'jitomate', 'crema agria']]);
+});
+
+test('a twin made earlier in the batch is seen by a later answer: a later name for it links without remaking it', async () => {
+  const store = new FakeStore();
+  let inserts = 0;
+  const insertTwins = store.insertTwins.bind(store);
+  store.insertTwins = (rows, by) => ((inserts += rows.length), insertTwins(rows, by));
+  const { model } = fakeModel(answering({ papa: es('potato'), patata: es('potato') }));
+  const res = await categorize(['papa', 'patata'], store, model);
+
+  assertEquals([res.results.papa.same_as, res.results.patata.same_as], ['potato', 'potato']);
+  assertEquals(inserts, 1);
+});
+
 test("a link the store refuses (a concurrent link) leaves the name unlinked and doesn't fail the request", async () => {
   const store = new FakeStore();
   store.link = () => Promise.resolve(false);

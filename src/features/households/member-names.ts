@@ -1,7 +1,7 @@
 // Members' names on the device (spec 4.7, 5): `household_member_names` caches `get_household_members`
 // for each household, so the app can say who checked or added something offline. It's a cache:
-// never pushed, filled after each full pull and when Realtime reports a membership change in a
-// household (each fill replaces that household's rows), and purged with the household
+// never pushed, filled after each full pull (all households in one `get_households_members` call)
+// and when Realtime reports a membership change in a household (each fill replaces that household's rows), and purged with the household
 // (`purgeHousehold`) and on sign-out or account deletion (`wipeLocalData`).
 import { eq } from 'drizzle-orm';
 import { useMemo } from 'react';
@@ -30,6 +30,38 @@ export async function refreshMemberNames(householdId: string): Promise<boolean> 
     console.warn(`[members] couldn't load the names in ${householdId}`, err);
     return false;
   }
+  storeMemberNames(householdId, rows);
+  return true;
+}
+
+/**
+ * Refreshes every household's names in one call (`get_households_members`, after a full pull). A
+ * household it has no members for (no longer the user's) keeps the rows it had, as a failed
+ * `refreshMemberNames` would; a failed call keeps them all. Never throws.
+ */
+export async function refreshAllMemberNames(householdIds: string[]): Promise<void> {
+  if (householdIds.length === 0) return;
+  let rows: (MemberRow & { household_id: string })[];
+  try {
+    const { data, error } = await supabase.rpc('get_households_members', { p_household_ids: householdIds });
+    if (error) throw error;
+    rows = (data as (MemberRow & { household_id: string })[] | null) ?? [];
+  } catch (err) {
+    console.warn("[members] couldn't load the names", err);
+    return;
+  }
+  const byHousehold = new Map<string, MemberRow[]>();
+  for (const { household_id, ...row } of rows) {
+    byHousehold.set(household_id, [...(byHousehold.get(household_id) ?? []), row]);
+  }
+  for (const id of new Set(householdIds)) {
+    const members = byHousehold.get(id);
+    if (members) storeMemberNames(id, members);
+  }
+}
+
+/** Replaces `householdId`'s cached names with `rows`, and notes a moment to offer push. */
+function storeMemberNames(householdId: string, rows: MemberRow[]): void {
   const before = db
     .select({ userId: householdMemberNames.userId })
     .from(householdMemberNames)
@@ -56,12 +88,6 @@ export async function refreshMemberNames(householdId: string): Promise<boolean> 
   // A household that was just the user's now has someone else in it: a moment to offer push (4.13).
   const me = getAccount()?.userId ?? null;
   if (householdMateJoined(before, rows.map((r) => r.user_id), me)) notePushMoment();
-  return true;
-}
-
-/** Refreshes each household's names in turn (after a full pull). Never throws. */
-export async function refreshAllMemberNames(householdIds: string[]): Promise<void> {
-  for (const id of householdIds) await refreshMemberNames(id);
 }
 
 /** Members' short names by user id. */

@@ -99,8 +99,12 @@ export interface ShareImportCommitStore {
   unitUsage(householdId: string, names: string[]): Promise<UnitUsageDbRow[]>;
   /** Whether any recipe row, live or deleted, has this id. */
   recipeExists(id: string): Promise<boolean>;
-  /** The live recipe with `importRecipeId`, and the household's live recipes with a source URL. */
-  reuseCandidates(householdId: string, importRecipeId: string): Promise<ReuseCandidate[]>;
+  /**
+   * The live recipe with `importRecipeId`, and the household's live recipes whose source URL may
+   * canonicalize to `sourceUrl` (canonical; null for a photo, which gives only the first). A
+   * superset: `findReusableRecipe` makes the exact match.
+   */
+  reuseCandidates(householdId: string, importRecipeId: string, sourceUrl: string | null): Promise<ReuseCandidate[]>;
   /**
    * `commit_share_import`. Throws CommitConflictError (40001), and LeaseLostError (handler.ts) for
    * a lease that isn't the job's.
@@ -222,7 +226,10 @@ export async function planCommit(
   at: Date,
 ): Promise<CommitPlan> {
   const own = await uuidV5(job.id, IMPORT_ID_NAMESPACE);
-  const [ownTaken, candidates] = await Promise.all([store.recipeExists(own), store.reuseCandidates(target.householdId, own)]);
+  const [ownTaken, candidates] = await Promise.all([
+    store.recipeExists(own),
+    store.reuseCandidates(target.householdId, own, extraction.sourceUrl),
+  ]);
   const existing = findReusableRecipe(candidates, {
     householdId: target.householdId,
     sourceUrl: extraction.sourceUrl,

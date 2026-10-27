@@ -34,6 +34,20 @@ const listRow = (r: ListDbRow): ListRow => ({
 });
 
 /**
+ * A canonical recipe URL's lookup key for `share_import_reuse_candidates`: its host and its path
+ * without trailing slashes, as `private.recipe_url_lookup_key` makes them from a stored URL. Null
+ * for one that doesn't parse (never a canonical URL).
+ */
+export function recipeUrlLookupKey(canonicalUrl: string): string | null {
+  try {
+    const url = new URL(canonicalUrl);
+    return `${url.hostname}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * ShareImportCommitStore over the service-role client (which reads past RLS): the reads are plain
  * selects, each its own statement outside any transaction; the commit is one RPC.
  */
@@ -162,20 +176,14 @@ export function createShareImportCommitStore(admin: SupabaseClient): ShareImport
       return data !== null;
     },
 
-    async reuseCandidates(householdId, importRecipeId) {
-      const columns = 'id, name, household_id, source_url, deleted_at';
-      const [own, linked] = await Promise.all([
-        admin.from('recipes').select(columns).eq('id', importRecipeId).is('deleted_at', null),
-        admin
-          .from('recipes')
-          .select(columns)
-          .eq('household_id', householdId)
-          .is('deleted_at', null)
-          .not('source_url', 'is', null),
-      ]);
-      check(own.error);
-      check(linked.error);
-      return [...(own.data ?? []), ...(linked.data ?? [])].map((r) => ({
+    async reuseCandidates(householdId, importRecipeId, sourceUrl) {
+      const { data, error } = await admin.rpc('share_import_reuse_candidates', {
+        p_household_id: householdId,
+        p_import_recipe_id: importRecipeId,
+        p_url_key: sourceUrl === null ? null : recipeUrlLookupKey(sourceUrl),
+      });
+      check(error);
+      return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
         id: r.id as string,
         name: r.name as string,
         householdId: r.household_id as string,

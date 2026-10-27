@@ -145,16 +145,16 @@ describe('saveMyName', () => {
         ['eq', 'user_id', USER],
       ],
     ]);
-    expect(rpcCallsFor('get_household_members').map((c) => c.args?.p_household_id).sort()).toEqual(
+    expect(rpcCallsFor('get_households_members').map((c) => [...(c.args?.p_household_ids as string[])].sort())).toEqual([
       [householdId, 'h2'].sort(),
-    );
+    ]);
   });
 
   it('throws offline without calling the server', async () => {
     mockNetwork.offline = true;
     await expect(saveMyName(USER, 'Sam', 'Lee')).rejects.toMatchObject({ kind: 'offline' });
     expect(queriesFor('profiles')).toEqual([]);
-    expect(rpcCallsFor('get_household_members')).toEqual([]);
+    expect(rpcCallsFor('get_households_members')).toEqual([]);
   });
 
   it('throws failed when the server refuses, and reloads nothing', async () => {
@@ -162,7 +162,7 @@ describe('saveMyName', () => {
     const err = await saveMyName(USER, 'Sam', 'Lee').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SaveNameError);
     expect(err).toMatchObject({ kind: 'failed', message: 'new row violates check constraint' });
-    expect(rpcCallsFor('get_household_members')).toEqual([]);
+    expect(rpcCallsFor('get_households_members')).toEqual([]);
   });
 });
 
@@ -205,8 +205,8 @@ describe('Name screen', () => {
 
   it('saves to the profile, reloads the names and goes back', async () => {
     cacheName('Sam', null);
-    respondToRpc('get_household_members', {
-      data: [{ user_id: USER, first_name: 'Samuel', last_name: 'Lee', joined_at: '2026-10-01T00:00:00Z' }],
+    respondToRpc('get_households_members', {
+      data: [{ household_id: householdId, user_id: USER, first_name: 'Samuel', last_name: 'Lee', joined_at: '2026-10-01T00:00:00Z' }],
     });
     open();
     type('First name', ' Samuel ');

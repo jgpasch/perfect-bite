@@ -281,12 +281,7 @@ async function categorizeBatch(
   if (unanswered.length > 0) await store.saveFailed(unanswered);
 
   // After the batch's own rows are saved, so a twin that is also in the batch is found, not made.
-  const twins: string[] = [];
-  for (const { answer, raw } of translated) {
-    const twin = await saveTwin(answer, raw, store, result.model);
-    if (twin) twins.push(twin);
-  }
-  return { twins };
+  return { twins: await saveTwins(translated, store, result.model) };
 }
 
 type Answer = CategorizeOutput['results'][number];
@@ -324,18 +319,13 @@ export function cleanTranslation(raw: string | null, nameKey: string): { key: st
  * `yarn ai:prune-twins`. Only English and Spanish names of grocery items get a twin: an errand or
  * an injection name can't write another key's row. Returns the twin's key when it was linked.
  */
-async function saveTwin(answer: CategorizedAnswer, raw: Answer, store: CategorizeStore, modelId: string): Promise<string | null> {
-  if (answer.lang === null || !answer.is_grocery_item || !raw.exact_equivalent) return null;
-  const translation = cleanTranslation(raw.translation, answer.normalized_name);
-  if (!translation) return null;
-  const twinLang: IngredientLang = answer.lang === 'en' ? 'es' : 'en';
-
-  const [name] = await store.getIngredients([answer.normalized_name]);
-  let [twin] = await store.getIngredients([translation.key]);
+async function saveTwin(plan: TwinPlan, known: KnownRows, store: CategorizeStore, modelId: string): Promise<string | null> {
+  const { answer, translation, twinLang, source, target } = plan;
+  const name = known.rows.get(answer.normalized_name);
+  let twin = known.rows.get(translation.key);
   if (!name || name.same_as !== null) return null;
   if (twin && (twin.same_as !== null || (twin.lang !== null && twin.lang !== twinLang))) return null;
-  const [source, target] = answer.lang === 'en' ? [translation.key, name.normalized_name] : [name.normalized_name, translation.key];
-  if ((await store.getLinkTargets([source])).length > 0) return null;
+  if (known.linkTargets.has(source)) return null;
 
   if (!twin) {
     await store.insertTwins(
@@ -352,7 +342,65 @@ async function saveTwin(answer: CategorizedAnswer, raw: Answer, store: Categoriz
       modelId,
     );
     [twin] = await store.getIngredients([translation.key]);
+    if (twin) known.rows.set(twin.normalized_name, twin);
   }
   if (!twin) return null;
-  return (await store.link(source, target, modelId)) ? twin.normalized_name : null;
+  if (!(await store.link(source, target, modelId))) return null;
+  const linked = known.rows.get(source);
+  if (linked) known.rows.set(source, { ...linked, same_as: target });
+  known.linkTargets.add(target);
+  return twin.normalized_name;
+}
+
+/** An answer that asks for a twin: its cleaned translation, and which side links to which. */
+type TwinPlan = {
+  answer: CategorizedAnswer;
+  translation: { key: string; display: string };
+  twinLang: IngredientLang;
+  /** The non-English key, whose `same_as` is set. */
+  source: string;
+  /** The English key. */
+  target: string;
+};
+
+/**
+ * The rows and link targets `saveTwin` checks, read once for the whole batch and kept up to date
+ * with the twins it makes and links, so each answer sees the ones before it.
+ */
+type KnownRows = { rows: Map<string, IngredientRow>; linkTargets: Set<string> };
+
+function twinPlan(answer: CategorizedAnswer, raw: Answer): TwinPlan | null {
+  if (answer.lang === null || !answer.is_grocery_item || !raw.exact_equivalent) return null;
+  const translation = cleanTranslation(raw.translation, answer.normalized_name);
+  if (!translation) return null;
+  const twinLang: IngredientLang = answer.lang === 'en' ? 'es' : 'en';
+  const [source, target] =
+    answer.lang === 'en' ? [translation.key, answer.normalized_name] : [answer.normalized_name, translation.key];
+  return { answer, translation, twinLang, source, target };
+}
+
+/**
+ * `saveTwin` for each answer in turn, after one read of every name and translation they touch and
+ * one of their link sources. Returns the keys of the twins linked.
+ */
+async function saveTwins(
+  translated: readonly { answer: CategorizedAnswer; raw: Answer }[],
+  store: CategorizeStore,
+  modelId: string,
+): Promise<string[]> {
+  const plans = translated.map(({ answer, raw }) => twinPlan(answer, raw)).filter((p): p is TwinPlan => p !== null);
+  if (plans.length === 0) return [];
+  const keys = [...new Set(plans.flatMap((p) => [p.answer.normalized_name, p.translation.key]))];
+  const sources = [...new Set(plans.map((p) => p.source))];
+  const [rows, targets] = await Promise.all([store.getIngredients(keys), store.getLinkTargets(sources)]);
+  const known: KnownRows = {
+    rows: new Map(rows.map((r) => [r.normalized_name, r])),
+    linkTargets: new Set(targets),
+  };
+  const twins: string[] = [];
+  for (const plan of plans) {
+    const twin = await saveTwin(plan, known, store, modelId);
+    if (twin) twins.push(twin);
+  }
+  return twins;
 }
