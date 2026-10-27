@@ -63,6 +63,10 @@ class FakeStore implements RecipePhotoStore {
   completed: { recipeId: string; description: string; path: string }[] = [];
   completeAnswer = true;
   failUpload = false;
+  /** complete throws this, when set. */
+  completeError: Error | null = null;
+  removed: string[] = [];
+  failRemove = false;
 
   async recipeHousehold(recipeId: string) {
     this.steps.push('household');
@@ -90,8 +94,14 @@ class FakeStore implements RecipePhotoStore {
   }
   async complete(recipeId: string, description: string, path: string) {
     this.steps.push('complete');
+    if (this.completeError) throw this.completeError;
     this.completed.push({ recipeId, description, path });
     return this.completeAnswer;
+  }
+  async remove(path: string) {
+    this.steps.push(`remove:${path}`);
+    if (this.failRemove) throw new Error('storage down');
+    this.removed.push(path);
   }
   async release(_recipeId: string) {
     this.steps.push('release');
@@ -946,6 +956,55 @@ Deno.test('the recipe deleted while the photo was made: complete answers false, 
     assertEquals(res.status, 404);
     assertEquals(json.error, 'not_found');
     assertEquals(store.steps.at(-1), 'complete');
+  });
+});
+
+Deno.test('complete throwing after the upload: 500, released, the uploaded object removed', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const path = `${HOUSEHOLD_ID}/${RECIPE_ID}/${PHOTO_ID}.jpg`;
+    for (const failRemove of [false, true]) {
+      const store = new FakeStore();
+      store.completeError = new Error('database down');
+      store.failRemove = failRemove;
+      const { res, json } = await call({ store });
+      assertEquals([res.status, json.error], [500, 'internal_error'], `failRemove ${failRemove}`);
+      assertEquals(store.steps.slice(-4), [`upload:${path}`, 'complete', 'release', `remove:${path}`], `failRemove ${failRemove}`);
+      assertEquals(store.removed, failRemove ? [] : [path]);
+    }
+  });
+});
+
+Deno.test('nothing is removed when the upload fails, complete answers false, or it succeeds', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const failedUpload = new FakeStore();
+    failedUpload.failUpload = true;
+    const gone = new FakeStore();
+    gone.completeAnswer = false;
+    for (const store of [failedUpload, gone, new FakeStore()]) {
+      await call({ store });
+      assertFalse(store.steps.some((step) => step.startsWith('remove:')), store.steps.join(' '));
+    }
+  });
+});
+
+Deno.test('a 502 never carries the provider text, only a fixed message', async () => {
+  await withEnv({ AI_MODEL_PHOTO_DESCRIPTION: 'mock' }, async () => {
+    const secret = 'Billing hard limit reached for org-XYZ';
+    const body = { error: { message: secret } };
+    const setups: Setup[] = [
+      { image: openAi(500, body) },
+      { image: fakeImage(new ImageFailedError(`OpenAI answered 500: ${secret}`)) },
+      { moderation: openAiModeration(500, body) },
+      { moderation: fakeModeration(undefined, new ModerationFailedError(`OpenAI answered 500: ${secret}`, 'api_error')) },
+      { model: failing(new APICallError({ message: secret, url: 'https://x', requestBodyValues: {}, statusCode: 500, isRetryable: false })) },
+    ];
+    for (const setup of setups) {
+      const { res, json, store } = await call(setup);
+      assertEquals(res.status, 502);
+      assertEquals(json, { error: 'generation_failed', message: 'The photo could not be made' });
+      // The detail stays in the failed step's ai_calls row.
+      assert(store.aiCalls.some((row) => row.error?.includes(secret) || row.error_body?.includes(secret)), JSON.stringify(store.aiCalls.at(-1)));
+    }
   });
 });
 

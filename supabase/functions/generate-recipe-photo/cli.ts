@@ -285,6 +285,8 @@ export class MemoryPhotoStore implements RecipePhotoStore {
     this.description = description;
     return true;
   }
+  // complete never throws here, so nothing is ever removed.
+  async remove() {}
   async release() {
     this.released = true;
   }

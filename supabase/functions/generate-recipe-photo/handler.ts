@@ -38,6 +38,8 @@ export interface RecipePhotoStore {
   readRecipe(recipeId: string, householdId: string): Promise<StoredRecipe | null>;
   /** Uploads the JPEG to `recipe-photos` at `path`. */
   upload(path: string, bytes: Uint8Array): Promise<void>;
+  /** Deletes the object at `path` from `recipe-photos`. */
+  remove(path: string): Promise<void>;
   /** `public.complete_recipe_photo_ai`: false when the slot was gone (the recipe was deleted meanwhile). */
   complete(recipeId: string, description: string, path: string): Promise<boolean>;
   /** `public.release_recipe_photo_ai`: gives the recipe its slot back. */
@@ -148,7 +150,9 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
   let descriptionModel: string | null = null;
   let description: string | null = null;
   const image = imageModel(deps.env);
-  const fail = async (failure: GenerateFailure, message: string, outcome: string): Promise<never> => {
+  /** The object uploaded but not yet handed to `complete`, which queues it for cleanup itself. */
+  let uploaded: string | null = null;
+  const fail =async (failure: GenerateFailure, message: string, outcome: string): Promise<never> => {
     await store.release(recipeId);
     logOutcome({ outcome, description_model: descriptionModel, image_model: image, description, ms: Date.now() - started });
     throw new GeneratePhotoError(failure, message);
@@ -273,8 +277,11 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
     });
 
     await store.upload(path, generated.bytes);
+    uploaded = path;
     // complete queues the object for cleanup either way, so a recipe deleted meanwhile leaves nothing behind.
-    if (!(await store.complete(recipeId, description, path))) {
+    const completed = await store.complete(recipeId, description, path);
+    uploaded = null;
+    if (!completed) {
       logOutcome({ outcome: 'recipe_gone', description_model: descriptionModel, image_model: generated.model, description, ms: Date.now() - started });
       throw new GeneratePhotoError({ code: 'not_found' }, 'No such recipe');
     }
@@ -295,6 +302,11 @@ export async function generateRecipePhoto(request: GenerateRecipePhotoRequest, d
     // Anything unexpected (a store error, a bug): give the slot back before failing.
     // A failed release leaves the recipe's slot taken, so it's reported; the original error still throws.
     await store.release(recipeId).catch((releaseErr) => reportError('generate-recipe-photo', asError(releaseErr), { event: 'release_failed' }));
+    // complete threw after the upload: the app never gets the path, so the object would be orphaned.
+    if (uploaded !== null) {
+      const path = uploaded;
+      await store.remove(path).catch((removeErr) => reportError('generate-recipe-photo', asError(removeErr), { event: 'remove_failed', path }));
+    }
     logOutcome({ outcome: 'error', description_model: descriptionModel, image_model: image, description, ms: Date.now() - started });
     throw err;
   }

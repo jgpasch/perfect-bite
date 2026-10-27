@@ -54,6 +54,14 @@ Deno.test('every failure maps to its status and code', async () => {
   }
 });
 
+Deno.test('generation_failed → 502 with a fixed message, never the error text', async () => {
+  for (const step of ['description', 'moderation', 'image'] as const) {
+    const res = await handleRequest(post(), deps({ code: 'generation_failed', step }, 'OpenAI answered 500: Billing hard limit reached').d);
+    assertEquals(res.status, 502, step);
+    assertEquals(await res.json(), { error: 'generation_failed', message: 'The photo could not be made' }, step);
+  }
+});
+
 Deno.test('daily_limit is 429 with resets_at, the next UTC midnight', async () => {
   const d = { ...deps({ code: 'daily_limit' }, 'Done for today').d, now: () => Date.parse('2026-12-31T23:59:59.999Z') };
   const res = await handleRequest(post(), d);

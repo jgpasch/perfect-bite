@@ -70,6 +70,11 @@ export function createRecipePhotoStore(admin: SupabaseClient, limits: { userId: 
       if (error) throw error;
     },
 
+    async remove(path) {
+      const { error } = await admin.storage.from(RECIPE_PHOTOS_BUCKET).remove([path]);
+      if (error) throw error;
+    },
+
     async complete(recipeId, description, path) {
       const { data, error } = await admin.rpc('complete_recipe_photo_ai', { p_recipe_id: recipeId, p_description: description, p_path: path });
       if (error) throw error;

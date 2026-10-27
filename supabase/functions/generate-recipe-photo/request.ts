@@ -49,7 +49,8 @@ function failureResponse(failure: GenerateFailure, message: string, now?: number
     case 'not_food':
       return error(422, 'not_food', message);
     case 'generation_failed':
-      return error(502, 'generation_failed', message);
+      // Never the provider's text: the detail is in the step's `ai_calls` row.
+      return error(502, 'generation_failed', 'The photo could not be made');
     case 'unavailable':
       return error(503, 'unavailable', message, PAUSED_RETRY_AFTER);
   }
