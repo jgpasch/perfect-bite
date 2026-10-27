@@ -5,11 +5,13 @@
 //   `updated_at` of the newest row applied, kept as the server's text so no precision is lost. A
 //   household the user just joined has no cursors, so it is pulled in full; the others aren't
 //   affected. The user's own preference tables and the ingredient catalog have their own cursors.
-// - Each table is read oldest change first, in pages. Rows that share the page's last
-//   `updated_at` (one `apply_mutations` batch shares one) are fetched together, so a page never
-//   ends in the middle of them. The first page reaches `PULL_OVERLAP_MS` behind the cursor, in case
-//   a transaction that started earlier committed after the last pull; applying a row twice is a
-//   no-op.
+// - Each table is read oldest change first, in pages ordered by `updated_at` and then the row's
+//   key, and each next page starts after the last row's `(updated_at, key)`. One transaction stamps
+//   all its rows with the same `now()` (a catalog seed does that to thousands), so a page can end in
+//   the middle of them and the next one goes on from there. The first page reaches
+//   `PULL_OVERLAP_MS` behind the cursor, in case a transaction that started earlier committed
+//   after the last pull; applying a row twice is a no-op. So the stored cursor is only the time:
+//   the key would never be read.
 // - Rows are applied with the push's LWW rule (7.3): a remote field wins unless the local
 //   `field_clock` has a newer HLC for it, i.e. a local edit the server hasn't seen. Fields the
 //   server keeps no clock for (per-user tables, households) win unless an unpushed outbox mutation
@@ -69,8 +71,13 @@ import { compareHlc } from './hlc';
 import type { Mutation } from './mutation';
 import { purgeHousehold } from './purge';
 
-/** Rows per page. Below PostgREST's default `max-rows` (1000), so a full page means there may be more. */
+/**
+ * Rows per page. PostgREST cuts any answer at `max_rows` (1000, `supabase/config.toml`), so this
+ * stays at or below it: a full page means there may be more.
+ */
 export const PULL_PAGE_SIZE = 500;
+/** PostgREST's `max_rows`: an answer this long may have been cut short. */
+const POSTGREST_MAX_ROWS = 1000;
 /** How far behind its cursor each table's first page reaches. */
 export const PULL_OVERLAP_MS = 5000;
 
@@ -127,6 +134,8 @@ type Job = {
   /** Cursor key, e.g. `household:<id>:lists`, `user:user_settings`, `catalog:ingredients`. */
   cursor: string;
   table: string;
+  /** The server's key columns, which order rows that share an `updated_at`. */
+  key: readonly string[];
   /** Filters, as [column, value]: equality, or `is null` for a null value. */
   filters: [string, string | null][];
   apply: (tx: Exec, row: ServerRow, pending: PendingIndex) => void;
@@ -421,13 +430,37 @@ async function call(request: PromiseLike<Response>, what: string): Promise<unkno
   return res.data;
 }
 
-/** Rows changed after `after` (a page, oldest first), or every row changed exactly `at`. */
-function fetchRows(job: Job, range: { after: string | null } | { at: string }): Promise<ServerRow[]> {
+/**
+ * Where a page starts: after `at`, or after the row at `at` with key `key` (the job's key columns'
+ * values) when one is given.
+ */
+type Position = { at: string; key: string[] | null };
+
+/** A value for a PostgREST logic tree, quoted so commas, dots and parentheses in it are plain text. */
+const quoted = (value: string) => `"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+
+/**
+ * The `or` filter for rows after `(at, key)` in `(updated_at, ...columns)` order: a later time, or
+ * the same time and a later key, compared column by column.
+ */
+export function afterPositionFilter(columns: readonly string[], at: string, key: readonly string[]): string {
+  const terms = [`updated_at.gt.${quoted(at)}`];
+  for (let i = 0; i < columns.length; i++) {
+    const equal = [`updated_at.eq.${quoted(at)}`, ...columns.slice(0, i).map((c, j) => `${c}.eq.${quoted(key[j])}`)];
+    terms.push(`and(${[...equal, `${columns[i]}.gt.${quoted(key[i])}`].join(',')})`);
+  }
+  return terms.join(',');
+}
+
+/** A page of rows changed after `from`, oldest first and by key within a time. */
+function fetchRows(job: Job, from: Position | null): Promise<ServerRow[]> {
   let query = supabase.from(job.table).select('*');
   for (const [column, value] of job.filters) query = value === null ? query.is(column, null) : query.eq(column, value);
-  if ('at' in range) return call(query.eq('updated_at', range.at), job.table) as Promise<ServerRow[]>;
-  if (range.after) query = query.gt('updated_at', range.after);
-  return call(query.order('updated_at', { ascending: true }).limit(PULL_PAGE_SIZE), job.table) as Promise<ServerRow[]>;
+  if (from?.key) query = query.or(afterPositionFilter(job.key, from.at, from.key));
+  else if (from) query = query.gt('updated_at', from.at);
+  query = query.order('updated_at', { ascending: true });
+  for (const column of job.key) query = query.order(column, { ascending: true });
+  return call(query.limit(PULL_PAGE_SIZE), job.table) as Promise<ServerRow[]>;
 }
 
 /** Server timestamps share one format, so their text sorts like their time. */
@@ -488,24 +521,22 @@ function commit(job: Job, rows: ServerRow[]): { applied: number; complete: boole
 /** Pulls one table from its cursor to now. Returns how many rows were applied. */
 async function pullTable(job: Job): Promise<number> {
   const cursor = readState().cursors[job.cursor];
-  let after: string | null = cursor ? new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString() : null;
+  let from: Position | null = cursor ? { at: new Date(Date.parse(cursor) - PULL_OVERLAP_MS).toISOString(), key: null } : null;
   let total = 0;
   for (;;) {
-    const page = await fetchRows(job, { after });
+    const page = await fetchRows(job, from);
     if (page.length === 0) return total;
-    const full = page.length === PULL_PAGE_SIZE;
-    let rows = page;
-    if (full) {
-      // Finish the last timestamp so the next page can start strictly after it.
-      const last = page[page.length - 1].updated_at;
-      rows = [...page.filter((r) => r.updated_at !== last), ...(await fetchRows(job, { at: last }))];
-    }
-    const result = commit(job, rows);
+    const result = commit(job, page);
     total += result.applied;
-    if (!result.complete || !full) return total;
-    after = rows[rows.length - 1].updated_at;
+    // A short page is the last one; a full one (even one PostgREST cut at `max_rows`) may not be.
+    if (!result.complete || page.length < Math.min(PULL_PAGE_SIZE, POSTGREST_MAX_ROWS)) return total;
+    const last = page[page.length - 1];
+    from = { at: last.updated_at, key: job.key.map((column) => String(last[column])) };
   }
 }
+
+/** A spec's key columns, as the server names them. */
+const serverKey = (spec: PullSpec) => spec.key.map((k) => columnsOf(spec.table)[k].name);
 
 function householdJobs(householdId: string): Job[] {
   return HOUSEHOLD_SPECS.map((spec) => {
@@ -513,6 +544,7 @@ function householdJobs(householdId: string): Job[] {
     return {
       cursor: householdCursorKey(householdId, table),
       table,
+      key: serverKey(spec),
       filters: [[spec.table === households ? 'id' : 'household_id', householdId]],
       apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
     };
@@ -525,6 +557,7 @@ function userJobs(userId: string): Job[] {
     return {
       cursor: `user:${table}`,
       table,
+      key: serverKey(spec),
       filters: [['user_id', userId]],
       apply: (tx, row, pending) => applySyncedRow(spec, tx, row, pending),
     };
@@ -536,12 +569,14 @@ const CATALOG_JOBS: Job[] = [
   {
     cursor: 'catalog:categories',
     table: 'categories',
+    key: serverKey(SYSTEM_CATEGORIES_SPEC),
     filters: [['household_id', null]],
     apply: (tx, row, pending) => applySyncedRow(SYSTEM_CATEGORIES_SPEC, tx, row, pending),
   },
   {
     cursor: 'catalog:ingredients',
     table: 'ingredients',
+    key: ['normalized_name'],
     filters: [],
     apply: (tx, row) => applyIngredient(tx, row),
   },

@@ -47,6 +47,7 @@ import { getDeviceId, nextHlc } from '../clock';
 import { compareHlc } from '../hlc';
 import { deleteRows, insertRow, updateRows, upsertRow } from '../mutate';
 import {
+  afterPositionFilter,
   applyRemoteDelete,
   getPullState,
   householdCursorKey,
@@ -93,14 +94,74 @@ function serve(query: RecordedQuery) {
   }
   let rows = [...(server[query.table] ?? [])];
   let limit: number | null = null;
+  const order: string[] = [];
   for (const [op, column, value] of query.ops) {
     if (op === 'eq') rows = rows.filter((r) => String(r[column as string]) === value);
     if (op === 'is' && value === null) rows = rows.filter((r) => r[column as string] == null);
-    if (op === 'gt') rows = rows.filter((r) => Date.parse(r[column as string] as string) > Date.parse(value as string));
-    if (op === 'order') rows.sort((a, b) => ((a[column as string] as string) < (b[column as string] as string) ? -1 : 1));
+    if (op === 'gt') rows = rows.filter((r) => compareValues(column as string, r[column as string], value as string) > 0);
+    if (op === 'or') {
+      const tree = parseOr(column as string);
+      rows = rows.filter((r) => tree.some((term) => matches(r, term)));
+    }
+    if (op === 'order') order.push(column as string);
     if (op === 'limit') limit = column as number;
   }
-  return { data: limit === null ? rows : rows.slice(0, limit), status: 200 };
+  rows.sort((a, b) => {
+    for (const column of order) {
+      const c = compareValues(column, a[column], String(b[column]));
+      if (c !== 0) return c;
+    }
+    return 0;
+  });
+  // PostgREST's `max_rows` (supabase/config.toml) cuts every answer, limited or not.
+  return { data: rows.slice(0, Math.min(limit ?? Infinity, 1000)), status: 200 };
+}
+
+/** Timestamps by their time to the microsecond (in any ISO format); other values as text. */
+function compareValues(column: string, a: unknown, b: string): number {
+  if (column === 'updated_at') {
+    const micros = (s: string) => Date.parse(s) * 1000 + Number((/\.\d{3}(\d{0,3})/.exec(s)?.[1] ?? '').padEnd(3, '0'));
+    return micros(a as string) - micros(b);
+  }
+  const text = String(a);
+  return text < b ? -1 : text > b ? 1 : 0;
+}
+
+/** One term of a PostgREST `or` filter: `column.op."value"`, or `and(...)` of terms. */
+type OrTerm = { column: string; op: string; value: string } | { and: OrTerm[] };
+
+function parseOr(filter: string): OrTerm[] {
+  const terms: string[] = [];
+  let depth = 0;
+  let inQuotes = false;
+  let start = 0;
+  for (let i = 0; i < filter.length; i++) {
+    const c = filter[i];
+    if (inQuotes) {
+      if (c === '\\') i++;
+      else if (c === '"') inQuotes = false;
+    } else if (c === '"') inQuotes = true;
+    else if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) {
+      terms.push(filter.slice(start, i));
+      start = i + 1;
+    }
+  }
+  terms.push(filter.slice(start));
+  return terms.map((term) => {
+    if (term.startsWith('and(')) return { and: parseOr(term.slice(4, -1)) };
+    const [, column, op, value] = /^([a-z_]+)\.([a-z]+)\."((?:[^"\\]|\\.)*)"$/.exec(term)!;
+    return { column, op, value: value.replace(/\\(.)/g, '$1') };
+  });
+}
+
+function matches(row: ServerRow, term: OrTerm): boolean {
+  if ('and' in term) return term.and.every((t) => matches(row, t));
+  const c = compareValues(term.column, row[term.column], term.value);
+  if (term.op === 'eq') return c === 0;
+  if (term.op === 'gt') return c > 0;
+  throw new Error(`unexpected or op ${term.op}`);
 }
 
 const put = (table: string, ...rows: ServerRow[]) => {
@@ -258,6 +319,7 @@ describe('first pull of a household', () => {
         ['select', '*'],
         ['eq', 'household_id', H1],
         ['order', 'updated_at', { ascending: true }],
+        ['order', 'id', { ascending: true }],
         ['limit', PULL_PAGE_SIZE],
       ],
     ]);
@@ -338,6 +400,7 @@ describe('cursors', () => {
         ['eq', 'household_id', H1],
         ['gt', 'updated_at', since],
         ['order', 'updated_at', { ascending: true }],
+        ['order', 'id', { ascending: true }],
         ['limit', PULL_PAGE_SIZE],
       ],
     ]);
@@ -433,7 +496,10 @@ describe('cursors', () => {
 });
 
 describe('paging', () => {
-  test('reads past a page, finishing the rows that share its last timestamp', async () => {
+  const page = [['order', 'updated_at', { ascending: true }], ['order', 'id', { ascending: true }], ['limit', PULL_PAGE_SIZE]];
+  const pad = (i: number) => String(i).padStart(4, '0');
+
+  test('reads past a page that ends in the middle of one timestamp, going on from its last key', async () => {
     put('households', remoteHousehold(H1, ts(1)));
     const rows: ServerRow[] = [];
     // 498 rows a second apart, then 20 written in one batch (one timestamp across the page end), then 2 more.
@@ -445,13 +511,144 @@ describe('paging', () => {
     await pullNow();
 
     expect(db.select().from(lists).all()).toHaveLength(520);
-    const page = [['order', 'updated_at', { ascending: true }], ['limit', PULL_PAGE_SIZE]];
     expect(tableQueries('lists')).toEqual([
       [['select', '*'], ['eq', 'household_id', H1], ...page],
-      [['select', '*'], ['eq', 'household_id', H1], ['eq', 'updated_at', ts(600)]],
-      [['select', '*'], ['eq', 'household_id', H1], ['gt', 'updated_at', ts(600)], ...page],
+      [
+        ['select', '*'],
+        ['eq', 'household_id', H1],
+        ['or', `updated_at.gt."${ts(600)}",and(updated_at.eq."${ts(600)}",id.gt."m01")`],
+        ...page,
+      ],
     ]);
     expect(getPullState().cursors[householdCursorKey(H1, 'lists')]).toBe(ts(701));
+  });
+
+  test('2500 rows that share one updated_at all arrive, past PostgREST max_rows', async () => {
+    put('households', remoteHousehold(H1, ts(1)));
+    // Out of key order on the server: the pull orders them.
+    const rows: ServerRow[] = [];
+    for (let i = 2499; i >= 0; i--) rows.push(remoteList(`l${pad(i)}`, ts(9, 123456)));
+    put('lists', ...rows);
+
+    await expect(pullNow()).resolves.toMatchObject({ error: null });
+
+    expect(db.select({ id: lists.id }).from(lists).orderBy(asc(lists.id)).all()).toEqual(rows.map((r) => ({ id: r.id })).reverse());
+    // Five full pages, each after the last key of the one before, then an empty one.
+    const ors = tableQueries('lists').map((ops) => ops.find(([op]) => op === 'or')?.[1] ?? null);
+    expect(ors).toEqual([
+      null,
+      ...[499, 999, 1499, 1999, 2499].map(
+        (i) => `updated_at.gt."${ts(9, 123456)}",and(updated_at.eq."${ts(9, 123456)}",id.gt."l${pad(i)}")`,
+      ),
+    ]);
+    expect(getPullState().cursors[householdCursorKey(H1, 'lists')]).toBe(ts(9, 123456));
+  });
+
+  test('a catalog seed of 3500 ingredients stamped by one transaction all arrive', async () => {
+    db.insert(categories).values({ id: 'cat-pantry', slug: 'pantry', name: 'Pantry', defaultRank: 1 }).run();
+    const names = Array.from({ length: 3500 }, (_, i) => `ingredient ${pad(i)}`);
+    db.transaction((tx) => {
+      for (const name of names) tx.insert(ingredients).values({ normalizedName: name, displayName: name, status: 'pending' }).run();
+    });
+    put(
+      'ingredients',
+      ...names.map((name) => ({
+        normalized_name: name,
+        display_name: name,
+        default_category_id: 'cat-pantry',
+        status: 'categorized',
+        is_grocery_item: true,
+        categorized_by: 'seed',
+        default_unit: null,
+        created_at: ts(0),
+        updated_at: ts(3),
+      })),
+    );
+
+    await expect(pullNow()).resolves.toMatchObject({ error: null });
+
+    const categorized = db.select({ name: ingredients.normalizedName }).from(ingredients).where(eq(ingredients.status, 'categorized')).all();
+    expect(categorized).toHaveLength(3500);
+    expect(tableQueries('ingredients')).toHaveLength(8);
+    expect(tableQueries('ingredients')[1]).toContainEqual([
+      'or',
+      `updated_at.gt."${ts(3)}",and(updated_at.eq."${ts(3)}",normalized_name.gt."ingredient 0499")`,
+    ]);
+    expect(getPullState().cursors['catalog:ingredients']).toBe(ts(3));
+  });
+
+  test('a table keyed on several columns goes on from its whole key', async () => {
+    put('households', remoteHousehold(H1, ts(1)));
+    const unit = (name: string, unitKey: string): ServerRow => ({
+      household_id: H1,
+      ingredient_name: name,
+      unit_key: unitKey,
+      use_count: 1,
+      last_used_at: ts(5),
+      field_clock: {},
+      created_at: ts(0),
+      updated_at: ts(5),
+    });
+    // 300 names × 2 units at one time: page one ends between a name's two units.
+    const rows: ServerRow[] = [];
+    for (let i = 0; i < 300; i++) rows.push(unit(`n${pad(i)}`, 'g'), unit(`n${pad(i)}`, 'cup'));
+    put('ingredient_unit_usage', ...rows);
+
+    await pullNow();
+
+    expect(db.select().from(ingredientUnitUsage).all()).toHaveLength(600);
+    const queriesMade = tableQueries('ingredient_unit_usage');
+    expect(queriesMade[0].filter(([op]) => op === 'order').map(([, column]) => column)).toEqual([
+      'updated_at',
+      'household_id',
+      'ingredient_name',
+      'unit_key',
+    ]);
+    // Page one ends at n0249's 'g' ('cup' < 'g').
+    const at = `"${ts(5)}"`;
+    expect(queriesMade[1]).toContainEqual([
+      'or',
+      [
+        `updated_at.gt.${at}`,
+        `and(updated_at.eq.${at},household_id.gt."${H1}")`,
+        `and(updated_at.eq.${at},household_id.eq."${H1}",ingredient_name.gt."n0249")`,
+        `and(updated_at.eq.${at},household_id.eq."${H1}",ingredient_name.eq."n0249",unit_key.gt."g")`,
+      ].join(','),
+    ]);
+  });
+
+  test('an existing device’s stored cursor keeps working, and its overlap brings back rows a cut-short pull dropped', async () => {
+    put('households', remoteHousehold(H1, ts(1)));
+    const rows: ServerRow[] = [];
+    for (let i = 0; i < 1200; i++) rows.push(remoteList(`l${pad(i)}`, ts(600)));
+    put('lists', ...rows);
+    // As an older version left it: a plain `updated_at` cursor at that time, with only 1000 of the rows here.
+    db.insert(households).values({ id: H1, name: 'Home', fieldClock: {} }).run();
+    db.transaction((tx) => {
+      for (const r of rows.slice(0, 1000)) {
+        tx.insert(lists)
+          .values({ id: r.id as string, householdId: H1, name: r.id as string, position: 1, fieldClock: r.field_clock as never })
+          .run();
+      }
+    });
+    db.insert(deviceSettings)
+      .values({
+        key: 'sync.pull',
+        value: { userId: 'u1', cursors: { [householdCursorKey(H1, 'lists')]: ts(600) }, memberships: [H1], lastSuccessAt: null, lastError: null },
+      })
+      .run();
+
+    await expect(pullNow()).resolves.toMatchObject({ error: null });
+
+    expect(tableQueries('lists')[0]).toContainEqual(['gt', 'updated_at', new Date(Date.parse(ts(600)) - PULL_OVERLAP_MS).toISOString()]);
+    expect(db.select().from(lists).all()).toHaveLength(1200);
+    expect(getPullState().cursors[householdCursorKey(H1, 'lists')]).toBe(ts(600));
+  });
+
+  test('values with commas, dots, parentheses and quotes are quoted in the filter', () => {
+    expect(afterPositionFilter(['normalized_name'], ts(1), ['salt, kosher (fine) "1.5" \\'])).toBe(
+      `updated_at.gt."${ts(1)}",and(updated_at.eq."${ts(1)}",normalized_name.gt."salt, kosher (fine) \\"1.5\\" \\\\")`,
+    );
   });
 });
 
