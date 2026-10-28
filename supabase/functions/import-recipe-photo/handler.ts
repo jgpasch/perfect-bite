@@ -28,6 +28,9 @@ export interface RecipePhotoImportStore {
   logAiCall(call: AiCallRecord): Promise<void>;
 }
 
+/** What `extractRecipePhotoForImport` needs: with no plan check or limit, the store only logs. */
+export type PhotoExtractDeps = Omit<PhotoImportDeps, 'store'> & { store: Pick<RecipePhotoImportStore, 'logAiCall'> };
+
 export type PhotoImportDeps = {
   store: RecipePhotoImportStore;
   /** The shared `categorize()`, bound to its own store and the caller's limits. */
@@ -59,8 +62,7 @@ export class ImportRecipePhotoError extends Error {
 
 /**
  * Imports one recipe from 1 to 3 photos of its pages (spec 6.10): the plan, the kill switch, the
- * limits, one extract-recipe-photo call, then the same cleaning, categorize step and response as a
- * link import, with no source URL and no photo. Throws `ImportRecipePhotoError` for every expected
+ * limits, then `extractRecipePhotoForImport`. Throws `ImportRecipePhotoError` for every expected
  * failure. Nothing is cached, and the images are written nowhere.
  */
 export async function importRecipePhoto(request: RecipePhotoImportRequest, deps: PhotoImportDeps): Promise<RecipeImportResponse> {
@@ -74,7 +76,6 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
     }
     throw err;
   }
-  const caller = callerIn(deps.caller, request.householdId);
 
   // Before the limit, so a call refused by the kill switch uses no budget.
   if (!isAiEnabled('extractRecipePhoto')) {
@@ -88,9 +89,31 @@ export async function importRecipePhoto(request: RecipePhotoImportRequest, deps:
   if (limit === 'daily_limit') throw new ImportRecipePhotoError({ code: 'daily_limit' }, "Today's recipe imports are used up");
   if (limit === 'monthly_limit') throw new ImportRecipePhotoError({ code: 'limit_reached' }, "This month's recipe imports are used up");
 
+  return extractRecipePhotoForImport(request.images, request.householdId, deps);
+}
+
+/**
+ * The extraction half of a photo import (spec 6.10), after the plan check and the limit: the kill
+ * switch, one extract-recipe-photo call, then the same cleaning, categorize step and response as a
+ * link import, with no source URL and no photo. `importRecipePhoto` calls it for in-app photos;
+ * `share-import-worker` (6.12) calls it with a photo share's pages after `requireFeature` and
+ * `reserve_share_import` have checked and counted the import. Throws `ImportRecipePhotoError`
+ * (`unavailable`, `not_a_recipe`) for every expected failure.
+ */
+export async function extractRecipePhotoForImport(
+  images: RecipePhotoImportRequest['images'],
+  householdId: string,
+  deps: PhotoExtractDeps,
+): Promise<RecipeImportResponse> {
+  // `importRecipePhoto` checked it before its limit too; the worker checks it here.
+  if (!isAiEnabled('extractRecipePhoto')) {
+    throw new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_off' }, 'Photo import is turned off');
+  }
+  const caller = callerIn(deps.caller, householdId);
+
   let output;
   try {
-    ({ output } = await runAiTask('extractRecipePhoto', await buildExtractRecipePhotoPrompt(request.images), {
+    ({ output } = await runAiTask('extractRecipePhoto', await buildExtractRecipePhotoPrompt(images), {
       model: deps.model,
       caller,
       onCall: (call) => deps.store.logAiCall(call),

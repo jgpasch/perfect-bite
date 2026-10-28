@@ -17,7 +17,15 @@ import {
   type IngredientRow,
   type LimitResult,
 } from '../categorize-ingredients/handler.ts';
-import { ImportRecipePhotoError, importRecipePhoto, type PhotoImportDeps, type RecipePhotoImportStore } from './handler.ts';
+import {
+  extractRecipePhotoForImport,
+  ImportRecipePhotoError,
+  importRecipePhoto,
+  type PhotoExtractDeps,
+  type PhotoImportDeps,
+  type PhotoImportFailure,
+  type RecipePhotoImportStore,
+} from './handler.ts';
 import { AI_FAILED_RETRY_AFTER, handleRequest, PAUSED_RETRY_AFTER } from './request.ts';
 
 const cat = (slug: string) => SYSTEM_CATEGORIES.find((c) => c.slug === slug)!.id;
@@ -567,3 +575,77 @@ test('every photo import is a fresh call: nothing is cached', async () => {
   await importRecipePhoto(request, deps);
   assertEquals(calls('extractRecipePhoto'), 2);
 });
+
+// --- extractRecipePhotoForImport (share-import-worker's half, spec 6.12) ------------------------------
+
+/** The worker's deps: a store that only logs, so a plan check or limit check would throw. */
+function extractSetup(overrides: Partial<PhotoExtractDeps> = {}) {
+  const { deps, aiCalls, calls } = setup();
+  const extractDeps: PhotoExtractDeps = { ...deps, store: { logAiCall: async (call) => void aiCalls.push(call) }, ...overrides };
+  return { deps: extractDeps, aiCalls, calls };
+}
+
+async function expectExtractFailure(run: Promise<unknown>, failure: PhotoImportFailure) {
+  try {
+    await run;
+  } catch (err) {
+    assert(err instanceof ImportRecipePhotoError, `expected ImportRecipePhotoError, got ${err}`);
+    assertEquals(err.failure, failure);
+    return err;
+  }
+  throw new Error('expected a failure');
+}
+
+test('extractRecipePhotoForImport: the extraction alone, with no plan check or limit (the worker reserves first)', async () => {
+  const { deps, calls, aiCalls } = extractSetup();
+  assertEquals(await extractRecipePhotoForImport([PAGE_1, PAGE_2], HOUSEHOLD_ID, deps), MOCK_RESPONSE);
+  assertEquals(calls('extractRecipePhoto'), 1);
+  assertEquals(calls('categorize'), 1);
+  assertEquals(aiCalls.map((c) => c.household_id), [HOUSEHOLD_ID, HOUSEHOLD_ID], 'both calls carry the household');
+  assertEquals(aiCalls.map((c) => c.user_id), [CALLER.userId, CALLER.userId]);
+});
+
+test('extractRecipePhotoForImport: importRecipePhoto’s answer for the same pages, after its checks', async () => {
+  const { deps } = setup();
+  const viaImport = await importRecipePhoto({ images: [PAGE_1], householdId: HOUSEHOLD_ID }, deps);
+  assertEquals(await extractRecipePhotoForImport([PAGE_1], HOUSEHOLD_ID, extractSetup().deps), viaImport);
+});
+
+test('extractRecipePhotoForImport: not a recipe is not_a_recipe, after one model call and no categorize', async () => {
+  const { deps, calls } = extractSetup();
+  const err = await expectExtractFailure(extractRecipePhotoForImport([TINY, PAGE_1], HOUSEHOLD_ID, deps), { code: 'not_a_recipe' });
+  assertEquals(err.message, "That photo doesn't look like a recipe");
+  assertEquals(calls('extractRecipePhoto'), 1);
+  assertEquals(calls('categorize'), 0);
+});
+
+test('extractRecipePhotoForImport: a provider error is unavailable (ai_failed), logged as api_error', async () => {
+  const { deps, aiCalls } = extractSetup({
+    model: failingModel(new APICallError({ message: 'overloaded', url: 'https://x', requestBodyValues: {}, statusCode: 503, isRetryable: false })),
+  });
+  const err = await expectExtractFailure(extractRecipePhotoForImport([PAGE_1], HOUSEHOLD_ID, deps), { code: 'unavailable', reason: 'ai_failed' });
+  assertEquals(err.message, 'Photo extraction failed: provider error or timeout');
+  assertEquals(aiCalls.map((c) => [c.status, c.household_id]), [['api_error', HOUSEHOLD_ID]]);
+});
+
+test('extractRecipePhotoForImport: output that fails the schema is unavailable (ai_failed), as invalid output', async () => {
+  const { deps } = extractSetup({ model: fixedModel({ nope: true }) });
+  const err = await expectExtractFailure(extractRecipePhotoForImport([PAGE_1], HOUSEHOLD_ID, deps), { code: 'unavailable', reason: 'ai_failed' });
+  assertEquals(err.message, 'Photo extraction failed: invalid output');
+});
+
+test('extractRecipePhotoForImport: an unexpected error is rethrown as is', async () => {
+  const { deps } = extractSetup({ model: failingModel(new Error('bug')) });
+  const err = await extractRecipePhotoForImport([PAGE_1], HOUSEHOLD_ID, deps).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  assert(err instanceof Error && !(err instanceof ImportRecipePhotoError));
+  assertEquals(err.message, 'bug');
+});
+
+test('extractRecipePhotoForImport: the kill switch is unavailable (ai_off), with no model call', async () => {
+  const { deps, aiCalls } = extractSetup();
+  await expectExtractFailure(extractRecipePhotoForImport([PAGE_1], HOUSEHOLD_ID, deps), { code: 'unavailable', reason: 'ai_off' });
+  assertEquals(aiCalls.length, 0);
+}, { AI_MODEL_RECIPE_PHOTO: 'off' });
