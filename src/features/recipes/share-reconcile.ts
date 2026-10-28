@@ -186,6 +186,15 @@ function rowRequested(row: ShareImportRow): RequestedTarget {
 const RUNNING: ReadonlySet<ShareImportStatus> = new Set(['received', 'extracting', 'extracted', 'committing']);
 
 /**
+ * Failed shares Dismissed (lowercase ids): kept off the card while the call runs and after, until a
+ * read of `my_share_imports` no longer has them, so a read that raced the call can't bring one
+ * back. Cleared on sign-out.
+ */
+const dismissing = new Set<string>();
+/** Those whose `dismiss_share_import` call is still running. */
+const pendingDismiss = new Set<string>();
+
+/**
  * The card's state from the user's envelopes and `rows` (null: unknown, keep the last ones read):
  * envelopes the server doesn't have, then the server's running imports, both oldest first; and the
  * failed ones, newest first.
@@ -194,6 +203,8 @@ function publish(userId: string, envelopes: ShareSummary[], rows: ShareImportRow
   const last = getShareQueueStatus();
   const serverQueued = rows ? rows.filter((row) => RUNNING.has(row.status)) : null;
   const known = new Set((rows ?? []).map((row) => row.id.toLowerCase()));
+  // A dismissed share the view no longer has needn't be held off any more.
+  if (rows) for (const id of dismissing) if (!known.has(id) && !pendingDismiss.has(id)) dismissing.delete(id);
   const local: QueuedShare[] = envelopes
     .filter((envelope) => !known.has(envelope.id.toLowerCase()))
     .flatMap((envelope) => {
@@ -222,15 +233,19 @@ function publish(userId: string, envelopes: ShareSummary[], rows: ShareImportRow
     : last.queued.filter((share) => share.onServer);
   const failed: FailedShareImport[] = rows
     ? rows
-        .filter((row) => row.status === 'failed')
+        .filter((row) => row.status === 'failed' && !dismissing.has(row.id.toLowerCase()))
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .flatMap((row): FailedShareImport[] => {
           const shared = rowShared(row);
           if (!shared) return [];
           const rest = { id: row.id, title: rowTitle(row), errorCode: row.error_code, resetsAt: row.resets_at };
-          return [shared.kind === 'photo' ? { ...shared, ...rest, pagesKept: row.pages_kept } : { ...shared, ...rest }];
+          return [
+            shared.kind === 'photo'
+              ? { ...shared, ...rest, pagesKept: row.pages_kept, ...destinationNames(rowRequested(row), userId) }
+              : { ...shared, ...rest },
+          ];
         })
-    : last.failed;
+    : last.failed.filter((share) => !dismissing.has(share.id.toLowerCase()));
   setShareQueueStatus({ queued: [...local, ...running], failed, offline });
 }
 
@@ -457,6 +472,38 @@ export async function retryShareImport(id: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Dismiss on a failed share (link or photo): takes it off the card (and the tab's badge) at once,
+ * then `dismiss_share_import` hides it on all the sharer's devices and deletes a photo share's pages
+ * from the server; its thumbnails here go too. If the call fails the row comes back where it was
+ * and this returns false (the card shows an error toast).
+ */
+export async function dismissShareImport(id: string): Promise<boolean> {
+  const key = id.toLowerCase();
+  const before = getShareQueueStatus();
+  const index = before.failed.findIndex((s) => sameId(s.id, id));
+  if (index < 0 || dismissing.has(key)) return false;
+  const share = before.failed[index];
+  dismissing.add(key);
+  pendingDismiss.add(key);
+  setShareQueueStatus({ ...before, failed: before.failed.filter((s) => s !== share) });
+  const { error } = await supabase.rpc('dismiss_share_import', { p_id: id });
+  pendingDismiss.delete(key);
+  if (error) {
+    console.warn('[share] dismiss_share_import failed', error);
+    dismissing.delete(key);
+    const current = getShareQueueStatus();
+    if (!current.failed.some((s) => sameId(s.id, id))) {
+      const failed = [...current.failed];
+      failed.splice(Math.min(index, failed.length), 0, share);
+      setShareQueueStatus({ ...current, failed });
+    }
+    return false;
+  }
+  removeShareThumbs(id);
+  return true;
+}
+
 /** A recipe-import push (4.13): a share import finished or failed. */
 export function isRecipeImportPush(notification: Notifications.Notification): boolean {
   return notification.request.content.data?.kind === 'recipe_import';
@@ -488,6 +535,8 @@ export function startShareReconcile(userId: string, options: ShareReconcileOptio
     stopPulls();
     pushes?.remove();
     if (active?.userId === userId) active = null;
+    dismissing.clear();
+    pendingDismiss.clear();
     setShareQueueStatus(EMPTY_SHARE_QUEUE_STATUS);
   };
 }

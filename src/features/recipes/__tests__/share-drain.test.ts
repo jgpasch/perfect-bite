@@ -59,6 +59,16 @@ describe('shareFailureReason', () => {
     );
   });
 
+  test('a photo share has the photo wording for not_a_recipe; the rest read as for a link', () => {
+    const now = Date.parse('2026-12-15T10:00:00Z');
+    expect(shareFailureReason('not_a_recipe', null, now, 'photo')).toBe("That photo doesn't look like a recipe");
+    expect(shareFailureReason('not_a_recipe', null, now, 'link')).toBe("That page doesn't look like a recipe");
+    expect(shareFailureReason('not_entitled', null, now, 'photo')).toBe("Recipe import isn't included in your plan.");
+    expect(shareFailureReason('daily_limit', null, now, 'photo')).toBe("You've reached today's limit. Try again tomorrow.");
+    expect(shareFailureReason('limit_reached', null, now, 'photo')).toBe("You've used this month's recipe imports. They reset on Jan 1.");
+    expect(shareFailureReason('internal', null, now, 'photo')).toBe('Something went wrong.');
+  });
+
   test('anything else, or no code, is "Something went wrong."', () => {
     for (const code of ['internal', 'unavailable', 'lease_lost', 'plan_conflict', null]) {
       expect(shareFailureReason(code, null)).toBe('Something went wrong.');

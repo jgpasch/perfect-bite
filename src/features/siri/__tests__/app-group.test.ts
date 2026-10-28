@@ -22,6 +22,7 @@ import {
   removeShareThumbs,
   SHARE_PENDING_DIR,
   SHARE_THUMBS_DIR,
+  shareThumbUris,
   uuidv7Time,
   writeListSnapshot,
 } from '../app-group';
@@ -220,6 +221,17 @@ describe('share thumbnails', () => {
     setAppGroupRoot(null);
     expect(listShareThumbIds()).toEqual([]);
     expect(() => removeShareThumbs(S2)).not.toThrow();
+  });
+
+  test('shareThumbUris gives a share’s page thumbnails in page order, and [] when they’re missing', () => {
+    const dir = path.join(root, SHARE_THUMBS_DIR, S1);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const name of ['10.jpg', '2.jpg', '1.jpg', 'notes.txt', '3.jpg.tmp']) fs.writeFileSync(path.join(dir, name), 'jpeg');
+    fs.mkdirSync(path.join(dir, '4.jpg')); // a folder, not a page
+    expect(shareThumbUris(S1)).toEqual(['1.jpg', '2.jpg', '10.jpg'].map((name) => `file://${path.join(dir, name)}`));
+    expect(shareThumbUris(S2)).toEqual([]);
+    setAppGroupRoot(null);
+    expect(shareThumbUris(S1)).toEqual([]);
   });
 
   test('removeShareFiles leaves the thumbnails; emptyQueues deletes them all', () => {

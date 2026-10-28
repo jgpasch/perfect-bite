@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -10,7 +10,10 @@ import { Pill } from '@/components/pill';
 import { ThemedText } from '@/components/themed-text';
 import type { ColorToken } from '@/constants/theme';
 import type { FailedImport } from '@/db';
+import { recipeHue } from '@/domain/aisle-color';
 import { getAccount } from '@/features/auth/account';
+import { shareThumbUris } from '@/features/siri/app-group';
+import { useOnline } from '@/hooks/use-online';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/i18n';
 
@@ -29,11 +32,13 @@ import {
   tryAgainOnLabel,
 } from './failed-imports';
 import { openFailedPhotoImport, pickOtherPhotos, retryFailedPhotoImport } from './photo-import-retry';
-import { removeQueuedShare, retryShareImport } from './share-reconcile';
+import type { RecipeToast } from './recipe-card';
+import { dismissShareImport, removeQueuedShare, retryShareImport } from './share-reconcile';
 import {
   importsCardHeading,
+  photoShareDetail,
   queuedShareDetail,
-  shareFailureReason,
+  failedShareReason,
   shareName,
   type FailedShareImport,
   type ImportsCardHeading,
@@ -53,16 +58,26 @@ const STACK_TURN = '6deg';
  * The Recipes tab's imports card (spec 4.10): shares waiting (on the device or on the server) and
  * imports that failed. The heading says what matters most and expands to a row per import: waiting
  * shares with **Remove** until the server has them (then a spinner), failed shares with **Try
- * again** (the same operation, on the server), failed in-app imports with **Try again** and
- * **Dismiss**. A failed photo import shows its pages as a stack (tapping opens its review sheet),
+ * again** (the same operation, on the server) and **Dismiss** (`onToast` shows its error), failed
+ * in-app imports with **Try again** and **Dismiss**. A photo share, waiting or failed, shows the
+ * thumbnails the extension kept. A failed photo import shows its pages as a stack (tapping opens its review sheet),
  * "N pages · to <list>" and, where the same pages can't succeed, a disabled "Try again Nov 1"
  * (`limit_reached`) or **Use other photos** (`not_a_recipe`). With one failed in-app import and
  * nothing else, the collapsed card shows it directly with its Try again (board A), and "Importing 1
  * of 1…" over a spinner on the pages while a photo one runs (board C).
  */
-export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: ShareQueueStatus }) {
+export function ImportsCard({
+  failed,
+  queue,
+  onToast,
+}: {
+  failed: FailedImport[];
+  queue: ShareQueueStatus;
+  onToast?: (toast: RecipeToast) => void;
+}) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
+  const online = useOnline();
   const [open, setOpen] = useState(false);
   // In-app imports whose Try again is running.
   const [trying, setTrying] = useState<ReadonlySet<string>>(() => new Set());
@@ -131,7 +146,7 @@ export function ImportsCard({ failed, queue }: { failed: FailedImport[]; queue: 
         <>
           {failedCount > 0 && labelled ? <GroupLabel label={t('recipes.imports.failedGroup')} color="danger" /> : null}
           {queue.failed.map((share, i) => (
-            <FailedShareRow key={share.id} share={share} divided={!labelled || i > 0} />
+            <FailedShareRow key={share.id} share={share} divided={!labelled || i > 0} online={online} onToast={onToast} />
           ))}
           {failed.map((row, i) => (
             <FailedImportRow
@@ -226,11 +241,9 @@ function FailedImportAction({ row, trying, onRetry }: { row: FailedImport; tryin
  */
 function PageStack({ row, busy }: { row: FailedImport; busy: boolean }) {
   const t = useT();
-  const { colors, spacing, sizes, rounded, photoScrim, opacity } = useTheme();
+  const { spacing, sizes, opacity } = useTheme();
   const uris = failedImportPageUris(row);
   const width = sizes.importPageStack;
-  const height = (width * 4) / 3;
-  const page = { width, height, borderRadius: rounded.sm, borderColor: colors.border, backgroundColor: colors.surfaceMuted };
 
   return (
     <Pressable
@@ -242,9 +255,51 @@ function PageStack({ row, busy }: { row: FailedImport; busy: boolean }) {
       onPress={() => openFailedPhotoImport(row.id)}
       style={({ pressed }) => ({
         width: width + spacing.md,
-        height: height + spacing.sm,
+        height: (width * 4) / 3 + spacing.sm,
         opacity: pressed ? opacity.pressed : 1,
       })}>
+      <Pages uris={uris} count={uris.length} busy={busy} />
+    </Pressable>
+  );
+}
+
+/**
+ * A photo share's pages (board B), from the thumbnails the extension kept (`share/thumbs/<id>/`),
+ * with its page count on the badge; a `recipeHue` tile with `doc.text` when they're missing (another
+ * device's share, or pruned). Not a button: a share has no review sheet.
+ */
+function SharePageStack({ id, pageCount }: { id: string; pageCount: number }) {
+  const t = useT();
+  const { spacing, sizes } = useTheme();
+  const uris = useMemo(() => shareThumbUris(id), [id]);
+  if (uris.length === 0) return <IconTile name="doc.text" hue={recipeHue(id)} />;
+  const width = sizes.importPageStack;
+  return (
+    <View
+      testID="share-page-stack"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={t('recipes.imports.pagesFromPhoto', { count: pageCount })}
+      style={{ width: width + spacing.md, height: (width * 4) / 3 + spacing.sm }}>
+      <Pages uris={uris} count={pageCount} busy={false} />
+    </View>
+  );
+}
+
+/**
+ * The stack itself, inside a box `importPageStack` + `md` wide: the first page as a 3:4 thumbnail,
+ * a second behind it turned 6°, a count badge with more than one page, and a spinner on a
+ * `photoScrim` while `busy`.
+ */
+function Pages({ uris, count, busy }: { uris: string[]; count: number; busy: boolean }) {
+  const t = useT();
+  const { colors, spacing, sizes, rounded, photoScrim } = useTheme();
+  const width = sizes.importPageStack;
+  const height = (width * 4) / 3;
+  const page = { width, height, borderRadius: rounded.sm, borderColor: colors.border, backgroundColor: colors.surfaceMuted };
+
+  return (
+    <>
       {uris.length > 1 ? (
         <View style={[styles.page, page, { left: spacing.sm + spacing.xxs, top: 0, transform: [{ rotate: STACK_TURN }] }]}>
           <Image source={uris[1]} contentFit="cover" accessible={false} style={StyleSheet.absoluteFill} />
@@ -258,7 +313,7 @@ function PageStack({ row, busy }: { row: FailedImport; busy: boolean }) {
           </View>
         ) : null}
       </View>
-      {uris.length > 1 ? (
+      {count > 1 ? (
         <View
           style={[
             styles.badge,
@@ -271,11 +326,11 @@ function PageStack({ row, busy }: { row: FailedImport; busy: boolean }) {
             },
           ]}>
           <ThemedText variant="caption" color="background">
-            {String(uris.length)}
+            {String(count)}
           </ThemedText>
         </View>
       ) : null}
-    </Pressable>
+    </>
   );
 }
 
@@ -317,6 +372,7 @@ function QueuedShareRow({ share, divided }: { share: QueuedShare; divided: boole
           paddingVertical: spacing.sm,
         },
       ]}>
+      {share.kind === 'photo' ? <SharePageStack id={share.id} pageCount={share.pageCount} /> : null}
       <View style={styles.flex}>
         <ThemedText variant="body" numberOfLines={2}>
           {name}
@@ -342,11 +398,26 @@ function QueuedShareRow({ share, divided }: { share: QueuedShare; divided: boole
   );
 }
 
-/** A share the server couldn't import: its reason and **Try again**, which puts it back on the server. */
-function FailedShareRow({ share, divided }: { share: FailedShareImport; divided: boolean }) {
+/**
+ * A share the server couldn't import: its reason, **Try again** (which puts it back on the server)
+ * and **Dismiss** (disabled offline). A photo share shows its pages and "2 pages · to <list>", and
+ * once the server no longer has its pages, "Share the photos again" in place of Try again.
+ */
+function FailedShareRow({
+  share,
+  divided,
+  online,
+  onToast,
+}: {
+  share: FailedShareImport;
+  divided: boolean;
+  online: boolean;
+  onToast?: (toast: RecipeToast) => void;
+}) {
   const t = useT();
   const { colors, spacing } = useTheme();
   const [trying, setTrying] = useState(false);
+  const photo = share.kind === 'photo';
 
   const retry = async () => {
     if (trying) return;
@@ -355,28 +426,59 @@ function FailedShareRow({ share, divided }: { share: FailedShareImport; divided:
     if (!(await retryShareImport(share.id))) setTrying(false);
   };
 
+  // The row goes at once; a failed call brings it back, with a toast.
+  const dismiss = async () => {
+    if (await dismissShareImport(share.id)) return;
+    onToast?.({ key: `dismiss-share-${share.id}-${Date.now()}`, message: t('recipes.imports.dismissFailed'), actions: [] });
+  };
+
   return (
     <View
-      style={{
-        borderTopWidth: divided ? StyleSheet.hairlineWidth : 0,
-        borderTopColor: colors.border,
-        paddingHorizontal: spacing.md + spacing.xxs,
-        paddingTop: spacing.sm + spacing.xxs,
-        paddingBottom: spacing.xs,
-      }}>
-      <ThemedText variant="body" numberOfLines={2}>
-        {shareName(share)}
-      </ThemedText>
-      <ThemedText variant="footnote" color="inkSecondary">
-        {shareFailureReason(share.errorCode, share.resetsAt)}
-      </ThemedText>
-      <View style={styles.row}>
-        <Button
-          label={t(trying ? 'recipes.imports.trying' : 'recipes.imports.tryAgain')}
-          variant="plain"
-          disabled={trying}
-          onPress={retry}
-        />
+      style={[
+        photo ? styles.top : null,
+        {
+          gap: spacing.md,
+          borderTopWidth: divided ? StyleSheet.hairlineWidth : 0,
+          borderTopColor: colors.border,
+          paddingHorizontal: spacing.md + spacing.xxs,
+          paddingTop: spacing.sm + spacing.xxs,
+          paddingBottom: spacing.xs,
+        },
+      ]}>
+      {photo ? <SharePageStack id={share.id} pageCount={share.pageCount} /> : null}
+      <View style={photo ? styles.flex : null}>
+        <ThemedText variant="body" numberOfLines={2}>
+          {shareName(share)}
+        </ThemedText>
+        {photo ? (
+          <ThemedText variant="footnote" color="inkSecondary">
+            {photoShareDetail(share)}
+          </ThemedText>
+        ) : null}
+        <ThemedText variant="footnote" color="inkSecondary">
+          {failedShareReason(share)}
+        </ThemedText>
+        <View style={[styles.row, styles.wrap, { gap: spacing.md }]}>
+          {photo && !share.pagesKept ? (
+            <ThemedText variant="subhead" color="inkSecondary">
+              {t('recipes.imports.sharePhotosAgain')}
+            </ThemedText>
+          ) : (
+            <Button
+              label={t(trying ? 'recipes.imports.trying' : 'recipes.imports.tryAgain')}
+              variant="plain"
+              disabled={trying}
+              onPress={retry}
+            />
+          )}
+          <Button
+            label={t('recipes.imports.dismiss')}
+            variant="plain"
+            color="inkSecondary"
+            disabled={!online || trying}
+            onPress={() => void dismiss()}
+          />
+        </View>
       </View>
     </View>
   );

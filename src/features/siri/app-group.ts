@@ -155,6 +155,27 @@ export function listShareThumbIds(): string[] {
     .map((entry) => entry.name);
 }
 
+/**
+ * A photo share's page thumbnails (`share/thumbs/<id>/<n>.jpg`) as URIs, in page order. Empty when
+ * they're missing (another device's share, or pruned) or without the App Group. Never throws.
+ */
+export function shareThumbUris(id: string): string[] {
+  const root = getAppGroupContainer();
+  if (!root) return [];
+  try {
+    const dir = new Directory(root, SHARE_THUMBS_DIR, id);
+    if (!dir.exists) return [];
+    return dir
+      .list()
+      .filter((entry): entry is File => entry instanceof File && /^\d+\.jpg$/.test(entry.name))
+      .sort((a, b) => parseInt(a.name, 10) - parseInt(b.name, 10))
+      .map((entry) => entry.uri);
+  } catch (err) {
+    console.warn('[share] reading a share’s thumbnails failed', id, err);
+    return [];
+  }
+}
+
 /** Deletes a photo share's page thumbnails (`share/thumbs/<id>/`), best effort. */
 export function removeShareThumbs(id: string): void {
   const root = getAppGroupContainer();

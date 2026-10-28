@@ -39,6 +39,10 @@ export type FailedShareImport = (
       pageCount: number;
       /** The server still has the pages (`my_share_imports.pages_kept`), so Try again can work. */
       pagesKept: boolean;
+      /** The list it was going to, or null when there's none, or it's recipe-only. */
+      listName?: string | null;
+      /** The household a recipe-only share was going to. */
+      householdName?: string | null;
     }
 ) & {
   id: string;
@@ -113,12 +117,18 @@ function recipes(count: number): string {
 
 /**
  * Why a share failed on the server, in spec 4.10's plain words (the push's wording, 4.13), by its
- * error code. The monthly limit says when it resets (`resetsAt`, else the start of next month).
+ * error code. The monthly limit says when it resets (`resetsAt`, else the start of next month). A
+ * photo share has the photo wording for `not_a_recipe`; the rest read as for a link.
  */
-export function shareFailureReason(code: string | null, resetsAt: string | null, now: number = Date.now()): string {
+export function shareFailureReason(
+  code: string | null,
+  resetsAt: string | null,
+  now: number = Date.now(),
+  kind: 'link' | 'photo' = 'link',
+): string {
   switch (code) {
     case 'not_a_recipe':
-      return i18n.t('recipes.import.errors.notARecipe');
+      return i18n.t(kind === 'photo' ? 'recipes.import.errors.photoNotARecipe' : 'recipes.import.errors.notARecipe');
     case 'invalid_url':
       return i18n.t('recipes.import.errors.invalidUrl');
     case 'not_entitled':
@@ -134,6 +144,11 @@ export function shareFailureReason(code: string | null, resetsAt: string | null,
     default:
       return i18n.t('recipes.imports.reasons.somethingWrong');
   }
+}
+
+/** A failed share's reason on the card: `shareFailureReason`, in the photo wording for a photo share. */
+export function failedShareReason(share: FailedShareImport, now: number = Date.now()): string {
+  return shareFailureReason(share.errorCode, share.resetsAt, now, share.kind === 'photo' ? 'photo' : 'link');
 }
 
 /** Offline, with envelopes the server doesn't have: they wait for the connection. */
@@ -153,9 +168,18 @@ function toDestination(name: string): string {
   return i18n.t('recipes.imports.to', { name });
 }
 
-/** Where a waiting share goes: its list, or its household when it's recipe-only. */
-function destination(share: QueuedShare): string | null {
+type Destination = { listName?: string | null; householdName?: string | null };
+
+/** Where a share goes: its list, or its household when it's recipe-only. */
+function destination(share: Destination): string | null {
   return share.listName ?? share.householdName ?? null;
+}
+
+/** A photo share's second line, waiting or failed: "2 pages · to Groceries", or "1 page · to Smith home". */
+export function photoShareDetail(share: { pageCount: number } & Destination): string {
+  const to = destination(share);
+  const pages = i18n.t('recipes.imports.pages', { count: share.pageCount });
+  return to ? `${pages} · ${toDestination(to)}` : pages;
 }
 
 /**
@@ -163,9 +187,8 @@ function destination(share: QueuedShare): string | null {
  * share; a photo share's page count in place of the host ("2 pages · to Groceries").
  */
 export function queuedShareDetail(share: QueuedShare): string {
-  const parts = [
-    share.kind === 'photo' ? i18n.t('recipes.imports.pages', { count: share.pageCount }) : (importHost(share.url) ?? share.url),
-  ];
+  if (share.kind === 'photo') return photoShareDetail(share);
+  const parts = [importHost(share.url) ?? share.url];
   const to = destination(share);
   if (to) parts.push(toDestination(to));
   return parts.join(' · ');

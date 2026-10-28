@@ -15,6 +15,7 @@ import { setAppGroupRoot } from '@/test/fake-file-system';
 import { makeSession, onQuery, onRpc, queriesFor, resetSupabase, rpcCallsFor, supabase } from '@/test/fake-supabase';
 
 import {
+  dismissShareImport,
   isUsersShare,
   reconcileShares,
   refreshShareImports,
@@ -30,7 +31,9 @@ import {
 import {
   EMPTY_SHARE_QUEUE_STATUS,
   getShareQueueStatus,
+  importsBadgeCount,
   importsCardHeading,
+  photoShareDetail,
   queuedShareDetail,
   setShareQueueStatus,
   shareName,
@@ -150,6 +153,13 @@ beforeEach(() => {
       if (!op || op.user_id !== USER) return { data: null, error: { code: 'P0002', message: 'not found' } };
       if (op.status === 'failed') Object.assign(op, { status: 'received', error_code: null, resets_at: null });
       return { data: op.status };
+    }
+    if (call.fn === 'dismiss_share_import') {
+      const op = server.get(call.args!.p_id as string);
+      if (!op || op.user_id !== USER) return { data: null, error: { code: 'P0002', message: 'not found' } };
+      if (op.status !== 'failed') return { data: null, error: { code: '55000', message: 'dismiss_refused' } };
+      op.dismissed = true;
+      return { data: null };
     }
     return {};
   });
@@ -500,6 +510,118 @@ describe('Try again and Remove', () => {
   });
 });
 
+describe('Dismiss', () => {
+  const thumbsDir = (id: string) => path.join(root, SHARE_THUMBS_DIR, id);
+  const keepThumbs = (id: string) => {
+    fs.mkdirSync(thumbsDir(id), { recursive: true });
+    fs.writeFileSync(path.join(thumbsDir(id), '1.jpg'), 'jpeg');
+  };
+  const photoFailed = (id: string) =>
+    serverOp(id, USER, 'failed', { kind: 'photo', url: null, page_count: 1, pages_kept: true, error_code: 'not_a_recipe' });
+
+  test('a failed share goes off the card and the badge at once, is dismissed on the server, and stays gone', async () => {
+    server.set(E1, serverOp(E1, USER, 'failed', { error_code: 'fetch_failed' }));
+    server.set(E2, photoFailed(E2));
+    server.set(E3, serverOp(E3, USER, 'received'));
+    const stop = startShareReconcile(USER);
+    await runShareReconcile(USER);
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E2, E1]);
+    expect(importsBadgeCount(getShareQueueStatus(), 0)).toBe(3);
+    // (After the reconcile, which prunes these old ids' thumbnails by age.)
+    keepThumbs(E2);
+
+    const dismissed = dismissShareImport(E2);
+    // Before the server answers: gone from the card and the badge.
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E1]);
+    expect(importsBadgeCount(getShareQueueStatus(), 0)).toBe(2);
+    expect(await dismissed).toBe(true);
+
+    expect(rpcCallsFor('dismiss_share_import')).toEqual([{ fn: 'dismiss_share_import', args: { p_id: E2 } }]);
+    expect(server.get(E2)!.dismissed).toBe(true);
+    expect(fs.existsSync(thumbsDir(E2))).toBe(false);
+    await refreshShareImports();
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E1]);
+    expect(importsBadgeCount(getShareQueueStatus(), 0)).toBe(2);
+
+    // A link share too.
+    expect(await dismissShareImport(E1)).toBe(true);
+    expect(getShareQueueStatus().failed).toEqual([]);
+    expect(importsBadgeCount(getShareQueueStatus(), 0)).toBe(1);
+    stop();
+  });
+
+  test('a read that raced the call (the view still had it) doesn’t bring the row back', async () => {
+    server.set(E1, serverOp(E1, USER, 'failed'));
+    const stop = startShareReconcile(USER);
+    await runShareReconcile(USER);
+    let refreshDuring: Promise<void> | null = null;
+    onRpc((call) => {
+      if (call.fn !== 'dismiss_share_import') return {};
+      // The view is read again before the dismiss lands on the server.
+      refreshDuring = refreshShareImports();
+      return { data: null };
+    });
+    expect(await dismissShareImport(E1)).toBe(true);
+    await refreshDuring;
+    expect(getShareQueueStatus().failed).toEqual([]);
+    // Once the view leaves it out, it stays gone.
+    server.get(E1)!.dismissed = true;
+    await refreshShareImports();
+    expect(getShareQueueStatus().failed).toEqual([]);
+    stop();
+  });
+
+  test('a failed call puts the row back where it was and gives false; the thumbnails stay', async () => {
+    server.set(E1, serverOp(E1, USER, 'failed', { error_code: 'fetch_failed' }));
+    server.set(E2, photoFailed(E2));
+    server.set(E3, serverOp(E3, USER, 'failed'));
+    await reconcileShares(USER);
+    // (After the reconcile, which prunes these old ids' thumbnails by age.)
+    keepThumbs(E2);
+    const before = getShareQueueStatus().failed;
+    expect(before.map((f) => f.id)).toEqual([E3, E2, E1]);
+    onRpc(() => ({ data: null, error: { message: 'TypeError: Network request failed' }, status: 0 }));
+
+    const dismissed = dismissShareImport(E2);
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E3, E1]);
+    expect(await dismissed).toBe(false);
+
+    expect(getShareQueueStatus().failed).toEqual(before);
+    expect(fs.existsSync(thumbsDir(E2))).toBe(true);
+    // It can be dismissed again once the server answers.
+    onRpc(() => {
+      server.get(E2)!.dismissed = true;
+      return { data: null };
+    });
+    expect(await dismissShareImport(E2)).toBe(true);
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E3, E1]);
+    await reconcileShares(USER);
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E3, E1]);
+  });
+
+  test('the server refusing (not failed any more) brings it back too', async () => {
+    server.set(E1, serverOp(E1, USER, 'failed'));
+    await reconcileShares(USER);
+    // Another device tried it again meanwhile.
+    server.get(E1)!.status = 'received';
+    expect(await dismissShareImport(E1)).toBe(false);
+    expect(getShareQueueStatus().failed.map((f) => f.id)).toEqual([E1]);
+  });
+
+  test('a share not on the card, or one already being dismissed, does nothing', async () => {
+    expect(await dismissShareImport(E4)).toBe(false);
+    expect(rpcCallsFor('dismiss_share_import')).toEqual([]);
+    server.set(E1, serverOp(E1, USER, 'failed'));
+    await reconcileShares(USER);
+    const first = dismissShareImport(E1);
+    expect(await dismissShareImport(E1)).toBe(false);
+    expect(await first).toBe(true);
+    expect(rpcCallsFor('dismiss_share_import')).toHaveLength(1);
+    await reconcileShares(USER);
+    expect(getShareQueueStatus().failed).toEqual([]);
+  });
+});
+
 describe('startShareReconcile', () => {
   test('reconciles at once, refreshes the card after a pull and on demand, and clears it on stop', async () => {
     enqueue(E1);
@@ -651,17 +773,26 @@ describe('photo shares', () => {
     expect(thumbIds()).toEqual([E1, E2]);
   });
 
-  test('a failed photo row comes with its page count and whether the server kept the pages', async () => {
+  test('a failed photo row comes with its page count, whether the server kept the pages, and where it was going', async () => {
     server.set(E1, photoOp(E1, 'failed', { error_code: 'not_a_recipe', title: 'ignored' }));
     server.set(E2, photoOp(E2, 'failed', { error_code: 'fetch_failed', page_count: 3, pages_kept: false }));
+    server.set(E3, photoOp(E3, 'failed', { page_count: 1, add_to_list: false, list_id: null }));
+    const home = db.select().from(households).where(eq(households.id, personal)).get()!.name;
 
     await reconcileShares(USER, { now });
 
-    expect(getShareQueueStatus().failed).toEqual([
-      { kind: 'photo', pageCount: 3, pagesKept: false, id: E2, title: null, errorCode: 'fetch_failed', resetsAt: null },
-      { kind: 'photo', pageCount: 2, pagesKept: true, id: E1, title: null, errorCode: 'not_a_recipe', resetsAt: null },
+    const { failed } = getShareQueueStatus();
+    expect(failed).toEqual([
+      { kind: 'photo', pageCount: 1, pagesKept: true, id: E3, title: null, errorCode: null, resetsAt: null, listName: null, householdName: home },
+      { kind: 'photo', pageCount: 3, pagesKept: false, id: E2, title: null, errorCode: 'fetch_failed', resetsAt: null, listName: 'Costco', householdName: null },
+      { kind: 'photo', pageCount: 2, pagesKept: true, id: E1, title: null, errorCode: 'not_a_recipe', resetsAt: null, listName: 'Costco', householdName: null },
     ]);
-    expect(getShareQueueStatus().failed.map(shareName)).toEqual(['From a photo', 'From a photo']);
+    expect(failed.map(shareName)).toEqual(['From a photo', 'From a photo', 'From a photo']);
+    expect(failed.map((f) => (f.kind === 'photo' ? photoShareDetail(f) : null))).toEqual([
+      `1 page · to ${home}`,
+      '3 pages · to Costco',
+      '2 pages · to Costco',
+    ]);
   });
 
   test('thumbnails: pruned when done, dismissed, gone from the server, pages not kept or over 7 days; kept while waiting or failed with pages', async () => {

@@ -56,6 +56,7 @@ import {
 import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle } from '@/features/recipes/save-choice';
 import {
   importsCardHeading,
+  photoShareDetail,
   queuedShareDetail,
   shareFailureReason,
   shareName,
@@ -325,6 +326,11 @@ describe('recipes strings in Spanish', () => {
     expect(shareFailureReason('internal', null)).toBe('Algo salió mal.');
     expect(shareFailureReason('fetch_failed', null)).toBe('No se pudo abrir ese sitio');
     expect(shareFailureReason('invalid_url', null)).toBe('Eso no parece un enlace');
+    expect(shareFailureReason('not_a_recipe', null, Date.now(), 'photo')).toBe('Esa foto no parece una receta');
+    expect(photoShareDetail({ pageCount: 2, listName: 'Súper' })).toBe('2 páginas · a Súper');
+    expect(photoShareDetail({ pageCount: 1, listName: null, householdName: 'Casa' })).toBe('1 página · a Casa');
+    expect(i18n.t('recipes.imports.sharePhotosAgain')).toBe('Comparte las fotos de nuevo');
+    expect(i18n.t('recipes.imports.dismissFailed')).toBe('No se pudo descartar esa importación. Inténtalo de nuevo.');
     const queue = { queued: [share()], failed: [], offline: false };
     expect(waitReasonText(queue)).toBe('Las prepararemos en segundo plano.');
     expect(waitReasonText({ ...queue, offline: true })).toBe('No tienes conexión. Se importarán cuando vuelvas a estar en línea.');

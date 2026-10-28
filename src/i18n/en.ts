@@ -948,6 +948,10 @@ export const en = {
       tryAgain: 'Try again',
       trying: 'Trying…',
       dismiss: 'Dismiss',
+      /** The error toast when Dismiss on a failed share couldn't reach the server (the row comes back). */
+      dismissFailed: "Couldn't dismiss that import. Try again.",
+      /** A failed photo share whose pages the server no longer has, in place of Try again. */
+      sharePhotosAgain: 'Share the photos again',
       /** A failed photo import's name, in place of a link's title. */
       fromAPhoto: 'From a photo',
       /** A failed photo import's pages (spec 4.10 board B). */

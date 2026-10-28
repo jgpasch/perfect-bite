@@ -825,6 +825,8 @@ export const es = {
       tryAgain: 'Reintentar',
       trying: 'Intentando…',
       dismiss: 'Descartar',
+      dismissFailed: 'No se pudo descartar esa importación. Inténtalo de nuevo.',
+      sharePhotosAgain: 'Comparte las fotos de nuevo',
       fromAPhoto: 'De una foto',
       pages_one: '{{count}} página',
       pages_other: '{{count}} páginas',

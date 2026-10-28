@@ -11,7 +11,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { db, failedImports, households, lists, recipeIngredients, recipes, type FailedImportReason } from '@/db';
-import { setDocumentRoot } from '@/test/fake-file-system';
+import { setAppGroupRoot, setDocumentRoot } from '@/test/fake-file-system';
+import { SHARE_THUMBS_DIR } from '@/features/siri/app-group';
+import { ThemedText } from '@/components/themed-text';
 import { setStaple } from '@/features/households/staples';
 import { addItemsBulk, listItemsQuery } from '@/features/lists/items';
 import {
@@ -60,11 +62,16 @@ import {
 import { failedImportPageUris, failedImportsQuery, getFailedImport, recordFailedImport, recordFailedPhotoImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
+import type { RecipeToast } from '../recipe-card';
 import {
   EMPTY_SHARE_QUEUE_STATUS,
+  getShareQueueStatus,
   setShareQueueStatus,
+  useShareQueueStatus,
   type FailedLinkShareImport,
+  type FailedPhotoShareImport,
   type QueuedLinkShare,
+  type QueuedPhotoShare,
   type ShareQueueStatus,
 } from '../share-queue-status';
 
@@ -156,12 +163,15 @@ jest.mock('@/features/recipes/photo-import', () => ({
   collectImportPhotos: (from: string, options: { limit?: number }) => mockCollect(from, options),
 }));
 
-// The share queue lives in the App Group and on the server; the card only removes and retries shares.
+// The share queue lives in the App Group and on the server; the card only removes, retries and
+// dismisses shares.
 const mockRemoveShare = jest.fn();
 const mockRetryShare = jest.fn(async (_id: string) => true);
+const mockDismissShare = jest.fn(async (_id: string) => true);
 jest.mock('@/features/recipes/share-reconcile', () => ({
   removeQueuedShare: (...args: unknown[]) => mockRemoveShare(...args),
   retryShareImport: (id: string) => mockRetryShare(id),
+  dismissShareImport: (id: string) => mockDismissShare(id),
 }));
 
 const mockParams: Record<string, string | undefined> = {};
@@ -215,6 +225,7 @@ beforeEach(() => {
   for (const k of Object.keys(mockParams)) delete mockParams[k];
   for (const fn of [mockPush, mockBack, mockNavigate, mockNotify, mockRemoveShare, mockOpenLink, mockCloseCard]) fn.mockClear();
   mockRetryShare.mockReset().mockResolvedValue(true);
+  mockDismissShare.mockReset().mockResolvedValue(true);
   mockImport.mockReset();
   mockPhotoImport.mockReset();
   mockClipboard.mockReset();
@@ -1988,7 +1999,7 @@ describe('ImportsCard', () => {
     expect(allByLabel(root, 'Remove')).toHaveLength(1);
   });
 
-  test("a failed share: its reason with the limit's reset date, and Try again with the same id, no Dismiss", async () => {
+  test("a failed share: its reason with the limit's reset date, and Try again with the same id, beside Dismiss", async () => {
     const queue: ShareQueueStatus = {
       queued: [],
       failed: [
@@ -2008,7 +2019,8 @@ describe('ImportsCard', () => {
         "You've reached today's limit. Try again tomorrow.",
       ]),
     );
-    expect(allByLabel(root, 'Dismiss')).toHaveLength(0);
+    // Every failed share has Dismiss (spec 4.10, Q17).
+    expect(allByLabel(root, 'Dismiss')).toHaveLength(2);
     const pending = deferred<boolean>();
     mockRetryShare.mockReturnValueOnce(pending.promise);
     act(() => {
@@ -2076,6 +2088,205 @@ describe('ImportsCard', () => {
     await pressAsync(byLabel(root, 'Try again'));
     expect(failedRows()[0].reason).toBe('not_a_recipe');
     expect(byLabel(root, 'Try again').props.disabled).toBe(false);
+  });
+});
+
+describe('ImportsCard: photo shares and Dismiss (spec 4.10)', () => {
+  let group: string;
+  const heading = (root: ReactTestRenderer) =>
+    root.root.find((n) => typeof n.type !== 'string' && n.props.accessibilityState?.expanded !== undefined && !!n.props.onPress);
+  const shareStacks = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.props.testID === 'share-page-stack' && typeof n.type === 'string');
+  const tiles = (root: ReactTestRenderer) => root.root.findAllByType(IconTile);
+  const images = (root: ReactTestRenderer) => byType(root, 'ExpoImage').map((n) => n.props.source as string);
+  /** Thumbnails the extension kept for share `id`, as `share/thumbs/<id>/<n>.jpg`. */
+  const keepThumbs = (id: string, count: number) => {
+    const dir = path.join(group, SHARE_THUMBS_DIR, id);
+    fs.mkdirSync(dir, { recursive: true });
+    // Written out of order, and with a stray file, to check the order and the filter.
+    for (let n = count; n >= 1; n--) fs.writeFileSync(path.join(dir, `${n}.jpg`), `thumb ${n}`);
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+    return Array.from({ length: count }, (_, i) => `file://${path.join(dir, `${i + 1}.jpg`)}`);
+  };
+  const photoShare = (id: string, over: Partial<QueuedPhotoShare> = {}): QueuedPhotoShare => ({
+    kind: 'photo',
+    pageCount: 2,
+    id,
+    title: null,
+    listName: 'Groceries',
+    onServer: false,
+    ...over,
+  });
+  const failedPhoto = (id: string, over: Partial<FailedPhotoShareImport> = {}): FailedPhotoShareImport => ({
+    kind: 'photo',
+    pageCount: 2,
+    pagesKept: true,
+    id,
+    title: null,
+    errorCode: 'not_a_recipe',
+    resetsAt: null,
+    listName: 'Groceries',
+    ...over,
+  });
+  const failedLink = (id: string, over: Partial<FailedLinkShareImport> = {}): FailedLinkShareImport => ({
+    id,
+    url: `https://www.example.com/${id}`,
+    title: 'Pho',
+    errorCode: 'fetch_failed',
+    resetsAt: null,
+    ...over,
+  });
+  /** The card as the Recipes tab shows it: the queue from the store, toasts collected. */
+  const toasts: RecipeToast[] = [];
+  function LiveCard() {
+    return <ImportsCard failed={[]} queue={useShareQueueStatus()} onToast={(t) => toasts.push(t)} />;
+  }
+  /** Dismiss as share-reconcile does it: the row goes at once, and comes back if the call fails. */
+  const dismissLike = (ok: boolean, pending?: Promise<void>) => async (id: string) => {
+    const before = getShareQueueStatus();
+    setShareQueueStatus({ ...before, failed: before.failed.filter((s) => s.id !== id) });
+    await pending;
+    if (!ok) setShareQueueStatus(before);
+    return ok;
+  };
+
+  beforeEach(() => {
+    group = fs.mkdtempSync(path.join(os.tmpdir(), 'group-'));
+    setAppGroupRoot(group);
+    toasts.length = 0;
+  });
+  afterEach(() => setAppGroupRoot(null));
+
+  test('a waiting photo share: its thumbnails as a stack, "From a photo" and "2 pages · to Groceries"', () => {
+    const uris = keepThumbs('p1', 2);
+    const queue: ShareQueueStatus = { queued: [photoShare('p1'), photoShare('p2', { pageCount: 1, listName: null, householdName: 'Smith home', onServer: true })], failed: [], offline: false };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    press(heading(root));
+    expect(texts(root)).toEqual(
+      expect.arrayContaining(['From a photo', '2 pages · to Groceries', '1 page · to Smith home']),
+    );
+    // p1's thumbnails, first page in front: the turned page behind it, then the first.
+    const stacks = shareStacks(root);
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0].props.accessibilityLabel).toBe('2 pages from a photo');
+    expect(images(root)).toEqual([uris[1], uris[0]]);
+    expect(texts(root)).toContain('2');
+    // p2 has none here (another device's share): a recipeHue tile with doc.text.
+    expect(tiles(root).map((n) => [n.props.name, n.props.hue])).toEqual([['doc.text', recipeHue('p2')]]);
+    expect(byA11y(root, 'Remove From a photo')).toBeDefined();
+  });
+
+  test('a failed photo share with its pages kept: the stack, the photo wording, Try again and Dismiss', async () => {
+    keepThumbs('p1', 1);
+    const queue: ShareQueueStatus = { queued: [], failed: [failedPhoto('p1', { pageCount: 1 })], offline: false };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    press(heading(root));
+    expect(texts(root)).toEqual(
+      expect.arrayContaining(['From a photo', '1 page · to Groceries', "That photo doesn't look like a recipe"]),
+    );
+    expect(texts(root)).not.toContain('Share the photos again');
+    expect(shareStacks(root)).toHaveLength(1);
+    // One page: no badge, no turned page.
+    expect(images(root)).toHaveLength(1);
+    expect(byLabel(root, 'Dismiss').props.disabled).toBe(false);
+    await pressAsync(byLabel(root, 'Try again'));
+    expect(mockRetryShare).toHaveBeenCalledWith('p1');
+    // Taken: it moves to waiting at the next read; meanwhile it can't be dismissed.
+    expect(byLabel(root, 'Trying…').props.disabled).toBe(true);
+    expect(byLabel(root, 'Dismiss').props.disabled).toBe(true);
+  });
+
+  test('a failed photo share without its pages: "Share the photos again" in place of Try again, beside Dismiss', () => {
+    keepThumbs('p1', 3);
+    const queue: ShareQueueStatus = {
+      queued: [],
+      failed: [failedPhoto('p1', { pageCount: 3, pagesKept: false, errorCode: 'internal', listName: null, householdName: 'Smith home' })],
+      offline: false,
+    };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    press(heading(root));
+    expect(texts(root)).toEqual(
+      expect.arrayContaining(['From a photo', '3 pages · to Smith home', 'Something went wrong.', 'Share the photos again', '3']),
+    );
+    expect(allByLabel(root, 'Try again')).toHaveLength(0);
+    const again = root.root.find((n) => n.type === ThemedText && n.props.children === 'Share the photos again');
+    expect(again.props.color).toBe('inkSecondary');
+    expect(again.props.onPress).toBeUndefined();
+    expect(allByLabel(root, 'Dismiss')).toHaveLength(1);
+  });
+
+  test("a failed photo share whose thumbnails are gone: the tile, and a link's wording for other reasons", () => {
+    const queue: ShareQueueStatus = {
+      queued: [],
+      failed: [failedPhoto('p9', { errorCode: 'daily_limit' })],
+      offline: false,
+    };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    press(heading(root));
+    expect(shareStacks(root)).toHaveLength(0);
+    expect(tiles(root).map((n) => [n.props.name, n.props.hue])).toEqual([['doc.text', recipeHue('p9')]]);
+    expect(texts(root)).toContain("You've reached today's limit. Try again tomorrow.");
+  });
+
+  test('a failed link share is unchanged but for Dismiss: no stack or tile', () => {
+    const queue: ShareQueueStatus = { queued: [], failed: [failedLink('s1', { errorCode: 'not_a_recipe' })], offline: false };
+    const root = render(<ImportsCard failed={[]} queue={queue} />);
+    press(heading(root));
+    expect(texts(root)).toEqual(expect.arrayContaining(['Pho', "That page doesn't look like a recipe"]));
+    expect(shareStacks(root)).toHaveLength(0);
+    expect(tiles(root)).toHaveLength(0);
+    expect(allByLabel(root, 'Try again')).toHaveLength(1);
+    expect(allByLabel(root, 'Dismiss')).toHaveLength(1);
+  });
+
+  test.each([
+    ['link', () => failedLink('s1'), 'Pho'],
+    ['photo', () => failedPhoto('s1'), 'From a photo'],
+  ])('Dismiss on a failed %s share: the row goes at once', async (_kind, make, name) => {
+    const gate = deferred<void>();
+    mockDismissShare.mockImplementation(dismissLike(true, gate.promise));
+    setShareQueueStatus({ queued: [photoShare('w1')], failed: [make()], offline: false });
+    const root = render(<LiveCard />);
+    press(heading(root));
+    expect(texts(root)).toContain(name);
+    act(() => {
+      void byLabel(root, 'Dismiss').props.onPress();
+    });
+    expect(mockDismissShare).toHaveBeenCalledWith('s1');
+    // Gone before the server answers; only the waiting share is left.
+    expect(getShareQueueStatus().failed).toEqual([]);
+    expect(texts(root)[0]).toBe('1 recipe waiting');
+    await act(async () => gate.resolve());
+    expect(getShareQueueStatus().failed).toEqual([]);
+    expect(toasts).toEqual([]);
+  });
+
+  test('Dismiss failing: the row comes back with an error toast', async () => {
+    const gate = deferred<void>();
+    mockDismissShare.mockImplementation(dismissLike(false, gate.promise));
+    setShareQueueStatus({ queued: [], failed: [failedPhoto('p1'), failedLink('s2')], offline: false });
+    const root = render(<LiveCard />);
+    press(heading(root));
+    act(() => {
+      void allByLabel(root, 'Dismiss')[0].props.onPress();
+    });
+    expect(texts(root)).not.toContain('From a photo');
+    expect(texts(root)[0]).toBe("Couldn't import 1 recipe");
+    await act(async () => gate.resolve());
+    expect(texts(root)[0]).toBe("Couldn't import 2 recipes");
+    expect(texts(root)).toContain('From a photo');
+    expect(toasts.map((t) => [t.message, t.actions])).toEqual([["Couldn't dismiss that import. Try again.", []]]);
+  });
+
+  test('offline, Dismiss is disabled on a failed share (not on an in-app import)', async () => {
+    mockConnected = false;
+    recordFailedImport({ url: 'https://example.com/x', title: 'Ramen', reason: 'failed' });
+    const queue: ShareQueueStatus = { queued: [], failed: [failedLink('s1'), failedPhoto('p1')], offline: true };
+    const root = render(<ImportsCard failed={failedImportsQuery().all()} queue={queue} />);
+    await act(async () => {});
+    press(heading(root));
+    const dismiss = allByLabel(root, 'Dismiss');
+    expect(dismiss.map((n) => !!n.props.disabled)).toEqual([true, true, false]);
   });
 });
 
