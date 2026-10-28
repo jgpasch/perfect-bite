@@ -1029,7 +1029,7 @@ create view my_share_imports as
   from share_imports where user_id = auth.uid() and dismissed_at is null;
 
 -- A photo share's pages (4.10, 6.12): Storage bucket share-images, private, image/jpeg only, 2 MB per
--- object (also in supabase/config.toml), objects at <user_id>/<share_import_id>/<n>.jpg. No client
+-- object (also in supabase/config.toml), objects at <user_id>/<share_import_id>/<n>.jpg (n from 1). No client
 -- policies: only the service role (share-ingest uploads, the worker reads and copies) touches it.
 -- Cleaned up through its own queue private.share_image_deletions, a sibling of
 -- private.recipe_page_deletions, drained by photo-cleanup with the other queues: triggers queue the

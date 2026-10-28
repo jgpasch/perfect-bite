@@ -8,14 +8,16 @@ import type { RpcClient } from '../_shared/device-credentials.ts';
 import {
   canonicalJson,
   createShareIngestStore,
+  shareImagePaths,
   type ShareImportStatus,
   type ShareIngestAuth,
+  type ShareIngestCheck,
   type ShareIngestOutcome,
   type ShareIngestRow,
   type ShareIngestStore,
   sharePayloadHash,
 } from './handler.ts';
-import { handleRequest, MAX_BODY_BYTES, type RequestDeps } from './request.ts';
+import { handleRequest, MAX_BODY_BYTES, MAX_PHOTO_BODY_BYTES, type RequestDeps, type ShareImageStorage } from './request.ts';
 
 const ENDPOINT = 'http://localhost/functions/v1/share-ingest';
 const alex = '11111111-1111-4111-8111-111111111111';
@@ -59,6 +61,21 @@ function memoryStore(options: { limit?: number } = {}) {
     used.set(key, n + 1);
     return Promise.resolve('ok' as const);
   };
+  const checks: string[] = [];
+  /** The answer for `row`, and the household it would be recorded in when it's new. */
+  const decide = (row: ShareIngestRow): ShareIngestCheck & { household?: string } => {
+    const existing = rows.get(row.id);
+    if (existing) {
+      return existing.userId === row.userId && existing.payloadHash === row.payloadHash
+        ? { outcome: 'accepted', status: existing.status }
+        : { outcome: 'conflict' };
+    }
+    const household = row.householdId ?? (row.listId ? lists[row.listId] : undefined);
+    if (row.listId && !lists[row.listId]) return { outcome: 'invalid_list' };
+    if (!household || !members[household]?.includes(row.userId)) return { outcome: 'not_a_member' };
+    if (row.listId && lists[row.listId] !== household) return { outcome: 'invalid_list' };
+    return { outcome: 'new', household };
+  };
   const store: ShareIngestStore = {
     checkLimit(credentialId) {
       limitCalls.push(credentialId);
@@ -69,23 +86,39 @@ function memoryStore(options: { limit?: number } = {}) {
       return count(`user:${userId}`);
     },
     ingest(row): Promise<ShareIngestOutcome> {
-      const existing = rows.get(row.id);
-      if (existing) {
-        return Promise.resolve(
-          existing.userId === row.userId && existing.payloadHash === row.payloadHash
-            ? { outcome: 'accepted', status: existing.status }
-            : { outcome: 'conflict' },
-        );
-      }
-      const household = row.householdId ?? (row.listId ? lists[row.listId] : undefined);
-      if (row.listId && !lists[row.listId]) return Promise.resolve({ outcome: 'invalid_list' });
-      if (!household || !members[household]?.includes(row.userId)) return Promise.resolve({ outcome: 'not_a_member' });
-      if (row.listId && lists[row.listId] !== household) return Promise.resolve({ outcome: 'invalid_list' });
-      rows.set(row.id, { ...row, householdId: household, status: 'received' });
+      const { household, ...answer } = decide(row);
+      if (answer.outcome !== 'new') return Promise.resolve(answer);
+      rows.set(row.id, { ...row, householdId: household!, status: 'received' });
       return Promise.resolve({ outcome: 'accepted', status: 'received' });
     },
+    check(row) {
+      checks.push(row.id);
+      const { household: _household, ...answer } = decide(row);
+      return Promise.resolve(answer);
+    },
   };
-  return { store, rows, limitCalls, userLimitCalls };
+  return { store, rows, limitCalls, userLimitCalls, checks };
+}
+
+/** share-images in memory: its objects, and every upload and removal in order. */
+function memoryImages(options: { failUpload?: string; failRemove?: boolean } = {}) {
+  const objects = new Map<string, Uint8Array>();
+  const log: string[] = [];
+  const images: ShareImageStorage = {
+    upload(path, bytes) {
+      log.push(`upload ${path}`);
+      if (path === options.failUpload) return Promise.reject(new Error('storage is down'));
+      objects.set(path, bytes);
+      return Promise.resolve();
+    },
+    remove(paths) {
+      log.push(`remove ${paths.join(',')}`);
+      if (options.failRemove) return Promise.reject(new Error('remove failed'));
+      for (const path of paths) objects.delete(path);
+      return Promise.resolve();
+    },
+  };
+  return { images, objects, log };
 }
 
 const users: Record<string, ShareIngestAuth> = {
@@ -102,6 +135,7 @@ function serve(store: ShareIngestStore, overrides: Partial<RequestDeps> = {}) {
       return Promise.resolve(users[token] ?? null);
     },
     store,
+    images: memoryImages().images,
     startWorker: () => void workerStarts++,
     env: () => undefined,
     ...overrides,
@@ -321,13 +355,235 @@ Deno.test('a body that isn\'t a valid envelope is 400 invalid_request; a non-htt
   assertEquals(rows.size, 0);
 });
 
-Deno.test('a valid photo share (v 3) is 400 invalid_request for now, nothing recorded', async () => {
+// --- Photo shares ---------------------------------------------------------------------------------
+
+const toBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+};
+/** A fake JPEG page: the SOI marker, then `fill` repeated. */
+const page = (fill: number, size = 64) => {
+  const bytes = new Uint8Array(size).fill(fill);
+  bytes.set([0xff, 0xd8, 0xff]);
+  return bytes;
+};
+const jpeg = (bytes: Uint8Array) => ({ mediaType: 'image/jpeg', data: toBase64(bytes) });
+
+const photoEnvelope = (overrides: Record<string, unknown> = {}) => {
+  const { url: _url, page: _page, ...rest } = envelope();
+  return { ...rest, v: 3, images: [jpeg(page(1)), jpeg(page(2))], ...overrides };
+};
+const photoPaths = [`${alex}/${opId}/1.jpg`, `${alex}/${opId}/2.jpg`];
+
+Deno.test('a photo share: its pages go to share-images in order, then it is recorded as a photo', async () => {
+  const { store, rows, checks } = memoryStore();
+  const storage = memoryImages();
+  const server = serve(store, { images: storage.images });
+  const res = await server.call(post(photoEnvelope(), { authorization: `Bearer ${DEVICE}` }));
+
+  assertEquals(await answer(res), { status: 202, body: { id: opId, status: 'received' } });
+  assertEquals(checks, [opId], 'checked before uploading');
+  assertEquals([...storage.objects.keys()].sort(), photoPaths);
+  assertEquals(storage.objects.get(photoPaths[0]), page(1));
+  assertEquals(storage.objects.get(photoPaths[1]), page(2));
+  const row = rows.get(opId)!;
+  assertEquals(row.kind, 'photo');
+  assertEquals(row.pageCount, 2);
+  assertEquals(row.url, null);
+  assertEquals(row.urlKey, null);
+  assertEquals(row.page, null);
+  assertEquals(row.title, null);
+  assertEquals(row.householdId, home);
+  assertEquals(row.listId, groceries);
+  assertEquals(row.credentialId, credential);
+  assertEquals(row.payloadHash, await sharePayloadHash(photoEnvelope() as ShareEnvelope));
+  assertEquals(server.workerStarts(), 1);
+});
+
+Deno.test('a resubmitted photo share is one row with the same objects, and uploads nothing again', async () => {
   const { store, rows } = memoryStore();
-  const { url: _url, page: _page, ...link } = envelope();
-  const res = await serve(store).call(post({ ...link, v: 3, images: [{ mediaType: 'image/jpeg', data: '/9j/4AAQSkZJRg==' }] }));
-  assertEquals(res.status, 400);
-  assertEquals(await res.json(), { error: 'invalid_request', message: 'Photo shares are not taken yet' });
+  const storage = memoryImages();
+  const server = serve(store, { images: storage.images });
+  await server.call(post(photoEnvelope())); // the answer never reaches the device
+  const again = await server.call(post(photoEnvelope(), { authorization: `Bearer ${DEVICE}` }));
+  assertEquals(await answer(again), { status: 202, body: { id: opId, status: 'received' } });
+  assertEquals(rows.size, 1);
+  assertEquals(storage.log, photoPaths.map((path) => `upload ${path}`));
+  assertEquals([...storage.objects.keys()].sort(), photoPaths);
+
+  // Done, its pages deleted: a late resubmit still answers it and doesn't bring them back.
+  rows.get(opId)!.status = 'done';
+  storage.objects.clear();
+  assertEquals(await answer(await server.call(post(photoEnvelope()))), { status: 202, body: { id: opId, status: 'done' } });
+  assertEquals(storage.objects.size, 0);
+});
+
+Deno.test('a photo share whose id is another share is 409 operation_conflict and uploads nothing', async () => {
+  const { store, rows } = memoryStore();
+  const storage = memoryImages();
+  const server = serve(store, { images: storage.images });
+  await server.call(post(envelope())); // a link share under the id
+  for (const changed of [photoEnvelope(), photoEnvelope({ images: [jpeg(page(1))] })]) {
+    const res = await server.call(post(changed));
+    assertEquals(await answer(res), { status: 409, body: { error: 'operation_conflict', message: 'This id is already another share' } });
+  }
+  assertEquals(rows.get(opId)!.kind, 'link');
+  assertEquals(storage.log, []);
+
+  // A photo share, then the same id with other pages.
+  const photos = memoryStore();
+  const photoStorage = memoryImages();
+  const photoServer = serve(photos.store, { images: photoStorage.images });
+  assertEquals((await photoServer.call(post(photoEnvelope()))).status, 202);
+  const other = await photoServer.call(post(photoEnvelope({ images: [jpeg(page(2)), jpeg(page(1))] })));
+  assertEquals(other.status, 409);
+  assertEquals(photoStorage.objects.get(photoPaths[0]), page(1), 'the first share\'s pages are untouched');
+  assertEquals(photoStorage.log.length, 2);
+});
+
+Deno.test('a photo share to a household the user isn\'t in uploads nothing', async () => {
+  const { store, rows } = memoryStore();
+  const storage = memoryImages();
+  const res = await serve(store, { images: storage.images }).call(post(photoEnvelope({ householdId: away, listId: awayList })));
+  assertEquals((await answer(res)).body.error, 'not_a_member');
   assertEquals(rows.size, 0);
+  assertEquals(storage.log, []);
+});
+
+Deno.test('if recording a photo share fails or refuses it, its uploaded pages are removed', async () => {
+  // The insert loses to another share between the check and the insert.
+  const raced = memoryStore();
+  const racedStorage = memoryImages();
+  const lostRace: ShareIngestStore = { ...raced.store, ingest: () => Promise.resolve({ outcome: 'conflict' }) };
+  const conflict = await serve(lostRace, { images: racedStorage.images }).call(post(photoEnvelope()));
+  assertEquals(conflict.status, 409);
+  assertEquals(racedStorage.log.at(-1), `remove ${photoPaths.join(',')}`);
+  assertEquals(racedStorage.objects.size, 0);
+
+  // The insert errors.
+  const broken = memoryStore();
+  const brokenStorage = memoryImages();
+  const failing: ShareIngestStore = { ...broken.store, ingest: () => Promise.reject(new Error('ingest_photo_share_import failed: reset')) };
+  const failed = await serve(failing, { images: brokenStorage.images }).call(post(photoEnvelope()));
+  assertEquals(await answer(failed), { status: 500, body: { error: 'internal_error', message: 'Recording the share failed' } });
+  assertEquals(brokenStorage.objects.size, 0);
+
+  // An upload fails: nothing is recorded, and what was uploaded is removed.
+  const down = memoryStore();
+  const downStorage = memoryImages({ failUpload: photoPaths[1] });
+  const upload = await serve(down.store, { images: downStorage.images }).call(post(photoEnvelope()));
+  assertEquals(upload.status, 500);
+  assertEquals(down.rows.size, 0);
+  assertEquals(downStorage.objects.size, 0);
+
+  // Removing fails too: still the original answer.
+  const stuck = memoryImages({ failRemove: true });
+  const stuckRes = await serve(lostRace, { images: stuck.images }).call(post(photoEnvelope()));
+  assertEquals(stuckRes.status, 409);
+  assertEquals(stuck.objects.size, 2);
+});
+
+Deno.test('a photo envelope may be up to 8 MB; over it is 413, declared or streamed', async () => {
+  // Three 1.8 MB pages (2.4 MB each in base64): well over a link's 2.5 MB, within 8 MB.
+  const pageBytes = 1_800_000;
+  const big = photoEnvelope({ images: [1, 2, 3].map((n) => jpeg(page(n, pageBytes))) });
+  const bigBody = JSON.stringify(big);
+  assertEquals(bigBody.length > MAX_BODY_BYTES && bigBody.length < MAX_PHOTO_BODY_BYTES, true);
+  const { store, rows } = memoryStore();
+  const storage = memoryImages();
+  const server = serve(store, { images: storage.images });
+  assertEquals((await server.call(post(bigBody))).status, 202);
+  assertEquals(rows.get(opId)!.pageCount, 3);
+  assertEquals(storage.objects.get(`${alex}/${opId}/3.jpg`)!.byteLength, pageBytes);
+
+  const declared = await server.call(post(photoEnvelope(), { 'content-length': String(MAX_PHOTO_BODY_BYTES + 1) }));
+  assertEquals(await answer(declared), { status: 413, body: { error: 'payload_too_large', message: `Body over ${MAX_PHOTO_BODY_BYTES} bytes` } });
+  const streamed = await server.call(post(JSON.stringify(photoEnvelope({ padding: 'x'.repeat(MAX_PHOTO_BODY_BYTES) }))));
+  assertEquals(streamed.status, 413);
+  assertEquals(MAX_PHOTO_BODY_BYTES, 8_388_608);
+});
+
+Deno.test('a link envelope over 2.5 MB is still 413, even under the photo cap', async () => {
+  const { store, rows } = memoryStore();
+  const server = serve(store);
+  const declared = await server.call(post(envelope(), { 'content-length': String(MAX_BODY_BYTES + 1) }));
+  assertEquals(declared.status, 202, 'a declared length is only held to the larger cap before the body is read');
+  rows.clear();
+  const padded = await server.call(post(envelope({ padding: 'x'.repeat(MAX_BODY_BYTES) })));
+  assertEquals(await answer(padded), { status: 413, body: { error: 'payload_too_large', message: `Body over ${MAX_BODY_BYTES} bytes` } });
+  assertEquals(rows.size, 0);
+});
+
+Deno.test('an envelope with both url and images, or neither, is 400 invalid_request; a bad page is too', async () => {
+  const { store, rows } = memoryStore();
+  const storage = memoryImages();
+  const server = serve(store, { images: storage.images });
+  const { url: _url, page: _page, ...neither } = envelope();
+  const cases: unknown[] = [
+    photoEnvelope({ url: 'https://example.com/lemon-pasta' }),
+    { ...neither, v: 2 },
+    photoEnvelope({ images: [] }),
+    photoEnvelope({ images: [1, 2, 3, 4].map((n) => jpeg(page(n))) }),
+    photoEnvelope({ images: [{ mediaType: 'image/png', data: toBase64(page(1)) }] }),
+    photoEnvelope({ images: [{ mediaType: 'image/jpeg', data: 'not base64!' }] }),
+    photoEnvelope({ v: 2 }),
+  ];
+  for (const body of cases) {
+    const res = await server.call(post(body));
+    assertEquals(res.status, 400);
+    assertEquals((await res.json()).error, 'invalid_request');
+  }
+  assertEquals(rows.size, 0);
+  assertEquals(storage.log, []);
+});
+
+Deno.test('the photo log line has the page count and sizes, never the images', async () => {
+  const logged: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => logged.push(args.map(String).join(' '));
+  try {
+    await serve(memoryStore().store).call(post(photoEnvelope({ images: [jpeg(page(1, 30)), jpeg(page(2, 61))] })));
+  } finally {
+    console.log = original;
+  }
+  assertEquals(logged.length, 1);
+  const line = JSON.parse(logged[0]);
+  assertEquals({ ...line, bytes: typeof line.bytes }, {
+    level: 'info', event: 'share_ingested', kind: 'photo', status: 'received', via: 'session', bytes: 'number', jsonLd: 0, textBytes: 0,
+    images: 2, imageBytes: [30, 61],
+  });
+  assertEquals(logged[0].includes(toBase64(page(1, 30))), false);
+});
+
+Deno.test('sharePayloadHash for a photo share: the pages\' bytes in order, the household, list and addToList', async () => {
+  const base = photoEnvelope() as ShareEnvelope;
+  const hash = await sharePayloadHash(base);
+  const same = [
+    { ...base, id: '0192f0c4-7b1a-7c3d-8e4f-000000000009', createdAt: '2026-10-23T00:00:00Z', appVersion: '2.0' },
+    { ...base, listId: groceries.toUpperCase(), householdId: home.toUpperCase() },
+    { ...base, images: [jpeg(page(1)), jpeg(page(2))] },
+  ];
+  for (const e of same) assertEquals(await sharePayloadHash(e as ShareEnvelope), hash);
+  const different = [
+    { ...base, images: [jpeg(page(2)), jpeg(page(1))] },
+    { ...base, images: [jpeg(page(1))] },
+    { ...base, images: [jpeg(page(1)), jpeg(page(3))] },
+    { ...base, householdId: away },
+    { ...base, listId: null },
+    { ...base, addToList: false, listId: null },
+  ];
+  for (const e of different) assertNotEquals(await sharePayloadHash(e as ShareEnvelope), hash);
+  // The canonical payload holds each page's sha256, not its bytes.
+  const digest = async (bytes: Uint8Array<ArrayBuffer>) =>
+    Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const canonical = canonicalJson({ householdId: home, listId: groceries, addToList: true, images: [await digest(page(1)), await digest(page(2))] });
+  assertEquals(hash, await digest(new TextEncoder().encode(canonical)));
+});
+
+Deno.test('shareImagePaths: <user>/<id>/<n>.jpg from 1, lower-case', () => {
+  assertEquals(shareImagePaths(alex.toUpperCase(), opId.toUpperCase(), 3), [...photoPaths, `${alex}/${opId}/3.jpg`]);
+  assertEquals(shareImagePaths(alex, opId, 1), [photoPaths[0]]);
 });
 
 Deno.test('a household the user isn\'t in is 403 not_a_member; a list outside the household is 400', async () => {
@@ -342,11 +598,12 @@ Deno.test('a household the user isn\'t in is 403 not_a_member; a list outside th
   assertEquals(rows.size, 0);
 });
 
-Deno.test('a body over 2.5 MB is 413, declared or streamed', async () => {
+Deno.test('a link body over 2.5 MB is 413; a declared length over the photo cap is too', async () => {
   const { store, rows } = memoryStore();
   const server = serve(store);
-  const declared = await server.call(post(envelope(), { 'content-length': String(MAX_BODY_BYTES + 1) }));
-  assertEquals(await answer(declared), { status: 413, body: { error: 'payload_too_large', message: `Body over ${MAX_BODY_BYTES} bytes` } });
+  // The kind isn't known until the body is read, so a declared length is held to the 8 MB cap.
+  const declared = await server.call(post(envelope(), { 'content-length': String(MAX_PHOTO_BODY_BYTES + 1) }));
+  assertEquals(await answer(declared), { status: 413, body: { error: 'payload_too_large', message: `Body over ${MAX_PHOTO_BODY_BYTES} bytes` } });
 
   // Within every per-field cap (10 blocks of 200 KB, 50 KB of text) but escaped past the total.
   const block = JSON.stringify({ text: '"'.repeat(130_000) });
@@ -434,6 +691,7 @@ Deno.test('a database error is 500, and the log holds neither the page nor the t
     checkLimit: () => Promise.resolve('ok'),
     checkUserLimit: () => Promise.resolve('ok'),
     ingest: () => Promise.reject(new Error('ingest_share_import failed: connection reset')),
+    check: () => Promise.reject(new Error('not used')),
   };
   const logged: string[] = [];
   const original = { error: console.error, log: console.log };
@@ -463,7 +721,8 @@ Deno.test('the accepted log line has sizes and counts, not the page', async () =
   }
   const line = JSON.parse(logged[0]);
   assertEquals({ ...line, bytes: typeof line.bytes }, {
-    level: 'info', event: 'share_ingested', status: 'received', via: 'credential', bytes: 'number', jsonLd: 1, textBytes: 15,
+    level: 'info', event: 'share_ingested', kind: 'link', status: 'received', via: 'credential', bytes: 'number', jsonLd: 1, textBytes: 15,
+    images: 0, imageBytes: [],
   });
 });
 
@@ -513,7 +772,7 @@ function fakeAdmin(answers: Record<string, { data: unknown; error: { message: st
 }
 
 const row: ShareIngestRow = {
-  id: opId, userId: alex, credentialId: credential, householdId: home, listId: groceries, addToList: true,
+  kind: 'link', pageCount: null, id: opId, userId: alex, credentialId: credential, householdId: home, listId: groceries, addToList: true,
   url: 'https://example.com/a', urlKey: 'https://example.com/a', title: 'A', payloadHash: 'ab'.repeat(32),
   page: { title: 'A' }, clientCreatedAt: '2026-10-22T09:30:00.000Z', appVersion: '1.4.0', source: 'share',
 };
@@ -567,4 +826,42 @@ Deno.test('createShareIngestStore: checkUserLimit by user', async () => {
   await assertRejects(() => createShareIngestStore(admin).checkUserLimit(alex), Error, 'check_share_ingest_user_limit answered null');
   const failing = fakeAdmin({ check_share_ingest_user_limit: { data: null, error: { message: 'boom' } } });
   await assertRejects(() => createShareIngestStore(failing.admin).checkUserLimit(alex), Error, 'check_share_ingest_user_limit failed: boom');
+});
+
+const photoRow: ShareIngestRow = {
+  ...row, kind: 'photo', url: null, urlKey: null, title: null, page: null, pageCount: 2,
+};
+const photoArgs = (checkOnly: boolean) => ({
+  p_id: opId, p_user_id: alex, p_credential_id: credential, p_household_id: home, p_list_id: groceries,
+  p_add_to_list: true, p_payload_hash: 'ab'.repeat(32), p_page_count: 2, p_client_created_at: '2026-10-22T09:30:00.000Z',
+  p_app_version: '1.4.0', p_source: 'share', p_check_only: checkOnly,
+});
+
+Deno.test('createShareIngestStore: a photo share is recorded through ingest_photo_share_import', async () => {
+  const { admin, calls } = fakeAdmin({ ingest_photo_share_import: { data: [{ outcome: 'accepted', status: 'received' }], error: null } });
+  assertEquals(await createShareIngestStore(admin).ingest(photoRow), { outcome: 'accepted', status: 'received' });
+  assertEquals(calls, [{ fn: 'ingest_photo_share_import', args: photoArgs(false) }]);
+
+  // Recording never answers 'new'.
+  const odd = fakeAdmin({ ingest_photo_share_import: { data: [{ outcome: 'new', status: null }], error: null } });
+  await assertRejects(() => createShareIngestStore(odd.admin).ingest(photoRow), Error, 'ingest_photo_share_import answered');
+  const failing = fakeAdmin({ ingest_photo_share_import: { data: null, error: { message: 'boom' } } });
+  await assertRejects(() => createShareIngestStore(failing.admin).ingest(photoRow), Error, 'ingest_photo_share_import failed: boom');
+});
+
+Deno.test('createShareIngestStore: check asks ingest_photo_share_import with p_check_only', async () => {
+  const answers: [unknown, ShareIngestCheck][] = [
+    [[{ outcome: 'new', status: null }], { outcome: 'new' }],
+    [[{ outcome: 'accepted', status: 'done' }], { outcome: 'accepted', status: 'done' }],
+    [[{ outcome: 'conflict', status: null }], { outcome: 'conflict' }],
+    [[{ outcome: 'not_a_member', status: null }], { outcome: 'not_a_member' }],
+  ];
+  for (const [data, expected] of answers) {
+    const { admin, calls } = fakeAdmin({ ingest_photo_share_import: { data, error: null } });
+    assertEquals(await createShareIngestStore(admin).check(photoRow), expected);
+    assertEquals(calls, [{ fn: 'ingest_photo_share_import', args: photoArgs(true) }]);
+  }
+  const { admin } = fakeAdmin({ ingest_photo_share_import: { data: [], error: null } });
+  await assertRejects(() => createShareIngestStore(admin).check(photoRow), Error, 'ingest_photo_share_import answered');
+  await assertRejects(() => createShareIngestStore(admin).check(row), Error, 'not a photo share');
 });

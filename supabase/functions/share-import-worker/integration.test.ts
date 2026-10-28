@@ -15,13 +15,19 @@ import { categorize } from '../categorize-ingredients/handler.ts';
 import { createCategorizeStore } from '../categorize-ingredients/store.ts';
 import { createRecipeImportStore } from '../import-recipe/store.ts';
 import { createShareIngestStore } from '../share-ingest/handler.ts';
-import { handleRequest } from '../share-ingest/request.ts';
+import { handleRequest, type ShareImageStorage } from '../share-ingest/request.ts';
 import { uuidV5 } from './commit.ts';
 import { runWorker } from './handler.ts';
 import { createShareImportCommitStore, createShareImportWorkerStore } from './store.ts';
 
 const enabled = Deno.env.get('SHARE_IMPORT_INTEGRATION') === '1';
 const NAMESPACE = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
+
+/** This test shares a link, so share-ingest never touches share-images. */
+const noImages: ShareImageStorage = {
+  upload: () => Promise.reject(new Error('a link share uploads no images')),
+  remove: () => Promise.reject(new Error('a link share removes no images')),
+};
 
 const PAGE = {
   title: 'Garlic Pasta | Example',
@@ -98,7 +104,7 @@ Deno.test({
           headers: { authorization: 'Bearer a.session.jwt', 'idempotency-key': opId, 'content-type': 'application/json' },
           body: JSON.stringify(envelope),
         }),
-        { authenticate: async () => ({ userId, credentialId: null }), store: createShareIngestStore(admin), env: () => undefined },
+        { authenticate: async () => ({ userId, credentialId: null }), store: createShareIngestStore(admin), images: noImages, env: () => undefined },
       );
       assertEquals(ingest.status, 202);
       assertEquals(await ingest.json(), { id: opId, status: 'received' });
@@ -193,7 +199,7 @@ Deno.test({
           headers: { authorization: 'Bearer a.session.jwt', 'idempotency-key': secondId, 'content-type': 'application/json' },
           body: JSON.stringify({ ...envelope, id: secondId }),
         }),
-        { authenticate: async () => ({ userId, credentialId: null }), store: createShareIngestStore(admin), env: () => undefined },
+        { authenticate: async () => ({ userId, credentialId: null }), store: createShareIngestStore(admin), images: noImages, env: () => undefined },
       );
       assertEquals(second.status, 202);
       await runWorker({

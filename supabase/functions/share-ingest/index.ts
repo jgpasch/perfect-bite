@@ -9,8 +9,8 @@
 import { createSupabaseContext, withSupabase } from '@supabase/server';
 
 import { verifyDeviceCredential } from '../_shared/device-credentials.ts';
-import { createShareIngestStore, type ShareIngestAuth } from './handler.ts';
-import { handleRequest } from './request.ts';
+import { createShareIngestStore, SHARE_IMAGES_BUCKET, type ShareIngestAuth } from './handler.ts';
+import { handleRequest, type ShareImageStorage } from './request.ts';
 
 type EdgeRuntime = { waitUntil(promise: Promise<unknown>): void };
 
@@ -54,6 +54,17 @@ export default {
       }
       return verifyDeviceCredential(ctx.supabaseAdmin, token, 'share.ingest');
     };
-    return handleRequest(req, { authenticate, store: createShareIngestStore(ctx.supabaseAdmin), startWorker });
+    const bucket = ctx.supabaseAdmin.storage.from(SHARE_IMAGES_BUCKET);
+    const images: ShareImageStorage = {
+      async upload(path, bytes) {
+        const { error } = await bucket.upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+        if (error) throw new Error(`share-images upload failed: ${error.message}`);
+      },
+      async remove(paths) {
+        const { error } = await bucket.remove(paths);
+        if (error) throw new Error(`share-images remove failed: ${error.message}`);
+      },
+    };
+    return handleRequest(req, { authenticate, store: createShareIngestStore(ctx.supabaseAdmin), images, startWorker });
   }),
 };
