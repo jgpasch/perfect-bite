@@ -18,6 +18,7 @@ import type { SyncStatus } from '@/sync/status';
 import SettingsScreen from '@/app/(tabs)/settings/index';
 import AisleColorsScreen from '@/app/(tabs)/settings/aisle-colors';
 import LanguageScreen from '@/app/(tabs)/settings/language';
+import DesignTrialsScreen from '@/app/(tabs)/settings/design-trials';
 import DeveloperScreen from '@/app/(tabs)/settings/developer';
 import SiriDefaultListScreen from '@/app/(tabs)/settings/siri';
 import SyncStatusScreen from '@/app/(tabs)/settings/sync';
@@ -450,19 +451,27 @@ describe('Settings', () => {
   });
 
   describe('Design trials', () => {
-    it('comes after General and before Developer, with a Fonts row showing the current set', () => {
+    it('is the last row in General, opening its own screen', () => {
       const root = render(<SettingsScreen />);
       const all = headers(root);
-      expect(all.indexOf('Design trials')).toBe(all.indexOf('General') + 1);
-      expect(all.indexOf('Developer')).toBe(all.indexOf('Design trials') + 1);
-      expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque');
+      expect(all).not.toContain('Design trials');
+      expect(all.indexOf('Developer')).toBe(all.indexOf('General') + 1);
+      expect(textOf(root)).toMatch(/Sync status .* Design trials Developer/);
+      expect(textOf(root)).not.toContain('Fonts');
+      click(button(root, 'Design trials'));
+      expect(mockPush).toHaveBeenCalledWith('/settings/design-trials');
+    });
+
+    it('has a Fonts row showing the current set', () => {
+      const root = render(<DesignTrialsScreen />);
+      expect(textOf(root)).toContain('Fonts Bricolage Grotesque');
       click(button(root, 'Fonts, Bricolage Grotesque'));
       expect(mockPush).toHaveBeenCalledWith('/font-sets');
     });
 
     it('shows a set picked before, and follows a switch at once', () => {
       setFontSetSetting('youngSerif');
-      const root = render(<SettingsScreen />);
+      const root = render(<DesignTrialsScreen />);
       button(root, 'Fonts, Young Serif');
       act(() => setFontSetSetting('jakarta'));
       button(root, 'Fonts, Plus Jakarta Sans');
@@ -479,16 +488,16 @@ describe('Settings', () => {
 
     it('has no Plan grid row: Fonts, then Recipe view, even with a plan.gridStyle saved', () => {
       deviceSettings.setDeviceSetting('plan.gridStyle', 'photo');
-      const root = render(<SettingsScreen />);
-      expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque Recipe view Standard Title on photo Cook view Cards Sheet');
+      const root = render(<DesignTrialsScreen />);
+      expect(textOf(root)).toContain('Fonts Bricolage Grotesque Recipe view Standard Title on photo Cook view Cards Sheet');
       expect(textOf(root)).not.toContain('Plan grid');
       expect(labelled(root, 'Plan grid style')).toHaveLength(0);
-      // Meal plan's Grid cells and Design trials' Recipe view and Cook view are the screen's only segmented controls.
+      // Recipe view and Cook view are the screen's only segmented controls.
       expect(
         root.root
           .findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tablist')
           .map((n) => n.props.accessibilityLabel),
-      ).toEqual(['Grid cell style', 'Recipe view style', 'Cook view style']);
+      ).toEqual(['Recipe view style', 'Cook view style']);
     });
 
     describe('Cook view', () => {
@@ -501,7 +510,7 @@ describe('Settings', () => {
         segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
 
       it('follows Recipe view, Cards selected until Sheet is picked, and saves cook.viewStyle', () => {
-        const root = render(<SettingsScreen />);
+        const root = render(<DesignTrialsScreen />);
         expect(textOf(root)).toContain('Title on photo Cook view Cards Sheet');
         expect(states(root)).toEqual([
           ['Cards', true],
@@ -530,7 +539,7 @@ describe('Settings', () => {
         segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
 
       it('follows Fonts, Standard selected until Title on photo is picked', () => {
-        const root = render(<SettingsScreen />);
+        const root = render(<DesignTrialsScreen />);
         expect(textOf(root)).toContain('Fonts Bricolage Grotesque Recipe view Standard Title on photo');
         expect(states(root)).toEqual([
           ['Standard', true],
@@ -540,7 +549,7 @@ describe('Settings', () => {
       });
 
       it('saves recipe.viewStyle and selects the picked style', () => {
-        const root = render(<SettingsScreen />);
+        const root = render(<DesignTrialsScreen />);
         click(segments(root)[1]);
         expect(deviceSettings.getDeviceSetting(RECIPE_VIEW_STYLE_KEY, null)).toBe('titleOnPhoto');
         expect(getRecipeViewStyle()).toBe('titleOnPhoto');
@@ -555,7 +564,7 @@ describe('Settings', () => {
 
       it('shows a style saved before, and follows a change made elsewhere', () => {
         setRecipeViewStyle('titleOnPhoto');
-        const root = render(<SettingsScreen />);
+        const root = render(<DesignTrialsScreen />);
         expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Title on photo');
         act(() => setRecipeViewStyle('standard'));
         expect(states(root).find(([, selected]) => selected)?.[0]).toBe('Standard');
@@ -563,14 +572,14 @@ describe('Settings', () => {
 
       it('an unknown saved value shows Standard', () => {
         deviceSettings.setDeviceSetting(RECIPE_VIEW_STYLE_KEY, 'magazine');
-        const root = render(<SettingsScreen />);
+        const root = render(<DesignTrialsScreen />);
         expect(states(root)[0]).toEqual(['Standard', true]);
       });
 
       it('in Spanish', () => {
         initI18n('es');
         try {
-          const root = render(<SettingsScreen />);
+          const root = render(<DesignTrialsScreen />);
           expect(labelled(root, 'Estilo de la vista de receta')).toHaveLength(1);
           expect(textOf(root)).toContain('Vista de receta Estándar Título en la foto');
         } finally {

@@ -14,7 +14,6 @@ import { SettingsRow, SettingsSection } from '@/components/settings-group';
 import { ThemedText } from '@/components/themed-text';
 import { Toast } from '@/components/toast';
 import { Screen } from '@/components/themed-view';
-import { FontSetSpecs } from '@/constants/theme';
 import { households, listItems, lists, userSettings } from '@/db';
 import { useLiveQueryOn } from '@/db/live-query';
 import { recipeHue } from '@/domain/aisle-color';
@@ -43,8 +42,6 @@ import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { PLAN_CELL_STYLES, setPlanCellStyle, usePlanCellStyle, type PlanCellStyle } from '@/features/meal-plan/cell-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
-import { COOK_VIEW_STYLES, setCookViewStyle, useCookViewStyle, type CookViewStyle } from '@/features/recipes/cook-style';
-import { RECIPE_VIEW_STYLES, setRecipeViewStyle, useRecipeViewStyle, type RecipeViewStyle } from '@/features/recipes/view-style';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import {
   getAisleColorStyle,
@@ -55,11 +52,10 @@ import {
 } from '@/features/settings/device-settings';
 import { useMyName } from '@/features/settings/name';
 import { useSyncStatus } from '@/features/settings/use-sync-status';
-import { useFontSet } from '@/hooks/font-set';
 import { useTheme } from '@/hooks/use-theme';
 import { currentLanguage, i18n, LANGUAGE_NAMES, useT } from '@/i18n';
 
-/** Settings (board 10): the account card, Households, Shopping, Aisles, Meal plan and General cards, then Sign out, Delete account and the version. */
+/** Settings (board 10): the account card, Households, Shopping, Aisles, Meal plan and General (with Design trials) cards, then Sign out, Delete account and the version. */
 export default function SettingsScreen() {
   const { colors, aisles, spacing, sizes, rounded, opacity } = useTheme();
   const t = useT();
@@ -84,9 +80,6 @@ export default function SettingsScreen() {
   const keepScreenOn = useKeepScreenOnSetting();
   const planTab = usePlanTabSetting();
   const planCellStyle = usePlanCellStyle();
-  const fontSet = useFontSet();
-  const recipeViewStyle = useRecipeViewStyle();
-  const cookViewStyle = useCookViewStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -266,42 +259,14 @@ export default function SettingsScreen() {
             value={sync.label}
             icon={{ name: 'arrow.triangle.2.circlepath', hue: 'grey' }}
             onPress={() => router.push('/settings/sync')}
+          />
+          {/* Every build, TestFlight included, until the trials end. */}
+          <SettingsRow
+            label={t('settings.designTrials')}
+            icon={{ name: 'paintbrush', hue: 'plum' }}
+            onPress={() => router.push('/settings/design-trials')}
             last
           />
-        </SettingsSection>
-
-        {/* Every build, TestFlight included, until the trials end. */}
-        <SettingsSection title={t('settings.designTrials')}>
-          <SettingsRow
-            label={t('settings.fonts')}
-            value={FontSetSpecs[fontSet].display}
-            icon={{ name: 'textformat', hue: 'plum' }}
-            onPress={() => router.push('/font-sets')}
-          />
-          {/* The recipe screen's layout (spec 4.5). */}
-          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
-            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
-              {t('settings.recipeView')}
-            </ThemedText>
-            <SegmentedControl<RecipeViewStyle>
-              accessibilityLabel={t('settings.recipeViewLabel')}
-              segments={RECIPE_VIEW_STYLES.map((style) => ({ value: style, label: t(RECIPE_VIEW_STYLE_LABELS[style]) }))}
-              value={recipeViewStyle}
-              onChange={setRecipeViewStyle}
-            />
-          </View>
-          {/* The cook screen's steps (spec 4.5). */}
-          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
-            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
-              {t('settings.cookView')}
-            </ThemedText>
-            <SegmentedControl<CookViewStyle>
-              accessibilityLabel={t('settings.cookViewLabel')}
-              segments={COOK_VIEW_STYLES.map((style) => ({ value: style, label: t(COOK_VIEW_STYLE_LABELS[style]) }))}
-              value={cookViewStyle}
-              onChange={setCookViewStyle}
-            />
-          </View>
         </SettingsSection>
 
         {__DEV__ ? (
@@ -387,16 +352,6 @@ const PLAN_CELL_STYLE_LABELS = {
   split: 'settings.gridCellsSplit',
   stacked: 'settings.gridCellsStacked',
 } as const satisfies Record<PlanCellStyle, string>;
-
-const RECIPE_VIEW_STYLE_LABELS = {
-  standard: 'settings.recipeViewStandard',
-  titleOnPhoto: 'settings.recipeViewTitleOnPhoto',
-} as const satisfies Record<RecipeViewStyle, string>;
-
-const COOK_VIEW_STYLE_LABELS = {
-  cards: 'settings.cookViewCards',
-  sheet: 'settings.cookViewSheet',
-} as const satisfies Record<CookViewStyle, string>;
 
 /** Full screen while the account is deleted; it can't be dismissed. */
 function DeletingOverlay({ visible }: { visible: boolean }) {

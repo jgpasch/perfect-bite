@@ -34,6 +34,7 @@ export default function SettingsStackLayout() {
       <Stack.Screen name="language"options={{ title: t('settings.language'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="siri" options={{ title: t('settings.siri'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="notifications" options={{ title: t('settings.notifications'), headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="design-trials" options={{ title: t('settings.designTrials'), headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="developer" options={{ title: t('settings.developer'), headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>
   );
