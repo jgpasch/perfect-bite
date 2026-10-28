@@ -57,6 +57,7 @@ export function createNotificationStore(admin: SupabaseClient): NotificationStor
     async recipeImport(shareImportId) {
       const data = await call<{
         status: string;
+        kind: string;
         recipe_id: string | null;
         recipe_name: string | null;
         applied_list_id: string | null;
@@ -69,6 +70,7 @@ export function createNotificationStore(admin: SupabaseClient): NotificationStor
       if (!data) return null;
       return {
         status: data.status,
+        kind: data.kind,
         recipeId: data.recipe_id,
         recipeName: data.recipe_name,
         appliedListId: data.applied_list_id,

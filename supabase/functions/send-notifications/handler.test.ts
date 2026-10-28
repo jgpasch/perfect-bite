@@ -691,6 +691,7 @@ function imported(opts: { job?: string; user?: string; status?: 'done' | 'failed
 
 const done = (more: Partial<RecipeImportDetails> = {}): RecipeImportDetails => ({
   status: 'done',
+  kind: 'link',
   recipeId: RECIPE,
   recipeName: 'Lemon pasta',
   appliedListId: GROCERIES,
@@ -702,8 +703,8 @@ const done = (more: Partial<RecipeImportDetails> = {}): RecipeImportDetails => (
   ...more,
 });
 
-const failed = (errorCode: string | null, resetsAt: string | null = null): RecipeImportDetails =>
-  done({ status: 'failed', recipeId: null, recipeName: null, appliedListId: null, listName: null, errorCode, resetsAt });
+const failed = (errorCode: string | null, resetsAt: string | null = null, kind = 'link'): RecipeImportDetails =>
+  done({ status: 'failed', kind, recipeId: null, recipeName: null, appliedListId: null, listName: null, errorCode, resetsAt });
 
 Deno.test('a done import pushes "Lemon pasta is ready" to every device of the sharer only, at once', async () => {
   const event = imported();
@@ -737,6 +738,36 @@ Deno.test("a failed import pushes \"Couldn't import that recipe\" with the reaso
     "That page doesn't look like a recipe",
     { url: '/recipes', kind: 'recipe_import', status: 'failed', shareImportId: JOB },
   ]);
+});
+
+Deno.test("a failed photo share that isn't a recipe says so about the photo", async () => {
+  const t = setup([imported({ status: 'failed' })], { imports: { [JOB]: failed('not_a_recipe', null, 'photo') } }, [okTickets]);
+  await t.run();
+  const [push] = sent(t.fetchCalls);
+  assertEquals([push.to, push.title, push.body, push.data], [
+    'ExponentPushToken[alex]',
+    "Couldn't import that recipe",
+    "That photo doesn't look like a recipe",
+    { url: '/recipes', kind: 'recipe_import', status: 'failed', shareImportId: JOB },
+  ]);
+});
+
+Deno.test('a photo share that is ready or fails otherwise is worded as for a link', async () => {
+  const other = 'b1000000-0000-7000-8000-000000000002';
+  const events = [imported(), imported({ job: other, status: 'failed' })];
+  const imports = {
+    [JOB]: done({ kind: 'photo', recipeName: 'Recipe' }),
+    [other]: failed('limit_reached', '2026-11-01T00:00:00Z', 'photo'),
+  };
+  const t = setup(events, { imports }, [okTickets, okTickets]);
+  await t.run();
+  assertEquals(
+    sent(t.fetchCalls).map((p) => [p.title, p.body, p.data.url]),
+    [
+      ['Recipe is ready', 'Added to Groceries', `/recipe/${RECIPE}`],
+      ["Couldn't import that recipe", "You've used this month's recipe imports. They reset on Nov 1.", '/recipes'],
+    ],
+  );
 });
 
 Deno.test('each import is its own push, never grouped, alongside a household group', async () => {
@@ -857,6 +888,18 @@ Deno.test('importFailureReason: the plain words for each failure', () => {
   assertEquals(importFailureReason('internal', null), 'Something went wrong.');
   assertEquals(importFailureReason('lease_lost', null), 'Something went wrong.');
   assertEquals(importFailureReason(null, null), 'Something went wrong.');
+  // A photo share: only not_a_recipe has its own wording.
+  assertEquals(importFailureReason('not_a_recipe', null, 'photo'), "That photo doesn't look like a recipe");
+  assertEquals(importFailureReason('not_a_recipe', null, 'link'), "That page doesn't look like a recipe");
+  assertEquals(importFailureReason('not_entitled', null, 'photo'), "Recipe import isn't included in your plan.");
+  assertEquals(importFailureReason('daily_limit', null, 'photo'), "You've reached today's limit. Try again tomorrow.");
+  assertEquals(importFailureReason('internal', null, 'photo'), 'Something went wrong.');
+  assertEquals(importFailureReason(null, null, 'photo'), 'Something went wrong.');
+  assertEquals(buildRecipeImportText(failed('not_a_recipe', null, 'photo')), {
+    title: "Couldn't import that recipe",
+    body: "That photo doesn't look like a recipe",
+    url: '/recipes',
+  });
   assertEquals(buildRecipeImportText(failed('limit_reached', '2027-01-01T00:00:00Z')), {
     title: "Couldn't import that recipe",
     body: "You've used this month's recipe imports. They reset on Jan 1.",

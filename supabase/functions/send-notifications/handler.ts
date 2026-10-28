@@ -35,6 +35,8 @@ export type QueuedEvent = { msgId: number; message: unknown };
 /** A share import re-read at send time (public.recipe_import_notification). */
 export type RecipeImportDetails = {
   status: string;
+  /** 'link' or 'photo': a photo share's failure has the photo wording. */
+  kind: string;
   recipeId: string | null;
   recipeName: string | null;
   appliedListId: string | null;
@@ -234,11 +236,11 @@ export function buildMessages(group: Group, text: { title: string; body: string 
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** A failed share's reason in spec 4.10's plain words, by its error code. */
-export function importFailureReason(code: string | null, resetsAt: string | null): string {
+/** A failed share's reason in spec 4.10's plain words, by its error code; a photo share's in the photo wording. */
+export function importFailureReason(code: string | null, resetsAt: string | null, kind = 'link'): string {
   switch (code) {
     case 'not_a_recipe':
-      return "That page doesn't look like a recipe";
+      return kind === 'photo' ? "That photo doesn't look like a recipe" : "That page doesn't look like a recipe";
     case 'invalid_url':
       return "That doesn't look like a link";
     case 'not_entitled':
@@ -263,7 +265,7 @@ export function importFailureReason(code: string | null, resetsAt: string | null
 /** A recipe import push's title, body and url, or null when there's nothing to say. Names as they are: no markup. */
 export function buildRecipeImportText(details: RecipeImportDetails): { title: string; body: string; url: string } | null {
   if (details.status === 'failed') {
-    return { title: "Couldn't import that recipe", body: importFailureReason(details.errorCode, details.resetsAt), url: '/recipes' };
+    return { title: "Couldn't import that recipe", body: importFailureReason(details.errorCode, details.resetsAt, details.kind), url: '/recipes' };
   }
   if (details.status !== 'done' || !details.recipeId) return null;
   const name = details.recipeName?.trim() || 'Your recipe';

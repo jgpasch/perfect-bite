@@ -4,7 +4,7 @@
 -- their `recipe_imports` setting and quiet hours allow.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(32);
+select plan(33);
 
 -- Fixtures (as postgres) ---------------------------------------------------------------------------
 insert into auth.users (id, email, aud, role) values
@@ -95,7 +95,7 @@ select is((select count(*)::int from pg_temp.queued()), 1, 'a repeated commit (t
 
 set local role service_role;
 select is(public.recipe_import_notification('f0000000-0000-4000-8000-000000000001'),
-  '{"status": "done", "user_id": "11111111-1111-1111-1111-111111111111", "recipe_id": "c0000000-0000-4000-8000-000000000001",
+  '{"status": "done", "kind": "link", "user_id":"11111111-1111-1111-1111-111111111111", "recipe_id": "c0000000-0000-4000-8000-000000000001",
     "recipe_name": "Lemon pasta", "applied_list_id": null, "list_name": null, "household_name": "Smith home",
     "list_gone": false, "error_code": null, "resets_at": null}'::jsonb,
   'recipe_import_notification re-reads the job: a recipe-only import into Smith home');
@@ -158,6 +158,18 @@ select results_eq(
      from public.recipe_import_notification('f0000000-0000-4000-8000-000000000004') r $$,
   $$ values ('failed', 'limit_reached', '2026-11-01T00:00:00Z'::timestamptz, null) $$,
   'recipe_import_notification gives the reason and when the limit resets');
+reset role;
+
+-- A photo share's kind, so the worker words its not_a_recipe about the photo.
+update public.share_imports
+  set kind = 'photo', url = null, url_key = null, page_count = 2, images = null, error_code = 'not_a_recipe', resets_at = null
+  where id = 'f0000000-0000-4000-8000-000000000004';
+set local role service_role;
+select results_eq(
+  $$ select r ->> 'kind', r ->> 'status', r ->> 'error_code'
+     from public.recipe_import_notification('f0000000-0000-4000-8000-000000000004') r $$,
+  $$ values ('photo', 'failed', 'not_a_recipe') $$,
+  'recipe_import_notification gives a photo share''s kind');
 reset role;
 
 delete from pgmq.q_household_events;
