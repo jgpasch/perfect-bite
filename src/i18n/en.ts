@@ -665,6 +665,7 @@ export const en = {
       markDone: 'Mark step done',
       markDoneLabel: 'Mark step {{number}} done',
       now: 'NOW',
+      stepKicker: 'STEP {{number}}',
       progress_one: '{{done}} of {{count}} step done',
       progress_other: '{{done}} of {{count}} steps done',
       withServings: '{{servings}} · {{progress}}',
@@ -1204,6 +1205,10 @@ export const en = {
     recipeViewLabel: 'Recipe view style',
     recipeViewStandard: 'Standard',
     recipeViewTitleOnPhoto: 'Title on photo',
+    cookView: 'Cook view',
+    cookViewLabel: 'Cook view style',
+    cookViewCards: 'Cards',
+    cookViewSheet: 'Sheet',
     /** Settings > Design trials > Fonts: a set's sample line in its body face, "Figtree · Chicken tacos with lime crema". */
     fontsScreen: {
       sample: '{{body}} · Chicken tacos with lime crema',

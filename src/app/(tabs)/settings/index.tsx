@@ -43,6 +43,7 @@ import { useKeepScreenOnSetting } from '@/features/lists/keep-awake';
 import { aisleColorStyleLabel } from '@/features/lists/list-view';
 import { PLAN_CELL_STYLES, setPlanCellStyle, usePlanCellStyle, type PlanCellStyle } from '@/features/meal-plan/cell-style';
 import { usePlanTabSetting } from '@/features/meal-plan/plan-tab';
+import { COOK_VIEW_STYLES, setCookViewStyle, useCookViewStyle, type CookViewStyle } from '@/features/recipes/cook-style';
 import { RECIPE_VIEW_STYLES, setRecipeViewStyle, useRecipeViewStyle, type RecipeViewStyle } from '@/features/recipes/view-style';
 import { getDefaultListId, listsWithCountsQuery } from '@/features/lists/lists';
 import {
@@ -85,6 +86,7 @@ export default function SettingsScreen() {
   const planCellStyle = usePlanCellStyle();
   const fontSet = useFontSet();
   const recipeViewStyle = useRecipeViewStyle();
+  const cookViewStyle = useCookViewStyle();
   const [alwaysShowChecked, setAlwaysShowCheckedState] = useState(getAlwaysShowChecked);
   const [deleting, setDeleting] = useState(false);
   // "Deleted <household>" after deleting one on its screen (spec 4.7), taken on coming back.
@@ -288,6 +290,18 @@ export default function SettingsScreen() {
               onChange={setRecipeViewStyle}
             />
           </View>
+          {/* The cook screen's steps (spec 4.5). */}
+          <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+            <ThemedText variant="body" importantForAccessibility="no" accessibilityElementsHidden style={{ paddingHorizontal: spacing.lg }}>
+              {t('settings.cookView')}
+            </ThemedText>
+            <SegmentedControl<CookViewStyle>
+              accessibilityLabel={t('settings.cookViewLabel')}
+              segments={COOK_VIEW_STYLES.map((style) => ({ value: style, label: t(COOK_VIEW_STYLE_LABELS[style]) }))}
+              value={cookViewStyle}
+              onChange={setCookViewStyle}
+            />
+          </View>
         </SettingsSection>
 
         {__DEV__ ? (
@@ -378,6 +392,11 @@ const RECIPE_VIEW_STYLE_LABELS = {
   standard: 'settings.recipeViewStandard',
   titleOnPhoto: 'settings.recipeViewTitleOnPhoto',
 } as const satisfies Record<RecipeViewStyle, string>;
+
+const COOK_VIEW_STYLE_LABELS = {
+  cards: 'settings.cookViewCards',
+  sheet: 'settings.cookViewSheet',
+} as const satisfies Record<CookViewStyle, string>;
 
 /** Full screen while the account is deleted; it can't be dismissed. */
 function DeletingOverlay({ visible }: { visible: boolean }) {

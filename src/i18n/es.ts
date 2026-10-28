@@ -576,6 +576,7 @@ export const es = {
       markDone: 'Marcar paso como listo',
       markDoneLabel: 'Marcar el paso {{number}} como listo',
       now: 'AHORA',
+      stepKicker: 'PASO {{number}}',
       progress_one: '{{done}} de {{count}} paso listo',
       progress_other: '{{done}} de {{count}} pasos listos',
       withServings: '{{servings}} · {{progress}}',
@@ -1021,6 +1022,10 @@ export const es = {
     recipeViewLabel: 'Estilo de la vista de receta',
     recipeViewStandard: 'Estándar',
     recipeViewTitleOnPhoto: 'Título en la foto',
+    cookView: 'Vista de cocina',
+    cookViewLabel: 'Estilo de la vista de cocina',
+    cookViewCards: 'Tarjetas',
+    cookViewSheet: 'Hoja',
     /** Settings > Design trials > Fonts. */
     fontsScreen: {
       sample: '{{body}} · Tacos de pollo con crema de lima',

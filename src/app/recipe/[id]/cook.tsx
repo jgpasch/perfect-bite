@@ -12,6 +12,7 @@ import { Icon } from '@/components/icon';
 import { SectionHeader } from '@/components/section-header';
 import { ThemedText } from '@/components/themed-text';
 import { Screen } from '@/components/themed-view';
+import type { ColorToken } from '@/constants/theme';
 import { useKeepAwake } from '@/features/lists/keep-awake';
 import { startingServings } from '@/features/recipes/add-to-list';
 import {
@@ -28,6 +29,7 @@ import {
   tickKey,
   usesByIngredient,
 } from '@/features/recipes/cook-match';
+import { useCookViewStyle, type CookViewStyle } from '@/features/recipes/cook-style';
 import { useEnsureStepMatch } from '@/features/recipes/ensure-step-match';
 import { RecipeCredit } from '@/features/recipes/recipe-credit';
 import { cookProgressLabel, stepLabel } from '@/features/recipes/recipe-view';
@@ -41,9 +43,10 @@ import { displayItemName, stepPath, stepTexts } from '@/shared';
 const PILLS_STACK_FONT_SCALE = 2;
 
 /**
- * Cooking mode (board 19, and board 6 "All steps open" of the cook screen canvas): a full-screen modal on one
- * scrolling page, with the ingredients scaled to the recipe screen's servings (`servings`) and every step open on a
- * timeline, each ticked off with its number; the first unticked step is the current one, with Mark step done. A
+ * Cooking mode (board 19, and boards 5A and 5B of the cook screen canvas): a full-screen modal on one scrolling page,
+ * with the ingredients scaled to the recipe screen's servings (`servings`) and every step open, each ticked off with
+ * its number, laid out as the device's Cook view says (`useCookViewStyle`: cards on the ground, or a white sheet);
+ * the first unticked step is the current one, with Mark step done. A
  * ticked step folds to one line, which reopens on a tap. The ticks are this screen's state only, so they're gone
  * when it closes; the screen stays on while it's open. With a step match (spec 4.5), each step lists its
  * ingredients as pills, the checklist folds into All ingredients, and Also needed holds the ingredients in no
@@ -55,8 +58,11 @@ const PILLS_STACK_FONT_SCALE = 2;
 export default function CookScreen() {
   const { id, servings: servingsParam } = useLocalSearchParams<{ id: string; servings?: string }>();
   const t = useT();
-  const { spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
+  const look = useCookViewStyle();
+  // On the sheet, the cards around the ingredients and the folds lie flat across the page between hairlines.
+  const block = look === 'sheet' ? flatBlock(colors.border) : undefined;
   // Nothing here is edited, so read once rather than live.
   const [recipe] = useState(() => getRecipe(id));
   const [ingredients] = useState(() => recipeIngredientsQuery(id).all());
@@ -128,18 +134,19 @@ export default function CookScreen() {
     });
 
   return (
-    <Screen>
+    <Screen style={look === 'sheet' ? { backgroundColor: colors.surface } : undefined}>
       <TopBar
         name={recipe.name}
         progress={cookProgressLabel(servings, plan.done, plan.total, plan.picking)}
         paddingTop={insets.top + spacing.sm}
+        buttonFill={look === 'sheet' ? 'background' : 'surface'}
       />
       <ScrollView
         ref={scroll}
         style={styles.flex}
         contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: insets.bottom + spacing.xl, gap: spacing.md + spacing.xxs }}>
         {matched && ingredients.length > 0 ? (
-          <Card>
+          <Card style={block}>
             <FoldRow
               total={ingredients.length}
               ticked={ingredients.filter((item) => allTicked(usesDone, usesOf(item.id))).length}
@@ -159,7 +166,7 @@ export default function CookScreen() {
               : null}
           </Card>
         ) : ingredients.length > 0 ? (
-          <Card>
+          <Card style={block}>
             <SectionHeader title={t('recipes.screen.ingredients')} count={ingredients.length} />
             {ingredients.map((item) => {
               const amount = amountOf(item);
@@ -176,8 +183,10 @@ export default function CookScreen() {
           </Card>
         ) : null}
         {steps.length > 0 ? (
-          <View style={{ gap: spacing.md }} onLayout={(event) => (stepsY.current = event.nativeEvent.layout.y)}>
-            {plan.blocks.map((block, b) => {
+          <View
+            style={{ gap: look === 'sheet' ? 0 : spacing.md }}
+            onLayout={(event) => (stepsY.current = event.nativeEvent.layout.y)}>
+            {plan.blocks.map((block) => {
               if (block.kind === 'title') {
                 return (
                   <SectionTitle
@@ -193,6 +202,7 @@ export default function CookScreen() {
                     key={`fold-${block.section}`}
                     title={block.title}
                     count={block.count}
+                    flat={look === 'sheet'}
                     onOpen={() => setOpened((open) => new Set(open).add(block.section))}
                   />
                 );
@@ -203,6 +213,7 @@ export default function CookScreen() {
                     key={`picker-${block.group}`}
                     options={block.options}
                     current={block.current}
+                    look={look}
                     onPick={(option) => setPicks((p) => withCookPick(p, block.group, option))}
                     onLayout={(event) => cardLaidOut(cardKey({ kind: 'picker', group: block.group }), event.nativeEvent.layout.y)}
                   />
@@ -214,7 +225,6 @@ export default function CookScreen() {
               const label = stepLabel(number - 1, pathLength, step);
               // A ticked step shows its ingredients only once reopened.
               const open = state !== 'done' || reopened.has(index);
-              const next = plan.blocks[b + 1];
               return (
                 <StepRow
                   key={index}
@@ -227,7 +237,7 @@ export default function CookScreen() {
                   }
                   state={state}
                   open={open}
-                  railBelow={next?.kind === 'step'}
+                  look={look}
                   stacked={stacked}
                   onToggle={() => toggleStep(index)}
                   onReopen={() => toggleReopened(index)}
@@ -244,7 +254,8 @@ export default function CookScreen() {
                             key={key}
                             text={stepUseText(item, quantity, split, servings, base)}
                             stacked={stacked}
-                            fill={state === 'current' ? 'surfaceMuted' : 'surface'}
+                            fill={pillFill(look, state)}
+                            outlined={look === 'sheet'}
                             label={
                               amount.spoken
                                 ? t('recipes.cook.stepIngredient', { name, amount: amount.spoken, number })
@@ -264,7 +275,7 @@ export default function CookScreen() {
           </View>
         ) : null}
         {matched && match.unplaced.length > 0 ? (
-          <Card>
+          <Card style={block}>
             <SectionHeader
               title={t('recipes.cook.alsoNeeded')}
               trailing={
@@ -299,6 +310,20 @@ function withoutStep(open: ReadonlySet<number>, index: number): ReadonlySet<numb
   return next;
 }
 
+/** A card laid flat across the sheet: no inset or corners, a hairline above and below. */
+function flatBlock(border: string) {
+  return { marginHorizontal: 0, borderRadius: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: border };
+}
+
+/**
+ * A step's pills: on Cards, `background` inside a step's card and `surface` under a done step on the ground; on the
+ * sheet, `surface` (outlined).
+ */
+function pillFill(look: CookViewStyle, state: StepState): ColorToken {
+  if (look === 'sheet') return 'surface';
+  return state === 'done' ? 'surface' : 'background';
+}
+
 /** The key a card is scrolled to by: a step's, or a choice group's picker. */
 function cardKey(card: NonNullable<CookCurrent>): string {
   return card.kind === 'step' ? `step:${card.index}` : `picker:${card.group}`;
@@ -323,11 +348,11 @@ function SectionTitle({ title, onChange }: { title: string; onChange?: () => voi
 }
 
 /** A named section all ticked and behind the current step (board C): one row, its title and "3 done", that unfolds on a tap. */
-function FoldedSection({ title, count, onOpen }: { title: string; count: number; onOpen: () => void }) {
+function FoldedSection({ title, count, flat, onOpen }: { title: string; count: number; flat: boolean; onOpen: () => void }) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
-    <Card>
+    <Card style={flat ? flatBlock(colors.border) : undefined}>
       <Pressable
         onPress={onOpen}
         accessibilityRole="button"
@@ -363,16 +388,19 @@ function FoldedSection({ title, count, onOpen }: { title: string; count: number;
 
 /**
  * A choice group with no pick (board B): "How are you cooking it?" and a row per option (its title, "4 steps",
- * a chevron; at least 56 pt). The current card's border once every step before it is ticked.
+ * a chevron; at least 56 pt). The current card's border once every step before it is ticked; on the sheet a
+ * `controlBorder` hairline until then.
  */
 function MethodPicker({
   options,
   current,
+  look,
   onPick,
   onLayout,
 }: {
   options: { title: string; count: number }[];
   current: boolean;
+  look: CookViewStyle;
   onPick: (option: number) => void;
   onLayout: (event: LayoutChangeEvent) => void;
 }) {
@@ -383,7 +411,12 @@ function MethodPicker({
       onLayout={onLayout}
       style={[
         { paddingTop: spacing.lg, paddingHorizontal: spacing.lg, paddingBottom: spacing.xs },
-        current ? { borderWidth: sizes.cookCurrentBorder, borderColor: colors.primary } : undefined,
+        current
+          ? { borderWidth: sizes.cookCurrentBorder, borderColor: colors.primary }
+          : look === 'sheet'
+            ? // A hairline keeps the card's edge on the white sheet.
+              { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.controlBorder }
+            : undefined,
       ]}>
       <ThemedText variant="cookStepCurrent" accessibilityRole="header">
         {t('recipes.cook.howCooking')}
@@ -423,8 +456,18 @@ function MethodPicker({
   );
 }
 
-/** ✕ (Done) on the left, the recipe's name over "For 6 · 2 of 6 steps done" in the middle. */
-function TopBar({ name, progress, paddingTop }: { name: string; progress: string; paddingTop: number }) {
+/** ✕ (Done) on the left (a `buttonFill` circle), the recipe's name over "For 6 · 2 of 6 steps done" in the middle. */
+function TopBar({
+  name,
+  progress,
+  paddingTop,
+  buttonFill,
+}: {
+  name: string;
+  progress: string;
+  paddingTop: number;
+  buttonFill: 'surface' | 'background';
+}) {
   const t = useT();
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
   return (
@@ -450,7 +493,7 @@ function TopBar({ name, progress, paddingTop }: { name: string; progress: string
             width: sizes.minTapTarget,
             height: sizes.minTapTarget,
             borderRadius: rounded.full,
-            backgroundColor: colors.surface,
+            backgroundColor: colors[buttonFill],
             opacity: pressed ? opacity.pressed : 1,
           },
         ]}>
@@ -518,7 +561,7 @@ function IngredientRow({
 /**
  * One of a step's ingredients as a pill to tick off: a rounded pill, at least 44 pt tall, with a 22 pt check and
  * the use amount first ("2 tbsp butter", "1 of 3 limes"); ticked, the check fills and the text goes
- * `inkSecondary`. `surfaceMuted` in the current step's panel, `surface` on the ground. `stacked` stretches it to
+ * `inkSecondary`. Filled `fill` (`pillFill`), and `outlined` in `controlBorder` on the sheet. `stacked` stretches it to
  * the line, one per line at the largest text sizes.
  */
 function IngredientPill({
@@ -527,13 +570,15 @@ function IngredientPill({
   checked,
   stacked,
   fill,
+  outlined,
   onToggle,
 }: {
   text: string;
   label: string;
   checked: boolean;
   stacked: boolean;
-  fill: 'surface' | 'surfaceMuted';
+  fill: ColorToken;
+  outlined: boolean;
   onToggle: () => void;
 }) {
   const { colors, spacing, sizes, rounded, opacity } = useTheme();
@@ -554,6 +599,8 @@ function IngredientPill({
           paddingVertical: spacing.xs,
           borderRadius: rounded.full,
           backgroundColor: colors[fill],
+          borderWidth: outlined ? sizes.cookPillBorder : 0,
+          borderColor: colors.controlBorder,
           opacity: pressed ? opacity.pressed : 1,
         },
       ]}>
@@ -568,15 +615,18 @@ function IngredientPill({
 type StepState = 'done' | 'current' | 'upcoming';
 
 /**
- * A step on the timeline (board 6): its number circle on the rail, then the step. The circle is the step's
- * checkbox (a 44 pt target): **done** fills it `primary` with an `onPrimary` check; **current** (the first unticked
- * step) rings it `primary` around a `primary` number; **upcoming** rings it `controlBorder` around an `inkSecondary`
- * number. The rail runs from the circle to the next step's, `primary` below a done step. Every unticked step is open:
- * the current one in a `surface` panel with NOW, the text in `cookStepCurrent`, its ingredient pills (`children`)
- * and Mark step done; an upcoming one on the ground, the text in `body` and its pills. A done step folds to its text
- * on one line in `callout` `inkSecondary` with a chevron; tapping it reopens the step (`open`) to show its full
- * text and pills, and tapping again folds it. The text of an unticked step isn't a target, so a stray tap never
- * ticks anything; VoiceOver reads it through the checkbox's label.
+ * A step, laid out as the Cook view says (`look`). Its number is the step's checkbox (a 44 pt target). Every unticked
+ * step is open, with its text and its ingredient pills (`children`); the current one (the first unticked) adds
+ * Mark step done. A done step folds to its text on one line in `callout` `inkSecondary` with a chevron; tapping it
+ * reopens the step (`open`) to show its full text and pills, and tapping again folds it. The text of an unticked step
+ * isn't a target, so a stray tap never ticks anything; VoiceOver reads it through the checkbox's label.
+ *
+ * **Cards** (board 5A): an unticked step is a `surface` card with its 30 pt number circle and STEP N over the text
+ * in `cookStepText`; the current card has a 2 pt `primary` border, a filled `primary` circle, NOW and the text in
+ * `cookStepCurrent`. A done step sits on the ground with its filled check.
+ * **Sheet** (board 5B): steps lie between `border` hairlines on the `surface` page, each number a big numeral
+ * (`title`, `primary` for the current step and `inkSecondary` otherwise) or, done, a filled check; the current step
+ * has NOW over the text in `cookStepCurrent`.
  */
 function StepRow({
   number,
@@ -584,7 +634,7 @@ function StepRow({
   label,
   state,
   open,
-  railBelow,
+  look,
   stacked,
   onToggle,
   onReopen,
@@ -598,8 +648,7 @@ function StepRow({
   state: StepState;
   /** Shows the full text and the pills: every unticked step, and a ticked one reopened. */
   open: boolean;
-  /** The rail goes on to the next step (the next block is a step, not a title, picker or fold). */
-  railBelow: boolean;
+  look: CookViewStyle;
   /** The pills one per line, at the largest text sizes. */
   stacked: boolean;
   onToggle: () => void;
@@ -612,113 +661,172 @@ function StepRow({
   const { colors, spacing, sizes, rounded, opacity, typography } = useTheme();
   const current = state === 'current';
   const done = state === 'done';
+  const sheet = look === 'sheet';
   const pills =
     children.length > 0 ? (
       <View style={[stacked ? styles.stack : styles.wrap, { gap: spacing.sm }]}>{children}</View>
     ) : null;
-  // The text's first line sits level with the circle's middle.
-  const textTop = (sizes.minTapTarget - typography.body.lineHeight) / 2;
-  return (
-    <View onLayout={onLayout} style={[styles.step, { paddingLeft: spacing.sm, paddingRight: spacing.lg, gap: spacing.xs }]}>
-      <View style={[styles.rail, { width: sizes.minTapTarget }]}>
-        <Pressable
-          onPress={onToggle}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: done }}
-          accessibilityLabel={label}
-          style={({ pressed }) => [
-            styles.center,
-            { width: sizes.minTapTarget, height: sizes.minTapTarget, opacity: pressed ? opacity.pressed : 1 },
-          ]}>
-          <View
-            style={[
-              styles.center,
-              {
-                width: sizes.cookStepCheck,
-                height: sizes.cookStepCheck,
-                borderRadius: rounded.full,
-                borderWidth: current ? sizes.cookCurrentRing : sizes.checkBorder,
-                borderColor: done || current ? colors.primary : colors.controlBorder,
-                backgroundColor: done ? colors.primary : colors.surface,
-              },
-            ]}>
-            {done ? (
-              <Icon name="checkmark" color="onPrimary" weight="bold" size={sizes.iconSmall} />
-            ) : (
-              <ThemedText
-                variant="amount"
-                color={current ? 'primary' : 'inkSecondary'}
-                maxFontSizeMultiplier={1}
-                style={styles.digit}>
-                {number}
-              </ThemedText>
-            )}
-          </View>
-        </Pressable>
-        {railBelow ? (
-          <View
-            style={{
-              flex: 1,
-              width: sizes.cookRail,
-              borderRadius: rounded.full,
-              // Through the gap below the row, to the next step's circle.
-              marginBottom: -spacing.md,
-              backgroundColor: done ? colors.primary : colors.controlBorder,
-            }}
-          />
-        ) : null}
-      </View>
-      {current ? (
-        <View
-          style={[
-            styles.flex,
-            styles.panel,
-            { gap: spacing.md, padding: spacing.lg, borderRadius: rounded.card, backgroundColor: colors.surface },
-          ]}>
-          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ gap: spacing.xs }}>
-            <ThemedText variant="caption" color="primary">
-              {t('recipes.cook.now')}
-            </ThemedText>
-            <ThemedText variant="cookStepCurrent">{text}</ThemedText>
-          </View>
-          {pills}
-          <PrimaryButton
-            label={t('recipes.cook.markDone')}
-            accessibilityLabel={t('recipes.cook.markDoneLabel', { number })}
-            onPress={onDone}
-          />
-        </View>
-      ) : done ? (
-        <View style={[styles.flex, { gap: spacing.sm, paddingBottom: open ? spacing.sm : 0 }]}>
-          <Pressable
-            onPress={onReopen}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
-            accessibilityLabel={text}
-            style={({ pressed }) => [
-              styles.step,
-              { gap: spacing.sm, minHeight: sizes.minTapTarget, paddingTop: textTop, opacity: pressed ? opacity.pressed : 1 },
-            ]}>
-            <ThemedText
-              variant={open ? 'body' : 'callout'}
-              color="inkSecondary"
-              numberOfLines={open ? undefined : 1}
-              style={styles.flex}>
-              {text}
-            </ThemedText>
-            <Icon name={open ? 'chevron.up' : 'chevron.down'} color="inkTertiary" size={sizes.iconSmall} />
-          </Pressable>
-          {open ? pills : null}
-        </View>
-      ) : (
-        <View style={[styles.flex, { gap: spacing.sm + spacing.xxs, paddingTop: textTop, paddingBottom: spacing.sm }]}>
-          <ThemedText variant="body" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            {text}
-          </ThemedText>
-          {pills}
-        </View>
-      )}
+
+  const doneCheck = (
+    <View
+      style={[
+        styles.center,
+        { width: sizes.cookStepCheck, height: sizes.cookStepCheck, borderRadius: rounded.full, backgroundColor: colors.primary },
+      ]}>
+      <Icon name="checkmark" color="onPrimary" weight="bold" size={sizes.iconSmall} />
     </View>
+  );
+  // Cards: a round number, filled for the current step; the sheet: a big numeral.
+  const mark = done ? (
+    doneCheck
+  ) : sheet ? (
+    <ThemedText variant="title" color={current ? 'primary' : 'inkSecondary'} maxFontSizeMultiplier={1.5}>
+      {number}
+    </ThemedText>
+  ) : (
+    <View
+      style={[
+        styles.center,
+        {
+          width: sizes.cookStepCheck,
+          height: sizes.cookStepCheck,
+          borderRadius: rounded.full,
+          borderWidth: current ? 0 : sizes.checkBorder,
+          borderColor: colors.controlBorder,
+          backgroundColor: current ? colors.primary : colors.surface,
+        },
+      ]}>
+      <ThemedText variant="amount" color={current ? 'onPrimary' : 'inkSecondary'} maxFontSizeMultiplier={1} style={styles.digit}>
+        {number}
+      </ThemedText>
+    </View>
+  );
+  const checkbox = (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: done }}
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.center,
+        {
+          minWidth: sheet ? sizes.minTapTarget + spacing.sm : sizes.minTapTarget,
+          minHeight: sizes.minTapTarget,
+          opacity: pressed ? opacity.pressed : 1,
+        },
+      ]}>
+      {mark}
+    </Pressable>
+  );
+  const kicker = current ? t('recipes.cook.now') : t('recipes.cook.stepKicker', { number });
+  const kickerText = (
+    <ThemedText variant="caption" color={current ? 'primary' : 'inkSecondary'}>
+      {kicker}
+    </ThemedText>
+  );
+  const body = (
+    <ThemedText variant={current ? 'cookStepCurrent' : 'cookStepText'}>{text}</ThemedText>
+  );
+  const button = current ? (
+    <PrimaryButton
+      label={t('recipes.cook.markDone')}
+      accessibilityLabel={t('recipes.cook.markDoneLabel', { number })}
+      onPress={onDone}
+    />
+  ) : null;
+  // The folded line of a done step, which reopens it; reopened, its whole text and its pills.
+  const textTop = (sizes.minTapTarget - typography.callout.lineHeight) / 2;
+  const doneBody = (
+    <View style={[styles.flex, { gap: spacing.sm, paddingBottom: open ? spacing.sm : 0 }]}>
+      <Pressable
+        onPress={onReopen}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={text}
+        style={({ pressed }) => [
+          styles.step,
+          { gap: spacing.sm, minHeight: sizes.minTapTarget, paddingTop: textTop, opacity: pressed ? opacity.pressed : 1 },
+        ]}>
+        <ThemedText
+          variant={open ? 'cookStepText' : 'callout'}
+          color="inkSecondary"
+          numberOfLines={open ? undefined : 1}
+          style={styles.flex}>
+          {text}
+        </ThemedText>
+        <Icon name={open ? 'chevron.up' : 'chevron.down'} color="inkTertiary" size={sizes.iconSmall} />
+      </Pressable>
+      {open ? pills : null}
+    </View>
+  );
+
+  if (sheet) {
+    return (
+      <View
+        onLayout={onLayout}
+        style={[
+          styles.step,
+          {
+            gap: spacing.xs,
+            paddingLeft: spacing.xs,
+            paddingRight: spacing.lg,
+            paddingVertical: done ? spacing.xs : spacing.lg,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: colors.border,
+          },
+        ]}>
+        {checkbox}
+        {done ? (
+          doneBody
+        ) : (
+          <View style={[styles.flex, { gap: spacing.md, paddingTop: spacing.xs }]}>
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ gap: spacing.xs }}>
+              {current ? kickerText : null}
+              {body}
+            </View>
+            {pills}
+            {button}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  if (done) {
+    return (
+      <View onLayout={onLayout} style={[styles.step, { gap: spacing.xs, paddingLeft: spacing.sm + spacing.xs, paddingRight: spacing.lg }]}>
+        {checkbox}
+        {doneBody}
+      </View>
+    );
+  }
+  return (
+    <Card
+      onLayout={onLayout}
+      style={[
+        styles.panel,
+        {
+          gap: spacing.md,
+          paddingTop: spacing.sm,
+          paddingBottom: spacing.lg,
+          paddingHorizontal: spacing.lg,
+          borderWidth: sizes.cookCurrentBorder,
+          borderColor: current ? colors.primary : 'transparent',
+        },
+      ]}>
+      {/* The circle's 44 pt target reaches into the padding, so the circle lines up with the text. */}
+      <View style={[styles.row, { gap: spacing.xs, marginLeft: -spacing.sm + spacing.xxs }]}>
+        {checkbox}
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {kickerText}
+        </View>
+      </View>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {body}
+      </View>
+      {pills}
+      {button}
+    </Card>
   );
 }
 
@@ -767,7 +875,6 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   step: { flexDirection: 'row', alignItems: 'flex-start' },
-  rail: { alignItems: 'center', alignSelf: 'stretch' },
   panel: { borderCurve: 'continuous' },
   center: { alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, alignItems: 'center' },

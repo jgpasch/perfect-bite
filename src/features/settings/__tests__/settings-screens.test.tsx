@@ -35,6 +35,7 @@ import {
   setKeepScreenOn,
   setPlanTab,
 } from '../device-settings';
+import { COOK_VIEW_STYLE_KEY, getCookViewStyle, setCookViewStyle } from '@/features/recipes/cook-style';
 import { getRecipeViewStyle, RECIPE_VIEW_STYLE_KEY, setRecipeViewStyle } from '@/features/recipes/view-style';
 import { getPlanCellStyle, PLAN_CELL_STYLE_KEY, setPlanCellStyle } from '@/features/meal-plan/cell-style';
 import { ADD_HINT_SEEN_KEY, ADD_TAP_COUNT_KEY } from '@/features/tabs/add-hint';
@@ -479,15 +480,41 @@ describe('Settings', () => {
     it('has no Plan grid row: Fonts, then Recipe view, even with a plan.gridStyle saved', () => {
       deviceSettings.setDeviceSetting('plan.gridStyle', 'photo');
       const root = render(<SettingsScreen />);
-      expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque Recipe view Standard Title on photo');
+      expect(textOf(root)).toContain('Design trials Fonts Bricolage Grotesque Recipe view Standard Title on photo Cook view Cards Sheet');
       expect(textOf(root)).not.toContain('Plan grid');
       expect(labelled(root, 'Plan grid style')).toHaveLength(0);
-      // Meal plan's Grid cells and Design trials' Recipe view are the screen's only segmented controls.
+      // Meal plan's Grid cells and Design trials' Recipe view and Cook view are the screen's only segmented controls.
       expect(
         root.root
           .findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tablist')
           .map((n) => n.props.accessibilityLabel),
-      ).toEqual(['Grid cell style', 'Recipe view style']);
+      ).toEqual(['Grid cell style', 'Recipe view style', 'Cook view style']);
+    });
+
+    describe('Cook view', () => {
+      const segments = (root: ReactTestRenderer) => {
+        const found = labelled(root, 'Cook view style');
+        expect(found).toHaveLength(1);
+        return found[0].findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'tab');
+      };
+      const states = (root: ReactTestRenderer) =>
+        segments(root).map((s) => [s.props.accessibilityLabel, s.props.accessibilityState.selected]);
+
+      it('follows Recipe view, Cards selected until Sheet is picked, and saves cook.viewStyle', () => {
+        const root = render(<SettingsScreen />);
+        expect(textOf(root)).toContain('Title on photo Cook view Cards Sheet');
+        expect(states(root)).toEqual([
+          ['Cards', true],
+          ['Sheet', false],
+        ]);
+        expect(deviceSettings.getDeviceSetting(COOK_VIEW_STYLE_KEY, null)).toBeNull();
+        click(segments(root)[1]);
+        expect(deviceSettings.getDeviceSetting(COOK_VIEW_STYLE_KEY, null)).toBe('sheet');
+        expect(getCookViewStyle()).toBe('sheet');
+        expect(states(root)[1]).toEqual(['Sheet', true]);
+        act(() => setCookViewStyle('cards'));
+        expect(states(root)[0]).toEqual(['Cards', true]);
+      });
     });
 
     describe('Recipe view', () => {
