@@ -280,6 +280,29 @@ describe('reconcileShares', () => {
     expect(pendingFiles()).toEqual([`${E1}.json`]);
   });
 
+  test('a queued photo share (v 3, no url) parses but is not on the card yet', async () => {
+    const photo = {
+      v: 3,
+      id: E2,
+      userId: USER,
+      images: [{ mediaType: 'image/jpeg', data: '/9j/4AAQSkZJRg==' }],
+      listId: costco,
+      createdAt: '2026-10-23T07:42:05.123-05:00',
+      appVersion: '1.2.0',
+      source: 'share',
+    };
+    fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, `${E2}.json`), JSON.stringify(photo));
+    enqueue(E1, { title: 'Pho' });
+    onRpc(() => ({ data: null, error: { message: 'TypeError: Network request failed' }, status: 0 }));
+
+    const result = await reconcileShares(USER);
+
+    // Read as the user's (not deleted as unreadable), so it waits like any envelope.
+    expect(result).toMatchObject({ offline: true, otherUsers: [] });
+    expect(pendingFiles()).toEqual([`${E1}.json`, `${E2}.json`]);
+    expect(getShareQueueStatus().queued.map((s) => s.id)).toEqual([E1]);
+  });
+
   test('offline at the status check: nothing is deleted or submitted, and the card says offline', async () => {
     enqueue(E1, { title: 'Pho' });
     onRpc(() => ({ data: null, error: { message: 'TypeError: Network request failed' }, status: 0 }));

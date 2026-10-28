@@ -162,15 +162,22 @@ function publish(userId: string, envelopes: ShareEnvelope[], rows: ShareImportRo
   const last = getShareQueueStatus();
   const serverQueued = rows ? rows.filter((row) => RUNNING.has(row.status)) : null;
   const known = new Set((rows ?? []).map((row) => row.id.toLowerCase()));
+  // Photo shares (no url) aren't on the card yet.
   const local: QueuedShare[] = envelopes
     .filter((envelope) => !known.has(envelope.id.toLowerCase()))
-    .map((envelope) => ({
-      id: envelope.id,
-      url: envelope.url,
-      title: envelope.page?.title?.trim() || null,
-      ...destinationNames(envelopeRequested(envelope), userId),
-      onServer: false,
-    }));
+    .flatMap((envelope) =>
+      envelope.url === undefined
+        ? []
+        : [
+            {
+              id: envelope.id,
+              url: envelope.url,
+              title: envelope.page?.title?.trim() || null,
+              ...destinationNames(envelopeRequested(envelope), userId),
+              onServer: false,
+            },
+          ],
+    );
   const running: QueuedShare[] = serverQueued
     ? [...serverQueued]
         .sort((a, b) => a.created_at.localeCompare(b.created_at))

@@ -9,6 +9,8 @@ enum ShareQueue {
   static let uploadStatePath = "share/upload-state"
   /// The envelope version this extension writes: it carries `userId` and starts the upload.
   static let envelopeVersion = 2
+  /// A photo share's envelope version: `images` and no `url` or `page`.
+  static let photoEnvelopeVersion = 3
 
   /// Mirrors `ShareEnvelopeSchema` in src/shared/schemas/share.ts. Keep in sync by hand.
   struct Envelope: Codable {
@@ -21,12 +23,22 @@ enum ShareQueue {
       var imageUrl: String?
     }
 
+    /// Mirrors `RecipePhotoSchema` as a share takes it: `image/jpeg` only, `data` standard padded
+    /// base64 of at most 2 MB decoded.
+    struct Image: Codable {
+      let mediaType: String
+      let data: String
+    }
+
     /// `envelopeVersion`; left out by older extensions.
     let v: Int?
     let id: String
     /// The snapshot's signed-in user. Left out when the snapshot has none (written by an older app).
     let userId: String?
-    let url: String
+    /// A link share's URL; nil (left out) for a photo share.
+    let url: String?
+    /// A photo share's pages in order, 1 to 3; nil (left out) for a link share.
+    let images: [Image]?
     /// Null (written explicitly, not omitted): the default list, or no list when `addToList` is false.
     let listId: String?
     /// The household picked in the sheet, where a recipe-only share is saved. Null when unknown.
@@ -39,17 +51,18 @@ enum ShareQueue {
     let source: String
 
     enum CodingKeys: String, CodingKey {
-      case v, id, userId, url, listId, householdId, addToList, page, createdAt, appVersion, source
+      case v, id, userId, url, images, listId, householdId, addToList, page, createdAt, appVersion, source
     }
 
     // JSONEncoder omits nil optionals; the schema wants `listId` and `householdId` as null, and
-    // `page` left out.
+    // `url`, `images` and `page` left out.
     func encode(to encoder: Encoder) throws {
       var c = encoder.container(keyedBy: CodingKeys.self)
       try c.encodeIfPresent(v, forKey: .v)
       try c.encode(id, forKey: .id)
       try c.encodeIfPresent(userId, forKey: .userId)
-      try c.encode(url, forKey: .url)
+      try c.encodeIfPresent(url, forKey: .url)
+      try c.encodeIfPresent(images, forKey: .images)
       try c.encode(listId, forKey: .listId)
       try c.encode(householdId, forKey: .householdId)
       try c.encodeIfPresent(addToList, forKey: .addToList)
@@ -130,7 +143,7 @@ enum ShareQueue {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     return Envelope(
-      v: envelopeVersion, id: SiriQueue.uuidV7(), userId: userId, url: url.absoluteString,
+      v: envelopeVersion, id: SiriQueue.uuidV7(), userId: userId, url: url.absoluteString, images: nil,
       listId: addToList ? listId : nil,
       householdId: householdId, addToList: addToList, page: page,
       createdAt: formatter.string(from: Date()), appVersion: version, source: "share")

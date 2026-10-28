@@ -321,6 +321,15 @@ Deno.test('a body that isn\'t a valid envelope is 400 invalid_request; a non-htt
   assertEquals(rows.size, 0);
 });
 
+Deno.test('a valid photo share (v 3) is 400 invalid_request for now, nothing recorded', async () => {
+  const { store, rows } = memoryStore();
+  const { url: _url, page: _page, ...link } = envelope();
+  const res = await serve(store).call(post({ ...link, v: 3, images: [{ mediaType: 'image/jpeg', data: '/9j/4AAQSkZJRg==' }] }));
+  assertEquals(res.status, 400);
+  assertEquals(await res.json(), { error: 'invalid_request', message: 'Photo shares are not taken yet' });
+  assertEquals(rows.size, 0);
+});
+
 Deno.test('a household the user isn\'t in is 403 not_a_member; a list outside the household is 400', async () => {
   const { store, rows } = memoryStore();
   const server = serve(store);

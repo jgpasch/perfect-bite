@@ -66,7 +66,7 @@ async function sha256Hex(text: string): Promise<string> {
 export function sharePayloadHash(envelope: ShareEnvelope): Promise<string> {
   return sha256Hex(
     canonicalJson({
-      url: canonicalRecipeUrl(envelope.url),
+      url: envelope.url === undefined ? null : canonicalRecipeUrl(envelope.url),
       householdId: envelope.householdId?.toLowerCase() ?? null,
       listId: envelope.listId?.toLowerCase() ?? null,
       addToList: shareAddsToList(envelope),
@@ -77,6 +77,7 @@ export function sharePayloadHash(envelope: ShareEnvelope): Promise<string> {
 
 /** The row to record for a validated envelope from `auth`'s user. */
 export async function shareIngestRow(envelope: ShareEnvelope, auth: ShareIngestAuth): Promise<ShareIngestRow> {
+  if (envelope.url === undefined) throw new Error('share-ingest: a photo share has no row yet');
   const urlKey = canonicalRecipeUrl(envelope.url);
   if (urlKey === null) throw new Error('share-ingest: the envelope URL was not validated');
   return {

@@ -1,7 +1,7 @@
 // HTTP layer for share-ingest, kept free of `@supabase/server` so Deno tests can call it. index.ts
 // supplies how a bearer token is authenticated (a device credential or a user session), the store
 // and how the worker is started.
-import { ShareEnvelopeSchema, type ShareEnvelope } from '@shared/index.ts';
+import { ShareEnvelopeSchema, shareKind, type ShareEnvelope } from '@shared/index.ts';
 
 import { reportError } from '../_shared/sentry.ts';
 import { readBody } from '../categorize-ingredients/request.ts';
@@ -80,6 +80,8 @@ export async function handleRequest(req: Request, deps: RequestDeps): Promise<Re
 
     const envelope = parseEnvelope(bytes);
     if (envelope instanceof Response) return envelope;
+    // Photo shares (spec 6.12) are taken once uploading their images is in place.
+    if (shareKind(envelope) === 'photo') return error(400, 'invalid_request', 'Photo shares are not taken yet');
 
     const key = req.headers.get('idempotency-key')?.trim().toLowerCase();
     if (key !== envelope.id.toLowerCase()) {
