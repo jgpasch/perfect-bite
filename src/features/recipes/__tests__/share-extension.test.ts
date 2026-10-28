@@ -11,6 +11,13 @@ import {
   MAX_PAGE_TEXT_BYTES,
   RecipeImportPageSchema,
 } from '@/shared/schemas/recipe-import';
+import {
+  MAX_PHOTO_IMPORT_BODY_BYTES,
+  MAX_PHOTO_IMPORT_IMAGE_BYTES,
+  MAX_PHOTO_IMPORT_IMAGES,
+  RECIPE_PHOTO_MEDIA_TYPES,
+} from '@/shared/schemas/recipe-photo-import';
+import { ShareEnvelopeSchema, shareKind } from '@/shared/schemas/share';
 
 import { PAGE_IMAGE_SOURCES } from '../page-capture';
 import { NO_LISTS_IN_HOUSEHOLD, saveButtonTitle, SHARE_SAVED_MESSAGE } from '../save-choice';
@@ -205,7 +212,7 @@ describe('share-recipe target', () => {
     });
   });
 
-  test('activates for one web URL, one web page or text, never images, and preprocesses Safari pages', () => {
+  test('activates for one web URL, one web page, text or up to 3 images, and preprocesses Safari pages', () => {
     const info = plist.parse(readFileSync(join(TARGET_DIR, 'Info.plist'), 'utf8'));
     const extension = info.NSExtension;
     expect(extension.NSExtensionPointIdentifier).toBe('com.apple.share-services');
@@ -215,7 +222,10 @@ describe('share-recipe target', () => {
       NSExtensionActivationSupportsText: true,
       NSExtensionActivationSupportsWebURLWithMaxCount: 1,
       NSExtensionActivationSupportsWebPageWithMaxCount: 1,
+      // 4 or more images don't offer the app (spec 4.10 step 1).
+      NSExtensionActivationSupportsImageWithMaxCount: MAX_PHOTO_IMPORT_IMAGES,
     });
+    expect(MAX_PHOTO_IMPORT_IMAGES).toBe(3);
   });
 
   test("the sheet's copy and envelope rule match save-choice.ts", () => {
@@ -466,5 +476,174 @@ describe('share-recipe target: the share-ingest URL', () => {
       else process.env.EXPO_PUBLIC_SUPABASE_URL = before;
     }
     expect(share.settings).toEqual({ SHARE_INGEST_URL: 'https://env.supabase.co/functions/v1/share-ingest' });
+  });
+});
+
+// A photo share (spec 4.10 steps 1 to 3). The ImageIO work is Swift and can't run here; this checks
+// its caps match the schema's, the order of the steps, the copy, and that what it writes parses.
+describe('share-recipe target: photo shares', () => {
+  const ROOT = join(__dirname, '..', '..', '..', '..');
+  const PHOTOS = readFileSync(join(TARGET_DIR, 'SharePhotos.swift'), 'utf8');
+  const VIEW = readFileSync(join(TARGET_DIR, 'ShareViewController.swift'), 'utf8');
+  const QUEUE = readFileSync(join(ROOT, 'targets', '_shared', 'ShareQueue.swift'), 'utf8');
+  const APP_GROUP = readFileSync(join(ROOT, 'src', 'features', 'siri', 'app-group.ts'), 'utf8');
+
+  /** The right-hand side of a Swift `static let name… = …`. */
+  const swiftValue = (source: string, name: string) => {
+    const match = source.match(new RegExp(`static let ${name}(?:: [^=]+)? = (.+)\\n`));
+    expect(match).not.toBeNull();
+    return match![1].trim();
+  };
+  /** A Swift integer expression such as `2 * 1024 * 1024`. */
+  const swiftInt = (source: string, name: string) => {
+    const value = swiftValue(source, name);
+    expect(value).toMatch(/^\d+( \* \d+)*$/);
+    return value.split(' * ').reduce((product, n) => product * Number(n), 1);
+  };
+  /** The body of a Swift `func name(`, up to the next `func`. */
+  const swiftFunc = (source: string, name: string) => {
+    const start = source.indexOf(`func ${name}(`);
+    expect(start).toBeGreaterThan(-1);
+    const next = source.indexOf(' func ', start + 1);
+    return source.slice(start, next === -1 ? undefined : next);
+  };
+
+  test("the caps are the schema's: 3 pages of at most 2 MB, JPEG only", () => {
+    expect(swiftInt(PHOTOS, 'maxImages')).toBe(MAX_PHOTO_IMPORT_IMAGES);
+    expect(swiftInt(PHOTOS, 'maxImageBytes')).toBe(MAX_PHOTO_IMPORT_IMAGE_BYTES);
+    expect(MAX_PHOTO_IMPORT_IMAGE_BYTES).toBe(2 * 1024 * 1024);
+    expect(swiftValue(PHOTOS, 'mediaType')).toBe('"image/jpeg"');
+    expect(RECIPE_PHOTO_MEDIA_TYPES).toContain('image/jpeg');
+    // Only the first 3 image providers are read.
+    expect(PHOTOS).toContain('.prefix(maxImages)');
+  });
+
+  test('downscales to a 2000 px long edge with ImageIO, stepping the quality down from 0.8', () => {
+    expect(swiftInt(PHOTOS, 'maxPixelSize')).toBe(2000);
+    expect(swiftValue(PHOTOS, 'qualities')).toBe('[0.8, 0.6, 0.4]');
+    const downscale = swiftFunc(PHOTOS, 'downscale');
+    expect(downscale).toContain('CGImageSourceCreateThumbnailAtIndex(source, 0, options)');
+    expect(downscale).toContain('kCGImageSourceCreateThumbnailWithTransform: true');
+    expect(downscale).toContain('kCGImageSourceThumbnailMaxPixelSize: maxPixelSize');
+    // Each quality is tried in order until the JPEG is within the cap; over it at 0.4 is unreadable.
+    const page = swiftFunc(PHOTOS, 'page');
+    expect(page).toContain('for quality in qualities {');
+    expect(page).toContain('if data.count <= maxImageBytes { return data }');
+    expect(page).toContain('autoreleasepool');
+    expect(swiftFunc(PHOTOS, 'encode')).toContain('kCGImageDestinationLossyCompressionQuality: quality');
+    // Never a full-size bitmap: no UIImage from the original, and the source doesn't cache it.
+    expect(PHOTOS).not.toMatch(/UIImage\(/);
+    expect(PHOTOS).not.toContain('CGImageSourceCreateImageAtIndex');
+    expect(PHOTOS).toContain('kCGImageSourceShouldCache: false');
+  });
+
+  test('thumbnails are 400 px at 0.7, from the same source, in share/thumbs/<id>/<n>.jpg', () => {
+    expect(swiftInt(PHOTOS, 'thumbPixelSize')).toBe(400);
+    expect(swiftValue(PHOTOS, 'thumbQuality')).toBe('0.7');
+    expect(swiftFunc(PHOTOS, 'page')).toContain(
+      'downscale(source, maxPixelSize: thumbPixelSize).flatMap { encode($0, quality: thumbQuality) }',
+    );
+    const thumbsDir = APP_GROUP.match(/export const SHARE_THUMBS_DIR = '([^']+)'/)?.[1];
+    expect(thumbsDir).toBe('share/thumbs');
+    expect(swiftValue(PHOTOS, 'thumbsPath')).toBe(`"${thumbsDir}"`);
+    const write = swiftFunc(PHOTOS, 'writeThumbs');
+    expect(write).toContain('ShareQueue.dir("\\(thumbsPath)/\\(id)")');
+    // n from 1, as share-images' <n>.jpg.
+    expect(write).toContain('name: "\\(index + 1).jpg"');
+  });
+
+  test('images are read only when no web URL was found, one at a time, stopping at an unreadable one', () => {
+    const load = swiftFunc(VIEW, 'load');
+    const link = load.indexOf('await loadLink(providers)');
+    const photos = load.indexOf('if url == nil { await loadPhotos(SharePhotos.imageProviders(providers)) }');
+    expect(link).toBeGreaterThan(-1);
+    expect(photos).toBeGreaterThan(link);
+    const loadPhotos = swiftFunc(VIEW, 'loadPhotos');
+    expect(loadPhotos).toContain('for provider in providers {');
+    expect(loadPhotos).toMatch(
+      /guard let photo = await SharePhotos\.load\(provider\) else \{\n\s+unreadableImage = true\n\s+return\n/,
+    );
+    // The link order is as before: Safari's page, then a URL, then text.
+    const loadLink = swiftFunc(VIEW, 'loadLink');
+    expect(loadLink.indexOf('UTType.propertyList')).toBeGreaterThan(-1);
+    expect(loadLink.indexOf('UTType.propertyList')).toBeLessThan(loadLink.indexOf('UTType.url'));
+    expect(loadLink.indexOf('UTType.url')).toBeLessThan(loadLink.indexOf('UTType.plainText'));
+  });
+
+  test('an unreadable image disables Save; a photo share saves without a URL', () => {
+    expect(VIEW).toContain('var isPhotoShare: Bool { url == nil && (!photos.isEmpty || unreadableImage) }');
+    expect(VIEW).toContain('(url != nil || (!photos.isEmpty && !unreadableImage))');
+    expect(VIEW).toContain('.disabled(!model.canSave)');
+  });
+
+  test('the sheet shows "From a photo", "2 pages" and "Couldn\'t read that image"', () => {
+    expect(PHOTOS).toContain('pageCount <= 1 ? "From a photo" : "\\(pageCount) pages"');
+    expect(PHOTOS).toContain('static let unreadableMessage = "Couldn\'t read that image"');
+    expect(VIEW).toContain('Text(SharePhotos.unreadableMessage)');
+    // 3:4 thumbnails.
+    expect(VIEW).toContain('.frame(width: 72, height: 96)');
+    // The household, switch and list stay as for a link.
+    const content = VIEW.slice(VIEW.indexOf('PhotoHeader('), VIEW.indexOf('Button(action: model.save)'));
+    expect(content).toContain('AddToListRow(model: model)');
+    expect(content).toContain('SectionLabel(text: "Save to")');
+  });
+
+  test('saving writes the thumbnails, then a v: 3 envelope, then starts the upload, logging no image data', () => {
+    const save = swiftFunc(VIEW, 'save');
+    const thumbs = save.indexOf('if url == nil { try SharePhotos.writeThumbs(photos, id: envelope.id) }');
+    const write = save.indexOf('let body = try ShareQueue.enqueue(envelope)');
+    const upload = save.indexOf('ShareUpload.start(envelope, body: body)');
+    expect(thumbs).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(thumbs);
+    expect(upload).toBeGreaterThan(write);
+    expect(save).toContain('images: SharePhotos.envelopeImages(photos)');
+
+    const photo = swiftFunc(QUEUE, 'makePhotoEnvelope');
+    expect(photo).toContain('v: photoEnvelopeVersion');
+    expect(photo).toContain('url: nil, images: images');
+    expect(photo).toContain('page: nil');
+    expect(photo).toContain('listId: addToList ? listId : nil');
+    expect(swiftInt(QUEUE, 'photoEnvelopeVersion')).toBe(3);
+
+    // Log lines carry counts and sizes only.
+    const logs = [...VIEW.matchAll(/SiriQueue\.log\(([\s\S]*?)\)\n/g)].map((m) => m[1]);
+    expect(logs.length).toBeGreaterThanOrEqual(3);
+    for (const line of logs) expect(line).not.toMatch(/base64|\.data\b|envelopeImages|thumbnails\b|\.thumb\b/);
+    expect(VIEW).toContain('images=\\(photos.count)');
+    expect(VIEW).toContain('body=\\(body.count)');
+  });
+
+  /** The envelope `makePhotoEnvelope` writes, with `pages` images of `bytes` decoded bytes each. */
+  const photoEnvelope = (pages: number, bytes: number) => ({
+    v: 3,
+    id: '0193a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+    userId: '11111111-1111-4111-8111-111111111111',
+    images: Array.from({ length: pages }, (_, i) => ({
+      mediaType: 'image/jpeg',
+      data: Buffer.alloc(bytes, i + 1).toString('base64'),
+    })),
+    listId: null,
+    householdId: '22222222-2222-4222-8222-222222222222',
+    addToList: false,
+    createdAt: '2026-10-28T09:15:00.000-07:00',
+    appVersion: '1.0.0',
+    source: 'share',
+  });
+
+  test('a 3-page envelope of 1 MB pages (~4 MB) parses as a photo share and is within the body cap', () => {
+    // JSONEncoder escapes slashes.
+    const body = JSON.stringify(photoEnvelope(3, 1024 * 1024)).replace(/\//g, '\\/');
+    expect(body.length).toBeGreaterThan(4 * 1024 * 1024);
+    expect(body.length).toBeLessThan(MAX_PHOTO_IMPORT_BODY_BYTES);
+    const parsed = ShareEnvelopeSchema.safeParse(JSON.parse(body));
+    expect(parsed.success).toBe(true);
+    expect(shareKind(parsed.data!)).toBe('photo');
+    expect(parsed.data!.images).toHaveLength(3);
+  });
+
+  test('a page at the 2 MB cap parses; one byte over, or a fourth page, is refused', () => {
+    expect(ShareEnvelopeSchema.safeParse(photoEnvelope(1, MAX_PHOTO_IMPORT_IMAGE_BYTES)).success).toBe(true);
+    expect(ShareEnvelopeSchema.safeParse(photoEnvelope(1, MAX_PHOTO_IMPORT_IMAGE_BYTES + 1)).success).toBe(false);
+    expect(ShareEnvelopeSchema.safeParse(photoEnvelope(MAX_PHOTO_IMPORT_IMAGES + 1, 10)).success).toBe(false);
   });
 });

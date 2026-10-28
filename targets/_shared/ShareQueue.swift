@@ -138,15 +138,33 @@ enum ShareQueue {
     url: URL, listId: String?, householdId: String?, addToList: Bool = true, page: Envelope.Page?,
     userId: String?
   ) -> Envelope {
-    let formatter = ISO8601DateFormatter()
-    formatter.timeZone = .current
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-    return Envelope(
+    Envelope(
       v: envelopeVersion, id: SiriQueue.uuidV7(), userId: userId, url: url.absoluteString, images: nil,
       listId: addToList ? listId : nil,
       householdId: householdId, addToList: addToList, page: page,
-      createdAt: formatter.string(from: Date()), appVersion: version, source: "share")
+      createdAt: createdAt(), appVersion: appVersion(), source: "share")
+  }
+
+  /// A photo share: `v: 3`, its pages in order, and no `url` or `page`.
+  static func makePhotoEnvelope(
+    images: [Envelope.Image], listId: String?, householdId: String?, addToList: Bool, userId: String?
+  ) -> Envelope {
+    Envelope(
+      v: photoEnvelopeVersion, id: SiriQueue.uuidV7(), userId: userId, url: nil, images: images,
+      listId: addToList ? listId : nil,
+      householdId: householdId, addToList: addToList, page: nil,
+      createdAt: createdAt(), appVersion: appVersion(), source: "share")
+  }
+
+  private static func createdAt() -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = .current
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: Date())
+  }
+
+  private static func appVersion() -> String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
   }
 
   /// Atomic write: `<id>.json.tmp` then rename to `<id>.json`. Returns the bytes written, which are

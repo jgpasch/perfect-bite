@@ -32,6 +32,12 @@ final class ShareViewController: UIViewController {
 final class ShareModel: ObservableObject {
   @Published var url: URL?
   @Published var page: ShareQueue.Envelope.Page?
+  /// A photo share's pages, in the order shared; only when there's no web URL.
+  @Published var photos: [SharePhotos.Page] = []
+  /// Their thumbnails as the sheet shows them.
+  @Published var thumbnails: [UIImage] = []
+  /// An image in the share couldn't be read: Save stays off.
+  @Published var unreadableImage = false
   /// The household the recipe is saved to (spec 4.10). Changing it resets the list to that
   /// household's default.
   @Published var householdId: String? {
@@ -87,12 +93,39 @@ final class ShareModel: ObservableObject {
 
   var displayTitle: String { page?.title ?? host ?? "" }
 
+  /// No web URL, and images: a photo share, even when one of them couldn't be read.
+  var isPhotoShare: Bool { url == nil && (!photos.isEmpty || unreadableImage) }
+
   var canSave: Bool {
-    !loading && !saved && url != nil && householdId != nil && (!addsToList || selectedList != nil)
+    !loading && !saved && (url != nil || (!photos.isEmpty && !unreadableImage)) && householdId != nil
+      && (!addsToList || selectedList != nil)
   }
 
-  /// Safari's web page first (it carries the page), then a web URL, then the first URL in text.
+  /// Safari's web page first (it carries the page), then a web URL, then the first URL in text; only
+  /// with none of those, up to 3 images in order.
   func load(_ providers: [NSItemProvider]) async {
+    await loadLink(providers)
+    if url == nil { await loadPhotos(SharePhotos.imageProviders(providers)) }
+    SiriQueue.log(
+      "share open url=\(url != nil) page=\(page != nil) images=\(photos.count) "
+        + "imageBytes=\(photos.map { String($0.jpeg.count) }.joined(separator: ",")) unreadable=\(unreadableImage) "
+        + "households=\(households.count) lists=\(snapshot.lists.count)")
+    loading = false
+  }
+
+  /// One image at a time, so only one is ever being decoded; stops at the first that can't be read.
+  private func loadPhotos(_ providers: [NSItemProvider]) async {
+    for provider in providers {
+      guard let photo = await SharePhotos.load(provider) else {
+        unreadableImage = true
+        return
+      }
+      photos.append(photo)
+      if let thumbnail = UIImage(data: photo.thumb) { thumbnails.append(thumbnail) }
+    }
+  }
+
+  private func loadLink(_ providers: [NSItemProvider]) async {
     for provider in providers.prefix(10)
     where provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
       await loadWebPage(provider)
@@ -106,9 +139,6 @@ final class ShareModel: ObservableObject {
         if let text = item as? String { url = ShareQueue.firstWebURL(in: text) }
       }
     }
-    SiriQueue.log(
-      "share open url=\(url != nil) page=\(page != nil) households=\(households.count) lists=\(snapshot.lists.count)")
-    loading = false
   }
 
   /// The results of Preprocess.js: the page's URL, title, JSON-LD blocks, readable text and photo tag.
@@ -128,17 +158,27 @@ final class ShareModel: ObservableObject {
   }
 
   func save() {
-    guard let url, canSave else { return }
+    guard canSave else { return }
     let target = ShareChoice.envelopeTarget(
       householdId: householdId, addToList: addsToList, listId: selectedList?.id)
-    let envelope = ShareQueue.makeEnvelope(
-      url: url, listId: target.listId, householdId: target.householdId, addToList: target.addToList,
-      page: page, userId: snapshot.userId)
+    let envelope: ShareQueue.Envelope
+    if let url {
+      envelope = ShareQueue.makeEnvelope(
+        url: url, listId: target.listId, householdId: target.householdId, addToList: target.addToList,
+        page: page, userId: snapshot.userId)
+    } else {
+      envelope = ShareQueue.makePhotoEnvelope(
+        images: SharePhotos.envelopeImages(photos), listId: target.listId, householdId: target.householdId,
+        addToList: target.addToList, userId: snapshot.userId)
+    }
     do {
+      // The thumbnails first, so the imports card has them once the envelope is there.
+      if url == nil { try SharePhotos.writeThumbs(photos, id: envelope.id) }
       let body = try ShareQueue.enqueue(envelope)
       SiriQueue.log(
         "share ok id=\(envelope.id) household=\(target.householdId ?? "-") list=\(target.listId ?? "-") "
-          + "jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0)")
+          + "jsonLd=\(page?.jsonLd?.count ?? 0) text=\(page?.text?.utf8.count ?? 0) "
+          + "images=\(photos.count) body=\(body.count)")
       // Only once the envelope is written; with no upload, the app submits it later.
       ShareUpload.start(envelope, body: body)
       saved = true
@@ -212,13 +252,18 @@ struct ShareView: View {
       ProgressView()
     } else if model.households.isEmpty {
       Message(text: "Open The Perfect Bite once to set up")
-    } else if model.url == nil {
+    } else if model.url == nil && !model.isPhotoShare {
       Message(text: "There's no link here to import.")
     } else {
       VStack(spacing: 0) {
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: model.displayTitle, host: model.host ?? "")
+            if model.isPhotoShare {
+              PhotoHeader(
+                thumbnails: model.thumbnails, pageCount: model.photos.count, unreadable: model.unreadableImage)
+            } else {
+              PageHeader(title: model.displayTitle, host: model.host ?? "")
+            }
             if model.households.count > 1 {
               SectionLabel(text: "Save to")
               Card {
@@ -274,6 +319,41 @@ private struct PageHeader: View {
         .foregroundStyle(Pantry.ink)
         .lineLimit(3)
       Text(host).font(.subheadline.weight(.semibold)).foregroundStyle(Pantry.inkSecondary).lineLimit(1)
+    }
+    .padding(.horizontal, 20)
+    .padding(.top, 8)
+  }
+}
+
+/// A photo share's pages as 3:4 thumbnails, with "From a photo" or "2 pages" in place of the title
+/// and host, and "Couldn't read that image" when one couldn't be read.
+private struct PhotoHeader: View {
+  let thumbnails: [UIImage]
+  let pageCount: Int
+  let unreadable: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if !thumbnails.isEmpty {
+        HStack(spacing: 8) {
+          ForEach(Array(thumbnails.enumerated()), id: \.offset) { _, thumbnail in
+            Image(uiImage: thumbnail)
+              .resizable()
+              .scaledToFill()
+              .frame(width: 72, height: 96)
+              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+              .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Pantry.border, lineWidth: 1))
+          }
+        }
+        .accessibilityHidden(true)
+      }
+      Text(SharePhotos.title(pageCount: pageCount))
+        .font(.system(.title, design: .rounded, weight: .heavy))
+        .foregroundStyle(Pantry.ink)
+      if unreadable {
+        Text(SharePhotos.unreadableMessage).font(.subheadline.weight(.semibold)).foregroundStyle(Pantry.danger)
+      }
     }
     .padding(.horizontal, 20)
     .padding(.top, 8)

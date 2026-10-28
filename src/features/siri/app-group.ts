@@ -19,6 +19,8 @@ export const SHARE_PENDING_DIR = 'share/pending';
 /** The extension's background upload: its request body and its state, by envelope id (spec 4.10). */
 export const SHARE_UPLOAD_DIR = 'share/upload';
 export const SHARE_UPLOAD_STATE_DIR = 'share/upload-state';
+/** A photo share's page thumbnails, `<id>/<n>.jpg` with n from 1, written by the extension (spec 4.10). */
+export const SHARE_THUMBS_DIR = 'share/thumbs';
 export const LISTS_FILE = 'siri/lists.json';
 export const LOG_FILE = 'logs/native.log';
 
