@@ -8,12 +8,17 @@ import { i18n } from '@/i18n';
 
 import { importLimitMessage, NOT_ENTITLED_MESSAGE } from './import-sheet';
 
+/**
+ * What was shared: a link (`kind` may be left out), or a photo share's pages, which have no URL or
+ * title and are named "From a photo".
+ */
+export type SharedThing = { kind?: 'link'; url: string } | { kind: 'photo'; url?: null; pageCount: number };
+
 /** A share waiting: an envelope not on the server yet, or a server import still running. */
-export type QueuedShare = {
+export type QueuedShare = SharedThing & {
   /** The envelope id, which is the server's operation id. */
   id: string;
-  url: string;
-  /** The page title Safari captured; other apps give none. */
+  /** The page title Safari captured; other apps, and photo shares, give none. */
   title: string | null;
   /** The list it will import into, or null when there's none, or it's recipe-only. */
   listName: string | null;
@@ -22,17 +27,29 @@ export type QueuedShare = {
   /** The server has it: it can't be removed any more. */
   onServer: boolean;
 };
+export type QueuedLinkShare = Extract<QueuedShare, { url: string }>;
+export type QueuedPhotoShare = Extract<QueuedShare, { kind: 'photo' }>;
 
 /** A share the server failed to import (`my_share_imports.status = 'failed'`). */
-export type FailedShareImport = {
+export type FailedShareImport = (
+  | { kind?: 'link'; url: string }
+  | {
+      kind: 'photo';
+      url?: null;
+      pageCount: number;
+      /** The server still has the pages (`my_share_imports.pages_kept`), so Try again can work. */
+      pagesKept: boolean;
+    }
+) & {
   id: string;
-  url: string;
   title: string | null;
   /** `share_imports.error_code`, e.g. `not_a_recipe`, `daily_limit`. */
   errorCode: string | null;
   /** With `limit_reached` and `daily_limit`: when the limit resets. */
   resetsAt: string | null;
 };
+export type FailedLinkShareImport = Extract<FailedShareImport, { url: string }>;
+export type FailedPhotoShareImport = Extract<FailedShareImport, { kind: 'photo' }>;
 
 export type ShareQueueStatus = {
   /** Waiting shares, oldest first. */
@@ -83,6 +100,11 @@ export function importHost(url: string): string | null {
 /** What to call a shared link: the page title, else the link's host without `www.`, else the link. */
 export function importName(share: { url: string; title: string | null }): string {
   return share.title?.trim() || importHost(share.url) || share.url;
+}
+
+/** What to call a share on the card: "From a photo" for a photo share, else `importName`. */
+export function shareName(share: SharedThing & { title: string | null }): string {
+  return share.kind === 'photo' ? i18n.t('recipes.imports.fromAPhoto') : importName(share);
 }
 
 function recipes(count: number): string {
@@ -136,9 +158,14 @@ function destination(share: QueuedShare): string | null {
   return share.listName ?? share.householdName ?? null;
 }
 
-/** A waiting row's second line: "bonappetit.com · to Groceries", or "to Smith home" for a recipe-only share. */
+/**
+ * A waiting row's second line: "bonappetit.com · to Groceries", or "to Smith home" for a recipe-only
+ * share; a photo share's page count in place of the host ("2 pages · to Groceries").
+ */
 export function queuedShareDetail(share: QueuedShare): string {
-  const parts = [importHost(share.url) ?? share.url];
+  const parts = [
+    share.kind === 'photo' ? i18n.t('recipes.imports.pages', { count: share.pageCount }) : (importHost(share.url) ?? share.url),
+  ];
   const to = destination(share);
   if (to) parts.push(toDestination(to));
   return parts.join(' · ');

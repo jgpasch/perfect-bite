@@ -58,8 +58,9 @@ import {
   importsCardHeading,
   queuedShareDetail,
   shareFailureReason,
+  shareName,
   waitReasonText,
-  type QueuedShare,
+  type QueuedLinkShare,
 } from '@/features/recipes/share-queue-status';
 import { NOTHING_SUGGESTED_NOTE, SUGGEST_TAGS_MESSAGES, SUGGESTED_NOTE, suggestTagsMessage } from '@/features/recipes/suggest-tags';
 import { i18n, initI18n } from '@/i18n';
@@ -90,7 +91,7 @@ function labels(root: ReactTestRenderer): string[] {
     .map((n) => n.props.accessibilityLabel as string);
 }
 
-function share(overrides: Partial<QueuedShare> = {}): QueuedShare {
+function share(overrides: Partial<QueuedLinkShare> = {}): QueuedLinkShare {
   return { id: 's1', url: 'https://www.bonappetit.com/recipe/x', title: null, listName: null, onServer: false, ...overrides };
 }
 
@@ -330,6 +331,10 @@ describe('recipes strings in Spanish', () => {
     expect(queuedShareDetail(share({ listName: 'Súper' }))).toBe('bonappetit.com · a Súper');
     expect(queuedShareDetail(share({ householdName: 'Casa' }))).toBe('bonappetit.com · a Casa');
     expect(queuedShareDetail(share())).toBe('bonappetit.com');
+    const photo = { id: 's2', kind: 'photo' as const, pageCount: 2, title: null, listName: 'Súper', onServer: false };
+    expect(shareName(photo)).toBe('De una foto');
+    expect(queuedShareDetail(photo)).toBe('2 páginas · a Súper');
+    expect(queuedShareDetail({ ...photo, pageCount: 1, listName: null, householdName: 'Casa' })).toBe('1 página · a Casa');
   });
 
   it('heads the imports card', () => {

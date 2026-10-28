@@ -13,12 +13,12 @@ import {
   queuedShareDetail,
   shareFailureReason,
   waitReasonText,
-  type FailedShareImport,
-  type QueuedShare,
+  type FailedLinkShareImport,
+  type QueuedLinkShare,
   type ShareQueueStatus,
 } from '../share-queue-status';
 
-const share = (id: string, over: Partial<QueuedShare> = {}): QueuedShare => ({
+const share = (id: string, over: Partial<QueuedLinkShare> = {}): QueuedLinkShare => ({
   id,
   url: `https://www.example.com/${id}`,
   title: null,
@@ -26,7 +26,7 @@ const share = (id: string, over: Partial<QueuedShare> = {}): QueuedShare => ({
   onServer: false,
   ...over,
 });
-const failed = (id: string, over: Partial<FailedShareImport> = {}): FailedShareImport => ({
+const failed = (id: string, over: Partial<FailedLinkShareImport> = {}): FailedLinkShareImport => ({
   id,
   url: `https://example.com/${id}`,
   title: null,

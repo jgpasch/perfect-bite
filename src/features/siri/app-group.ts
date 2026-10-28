@@ -5,9 +5,11 @@ import type { z } from 'zod';
 import {
   ListSnapshotSchema,
   ShareEnvelopeSchema,
+  shareKind,
   SiriEnvelopeSchema,
   type ListSnapshot,
   type ShareEnvelope,
+  type ShareKind,
   type SiriEnvelope,
 } from '@/shared';
 
@@ -78,8 +80,97 @@ export function readPendingShares(): PendingShare[] {
 }
 
 /**
+ * What the share reconcile and the imports card need of an envelope, without a photo share's
+ * pages (about 3 MB) or a link's captured page text.
+ */
+export type ShareSummary = Pick<ShareEnvelope, 'id' | 'userId' | 'url' | 'listId' | 'householdId' | 'addToList'> & {
+  kind: ShareKind;
+  /** A photo share's page count; null for a link. */
+  pageCount: number | null;
+  /** The page title Safari captured, if any. */
+  title: string | null;
+};
+export type PendingShareSummary = Pending<ShareSummary>;
+
+export function summarizeShareEnvelope(envelope: ShareEnvelope): ShareSummary {
+  const { id, userId, url, listId, householdId, addToList } = envelope;
+  return {
+    id,
+    userId,
+    url,
+    listId,
+    householdId,
+    addToList,
+    kind: shareKind(envelope),
+    pageCount: envelope.images?.length ?? null,
+    title: envelope.page?.title ?? null,
+  };
+}
+
+/**
+ * Summaries already read, by file URI, with the file's size and modification time when read. An
+ * envelope is written once (atomically) and never changed, so each is read and parsed in full only
+ * the first time it's seen; later reconciles reuse its summary.
+ */
+const summaryCache = new Map<string, { size: number; modified: number | null; summary: ShareSummary }>();
+
+/**
+ * Queued shares as summaries, oldest first, like `readPendingShares` (bad files come back as not
+ * ok). Only envelopes not seen before are read and parsed. Deletes nothing.
+ */
+export function readPendingShareSummaries(): PendingShareSummary[] {
+  const files = pendingFiles(SHARE_PENDING_DIR);
+  const seen = new Set<string>();
+  const result = files.map((file): PendingShareSummary => {
+    seen.add(file.uri);
+    const size = file.size;
+    const modified = file.modificationTime ?? null;
+    const cached = summaryCache.get(file.uri);
+    if (cached && cached.size === size && cached.modified === modified) return { ok: true, file, envelope: cached.summary };
+    const parsed = parseShareEnvelope(file);
+    if (!parsed.ok) return parsed;
+    const summary = summarizeShareEnvelope(parsed.envelope);
+    summaryCache.set(file.uri, { size, modified, summary });
+    return { ok: true, file, envelope: summary };
+  });
+  for (const uri of summaryCache.keys()) if (!seen.has(uri)) summaryCache.delete(uri);
+  return result;
+}
+
+/** When a UUIDv7 was made (ms since epoch), or null when `id` isn't one. */
+export function uuidv7Time(id: string): number | null {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  return parseInt(id.slice(0, 8) + id.slice(9, 13), 16);
+}
+
+/** The ids with page thumbnails (`share/thumbs/<id>/`). Empty without the App Group. */
+export function listShareThumbIds(): string[] {
+  const root = getAppGroupContainer();
+  if (!root) return [];
+  const thumbs = new Directory(root, SHARE_THUMBS_DIR);
+  if (!thumbs.exists) return [];
+  return thumbs
+    .list()
+    .filter((entry): entry is Directory => entry instanceof Directory)
+    .map((entry) => entry.name);
+}
+
+/** Deletes a photo share's page thumbnails (`share/thumbs/<id>/`), best effort. */
+export function removeShareThumbs(id: string): void {
+  const root = getAppGroupContainer();
+  if (!root) return;
+  try {
+    const dir = new Directory(root, SHARE_THUMBS_DIR, id);
+    if (dir.exists) dir.delete();
+  } catch (err) {
+    console.warn('[share] deleting a share’s thumbnails failed', id, err);
+  }
+}
+
+/**
  * Deletes a share's envelope and its upload files (`share/pending/`, `share/upload/` and
- * `share/upload-state/` `<id>.json`), each best effort. Does nothing without the App Group.
+ * `share/upload-state/` `<id>.json`), each best effort. Leaves its thumbnails, which the card shows
+ * while the server imports it (`removeShareThumbs`). Does nothing without the App Group.
  */
 export function removeShareFiles(id: string): void {
   const root = getAppGroupContainer();
@@ -113,8 +204,9 @@ export function clearListSnapshot(): void {
 }
 
 /**
- * Deletes every file in the Siri and share queues and the share uploads, `.tmp` writes too (account
- * deletion, spec 4.8): their envelopes are the user's words. Does nothing without the App Group.
+ * Deletes every file in the Siri and share queues and the share uploads, `.tmp` writes too, and
+ * every photo share's thumbnails (sign-out and account deletion, spec 4.8): their envelopes are the
+ * user's words, and the thumbnails their photos. Does nothing without the App Group.
  */
 export function emptyQueues(): void {
   const root = getAppGroupContainer();
@@ -124,6 +216,8 @@ export function emptyQueues(): void {
     if (!pending.exists) continue;
     for (const entry of pending.list()) if (entry instanceof File) entry.delete();
   }
+  const thumbs = new Directory(root, SHARE_THUMBS_DIR);
+  if (thumbs.exists) thumbs.delete();
 }
 
 export function readNativeLog(): string {

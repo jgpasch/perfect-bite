@@ -8,14 +8,21 @@ import { setAppGroupRoot } from '@/test/fake-file-system';
 
 import {
   clearListSnapshot,
+  emptyQueues,
   getAppGroupContainer,
+  listShareThumbIds,
   LISTS_FILE,
   LOG_FILE,
   PENDING_DIR,
   readNativeLog,
   readPendingShares,
+  readPendingShareSummaries,
   readPendingSiriAdds,
+  removeShareFiles,
+  removeShareThumbs,
   SHARE_PENDING_DIR,
+  SHARE_THUMBS_DIR,
+  uuidv7Time,
   writeListSnapshot,
 } from '../app-group';
 
@@ -126,6 +133,111 @@ describe('readPendingShares', () => {
   test('throws without the App Group, as the Siri queue does', () => {
     setAppGroupRoot(null);
     expect(() => readPendingShares()).toThrow(/App Group/);
+  });
+});
+
+describe('readPendingShareSummaries', () => {
+  const photo = (id: string, pages: number) => ({
+    v: 3,
+    url: undefined,
+    images: Array.from({ length: pages }, () => ({ mediaType: 'image/jpeg', data: '/9j/4AAQSkZJRg==' })),
+  });
+
+  test('summarizes links and photo shares, oldest first, without the pages or the page text', () => {
+    enqueue(S2, { ...photo(S2, 3), listId: null, addToList: false, householdId: COSTCO });
+    enqueue(S1, { v: 2, userId: COSTCO, listId: COSTCO, page: { title: 'Ramen', jsonLd: ['{}'], text: 'Ramen' } });
+    const pending = readPendingShareSummaries();
+    expect(pending.map((p) => (p.ok ? p.envelope : p.error))).toEqual([
+      {
+        id: S1,
+        userId: COSTCO,
+        url: `https://example.com/recipes/${S1}`,
+        listId: COSTCO,
+        householdId: undefined,
+        addToList: undefined,
+        kind: 'link',
+        pageCount: null,
+        title: 'Ramen',
+      },
+      {
+        id: S2,
+        userId: undefined,
+        url: undefined,
+        listId: null,
+        householdId: COSTCO,
+        addToList: false,
+        kind: 'photo',
+        pageCount: 3,
+        title: null,
+      },
+    ]);
+  });
+
+  test('parses each file once, and again only when it changes', () => {
+    enqueue(S1, photo(S1, 2));
+    const parse = jest.spyOn(JSON, 'parse');
+    const envelopeParses = () => parse.mock.calls.filter(([text]) => typeof text === 'string' && text.includes(S1)).length;
+    try {
+      readPendingShareSummaries();
+      readPendingShareSummaries();
+      expect(envelopeParses()).toBe(1);
+      // Replaced by a different envelope under the same name (not something the extension does).
+      enqueue(S1, photo(S1, 1));
+      const [again] = readPendingShareSummaries();
+      expect(again.ok && again.envelope.pageCount).toBe(1);
+      expect(envelopeParses()).toBe(2);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  test('a bad file is an error entry each time; a deleted one is gone', () => {
+    enqueue(S1);
+    write(`${S2}.json`, 'not json');
+    enqueue(S3, { ...photo(S3, 1), images: [{ mediaType: 'image/png', data: 'iVBORw0KGgo=' }] }); // JPEG only
+    expect(readPendingShareSummaries().map((p) => p.ok)).toEqual([true, false, false]);
+    expect(readPendingShareSummaries().map((p) => p.ok)).toEqual([true, false, false]);
+    fs.unlinkSync(path.join(shareDir(), `${S1}.json`));
+    expect(readPendingShareSummaries().map((p) => p.file.name)).toEqual([`${S2}.json`, `${S3}.json`]);
+  });
+});
+
+describe('share thumbnails', () => {
+  const thumbs = (id: string) => {
+    fs.mkdirSync(path.join(root, SHARE_THUMBS_DIR, id), { recursive: true });
+    fs.writeFileSync(path.join(root, SHARE_THUMBS_DIR, id, '1.jpg'), 'jpeg');
+  };
+
+  test('lists the ids with thumbnails and removes one, best effort', () => {
+    expect(listShareThumbIds()).toEqual([]);
+    thumbs(S1);
+    thumbs(S2);
+    fs.writeFileSync(path.join(root, SHARE_THUMBS_DIR, '.DS_Store'), '');
+    expect(listShareThumbIds().sort()).toEqual([S1, S2]);
+    removeShareThumbs(S1);
+    removeShareThumbs(S3); // not there: nothing happens
+    expect(listShareThumbIds()).toEqual([S2]);
+    setAppGroupRoot(null);
+    expect(listShareThumbIds()).toEqual([]);
+    expect(() => removeShareThumbs(S2)).not.toThrow();
+  });
+
+  test('removeShareFiles leaves the thumbnails; emptyQueues deletes them all', () => {
+    enqueue(S1);
+    thumbs(S1);
+    removeShareFiles(S1);
+    expect(fs.readdirSync(shareDir())).toEqual([]);
+    expect(listShareThumbIds()).toEqual([S1]);
+    emptyQueues();
+    expect(fs.existsSync(path.join(root, SHARE_THUMBS_DIR))).toBe(false);
+    expect(() => emptyQueues()).not.toThrow();
+  });
+
+  test('uuidv7Time reads the time a UUIDv7 was made, and null for anything else', () => {
+    expect(uuidv7Time(S1)).toBe(0x019a5e214b7c);
+    expect(new Date(uuidv7Time('019a5e21-4b7c-7A10-9C3E-5D2F8A6B1E04')!).toISOString()).toBe(new Date(0x019a5e214b7c).toISOString());
+    expect(uuidv7Time('0199c0de-0000-4000-8000-000000000001')).toBeNull(); // v4
+    expect(uuidv7Time('nested')).toBeNull();
   });
 });
 

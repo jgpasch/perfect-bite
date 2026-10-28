@@ -31,10 +31,10 @@ import {
 import { openFailedPhotoImport, pickOtherPhotos, retryFailedPhotoImport } from './photo-import-retry';
 import { removeQueuedShare, retryShareImport } from './share-reconcile';
 import {
-  importName,
   importsCardHeading,
   queuedShareDetail,
   shareFailureReason,
+  shareName,
   type FailedShareImport,
   type ImportsCardHeading,
   type QueuedShare,
@@ -301,7 +301,7 @@ function GroupLabel({ label, color }: { label: string; color: ColorToken }) {
 function QueuedShareRow({ share, divided }: { share: QueuedShare; divided: boolean }) {
   const t = useT();
   const { colors, spacing, sizes } = useTheme();
-  const name = importName(share);
+  const name = shareName(share);
 
   return (
     <View
@@ -365,7 +365,7 @@ function FailedShareRow({ share, divided }: { share: FailedShareImport; divided:
         paddingBottom: spacing.xs,
       }}>
       <ThemedText variant="body" numberOfLines={2}>
-        {importName(share)}
+        {shareName(share)}
       </ThemedText>
       <ThemedText variant="footnote" color="inkSecondary">
         {shareFailureReason(share.errorCode, share.resetsAt)}

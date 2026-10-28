@@ -2,7 +2,8 @@
 // are imported on the server, so the app only makes sure each of the user's envelopes reaches
 // `share-ingest`, deletes the ones the server has, and shows the user's share imports
 // (`my_share_imports`) on the imports card. Runs on launch, foreground, reconnect and sign-in;
-// signed out, envelopes wait. The app never extracts or saves a share itself.
+// signed out, envelopes wait. The app never extracts or saves a share itself. It also prunes photo
+// shares' page thumbnails (`share/thumbs/<id>/`) the card no longer needs.
 import { eq } from 'drizzle-orm';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -10,10 +11,19 @@ import { Platform } from 'react-native';
 import { db, households } from '@/db';
 import { startCatchUpTriggers } from '@/features/categories/catch-up';
 import { getList } from '@/features/lists/lists';
-import { getAppGroupContainer, readPendingShares, removeShareFiles, type PendingShare } from '@/features/siri/app-group';
+import {
+  getAppGroupContainer,
+  listShareThumbIds,
+  readPendingShareSummaries,
+  removeShareFiles,
+  removeShareThumbs,
+  uuidv7Time,
+  type PendingShareSummary,
+  type ShareSummary,
+} from '@/features/siri/app-group';
 import { supabase } from '@/lib/supabase';
 import { reportError } from '@/lib/sentry';
-import { shareAddsToList, type ShareEnvelope } from '@/shared';
+import { shareAddsToList, type ShareEnvelope, type ShareKind } from '@/shared';
 import { getSyncActivity, subscribeSyncActivity } from '@/sync/activity';
 
 import { resolveImportTarget, type RequestedTarget } from './import-target';
@@ -23,6 +33,7 @@ import {
   setShareQueueStatus,
   type FailedShareImport,
   type QueuedShare,
+  type SharedThing,
 } from './share-queue-status';
 
 /** A `share_imports` status (5). */
@@ -34,19 +45,39 @@ export type ShareImportRow = {
   household_id: string;
   list_id: string | null;
   add_to_list: boolean;
-  url: string;
+  kind: ShareKind;
+  /** A link's URL; null for a photo share. */
+  url: string | null;
   title: string | null;
+  /** A photo share's page count; null for a link. */
+  page_count: number | null;
+  /** The server still has a photo share's pages (`images is not null`); false for a link. */
+  pages_kept: boolean;
   status: ShareImportStatus;
   error_code: string | null;
   resets_at: string | null;
   created_at: string;
 };
 
-const ROW_COLUMNS = 'id, household_id, list_id, add_to_list, url, title, status, error_code, resets_at, created_at';
+const ROW_COLUMNS =
+  'id, household_id, list_id, add_to_list, kind, url, title, page_count, pages_kept, status, error_code, resets_at, created_at';
+
+/** A photo share's thumbnails are deleted this long after it was shared, whatever its state. */
+export const SHARE_THUMBS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Thumbnails younger than this are kept even with no envelope and no server row: the extension
+ * writes them just before the envelope, so a reconcile may see them first.
+ */
+export const SHARE_THUMBS_GRACE_MS = 10 * 60 * 1000;
 
 export type ShareReconcileOptions = {
-  /** The queue, oldest first. Defaults to the App Group's, or none without it (Expo Go, Android). */
-  pending?: () => PendingShare[];
+  /**
+   * The queue, oldest first, as summaries (`readPendingShareSummaries`). Defaults to the App
+   * Group's, or none without it (Expo Go, Android).
+   */
+  pending?: () => PendingShareSummary[];
+  /** The clock, for thumbnails' age. */
+  now?: () => number;
 };
 
 export type ShareReconcileResult = {
@@ -65,12 +96,12 @@ export type ShareReconcileResult = {
 const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /** An envelope without `userId` (an older extension) counts as the signed-in user's. */
-export function isUsersShare(envelope: ShareEnvelope, userId: string): boolean {
+export function isUsersShare(envelope: Pick<ShareEnvelope, 'userId'>, userId: string): boolean {
   return envelope.userId === undefined || sameId(envelope.userId, userId);
 }
 
-function defaultPending(): PendingShare[] {
-  return getAppGroupContainer() ? readPendingShares() : [];
+function defaultPending(): PendingShareSummary[] {
+  return getAppGroupContainer() ? readPendingShareSummaries() : [];
 }
 
 function isNetworkError(error: unknown): boolean {
@@ -100,9 +131,10 @@ type Submitted = 'accepted' | 'refused' | 'wait' | 'offline' | 'skip';
  * share has the same payload and is the same operation. Accepted (202, new or already there):
  * `accepted`. Refused for good (400, 409, 413, or 403 `not_a_member`): `refused`. Another account's
  * share (403 `account_mismatch`): `skip`. Offline: `offline`. Anything else (401, 429, 5xx, the kill
- * switch's 503) waits for the next reconcile: `wait`.
+ * switch's 503) waits for the next reconcile: `wait`. A photo share's body is about 3 MB
+ * (`share-ingest` takes up to 8 MB).
  */
-async function submit(item: PendingShare & { ok: true }): Promise<Submitted> {
+async function submit(item: PendingShareSummary & { ok: true }): Promise<Submitted> {
   let body: string;
   try {
     body = item.file.textSync();
@@ -141,7 +173,7 @@ function destinationNames(requested: RequestedTarget, userId: string): Pick<Queu
   };
 }
 
-function envelopeRequested(envelope: ShareEnvelope): RequestedTarget {
+function envelopeRequested(envelope: ShareSummary): RequestedTarget {
   return shareAddsToList(envelope)
     ? { addToList: true, listId: envelope.listId ?? null }
     : { addToList: false, householdId: envelope.householdId ?? null };
@@ -158,44 +190,92 @@ const RUNNING: ReadonlySet<ShareImportStatus> = new Set(['received', 'extracting
  * envelopes the server doesn't have, then the server's running imports, both oldest first; and the
  * failed ones, newest first.
  */
-function publish(userId: string, envelopes: ShareEnvelope[], rows: ShareImportRow[] | null, offline: boolean): void {
+function publish(userId: string, envelopes: ShareSummary[], rows: ShareImportRow[] | null, offline: boolean): void {
   const last = getShareQueueStatus();
   const serverQueued = rows ? rows.filter((row) => RUNNING.has(row.status)) : null;
   const known = new Set((rows ?? []).map((row) => row.id.toLowerCase()));
-  // Photo shares (no url) aren't on the card yet.
   const local: QueuedShare[] = envelopes
     .filter((envelope) => !known.has(envelope.id.toLowerCase()))
-    .flatMap((envelope) =>
-      envelope.url === undefined
-        ? []
-        : [
+    .flatMap((envelope) => {
+      const shared = envelopeShared(envelope);
+      return shared
+        ? [
             {
+              ...shared,
               id: envelope.id,
-              url: envelope.url,
-              title: envelope.page?.title?.trim() || null,
+              title: shared.kind === 'photo' ? null : envelope.title?.trim() || null,
               ...destinationNames(envelopeRequested(envelope), userId),
               onServer: false,
             },
-          ],
-    );
+          ]
+        : [];
+    });
   const running: QueuedShare[] = serverQueued
     ? [...serverQueued]
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
-        .map((row) => ({
-          id: row.id,
-          url: row.url,
-          title: row.title?.trim() || null,
-          ...destinationNames(rowRequested(row), userId),
-          onServer: true,
-        }))
+        .flatMap((row) => {
+          const shared = rowShared(row);
+          return shared
+            ? [{ ...shared, id: row.id, title: rowTitle(row), ...destinationNames(rowRequested(row), userId), onServer: true }]
+            : [];
+        })
     : last.queued.filter((share) => share.onServer);
   const failed: FailedShareImport[] = rows
     ? rows
         .filter((row) => row.status === 'failed')
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .map((row) => ({ id: row.id, url: row.url, title: row.title?.trim() || null, errorCode: row.error_code, resetsAt: row.resets_at }))
+        .flatMap((row): FailedShareImport[] => {
+          const shared = rowShared(row);
+          if (!shared) return [];
+          const rest = { id: row.id, title: rowTitle(row), errorCode: row.error_code, resetsAt: row.resets_at };
+          return [shared.kind === 'photo' ? { ...shared, ...rest, pagesKept: row.pages_kept } : { ...shared, ...rest }];
+        })
     : last.failed;
   setShareQueueStatus({ queued: [...local, ...running], failed, offline });
+}
+
+/** What an envelope shares, for the card; null for one that has neither a link nor pages. */
+function envelopeShared(envelope: ShareSummary): SharedThing | null {
+  if (envelope.kind === 'photo') return { kind: 'photo', pageCount: envelope.pageCount ?? 1 };
+  return envelope.url === undefined ? null : { url: envelope.url };
+}
+
+/** What a server row shares, as `envelopeShared`. */
+function rowShared(row: ShareImportRow): SharedThing | null {
+  if (row.kind === 'photo') return { kind: 'photo', pageCount: row.page_count ?? 1 };
+  return row.url === null ? null : { url: row.url };
+}
+
+/** A link's title; a photo share has none (the card calls it "From a photo"). */
+function rowTitle(row: ShareImportRow): string | null {
+  return row.kind === 'photo' ? null : row.title?.trim() || null;
+}
+
+/**
+ * Deletes the page thumbnails (`share/thumbs/<id>/`) the card no longer needs: those over 7 days
+ * old; and, once the server's rows are known (`rows` not null), with no envelope left, those whose
+ * share isn't in `my_share_imports` (done, dismissed or refused) or whose pages the server no longer
+ * has (`pages_kept` false). Kept while the share waits (its envelope, or a running row) or failed
+ * with its pages kept, and for a few minutes after they're written (`SHARE_THUMBS_GRACE_MS`).
+ */
+function pruneThumbs(envelopeIds: string[], rows: ShareImportRow[] | null, now: number): void {
+  const ids = listShareThumbIds();
+  if (ids.length === 0) return;
+  const queued = new Set(envelopeIds.map((id) => id.toLowerCase()));
+  const byId = new Map((rows ?? []).map((row) => [row.id.toLowerCase(), row]));
+  for (const id of ids) {
+    const made = uuidv7Time(id);
+    const age = made === null ? Infinity : now - made;
+    const key = id.toLowerCase();
+    let prune: boolean;
+    if (age > SHARE_THUMBS_MAX_AGE_MS) prune = true;
+    else if (queued.has(key) || rows === null) prune = false;
+    else {
+      const row = byId.get(key);
+      prune = row ? !row.pages_kept : age > SHARE_THUMBS_GRACE_MS;
+    }
+    if (prune) removeShareThumbs(id);
+  }
 }
 
 /** The user's share imports that aren't done, or null when they couldn't be read. */
@@ -213,8 +293,8 @@ async function readServerRows(): Promise<ShareImportRow[] | null> {
 }
 
 /** Reads the queue, deleting files that can't be read. Returns the user's envelopes and the rest. */
-function readQueue(userId: string, pending: () => PendingShare[]) {
-  const mine: (PendingShare & { ok: true })[] = [];
+function readQueue(userId: string, pending: () => PendingShareSummary[]) {
+  const mine: (PendingShareSummary & { ok: true })[] = [];
   const others: string[] = [];
   for (const item of pending()) {
     if (!item.ok) {
@@ -266,6 +346,8 @@ export async function reconcileShares(userId: string, options: ShareReconcileOpt
           const outcome = await submit(item);
           if (outcome === 'accepted' || outcome === 'refused') {
             removeShareFiles(id);
+            // A refused share never reaches the card again; an accepted one keeps its thumbnails for it.
+            if (outcome === 'refused') removeShareThumbs(id);
             result[outcome === 'accepted' ? 'submitted' : 'refused'].push(id);
           } else if (outcome === 'offline') {
             result.offline = true;
@@ -280,16 +362,26 @@ export async function reconcileShares(userId: string, options: ShareReconcileOpt
     console.warn('[share] reconciling shares failed', err);
     reportError(err, { area: 'share', event: 'reconcile_failed' });
   }
-  await refresh(userId, pending, result.offline);
+  await refresh(userId, options, result.offline);
   return result;
 }
 
-/** Reads the envelopes and `my_share_imports` again and publishes the card's state. Never throws. */
-async function refresh(userId: string, pending: () => PendingShare[], offline: boolean): Promise<void> {
+/**
+ * Reads the envelopes (as summaries, so a photo share's pages aren't parsed again) and
+ * `my_share_imports` again, publishes the card's state and prunes thumbnails. Never throws.
+ */
+async function refresh(userId: string, options: ShareReconcileOptions, offline: boolean): Promise<void> {
+  const { pending = defaultPending, now = Date.now } = options;
   try {
     const rows = offline ? null : await readServerRows();
-    const envelopes = pending().flatMap((item) => (item.ok && isUsersShare(item.envelope, userId) ? [item.envelope] : []));
+    const items = pending();
+    const envelopes = items.flatMap((item) => (item.ok && isUsersShare(item.envelope, userId) ? [item.envelope] : []));
     publish(userId, envelopes, rows, offline);
+    pruneThumbs(
+      items.flatMap((item) => (item.ok ? [item.envelope.id] : [])),
+      rows,
+      now(),
+    );
   } catch (err) {
     console.warn('[share] reading the share imports failed', err);
   }
@@ -332,18 +424,20 @@ export function runShareReconcile(userId: string, options?: ShareReconcileOption
  */
 export async function refreshShareImports(): Promise<void> {
   if (!active) return;
-  await refresh(active.userId, active.options.pending ?? defaultPending, false);
+  await refresh(active.userId, active.options, false);
 }
 
 /**
- * Takes a waiting share the server doesn't have yet off the card (Remove): deletes its envelope and
- * upload files. One the server has can't be removed. Returns whether it was.
+ * Takes a waiting share the server doesn't have yet off the card (Remove): deletes its envelope,
+ * upload files and (a photo share's) thumbnails. One the server has can't be removed. Returns
+ * whether it was.
  */
 export function removeQueuedShare(id: string): boolean {
   const current = getShareQueueStatus();
   const share = current.queued.find((s) => sameId(s.id, id));
   if (!share || share.onServer) return false;
   removeShareFiles(share.id);
+  removeShareThumbs(share.id);
   setShareQueueStatus({ ...current, queued: current.queued.filter((s) => s !== share) });
   return true;
 }

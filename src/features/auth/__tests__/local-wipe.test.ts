@@ -29,7 +29,7 @@ import { addRecipeIngredient, createRecipe } from '@/features/recipes/recipes';
 import { IMPORT_ADD_TO_LIST_KEY } from '@/features/recipes/save-choice';
 import { getShareQueueStatus, setShareQueueStatus } from '@/features/recipes/share-queue-status';
 import { getDeviceSetting, setAisleColorStyle, setDeviceSetting, setKeepScreenOn, KEEP_SCREEN_ON_KEY } from '@/features/settings/device-settings';
-import { LISTS_FILE, LOG_FILE, PENDING_DIR, SHARE_PENDING_DIR } from '@/features/siri/app-group';
+import { LISTS_FILE, LOG_FILE, PENDING_DIR, SHARE_PENDING_DIR, SHARE_THUMBS_DIR } from '@/features/siri/app-group';
 import { normalizeIngredientName } from '@/shared';
 import { upsertRow } from '@/sync/mutate';
 import { SYSTEM_CATEGORIES } from '@/shared/seed/categories';
@@ -256,6 +256,14 @@ describe('wipeLocalData', () => {
     expect(fs.existsSync(appGroup(LISTS_FILE))).toBe(false);
     expect(fs.readdirSync(appGroup(PENDING_DIR))).toEqual([]);
     expect(fs.readdirSync(appGroup(SHARE_PENDING_DIR))).toEqual([]);
+    expect(fs.readFileSync(appGroup(LOG_FILE), 'utf8')).toBe('launched\n');
+  });
+
+  test("deletes photo shares' page thumbnails", () => {
+    writeAppGroupFile(`${SHARE_THUMBS_DIR}/019a5e23-77aa-7c01-8d42-1f0e9c8b7a65/1.jpg`, 'jpeg');
+    writeAppGroupFile(`${SHARE_THUMBS_DIR}/019a5e23-77aa-7c01-8d42-1f0e9c8b7a65/2.jpg`, 'jpeg');
+    wipeLocalData();
+    expect(fs.existsSync(appGroup(SHARE_THUMBS_DIR))).toBe(false);
     expect(fs.readFileSync(appGroup(LOG_FILE), 'utf8')).toBe('launched\n');
   });
 

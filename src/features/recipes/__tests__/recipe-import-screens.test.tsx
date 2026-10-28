@@ -60,7 +60,13 @@ import {
 import { failedImportPageUris, failedImportsQuery, getFailedImport, recordFailedImport, recordFailedPhotoImport } from '../failed-imports';
 import { IMPORT_ADD_TO_LIST_KEY } from '../save-choice';
 import { setSavedRecipeResult, takeSavedRecipeResult } from '../saved-recipe-result';
-import { EMPTY_SHARE_QUEUE_STATUS, setShareQueueStatus, type ShareQueueStatus } from '../share-queue-status';
+import {
+  EMPTY_SHARE_QUEUE_STATUS,
+  setShareQueueStatus,
+  type FailedLinkShareImport,
+  type QueuedLinkShare,
+  type ShareQueueStatus,
+} from '../share-queue-status';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -1927,7 +1933,7 @@ describe('RecipesScreen filters', () => {
 });
 
 describe('ImportsCard', () => {
-  const share = (id: string, over: Partial<ShareQueueStatus['queued'][number]> = {}) => ({
+  const share = (id: string, over: Partial<QueuedLinkShare> = {}): QueuedLinkShare => ({
     id,
     url: `https://www.example.com/${id}`,
     title: null,
@@ -1935,7 +1941,7 @@ describe('ImportsCard', () => {
     onServer: false,
     ...over,
   });
-  const failedShare = (id: string, over: Partial<ShareQueueStatus['failed'][number]> = {}) => ({
+  const failedShare = (id: string, over: Partial<FailedLinkShareImport> = {}): FailedLinkShareImport => ({
     id,
     url: `https://www.example.com/${id}`,
     title: null,

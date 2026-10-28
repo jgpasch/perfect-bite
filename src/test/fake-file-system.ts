@@ -32,6 +32,12 @@ export class File {
   get exists(): boolean {
     return fs.existsSync(this.path) && fs.statSync(this.path).isFile();
   }
+  get size(): number {
+    return fs.existsSync(this.path) ? fs.statSync(this.path).size : 0;
+  }
+  get modificationTime(): number | null {
+    return fs.existsSync(this.path) ? fs.statSync(this.path).mtimeMs : null;
+  }
   textSync(): string {
     return fs.readFileSync(this.path, 'utf8');
   }

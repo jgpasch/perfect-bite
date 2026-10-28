@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 
 import { db, failedImports, households, recipes } from '@/db';
 import { createList, ensureStarterData, getDefaultListId, getList } from '@/features/lists/lists';
-import { SHARE_PENDING_DIR, SHARE_UPLOAD_DIR, SHARE_UPLOAD_STATE_DIR } from '@/features/siri/app-group';
+import { SHARE_PENDING_DIR, SHARE_THUMBS_DIR, SHARE_UPLOAD_DIR, SHARE_UPLOAD_STATE_DIR, uuidv7Time } from '@/features/siri/app-group';
 import { initI18n } from '@/i18n';
 import { reportSyncActivity, resetSyncActivity } from '@/sync/activity';
 import { resetDb } from '@/test/db';
@@ -21,11 +21,20 @@ import {
   removeQueuedShare,
   retryShareImport,
   runShareReconcile,
+  SHARE_THUMBS_GRACE_MS,
+  SHARE_THUMBS_MAX_AGE_MS,
   startShareReconcile,
   type ShareImportRow,
   type ShareImportStatus,
 } from '../share-reconcile';
-import { EMPTY_SHARE_QUEUE_STATUS, getShareQueueStatus, importsCardHeading, setShareQueueStatus } from '../share-queue-status';
+import {
+  EMPTY_SHARE_QUEUE_STATUS,
+  getShareQueueStatus,
+  importsCardHeading,
+  queuedShareDetail,
+  setShareQueueStatus,
+  shareName,
+} from '../share-queue-status';
 
 jest.mock('@/db/client', () => require('@/test/db'));
 jest.mock('@/lib/supabase', () => require('@/test/fake-supabase'));
@@ -68,7 +77,8 @@ const offline = { data: null, error: { name: 'FunctionsFetchError', message: 'Fa
 
 // --- A tiny server: share_imports by id, as share-ingest, share_import_status and the view see it. ---
 
-type ServerOp = ShareImportRow & { user_id: string; body: string };
+/** `dismissed`: `dismissed_at` is set, so the view leaves it out (share_import_status still reports it). */
+type ServerOp = ShareImportRow & { user_id: string; body: string; dismissed?: boolean };
 let server: Map<string, ServerOp>;
 /** Runs once, between share_import_status answering and the next submit (a background upload landing). */
 let afterStatus: (() => void) | null;
@@ -80,8 +90,11 @@ function serverOp(id: string, userId: string, status: ShareImportStatus, extra: 
     household_id: personal,
     list_id: costco,
     add_to_list: true,
+    kind: 'link',
     url: TIKKA_URL,
     title: null,
+    page_count: null,
+    pages_kept: false,
     status,
     error_code: null,
     resets_at: null,
@@ -93,14 +106,17 @@ function serverOp(id: string, userId: string, status: ShareImportStatus, extra: 
 
 /** share-ingest: insert … on conflict (id) do nothing; the same id answers the existing operation. */
 function ingest(body: string, idempotencyKey: string) {
-  const envelope = JSON.parse(body) as { id: string; url: string };
+  const envelope = JSON.parse(body) as { id: string; url?: string; images?: unknown[] };
   if (envelope.id !== idempotencyKey) return httpError(400, 'invalid_request');
   const existing = server.get(envelope.id);
   if (existing) {
     if (existing.body !== body) return httpError(409, 'operation_conflict');
     return { data: { id: envelope.id, status: existing.status }, error: null };
   }
-  server.set(envelope.id, serverOp(envelope.id, USER, 'received', { url: envelope.url, body }));
+  const shared = envelope.images
+    ? { kind: 'photo' as const, url: null, page_count: envelope.images.length, pages_kept: true }
+    : { url: envelope.url! };
+  server.set(envelope.id, serverOp(envelope.id, USER, 'received', { ...shared, body }));
   return { data: { id: envelope.id, status: 'received' }, error: null };
 }
 
@@ -140,8 +156,8 @@ beforeEach(() => {
   onQuery((query) => {
     if (query.table !== 'my_share_imports') return {};
     const rows = [...server.values()]
-      .filter((op) => op.user_id === USER && op.status !== 'done')
-      .map(({ user_id: _user, body: _body, ...row }) => row);
+      .filter((op) => op.user_id === USER && op.status !== 'done' && !op.dismissed)
+      .map(({ user_id: _user, body: _body, dismissed: _dismissed, ...row }) => row);
     return { data: rows };
   });
   invoke.mockImplementation(async (fn: string, options?: { body?: unknown; headers?: Record<string, string> }) => {
@@ -223,7 +239,10 @@ describe('reconcileShares', () => {
     });
     expect(queriesFor('my_share_imports').map((q) => q.ops)).toEqual([
       [
-        ['select', 'id, household_id, list_id, add_to_list, url, title, status, error_code, resets_at, created_at'],
+        [
+          'select',
+          'id, household_id, list_id, add_to_list, kind, url, title, page_count, pages_kept, status, error_code, resets_at, created_at',
+        ],
         ['neq', 'status', 'done'],
         ['order', 'created_at', { ascending: true }],
       ],
@@ -280,7 +299,7 @@ describe('reconcileShares', () => {
     expect(pendingFiles()).toEqual([`${E1}.json`]);
   });
 
-  test('a queued photo share (v 3, no url) parses but is not on the card yet', async () => {
+  test('a queued photo share (v 3, no url) parses and waits on the card like any envelope', async () => {
     const photo = {
       v: 3,
       id: E2,
@@ -300,7 +319,10 @@ describe('reconcileShares', () => {
     // Read as the user's (not deleted as unreadable), so it waits like any envelope.
     expect(result).toMatchObject({ offline: true, otherUsers: [] });
     expect(pendingFiles()).toEqual([`${E1}.json`, `${E2}.json`]);
-    expect(getShareQueueStatus().queued.map((s) => s.id)).toEqual([E1]);
+    expect(getShareQueueStatus().queued).toEqual([
+      { id: E1, url: TIKKA_URL, title: 'Pho', listName: 'Costco', householdName: null, onServer: false },
+      { id: E2, kind: 'photo', pageCount: 1, title: null, listName: 'Costco', householdName: null, onServer: false },
+    ]);
   });
 
   test('offline at the status check: nothing is deleted or submitted, and the card says offline', async () => {
@@ -536,5 +558,197 @@ describe('startShareReconcile', () => {
     expect(rpcCallsFor('share_import_status')).toHaveLength(1);
     expect(submittedIds()).toEqual([E1]);
     expect(queriesFor('my_share_imports')).toHaveLength(2);
+  });
+});
+
+describe('photo shares', () => {
+  /** When E1 was made: the clock the thumbnail tests run against is an hour after. */
+  const T0 = uuidv7Time(E1)!;
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+  const now = () => T0 + HOUR;
+  /** A UUIDv7 made at `ms`, told apart by `n`. */
+  const idAt = (ms: number, n: number) => {
+    const hex = ms.toString(16).padStart(12, '0');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7000-8000-${n.toString(16).padStart(12, '0')}`;
+  };
+  const goOffline = () => onRpc(() => ({ data: null, error: { message: 'TypeError: Network request failed' }, status: 0 }));
+
+  function writeThumbs(id: string, pages = 2) {
+    const dir = path.join(root, SHARE_THUMBS_DIR, id);
+    fs.mkdirSync(dir, { recursive: true });
+    for (let n = 1; n <= pages; n++) fs.writeFileSync(path.join(dir, `${n}.jpg`), 'jpeg');
+  }
+  const thumbIds = () => (fs.existsSync(path.join(root, SHARE_THUMBS_DIR)) ? filesIn(SHARE_THUMBS_DIR) : []);
+
+  /** Writes a queued photo share (v 3) as the extension does: its thumbnails, then the envelope. */
+  function enqueuePhoto(
+    id: string,
+    options: { pages?: number; pageData?: string; listId?: string | null; householdId?: string; addToList?: boolean } = {},
+    uploaded = false,
+  ): string {
+    const { pages = 2, pageData = '/9j/4AAQSkZJRg==', ...extra } = options;
+    writeThumbs(id, pages);
+    const envelope = {
+      v: 3,
+      id,
+      userId: USER,
+      images: Array.from({ length: pages }, () => ({ mediaType: 'image/jpeg', data: pageData })),
+      listId: costco,
+      createdAt: '2026-10-23T07:42:05.123-05:00',
+      appVersion: '1.3.0',
+      source: 'share',
+      ...extra,
+    };
+    const body = JSON.stringify(envelope);
+    fs.writeFileSync(path.join(root, SHARE_PENDING_DIR, `${id}.json`), body);
+    if (uploaded) {
+      fs.writeFileSync(path.join(root, SHARE_UPLOAD_DIR, `${id}.json`), body);
+      fs.writeFileSync(path.join(root, SHARE_UPLOAD_STATE_DIR, `${id}.json`), JSON.stringify({ startedAt: 'x', attempts: 1 }));
+    }
+    return body;
+  }
+  const photoOp = (id: string, status: ShareImportStatus, extra: Partial<ServerOp> = {}) =>
+    serverOp(id, USER, status, { kind: 'photo', url: null, page_count: 2, pages_kept: true, ...extra });
+
+  test('a photo envelope of about 3 MB is submitted as written and cleared; its thumbnails stay for the card', async () => {
+    // Three pages of ~750 KB each: a body over link shares' 2.5 MB cap.
+    const body = enqueuePhoto(E1, { pages: 3, pageData: 'A'.repeat(1_000_000) }, true);
+    expect(body.length).toBeGreaterThan(3_000_000);
+
+    const result = await reconcileShares(USER, { now });
+
+    expect(result).toEqual({ onServer: [], submitted: [E1], refused: [], otherUsers: [], offline: false });
+    expect(invoke).toHaveBeenCalledWith('share-ingest', {
+      body,
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': E1 },
+    });
+    expect(pendingFiles()).toEqual([]);
+    expect(filesIn(SHARE_UPLOAD_DIR)).toEqual([]);
+    expect(filesIn(SHARE_UPLOAD_STATE_DIR)).toEqual([]);
+    expect(thumbIds()).toEqual([E1]);
+    expect(filesIn(`${SHARE_THUMBS_DIR}/${E1}`)).toEqual(['1.jpg', '2.jpg', '3.jpg']);
+    const [share] = getShareQueueStatus().queued;
+    expect(share).toEqual({ id: E1, kind: 'photo', pageCount: 3, title: null, listName: 'Costco', householdName: null, onServer: true });
+    expect(shareName(share)).toBe('From a photo');
+    expect(queuedShareDetail(share)).toBe('3 pages · to Costco');
+  });
+
+  test('waiting rows describe a photo share: "From a photo", its pages and where it goes', async () => {
+    enqueuePhoto(E1, { pages: 1, listId: null, addToList: false, householdId: personal });
+    enqueuePhoto(E2, { pages: 2 });
+    goOffline();
+    const household = db.select().from(households).where(eq(households.id, personal)).get()!;
+
+    await reconcileShares(USER, { now });
+
+    const { queued } = getShareQueueStatus();
+    expect(queued.map((s) => [shareName(s), queuedShareDetail(s), s.onServer])).toEqual([
+      ['From a photo', `1 page · to ${household.name}`, false],
+      ['From a photo', '2 pages · to Costco', false],
+    ]);
+    // Offline: nothing pruned.
+    expect(thumbIds()).toEqual([E1, E2]);
+  });
+
+  test('a failed photo row comes with its page count and whether the server kept the pages', async () => {
+    server.set(E1, photoOp(E1, 'failed', { error_code: 'not_a_recipe', title: 'ignored' }));
+    server.set(E2, photoOp(E2, 'failed', { error_code: 'fetch_failed', page_count: 3, pages_kept: false }));
+
+    await reconcileShares(USER, { now });
+
+    expect(getShareQueueStatus().failed).toEqual([
+      { kind: 'photo', pageCount: 3, pagesKept: false, id: E2, title: null, errorCode: 'fetch_failed', resetsAt: null },
+      { kind: 'photo', pageCount: 2, pagesKept: true, id: E1, title: null, errorCode: 'not_a_recipe', resetsAt: null },
+    ]);
+    expect(getShareQueueStatus().failed.map(shareName)).toEqual(['From a photo', 'From a photo']);
+  });
+
+  test('thumbnails: pruned when done, dismissed, gone from the server, pages not kept or over 7 days; kept while waiting or failed with pages', async () => {
+    const waiting = idAt(T0, 1); // its envelope waits (the server is busy)
+    const running = idAt(T0, 2);
+    const failedKept = idAt(T0, 3);
+    const failedGone = idAt(T0, 4);
+    const done = idAt(T0, 5);
+    const dismissed = idAt(T0, 6);
+    const absent = idAt(T0, 7);
+    const justWritten = idAt(now() - SHARE_THUMBS_GRACE_MS + 60_000, 8); // its envelope is on its way
+    const old = idAt(now() - SHARE_THUMBS_MAX_AGE_MS - 1, 9);
+    enqueuePhoto(waiting);
+    invoke.mockResolvedValueOnce(httpError(503, 'unavailable'));
+    for (const id of [running, failedKept, failedGone, done, dismissed, absent, justWritten, old]) writeThumbs(id);
+    server.set(running, photoOp(running, 'extracting'));
+    server.set(failedKept, photoOp(failedKept, 'failed'));
+    server.set(failedGone, photoOp(failedGone, 'failed', { pages_kept: false }));
+    server.set(done, photoOp(done, 'done', { pages_kept: false }));
+    server.set(dismissed, photoOp(dismissed, 'failed', { dismissed: true }));
+    server.set(old, photoOp(old, 'failed'));
+
+    await reconcileShares(USER, { now });
+
+    expect(thumbIds()).toEqual([waiting, running, failedKept, justWritten].sort());
+    // The waiting envelope is untouched.
+    expect(pendingFiles()).toEqual([`${waiting}.json`]);
+
+    // Once the grace has passed, thumbnails with neither an envelope nor a row go too.
+    invoke.mockResolvedValueOnce(httpError(503, 'unavailable'));
+    await reconcileShares(USER, { now: () => now() + SHARE_THUMBS_GRACE_MS });
+    expect(thumbIds()).toEqual([waiting, running, failedKept].sort());
+  });
+
+  test('offline, thumbnails are only pruned for age, even with the envelope still waiting', async () => {
+    const old = idAt(T0 - 8 * DAY, 1);
+    enqueuePhoto(old);
+    enqueuePhoto(E1);
+    writeThumbs(E2); // no envelope, and the server's rows are unknown
+    goOffline();
+
+    await reconcileShares(USER, { now });
+
+    expect(thumbIds()).toEqual([E1, E2]);
+    expect(pendingFiles()).toEqual([`${old}.json`, `${E1}.json`]);
+  });
+
+  test('a photo share the server refuses loses its thumbnails at once; Remove deletes them with the envelope', async () => {
+    enqueuePhoto(E1);
+    enqueuePhoto(E2);
+    enqueuePhoto(E3, {}, true);
+    invoke.mockResolvedValueOnce(httpError(413, 'too_large')).mockResolvedValueOnce(httpError(503, 'unavailable'));
+
+    // With the clock right at the shares, the refused one's thumbnails don't wait for the age rules.
+    const result = await reconcileShares(USER, { now: () => T0 });
+
+    expect(result.refused).toEqual([E1]);
+    expect(thumbIds()).toEqual([E2, E3]);
+    expect(removeQueuedShare(E3)).toBe(true);
+    expect(pendingFiles()).toEqual([`${E2}.json`]);
+    expect(filesIn(SHARE_UPLOAD_DIR)).toEqual([]);
+    expect(thumbIds()).toEqual([E2]);
+  });
+
+  test('envelopes are read and parsed in full once, not at every reconcile', async () => {
+    enqueuePhoto(E1, { pages: 3, pageData: 'A'.repeat(1_000_000) });
+    goOffline();
+    const parse = jest.spyOn(JSON, 'parse');
+    const bigParses = () => parse.mock.calls.filter(([text]) => typeof text === 'string' && text.length > 1_000_000).length;
+
+    await reconcileShares(USER, { now });
+    await reconcileShares(USER, { now });
+    await reconcileShares(USER, { now });
+
+    expect(bigParses()).toBe(1);
+    expect(getShareQueueStatus().queued).toMatchObject([{ id: E1, kind: 'photo', pageCount: 3 }]);
+  });
+
+  test('a link envelope next to a photo one is unchanged: no kind, its url, title and host', async () => {
+    enqueue(E1, { title: 'Pho' });
+    enqueuePhoto(E2);
+    goOffline();
+
+    await reconcileShares(USER, { now });
+
+    const [link] = getShareQueueStatus().queued;
+    expect(link).toEqual({ id: E1, url: TIKKA_URL, title: 'Pho', listName: 'Costco', householdName: null, onServer: false });
+    expect([shareName(link), queuedShareDetail(link)]).toEqual(['Pho', 'example.com · to Costco']);
   });
 });
