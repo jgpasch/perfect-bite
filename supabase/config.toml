@@ -136,6 +136,12 @@ public = false
 file_size_limit = "2MiB"
 allowed_mime_types = ["image/jpeg"]
 
+# A photo share's pages (spec 4.10, 5, 6.12), service role only; 20261228100000_photo_share_imports.sql.
+[storage.buckets.share-images]
+public = false
+file_size_limit = "2MiB"
+allowed_mime_types = ["image/jpeg"]
+
 # Uncomment to configure local storage buckets
 # [storage.buckets.images]
 # public = false
