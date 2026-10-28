@@ -9,15 +9,20 @@ import { NotEntitledError, type Feature } from '../_shared/entitlements.ts';
 import { FetchPageError, type FetchedPage } from '../_shared/fetch-page.ts';
 import type { LimitResult } from '../categorize-ingredients/handler.ts';
 import type { CachedImport, ImportDeps, RecipeImportStore } from '../import-recipe/handler.ts';
-import type { ShareImportCommitStore } from './commit.ts';
+import { ImportRecipePhotoError } from '../import-recipe-photo/handler.ts';
+import { uuidV5, type ShareImportCommitStore } from './commit.ts';
 import {
+  base64,
   handleRequest,
   LeaseLostError,
+  recipePagePath,
   releaseFor,
   runWorker,
+  ShareImagesMissingError,
   type JobKind,
   type Release,
   type RunResult,
+  type SharePageStorage,
   type ShareImportJob,
   type ShareImportWorkerStore,
 } from './handler.ts';
@@ -53,7 +58,9 @@ type Row = {
   household_id: string;
   list_id: string | null;
   add_to_list: boolean;
-  url: string;
+  kind: 'link' | 'photo';
+  url: string | null;
+  images: string[] | null;
   page: unknown;
   status: 'received' | 'extracting' | 'extracted' | 'committing' | 'done' | 'failed';
   attempts: number;
@@ -84,7 +91,9 @@ class FakeJobs implements ShareImportWorkerStore {
       household_id: HOUSEHOLD,
       list_id: null,
       add_to_list: true,
+      kind: 'link',
       url: PASTA_URL,
+      images: null,
       page: PASTA_PAGE,
       status: 'received',
       attempts: 0,
@@ -142,7 +151,9 @@ class FakeJobs implements ShareImportWorkerStore {
         household_id: due.household_id,
         list_id: due.list_id,
         add_to_list: due.add_to_list,
+        kind: due.kind,
         url: due.url,
+        images: due.images,
         page: due.page,
         extraction: due.extraction,
         status: due.status as JobKind,
@@ -197,6 +208,26 @@ class FakeJobs implements ShareImportWorkerStore {
       });
     }
     return row.status;
+  }
+
+  async queueRecipePageDeletion(): Promise<never> {
+    throw new Error('Extracting queues no pages');
+  }
+}
+
+/** share-images in memory; the extracting phase never writes recipe-pages. */
+class FakePages implements SharePageStorage {
+  images = new Map<string, Uint8Array>();
+  downloads: string[] = [];
+  downloadError?: Error;
+
+  async downloadShareImage(path: string) {
+    this.downloads.push(path);
+    if (this.downloadError) throw this.downloadError;
+    return this.images.get(path) ?? null;
+  }
+  async uploadRecipePage(): Promise<never> {
+    throw new Error('Extracting copies no pages');
   }
 }
 
@@ -269,6 +300,7 @@ const NO_COMMITS = new Proxy({} as ShareImportCommitStore, {
 function setup() {
   const jobs = new FakeJobs();
   const recipes = new FakeRecipeStore();
+  const pages = new FakePages();
   const fetched: string[] = [];
   const importCallers: (string | null)[] = [];
   let fetchPage: (url: string) => Promise<FetchedPage> = async (url) => {
@@ -289,10 +321,11 @@ function setup() {
   };
   // The extracting phase only (commit.test.ts has the committing phase).
   const run = (budgetMs?: number) =>
-    runWorker({ store: jobs, commitStore: NO_COMMITS, kinds: ['extracting'], importDeps, now: () => jobs.now, budgetMs });
+    runWorker({ store: jobs, commitStore: NO_COMMITS, pages, kinds: ['extracting'], importDeps, now: () => jobs.now, budgetMs });
   return {
     jobs,
     recipes,
+    pages,
     fetched,
     importCallers,
     run,
@@ -598,6 +631,171 @@ Deno.test('releaseFor maps each class', () => {
   assertEquals(releaseFor(new NotEntitledError('recipe_import'), now), { kind: 'permanent', code: 'not_entitled' });
   assertEquals(releaseFor(new Error('boom'), now), { kind: 'transient', code: 'internal' });
   assertEquals(releaseFor(new TypeError('fetch failed'), now), { kind: 'transient', code: 'internal' });
+});
+
+// --- Photo shares -------------------------------------------------------------------------------
+
+const PHOTO_JOB = 'f0000000-0000-4000-8000-0000000000a1';
+const PHOTO_1 = `${USER}/${PHOTO_JOB}/1.jpg`;
+const PHOTO_2 = `${USER}/${PHOTO_JOB}/2.jpg`;
+/** At least MOCK_PHOTO_MIN_BYTES: the photo mock reads a recipe. */
+const PAGE_BYTES = new Uint8Array(2048).fill(0xab);
+/** Under it: the photo mock reads no recipe. */
+const BLANK_BYTES = new Uint8Array(100);
+
+const photoTest = (name: string, fn: () => Promise<void>) =>
+  Deno.test(name, () =>
+    withEnv(
+      { AI_MODEL_RECIPE: 'mock', AI_MODEL_CATEGORIZE: 'mock', AI_MODEL_RECIPE_FALLBACK: null, AI_MODEL_RECIPE_PHOTO: null, AI_MODEL_RECIPE_PHOTO_FALLBACK: null },
+      fn,
+    ));
+
+function photoSetup(bytes: Uint8Array = PAGE_BYTES) {
+  const t = setup();
+  t.jobs.add(PHOTO_JOB, { kind: 'photo', url: null, page: null, images: [PHOTO_1, PHOTO_2] });
+  t.pages.images.set(PHOTO_1, bytes);
+  t.pages.images.set(PHOTO_2, bytes);
+  return t;
+}
+
+photoTest('extracts a photo share from its pages in share-images, charged once, with no source URL or photo', async () => {
+  const t = photoSetup();
+  assertEquals(await t.run(), result({ claimed: 1, extracted: 1 }));
+  const row = t.jobs.row(PHOTO_JOB);
+  assertEquals(row.status, 'extracted');
+  assertEquals(row.extraction?.name, 'Mock photo recipe');
+  assertEquals(row.extraction?.sourceUrl, null);
+  assertEquals(row.extraction?.imageUrl, null);
+  assertEquals(row.extraction?.servings, 4);
+  assertEquals(row.extraction?.ingredients.length, 3);
+  assertEquals(row.extraction?.steps.length, 2);
+  assertEquals(t.pages.downloads, [PHOTO_1, PHOTO_2]);
+  assertEquals(t.jobs.charges, 1);
+  assertEquals(t.jobs.calls, ['claim', 'reserve', 'save', 'claim']);
+  assertEquals(t.recipes.featureChecks, [`recipe_import:${HOUSEHOLD}`]);
+  assertEquals(t.recipes.limitChecks, 0);
+  assertEquals(t.fetched, []);
+  assertEquals(t.recipes.saves, []);
+  const extract = t.recipes.aiCalls.filter((c) => c.task === 'extractRecipePhoto');
+  assertEquals(extract.length, 1);
+  assertEquals(extract[0].user_id, USER);
+  assertEquals(extract[0].household_id, HOUSEHOLD);
+  // The pages are never written to ai_calls.
+  assert(!JSON.stringify(t.recipes.aiCalls).includes(base64(PAGE_BYTES).slice(0, 40)));
+});
+
+photoTest('a photo share that isn\'t a recipe fails permanently not_a_recipe, charged', async () => {
+  const t = photoSetup(BLANK_BYTES);
+  assertEquals(await t.run(), result({ claimed: 1, permanent: 1 }));
+  const row = t.jobs.row(PHOTO_JOB);
+  assertEquals([row.status, row.error_kind, row.error_code, row.extraction], ['failed', 'permanent', 'not_a_recipe', null]);
+  assertEquals(t.jobs.charges, 1);
+});
+
+photoTest('a page gone from share-images fails permanently invalid_request, without a model call', async () => {
+  const t = photoSetup();
+  t.pages.images.delete(PHOTO_2);
+  assertEquals(await t.run(), result({ claimed: 1, permanent: 1 }));
+  const row = t.jobs.row(PHOTO_JOB);
+  assertEquals([row.status, row.error_kind, row.error_code], ['failed', 'permanent', 'invalid_request']);
+  assertEquals(t.pages.downloads, [PHOTO_1, PHOTO_2]);
+  assertEquals(t.recipes.aiCalls, []);
+  assertEquals(t.jobs.charges, 1);
+});
+
+photoTest('a photo share whose images were deleted fails invalid_request before reserving', async () => {
+  const t = photoSetup();
+  t.jobs.row(PHOTO_JOB).images = null;
+  assertEquals(await t.run(), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.jobs.row(PHOTO_JOB).error_code, 'invalid_request');
+  assertEquals(t.jobs.charges, 0);
+  assertEquals(t.jobs.calls, ['claim', 'release', 'claim']);
+  assertEquals(t.pages.downloads, []);
+});
+
+photoTest('a photo share on a plan without recipe_import fails not_entitled, uncharged and unread', async () => {
+  const t = photoSetup();
+  t.recipes.features.clear();
+  assertEquals(await t.run(), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.jobs.row(PHOTO_JOB).error_code, 'not_entitled');
+  assertEquals(t.jobs.charges, 0);
+  assertEquals(t.pages.downloads, []);
+});
+
+Deno.test('the photo kill switch is transient unavailable, before any charge or download', () =>
+  withEnv({ AI_MODEL_RECIPE: 'mock', AI_MODEL_RECIPE_PHOTO: 'off', AI_MODEL_RECIPE_PHOTO_FALLBACK: null }, async () => {
+    const t = photoSetup();
+    assertEquals(await t.run(), result({ claimed: 1, transient: 1 }));
+    const row = t.jobs.row(PHOTO_JOB);
+    assertEquals([row.status, row.error_kind, row.error_code], ['received', 'transient', 'unavailable']);
+    assertEquals(t.jobs.charges, 0);
+    assertEquals(t.pages.downloads, []);
+  }));
+
+photoTest('a photo share\'s limits release as a link\'s do', async () => {
+  const waiting = photoSetup();
+  waiting.jobs.limit = 'user_limit';
+  assertEquals(await waiting.run(), result({ claimed: 1, waiting: 1 }));
+  assertEquals(waiting.jobs.row(PHOTO_JOB).error_code, 'rate_limited');
+  assertEquals(waiting.pages.downloads, []);
+
+  const daily = photoSetup();
+  daily.jobs.limit = 'daily_limit';
+  assertEquals(await daily.run(), result({ claimed: 1, permanent: 1 }));
+  assertEquals([daily.jobs.row(PHOTO_JOB).error_code, daily.jobs.row(PHOTO_JOB).resets_at], ['daily_limit', '2026-10-11T00:00:00.000Z']);
+
+  const monthly = photoSetup();
+  monthly.jobs.limit = 'monthly_limit';
+  assertEquals(await monthly.run(), result({ claimed: 1, permanent: 1 }));
+  assertEquals([monthly.jobs.row(PHOTO_JOB).error_code, monthly.jobs.row(PHOTO_JOB).resets_at], ['limit_reached', '2026-11-01T00:00:00.000Z']);
+});
+
+photoTest('a failed download is transient internal, and the retry isn\'t charged again', async () => {
+  const t = photoSetup();
+  t.pages.downloadError = new Error('share-images download failed: 503');
+  assertEquals(await t.run(), result({ claimed: 1, transient: 1 }));
+  const row = t.jobs.row(PHOTO_JOB);
+  assertEquals([row.status, row.error_kind, row.error_code], ['received', 'transient', 'internal']);
+  assertEquals(t.jobs.charges, 1);
+
+  t.pages.downloadError = undefined;
+  t.jobs.now += 30_000;
+  assertEquals(await t.run(), result({ claimed: 1, extracted: 1 }));
+  assertEquals(t.jobs.charges, 1);
+});
+
+photoTest('a photo model failure is transient unavailable', async () => {
+  const t = photoSetup();
+  t.setModel(failingModel(new APICallError({ message: 'down', url: 'https://api.example', requestBodyValues: {}, statusCode: 500, isRetryable: false })));
+  assertEquals(await t.run(), result({ claimed: 1, transient: 1 }));
+  const row = t.jobs.row(PHOTO_JOB);
+  assertEquals([row.status, row.error_kind, row.error_code], ['received', 'transient', 'unavailable']);
+});
+
+Deno.test('releaseFor maps the photo failures', () => {
+  const now = Date.parse('2026-12-31T23:59:00Z');
+  assertEquals(releaseFor(new ShareImagesMissingError(), now), { kind: 'permanent', code: 'invalid_request' });
+  assertEquals(releaseFor(new ImportRecipePhotoError({ code: 'not_a_recipe' }, 'no'), now), { kind: 'permanent', code: 'not_a_recipe' });
+  assertEquals(releaseFor(new ImportRecipePhotoError({ code: 'unavailable', reason: 'ai_failed' }, 'no'), now), { kind: 'transient', code: 'unavailable' });
+});
+
+Deno.test('base64 is standard base64, also past one chunk', () => {
+  assertEquals(base64(new Uint8Array([])), '');
+  assertEquals(base64(new TextEncoder().encode('Man')), 'TWFu');
+  assertEquals(base64(new Uint8Array([0xff, 0xd8, 0xff])), '/9j/');
+  const big = new Uint8Array(0x8000 * 2 + 5).map((_, i) => i % 251);
+  const decoded = Uint8Array.from(atob(base64(big)), (c) => c.charCodeAt(0));
+  assertEquals(decoded, big);
+});
+
+Deno.test('recipePagePath is <household>/<recipe>/<uuidv5(op id:page:n)>.jpg', async () => {
+  const namespace = '6f3b2a91-4c7e-4d1a-9b8e-2a5c7d0e4f13';
+  const recipe = 'r0000000-0000-4000-8000-000000000001';
+  assertEquals(
+    await recipePagePath(PHOTO_JOB, HOUSEHOLD, recipe, 2),
+    `${HOUSEHOLD}/${recipe}/${await uuidV5(`${PHOTO_JOB}:page:2`, namespace)}.jpg`,
+  );
+  assert((await recipePagePath(PHOTO_JOB, HOUSEHOLD, recipe, 1)) !== (await recipePagePath(PHOTO_JOB, HOUSEHOLD, recipe, 2)));
 });
 
 // --- HTTP ---------------------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import {
   type JobKind,
   type Release,
   type RunResult,
+  type SharePageStorage,
   type ShareImportJob,
   type ShareImportWorkerStore,
 } from './handler.ts';
@@ -63,7 +64,9 @@ function job(fields: Partial<ShareImportJob> = {}): ShareImportJob {
     household_id: HOME,
     list_id: GROCERIES,
     add_to_list: true,
+    kind: 'link',
     url: 'https://www.example.com/garlic-pasta/',
+    images: null,
     page: null,
     extraction: PASTA,
     status: 'committing',
@@ -155,6 +158,10 @@ class FakeJobs implements ShareImportWorkerStore {
   claims: JobKind[][] = [];
   releases: Release[] = [];
   releaseError?: Error;
+  /** The status a transient release leaves (`failed` on the 8th attempt). */
+  transientStatus = 'extracted';
+  queued: string[] = [];
+  queueError?: Error;
 
   async claim(kinds: JobKind[]) {
     this.claims.push(kinds);
@@ -169,24 +176,47 @@ class FakeJobs implements ShareImportWorkerStore {
   async release(_id: string, _lease: string, release: Release) {
     if (this.releaseError) throw this.releaseError;
     this.releases.push(release);
-    return release.kind === 'permanent' ? 'failed' : 'extracted';
+    return release.kind === 'permanent' ? 'failed' : this.transientStatus;
+  }
+  async queueRecipePageDeletion(prefix: string) {
+    if (this.queueError) throw this.queueError;
+    this.queued.push(prefix);
+  }
+}
+
+/** share-images and recipe-pages in memory. */
+class FakePages implements SharePageStorage {
+  shareImages = new Map<string, Uint8Array>();
+  recipePages = new Map<string, Uint8Array>();
+  uploads: string[] = [];
+  uploadError?: Error;
+
+  async downloadShareImage(path: string) {
+    return this.shareImages.get(path) ?? null;
+  }
+  async uploadRecipePage(path: string, bytes: Uint8Array) {
+    if (this.uploadError) throw this.uploadError;
+    this.uploads.push(path);
+    this.recipePages.set(path, bytes);
   }
 }
 
 function setup(j: ShareImportJob = job()) {
   const store = new FakeCommitStore();
   const jobs = new FakeJobs();
+  const pages = new FakePages();
   jobs.pending.push(j);
   const run = () =>
     runWorker({
       store: jobs,
       commitStore: store,
+      pages,
       importDeps: () => {
         throw new Error('Not extracting');
       },
       now: () => NOW,
     });
-  return { store, jobs, run };
+  return { store, jobs, pages, run };
 }
 
 const result = (fields: Partial<RunResult>): RunResult => ({ claimed: 0, extracted: 0, committed: 0, transient: 0, waiting: 0, permanent: 0, leaseLost: 0, ...fields });
@@ -500,4 +530,166 @@ Deno.test('a release that finds the lease lost counts as lease lost', async () =
   t.store.members.clear();
   t.jobs.releaseError = new LeaseLostError();
   assertEquals(await silently(t.run), result({ claimed: 1, leaseLost: 1 }));
+});
+
+// --- Photo shares -------------------------------------------------------------------------------
+
+/** A photo share's extraction: no source URL, no photo, and here no name. */
+const PHOTO: RecipeImportResponse = { ...PASTA, name: '', sourceUrl: null, imageUrl: null };
+const PAGE_1 = `${USER}/${OP}/1.jpg`;
+const PAGE_2 = `${USER}/${OP}/2.jpg`;
+const BYTES_1 = new Uint8Array([0xff, 0xd8, 0xff, 1]);
+const BYTES_2 = new Uint8Array([0xff, 0xd8, 0xff, 2]);
+
+function photoSetup(fields: Partial<ShareImportJob> = {}) {
+  const t = setup(job({ kind: 'photo', url: null, images: [PAGE_1, PAGE_2], extraction: PHOTO, ...fields }));
+  t.pages.shareImages.set(PAGE_1, BYTES_1);
+  t.pages.shareImages.set(PAGE_2, BYTES_2);
+  return t;
+}
+
+const recipeInsert = (writes: Write[]) => writes.find((w) => w.op === 'insert' && w.table === 'recipes');
+
+Deno.test('a photo share commits a new recipe uuidv5(op id) named "Recipe", with its pages copied to recipe-pages', async () => {
+  const t = photoSetup();
+  // A recipe with a URL in the household is never reused for a photo.
+  t.store.recipes = [{ id: 'r-pasta', name: 'Garlic Pasta', householdId: HOME, sourceUrl: 'https://example.com/garlic-pasta', deletedAt: null }];
+  assertEquals(await silently(t.run), result({ claimed: 1, committed: 1 }));
+
+  const recipeId = await uuidV5(OP, NAMESPACE);
+  const pages = [
+    `${HOME}/${recipeId}/${await uuidV5(`${OP}:page:1`, NAMESPACE)}.jpg`,
+    `${HOME}/${recipeId}/${await uuidV5(`${OP}:page:2`, NAMESPACE)}.jpg`,
+  ];
+  assertEquals(t.store.commits.length, 1);
+  const { target, writes, preconditions } = t.store.commits[0];
+  assertEquals(target.recipe_id, recipeId);
+  assertEquals(target.list_id, GROCERIES);
+  assertEquals(preconditions[0], { kind: 'recipeAbsent', recipeId });
+  const insert = recipeInsert(writes)!;
+  assertEquals(insert.id, recipeId);
+  assertEquals(insert.fields.name, 'Recipe');
+  assertEquals(insert.fields.source_url, null);
+  assertEquals(insert.fields.image_url, null);
+  assertEquals(insert.fields.source_pages, pages);
+  // Each page, its own bytes, in order.
+  assertEquals(t.pages.uploads, pages);
+  assertEquals(t.pages.recipePages.get(pages[0]), BYTES_1);
+  assertEquals(t.pages.recipePages.get(pages[1]), BYTES_2);
+  assertEquals(t.jobs.queued, []);
+  assertEquals(t.jobs.releases, []);
+});
+
+Deno.test("a photo share's replan copies to the same paths again, overwriting", async () => {
+  const t = photoSetup();
+  t.store.outcomes = [new CommitConflictError('plan_conflict')];
+  assertEquals(await silently(t.run), result({ claimed: 1, committed: 1 }));
+  assertEquals(t.store.commits.length, 2);
+  const first = recipeInsert(t.store.commits[0].writes)!.fields.source_pages as string[];
+  assertEquals(recipeInsert(t.store.commits[1].writes)!.fields.source_pages, first);
+  assertEquals(t.pages.uploads, [...first, ...first]);
+  assertEquals(t.pages.recipePages.size, 2);
+});
+
+Deno.test("a photo share's pages go under the household it lands in, and a deleted recipe's id is skipped", async () => {
+  const t = photoSetup({ list_id: null });
+  t.store.defaultList = OFFICE;
+  const own = await uuidV5(OP, NAMESPACE);
+  t.store.recipes = [{ id: own, name: 'Old', householdId: HOME, sourceUrl: null, deletedAt: '2026-10-01T00:00:00Z' }];
+  assertEquals(await silently(t.run), result({ claimed: 1, committed: 1 }));
+  const recipeId = await uuidV5(`${OP}:recipe:0`, NAMESPACE);
+  assertEquals(t.store.commits[0].target.household_id, WORK);
+  assertEquals(t.store.commits[0].target.recipe_id, recipeId);
+  assertEquals(recipeInsert(t.store.commits[0].writes)!.fields.source_pages, [
+    `${WORK}/${recipeId}/${await uuidV5(`${OP}:page:1`, NAMESPACE)}.jpg`,
+    `${WORK}/${recipeId}/${await uuidV5(`${OP}:page:2`, NAMESPACE)}.jpg`,
+  ]);
+});
+
+Deno.test('a recipe-only photo share still keeps its pages', async () => {
+  const t = photoSetup({ add_to_list: false, list_id: null });
+  assertEquals(await silently(t.run), result({ claimed: 1, committed: 1 }));
+  assertEquals(t.store.commits[0].target.list_id, null);
+  assertEquals((recipeInsert(t.store.commits[0].writes)!.fields.source_pages as string[]).length, 2);
+});
+
+Deno.test('a failed copy releases the photo share as transient, committing and queueing nothing', async () => {
+  const t = photoSetup();
+  t.pages.uploadError = new Error('recipe-pages upload failed: 503');
+  assertEquals(await silently(t.run), result({ claimed: 1, transient: 1 }));
+  assertEquals(t.store.commits, []);
+  assertEquals(t.jobs.releases, [{ kind: 'transient', code: 'internal' }]);
+  assertEquals(t.jobs.queued, []);
+});
+
+Deno.test('a failed copy on the last attempt fails the share and queues its recipe-pages prefix', async () => {
+  const t = photoSetup({ attempts: 8 });
+  t.pages.uploadError = new Error('recipe-pages upload failed: 503');
+  t.jobs.transientStatus = 'failed';
+  assertEquals(await silently(t.run), result({ claimed: 1, transient: 1 }));
+  assertEquals(t.jobs.queued, [`${HOME}/${await uuidV5(OP, NAMESPACE)}/`]);
+});
+
+Deno.test("a photo share's image gone from share-images fails permanently invalid_request, queueing its prefix", async () => {
+  const t = photoSetup();
+  t.pages.shareImages.delete(PAGE_2);
+  assertEquals(await silently(t.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.store.commits, []);
+  assertEquals(t.jobs.releases, [{ kind: 'permanent', code: 'invalid_request' }]);
+  // Page 1 was copied before page 2 was found missing; the prefix covers it.
+  assertEquals(t.pages.uploads.length, 1);
+  assertEquals(t.jobs.queued, [`${HOME}/${await uuidV5(OP, NAMESPACE)}/`]);
+
+  const gone = photoSetup({ images: null });
+  assertEquals(await silently(gone.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(gone.jobs.releases, [{ kind: 'permanent', code: 'invalid_request' }]);
+  assertEquals(gone.pages.uploads, []);
+});
+
+Deno.test('a photo commit that ends permanently failed queues every prefix its pages went to', async () => {
+  const recipeId = await uuidV5(OP, NAMESPACE);
+  // Copied under Work (the share's list was gone; the default list is Work's), then the commit
+  // finds the destination changed and the replan finds the sharer gone from Home: not_a_member.
+  const t = photoSetup({ list_id: null });
+  t.store.defaultList = OFFICE;
+  t.store.outcomes = [new CommitConflictError('destination_changed')];
+  t.store.beforeCommit = () => t.store.members.delete(`${USER}:${HOME}`);
+  assertEquals(await silently(t.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.jobs.releases, [{ kind: 'permanent', code: 'not_a_member' }]);
+  assertEquals(t.jobs.queued, [`${WORK}/${recipeId}/`, `${HOME}/${recipeId}/`]);
+
+  // A sharer gone before anything was copied: the share household's prefix, for an earlier run's copies.
+  const left = photoSetup();
+  left.store.members.clear();
+  assertEquals(await silently(left.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(left.pages.uploads, []);
+  assertEquals(left.jobs.queued, [`${HOME}/${recipeId}/`]);
+});
+
+Deno.test('a photo share released but not failed, or whose lease was lost, queues nothing', async () => {
+  const conflict = photoSetup();
+  conflict.store.outcomes = Array.from({ length: MAX_REPLANS + 1 }, () => new CommitConflictError('plan_conflict'));
+  assertEquals(await silently(conflict.run), result({ claimed: 1, transient: 1 }));
+  assertEquals(conflict.jobs.queued, []);
+
+  const lost = photoSetup();
+  lost.store.outcomes = [new LeaseLostError()];
+  assertEquals(await silently(lost.run), result({ claimed: 1, leaseLost: 1 }));
+  assertEquals(lost.jobs.queued, []);
+});
+
+Deno.test('a failure to queue the pages is reported, and the share still counts as failed', async () => {
+  const t = photoSetup();
+  t.store.members.clear();
+  t.jobs.queueError = new Error('database down');
+  assertEquals(await silently(t.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.jobs.releases, [{ kind: 'permanent', code: 'not_a_member' }]);
+});
+
+Deno.test('a link share that fails permanently queues no pages', async () => {
+  const t = setup();
+  t.store.members.clear();
+  assertEquals(await silently(t.run), result({ claimed: 1, permanent: 1 }));
+  assertEquals(t.jobs.queued, []);
+  assertEquals(t.pages.uploads, []);
 });

@@ -3,7 +3,13 @@ import { assertEquals, assertRejects } from '@std/assert';
 
 import { CommitConflictError } from './commit.ts';
 import { LeaseLostError } from './handler.ts';
-import { createShareImportCommitStore, createShareImportWorkerStore, recipeUrlLookupKey } from './store.ts';
+import {
+  createSharePageStorage,
+  createShareImportCommitStore,
+  createShareImportWorkerStore,
+  isObjectMissing,
+  recipeUrlLookupKey,
+} from './store.ts';
 
 type Answer = { data: unknown; error: { code?: string; message?: string } | null };
 
@@ -138,4 +144,64 @@ Deno.test('reuseCandidates asks share_import_reuse_candidates for the URL key an
 
   const other = { code: '42501', message: 'permission denied' };
   assertEquals(await assertRejects(() => commitClient({ data: null, error: other }).store.reuseCandidates(TARGET.household_id, ID, null)), other);
+});
+
+Deno.test('queueRecipePageDeletion passes the prefix; an error is thrown as is', async () => {
+  const prefix = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d/f0000000-0000-4000-8000-000000000002/';
+  const ok = client({ data: null, error: null });
+  await ok.store.queueRecipePageDeletion(prefix);
+  assertEquals(ok.calls, [{ fn: 'queue_recipe_page_prefix_deletion', args: { p_prefix: prefix } }]);
+
+  const invalid = { code: '22023', message: 'invalid prefix' };
+  assertEquals(await assertRejects(() => client({ data: null, error: invalid }).store.queueRecipePageDeletion('x/')), invalid);
+});
+
+/** A client whose storage answers each bucket's download and upload, recording the calls. */
+function storageClient(download: { data: Blob | null; error: unknown }, upload: { error: unknown } = { error: null }) {
+  const calls: unknown[][] = [];
+  const admin = {
+    storage: {
+      from: (bucket: string) => ({
+        download: async (path: string) => {
+          calls.push(['download', bucket, path]);
+          return download;
+        },
+        upload: async (path: string, bytes: Uint8Array, options: unknown) => {
+          calls.push(['upload', bucket, path, bytes, options]);
+          return upload;
+        },
+      }),
+    },
+  } as unknown as SupabaseClient;
+  return { pages: createSharePageStorage(admin), calls };
+}
+
+Deno.test('the page storage reads share-images and writes recipe-pages with replace', async () => {
+  const bytes = new Uint8Array([0xff, 0xd8, 0xff, 7]);
+  const read = storageClient({ data: new Blob([bytes]), error: null });
+  assertEquals(await read.pages.downloadShareImage('u/op/1.jpg'), bytes);
+  assertEquals(read.calls, [['download', 'share-images', 'u/op/1.jpg']]);
+
+  await read.pages.uploadRecipePage('h/r/p.jpg', bytes);
+  assertEquals(read.calls[1], ['upload', 'recipe-pages', 'h/r/p.jpg', bytes, { contentType: 'image/jpeg', upsert: true }]);
+});
+
+Deno.test('a share image that is gone reads as null; any other storage error throws', async () => {
+  const missing = storageClient({ data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } });
+  assertEquals(await missing.pages.downloadShareImage('u/op/1.jpg'), null);
+
+  const down = storageClient({ data: null, error: { status: 503, statusCode: '503', message: 'Service Unavailable' } });
+  await assertRejects(() => down.pages.downloadShareImage('u/op/1.jpg'), Error, 'share-images download failed: Service Unavailable');
+
+  const refused = storageClient({ data: null, error: null }, { error: { message: 'mime type not supported' } });
+  await assertRejects(() => refused.pages.uploadRecipePage('h/r/p.jpg', new Uint8Array([1])), Error, 'recipe-pages upload failed: mime type not supported');
+});
+
+Deno.test('isObjectMissing: a 404 by status, statusCode or message, and nothing else', () => {
+  assertEquals(isObjectMissing({ status: 404 }), true);
+  assertEquals(isObjectMissing({ status: 400, statusCode: '404' }), true);
+  assertEquals(isObjectMissing({ message: 'Object not found' }), true);
+  assertEquals(isObjectMissing({ status: 400, statusCode: '400', message: 'Bad request' }), false);
+  assertEquals(isObjectMissing({ status: 500 }), false);
+  assertEquals(isObjectMissing(null), false);
 });

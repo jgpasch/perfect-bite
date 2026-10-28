@@ -8,7 +8,7 @@ import {
   type ShareImportCommitStore,
   type ShareImportReceipt,
 } from './commit.ts';
-import { LeaseLostError, type ShareImportJob, type ShareImportWorkerStore } from './handler.ts';
+import { LeaseLostError, type SharePageStorage, type ShareImportJob, type ShareImportWorkerStore } from './handler.ts';
 
 /** The worker's functions raise `lease_lost` (55000) under a lease that isn't the job's. */
 function leaseLost(error: { code?: string; message?: string }): boolean {
@@ -238,6 +238,44 @@ export function createShareImportWorkerStore(admin: SupabaseClient): ShareImport
       });
       check(error);
       return data as string;
+    },
+
+    async queueRecipePageDeletion(prefix) {
+      const { error } = await admin.rpc('queue_recipe_page_prefix_deletion', { p_prefix: prefix });
+      check(error);
+    },
+  };
+}
+
+export const SHARE_IMAGES_BUCKET = 'share-images';
+export const RECIPE_PAGES_BUCKET = 'recipe-pages';
+
+/** Storage's answer for an object that isn't there (404, or a 400 carrying statusCode '404'). */
+export function isObjectMissing(error: unknown): boolean {
+  const e = error as { status?: number; statusCode?: string | number; message?: string } | null;
+  if (!e) return false;
+  return e.status === 404 || String(e.statusCode) === '404' || /object not found/i.test(e.message ?? '');
+}
+
+/**
+ * SharePageStorage over the service-role client: share-images is read whole (null when the object
+ * is gone), and a recipe-pages object is uploaded with replace. Storage's copy can't replace an
+ * object across buckets, and a replan or retry writes the same path again.
+ */
+export function createSharePageStorage(admin: SupabaseClient): SharePageStorage {
+  return {
+    async downloadShareImage(path) {
+      const { data, error } = await admin.storage.from(SHARE_IMAGES_BUCKET).download(path);
+      if (error) {
+        if (isObjectMissing(error)) return null;
+        throw new Error(`share-images download failed: ${error.message}`);
+      }
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async uploadRecipePage(path, bytes) {
+      const { error } = await admin.storage.from(RECIPE_PAGES_BUCKET).upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+      if (error) throw new Error(`recipe-pages upload failed: ${error.message}`);
     },
   };
 }
