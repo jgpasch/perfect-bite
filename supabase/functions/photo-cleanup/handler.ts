@@ -1,6 +1,7 @@
-// Removing recipe photos, item photos and recipe pages nothing points at any more (spec 4.4, 4.5,
-// 4.10, 5). The database queues them, one queue per bucket (20261029120000_recipe_photo_storage.sql,
-// 20261106120000_item_photos.sql, 20261107120000_recipe_pages.sql); this removes them through the
+// Removing recipe photos, item photos, recipe pages and shared images nothing points at any more
+// (spec 4.4, 4.5, 4.10, 5). The database queues them, one queue per bucket
+// (20261029120000_recipe_photo_storage.sql, 20261106120000_item_photos.sql,
+// 20261107120000_recipe_pages.sql, 20261229100000_share_image_lifecycle.sql); this removes them through the
 // Storage API, which is the only way to delete the files, then marks the queue entries done.
 
 import { reportError } from '../_shared/sentry.ts';
@@ -23,6 +24,7 @@ export const CLEANUP_BUCKETS = [
   { bucket: 'recipe-photos', claim: 'claim_recipe_photo_deletions', complete: 'complete_recipe_photo_deletions' },
   { bucket: 'item-photos', claim: 'claim_item_photo_deletions', complete: 'complete_item_photo_deletions' },
   { bucket: 'recipe-pages', claim: 'claim_recipe_page_deletions', complete: 'complete_recipe_page_deletions' },
+  { bucket: 'share-images', claim: 'claim_share_image_deletions', complete: 'complete_share_image_deletions' },
 ] as const;
 
 /** The parts of the service-role client a sweep uses. */
@@ -75,7 +77,7 @@ export async function cleanUpPhotos(store: CleanupStore, limit = CLAIM_LIMIT): P
 }
 
 /**
- * Sweeps every bucket (recipe-photos, item-photos, recipe-pages) and adds up the counts. A failing bucket doesn't
+ * Sweeps every bucket (recipe-photos, item-photos, recipe-pages, share-images) and adds up the counts. A failing bucket doesn't
  * stop the others; the first failure is thrown once they've all run.
  */
 export async function cleanUpBuckets(stores: CleanupStore[], limit = CLAIM_LIMIT): Promise<CleanupResult> {

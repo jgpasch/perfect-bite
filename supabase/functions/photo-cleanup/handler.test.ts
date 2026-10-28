@@ -148,13 +148,14 @@ function fakeClient(queued: Record<string, { queue_id: number; name: string }[]>
 
 const page = (n: number) => `${H}/a3000000-0000-7000-8000-000000000001/e0000000-0000-7000-8000-${String(n).padStart(12, '0')}.jpg`;
 
-Deno.test('the buckets swept: recipe-photos, item-photos, then recipe-pages', () => {
+Deno.test('the buckets swept: recipe-photos, item-photos, recipe-pages, then share-images', () => {
   assertEquals(
     CLEANUP_BUCKETS.map((b) => [b.bucket, b.claim, b.complete]),
     [
       ['recipe-photos', 'claim_recipe_photo_deletions', 'complete_recipe_photo_deletions'],
       ['item-photos', 'claim_item_photo_deletions', 'complete_item_photo_deletions'],
       ['recipe-pages', 'claim_recipe_page_deletions', 'complete_recipe_page_deletions'],
+      ['share-images', 'claim_share_image_deletions', 'complete_share_image_deletions'],
     ],
   );
 });
@@ -174,7 +175,42 @@ Deno.test('removes queued recipe-pages objects from recipe-pages, then completes
     ['claim_item_photo_deletions', { p_limit: 100 }],
     ['claim_recipe_page_deletions', { p_limit: 100 }],
     ['complete_recipe_page_deletions', { p_ids: [3, 4] }],
+    ['claim_share_image_deletions', { p_limit: 100 }],
   ]);
+});
+
+const shared = (n: number) => `${H}/f0000000-0000-4000-8000-000000000001/${n}.jpg`;
+
+Deno.test('removes queued share images from share-images, then completes their entries', async () => {
+  const { client, calls } = fakeClient({
+    claim_share_image_deletions: [
+      { queue_id: 7, name: shared(0) },
+      { queue_id: 7, name: shared(1) },
+      { queue_id: 8, name: shared(2) },
+    ],
+  });
+  assertEquals(await cleanUpBuckets(bucketStores(client)), { removed: 3, completed: 2 });
+  assertEquals(calls.remove, [['share-images', [shared(0), shared(1), shared(2)]]]);
+  assertEquals(calls.rpc, [
+    ['claim_recipe_photo_deletions', { p_limit: 100 }],
+    ['claim_item_photo_deletions', { p_limit: 100 }],
+    ['claim_recipe_page_deletions', { p_limit: 100 }],
+    ['claim_share_image_deletions', { p_limit: 100 }],
+    ['complete_share_image_deletions', { p_ids: [7, 8] }],
+  ]);
+});
+
+Deno.test('a failed share-images claim throws, but the other buckets are still swept', async () => {
+  const { client, calls } = fakeClient(
+    { claim_recipe_page_deletions: [{ queue_id: 1, name: page(1) }] },
+    'claim_share_image_deletions',
+  );
+  await assertRejects(() => cleanUpBuckets(bucketStores(client)), Error, 'db down');
+  assertEquals(calls.remove, [['recipe-pages', [page(1)]]]);
+  assertEquals(
+    calls.rpc.filter(([fn]) => fn.startsWith('complete_')).map(([fn]) => fn),
+    ['complete_recipe_page_deletions'],
+  );
 });
 
 Deno.test("each bucket removes only its own queue's objects", async () => {
