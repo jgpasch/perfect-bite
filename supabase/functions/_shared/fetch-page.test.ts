@@ -337,6 +337,24 @@ Deno.test('fetchPage refuses an error status', async () => {
   }
 });
 
+Deno.test('fetchPage reports a connection that fails, before or during the body, as network', async () => {
+  const refused = fakeFetch({ 'https://kitchen.example/': () => Promise.reject(new Deno.errors.ConnectionRefused('refused')) });
+  await assertFails(fetchPage('https://kitchen.example/', { fetch: refused.fn, resolve: fakeResolve().fn }), 'network');
+
+  const reset = fakeFetch({
+    'https://kitchen.example/': () =>
+      html(
+        new ReadableStream({
+          start: (c) => {
+            c.enqueue(new TextEncoder().encode('<p>partial'));
+            c.error(new Deno.errors.ConnectionReset('reset'));
+          },
+        }),
+      ),
+  });
+  await assertFails(fetchPage('https://kitchen.example/', { fetch: reset.fn, resolve: fakeResolve().fn }), 'network');
+});
+
 /**
  * A body streamed in `chunkSize` pieces, pulled only on demand (highWaterMark 0), recording how many
  * bytes were pulled and whether the reader cancelled.

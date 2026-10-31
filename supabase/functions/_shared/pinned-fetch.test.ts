@@ -8,15 +8,16 @@ const encoder = new TextEncoder();
 
 type Dial = { address: string; port: number; tlsHostname: string | null };
 
-/** A connection answering with `chunks`, recording what was written and whether it closed. */
-function fakeConn(chunks: (string | Uint8Array)[]) {
+/** A connection answering with `chunks` (an Error fails the read), recording what was written and whether it closed. */
+function fakeConn(chunks: (string | Uint8Array | Error)[]) {
   const state = { written: '', closed: false };
   const queue = chunks.map((chunk) => (typeof chunk === 'string' ? encoder.encode(chunk) : chunk));
   const conn: PinnedConn = {
     readable: new ReadableStream<Uint8Array>({
       pull(controller) {
         const next = queue.shift();
-        if (next) controller.enqueue(next);
+        if (next instanceof Error) controller.error(next);
+        else if (next) controller.enqueue(next);
         else controller.close();
       },
     }, { highWaterMark: 0 }),
@@ -103,6 +104,22 @@ Deno.test('pinned fetch reads a body without length to the end of the connection
   const { conn } = fakeConn(['HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<p>a', 'b</p>']);
   const response = await createPinnedFetch(fakeConnect(() => conn).fn)('http://kitchen.example/', init(['1.1.1.1']));
   assertEquals(await response.text(), '<p>ab</p>');
+});
+
+Deno.test('pinned fetch takes a TLS close without close_notify as the end of the connection', async () => {
+  const eof = () => new Deno.errors.UnexpectedEof('peer closed connection without sending TLS close_notify');
+  const toClose = fakeConn(['HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>a', 'b</p>', eof()]);
+  const response = await createPinnedFetch(fakeConnect(() => toClose.conn).fn)('https://kitchen.example/', init(['1.1.1.1']));
+  assertEquals(await response.text(), '<p>ab</p>');
+  assert(toClose.state.closed);
+
+  const short = fakeConn(['HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc', eof()]);
+  const cut = await createPinnedFetch(fakeConnect(() => short.conn).fn)('https://k.example/', init(['1.1.1.1']));
+  await assertRejects(() => cut.text(), TypeError, 'before Content-Length');
+
+  const reset = fakeConn(['HTTP/1.1 200 OK\r\n\r\nab', new Deno.errors.ConnectionReset('reset')]);
+  const failed = await createPinnedFetch(fakeConnect(() => reset.conn).fn)('https://k.example/', init(['1.1.1.1']));
+  await assertRejects(() => failed.text(), Deno.errors.ConnectionReset);
 });
 
 Deno.test('pinned fetch stops at Content-Length and fails when the connection ends short', async () => {

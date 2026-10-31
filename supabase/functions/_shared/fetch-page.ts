@@ -23,7 +23,8 @@ export type FetchPageFailure =
   | 'too_many_redirects'
   | 'http_status'
   | 'not_html'
-  | 'timeout';
+  | 'timeout'
+  | 'network';
 
 /** Every way a fetch can fail. import-recipe maps them all to `fetch_failed`. */
 export class FetchPageError extends Error {
@@ -249,16 +250,28 @@ function decodeBody({ bytes, truncated }: Body, contentType: string): string {
   return decoder.decode(bytes, { stream: true }).replace(/<[^>]*$/, '');
 }
 
+/** A failure of the connection itself (refused, reset, a TLS error, a malformed response) as `network`. */
+async function overNetwork<T>(step: Promise<T>): Promise<T> {
+  try {
+    return await step;
+  } catch (err) {
+    if (err instanceof FetchPageError) throw err;
+    throw new FetchPageError('network', `The page could not be loaded: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function load(url: string, resolve: ResolveHost, fetchFn: PinnedFetch, signal: AbortSignal) {
   let current = parseHttpUrl(url);
   for (let redirects = 0; ; redirects++) {
     const addresses = await assertPublicHost(current.hostname, resolve);
-    const response = await fetchFn(current.href, {
-      addresses,
-      redirect: 'manual',
-      signal,
-      headers: { accept: 'text/html', 'user-agent': USER_AGENT },
-    });
+    const response = await overNetwork(
+      fetchFn(current.href, {
+        addresses,
+        redirect: 'manual',
+        signal,
+        headers: { accept: 'text/html', 'user-agent': USER_AGENT },
+      }),
+    );
     if (REDIRECT_STATUSES.has(response.status)) {
       await response.body?.cancel().catch(() => {});
       const location = response.headers.get('location');
@@ -278,7 +291,7 @@ async function load(url: string, resolve: ResolveHost, fetchFn: PinnedFetch, sig
       await response.body?.cancel().catch(() => {});
       throw new FetchPageError('not_html', `Not an HTML page (${contentType || 'no content type'})`);
     }
-    const html = decodeBody(await readBody(response, signal), contentType);
+    const html = decodeBody(await overNetwork(readBody(response, signal)), contentType);
     return { finalUrl: current.href, ...readPage(html, current.href) };
   }
 }

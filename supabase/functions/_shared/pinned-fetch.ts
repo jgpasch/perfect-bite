@@ -52,7 +52,17 @@ class ConnReader {
   constructor(private readonly reader: ReadableStreamDefaultReader<Uint8Array>) {}
 
   private async fill(): Promise<boolean> {
-    const { done, value } = await this.reader.read();
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      result = await this.reader.read();
+    } catch (error) {
+      // Many servers close after the response without a TLS close_notify. Browsers take that as
+      // the end of the connection, and so does this: Content-Length and chunked bodies still fail
+      // when it comes early.
+      if (error instanceof Deno.errors.UnexpectedEof) return false;
+      throw error;
+    }
+    const { done, value } = result;
     if (done) return false;
     const next = new Uint8Array(this.buffer.byteLength + value.byteLength);
     next.set(this.buffer);
